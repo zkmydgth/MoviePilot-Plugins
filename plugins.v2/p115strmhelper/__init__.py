@@ -19,6 +19,7 @@ from .api import Api
 from .service import servicer
 from .core.cache import pantransfercacher, lifeeventcacher
 from .core.config import configer
+from .helper.offline import OfflineDownloadHelper
 from .db_manager import ct_db_manager
 from .db_manager.init import init_db, update_db
 from .db_manager.oper import FileDbHelper
@@ -186,6 +187,13 @@ class P115StrmHelper(_PluginBase):
                 "desc": "转存分享到待整理目录",
                 "category": "",
                 "data": {"action": "p115_add_share"},
+            },
+            {
+                "cmd": "/ol",
+                "event": EventType.PluginAction,
+                "desc": "添加离线下载任务",
+                "category": "",
+                "data": {"action": "p115_add_offline"},
             },
             {
                 "cmd": "/p115_strm",
@@ -758,6 +766,30 @@ class P115StrmHelper(_PluginBase):
             channel=event.event_data.get("channel"),
             userid=event.event_data.get("user"),
         )
+        return
+
+    @eventmanager.register(EventType.PluginAction)
+    def p115_add_offline(self, event: Event):
+        """
+        远程分享转存
+        """
+        if event:
+            event_data = event.event_data
+            if not event_data or event_data.get("action") != "p115_add_offline":
+                return
+            args = event_data.get("arg_str")
+            if not args:
+                logger.error(f"【分享转存】缺少参数：{event_data}")
+                self.post_message(
+                    channel=event.event_data.get("channel"),
+                    title="参数错误！ /p115_add_offline 链接",
+                    userid=event.event_data.get("user"),
+                )
+                return
+        client = OfflineDownloadHelper(
+            client=servicer.client, monitorlife=servicer.monitorlife
+        )
+        client.add_urls_to_transfer([str(args)])
         return
 
     @eventmanager.register(EventType.TransferComplete)
