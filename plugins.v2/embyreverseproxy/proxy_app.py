@@ -1,10 +1,11 @@
 from asyncio import gather
+from contextlib import asynccontextmanager
 from urllib.parse import urlparse
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
-from httpx import AsyncClient
+from httpx import AsyncClient, Limits
 from websockets import connect
 
 from app.log import logger
@@ -45,7 +46,19 @@ def create_app(emby_host: str) -> FastAPI:
     :return: 配置好的 FastAPI 应用实例。
     """
     emby_host = emby_host.rstrip("/")
-    app = FastAPI()
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        limits = Limits(max_keepalive_connections=20, keepalive_expiry=30.0)
+        app.state.http_client_follow = AsyncClient(follow_redirects=True, limits=limits)
+        app.state.http_client_no_follow = AsyncClient(
+            follow_redirects=False, limits=limits
+        )
+        yield
+        await app.state.http_client_follow.aclose()
+        await app.state.http_client_no_follow.aclose()
+
+    app = FastAPI(lifespan=lifespan)
 
     app.add_middleware(
         CORSMiddleware,
@@ -117,18 +130,20 @@ def create_app(emby_host: str) -> FastAPI:
         ua = (request.headers.get("user-agent") or "").lower()
         return any(k in ua for k in ("mozilla", "chrome", "safari"))
 
-    async def _resolve_redirect(url: str, headers: dict[str, str]) -> str:
+    async def _resolve_redirect(
+        client: AsyncClient, url: str, headers: dict[str, str]
+    ) -> str:
         """
         跟随重定向链，返回最终 URL。
 
+        :param client: 共享的 httpx 客户端（follow_redirects=True）。
         :param url: 起始 URL。
         :param headers: 请求头。
         :return: 最终 URL；失败时返回原始 url。
         """
         try:
-            async with AsyncClient(follow_redirects=True) as client:
-                resp = await client.head(url, headers=headers, timeout=10)
-                return str(resp.url)
+            resp = await client.head(url, headers=headers, timeout=10)
+            return str(resp.url)
         except Exception:
             logger.warning("解析重定向失败，使用原始 URL: %s", url, exc_info=True)
             return url
@@ -144,12 +159,11 @@ def create_app(emby_host: str) -> FastAPI:
         :return: 流式响应或 502 JSON 错误。
         """
         headers = _build_forward_headers(request)
-        client = AsyncClient(follow_redirects=True)
+        client = request.app.state.http_client_follow
         try:
             req = client.build_request(method=request.method, url=url, headers=headers)
             resp = await client.send(req, stream=True)
         except Exception:
-            await client.aclose()
             logger.warning("流式代理远程 URL 失败: %s", url, exc_info=True)
             return JSONResponse(
                 status_code=502,
@@ -167,7 +181,6 @@ def create_app(emby_host: str) -> FastAPI:
                     yield chunk
             finally:
                 await resp.aclose()
-                await client.aclose()
 
         return StreamingResponse(
             stream(), status_code=resp.status_code, headers=resp_headers
@@ -186,11 +199,11 @@ def create_app(emby_host: str) -> FastAPI:
         """
         url = f"{emby_host}/Items/{item_id}/PlaybackInfo?X-Emby-Token={api_key}"
         media_source_id = request.query_params.get("MediaSourceId")
+        client_follow = request.app.state.http_client_follow
         try:
-            async with AsyncClient() as client:
-                resp = await client.post(url, timeout=10)
-                resp.raise_for_status()
-                data = resp.json()
+            resp = await client_follow.post(url, timeout=10)
+            resp.raise_for_status()
+            data = resp.json()
         except Exception:
             logger.warning("PlaybackInfo 请求失败: item_id=%s", item_id, exc_info=True)
             return None
@@ -202,7 +215,7 @@ def create_app(emby_host: str) -> FastAPI:
             path = source.get("Path", "")
             if path.startswith(("http://", "https://")):
                 fwd_headers = _build_forward_headers(request)
-                final_url = await _resolve_redirect(path, fwd_headers)
+                final_url = await _resolve_redirect(client_follow, path, fwd_headers)
                 if _is_browser(request):
                     logger.info("流式代理: item_id=%s -> %s", item_id, final_url)
                     return await _stream_remote(final_url, request)
@@ -279,7 +292,7 @@ def create_app(emby_host: str) -> FastAPI:
         headers = _build_forward_headers(request)
         body = await request.body()
 
-        client = AsyncClient(follow_redirects=False)
+        client = request.app.state.http_client_no_follow
         try:
             req = client.build_request(
                 method=request.method,
@@ -289,7 +302,6 @@ def create_app(emby_host: str) -> FastAPI:
             )
             resp = await client.send(req, stream=True)
         except Exception:
-            await client.aclose()
             logger.warning("无法连接到 Emby: %s", target_url, exc_info=True)
             return JSONResponse(
                 status_code=502,
@@ -310,7 +322,6 @@ def create_app(emby_host: str) -> FastAPI:
                     yield chunk
             finally:
                 await resp.aclose()
-                await client.aclose()
 
         return StreamingResponse(
             stream(),
