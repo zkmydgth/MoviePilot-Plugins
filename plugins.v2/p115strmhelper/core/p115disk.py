@@ -203,6 +203,7 @@ class P115DiskCore:
             while True:
                 start_time = perf_counter()
                 # Step 1: 初始化上传
+                self._p115_api.init_upload_key()
                 init_resp = None
                 init_max_retries = 3
                 init_retry_delay = 2

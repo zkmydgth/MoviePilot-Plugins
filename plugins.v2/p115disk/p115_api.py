@@ -5,11 +5,13 @@ from datetime import datetime, timezone
 
 from cryptography.hazmat.primitives import hashes
 from httpx import stream, RequestError
+from orjson import loads, dumps
 from oss2 import SizedFileAdapter, determine_part_size, StsAuth, Bucket
 from oss2.models import PartInfo
 from oss2.utils import b64encode_as_string
 from oss2.exceptions import ServerError
 from p115client import P115Client, check_response
+from p115client.const import _CACHE_DIR
 from p115client.tool.attr import normalize_attr, get_id_to_path, get_attr
 from p115client.tool.fs_files import iter_fs_files
 from p115client.tool.iterdir import iter_files_with_path_skim
@@ -732,6 +734,30 @@ class P115Api:
         remaining = (expiration_time - now).total_seconds()
         return remaining < threshold_minutes * 60
 
+    def init_upload_key(self):
+        """
+        初始化 upload key
+        """
+        user_id = str(self.client.user_id)
+        userkey_points_json = _CACHE_DIR / "userkey_stable_points.json"
+        try:
+            loads(userkey_points_json.open("rb").read())
+            return
+        except OSError:
+            pass
+        cache = {}
+        try:
+            resp = self.client.upload_key(**get_ios_ua_app())
+            check_response(resp)
+            cache[user_id] = resp["data"]["userkey"]
+        except Exception:
+            return
+        try:
+            userkey_points_json.open("wb").write(dumps(cache))
+        except Exception:
+            pass
+        return
+
     def upload(
         self,
         target_dir: FileItem,
@@ -781,6 +807,8 @@ class P115Api:
                     sha1 = hashes.Hash(hashes.SHA1())
                     sha1.update(chunk)
                     return sha1.finalize().hex().upper()
+
+            self.init_upload_key()
 
             init_resp = None
             init_max_retries = 3
