@@ -76,12 +76,11 @@ class CronUtils:
         if "-" in field:
             start, end = field.split("-", 1)
             try:
-                start_val = int(start)
-                end_val = int(end)
-                if end_val > max_val:
-                    end_val = max_val
-                if start_val < min_val:
-                    start_val = min_val
+                start_val, end_val = int(start), int(end)
+                start_val = max(min_val, min(start_val, max_val))
+                end_val = max(min_val, min(end_val, max_val))
+                if start_val > end_val:
+                    start_val, end_val = end_val, start_val
                 return f"{start_val}-{end_val}"
             except ValueError:
                 return field

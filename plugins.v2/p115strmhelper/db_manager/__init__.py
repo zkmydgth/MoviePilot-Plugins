@@ -1,6 +1,7 @@
 from pathlib import Path
 from time import sleep
 from typing import Any, Generator, List, Optional, Self, Tuple
+from sqlite3 import OperationalError as SqlOperationalError, SQLITE_BUSY
 
 from sqlalchemy import (
     create_engine,
@@ -288,8 +289,8 @@ def db_update(func):
                 db.rollback()
 
                 if (
-                    "database is locked" in str(err).lower()
-                    and attempt < max_retries - 1
+                    isinstance(err.orig, SqlOperationalError)
+                    and err.orig.sqlite_errorcode == SQLITE_BUSY
                 ):
                     logger.warning(
                         f"数据库锁定，第 {attempt + 1} 次重试，等待 {retry_delay}s..."
