@@ -12,7 +12,7 @@ from fastapi import Request
 from fastapi.responses import JSONResponse, RedirectResponse
 import requests
 from cachetools import cached, TTLCache
-from p123 import check_response
+from p123client import check_response
 
 from app.chain.storage import StorageChain
 from app.core.config import settings
@@ -427,7 +427,7 @@ class P123StrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/DDS-Derek/MoviePilot-Plugins/main/icons/P123Disk.png"
     # 插件版本
-    plugin_version = "1.0.6"
+    plugin_version = "1.0.7"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页

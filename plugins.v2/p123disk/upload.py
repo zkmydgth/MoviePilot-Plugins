@@ -25,7 +25,7 @@ from filewrap import (
 from http_request import SupportsGeturl
 from yarl import URL
 
-from p123 import check_response, buffer_length
+from p123client import check_response, buffer_length
 
 
 # 当前的系统平台

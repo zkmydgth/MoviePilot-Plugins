@@ -6,7 +6,7 @@ from datetime import datetime
 
 import pytz
 import requests
-from p123 import P123Client, check_response
+from p123client import P123Client, check_response
 
 import schemas
 from app.core.config import settings

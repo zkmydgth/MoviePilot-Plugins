@@ -3,7 +3,7 @@ from urllib.parse import quote
 from collections import deque
 from datetime import datetime
 
-from p123 import P123Client, check_response
+from p123client import P123Client, check_response
 
 
 class P123AutoClient:
