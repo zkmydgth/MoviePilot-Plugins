@@ -14,10 +14,12 @@ def find_subdirectory_by_name(
     """
     在已定位的父目录下列举子项，按名称匹配第一个目录类型项
 
-    :param chain: 储存链实例
-    :param parent: 父目录 FileItem
-    :param name: 子目录名称（与 FileItem.name 一致比较）
-    :return: 匹配的目录 FileItem；无匹配或列举结果为空时返回 None
+    :param chain (StorageChain): 储存链实例
+    :param parent (FileItem): 父目录 FileItem
+    :param name (str): 子目录名称（与 FileItem.name 一致比较）
+
+    :return FileItem: 匹配的目录 FileItem；无匹配或列举结果为空时返回 None
+
     :raises Exception: 透传 ``list_files`` 的异常，由调用方记录日志
     """
     entries = chain.list_files(parent) or []
@@ -35,10 +37,12 @@ def find_file_by_name(
     """
     在已定位的父目录下列举子项，按名称匹配第一个文件类型项
 
-    :param chain: 储存链实例
-    :param parent: 父目录 FileItem
-    :param name: 文件名（与 FileItem.name 一致比较）
-    :return: 匹配的文件 FileItem；无匹配或列举结果为空时返回 None
+    :param chain (StorageChain): 储存链实例
+    :param parent (FileItem): 父目录 FileItem
+    :param name (str): 文件名（与 FileItem.name 一致比较）
+
+    :return FileItem: 匹配的文件 FileItem；无匹配或列举结果为空时返回 None
+
     :raises Exception: 透传 ``list_files`` 的异常，由调用方记录日志
     """
     entries = chain.list_files(parent) or []
@@ -58,11 +62,12 @@ def resolve_directory_via_parent_list(
     """
     不经目标路径全量 ``get_file_item``，仅解析其父目录后在子项中按名匹配目标文件夹
 
-    :param chain: 储存链实例
-    :param storage: 储存名称（如 CloudDrive 储存名）
-    :param target_dir: 目标目录路径（会先规范为目录 posix）
-    :param log_label: 日志前缀
-    :return: 目标目录 FileItem；无法解析或目标为储存根 ``/`` 时返回 None
+    :param chain (StorageChain): 储存链实例
+    :param storage (str): 储存名称（如 CloudDrive 储存名）
+    :param target_dir (Path): 目标目录路径（会先规范为目录 posix）
+    :param log_label (str): 日志前缀
+
+    :return FileItem: 目标目录 FileItem；无法解析或目标为储存根 ``/`` 时返回 None
     """
     posix = target_dir.as_posix().rstrip("/") or "/"
     if posix == "/":
@@ -148,11 +153,12 @@ def resolve_file_via_parent_list(
     """
     不经目标文件全量 ``get_file_item``，仅解析其父目录后在子项中按名匹配目标文件
 
-    :param chain: 储存链实例
-    :param storage: 储存名称（如 CloudDrive 储存名）
-    :param target_file: 目标文件路径（会先规范 posix，去掉末尾 ``/``）
-    :param log_label: 日志前缀
-    :return: 目标文件 FileItem；无法解析时返回 None
+    :param chain (StorageChain): 储存链实例
+    :param storage (str): 储存名称（如 CloudDrive 储存名）
+    :param target_file (Path): 目标文件路径（会先规范 posix，去掉末尾 ``/``）
+    :param log_label (str): 日志前缀
+
+    :return FileItem: 目标文件 FileItem；无法解析时返回 None
     """
     posix = target_file.as_posix().rstrip("/")
     child_name = Path(posix).name

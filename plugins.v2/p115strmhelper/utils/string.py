@@ -15,6 +15,11 @@ class StringUtils:
     def format_size(size: float, precision: int = 2) -> str:
         """
         字节数转换
+
+        :param size (float): 字节数
+        :param precision (int): 小数精度
+
+        :return str: 格式化后的大小字符串
         """
         if not isinstance(size, (int, float)) or size < 0:
             return "N/A"
@@ -29,6 +34,10 @@ class StringUtils:
     def to_emoji_number(n: int) -> str:
         """
         将一个整数转换为对应的带圈数字 Emoji 字符串 (例如 ①, ②, ⑩)
+
+        :param n (int): 待转换的整数
+
+        :return str: 带圈数字 Emoji 字符串
         """
         if not isinstance(n, int):
             return "❓"
@@ -53,7 +62,9 @@ class StringUtils:
         """
         将字符串中所有常见的 Markdown 特殊字符替换为空格
 
-        :param text: 需要处理的带md特殊字符的文案
+        :param text (str): 需要处理的带md特殊字符的文案
+
+        :return str: 处理后的字符串
         """
         if not isinstance(text, str):
             return ""
@@ -76,7 +87,11 @@ class StringUtils:
     @staticmethod
     def media_type_i18n(media_type: str | None) -> str:
         """
-        媒体类型
+        媒体类型国际化
+
+        :param media_type (str): 媒体类型标识
+
+        :return str: 翻译后的媒体类型名称
         """
         if media_type is None:
             return "未知类型"
@@ -118,7 +133,10 @@ class StringUtils:
         """
         媒体列表单行：带圈序号、类型、【】、标题、年份与评分
 
-        类型文案与原先列表一致，走 ``media_type_*`` 的 i18n（如猫娘语言包）
+        :param index (int): 序号
+        :param item (dict): 媒体信息字典
+
+        :return str: 格式化后的单行字符串
         """
         emoji = StringUtils.to_emoji_number(index)
         raw_type = item.get("type") if isinstance(item, dict) else None

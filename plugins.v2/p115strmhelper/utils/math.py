@@ -18,9 +18,8 @@ class MathUtils:
         """
         使用变异系数 (CV) 判断一组三个数字是否稳定
 
-        :param data_points: 一个包含三个数字的列表或元组
-        :param threshold: 稳定性的阈值。默认值为 0.05，代表波动不超过 5%
-                          例如，0.01 表示 1%，0.02 表示 2%
+        :param data_points (List): 一个包含三个数字的列表或元组
+        :param threshold (float): 稳定性的阈值。默认值为 0.05，代表波动不超过 5%
 
         :return bool: 如果数据的变异系数小于或等于阈值，则返回 True (稳定)，否则返回 False (不稳定)
         """

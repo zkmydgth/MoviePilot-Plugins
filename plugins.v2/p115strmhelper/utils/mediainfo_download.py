@@ -17,6 +17,12 @@ class MediainfoDownloadMiddleware:
     ) -> tuple[str, bool]:
         """
         判断文件是否能下载总规则
+
+        :param filename (str): 文件名
+        :param blacklist_automaton (Automaton): 黑名单自动机
+        :param whitelist_automaton (Automaton): 白名单自动机
+
+        :return Tuple: (拒绝原因, 是否允许), 允许时第一项为空字符串
         """
         # 1. 判断是否在白名单
         whitelist_msg, whitelist_status = MediainfoDownloadMiddleware.not_whitelist_key(
@@ -38,6 +44,11 @@ class MediainfoDownloadMiddleware:
     def not_blacklist_key(filename, blacklist_automaton: Automaton) -> tuple[str, bool]:
         """
         使用 Aho-Corasick 自动机判断文件名是否包含黑名单中的任何关键词
+
+        :param filename (str): 文件名
+        :param blacklist_automaton (Automaton): 黑名单自动机
+
+        :return Tuple: (匹配到的关键词, 是否通过)
         """
         if not blacklist_automaton:
             return "", True
@@ -52,6 +63,11 @@ class MediainfoDownloadMiddleware:
     def not_whitelist_key(filename, whitelist_automaton: Automaton) -> tuple[str, bool]:
         """
         使用 Aho-Corasick 自动机判断文件名是否包含白名单中的任何关键词
+
+        :param filename (str): 文件名
+        :param whitelist_automaton (Automaton): 白名单自动机
+
+        :return Tuple: (匹配到的关键词或不在白名单的提示, 是否通过)
         """
         if not whitelist_automaton:
             return "", True

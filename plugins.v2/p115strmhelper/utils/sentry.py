@@ -31,7 +31,7 @@ from ..utils.exception import (
 
 class CustomHttpTransport(HttpTransport):
     """
-    Sentry Transport
+    Sentry 自定义 HTTP 传输层，在 User-Agent 中追加插件版本信息
     """
 
     def __init__(self, options):
@@ -72,9 +72,10 @@ class NoopSentryHub(Hub):
         """
         空实现：配置 Sentry 作用域并返回一个 NoopScope
 
-        :param callback: 可选的作用域配置回调
-        :param continue_trace: 是否继续追踪（忽略）
-        :return: NoopScope 实例
+        :param callback (callable): 可选的作用域配置回调
+        :param continue_trace (bool): 是否继续追踪（忽略）
+
+        :return NoopScope: 空实现的作用域上下文管理器
         """
 
         class NoopScope:
@@ -105,9 +106,10 @@ class NoopSentryHub(Hub):
         """
         空实现：推送作用域并返回 NoopContextManager
 
-        :param callback: 可选的回调
-        :param continue_trace: 是否继续追踪（忽略）
-        :return: NoopContextManager 实例
+        :param callback (callable): 可选的回调
+        :param continue_trace (bool): 是否继续追踪（忽略）
+
+        :return NoopContextManager: 空实现的上下文管理器
         """
 
         class NoopContextManager:
@@ -133,8 +135,8 @@ class NoopSentryHub(Hub):
         """
         空实现：刷新缓冲区
 
-        :param timeout: 超时时间（忽略）
-        :param callback: 完成回调（忽略）
+        :param timeout (float): 超时时间（忽略）
+        :param callback (callable): 完成回调（忽略）
         """
         pass
 
@@ -271,8 +273,8 @@ class SentryManager:
 
         支持同步和异步函数，被装饰的函数名和来源会被标记到 Sentry 事件中
 
-        :param func: 要包装的函数
-        :return: 包装后的函数
+        :param func (Callable): 要包装的函数
+        :return Callable: 包装后的函数
         """
         if getattr(func, "_sentry_captured", False):
             return func
@@ -284,10 +286,10 @@ class SentryManager:
                 """
                 包装异步函数，自动捕获并上报异常
 
-                :param args: 传递给被装饰函数的位置参数
-                :param kwargs: 传递给被装饰函数的关键字参数
-                :return: 被装饰函数的返回值
-                :raises: 捕获异常后重新抛出
+                :param args (Tuple): 传递给被装饰函数的位置参数
+                :param kwargs (Dict): 传递给被装饰函数的关键字参数
+                :return Any: 被装饰函数的返回值
+                :raises Exception: 捕获异常后重新抛出
                 """
                 with self.sentry_hub:
                     try:
@@ -308,10 +310,10 @@ class SentryManager:
                 """
                 包装同步函数，自动捕获并上报异常
 
-                :param args: 传递给被装饰函数的位置参数
-                :param kwargs: 传递给被装饰函数的关键字参数
-                :return: 被装饰函数的返回值
-                :raises: 捕获异常后重新抛出
+                :param args (Tuple): 传递给被装饰函数的位置参数
+                :param kwargs (Dict): 传递给被装饰函数的关键字参数
+                :return Any: 被装饰函数的返回值
+                :raises Exception: 捕获异常后重新抛出
                 """
                 with self.sentry_hub:
                     try:
@@ -333,8 +335,8 @@ class SentryManager:
         遍历类的公开方法（非下划线开头），为每个方法应用 capture_plugin_exceptions 装饰器，
         同时保留 staticmethod 和 classmethod 的类型
 
-        :param cls: 要包装的类
-        :return: 包装后的类
+        :param cls (Type): 要包装的类
+        :return Type: 包装后的类
         """
         for name, attr in cls.__dict__.items():
             if name.startswith("_"):

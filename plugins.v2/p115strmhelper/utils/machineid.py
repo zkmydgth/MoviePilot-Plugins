@@ -22,8 +22,9 @@ class MachineID:
         """
         检查是否已经生成过 machine id
 
-        :param config_path: 存储 machine id 的文件路径
-        :return: 如果存在返回 True，否则 False
+        :param config_path (Path): 存储 machine id 的文件路径
+
+        :return bool: 如果存在返回 True，否则 False
         """
         path = config_path
         return path.exists()
@@ -33,8 +34,10 @@ class MachineID:
         """
         生成一个新的 64 字符 machine id 并保存到文件
 
-        :param config_path: 存储 machine id 的文件路径。如果为 None，则使用默认路径
-        :return: 生成的 machine id (64 字符十六进制字符串)
+        :param config_path (Path): 存储 machine id 的文件路径。如果为 None，则使用默认路径
+
+        :return str: 生成的 machine id (64 字符十六进制字符串)
+
         :raises FileExistsError: 如果 machine id 文件已存在
         :raises RuntimeError: 如果无法写入文件或创建目录
         """
@@ -75,8 +78,10 @@ class MachineID:
         """
         从文件中读取 machine id
 
-        :param config_path: 存储 machine id 的文件路径。如果为 None，则使用默认路径
-        :return: 读取到的 machine id (64 字符十六进制字符串)
+        :param config_path (Path): 存储 machine id 的文件路径。如果为 None，则使用默认路径
+
+        :return str: 读取到的 machine id (64 字符十六进制字符串)
+
         :raises FileNotFoundError: 如果文件不存在
         :raises ValueError: 如果文件内容无效或格式不正确
         """
@@ -107,8 +112,9 @@ class MachineID:
         """
         获取现有的 machine id，如果不存在则生成一个新的
 
-        :param config_path: 存储 machine id 的文件路径
-        :return: machine id
+        :param config_path (Path): 存储 machine id 的文件路径
+
+        :return str: machine id
         """
         path = config_path
         if MachineID.has_machine_id(path):

@@ -35,9 +35,9 @@ class StrmUrlTemplateResolver:
         """
         初始化模板解析器
 
-        :param base_template: 基础 Jinja2 模板字符串
-        :param custom_rules: 扩展名特定模板规则，格式：ext1,ext2 => template
-        :param auto_escape: 是否自动转义
+        :param base_template (str): 基础 Jinja2 模板字符串
+        :param custom_rules (str): 扩展名特定模板规则，格式：ext1,ext2 => template
+        :param auto_escape (bool): 是否自动转义
         """
         self.env = Environment(
             autoescape=select_autoescape(["html", "xml"]) if auto_escape else False,
@@ -101,7 +101,7 @@ class StrmUrlTemplateResolver:
         """
         解析扩展名特定模板规则
 
-        :param config_str: 规则字符串，格式：ext1,ext2 => template（每行一个）
+        :param config_str (str): 规则字符串，格式：ext1,ext2 => template（每行一个）
         """
         for rule in config_str.strip().split("\n"):
             rule = rule.strip()
@@ -145,9 +145,9 @@ class StrmUrlTemplateResolver:
         """
         根据文件名获取对应的模板
 
-        :param file_name: 文件名
+        :param file_name (str): 文件名
 
-        :return: 匹配的模板，如果没有匹配则返回基础模板，如果都没有则返回 None
+        :return Template: 匹配的模板，如果没有匹配则返回基础模板，如果都没有则返回 None
         """
         extension = Path(file_name).suffix.lower()
 
@@ -170,15 +170,15 @@ class StrmUrlTemplateResolver:
         """
         渲染 URL 模板
 
-        :param file_name: 文件名
-        :param base_url: 基础 URL
-        :param pickcode: 文件 pickcode
-        :param share_code: 分享码
-        :param receive_code: 提取码
-        :param file_id: 文件 ID
-        :param file_path: 文件网盘路径
+        :param file_name (str): 文件名
+        :param base_url (str): 基础 URL
+        :param pickcode (str): 文件 pickcode
+        :param share_code (str): 分享码
+        :param receive_code (str): 提取码
+        :param file_id (str): 文件 ID
+        :param file_path (str): 文件网盘路径
 
-        :return: 渲染后的 URL 字符串，如果没有可用模板则返回 None
+        :return str: 渲染后的 URL 字符串，如果没有可用模板则返回 None
         """
         template = self.get_template_for_file(file_name)
 
@@ -219,8 +219,8 @@ class StrmFilenameTemplateResolver:
         """
         初始化模板解析器
 
-        :param base_template: 基础 Jinja2 模板字符串
-        :param custom_rules: 扩展名特定模板规则，格式：ext1,ext2 => template
+        :param base_template (str): 基础 Jinja2 模板字符串
+        :param custom_rules (str): 扩展名特定模板规则，格式：ext1,ext2 => template
         """
         self.env = Environment(
             autoescape=False,
@@ -279,7 +279,7 @@ class StrmFilenameTemplateResolver:
         """
         解析扩展名特定模板规则
 
-        :param config_str: 规则字符串，格式：ext1,ext2 => template（每行一个）
+        :param config_str (str): 规则字符串，格式：ext1,ext2 => template（每行一个）
         """
         for rule in config_str.strip().split("\n"):
             rule = rule.strip()
@@ -321,9 +321,9 @@ class StrmFilenameTemplateResolver:
         """
         根据文件名获取对应的模板
 
-        :param file_name: 文件名
+        :param file_name (str): 文件名
 
-        :return: 匹配的模板，如果没有匹配则返回基础模板，如果都没有则返回 None
+        :return Template: 匹配的模板，如果没有匹配则返回基础模板，如果都没有则返回 None
         """
         extension = Path(file_name).suffix.lower()
 
@@ -343,12 +343,12 @@ class StrmFilenameTemplateResolver:
         """
         渲染文件名模板
 
-        :param file_name: 文件名（包含扩展名）
-        :param file_path: 文件路径
-        :param file_stem: 文件名（不含扩展名）
-        :param file_suffix: 文件扩展名（包含点号）
+        :param file_name (str): 文件名（包含扩展名）
+        :param file_path (str): 文件路径
+        :param file_stem (str): 文件名（不含扩展名）
+        :param file_suffix (str): 文件扩展名（包含点号）
 
-        :return: 渲染后的文件名字符串，如果没有可用模板则返回 None
+        :return str: 渲染后的文件名字符串，如果没有可用模板则返回 None
         """
         template = self.get_template_for_file(file_name)
 
@@ -389,6 +389,9 @@ class StrmUrlGetter:
     """
 
     def __init__(self):
+        """
+        初始化 STRM URL 获取器，加载 URL 模板解析器
+        """
         self.strm_url_encode = configer.strm_url_encode
 
         self.base_url_cache = f"{configer.moviepilot_address.rstrip('/')}/api/v1/plugin/P115StrmHelper/redirect_url"
@@ -408,9 +411,11 @@ class StrmUrlGetter:
         """
         获取普通 STRM URL
 
-        :param: pickcode: 文件 pickcode
-        :param: file_name: 文件名称
-        :param: file_path: 文件网盘路径
+        :param pickcode (str): 文件 pickcode
+        :param file_name (str): 文件名称
+        :param file_path (str): 文件网盘路径
+
+        :return str: STRM URL 字符串
         """
         if self.url_template_resolver:
             try:
@@ -457,11 +462,13 @@ class StrmUrlGetter:
         """
         获取分享 STRM URL
 
-        :param share_code: 分享码
-        :param receive_code: 提取码
-        :param file_id: 文件 ID
-        :param file_name: 文件名称
-        :param file_path: 文件网盘路径
+        :param share_code (str): 分享码
+        :param receive_code (str): 提取码
+        :param file_id (str): 文件 ID
+        :param file_name (str): 文件名称
+        :param file_path (str): 文件网盘路径
+
+        :return str: 分享 STRM URL 字符串
         """
         if self.url_template_resolver:
             try:
@@ -539,6 +546,13 @@ class StrmGenerater:
     ) -> tuple[str, bool]:
         """
         判断文件是否能生成总规则
+
+        :param filename (str): 文件名
+        :param mode (str): 同步模式
+        :param filesize (int): 文件大小，可为 CompareMinSize
+        :param blacklist_automaton (Automaton): 黑名单自动机
+
+        :return Tuple: (拒绝原因, 是否允许)
         """
         # 1. 判断是否在黑名单
         if blacklist_automaton:
@@ -563,6 +577,11 @@ class StrmGenerater:
     ) -> tuple[str, bool]:
         """
         使用 Aho-Corasick 自动机判断文件名是否包含黑名单中的任何关键词
+
+        :param filename (str): 文件名
+        :param blacklist_automaton (Automaton): 黑名单自动机
+
+        :return Tuple: (匹配到的关键词, 是否通过)
         """
         if not blacklist_automaton:
             return "", True
@@ -577,6 +596,10 @@ class StrmGenerater:
     def not_blacklist_key(filename) -> tuple[str, bool]:
         """
         判断文件名是否包含黑名单中的任何关键词
+
+        :param filename (str): 文件名
+
+        :return Tuple: (匹配到的关键词, 是否通过)
         """
         blacklist = configer.strm_generate_blacklist
 
@@ -594,6 +617,11 @@ class StrmGenerater:
     ) -> tuple[str, bool]:
         """
         判断文件大小是否低于最低限制
+
+        :param mode (str): 同步模式（full / life / increment）
+        :param filesize (int): 文件大小，可为 CompareMinSize
+
+        :return Tuple: (拒绝原因, 是否通过)
         """
         min_size = None
         if isinstance(filesize, CompareMinSize):
@@ -627,12 +655,12 @@ class StrmGenerater:
         """
         根据原始文件路径生成 STRM 文件名
 
-        :param file_path: 原始文件路径（Path 对象）
-        :param file_name: 文件名（可选，如果不提供则从file_path提取）
-        :param file_path_str: 文件路径字符串（可选，用于模板渲染）
-        :param kwargs: 其他上下文信息（用于模板渲染）
+        :param file_path (Path): 原始文件路径（Path 对象）
+        :param file_name (str): 文件名（可选，如果不提供则从file_path提取）
+        :param file_path_str (str): 文件路径字符串（可选，用于模板渲染）
+        :param kwargs (Dict): 其他上下文信息（用于模板渲染）
 
-        :return: STRM 文件名（如 "movie.iso.strm" 或 "movie.strm"）
+        :return str: STRM 文件名（如 "movie.iso.strm" 或 "movie.strm"）
         """
         if StrmGenerater._filename_template_resolver is False:
             suffix = file_path.suffix.lower()

@@ -23,9 +23,10 @@ class NotifyExceptionFormatter:
         """
         将异常格式化为适合通知展示的简短描述
 
-        :param exc: 异常对象
-        :param max_length: 最大长度
-        :return: 格式化后的异常描述
+        :param exc (BaseException): 异常对象
+        :param max_length (int): 最大长度
+
+        :return str: 格式化后的异常描述
         """
         e = exc
 

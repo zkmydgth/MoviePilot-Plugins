@@ -19,6 +19,9 @@ class DirectoryTreeStorage(ABC):
     def add_paths(self, paths: Iterable[str], append: bool = False):
         """
         从一个迭代器添加多个路径
+
+        :param paths (Iterable): 路径字符串迭代器
+        :param append (bool): True 时追加，False 时覆盖
         """
         pass
 
@@ -51,6 +54,8 @@ class DirectoryTreeStorage(ABC):
     def count(self) -> int:
         """
         返回树中的有效条目总数
+
+        :return int: 条目总数
         """
         pass
 
@@ -71,7 +76,7 @@ class TxtFileStorage(DirectoryTreeStorage):
         """
         初始化 TXT 文件存储
 
-        :param file_path: TXT 文件的路径，父目录会自动创建
+        :param file_path (Union[str, Path]): TXT 文件的路径，父目录会自动创建
         """
         self._rust = txt_tree_storage
         self.file_path = Path(file_path)
@@ -81,8 +86,8 @@ class TxtFileStorage(DirectoryTreeStorage):
         """
         向 TXT 文件添加路径条目
 
-        :param paths: 路径字符串迭代器
-        :param append: True 时追加，False 时覆盖
+        :param paths (Iterable): 路径字符串迭代器
+        :param append (bool): True 时追加，False 时覆盖
         """
         return self._rust.add_paths(
             self.file_path, (p if isinstance(p, str) else str(p) for p in paths), append
@@ -94,8 +99,8 @@ class TxtFileStorage(DirectoryTreeStorage):
         """
         比较两个 TXT 树，找出本树中存在而另一棵树中不存在的路径
 
-        :param other_storage: 另一个 TxtFileStorage 实例
-        :return: 差异路径的生成器
+        :param other_storage (DirectoryTreeStorage): 另一个 TxtFileStorage 实例
+        :return Generator: 差异路径的生成器
         :raises TypeError: 当 other_storage 不是 TxtFileStorage 时抛出
         """
         if not isinstance(other_storage, TxtFileStorage):
@@ -110,8 +115,8 @@ class TxtFileStorage(DirectoryTreeStorage):
         """
         比较两个 TXT 树，返回差异路径在本树中的行号
 
-        :param other_storage: 另一个 TxtFileStorage 实例
-        :return: 差异行号的生成器
+        :param other_storage (DirectoryTreeStorage): 另一个 TxtFileStorage 实例
+        :return Generator: 差异行号的生成器
         :raises TypeError: 当 other_storage 不是 TxtFileStorage 时抛出
         """
         if not isinstance(other_storage, TxtFileStorage):
@@ -124,8 +129,8 @@ class TxtFileStorage(DirectoryTreeStorage):
         """
         根据行号获取 TXT 文件中对应行的路径
 
-        :param line_number: 行号（从 1 开始）
-        :return: 路径字符串，无效行号时返回 None
+        :param line_number (int): 行号（从 1 开始）
+        :return str: 路径字符串，无效行号时返回 None
         """
         return self._rust.get_path_by_line_number(self.file_path, line_number)
 
@@ -153,7 +158,7 @@ class RedisStorage(DirectoryTreeStorage):
         """
         初始化 Redis 存储
 
-        :param tree_name: 树名称，用于生成 Redis 键名前缀
+        :param tree_name (str): 树名称，用于生成 Redis 键名前缀
         """
         self.tree_name = tree_name
 
@@ -168,8 +173,8 @@ class RedisStorage(DirectoryTreeStorage):
         """
         向 Redis 添加路径条目（通过 Pipeline 批量操作）
 
-        :param paths: 路径字符串迭代器
-        :param append: True 时追加，False 时先清空已有数据
+        :param paths (Iterable): 路径字符串迭代器
+        :param append (bool): True 时追加，False 时先清空已有数据
         :raises MemoryError: 当 Redis 内存不足时抛出，提示用户调整配置
         """
         pipe = self.client.pipeline()
@@ -211,8 +216,8 @@ class RedisStorage(DirectoryTreeStorage):
         """
         使用 Redis SDIFF 命令高效比较两个树，返回本树中存在而另一棵树中不存在的路径
 
-        :param other_storage: 另一个 RedisStorage 实例
-        :return: 差异路径的生成器
+        :param other_storage (DirectoryTreeStorage): 另一个 RedisStorage 实例
+        :return Generator: 差异路径的生成器
         :raises TypeError: 当 other_storage 不是 RedisStorage 时抛出
         """
         if not isinstance(other_storage, RedisStorage):
@@ -228,8 +233,8 @@ class RedisStorage(DirectoryTreeStorage):
         """
         使用 Redis 分批比较两个树，返回差异路径在本树中的行号
 
-        :param other_storage: 另一个 RedisStorage 实例
-        :return: 差异行号的生成器
+        :param other_storage (DirectoryTreeStorage): 另一个 RedisStorage 实例
+        :return Generator: 差异行号的生成器
         :raises TypeError: 当 other_storage 不是 RedisStorage 时抛出
         """
         if not isinstance(other_storage, RedisStorage):
@@ -252,8 +257,8 @@ class RedisStorage(DirectoryTreeStorage):
         """
         根据行号获取 Redis 列表中对应位置的路径
 
-        :param line_number: 行号（从 1 开始）
-        :return: 路径字符串，无效行号时返回 None
+        :param line_number (int): 行号（从 1 开始）
+        :return str: 路径字符串，无效行号时返回 None
         """
         if line_number <= 0:
             return None
@@ -284,8 +289,8 @@ class DirectoryTree:
         """
         初始化目录树实例
 
-        :param file_path: 目录树对应的文件路径（其 stem 用于生成 Redis 键名）
-        :param force_backend: 强制指定后端类型，"redis" 或 "txt"；None 时按 settings.CACHE_BACKEND_TYPE
+        :param file_path (Path): 目录树对应的文件路径（其 stem 用于生成 Redis 键名）
+        :param force_backend (str): 强制指定后端类型，"redis" 或 "txt"；None 时按 settings.CACHE_BACKEND_TYPE
         """
         backend = force_backend or settings.CACHE_BACKEND_TYPE
         if backend == "redis":
@@ -299,6 +304,11 @@ class DirectoryTree:
     ):
         """
         扫描本地目录生成目录树，可过滤后缀
+
+        :param root_path (str): 根目录路径
+        :param append (bool): True 时追加，False 时覆盖
+        :param extensions (List): 文件后缀过滤列表
+        :param use_posix (bool): 是否使用 POSIX 路径格式
         """
         root = Path(root_path).resolve()
         if extensions:
@@ -321,12 +331,19 @@ class DirectoryTree:
     def generate_tree_from_list(self, file_list: List[str], append=False):
         """
         从文件列表生成目录树
+
+        :param file_list (List): 文件路径列表
+        :param append (bool): True 时追加，False 时覆盖
         """
         self._storage.add_paths(file_list, append=append)
 
     def compare_trees(self, other_tree: "DirectoryTree") -> Generator[str, None, None]:
         """
         比较两个目录树，找出本树有而另一颗树没有的文件
+
+        :param other_tree (DirectoryTree): 要比较的另一个目录树实例
+
+        :return Generator: 差异文件路径的生成器
         """
         yield from self._storage.compare_trees(other_tree._storage)
 
@@ -335,18 +352,28 @@ class DirectoryTree:
     ) -> Generator[int, None, None]:
         """
         比较两个目录树，返回差异文件在本树中的行号
+
+        :param other_tree (DirectoryTree): 要比较的另一个目录树实例
+
+        :return Generator: 差异行号的生成器
         """
         yield from self._storage.compare_trees_lines(other_tree._storage)
 
     def get_path_by_line_number(self, line_number: int) -> Union[str, None]:
         """
         通过行号获取路径
+
+        :param line_number (int): 行号（从 1 开始）
+
+        :return str: 路径字符串，无效行号时返回 None
         """
         return self._storage.get_path_by_line_number(line_number)
 
     def count(self) -> int:
         """
         获取此目录树中的有效条目总数
+
+        :return int: 条目总数
         """
         return self._storage.count()
 
@@ -354,8 +381,8 @@ class DirectoryTree:
         """
         对比两个目录树的有效条目总数
 
-        :param other_tree: 要比较的另一个 DirectoryTree 实例
-        :return: int 两个树条目数量的差值绝对值
+        :param other_tree (DirectoryTree): 要比较的另一个 DirectoryTree 实例
+        :return int: 两个树条目数量的差值绝对值
         """
         return abs(self.count() - other_tree.count())
 
@@ -371,7 +398,7 @@ class DirectoryTree:
         """
         运行时切换存储后端，切换前会清空旧后端的数据
 
-        :param backend: 目标后端类型，"redis" 或 "txt"
+        :param backend (str): 目标后端类型，"redis" 或 "txt"
         """
         is_redis = isinstance(self._storage, RedisStorage)
         if backend == "redis" and is_redis:
@@ -391,8 +418,8 @@ class DirectoryTree:
         """
         清理 Redis 中不属于当前任务的无效应 tree 键
 
-        :param keep_names: 需要保留的 tree_name 集合；不在此集合中的 dirtree:* 键会被删除
-        :return: 被清理的 tree_name 列表
+        :param keep_names (Iterable): 需要保留的 tree_name 集合；不在此集合中的 dirtree:* 键会被删除
+        :return List: 被清理的 tree_name 列表
         """
         cleaned: List[str] = []
         if settings.CACHE_BACKEND_TYPE != "redis":

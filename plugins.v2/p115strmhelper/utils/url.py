@@ -42,9 +42,10 @@ class Url(str):
         """
         创建带有属性字典的 Url 实例
 
-        :param val: URL 字符串值
-        :param ns: 附加的属性字典
-        :return: 新的 Url 实例
+        :param val (str): URL 字符串值
+        :param ns (dict): 附加的属性字典
+
+        :return Url: 新的 Url 实例
         """
         self = cls.__new__(cls, val)
         if ns is not None:
@@ -55,9 +56,10 @@ class Url(str):
         """
         从属性字典中获取值，不存在时返回默认值
 
-        :param key: 属性键名
-        :param default: 默认值
-        :return: 属性值或默认值
+        :param key (str): 属性键名
+        :param default (Any): 默认值
+
+        :return Any: 属性值或默认值
         """
         return self.__dict__.get(key, default)
 
@@ -96,8 +98,9 @@ class UrlUtils:
         """
         对标准 URL 的路径、query、fragment 做百分号编码
 
-        :param url: 完整 URL
-        :return: 编码后的 URL；解析或编码失败时返回原字符串
+        :param url (str): 完整 URL
+
+        :return str: 编码后的 URL；解析或编码失败时返回原字符串
         """
         try:
             parsed_url = urlparse(url)
@@ -122,8 +125,9 @@ class UrlUtils:
         """
         从 URL 中解析查询字符串里的全部参数（主要返回值即该 dict）
 
-        :param url: 完整 URL、仅含 ?key=value 的片段、或无 scheme 的 path?query
-        :return: 参数名到单个字符串值；同一键出现多次时取首次出现的值；无 query 时为空 dict
+        :param url (str): 完整 URL、仅含 ?key=value 的片段、或无 scheme 的 path?query
+
+        :return Dict: 参数名到单个字符串值；同一键出现多次时取首次出现的值；无 query 时为空 dict
         """
         raw = (url or "").strip()
         parsed = urlparse(raw)

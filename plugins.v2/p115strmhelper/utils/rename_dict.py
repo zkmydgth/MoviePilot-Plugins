@@ -111,8 +111,8 @@ class RenameDictUtils:
         """
         将 ffprobe 的帧率字符串转为无小数点的整型展示字符串（四舍五入）
 
-        :param rate: 如 24000/1001 或 30
-        :return: 如 24（由 23.976… 舍入）或 30
+        :param rate (str): 如 24000/1001 或 30
+        :return str: 如 24（由 23.976… 舍入）或 30
         """
         if not rate or rate in ("0/0", "N/A"):
             return None
@@ -140,8 +140,8 @@ class RenameDictUtils:
         """
         将因 mod16 裁剪、轻微缩放导致的高度吸附到常见标准值
 
-        :param height: ffprobe 报告的帧高度
-        :return: 吸附后的高度（未命中任一容差则原样返回）
+        :param height (int): ffprobe 报告的帧高度
+        :return int: 吸附后的高度（未命中任一容差则原样返回）
         """
         for target, tolerance in RenameDictUtils._HEIGHT_SNAP_TIERS:
             if abs(height - target) <= tolerance:
@@ -208,9 +208,9 @@ class RenameDictUtils:
 
         与编码名以空格连接，如 Dolby TrueHD 7.1、EAC3 5.1（避免 EAC3 与 5.1 连成 EAC35.1）
 
-        :param channel_layout: channel_layout 或 ChannelLayout 字符串
-        :param channels: 声道数量
-        :return: 无可靠信息时 None
+        :param channel_layout (str): channel_layout 或 ChannelLayout 字符串
+        :param channels (Any): 声道数量
+        :return str: 无可靠信息时 None
         """
         layout_raw = (channel_layout or "").strip()
         if layout_raw:
@@ -322,8 +322,8 @@ class RenameDictUtils:
         """
         从视频流 side_data 与 codec_tag 判断是否含 Dolby Vision / HDR10+ 元数据
 
-        :param video_s: ffprobe 单路视频流 dict
-        :return: (has_dovi, has_hdr10plus)
+        :param video_s (Dict): ffprobe 单路视频流 dict
+        :return Tuple: (has_dovi, has_hdr10plus)
         """
         has_dovi = False
         has_hdr10plus = False
@@ -352,8 +352,8 @@ class RenameDictUtils:
 
         输出与常见资源命名接近的短标签，多个以空格连接（如 DoVi、HDR10+）
 
-        :param video_s: ffprobe 单路视频流 dict
-        :return: 供 rename_dict["effect"] 使用的字符串，无法判断则 None
+        :param video_s (Dict): ffprobe 单路视频流 dict
+        :return str: 供 rename_dict["effect"] 使用的字符串，无法判断则 None
         """
         has_dovi, has_hdr10plus = RenameDictUtils._video_stream_hdr_flags(video_s)
         ct = (video_s.get("color_transfer") or "").lower().strip()
@@ -414,8 +414,8 @@ class RenameDictUtils:
         """
         从 ffprobe 视频流提取位深，如 8bit、10bit
 
-        :param video_s: ffprobe 视频流字典
-        :return: 位深字符串或 None
+        :param video_s (Dict): ffprobe 视频流字典
+        :return str: 位深字符串或 None
         """
         bps = str(video_s.get("bits_per_raw_sample") or "").strip()
         if bps and bps.isdigit():
@@ -491,8 +491,8 @@ class RenameDictUtils:
         """
         规范化 STRM 首行内容，便于 ffprobe 作为 -i 参数使用
 
-        :param raw: 行内原始文本（已去掉首尾空白）
-        :return: 规范化后的地址或路径，无效则空字符串
+        :param raw (str): 行内原始文本（已去掉首尾空白）
+        :return str: 规范化后的地址或路径，无效则空字符串
         """
         line = raw.strip()
         if not line:
@@ -576,13 +576,14 @@ class RenameDictUtils:
         """
         获取媒体信息
 
-        :param source_path: 本地文件或 STRM 路径
-        :param url: 无本地路径时直接探测的地址
-        :param strm_resolve_media_info: 当 ``source_path`` 为 ``.strm`` 时在 ffprobe 之前调用；
+        :param source_path (str): 本地文件或 STRM 路径
+        :param url (str): 无本地路径时直接探测的地址
+        :param strm_resolve_media_info (Callable): 当 ``source_path`` 为 ``.strm`` 时在 ffprobe 之前调用；
             入参为该 STRM 内解析得到的探测目标字符串（首条有效 URL/路径经规范化后，与即将作为
             ``ffprobe -i`` 输入的字符串相同），不是磁盘上的 ``.strm`` 文件路径；
             若返回非空字典则作为结果直接返回，返回 ``None`` 或空字典 ``{}`` 则继续 ffprobe
-        :return: (重命名字段字典, 错误信息)；成功时错误信息为空字符串
+
+        :return Tuple: (重命名字段字典, 错误信息)；成功时错误信息为空字符串
         """
         if source_path:
             probe_target, error_message = RenameDictUtils._resolve_probe_target(
@@ -628,8 +629,8 @@ class RenameDictUtils:
         """
         根据 Emby MediaStream 推断与 rename_dict effect 一致的标签
 
-        :param video_s: Type 为 Video 的单路 MediaStream
-        :return: 与 RenameDictUtils._infer_effect_from_video_stream 风格一致，无法判断则 None
+        :param video_s (Dict): Type 为 Video 的单路 MediaStream
+        :return str: 与 RenameDictUtils._infer_effect_from_video_stream 风格一致，无法判断则 None
         """
         vr_raw = (video_s.get("VideoRange") or "").strip()
         vr = vr_raw.lower()
@@ -733,8 +734,9 @@ class RenameDictUtils:
         输出键与 RenameDictUtils._probe_to_rename_fields 一致：
         videoFormat、videoCodec、videoBit、fps、effect、audioCodec（有则写入）
 
-        :param payload: download_emby_mediainfo_data 单条值，或含 MediaSourceInfo 的 list/dict
-        :return: 字符串字典，无法解析时为空 dict
+        :param payload (Any): download_emby_mediainfo_data 单条值，或含 MediaSourceInfo 的 list/dict
+
+        :return Dict: 字符串字典，无法解析时为空 dict
         """
         out: Dict[str, str] = {}
         streams = RenameDictUtils._extract_media_streams(payload)

@@ -14,9 +14,9 @@ class WebhookUtils:
         """
         从Description字段解析Item Path列表
 
-        :param description: Description字段内容
+        :param description (str): Description字段内容
 
-        :return: Item Path列表
+        :return List: Item Path列表
         """
         if not description:
             return []

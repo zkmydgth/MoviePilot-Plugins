@@ -22,7 +22,8 @@ class CBase64:
         """
         使用固定的非标准字母表将 bytes 数据编码为 Base64 字符串
 
-        :param data: 需要编码的原始二进制数据
+        :param data (bytes): 需要编码的原始二进制数据
+
         :return str: 编码后的字符串
         """
         encoded_chars = []
@@ -62,7 +63,8 @@ class CBase64:
         """
         使用固定的非标准字母表将 Base64 字符串解码为 bytes 数据
 
-        :param encoded_str: 需要解码的 Base64 字符串
+        :param encoded_str (str): 需要解码的 Base64 字符串
+
         :return bytes: 解码后的原始二进制数据
         """
         num_padding = encoded_str.count(CBase64._PADDING_CHAR)

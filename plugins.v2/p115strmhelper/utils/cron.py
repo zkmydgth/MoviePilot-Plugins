@@ -16,7 +16,9 @@ class CronUtils:
         """
         验证 cron 表达式是否有效
 
-        :param cron_expr: cron 表达式字符串
+        :param cron_expr (str): cron 表达式字符串
+
+        :return Tuple: (是否有效, 错误信息)
         """
         if not cron_expr or not cron_expr.strip():
             return False, ""
@@ -34,8 +36,9 @@ class CronUtils:
         """
         修复 cron 表达式错误
 
-        :param cron_expr: 原始 cron 表达式
-        :return: 修复后的 cron 表达式
+        :param cron_expr (str): 原始 cron 表达式
+
+        :return str: 修复后的 cron 表达式
         """
         if not cron_expr:
             return cron_expr
@@ -67,10 +70,11 @@ class CronUtils:
         """
         修复单个 cron 字段
 
-        :param field: 字段值
-        :param min_val: 最小值
-        :param max_val: 最大值
-        :return: 修复后的字段值
+        :param field (str): 字段值
+        :param min_val (int): 最小值
+        :param max_val (int): 最大值
+
+        :return str: 修复后的字段值
         """
         if field == "*":
             return field
@@ -128,7 +132,7 @@ class CronUtils:
         """
         获取默认的 cron 表达式
 
-        :return: 默认 cron 表达式
+        :return str: 默认 cron 表达式
         """
         return "0 */6 * * *"
 
@@ -137,8 +141,9 @@ class CronUtils:
         """
         简单检查 cron 表达式是否有效
 
-        :param cron_expr: cron 表达式
-        :return: 是否有效
+        :param cron_expr (str): cron 表达式
+
+        :return bool: 是否有效
         """
         status, _ = CronUtils.validate_cron_expression(cron_expr)
         return status

@@ -16,13 +16,9 @@ class UserAgentUtils:
     )
     def generate_u115_ios() -> str:
         """
-        各段含义与生成规则：
+        生成 115 iOS User-Agent 字符串
 
-        - iOS 版本：iPhone OS {major}_{minor}，从常见版本中随机（如 15_0～18_1）
-        - Build：Mobile/{build}，Apple 风格 build 号（数字+字母+3 位数字，如 15E148、21A258）
-        - AppleWebKit：与 iOS 大版本对应的 WebKit 版本（如 605.1.15）
-
-        :return: 完整的 User-Agent 字符串
+        :return str: 完整的 User-Agent 字符串
         """
         try:
             resp = P115Client.app_version_list2()

@@ -26,8 +26,9 @@ def normalize_share_url_candidate(raw: str) -> str:
     """
     去掉 URL 末尾可能被一并匹配到的标点或全角括号
 
-    :param raw: 原始子串
-    :return: 规范化后的字符串
+    :param raw (str): 原始子串
+
+    :return str: 规范化后的字符串
     """
     s = raw.strip()
     while s and s[-1] in _TRAILING_JUNK:
@@ -39,8 +40,9 @@ def is_telegra_ph_url(url: str) -> bool:
     """
     判断 URL 是否指向 telegra.ph（含子域）
 
-    :param url: 完整 http(s) URL
-    :return: 是否为 Telegraph 页面
+    :param url (str): 完整 http(s) URL
+
+    :return bool: 是否为 Telegraph 页面
     """
     if not url or not isinstance(url, str):
         return False
@@ -72,8 +74,9 @@ def extract_cloud_link_urls_from_text(text: str) -> Tuple[List[str], str]:
     """
     从任意字符串（含 HTML）中用正则提取 115 与阿里云链接（无 I/O、无日志）
 
-    :param text: 网页或纯文本
-    :return: (去重后的链接列表, 首个匹配到的云类型 u115/aliyun，无则空串)
+    :param text (str): 网页或纯文本
+
+    :return Tuple: (去重后的链接列表, 首个匹配到的云类型 u115/aliyun，无则空串)
     """
     if not text or not isinstance(text, str):
         return [], ""
@@ -95,8 +98,9 @@ def is_direct_u115_or_aliyun_share_url(url: str) -> bool:
     """
     判断是否为直连 115 或阿里云分享 URL（与历史 match 规则一致）
 
-    :param url: 已规范化的候选 URL
-    :return: 是否匹配
+    :param url (str): 已规范化的候选 URL
+
+    :return bool: 是否匹配
     """
     if not url:
         return False

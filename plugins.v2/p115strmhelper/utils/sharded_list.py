@@ -20,6 +20,14 @@ class ShardedPluginListStore:
         max_per_shard: int = 200,
         version: int = 1,
     ) -> None:
+        """
+        初始化分片列表存储
+
+        :param idx_key (str): 索引键名
+        :param shard_key_prefix (str): 分片键名前缀
+        :param max_per_shard (int): 每个分片最大记录数
+        :param version (int): 数据格式版本号
+        """
         self._idx_key = idx_key
         self._shard_prefix = shard_key_prefix
         self._max_per_shard = max(1, min(max_per_shard, 500))
@@ -40,6 +48,8 @@ class ShardedPluginListStore:
     def append(self, item: Dict[str, Any]) -> None:
         """
         追加一条记录（须含唯一 uid）
+
+        :param item (Dict): 记录字典
         """
         idx = self._load_idx()
         if idx is None:
@@ -86,8 +96,9 @@ class ShardedPluginListStore:
         批量追加多条记录：尽量填满最后分片，然后按 ``max_per_shard`` 成块写入新分片，
         仅在最后统一更新一次索引，将持久化 I/O 由 ``O(n)`` 降至 ``O(n / max_per_shard)``
 
-        :param items: 记录列表，每项须含唯一 ``uid``
-        :return: 实际追加条数
+        :param items (List): 记录列表，每项须含唯一 ``uid``
+
+        :return int: 实际追加条数
         """
         if not items:
             return 0
@@ -136,6 +147,8 @@ class ShardedPluginListStore:
     def total(self) -> int:
         """
         返回总条数
+
+        :return int: 总条数
         """
         idx = self._load_idx()
         if not idx:
@@ -145,6 +158,11 @@ class ShardedPluginListStore:
     def page(self, page: int, limit: int) -> Tuple[List[Dict[str, Any]], int]:
         """
         分页返回记录（page 从 1 开始）
+
+        :param page (int): 页码，从 1 开始
+        :param limit (int): 每页条数
+
+        :return Tuple: (记录列表, 总条数)
         """
         idx = self._load_idx()
         if not idx:
@@ -183,6 +201,10 @@ class ShardedPluginListStore:
     def delete_by_uid(self, uid: str) -> bool:
         """
         按 uid 删除一条（线性扫描分片）
+
+        :param uid (str): 唯一标识
+
+        :return bool: 成功删除返回 True，否则 False
         """
         uid = (uid or "").strip()
         if not uid:

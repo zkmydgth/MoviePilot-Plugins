@@ -15,6 +15,12 @@ def check_response(
 ) -> Response:
     """
     检查 HTTP 响应，如果状态码 ≥ 400 则抛出 httpx.HTTPStatusError
+
+    :param resp (Response): HTTP 响应对象
+
+    :return Response: 校验通过的 HTTP 响应对象
+
+    :raises HTTPStatusError: 状态码 ≥ 400 时抛出
     """
     if resp.status_code >= 400:
         raise HTTPStatusError(
@@ -28,6 +34,12 @@ def check_response(
 def check_iter_path_data(item: Dict) -> Dict:
     """
     校验批量拉取信息是否完整
+
+    :param item (Dict): 待校验的数据字典
+
+    :return Dict: 校验通过的数据字典
+
+    :raises FileItemKeyMiss: 信息不完整时抛出
     """
     if "path" not in item:
         raise FileItemKeyMiss(f"缺失 path 信息：{item}")

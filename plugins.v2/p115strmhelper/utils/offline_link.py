@@ -37,8 +37,9 @@ class OfflineLinkResolver:
 
         换行可能被主程序去掉，故依赖正则按出现顺序提取；ed2k 多条可同一行空格分隔
 
-        :param raw: arg_str、用户消息全文等
-        :return: 按出现顺序去重后的链接列表
+        :param raw (str): arg_str、用户消息全文等
+
+        :return List: 按出现顺序去重后的链接列表
         """
         if not raw or not isinstance(raw, str):
             return []

@@ -11,6 +11,11 @@ class RateLimiter:
     """
 
     def __init__(self, qps: float):
+        """
+        初始化速率控制器
+
+        :param qps (float): 每秒允许的请求数
+        """
         if qps <= 0:
             qps = float("inf")
         self.interval = 1.0 / qps
@@ -36,6 +41,12 @@ class ApiEndpointCooldown:
     """
 
     def __init__(self, api_callable: Callable, cooldown: float | int):
+        """
+        初始化 API 端点冷却控制器
+
+        :param api_callable (Callable): 要调用的 API 函数
+        :param cooldown (float | int): 冷却时间（秒）
+        """
         self.api_callable = api_callable
         self.cooldown = cooldown
         self.lock = Lock()
@@ -44,6 +55,10 @@ class ApiEndpointCooldown:
     def __call__(self, payload: dict) -> dict:
         """
         执行 API 调用，处理冷却逻辑
+
+        :param payload (dict): API 调用参数
+
+        :return dict: API 返回结果
         """
         if self.cooldown > 0:
             sleep_duration = 0

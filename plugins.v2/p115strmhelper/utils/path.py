@@ -20,8 +20,9 @@ class PathUtils:
         """
         将相对路径各分量中的非法文件名字符替换为下划线（仅 Windows 生效，其他平台直接返回原路径）
 
-        :param rel_path: 待处理的相对路径
-        :return: 处理后的相对路径
+        :param rel_path (Path): 待处理的相对路径
+
+        :return Path: 处理后的相对路径
         """
         if os_name != "nt":
             return rel_path
@@ -44,8 +45,11 @@ class PathUtils:
     def has_prefix(full_path, prefix_path) -> bool:
         """
         判断路径是否包含
-        :param full_path: 完整路径
-        :param prefix_path: 匹配路径
+
+        :param full_path (str): 完整路径
+        :param prefix_path (str): 匹配路径
+
+        :return bool: 是否包含
         """
         if not full_path or not prefix_path:
             return False
@@ -61,6 +65,11 @@ class PathUtils:
     def get_run_transfer_path(paths, transfer_path) -> bool:
         """
         判断路径是否为整理路径
+
+        :param paths (str): 换行分隔的整理路径列表
+        :param transfer_path (str): 待判断的转移路径
+
+        :return bool: 是否为整理路径
         """
         transfer_paths = paths.split("\n")
         for path in transfer_paths:
@@ -74,6 +83,11 @@ class PathUtils:
     def get_scrape_metadata_exclude_path(paths, scrape_path) -> bool:
         """
         检查目录是否在排除目录内
+
+        :param paths (str): 换行分隔的排除路径列表
+        :param scrape_path (str): 待检查的刮削路径
+
+        :return bool: 是否在排除目录内
         """
         exclude_path = paths.split("\n")
         for path in exclude_path:
@@ -87,6 +101,11 @@ class PathUtils:
     def get_media_path(paths, media_path) -> Tuple[bool, Optional[str], Optional[str]]:
         """
         获取媒体目录路径
+
+        :param paths (str): 换行分隔的媒体目录映射
+        :param media_path (str): 待匹配的媒体路径
+
+        :return Tuple: (是否匹配, 媒体服务器路径, 网盘路径)
         """
         media_paths = paths.split("\n")
         for path in media_paths:
@@ -101,6 +120,11 @@ class PathUtils:
     def get_p115_strm_path(paths, media_path) -> Tuple[bool, Optional[str]]:
         """
         匹配全量目录，自动生成新的 paths
+
+        :param paths (str): 换行分隔的全量目录映射
+        :param media_path (str): 待匹配的媒体路径
+
+        :return Tuple: (是否匹配, 生成的路径字符串)
         """
         media_paths = paths.split("\n")
         for path in media_paths:
@@ -120,9 +144,10 @@ class PathUtils:
         """
         获取 115 网盘媒体目录路径
 
-        :param media_path: 媒体路径
-        :param p115_library_path: 115 网盘媒体库路径映射（格式：媒体服务器STRM路径#MoviePilot路径# 115 网盘路径）
-        :return: (是否匹配, 路径部分列表)
+        :param media_path (str): 媒体路径
+        :param p115_library_path (str): 115 网盘媒体库路径映射（格式：媒体服务器STRM路径#MoviePilot路径# 115 网盘路径）
+
+        :return Tuple: (是否匹配, 路径部分列表)
         """
         if not p115_library_path:
             return False, None
@@ -142,9 +167,10 @@ class PathUtils:
         """
         根据媒体库文件路径和真实媒体后缀还原网盘媒体路径
 
-        :param file_path: 媒体库文件路径
-        :param media_suffix: 真实媒体后缀
-        :return: 正常大小写路径和大小写切换路径
+        :param file_path (str): 媒体库文件路径
+        :param media_suffix (str): 真实媒体后缀
+
+        :return Tuple: 正常大小写路径和大小写切换路径
         """
         normalized_path = file_path.replace("\\", "/")
         path = PurePosixPath(normalized_path)
@@ -194,10 +220,10 @@ class PathRemoveUtils:
         """
         删除父目录
 
-        :param file_path: 文件夹路径
-        :param mode: 删除模式，支持全部匹配（"all"）、文件后缀匹配（list）和混合模式（"mixed"，
-                     第一层以 "all" 判断空目录，上层以 ["strm"] 判断）
-        :param func_type: 日志输出函数名称
+        :param file_path (Path): 文件夹路径
+        :param mode (str): 删除模式，支持全部匹配（\"all\"）、文件后缀匹配（list）和混合模式（\"mixed\"，
+                     第一层以 \"all\" 判断空目录，上层以 [\"strm\"] 判断）
+        :param func_type (str): 日志输出函数名称
         """
         # 判断当前媒体父路径下是否有媒体文件，如有则无需遍历父级
         if mode in ("all", "mixed"):
@@ -238,8 +264,8 @@ class PathRemoveUtils:
 
         对于 .strm 后缀文件进行保护，不做删除操作
 
-        :param file_path: 基准文件路径
-        :param func_type: 日志输出函数名称
+        :param file_path (Path): 基准文件路径
+        :param func_type (str): 日志输出函数名称
         """
         directory = file_path.parent
         file_stem = file_path.stem
