@@ -1,6 +1,8 @@
 from collections import deque
+from fcntl import flock, LOCK_EX, LOCK_UN
 from functools import partial
 from itertools import batched
+from os import close, O_CREAT, O_RDWR, open as os_open
 from pathlib import Path
 from threading import Thread
 from time import perf_counter, sleep
@@ -11,35 +13,35 @@ from p115client.tool.export_dir import (
     export_dir_parse_iter,
     parse_export_dir_as_path_iter,
 )
-from p115client.tool.iterdir import iterdir
 from p115client.tool.fs_files import iter_fs_files
+from p115client.tool.iterdir import iterdir
 from sqlalchemy.orm.exc import MultipleResultsFound
 
 from app.core.config import settings
 from app.log import logger
 
-from ...core.cache import idpathcacher, DirectoryCache
+from ...core.cache import DirectoryCache, idpathcacher
 from ...core.config import configer
 from ...core.history import StrmExecHistoryManager
-from ...core.scrape import media_scrape_metadata
 from ...core.p115 import get_pid_by_path
+from ...core.scrape import media_scrape_metadata
 from ...db_manager.oper import FileDbHelper
 from ...helper.mediainfo_download import MediaInfoDownloader
 from ...helper.mediaserver import MediaServerRefresh, emby_mediainfo_queue
+from ...utils.automaton import AutomatonUtils
+from ...utils.base64 import CBase64
 from ...utils.exception import (
     CanNotFindPathToCid,
     ItertreeInternalError,
     PanDataNotInDb,
     PanPathNotFound,
 )
+from ...utils.math import MathUtils
+from ...utils.mediainfo_download import MediainfoDownloadMiddleware
 from ...utils.path import PathRemoveUtils, PathUtils
 from ...utils.sentry import sentry_manager
-from ...utils.strm import StrmUrlGetter, StrmGenerater
+from ...utils.strm import StrmGenerater, StrmUrlGetter
 from ...utils.tree import DirectoryTree
-from ...utils.automaton import AutomatonUtils
-from ...utils.mediainfo_download import MediainfoDownloadMiddleware
-from ...utils.base64 import CBase64
-from ...utils.math import MathUtils
 
 
 class IncrementSyncStrmHelper:
@@ -196,74 +198,84 @@ class IncrementSyncStrmHelper:
         :param local_path: 本地路径
 
         :return Iterator: 网盘路径迭代器
+        :raises PanPathNotFound: 网盘路径不存在
         """
         from posixpatht import escape as posix_escape
 
-        def custom_escape(name):
-            """
-            处理 115 目录树部分情况下会将 ' 转义为 \'
-            """
-            return posix_escape(name.replace("\\'", "'"))
+        lock_path = configer.PLUGIN_TEMP_PATH / "export_dir.lock"
+        lock_fd = os_open(str(lock_path), O_CREAT | O_RDWR)
 
-        relative_path = None
-
-        cid = get_pid_by_path(
-            client=self.client,
-            path=pan_path,
-            mkdir=True,
-            update_cache=False,
-            by_cache=False,
-            request_timeout=10,
-        )
-        if cid == -1:
-            raise PanPathNotFound(f"网盘路径不存在: {pan_path}")
-        self.api_count += 4
-
-        items_iterator = export_dir_parse_iter(
-            client=self.client,
-            export_file_ids=cid,
-            delete=True,
-            show_clock=self._make_throttled_export_dir_wait_logger(),
-            timeout=configer.increment_sync_itertree_timeout_seconds,
-            parse_iter=partial(parse_export_dir_as_path_iter, escape=custom_escape),
-            **configer.get_ios_ua_app(app=False),
-        )
         try:
-            next(items_iterator)
-            relative_path = next(items_iterator)
-        except StopIteration:
-            return
+            flock(lock_fd, LOCK_EX)
 
-        def process_file_item(item_str: str):
-            item_path = Path(pan_path) / Path(item_str).relative_to(relative_path)
-            relative_item_path = item_path.relative_to(pan_path)
-            local_item_path = Path(local_path) / PathUtils.sanitize_path_parts(
-                relative_item_path
+            def custom_escape(name):
+                """
+                处理 115 目录树部分情况下会将 ' 转义为 \'
+                """
+                return posix_escape(name.replace("\\'", "'"))
+
+            relative_path = None
+
+            cid = get_pid_by_path(
+                client=self.client,
+                path=pan_path,
+                mkdir=True,
+                update_cache=False,
+                by_cache=False,
+                request_timeout=10,
             )
+            if cid == -1:
+                raise PanPathNotFound(f"网盘路径不存在: {pan_path}")
+            self.api_count += 4
 
-            if item_path.suffix.lower() in self.rmt_mediaext:
-                strm_filename = StrmGenerater.get_strm_filename(local_item_path)
-                yield (
-                    (local_item_path.parent / strm_filename).as_posix(),
-                    item_path.as_posix(),
-                )
-            elif (
-                item_path.suffix.lower() in self.download_mediaext
-                and self.auto_download_mediainfo
-            ):
-                yield (
-                    local_item_path.as_posix(),
-                    item_path.as_posix(),
+            items_iterator = export_dir_parse_iter(
+                client=self.client,
+                export_file_ids=cid,
+                delete=True,
+                show_clock=self._make_throttled_export_dir_wait_logger(),
+                timeout=configer.increment_sync_itertree_timeout_seconds,
+                parse_iter=partial(parse_export_dir_as_path_iter, escape=custom_escape),
+                **configer.get_ios_ua_app(app=False),
+            )
+            try:
+                next(items_iterator)
+                relative_path = next(items_iterator)
+            except StopIteration:
+                return
+
+            def process_file_item(item_str: str):
+                item_path = Path(pan_path) / Path(item_str).relative_to(relative_path)
+                relative_item_path = item_path.relative_to(pan_path)
+                local_item_path = Path(local_path) / PathUtils.sanitize_path_parts(
+                    relative_item_path
                 )
 
-        previous_item = None
-        for current_item in items_iterator:
+                if item_path.suffix.lower() in self.rmt_mediaext:
+                    strm_filename = StrmGenerater.get_strm_filename(local_item_path)
+                    yield (
+                        (local_item_path.parent / strm_filename).as_posix(),
+                        item_path.as_posix(),
+                    )
+                elif (
+                    item_path.suffix.lower() in self.download_mediaext
+                    and self.auto_download_mediainfo
+                ):
+                    yield (
+                        local_item_path.as_posix(),
+                        item_path.as_posix(),
+                    )
+
+            previous_item = None
+            for current_item in items_iterator:
+                if previous_item is not None:
+                    if not current_item.startswith(previous_item + "/"):
+                        yield from process_file_item(previous_item)
+                previous_item = current_item
             if previous_item is not None:
-                if not current_item.startswith(previous_item + "/"):
-                    yield from process_file_item(previous_item)
-            previous_item = current_item
-        if previous_item is not None:
-            yield from process_file_item(previous_item)
+                yield from process_file_item(previous_item)
+        finally:
+            flock(lock_fd, LOCK_UN)
+            close(lock_fd)
 
     def __iterdir(self, cid: int, path: str) -> Iterator:
         """
