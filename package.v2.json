@@ -531,6 +531,19 @@
             "v0.0.1": "发布测试版本"
         }
     },
+    "EmbyReverseProxy": {
+        "name": "Emby 302 反向代理",
+        "description": "Emby 302 反向代理，自动代理 HTTP 链接，跳转最终地址，简单易用无需过多配置。",
+        "labels": "云盘,媒体",
+        "version": "0.0.1",
+        "release": true,
+        "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/refs/heads/main/icons/Emby_A.png",
+        "author": "DDSRem",
+        "level": 1,
+        "history": {
+            "v0.0.1": "发布测试版本"
+        }
+    },
     "MediaWarp": {
         "name": "MediaWarp",
         "description": "EmbyServer/Jellyfin 中间件：优化播放 Strm 文件、自定义前端样式、自定义允许访问客户端、嵌入脚本。",
