@@ -66,7 +66,7 @@ class BilibiliDiscover(_PluginBase):
     # 插件图标
     plugin_icon = "Bilibili_E.png"
     # 插件版本
-    plugin_version = "0.0.2"
+    plugin_version = "0.0.3"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -152,8 +152,8 @@ class BilibiliDiscover(_PluginBase):
             "type": CHANNEL_PARAMS[mtype]["_type"],
             "st": CHANNEL_PARAMS[mtype]["st"],
             "season_type": CHANNEL_PARAMS[mtype]["season_type"],
-            "pn": page_num,
-            "ps": page_size,
+            "page": page_num,
+            "pagesize": page_size,
         }
         if kwargs:
             params.update(kwargs)
@@ -175,7 +175,7 @@ class BilibiliDiscover(_PluginBase):
         sort: str = None,
         season_status: str = None,
         page: int = 1,
-        count: int = 30,
+        count: int = 20,
     ) -> List[schemas.MediaInfo]:
         """
         获取哔哩哔哩探索数据
