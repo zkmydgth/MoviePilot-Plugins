@@ -452,6 +452,15 @@ class IncrementSyncStrmHelper:
                     )
                     return
 
+            if configer.pan_transfer_unrecognized_path:
+                if PathUtils.has_prefix(
+                    pan_path, configer.pan_transfer_unrecognized_path
+                ):
+                    logger.debug(
+                        f"【增量STRM生成】{pan_path} 为未识别目录下的路径，不做处理"
+                    )
+                    return
+
             if self.auto_download_mediainfo:
                 if pan_path_obj.suffix.lower() in self.download_mediaext:
                     if not (
