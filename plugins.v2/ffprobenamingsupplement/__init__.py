@@ -276,7 +276,7 @@ class FFprobeNamingSupplement(_PluginBase):
                                                 "props": {
                                                     "class": "text-body-2 mt-1",
                                                 },
-                                                "text": "{{audioCodec}} — 音频编码（如 EAC3、AAC）",
+                                                "text": "{{audioCodec}} — 音频编码与声道（如 EAC35.1、TrueHD7.1、AAC2.0）",
                                             },
                                             {
                                                 "component": "div",
@@ -406,6 +406,67 @@ class FFprobeNamingSupplement(_PluginBase):
         return cls._AUDIO_CODEC_MAP.get(key, codec_name.upper())
 
     @classmethod
+    def _normalize_audio_channel_tag(
+        cls,
+        channel_layout: Optional[str],
+        channels: Optional[Any],
+    ) -> Optional[str]:
+        """
+        从 ffprobe 的声道布局或声道数生成短标签（如 7.1、5.1、2.0）
+
+        拼在编码名后形成 TrueHD7.1、EAC35.1 等形式
+        """
+        layout_raw = (channel_layout or "").strip()
+        if layout_raw:
+            layout = layout_raw.split("(", 1)[0].strip()
+            low = layout.lower()
+            aliases = {
+                "mono": "1.0",
+                "stereo": "2.0",
+                "quad": "4.0",
+            }
+            if low in aliases:
+                return aliases[low]
+            cleaned = layout.replace(" ", "")
+            if cleaned and all(c.isdigit() or c == "." for c in cleaned):
+                return cleaned
+        try:
+            n = int(channels) if channels is not None else 0
+        except (TypeError, ValueError):
+            n = 0
+        if n <= 0:
+            return None
+        count_map = {
+            1: "1.0",
+            2: "2.0",
+            3: "2.1",
+            4: "4.0",
+            5: "5.0",
+            6: "5.1",
+            7: "6.1",
+            8: "7.1",
+            10: "7.1.2",
+            12: "7.1.4",
+        }
+        return count_map.get(n)
+
+    @classmethod
+    def _format_audio_codec_label(
+        cls,
+        codec_name: Optional[str],
+        channel_layout: Optional[str],
+        channels: Optional[Any],
+    ) -> Optional[str]:
+        """
+        编码名 + 声道标签（有则附加），用于 rename_dict audioCodec
+        """
+        ac = cls._map_audio_codec(codec_name)
+        if not ac:
+            return None
+        tag = cls._normalize_audio_channel_tag(channel_layout, channels)
+        return f"{ac}{tag}" if tag else ac
+
+    @classmethod
     def _video_stream_hdr_flags(cls, video_s: Dict[str, Any]) -> Tuple[bool, bool]:
         """
         从视频流 side_data 与 codec_tag 判断是否含 Dolby Vision / HDR10+ 元数据
@@ -515,7 +576,11 @@ class FFprobeNamingSupplement(_PluginBase):
             if eff:
                 out["effect"] = eff
         if audio_s:
-            ac = cls._map_audio_codec(audio_s.get("codec_name"))
+            ac = cls._format_audio_codec_label(
+                audio_s.get("codec_name"),
+                audio_s.get("channel_layout"),
+                audio_s.get("channels"),
+            )
             if ac:
                 out["audioCodec"] = ac
         return out

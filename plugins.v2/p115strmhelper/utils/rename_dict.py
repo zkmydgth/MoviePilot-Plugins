@@ -171,6 +171,69 @@ class RenameDictUtils:
         return RenameDictUtils._AUDIO_CODEC_MAP.get(key, codec_name.upper())
 
     @staticmethod
+    def _normalize_audio_channel_tag(
+        channel_layout: Optional[str],
+        channels: Optional[Any],
+    ) -> Optional[str]:
+        """
+        从 ffprobe / Emby 的声道布局或声道数生成短标签（如 7.1、5.1、2.0）
+
+        与常见资源命名一致，拼在编码名后形成 TrueHD7.1、EAC35.1 等形式
+
+        :param channel_layout: channel_layout 或 ChannelLayout 字符串
+        :param channels: 声道数量
+        :return: 无可靠信息时 None
+        """
+        layout_raw = (channel_layout or "").strip()
+        if layout_raw:
+            layout = layout_raw.split("(", 1)[0].strip()
+            low = layout.lower()
+            aliases = {
+                "mono": "1.0",
+                "stereo": "2.0",
+                "quad": "4.0",
+            }
+            if low in aliases:
+                return aliases[low]
+            cleaned = layout.replace(" ", "")
+            if cleaned and all(c.isdigit() or c == "." for c in cleaned):
+                return cleaned
+        try:
+            n = int(channels) if channels is not None else 0
+        except (TypeError, ValueError):
+            n = 0
+        if n <= 0:
+            return None
+        count_map = {
+            1: "1.0",
+            2: "2.0",
+            3: "2.1",
+            4: "4.0",
+            5: "5.0",
+            6: "5.1",
+            7: "6.1",
+            8: "7.1",
+            10: "7.1.2",
+            12: "7.1.4",
+        }
+        return count_map.get(n)
+
+    @staticmethod
+    def _format_audio_codec_label(
+        codec_name: Optional[str],
+        channel_layout: Optional[str],
+        channels: Optional[Any],
+    ) -> Optional[str]:
+        """
+        编码名 + 声道标签（有则附加），用于 rename_dict audioCodec
+        """
+        ac = RenameDictUtils._map_audio_codec(codec_name)
+        if not ac:
+            return None
+        tag = RenameDictUtils._normalize_audio_channel_tag(channel_layout, channels)
+        return f"{ac}{tag}" if tag else ac
+
+    @staticmethod
     def _video_stream_hdr_flags(video_s: Dict[str, Any]) -> Tuple[bool, bool]:
         """
         从视频流 side_data 与 codec_tag 判断是否含 Dolby Vision / HDR10+ 元数据
@@ -280,7 +343,11 @@ class RenameDictUtils:
             if eff:
                 out["effect"] = eff
         if audio_s:
-            ac = RenameDictUtils._map_audio_codec(audio_s.get("codec_name"))
+            ac = RenameDictUtils._format_audio_codec_label(
+                audio_s.get("codec_name"),
+                audio_s.get("channel_layout"),
+                audio_s.get("channels"),
+            )
             if ac:
                 out["audioCodec"] = ac
         return out
@@ -542,7 +609,11 @@ class RenameDictUtils:
             if eff:
                 out["effect"] = eff
         if audio_s:
-            ac = RenameDictUtils._map_audio_codec(audio_s.get("Codec"))
+            ac = RenameDictUtils._format_audio_codec_label(
+                audio_s.get("Codec"),
+                audio_s.get("ChannelLayout"),
+                audio_s.get("Channels"),
+            )
             if ac:
                 out["audioCodec"] = ac
         return out
