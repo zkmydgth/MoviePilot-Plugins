@@ -469,7 +469,7 @@
                   </v-alert>
 
                   <v-alert type="warning" variant="tonal" density="compact" class="mt-2">
-                    注意：115生活事件监控会忽略网盘整理触发的移动事件，所以必须使用MP整理事件监控生成STRM
+                    注意：115生活事件监控默认会忽略网盘整理触发的移动事件，所以推荐使用MP整理事件监控生成STRM
                   </v-alert>
                 </v-card-text>
               </v-window-item>
