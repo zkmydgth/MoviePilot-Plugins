@@ -17,7 +17,6 @@ from p123client.tool import iterdir, share_iterdir
 from app.chain.storage import StorageChain
 from app.core.config import settings
 from app.core.event import eventmanager, Event
-from app.core.context import MediaInfo
 from app.core.meta import MetaBase
 from app.core.metainfo import MetaInfoPath
 from app.log import logger
@@ -171,7 +170,7 @@ class FullSyncStrmHelper:
         self.strm_fail_count = 0
         self.mediainfo_fail_count = 0
         self.strm_fail_dict: Dict[str, str] = {}
-        self.mediainfo_fail_dict: List = None
+        self.mediainfo_fail_dict: List = []
         self.server_address = server_address.rstrip("/")
         self._mediainfodownloader = MediaInfoDownloader(client=self.client)
         self._storagechain = StorageChain()
@@ -338,7 +337,7 @@ class ShareStrmHelper:
         self.strm_fail_count = 0
         self.mediainfo_fail_count = 0
         self.strm_fail_dict: Dict[str, str] = {}
-        self.mediainfo_fail_dict: List = None
+        self.mediainfo_fail_dict: List = []
         self.share_media_path = share_media_path
         self.local_media_path = local_media_path
         self.server_address = server_address.rstrip("/")
@@ -659,7 +658,7 @@ class P123StrmHelper(_PluginBase):
             }
         ]
 
-    def get_service(self) -> List[Dict[str, Any]]:
+    def get_service(self) -> List[Dict[str, Any]] | None:
         """
         注册插件公共服务
         """
@@ -1649,6 +1648,7 @@ class P123StrmHelper(_PluginBase):
             logger.info(f"【302跳转服务】获取 123 下载地址成功: {url}")
         except Exception as e:
             logger.error(f"【302跳转服务】获取 123 下载地址失败: {e}")
+            return JSONResponse(f"【302跳转服务】获取 123 下载地址失败: {e}")
 
         return RedirectResponse(url, 302)
 
@@ -1686,7 +1686,7 @@ class P123StrmHelper(_PluginBase):
                 return True, new_file_path
             except Exception as e:  # noqa: F841
                 logger.error(
-                    "【监控整理STRM生成】生成 %s 文件失败: %s", str(new_file_path), e
+                    "【监控整理STRM生成】生成 %s 文件失败: %s", str(new_file_path), e  # noqa
                 )
                 return False, None
 

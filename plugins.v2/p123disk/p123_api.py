@@ -406,7 +406,7 @@ class P123Api:
             if resp.get("data").get("Reuse"):
                 logger.info(f"【123】{target_name} 秒传成功")
                 logger.debug(resp)
-                data = resp.get("data", {}).get("Info", None)
+                data = resp.get("data", {}).get("Info", {})
                 return schemas.FileItem(
                     storage=self._disk_name,
                     fileid=str(data["FileId"]),
@@ -576,7 +576,7 @@ class P123Api:
             )
             check_response(complete_resp)
 
-            data = complete_resp.get("data", {}).get("file_info", None)
+            data = complete_resp.get("data", {}).get("file_info", {})
             return schemas.FileItem(
                 storage=self._disk_name,
                 fileid=str(data["FileId"]),
@@ -609,7 +609,7 @@ class P123Api:
         :param new_name: 新文件名
         """
         try:
-            resp = self.client.client.fs_copy(
+            resp = self.client.fs_copy(
                 fileitem.fileid, parent_id=self._path_to_id(str(path))
             )
             check_response(resp)
@@ -633,7 +633,7 @@ class P123Api:
         :param new_name: 新文件名
         """
         try:
-            resp = self.client.client.fs_move(
+            resp = self.client.fs_move(
                 fileitem.fileid, parent_id=self._path_to_id(str(path))
             )
             check_response(resp)

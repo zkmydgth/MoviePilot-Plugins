@@ -25,7 +25,7 @@ class P123AutoClient:
 
     def __getattr__(self, name):
         if self._client is None:
-            self._client = P123Client(self._passport, self._password)
+            self._client = P123Client(self._passport, self._password)  # noqa
 
         def wrapped(*args, **kwargs):
             attr = getattr(self._client, name)
@@ -37,7 +37,7 @@ class P123AutoClient:
                 and result.get("code") == 401
                 and result.get("message") == "tokens number has exceeded the limit"
             ):
-                self._client = P123Client(self._passport, self._password)
+                self._client = P123Client(self._passport, self._password)  # noqa
                 attr = getattr(self._client, name)
                 if not callable(attr):
                     return attr
@@ -105,7 +105,7 @@ class P123Disk(_PluginBase):
 
             try:
                 self._client = P123AutoClient(self._passport, self._password)
-                self._p123_api = P123Api(client=self._client, disk_name=self._disk_name)
+                self._p123_api = P123Api(client=self._client, disk_name=self._disk_name)  # noqa
             except Exception as e:
                 logger.error(f"123云盘客户端创建失败: {e}")
 
@@ -217,7 +217,7 @@ class P123Disk(_PluginBase):
         event_data: StorageOperSelectionEventData = event.event_data
         if event_data.storage == self._disk_name:
             # 处理云盘的操作
-            event_data.storage_oper = self._p123_api
+            event_data.storage_oper = self._p123_api  # noqa
 
     def list_files(
         self, fileitem: schemas.FileItem, recursion: bool = False
@@ -405,7 +405,7 @@ class P123Disk(_PluginBase):
 
                     # 增量检查：如果目录修改时间早于上次快照，跳过
                     if (
-                        self.snapshot_check_folder_modtime
+                        self.snapshot_check_folder_modtime  # noqa
                         and last_snapshot_time
                         and _fileitm.modify_time
                         and _fileitm.modify_time <= last_snapshot_time
