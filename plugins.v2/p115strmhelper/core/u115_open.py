@@ -1343,3 +1343,5 @@ class U115OpenHelper:
                         executor.shutdown(wait=False, cancel_futures=True)
                         raise e
                     break
+
+# TODO 增量同步函数设计
