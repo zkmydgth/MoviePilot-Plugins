@@ -9,17 +9,14 @@ from p115client.tool.export_dir import export_dir_parse_iter
 from p115client.tool.fs_files import iter_fs_files
 from sqlalchemy.orm.exc import MultipleResultsFound
 
-from app.chain.media import MediaChain
-from app.core.metainfo import MetaInfoPath
-from app.helper.mediaserver import MediaServerHelper
 from app.log import logger
-from app.schemas import RefreshMediaItem, ServiceInfo
 
 from ...core.cache import idpathcacher
 from ...core.config import configer
 from ...core.scrape import media_scrape_metadata
 from ...db_manager.oper import FileDbHelper
 from ...helper.mediainfo_download import MediaInfoDownloader
+from ...helper.mediaserver import MediaServerRefresh
 from ...utils.exception import (
     PanPathNotFound,
     PanDataNotInDb,
@@ -66,7 +63,7 @@ class IncrementSyncStrmHelper:
         self.media_server_refresh_enabled = configer.get_config(
             "increment_sync_media_server_refresh_enabled"
         )
-        self.mediaservers = configer.get_config("increment_sync_mediaservers")
+        self.mediaservers = configer.increment_sync_mediaservers
         self.strm_count = 0
         self.mediainfo_count = 0
         self.strm_fail_count = 0
@@ -74,14 +71,20 @@ class IncrementSyncStrmHelper:
         self.api_count = 0
         self.strm_fail_dict: Dict[str, str] = {}
         self.mediainfo_fail_dict: List = []
-        self.server_address = configer.get_config("moviepilot_address").rstrip("/")
-        self.pan_transfer_enabled = configer.get_config("pan_transfer_enabled")
-        self.pan_transfer_paths = configer.get_config("pan_transfer_paths")
-        self.strm_url_format = configer.get_config("strm_url_format")
+        self.server_address = configer.moviepilot_address.rstrip("/")
+        self.pan_transfer_enabled = configer.pan_transfer_enabled
+        self.pan_transfer_paths = configer.pan_transfer_paths
+        self.strm_url_format = configer.strm_url_format
         self.databasehelper = FileDbHelper()
         self.download_mediainfo_list = []
 
         self.strmurlgetter = StrmUrlGetter()
+        self.mediaserver_helper = MediaServerRefresh(
+            func_name="【增量STRM生成】",
+            enabled=self.media_server_refresh_enabled,
+            mp_mediaserver=self.mp_mediaserver_paths,
+            mediaservers=self.mediaservers,
+        )
 
         # 临时文件配置
         self.local_tree = (
@@ -217,83 +220,6 @@ class IncrementSyncStrmHelper:
                 self.databasehelper.upsert_batch(processed)
             last_path = temp_path
             time.sleep(2)
-
-    @property
-    def service_infos(self) -> Optional[Dict[str, ServiceInfo]]:
-        """
-        媒体服务器服务信息
-        """
-        if not self.mediaservers:
-            logger.warning("【增量STRM生成】尚未配置媒体服务器，请检查配置")
-            return None
-
-        mediaserver_helper = MediaServerHelper()
-
-        services = mediaserver_helper.get_services(name_filters=self.mediaservers)
-        if not services:
-            logger.warning("【增量STRM生成】获取媒体服务器实例失败，请检查配置")
-            return None
-
-        active_services = {}
-        for service_name, service_info in services.items():
-            if service_info.instance.is_inactive():
-                logger.warning(
-                    f"【增量STRM生成】媒体服务器 {service_name} 未连接，请检查配置"
-                )
-            else:
-                active_services[service_name] = service_info
-
-        if not active_services:
-            logger.warning("【增量STRM生成】没有已连接的媒体服务器，请检查配置")
-            return None
-
-        return active_services
-
-    def __refresh_mediaserver(self, file_path: str, file_name: str):
-        """
-        刷新媒体服务器
-        """
-        if self.media_server_refresh_enabled:
-            if not self.service_infos:
-                return
-            logger.info(f"【增量STRM生成】{file_name} 开始刷新媒体服务器")
-            if self.mp_mediaserver_paths:
-                status, mediaserver_path, moviepilot_path = PathUtils.get_media_path(
-                    self.mp_mediaserver_paths, file_path
-                )
-                if status:
-                    logger.debug(
-                        f"【增量STRM生成】{file_name} 刷新媒体服务器目录替换中..."
-                    )
-                    file_path = file_path.replace(
-                        moviepilot_path, mediaserver_path
-                    ).replace("\\", "/")
-                    logger.debug(
-                        f"【增量STRM生成】刷新媒体服务器目录替换: {moviepilot_path} --> {mediaserver_path}"
-                    )
-                    logger.info(f"【增量STRM生成】刷新媒体服务器目录: {file_path}")
-            mediachain = MediaChain()
-            meta = MetaInfoPath(path=Path(file_path))
-            mediainfo = mediachain.recognize_media(meta=meta)
-            if not mediainfo:
-                logger.warning(f"【增量STRM生成】{file_name} 无法刷新媒体库")
-                return
-            items = [
-                RefreshMediaItem(
-                    title=mediainfo.title,
-                    year=mediainfo.year,
-                    type=mediainfo.type,
-                    category=mediainfo.category,
-                    target_path=Path(file_path),
-                )
-            ]
-            for name, service in self.service_infos.items():
-                if hasattr(service.instance, "refresh_library_by_items"):
-                    service.instance.refresh_library_by_items(items)
-                elif hasattr(service.instance, "refresh_root_library"):
-                    service.instance.refresh_root_library()
-                else:
-                    logger.warning(f"【增量STRM生成】{file_name} {name} 不支持刷新")
 
     def __generate_local_tree(self, target_dir: str):
         """
@@ -479,7 +405,10 @@ class IncrementSyncStrmHelper:
                 media_scrape_metadata(
                     path=local_path,
                 )
-        self.__refresh_mediaserver(local_path, new_file_path.name)
+        self.mediaserver_helper.refresh_mediaserver(
+            file_path=local_path,
+            file_name=new_file_path.name,
+        )
 
     def generate_strm_files(self, sync_strm_paths):
         """

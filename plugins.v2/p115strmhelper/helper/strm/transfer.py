@@ -1,18 +1,17 @@
 from pathlib import Path
-from typing import Dict, Optional
 
 from app.chain.storage import StorageChain
 from app.core.context import MediaInfo
 from app.core.meta import MetaBase
-from app.helper.mediaserver import MediaServerHelper
 from app.log import logger
-from app.schemas import RefreshMediaItem, ServiceInfo, TransferInfo
+from app.schemas import TransferInfo
 from app.utils.system import SystemUtils
 
 from ...core.config import configer
 from ...core.scrape import media_scrape_metadata
 from ...db_manager.oper import FileDbHelper
 from ...helper.mediainfo_download import MediaInfoDownloader
+from ...helper.mediaserver import MediaServerRefresh
 from ...utils.path import PathUtils
 from ...utils.sentry import sentry_manager
 from ...utils.strm import StrmUrlGetter
@@ -22,83 +21,6 @@ class TransferStrmHelper:
     """
     处理事件事件STRM文件生成
     """
-
-    @property
-    def transfer_service_infos(self) -> Optional[Dict[str, ServiceInfo]]:
-        """
-        监控MP整理 媒体服务器服务信息
-        """
-        if not configer.get_config("transfer_monitor_mediaservers"):
-            logger.warning("尚未配置媒体服务器，请检查配置")
-            return None
-
-        mediaserver_helper = MediaServerHelper()
-
-        services = mediaserver_helper.get_services(
-            name_filters=configer.get_config("transfer_monitor_mediaservers")
-        )
-        if not services:
-            logger.warning("获取媒体服务器实例失败，请检查配置")
-            return None
-
-        active_services = {}
-        for service_name, service_info in services.items():
-            if service_info.instance.is_inactive():
-                logger.warning(f"媒体服务器 {service_name} 未连接，请检查配置")
-            else:
-                active_services[service_name] = service_info
-
-        if not active_services:
-            logger.warning("没有已连接的媒体服务器，请检查配置")
-            return None
-
-        return active_services
-
-    def refresh_media_server(self, item_dest_name: str, strm_target_path, mediainfo):
-        """
-        刷新媒体服务器
-        """
-        if not self.transfer_service_infos:
-            return
-
-        logger.info(f"【监控整理STRM生成】 {item_dest_name} 开始刷新媒体服务器")
-
-        if configer.get_config("transfer_mp_mediaserver_paths"):
-            status, mediaserver_path, moviepilot_path = PathUtils.get_media_path(
-                configer.get_config("transfer_mp_mediaserver_paths"),
-                strm_target_path,
-            )
-            if status:
-                logger.info(
-                    f"【监控整理STRM生成】 {item_dest_name} 刷新媒体服务器目录替换中..."
-                )
-                strm_target_path = strm_target_path.replace(
-                    moviepilot_path, mediaserver_path
-                ).replace("\\", "/")
-                logger.info(
-                    f"【监控整理STRM生成】刷新媒体服务器目录替换: {moviepilot_path} --> {mediaserver_path}"
-                )
-                logger.info(
-                    f"【监控整理STRM生成】刷新媒体服务器目录: {strm_target_path}"
-                )
-        items = [
-            RefreshMediaItem(
-                title=mediainfo.title,
-                year=mediainfo.year,
-                type=mediainfo.type,
-                category=mediainfo.category,
-                target_path=Path(strm_target_path),
-            )
-        ]
-        for name, service in self.transfer_service_infos.items():
-            if hasattr(service.instance, "refresh_library_by_items"):
-                service.instance.refresh_library_by_items(items)
-            elif hasattr(service.instance, "refresh_root_library"):
-                service.instance.refresh_root_library()
-            else:
-                logger.warning(
-                    f"【监控整理STRM生成】 {item_dest_name} {name} 不支持刷新"
-                )
 
     @staticmethod
     def generate_strm_files(
@@ -293,8 +215,14 @@ class TransferStrmHelper:
                 )
 
         if configer.get_config("transfer_monitor_media_server_refresh_enabled"):
-            self.refresh_media_server(
-                item_dest_name=item_dest_name,
-                strm_target_path=strm_target_path,
+            mediaserver_helper = MediaServerRefresh(
+                func_name="【监控整理STRM生成】",
+                enabled=configer.transfer_monitor_media_server_refresh_enabled,
+                mp_mediaserver=configer.transfer_mp_mediaserver_paths,
+                mediaservers=configer.transfer_monitor_mediaservers,
+            )
+            mediaserver_helper.refresh_mediaserver(
+                file_name=item_dest_name,
+                file_path=strm_target_path,
                 mediainfo=mediainfo,
             )
