@@ -1,4 +1,5 @@
 import re
+from urllib.parse import urlparse, urlunparse, quote, parse_qs, urlencode
 
 from ..core.i18n import i18n
 
@@ -80,3 +81,26 @@ class StringUtils:
         elif media_type == "tv":
             return i18n.translate("media_type_tv")
         return i18n.translate("media_type_collection")
+
+    @staticmethod
+    def encode_url_fully(url: str) -> str:
+        """
+        编码标准 URL
+        """
+        try:
+            parsed_url = urlparse(url)
+            encoded_path = quote(parsed_url.path, safe="/")
+            query_dict = parse_qs(parsed_url.query, keep_blank_values=True)
+            encoded_query = urlencode(query_dict, doseq=True)
+            encoded_fragment = quote(parsed_url.fragment)
+            encoded_url_parts = (
+                parsed_url.scheme,
+                parsed_url.netloc,
+                encoded_path,
+                parsed_url.params,
+                encoded_query,
+                encoded_fragment,
+            )
+            return urlunparse(encoded_url_parts)
+        except Exception:
+            return url

@@ -1,0 +1,207 @@
+import re
+from typing import List
+
+import requests
+from bs4 import BeautifulSoup
+
+from app.log import logger
+
+from ..core.config import configer
+from ..schemas.tg_search import ResourceItem
+from ..utils.string import StringUtils
+from ..utils.sentry import sentry_manager
+
+
+@sentry_manager.capture_all_class_exceptions
+class TgSearcher:
+    """
+    Telegream 搜索器
+
+    模块思路参考：
+      - https://github.com/JieWSOFT/MediaHelp/blob/main/backend/utils/tg_resource_sdk.py
+        - LICENSE: https://github.com/JieWSOFT/MediaHelp/blob/main/LICENSE
+      - https://github.com/Cp0204/quark-auto-save/blob/main/app/sdk/cloudsaver.py
+        - LICENSE: https://github.com/Cp0204/quark-auto-save/blob/main/LICENSE
+    """
+
+    def __init__(self):
+        self.session = requests.Session()
+        self.session.headers.update({"User-Agent": configer.get_user_agent(utype=1)})
+
+    def extract_cloud_links(self, text: str) -> tuple[List[str], str]:
+        """
+        提取云盘链接
+        """
+        links: List[str] = []
+        cloud_type = ""
+
+        cloud_patterns = {
+            "u115": r"(https?://(?:[a-zA-Z0-9-]+\.)*115[^/\s#]*\.[a-zA-Z]{2,}[^\s#]*)",
+            "aliyun": r"(https?://(?:[a-zA-Z0-9-]+\.)?(?:alipan|aliyundrive)\.[a-zA-Z]{2,}[^\s#]*)",
+        }
+
+        for cloud_name, pattern in cloud_patterns.items():
+            try:
+                matches = re.findall(pattern, text)
+                if matches:
+                    links.extend(matches)
+                    if not cloud_type:
+                        cloud_type = cloud_name
+            except Exception as e:
+                logger.warn(f"【TGSearch】匹配 {cloud_name} 云盘链接时出错: {str(e)}")
+                continue
+
+        unique_links = list(set(links))
+        return unique_links, cloud_type
+
+    def get_channel(self, url: str, channel_id: str) -> List[ResourceItem]:
+        """
+        搜索单个频道资源
+        """
+        try:
+            response = self.session.get(url)
+            response.raise_for_status()
+            html = response.text
+        except requests.exceptions.RequestException as e:
+            logger.warn(f"【TGSearch】请求失败: {url}, 错误: {e}")
+            return []
+
+        soup = BeautifulSoup(html, "html.parser")
+        items: List[ResourceItem] = []
+
+        for message in soup.select(".tgme_widget_message_wrap"):
+            message_element = message.select_one(".tgme_widget_message")
+            message_id = (
+                message_element.get("data-post", "").split("/")[1]
+                if message_element
+                else None
+            )
+
+            text_element = message.select_one(".js-message_text")
+            title = ""
+            content = ""
+            if not text_element:
+                continue
+
+            html_content = str(text_element)
+            title_match = re.split("<br.*?>", html_content, 1)
+            title = BeautifulSoup(title_match[0], "html.parser").get_text(
+                " ", strip=True
+            )
+
+            if len(title_match) > 1:
+                content_html = title_match[1]
+                content = BeautifulSoup(content_html, "html.parser").get_text(
+                    "\n", strip=True
+                )
+
+            time_element = message.select_one("time")
+            pub_date = time_element.get("datetime") if time_element else None
+
+            photo_wrap = message.select_one(".tgme_widget_message_photo_wrap")
+            image = None
+            if photo_wrap and (style := photo_wrap.get("style")):
+                if image_match := re.search(r"url\('(.+?)'\)", style):
+                    image = image_match.group(1)
+
+            tags: List[str] = []
+            found_hrefs: List[str] = []
+            for a in text_element.select("a"):
+                href = a.get("href")
+                text = a.get_text(strip=True)
+
+                if href:
+                    found_hrefs.append(href)
+
+                if text and text.startswith("#"):
+                    clean_tag = text.lstrip("#")
+                    if clean_tag:
+                        tags.append(clean_tag)
+
+            all_links_text = " ".join(found_hrefs)
+            cloud_links, cloud_type = self.extract_cloud_links(all_links_text)
+
+            if not cloud_links:
+                continue
+
+            item: ResourceItem = {
+                "message_id": message_id,
+                "title": title,
+                "pub_date": pub_date,
+                "content": content,
+                "image": image,
+                "cloud_links": cloud_links,
+                "tags": tags,
+                "cloud_type": cloud_type,
+                "channel_id": channel_id,
+            }
+            items.append(item)
+
+        return items
+
+    def search(self, key: str, channels: List) -> List[dict]:
+        """
+        搜索资源
+        """
+        results: List[ResourceItem] = []
+        for item in channels:
+            channel_id = item.get("id")
+            if not channel_id:
+                continue
+            url = StringUtils.encode_url_fully(f"https://t.me/s/{channel_id}?q={key}")
+            results.extend(self.get_channel(url, channel_id))
+
+        seen_links = set()
+        clean_results = []
+
+        pattern_title = r"(名称|标题)\s*[：:]\s*(.*)"
+        pattern_content = r"(描述|简介)\s*[：:]\s*(.*)"
+
+        for item in results:
+            if not item.get("cloud_links"):
+                continue
+
+            main_link = item["cloud_links"][0]
+            if main_link in seen_links:
+                continue
+
+            seen_links.add(main_link)
+
+            title = item.get("title", "")
+            if match := re.search(pattern_title, title, re.DOTALL):
+                title = match.group(2)
+            title = title.replace("&amp;", "&").strip()
+
+            content = item.get("content", "")
+            if "\n" in content:
+                content_lines = []
+                in_description = False
+                for line in content.split("\n"):
+                    if re.match(pattern_content, line):
+                        in_description = True
+                        content_lines.append(
+                            re.sub(pattern_content, r"\2", line).strip()
+                        )
+                        continue
+                    if re.match(r"(链接|标签)\s*[：:]", line):
+                        in_description = False
+
+                    if in_description:
+                        content_lines.append(line.strip())
+
+                if content_lines:
+                    content = "\n".join(content_lines)
+
+            clean_results.append(
+                {
+                    "shareurl": main_link,
+                    "taskname": title,
+                    "content": content.strip(),
+                    "tags": item.get("tags", []),
+                    "channel_id": item.get("channel_id", ""),
+                }
+            )
+
+        logger.debug(f"【TGSearch】{key} 搜索到资源 {len(clean_results)} 条")
+
+        return clean_results

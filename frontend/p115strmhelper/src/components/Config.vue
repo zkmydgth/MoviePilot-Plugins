@@ -809,59 +809,67 @@
               <v-window-item value="tab-tg-search">
                 <v-card-text>
 
-                  <v-row>
-                    <v-col cols="12" md="4">
-                      <v-text-field v-model="config.cloudsaver_url" label="CloudSaver 地址" hint="CloudSaver 地址"
-                        persistent-hint density="compact" variant="outlined" hide-details="auto"></v-text-field>
-                    </v-col>
-                    <v-col cols="12" md="4">
-                      <v-text-field v-model="config.cloudsaver_username" label="CloudSaver 用户名" hint="CloudSaver 用户名"
-                        persistent-hint density="compact" variant="outlined" hide-details="auto"></v-text-field>
-                    </v-col>
-                    <v-col cols="12" md="4">
-                      <v-text-field v-model="config.cloudsaver_password" label="CloudSaver 密码" hint="CloudSaver 密码"
-                        persistent-hint type="password" density="compact" variant="outlined"
-                        hide-details="auto"></v-text-field>
-                    </v-col>
-                  </v-row>
+                  <!-- Nullbr 配置 -->
+                  <v-card variant="outlined" class="mb-6">
+                    <v-card-item>
+                      <v-card-title class="d-flex align-center">
+                        <v-icon start>mdi-cog-outline</v-icon>
+                        <span class="text-h6">Nullbr 搜索配置</span>
+                      </v-card-title>
+                    </v-card-item>
+                    <v-card-text>
+                      <v-row>
+                        <v-col cols="12" md="6">
+                          <v-text-field v-model="config.nullbr_app_id" label="Nullbr APP ID" hint="从 Nullbr 官网申请"
+                            persistent-hint density="compact" variant="outlined"></v-text-field>
+                        </v-col>
+                        <v-col cols="12" md="6">
+                          <v-text-field v-model="config.nullbr_api_key" label="Nullbr API KEY" hint="从 Nullbr 官网申请"
+                            persistent-hint density="compact" variant="outlined"></v-text-field>
+                        </v-col>
+                      </v-row>
+                    </v-card-text>
+                  </v-card>
 
-                  <v-row>
-                    <v-col cols="12" md="4">
-                      <v-text-field v-model="config.nullbr_app_id" label="Nullbr APP ID" hint="Nullbr APP ID"
-                        persistent-hint density="compact" variant="outlined" hide-details="auto"></v-text-field>
-                    </v-col>
-                    <v-col cols="12" md="4">
-                      <v-text-field v-model="config.nullbr_api_key" label="Nullbr API KEY" hint="Nullbr API KEY"
-                        persistent-hint density="compact" variant="outlined" hide-details="auto"></v-text-field>
-                    </v-col>
-                  </v-row>
+                  <!-- 自定义频道搜索配置 -->
+                  <v-card variant="outlined">
+                    <v-card-item>
+                      <v-card-title class="d-flex align-center">
+                        <v-icon start>mdi-telegram</v-icon>
+                        <span class="text-h6">自定义Telegram频道</span>
+                      </v-card-title>
+                    </v-card-item>
+                    <v-card-text>
+                      <div v-for="(channel, index) in tgChannels" :key="index" class="d-flex align-center mb-4">
+                        <v-text-field v-model="channel.name" label="频道名称" placeholder="例如：爱影115资源分享频道" density="compact"
+                          variant="outlined" hide-details class="mr-3"></v-text-field>
+                        <v-text-field v-model="channel.id" label="频道ID" placeholder="例如：ayzgzf" density="compact"
+                          variant="outlined" hide-details class="mr-3"></v-text-field>
+                        <v-btn icon size="small" color="error" variant="tonal" @click="removeTgChannel(index)"
+                          title="删除此频道">
+                          <v-icon>mdi-delete-outline</v-icon>
+                        </v-btn>
+                      </div>
 
-                  <v-alert type="info" variant="tonal" density="compact" class="mt-3 text-caption">
-                    <strong>Telegram频道搜索功能说明</strong><br><br>
+                      <!-- 操作按钮组 -->
+                      <div class="d-flex ga-2">
+                        <v-btn size="small" prepend-icon="mdi-plus-circle-outline" variant="tonal" color="primary"
+                          @click="addTgChannel">
+                          添加频道
+                        </v-btn>
+                        <v-btn size="small" prepend-icon="mdi-import" variant="tonal" @click="openImportDialog">
+                          一键导入
+                        </v-btn>
+                      </div>
+                    </v-card-text>
+                  </v-card>
 
-                    <strong>🔧 实现方式</strong><br>
-                    本功能通过对接以下两个服务平台实现：<br>
-                    1. CloudSaver (<a href="https://github.com/jiangrui1994/CloudSaver"
-                      target="_blank">https://github.com/jiangrui1994/CloudSaver</a>)<br>
-                    2. Nullbr (<a href="https://nullbr.online/" target="_blank">https://nullbr.online/</a>)<br><br>
-
-                    <strong>⚙️ 配置要求</strong><br>
-                    您需要至少完成其中一个平台的配置才能使用搜索功能：<br><br>
-
-                    <strong>CloudSaver配置：</strong><br>
-                    - 服务地址<br>
-                    - 用户名<br>
-                    - 密码<br><br>
-
-                    <strong>Nullbr配置：</strong><br>
-                    - 需要从官网申请 APP ID<br>
-                    - 需要从官网申请 API Key<br><br>
-
-                    <strong>💡 使用建议</strong><br>
-                    - 可以同时配置两个平台<br>
-                    - 如果两者都配置，系统会优先显示Nullbr的资源结果<br>
-                    - 配置越多，可搜索的资源范围越广
+                  <v-alert type="info" variant="tonal" density="compact" class="mt-6 text-caption">
+                    <strong>Telegram频道搜索功能说明</strong><br>
+                    - 您可以同时配置 Nullbr 和下方的自定义频道列表。<br>
+                    - 系统会整合两者的搜索结果，为您提供更广泛的资源范围。
                   </v-alert>
+
                 </v-card-text>
               </v-window-item>
 
@@ -1200,6 +1208,37 @@
       </v-card>
     </v-dialog>
 
+    <!-- 一键导入频道配置对话框 -->
+    <v-dialog v-model="importDialog.show" max-width="600" persistent>
+      <v-card>
+        <v-card-title class="text-subtitle-1 d-flex align-center px-3 py-2 bg-primary-lighten-5">
+          <v-icon icon="mdi-import" class="mr-2" color="primary" size="small" />
+          <span>一键导入频道配置</span>
+        </v-card-title>
+        <v-card-text class="py-4">
+          <v-alert v-if="importDialog.error" type="error" density="compact" class="mb-3" variant="tonal" closable>
+            {{ importDialog.error }}
+          </v-alert>
+          <p class="text-caption mb-2 text-grey-darken-1">
+            请在此处粘贴JSON格式的频道列表。格式应为：<br>
+            <code>[{"name":"名称1", "id":"id1"}, {"name":"名称2", "id":"id2"}]</code>
+          </p>
+          <v-textarea v-model="importDialog.jsonText" label="频道配置JSON" variant="outlined" rows="8" auto-grow
+            hide-details="auto" placeholder='[{"name":"Lsp115","id":"Lsp115"}]'></v-textarea>
+        </v-card-text>
+        <v-divider></v-divider>
+        <v-card-actions class="px-3 py-2">
+          <v-spacer></v-spacer>
+          <v-btn color="grey" variant="text" @click="closeImportDialog" size="small">
+            取消
+          </v-btn>
+          <v-btn color="primary" variant="text" @click="handleConfirmImport" size="small">
+            确认导入
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
   </div>
 </template>
 
@@ -1294,11 +1333,9 @@ const config = reactive({
   directory_upload_uploadext: 'mp4,mkv,ts,iso,rmvb,avi,mov,mpeg,mpg,wmv,3gp,asf,m4v,flv,m2ts,tp,f4v',
   directory_upload_copyext: 'srt,ssa,ass',
   directory_upload_path: [],
-  cloudsaver_url: '',
-  cloudsaver_username: '',
-  cloudsaver_password: '',
   nullbr_app_id: '',
   nullbr_api_key: '',
+  tg_search_channels: [],
   same_playback: false,
   error_info_upload: false,
   upload_module_enhancement: false,
@@ -1409,6 +1446,24 @@ const monitorLifeExcludePaths = ref([{ path: '' }]);
 const directoryUploadPaths = ref([{ src: '', dest_remote: '', dest_local: '', delete: false }]);
 const fullSyncConfirmDialog = ref(false);
 const machineId = ref('');
+const tgChannels = ref([{ name: '', id: '' }]);
+
+const addTgChannel = () => {
+  tgChannels.value.push({ name: '', id: '' });
+};
+
+const removeTgChannel = (index) => {
+  tgChannels.value.splice(index, 1);
+  if (tgChannels.value.length === 0) {
+    tgChannels.value.push({ name: '', id: '' });
+  }
+};
+
+const importDialog = reactive({
+  show: false,
+  jsonText: '',
+  error: ''
+});
 
 // 目录选择器对话框
 const dirDialog = reactive({
@@ -1760,6 +1815,27 @@ const loadConfig = async () => {
         ? JSON.parse(JSON.stringify(config.directory_upload_path))
         : [{ src: '', dest_remote: '', dest_local: '', delete: false }];
 
+      // 解析TG频道配置
+      let parsedChannels = [];
+      if (config.tg_search_channels) {
+        if (Array.isArray(config.tg_search_channels)) {
+          parsedChannels = config.tg_search_channels;
+        }
+        else if (typeof config.tg_search_channels === 'string') {
+          try {
+            parsedChannels = JSON.parse(config.tg_search_channels);
+          } catch (e) {
+            console.error('解析旧的TG频道配置字符串失败:', e);
+            parsedChannels = [];
+          }
+        }
+      }
+      if (Array.isArray(parsedChannels) && parsedChannels.length > 0) {
+        tgChannels.value = parsedChannels;
+      } else {
+        tgChannels.value = [{ name: '', id: '' }];
+      }
+
       // 保存媒体服务器列表
       if (data.mediaservers) {
         mediaservers.value = data.mediaservers;
@@ -1806,6 +1882,11 @@ const saveConfig = async () => {
     config.monitor_life_mp_mediaserver_paths = generatePathsConfig(monitorLifeMpPaths.value, 'monitorLifeMp');
     config.pan_transfer_paths = generatePathsConfig(panTransferPaths.value, 'panTransfer');
     config.directory_upload_path = directoryUploadPaths.value.filter(p => p.src?.trim() || p.dest_remote?.trim() || p.dest_local?.trim());
+
+    const validChannels = tgChannels.value.filter(
+      c => c.name && c.name.trim() !== '' && c.id && c.id.trim() !== ''
+    );
+    config.tg_search_channels = validChannels;
 
     // 2. 【重要】通过 emit 事件将配置数据发送给 MoviePilot 框架
     //    使用 JSON.parse(JSON.stringify(...)) 确保传递的是纯对象
@@ -2045,6 +2126,55 @@ const removePanTransferPath = (index) => {
   panTransferPaths.value.splice(index, 1);
   if (panTransferPaths.value.length === 0) {
     panTransferPaths.value = [{ path: '' }];
+  }
+};
+
+// 打开导入对话框
+const openImportDialog = () => {
+  importDialog.jsonText = '';
+  importDialog.error = '';
+  importDialog.show = true;
+};
+
+// 关闭导入对话框
+const closeImportDialog = () => {
+  importDialog.show = false;
+};
+
+// 处理确认导入的逻辑
+const handleConfirmImport = () => {
+  importDialog.error = ''; // 重置错误信息
+  if (!importDialog.jsonText || !importDialog.jsonText.trim()) {
+    importDialog.error = '输入内容不能为空。';
+    return;
+  }
+
+  try {
+    const parsedData = JSON.parse(importDialog.jsonText);
+
+    // 验证数据结构
+    if (!Array.isArray(parsedData)) {
+      throw new Error("数据必须是一个数组。");
+    }
+    const isValidStructure = parsedData.every(
+      item => typeof item === 'object' && item !== null && 'name' in item && 'id' in item
+    );
+    if (!isValidStructure) {
+      throw new Error("数组中的每个元素都必须是包含 'name' 和 'id' 键的对象。");
+    }
+
+    // 导入成功
+    // 如果导入的是空数组，则显示一个空行；否则直接使用导入的数据
+    tgChannels.value = parsedData.length > 0 ? parsedData : [{ name: '', id: '' }];
+
+    message.text = '频道配置导入成功！';
+    message.type = 'success';
+    closeImportDialog();
+
+  } catch (e) {
+    // 捕获JSON解析或结构验证错误
+    importDialog.error = `导入失败: ${e.message}`;
+    console.error("频道导入解析失败:", e);
   }
 };
 

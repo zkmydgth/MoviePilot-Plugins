@@ -210,12 +210,8 @@ class ConfigManager(BaseModel):
     # 监控目录信息
     directory_upload_path: Optional[List[Dict]] = None
 
-    # CloudSaver 地址
-    cloudsaver_url: Optional[str] = Field(None, min_length=1)
-    # CloudSaver 用户名
-    cloudsaver_username: Optional[str] = Field(None, min_length=1)
-    # CloudSaver 密码
-    cloudsaver_password: Optional[str] = Field(None, min_length=1)
+    # TG 搜索频道
+    tg_search_channels: Optional[List[Dict]] = None
     # Nullbr APP ID
     nullbr_app_id: Optional[str] = Field(None, min_length=1)
     # Nullbr API KEY
@@ -360,7 +356,7 @@ class ConfigManager(BaseModel):
         if utype in user_agents:
             return user_agents[utype]
         return (
-            f"{self.PLUSIN_NAME}/2.0.15 "
+            f"{self.PLUSIN_NAME}/2.0.17 "
             f"({platform.system()} {platform.release()}; "
             f"{SystemUtils.cpu_arch() if hasattr(SystemUtils, 'cpu_arch') and callable(SystemUtils.cpu_arch) else 'UnknownArch'})"
         )

@@ -49,7 +49,7 @@ class P115StrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png"
     # 插件版本
-    plugin_version = "2.0.16"
+    plugin_version = "2.0.17"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -635,11 +635,7 @@ class P115StrmHelper(_PluginBase):
         if not event_data or event_data.get("action") != "p115_search":
             return
 
-        if (
-            not configer.get_config("cloudsaver_url")
-            or not configer.get_config("cloudsaver_username")
-            or not configer.get_config("cloudsaver_password")
-        ):
+        if not configer.tg_search_channels:
             post_message(
                 channel=event.event_data.get("channel"),
                 title=i18n.translate("p115_search_config_error"),

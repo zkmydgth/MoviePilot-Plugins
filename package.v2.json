@@ -98,11 +98,12 @@
         "name": "115网盘STRM助手",
         "description": "115网盘STRM生成一条龙服务",
         "labels": "云盘",
-        "version": "2.0.16",
+        "version": "2.0.17",
         "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png",
         "author": "DDSRem",
         "level": 1,
         "history": {
+            "v2.0.17": "重构频道搜索，内置搜索模块，完全脱离 CloudSaver",
             "v2.0.16": "修复上传增强已知问题，极大提高上传稳定性",
             "v2.0.15": "上传超时改为120s，默认分片100M，增加日志输出",
             "v2.0.14": "修复配置和上传问题",

@@ -4,7 +4,7 @@ from typing import Dict, Any, Tuple, Optional, List
 
 from app.schemas.message import ChannelCapabilityManager
 
-from ..sdk.cloudsaver import CloudSaverHelper
+from ..helper.tg_search import TgSearcher
 from ..sdk.nullbr import NullbrHelper
 from .framework.callbacks import Action
 from .framework.registry import view_registry
@@ -126,20 +126,12 @@ class ViewRenderer(BaseViewRenderer):
             )
 
         cs_data = []
-        if (
-            configer.get_config("cloudsaver_username")
-            and configer.get_config("cloudsaver_password")
-            and configer.get_config("cloudsaver_url")
-        ):
-            # CloudSaver
-            cs_client = CloudSaverHelper(configer.get_config("cloudsaver_url"))
-            cs_client.set_auth(
-                configer.get_config("cloudsaver_username"),
-                configer.get_config("cloudsaver_password"),
-                "",
+        if configer.tg_search_channels:
+            # TG Searcher
+            searcher = TgSearcher()
+            cs_data = searcher.search(
+                key=resource_dict.get("name"), channels=configer.tg_search_channels
             )
-            results = cs_client.auto_login_search(resource_dict.get("name"))
-            cs_data = cs_client.clean_search_results(results.get("data", []))
 
         data = nullbr_data + cs_data
 
