@@ -21,7 +21,7 @@ class P115Disk(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png"
     # 插件版本
-    plugin_version = "0.2.7"
+    plugin_version = "0.2.8"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -157,11 +157,7 @@ class P115Disk(_PluginBase):
                                             },
                                             {
                                                 "component": "div",
-                                                "text": "• 下载模块和上传模块默认使用 MoviePilot 程序里面的 115 网盘存储模块，请务必在系统设置中配置好 115 网盘存储模块",
-                                            },
-                                            {
-                                                "component": "div",
-                                                "text": "• 其余接口（如浏览、删除、重命名等）为 Cookie 接口调用",
+                                                "text": "• 所有操作均为 Cookie 接口调用，请确保 Cookie 有效",
                                             },
                                             {
                                                 "component": "div",
