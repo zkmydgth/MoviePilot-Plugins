@@ -990,12 +990,13 @@ class MonitorLife:
 
         old_path = None
         if old_pan_path:
-            _, old_target_dir, old_pan_media_dir = PathUtils.get_media_path(
+            old_is_media, old_target_dir, old_pan_media_dir = PathUtils.get_media_path(
                 configer.monitor_life_paths, old_pan_path
             )
-            old_path = Path(old_target_dir) / Path(old_pan_path).relative_to(
-                old_pan_media_dir
-            )
+            if old_is_media:
+                old_path = Path(old_target_dir) / Path(old_pan_path).relative_to(
+                    old_pan_media_dir
+                )
 
         new_is_media, new_target_dir, new_pan_media_dir = PathUtils.get_media_path(
             configer.monitor_life_paths, new_pan_path
