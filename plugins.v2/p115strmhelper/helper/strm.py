@@ -24,6 +24,7 @@ from ..core.scrape import media_scrape_metadata
 from ..db_manager.oper import FileDbHelper
 from ..utils.path import PathUtils
 from ..utils.strm import StrmUrlGetter, StrmGenerater
+from ..utils.exception import PanPathNotFound, PanDataNotInDb, CanNotFindPathToCid
 from ..helper.mediainfo_download import MediaInfoDownloader
 
 from app.log import logger
@@ -110,7 +111,7 @@ class IncrementSyncStrmHelper:
         else:
             cid = int(self.client.fs_dir_getid(pan_path).get("id", -1))
         if not cid or cid == -1:
-            raise ValueError(f"网盘路径不存在: {pan_path}")
+            raise PanPathNotFound(f"网盘路径不存在: {pan_path}")
         self.api_count += 2
         cnt = 0
         for item in export_dir_parse_iter(
@@ -205,12 +206,14 @@ class IncrementSyncStrmHelper:
                     temp_path = part
                     break
             if not temp_path:
-                raise ValueError(f"数据库无数据，无法找到路径 {path} 对应的 cid")
+                raise PanDataNotInDb(f"数据库无数据，无法找到路径 {path} 对应的 cid")
             if last_path and last_path == temp_path:
                 logger.debug(f"文件夹遍历错误：{last_path} {processed}")
-                raise ValueError(f"文件夹遍历错误，无法找到路径 {path} 对应的 cid")
+                raise CanNotFindPathToCid(
+                    f"文件夹遍历错误，无法找到路径 {path} 对应的 cid"
+                )
             if not cid:
-                raise ValueError(f"无法找到路径 {path} 的 cid")
+                raise CanNotFindPathToCid(f"无法找到路径 {path} 的 cid")
             for batch in batched(
                 self.__iterdir(cid=cid, path=temp_path.as_posix()), 5_000
             ):

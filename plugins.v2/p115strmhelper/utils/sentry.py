@@ -15,6 +15,12 @@ from version import APP_VERSION
 
 from ..version import VERSION
 from ..core.config import configer
+from ..utils.exception import (
+    PanPathNotFound,
+    U115NoCheckInException,
+    CanNotFindPathToCid,
+    PanDataNotInDb,
+)
 
 
 class NoopSentryHub(Hub):
@@ -79,7 +85,10 @@ class SentryManager:
         self._patched = False
 
         self._ignored_rules = [
-            {"type": ValueError, "message": "无法找到路径"},
+            {"type": U115NoCheckInException},
+            {"type": PanDataNotInDb, "message": "无法找到路径"},
+            {"type": CanNotFindPathToCid, "message": "无法找到路径"},
+            {"type": PanPathNotFound, "message": "网盘路径不存在"},
             {"type": OSError, "message": "File name too long"},
             {"type": PermissionError, "message": "Permission denied"},
         ]

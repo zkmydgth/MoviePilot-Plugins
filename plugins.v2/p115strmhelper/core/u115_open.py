@@ -30,15 +30,10 @@ from ..core.cache import idpathcacher
 from ..db_manager.oper import FileDbHelper
 from ..utils.oopserver import OOPServerRequest
 from ..utils.sentry import sentry_manager
+from ..utils.exception import U115NoCheckInException
 
 
 p115_open_lock = threading.Lock()
-
-
-class U115NoCheckInException(Exception):
-    """
-    未登录
-    """
 
 
 @sentry_manager.capture_all_class_exceptions
