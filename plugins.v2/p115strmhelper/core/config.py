@@ -655,6 +655,7 @@ class ConfigManager(BaseModel):
         根据类型获取指定的User-Agent
         """
         user_agents = {
+            0: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 115wangpan_ios/36.2.20",
             1: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
             2: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
             3: settings.USER_AGENT,
@@ -667,6 +668,15 @@ class ConfigManager(BaseModel):
             f"({system()} {release()}; "
             f"{SystemUtils.cpu_arch() if hasattr(SystemUtils, 'cpu_arch') and callable(SystemUtils.cpu_arch) else 'UnknownArch'})"
         )
+
+    def get_ios_ua_app(self) -> Dict[str, str]:
+        """
+        获取 IOS 设备的 header（UA）和 APP
+        """
+        return {
+            "headers": {"user-agent": self.get_user_agent(0)},
+            "app": "ios",
+        }
 
     def save_plugin_data(self, key: str, value: Any, plugin_id: Optional[str] = None):
         """

@@ -630,13 +630,18 @@ class FullSyncStrmHelper:
                     == "iter_files_with_path_skim"
                 ):
                     iter_func = iter_files_with_path_skim
-                    iter_kwargs = {"cid": parent_id, "with_ancestors": True}
+                    iter_kwargs = {
+                        "cid": parent_id,
+                        "with_ancestors": True,
+                        **configer.get_ios_ua_app()
+                    }
                 else:
                     iter_func = iter_files_with_path
                     iter_kwargs = {
                         "cid": parent_id,
                         "with_ancestors": True,
                         "cooldown": 1.5,
+                        **configer.get_ios_ua_app()
                     }
                 logger.debug(
                     f"【全量STRM生成】迭代函数 {iter_func}; 参数 {iter_kwargs}"
@@ -768,13 +773,18 @@ class FullSyncStrmHelper:
                         == "iter_files_with_path_skim"
                     ):
                         iter_func = iter_files_with_path_skim
-                        iter_kwargs = {"cid": parent_id, "with_ancestors": True}
+                        iter_kwargs = {
+                            "cid": parent_id,
+                            "with_ancestors": True,
+                            **configer.get_ios_ua_app()
+                        }
                     else:
                         iter_func = iter_files_with_path
                         iter_kwargs = {
                             "cid": parent_id,
                             "with_ancestors": True,
                             "cooldown": 1.5,
+                            **configer.get_ios_ua_app(),
                         }
                     logger.debug(
                         f"【全量STRM生成】迭代函数 {iter_func}; 参数 {iter_kwargs}"

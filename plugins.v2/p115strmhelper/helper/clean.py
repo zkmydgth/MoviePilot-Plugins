@@ -24,9 +24,7 @@ class Cleaner:
         """
         try:
             logger.info("【回收站清理】开始清理回收站")
-            payload = {
-                "password": configer.get_config("password")
-            }
+            payload = {"password": configer.get_config("password")}
             resp = self.client.recyclebin_clean(payload)
             check_response(resp)
             logger.info("【回收站清理】回收站已清空")
@@ -41,7 +39,9 @@ class Cleaner:
         """
         try:
             logger.info("【最近接收清理】开始清理最近接收")
-            parent_id = int(self.client.fs_sys_dir(0)["cid"])
+            parent_id = int(
+                self.client.fs_sys_dir(0, **configer.get_ios_ua_app())["cid"]
+            )
             if parent_id == -1:
                 logger.info("【最近接收清理】最近接收目录为空，无需清理")
                 return

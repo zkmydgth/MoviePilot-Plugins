@@ -382,6 +382,7 @@ class ApiSyncStrmHelper:
                 self.client,
                 cid=parent_id,
                 with_ancestors=True,
+                **configer.get_ios_ua_app(),
             ):
                 try:
                     file_list.append(
@@ -501,6 +502,7 @@ class ApiSyncStrmHelper:
                     self.client,
                     cid=parent_id,
                     with_ancestors=True,
+                    **configer.get_ios_ua_app(),
                 ):
                     try:
                         path = Path(i["path"])

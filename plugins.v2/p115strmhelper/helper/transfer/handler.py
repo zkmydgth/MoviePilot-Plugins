@@ -21,6 +21,7 @@ from app.schemas import TransferTask as MPTransferTask
 from app.schemas.types import EventType, MediaType, NotificationType
 from app.utils.string import StringUtils
 
+from ...core.config import configer
 from ...schemas.transfer import TransferTask, RelatedFile
 from .cache_updater import CacheUpdater
 
@@ -174,7 +175,9 @@ class TransferHandler:
             return folder_item
 
         try:
-            resp = self.client.fs_makedirs_app(path.as_posix(), pid=0)
+            resp = self.client.fs_makedirs_app(
+                path.as_posix(), pid=0, **configer.get_ios_ua_app()
+            )
             check_response(resp)
             logger.debug(f"【整理接管】get_folder 创建目录: {path} (ID: {resp['cid']})")
             modify_time = int(time())
@@ -2152,7 +2155,12 @@ class TransferHandler:
         :return: 需要删除的目录列表
         """
         dirs_to_delete: List[FileItem] = []
-        media_exts = settings.RMT_MEDIAEXT + settings.DOWNLOAD_TMPEXT + settings.RMT_SUBEXT + settings.RMT_AUDIOEXT
+        media_exts = (
+            settings.RMT_MEDIAEXT
+            + settings.DOWNLOAD_TMPEXT
+            + settings.RMT_SUBEXT
+            + settings.RMT_AUDIOEXT
+        )
         fileitem_path = Path(fileitem.path) if fileitem.path else Path("")
 
         # 检查路径深度（不能删除根目录或一级目录）

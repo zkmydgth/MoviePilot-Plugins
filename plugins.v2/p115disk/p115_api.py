@@ -21,7 +21,7 @@ from app.modules.filemanager.storages import transfer_process
 from app.schemas import FileItem, StorageUsage
 
 from .cache import IdPathCache, ItemIdCache
-from .tools import RateLimiter
+from .tools import RateLimiter, get_ios_ua_app
 
 
 class P115Api:
@@ -88,11 +88,13 @@ class P115Api:
             if self._get_pid_by_path_call_counter == 0:
                 resp = self.client.fs_dir_getid(path.as_posix())
             else:
-                resp = self.client.fs_dir_getid_app(path.as_posix())
+                resp = self.client.fs_dir_getid_app(path.as_posix(), **get_ios_ua_app())
             check_response(resp)
             pid = resp.get("id", -1)
             if pid == 0:
-                resp = self.client.fs_makedirs_app(path.as_posix(), pid=0)
+                resp = self.client.fs_makedirs_app(
+                    path.as_posix(), pid=0, **get_ios_ua_app()
+                )
                 check_response(resp)
                 pid = resp["cid"]
                 self._id_cache.add_cache(id=int(pid), directory=path.as_posix())
@@ -135,6 +137,7 @@ class P115Api:
                 client=self.client,
                 cid=file_id,
                 with_ancestors=False,
+                **get_ios_ua_app(),
             ):
                 file_path = item["path"] + ("/" if item["is_dir"] else "")
                 self._id_cache.add_cache(id=item["id"], directory=item["path"])
@@ -335,7 +338,9 @@ class P115Api:
             return folder
 
         try:
-            resp = self.client.fs_makedirs_app(path.as_posix(), pid=0)
+            resp = self.client.fs_makedirs_app(
+                path.as_posix(), pid=0, **get_ios_ua_app()
+            )
             check_response(resp)
             logger.info(f"【P115Disk】创建目录: {resp}")
             self._id_cache.add_cache(id=int(resp["cid"]), directory=path.as_posix())
@@ -539,7 +544,7 @@ class P115Api:
             if self._delete_call_counter == 0:
                 resp = self.client.fs_delete(fileitem.fileid)
             else:
-                resp = self.client.fs_delete_app(fileitem.fileid)
+                resp = self.client.fs_delete_app(fileitem.fileid, **get_ios_ua_app())
             check_response(resp)
             logger.info(f"【P115Disk】删除文件: {resp}")
             self._id_cache.remove(id=int(fileitem.fileid))
@@ -573,7 +578,9 @@ class P115Api:
             if self._rename_call_counter == 0:
                 resp = self.client.fs_rename((int(fileitem.fileid), name))
             else:
-                resp = self.client.fs_rename_app((int(fileitem.fileid), name))
+                resp = self.client.fs_rename_app(
+                    (int(fileitem.fileid), name), **get_ios_ua_app()
+                )
             check_response(resp)
 
             old_cache_path = self._id_cache.get_dir_by_id(int(fileitem.fileid))
@@ -1010,7 +1017,9 @@ class P115Api:
             if self._copy_call_counter == 0:
                 resp = self.client.fs_copy(fileitem.fileid, pid=parent_id)
             else:
-                resp = self.client.fs_copy_app(fileitem.fileid, pid=parent_id)
+                resp = self.client.fs_copy_app(
+                    fileitem.fileid, pid=parent_id, **get_ios_ua_app()
+                )
             check_response(resp)
             logger.debug(f"【P115Disk】复制文件: {resp}")
             new_path = Path(path) / fileitem.name
@@ -1040,7 +1049,9 @@ class P115Api:
             if self._move_call_counter == 0:
                 resp = self.client.fs_move(fileitem.fileid, pid=parent_id)
             else:
-                resp = self.client.fs_move_app(fileitem.fileid, pid=parent_id)
+                resp = self.client.fs_move_app(
+                    fileitem.fileid, pid=parent_id, **get_ios_ua_app()
+                )
             check_response(resp)
             logger.debug(f"【P115Disk】移动文件: {resp}")
             new_path = Path(path) / fileitem.name

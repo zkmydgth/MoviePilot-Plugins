@@ -196,7 +196,11 @@ class MonitorLife:
             if str(event["file_id"]) not in pantransfercacher.delete_pan_transfer_list:
                 pantransfercacher.delete_pan_transfer_list.append(str(event["file_id"]))
             for item in iter_files_with_path(
-                self._client, cid=int(file_id), with_ancestors=True, cooldown=2
+                self._client,
+                cid=int(file_id),
+                with_ancestors=True,
+                cooldown=2,
+                **configer.get_ios_ua_app(),
             ):
                 try:
                     check_iter_path_data(item)
@@ -337,7 +341,11 @@ class MonitorLife:
             )
             for batch in batched(
                 iter_files_with_path(
-                    self._client, cid=int(file_id), with_ancestors=True, cooldown=2
+                    self._client,
+                    cid=int(file_id),
+                    with_ancestors=True,
+                    cooldown=2,
+                    **configer.get_ios_ua_app(),
                 ),
                 7_000,
             ):
@@ -869,8 +877,8 @@ class MonitorLife:
                     client=self._client,
                     from_time=from_time,
                     from_id=from_id,
-                    app="android",
                     cooldown=2,
+                    **configer.get_ios_ua_app(),
                 )
 
                 try:

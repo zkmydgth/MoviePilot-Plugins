@@ -121,6 +121,8 @@ def iter_share_files_with_path(
 
     :return: 迭代器，返回此分享链接下的（所有文件）文件信息
     """
+    from .config import configer
+
     if isinstance(client, (str, PathLike)):
         client = ShareP115Client(client, check_for_relogin=True)
     speed_configs = {
@@ -135,7 +137,10 @@ def iter_share_files_with_path(
     snap_app_http_info = ApiEndpointInfo(
         endpoint=ApiEndpointCooldown(
             api_callable=lambda p: client.share_snap_app(
-                p, app="android", base_url="http://pro.api.115.com", **request_kwargs
+                p,
+                base_url="http://pro.api.115.com",
+                **request_kwargs,
+                **configer.get_ios_ua_app(),
             ),
             cooldown=app_http_cooldown,
         ),
@@ -145,7 +150,10 @@ def iter_share_files_with_path(
     snap_app_https_info = ApiEndpointInfo(
         endpoint=ApiEndpointCooldown(
             api_callable=lambda p: client.share_snap_app(
-                p, app="android", base_url="https://proapi.115.com", **request_kwargs
+                p,
+                base_url="https://proapi.115.com",
+                **request_kwargs,
+                **configer.get_ios_ua_app(),
             ),
             cooldown=app_https_cooldown,
         ),
@@ -283,7 +291,9 @@ def get_pid_by_path(
     if pid == -1:
         return -1
     if pid == 0 and mkdir:
-        resp = client.fs_makedirs_app(path, pid=0)
+        from .config import configer
+
+        resp = client.fs_makedirs_app(path, pid=0, **configer.get_ios_ua_app())
         check_response(resp)
         pid = resp["cid"]
         if update_cache:

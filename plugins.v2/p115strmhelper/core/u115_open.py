@@ -1173,7 +1173,9 @@ class U115OpenHelper:
             return folder
 
         try:
-            resp = self.cookie_client.fs_makedirs_app(path.as_posix(), pid=0)
+            resp = self.cookie_client.fs_makedirs_app(
+                path.as_posix(), pid=0, **configer.get_ios_ua_app()
+            )
             if not resp.get("state"):
                 logger.error(f"【P115Open】{path} 目录创建失败：{resp}")
                 return None
@@ -1199,7 +1201,9 @@ class U115OpenHelper:
         elif r == 1:
             resp = self.cookie_client.fs_rename((int(fileitem.fileid), name))
         else:
-            resp = self.cookie_client.fs_rename_app((int(fileitem.fileid), name))
+            resp = self.cookie_client.fs_rename_app(
+                (int(fileitem.fileid), name), **configer.get_ios_ua_app()
+            )
         if not resp:
             return False
         if resp.get("state"):

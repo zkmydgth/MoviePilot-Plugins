@@ -1,6 +1,21 @@
 from threading import Lock
 from time import monotonic, sleep
-from typing import List
+from typing import Dict, List
+
+IOS_UA = (
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5_1 like Mac OS X) "
+    "AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 115wangpan_ios/36.2.20"
+)
+
+
+def get_ios_ua_app() -> Dict[str, str]:
+    """
+    获取 IOS 设备的 header（UA）和 APP
+    """
+    return {
+        "headers": {"user-agent": IOS_UA},
+        "app": "ios",
+    }
 
 
 class RateLimiter:

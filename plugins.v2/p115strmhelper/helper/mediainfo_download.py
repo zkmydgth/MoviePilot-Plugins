@@ -565,6 +565,7 @@ class MediaInfoDownloader:
                         client=self.client,
                         cid=scid,
                         with_ancestors=False,
+                        **configer.get_ios_ua_app(),
                     )
                 )
                 pcs = [i["pickcode"] for i in file_info_lst]
