@@ -80,7 +80,6 @@ class Folder(P115StrmHelperBase):
             if entry["table"] == "folders":
                 db.execute(delete(Folder).where(Folder.path == entry["data"]["path"]))
                 db.merge(Folder(**entry["data"]))
-        db.commit()
         return True
 
     @staticmethod
