@@ -224,7 +224,7 @@ class ViewRenderer(BaseViewRenderer):
                 f"\n页码: {session.view.page + 1} / {session.view.total_pages}"
             )
             text_lines.append(
-                f"\n数据刷新时间：{session.business.resource_info.get('datatime', self.__now_date())}"
+                f"\n数据刷新时间：{session.business.search_info.get('datatime', self.__now_date())}"
             )
 
             # 添加分页行
