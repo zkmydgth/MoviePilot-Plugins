@@ -9,14 +9,10 @@ from socket import (
     socket,
 )
 from platform import machine as _machine
-from re import match as re_match, search as re_search
 from sys import platform
 from time import sleep
 from typing import Any, Dict, Iterator, Optional, Tuple
 from urllib.parse import unquote, urlparse
-
-from httpx import Client
-from orjson import dumps as orjson_dumps, loads as orjson_loads
 
 from app.core.config import settings
 
@@ -470,45 +466,6 @@ class HDHivePlaywrightClient:
                 cookies[name.strip()] = value.strip()
         return cookies
 
-    @staticmethod
-    def _checkin_parse_rsc_result(text: str) -> Optional[Dict[str, Any]]:
-        """
-        解析 Next.js RSC 流式响应（形如 <idx>:<json> 的逐行文本）
-
-        跳过元数据帧；若存在 error 包裹则解包
-
-        :param text: 响应体文本
-        :return: 解析出的字典，无法解析则为 None
-        """
-        for line in text.splitlines():
-            m = re_match(r"^\d+:(\{.*\})\s*$", line)
-            if not m:
-                continue
-            try:
-                obj = orjson_loads(m.group(1))
-            except Exception:
-                continue
-            if not isinstance(obj, dict):
-                continue
-            if set(obj.keys()) <= {"a", "f", "b", "q", "i"}:
-                continue
-            if "error" in obj and isinstance(obj["error"], dict):
-                return obj["error"]
-            return obj
-        return None
-
-    @staticmethod
-    def _checkin_payload_dict(result: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        将解析结果规范为含 success / message 的一层字典
-
-        部分响应为 {"response": {"success": true, "message": "..."}}，需展开内层
-        """
-        inner = result.get("response")
-        if isinstance(inner, dict):
-            return inner
-        return result
-
     def _fill_and_submit(
         self,
         page: Any,
@@ -594,45 +551,203 @@ class HDHivePlaywrightClient:
                 f"登录超时，当前 URL: {page.url}，页面标题: {page.title()}"
             )
 
-    def _fetch_action_hash_via_playwright(self) -> Optional[str]:
+    @staticmethod
+    def _parse_checkin_result_text(text: str, label: str) -> Tuple[bool, str]:
         """
-        打开首页，拦截 /_next/static/chunks/*.js 响应，解析 Server Action hash
+        根据签到结果弹窗文本判断签到是否成功，并返回干净的展示文案
 
-        匹配形态: createServerReference)("<hash>", ..., "checkIn")
+        :param text: 签到结果弹窗文本
+        :param label: 签到类型（赌狗签到或每日签到）
 
-        同时兼容 cloakbrowser（新版）与 playwright（旧版）后端
+        :return: (是否成功, 展示用文案或错误信息)
+        """
+        lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+        clean = " ".join(lines)
 
-        :return: 十六进制 hash，失败为 None
+        already_keywords = ("已经签到", "签到过", "明天再来")
+        fail_keywords = ("失败", "错误", "error", "failed")
+
+        if any(k in clean for k in already_keywords):
+            body_lines = [
+                ln
+                for ln in lines
+                if not any(
+                    ln == kw or ln.startswith("签到") and "失败" in ln
+                    for kw in ("签到失败",)
+                )
+            ]
+            display = " ".join(body_lines) if body_lines else clean
+            return True, f"今日已签到：{display}"
+
+        if any(k in clean.lower() for k in fail_keywords):
+            return False, clean
+
+        return True, clean
+
+    def _checkin_via_browser(self, gamble: bool) -> Tuple[bool, str]:
+        """
+        模拟签到
+
+        :param gamble: True 为赌狗签到，False 为每日签到
+
+        :return: (是否成功, 展示用文案或错误信息)
         """
         if not self._cookie_str:
-            return None
-        root = HDHivePlaywrightClient.DEFAULT_BASE_URL
-        found_hash: list[str] = []
+            return False, "请先 login 或传入 Cookie"
 
-        def on_response(response: Any) -> None:
-            if found_hash:
-                return
-            url = response.url
-            if "_next/static/chunks" not in url or not url.endswith(".js"):
-                return
+        root = self.DEFAULT_BASE_URL
+        cookies = self._parse_cookie_str(self._cookie_str)
+        domain = root.replace("https://", "").replace("http://", "")
+        label = "赌狗签到" if gamble else "每日签到"
+
+        def _do_checkin(page: Any) -> Tuple[bool, str]:
+            page.goto(root, wait_until="domcontentloaded", timeout=30000)
+
             try:
-                body = response.body().decode("utf-8", errors="ignore")
+                dismiss_loc = page.locator("button:has-text('我知道了')")
+                dismiss_loc.first.wait_for(state="visible", timeout=8000)
+                for _ in range(20):
+                    try:
+                        dismiss_loc.first.click()
+                    except Exception:
+                        pass
+                    try:
+                        dismiss_loc.first.wait_for(state="hidden", timeout=1500)
+                        break
+                    except PlaywrightTimeoutError:
+                        sleep(1)
             except Exception:
-                return
-            m = re_search(
-                r'createServerReference\)[(\s]*"([0-9a-f]{40,})"[^"]*"checkIn"',
-                body,
+                pass
+
+            clicked_avatar = False
+            for avatar_sel, force in (
+                ("button:has(div.MuiAvatar-root)", False),
+                ("div.MuiAvatar-root", True),
+            ):
+                try:
+                    page.wait_for_selector(avatar_sel, timeout=15000)
+                    page.click(avatar_sel, force=force)
+                    clicked_avatar = True
+                    break
+                except PlaywrightTimeoutError:
+                    continue
+                except Exception:
+                    continue
+            if not clicked_avatar:
+                return False, "等待头像按钮超时，可能未登录成功"
+
+            btn_loc = page.locator(f"button:has-text('{label}')")
+            try:
+                btn_loc.first.wait_for(state="visible", timeout=15000)
+            except PlaywrightTimeoutError:
+                return False, f"等待{label}按钮超时，用户菜单未出现"
+
+            _prev_box: dict = {}
+            for _ in range(20):
+                try:
+                    _box = btn_loc.first.bounding_box() or {}
+                except Exception:
+                    _box = {}
+                if _box and _box == _prev_box:
+                    break
+                _prev_box = _box
+                sleep(0.1)
+
+            page.evaluate("""
+                () => {
+                    window.__checkinResult = null;
+                    const resultPhrases = [
+                        '签到成功', '签到失败', '已经签到', '明天再来',
+                        '获得积分', '签到奖励', '积分+', '赌狗签到成功', '赌狗签到失败'
+                    ];
+                    const seen = new WeakSet();
+                    const obs = new MutationObserver((mutations) => {
+                        if (window.__checkinResult) return;
+                        for (const mut of mutations) {
+                            for (const node of mut.addedNodes) {
+                                if (node.nodeType !== 1 || seen.has(node)) continue;
+                                seen.add(node);
+                                const candidates = [node, ...node.querySelectorAll('*')];
+                                for (const el of candidates) {
+                                    const t = (el.innerText || '').trim();
+                                    if (!t || t.length >= 300) continue;
+                                    if (resultPhrases.some(p => t.includes(p))) {
+                                        window.__checkinResult = t;
+                                        obs.disconnect();
+                                        return;
+                                    }
+                                }
+                            }
+                        }
+                    });
+                    obs.observe(document.body, { childList: true, subtree: true });
+                }
+            """)
+
+            btn_loc.first.click()
+
+            cf_iframe_sel = "iframe[src*='challenges.cloudflare.com']"
+            try:
+                page.wait_for_selector(cf_iframe_sel, timeout=8000)
+                cf_frame = page.frame_locator(cf_iframe_sel)
+                for cf_sel in (
+                    "input[type='checkbox']",
+                    "[class*='ctp-checkbox']",
+                    ".mark",
+                    "label",
+                ):
+                    try:
+                        cf_frame.locator(cf_sel).click(timeout=3000)
+                        break
+                    except Exception:
+                        continue
+            except PlaywrightTimeoutError:
+                pass
+            _RESULT_PHRASES = [
+                "签到成功",
+                "签到失败",
+                "已经签到",
+                "明天再来",
+                "获得积分",
+                "签到奖励",
+                "积分+",
+            ]
+            _SCAN_JS = (
+                "() => {"
+                "  const t = document.body.innerText || '';"
+                "  const phrases = " + str(_RESULT_PHRASES) + ";"
+                "  const hit = phrases.find(p => t.includes(p));"
+                "  if (!hit) return null;"
+                "  const idx = t.indexOf(hit);"
+                "  return t.slice(Math.max(0, idx - 10), idx + 80).trim();"
+                "}"
             )
-            if m:
-                found_hash.append(m.group(1))
+            deadline_ms = 30000
+            interval_ms = 500
+            elapsed = 0
+            result_text = None
+            while elapsed < deadline_ms:
+                captured = page.evaluate("() => window.__checkinResult")
+                if captured:
+                    result_text = str(captured)
+                    break
+                scanned = page.evaluate(_SCAN_JS)
+                if scanned:
+                    result_text = str(scanned)
+                    break
+                page.wait_for_timeout(interval_ms)
+                elapsed += interval_ms
 
+            if result_text:
+                return HDHivePlaywrightClient._parse_checkin_result_text(
+                    result_text, label
+                )
+            return False, f"{label}：等待结果超时"
+
+        backend = self._check_backend()
         try:
-            cookies = HDHivePlaywrightClient._parse_cookie_str(self._cookie_str)
-            domain = root.replace("https://", "").replace("http://", "")
-            backend = HDHivePlaywrightClient._check_backend()
-
             if backend == "cloakbrowser":
-                context = HDHivePlaywrightClient._make_cloak_context(self._headless)
+                context = self._make_cloak_context(self._headless)
                 try:
                     for name, value in cookies.items():
                         context.add_cookies(
@@ -646,39 +761,21 @@ class HDHivePlaywrightClient:
                             ]
                         )
                     page = context.new_page()
-                    page.on("response", on_response)
-                    page.goto(root, wait_until="networkidle", timeout=30000)
+                    return _do_checkin(page)
                 finally:
                     context.close()
             else:
                 with sync_playwright() as p:
-                    with HDHivePlaywrightClient._socks5_slippers_if_needed() as slip:
+                    with self._socks5_slippers_if_needed() as slip:
                         proxy = (
                             slip
                             if slip is not None
-                            else HDHivePlaywrightClient._playwright_proxy_settings()
+                            else self._playwright_proxy_settings()
                         )
-                        kwargs = HDHivePlaywrightClient._chromium_launch_kwargs(
-                            self._headless, proxy
+                        browser, context = self._make_playwright_context(
+                            p, self._headless, proxy
                         )
-                        browser = p.chromium.launch(**kwargs)
                         try:
-                            major = browser.version.split(".")[0]
-                            ua, hints = (
-                                HDHivePlaywrightClient._build_browser_ua_and_hints(
-                                    major
-                                )
-                            )
-                            context = browser.new_context(
-                                user_agent=ua,
-                                extra_http_headers=hints,
-                            )
-                            context.add_init_script(
-                                HDHivePlaywrightClient._stealth_init_script()
-                            )
-                            HDHivePlaywrightClient._install_request_header_sanitizer(
-                                context, major
-                            )
                             for name, value in cookies.items():
                                 context.add_cookies(
                                     [
@@ -691,83 +788,22 @@ class HDHivePlaywrightClient:
                                     ]
                                 )
                             page = context.new_page()
-                            page.on("response", on_response)
-                            page.goto(root, wait_until="networkidle", timeout=30000)
+                            return _do_checkin(page)
                         finally:
                             browser.close()
-        except Exception:
-            pass
+        except PlaywrightTimeoutError as e:
+            return False, f"{label}操作超时: {e}"
+        except Exception as e:
+            return False, f"{label}浏览器签到失败: {e}"
 
-        return found_hash[0] if found_hash else None
-
-    def checkin(
-        self,
-        gamble: bool,
-        action_hash: Optional[str] = None,
-    ) -> Tuple[bool, str]:
+    def checkin(self, gamble: bool) -> Tuple[bool, str]:
         """
-        签到请求
+        签到
 
-        :param gamble: 是否赌狗签到
-        :param action_hash: 已知的 action hash，为空则尝试自动发现
+        :param gamble: True 为赌狗签到，False 为每日签到
         :return: (是否成功, 展示用文案或错误信息)
         """
-        if not self._cookie_str:
-            return False, "请先 login 或传入 Cookie"
-
-        root = HDHivePlaywrightClient.DEFAULT_BASE_URL
-        cookies = HDHivePlaywrightClient._parse_cookie_str(self._cookie_str)
-        token = cookies.get("token")
-        if not token:
-            return False, "Cookie missing 'token'"
-
-        resolved_hash = action_hash or self._fetch_action_hash_via_playwright()
-        if not resolved_hash:
-            return False, "无法获取 action hash，签到中止"
-
-        ua = HDHivePlaywrightClient._build_ua()
-        headers = {
-            "User-Agent": ua,
-            "Accept": "text/x-component",
-            "Content-Type": "text/plain;charset=UTF-8",
-            "Origin": root,
-            "Referer": f"{root}/",
-            "next-action": resolved_hash,
-            "Authorization": f"Bearer {token}",
-        }
-
-        body = orjson_dumps([gamble])
-        label = "赌狗签到" if gamble else "每日签到"
-
-        proxy_h = HDHivePlaywrightClient._proxy_url_from_settings()
-        try:
-            with Client(verify=False, timeout=30.0, proxy=proxy_h) as client:
-                resp = client.post(
-                    root,
-                    headers=headers,
-                    cookies=cookies,
-                    content=body,
-                )
-            text = resp.content.decode("utf-8", errors="replace")
-            result = HDHivePlaywrightClient._checkin_parse_rsc_result(text)
-            if result is None:
-                if resp.status_code == 200:
-                    return True, f"{label}请求成功（无详细响应）"
-                return False, f"HTTP {resp.status_code}"
-
-            payload = HDHivePlaywrightClient._checkin_payload_dict(result)
-            message = str(payload.get("message") or "")
-            description = str(payload.get("description") or "")
-            display = description or message or str(payload)
-            already_signed = any(
-                k in part
-                for k in ("已经签到", "签到过", "明天再来")
-                for part in (message, description)
-            )
-            success = bool(payload.get("success")) or already_signed
-            return success, display
-        except Exception as e:
-            return False, str(e)
+        return self._checkin_via_browser(gamble)
 
     def _login_via_cloakbrowser(
         self,
