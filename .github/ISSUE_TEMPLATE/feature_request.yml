@@ -1,0 +1,53 @@
+name: 功能请求
+description: 为这个项目提出一个想法
+title: "【Feature】"
+labels: ["feature request"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢您对本项目的兴趣并提出新的功能建议！请尽可能详细地描述您的想法。
+
+  - type: dropdown
+    id: plugin
+    attributes:
+      label: 相关的插件
+      description: 请选择您希望为其添加功能的插件。
+      options:
+        - CCTV探索
+        - 咪咕视频探索
+        - 哔哩哔哩探索
+        - Bangumi每日放送探索
+        - 芒果TV探索
+        - 腾讯视频探索
+        - 115网盘STRM助手
+        - 123云盘储存
+        - 123云盘STRM助手
+        - MediaWarp
+        - 神医媒体文件同步删除
+        - 其他/通用功能
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: 插件版本号
+      description: 请输入您正在使用的插件版本号 (例如：1.0.0)。
+      placeholder: "例如：1.0.0"
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: 您需要实现的功能是什么？
+      description: 请清晰简洁地描述您希望实现的功能。
+    validations:
+      required: true
+
+  - type: textarea
+    id: references
+    attributes:
+      label: 可参考资料
+      description: 请提供相关的链接、截图、或者其他项目的实现方式，作为我们开发的参考。
