@@ -871,10 +871,13 @@
               <v-expand-transition>
                 <div v-if="shareDialog.interactiveGenStrm.moviepilotTransfer" class="mt-2">
                   <v-switch v-model="shareDialog.interactiveGenStrm.moviepilotTransferDownloadRmtAudioSub"
-                    label="下载 MoviePilot 可整理的音轨与字幕" color="primary" density="compact" hide-details class="mb-2" />
-                  <div class="text-caption text-medium-emphasis mb-2">
-                    只下载 MoviePilot 设定里允许的音轨、字幕文件，先保存到本地，再和 STRM 一起交给 MoviePilot 整理
-                  </div>
+                    label="下载 MoviePilot 可整理的音轨与字幕" color="primary" density="compact" hide-details />
+                  <v-alert type="info" variant="tonal" density="compact" class="mt-2 mb-0" icon="mdi-information-outline">
+                    <ul class="text-caption mb-0 ps-4">
+                      <li>仅下载 MoviePilot 设定允许的音轨、字幕</li>
+                      <li class="mt-1">先保存到本地目录，再与 STRM 一并进入整理</li>
+                    </ul>
+                  </v-alert>
                 </div>
               </v-expand-transition>
               <v-expand-transition>
@@ -1117,9 +1120,12 @@
                     </div>
                   </template>
                 </v-switch>
-                <div class="text-caption text-medium-emphasis pl-1 mt-1">
-                  只下载 MoviePilot 设定里允许的音轨、字幕文件，先保存到本地，再和 STRM 一起交给 MoviePilot 整理
-                </div>
+                <v-alert type="info" variant="tonal" density="compact" class="mt-2 mb-0" icon="mdi-information-outline">
+                  <ul class="text-caption mb-0 ps-4">
+                    <li>仅下载 MoviePilot 设定允许的音轨、字幕</li>
+                    <li class="mt-1">先保存到本地目录，再与 STRM 一并进入整理</li>
+                  </ul>
+                </v-alert>
               </v-col>
             </v-row>
           </div>
