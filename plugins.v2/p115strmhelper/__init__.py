@@ -91,6 +91,18 @@ class PathMatchingHelper:
                 return True
         return False
 
+    def get_scrape_metadata_exclude_path(self, paths, scrape_path):
+        """
+        检查目录是否在排除目录内
+        """
+        exclude_path = paths.split("\n")
+        for path in exclude_path:
+            if not path:
+                continue
+            if self.has_prefix(scrape_path, path):
+                return True
+        return False
+
     def get_media_path(self, paths, media_path):
         """
         获取媒体目录路径
@@ -685,6 +697,7 @@ class P115StrmHelper(_PluginBase):
     _user_download_mediaext = None
     _transfer_monitor_enabled = False
     _transfer_monitor_scrape_metadata_enabled = False
+    _transfer_monitor_scrape_metadata_exclude_paths = None
     _transfer_monitor_paths = None
     _transfer_mp_mediaserver_paths = None
     _transfer_monitor_mediaservers = None
@@ -702,6 +715,7 @@ class P115StrmHelper(_PluginBase):
     _monitor_life_mediaservers = None
     _monitor_life_auto_remove_local_enabled = False
     _monitor_life_scrape_metadata_enabled = False
+    _monitor_life_scrape_metadata_exclude_paths = None
     _share_strm_auto_download_mediainfo_enabled = False
     _user_share_code = None
     _user_receive_code = None
@@ -751,6 +765,9 @@ class P115StrmHelper(_PluginBase):
             self._transfer_monitor_scrape_metadata_enabled = config.get(
                 "transfer_monitor_scrape_metadata_enabled", False
             )
+            self._transfer_monitor_scrape_metadata_exclude_paths = config.get(
+                "transfer_monitor_scrape_metadata_exclude_paths"
+            )
             self._transfer_monitor_paths = config.get("transfer_monitor_paths")
             self._transfer_mp_mediaserver_paths = config.get(
                 "transfer_mp_mediaserver_paths"
@@ -784,6 +801,9 @@ class P115StrmHelper(_PluginBase):
             )
             self._monitor_life_scrape_metadata_enabled = config.get(
                 "monitor_life_scrape_metadata_enabled", False
+            )
+            self._monitor_life_scrape_metadata_exclude_paths = config.get(
+                "monitor_life_scrape_metadata_exclude_paths"
             )
             self._share_strm_auto_download_mediainfo_enabled = config.get(
                 "share_strm_auto_download_mediainfo_enabled", False
@@ -1049,6 +1069,7 @@ class P115StrmHelper(_PluginBase):
                 "user_download_mediaext": self._user_download_mediaext,
                 "transfer_monitor_enabled": self._transfer_monitor_enabled,
                 "transfer_monitor_scrape_metadata_enabled": self._transfer_monitor_scrape_metadata_enabled,
+                "transfer_monitor_scrape_metadata_exclude_paths": self._transfer_monitor_scrape_metadata_exclude_paths,
                 "transfer_monitor_paths": self._transfer_monitor_paths,
                 "transfer_mp_mediaserver_paths": self._transfer_mp_mediaserver_paths,
                 "transfer_monitor_media_server_refresh_enabled": self._transfer_monitor_media_server_refresh_enabled,
@@ -1065,6 +1086,7 @@ class P115StrmHelper(_PluginBase):
                 "monitor_life_mediaservers": self._monitor_life_mediaservers,
                 "monitor_life_auto_remove_local_enabled": self._monitor_life_auto_remove_local_enabled,
                 "monitor_life_scrape_metadata_enabled": self._monitor_life_scrape_metadata_enabled,
+                "monitor_life_scrape_metadata_exclude_paths": self._monitor_life_scrape_metadata_exclude_paths,
                 "share_strm_auto_download_mediainfo_enabled": self._share_strm_auto_download_mediainfo_enabled,
                 "user_share_code": self._user_share_code,
                 "user_receive_code": self._user_receive_code,
@@ -1663,13 +1685,24 @@ class P115StrmHelper(_PluginBase):
         if not status:
             return
 
+        scrape_metadata = True
         if self._transfer_monitor_scrape_metadata_enabled:
-            self.media_scrape_metadata(
-                path=strm_target_path,
-                item_name=item_dest_name,
-                mediainfo=mediainfo,
-                meta=meta,
-            )
+            if self._transfer_monitor_scrape_metadata_exclude_paths:
+                if self.pathmatchinghelper.get_scrape_metadata_exclude_path(
+                    self._transfer_monitor_scrape_metadata_exclude_paths,
+                    str(strm_target_path),
+                ):
+                    logger.debug(
+                        f"【监控整理STRM生成】匹配到刮削排除目录，不进行刮削: {strm_target_path}"
+                    )
+                    scrape_metadata = False
+            if scrape_metadata:
+                self.media_scrape_metadata(
+                    path=strm_target_path,
+                    item_name=item_dest_name,
+                    mediainfo=mediainfo,
+                    meta=meta,
+                )
 
         if self._transfer_monitor_media_server_refresh_enabled:
             if not self.transfer_service_infos:
@@ -2043,10 +2076,21 @@ class P115StrmHelper(_PluginBase):
                     logger.info(
                         "【监控生活事件】生成 STRM 文件成功: %s", str(new_file_path)
                     )
+                    scrape_metadata = True
                     if self._monitor_life_scrape_metadata_enabled:
-                        self.media_scrape_metadata(
-                            path=new_file_path,
-                        )
+                        if self._monitor_life_scrape_metadata_exclude_paths:
+                            if self.pathmatchinghelper.get_scrape_metadata_exclude_path(
+                                self._monitor_life_scrape_metadata_exclude_paths,
+                                str(new_file_path),
+                            ):
+                                logger.debug(
+                                    f"【监控生活事件】匹配到刮削排除目录，不进行刮削: {new_file_path}"
+                                )
+                                scrape_metadata = False
+                        if scrape_metadata:
+                            self.media_scrape_metadata(
+                                path=new_file_path,
+                            )
                     # 刷新媒体服务器
                     refresh_mediaserver(str(new_file_path), str(original_file_name))
             else:
@@ -2109,10 +2153,21 @@ class P115StrmHelper(_PluginBase):
                 logger.info(
                     "【监控生活事件】生成 STRM 文件成功: %s", str(new_file_path)
                 )
+                scrape_metadata = True
                 if self._monitor_life_scrape_metadata_enabled:
-                    self.media_scrape_metadata(
-                        path=new_file_path,
-                    )
+                    if self._monitor_life_scrape_metadata_exclude_paths:
+                        if self.pathmatchinghelper.get_scrape_metadata_exclude_path(
+                            self._monitor_life_scrape_metadata_exclude_paths,
+                            str(new_file_path),
+                        ):
+                            logger.debug(
+                                f"【监控生活事件】匹配到刮削排除目录，不进行刮削: {new_file_path}"
+                            )
+                            scrape_metadata = False
+                    if scrape_metadata:
+                        self.media_scrape_metadata(
+                            path=new_file_path,
+                        )
                 # 刷新媒体服务器
                 refresh_mediaserver(str(new_file_path), str(original_file_name))
 
@@ -2518,6 +2573,8 @@ class P115StrmHelper(_PluginBase):
             "user_download_mediaext": self._user_download_mediaext or "srt,ssa,ass",
             "transfer_monitor_enabled": self._transfer_monitor_enabled,
             "transfer_monitor_scrape_metadata_enabled": self._transfer_monitor_scrape_metadata_enabled,
+            "transfer_monitor_scrape_metadata_exclude_paths": self._transfer_monitor_scrape_metadata_exclude_paths
+            or "",
             "transfer_monitor_paths": self._transfer_monitor_paths or "",
             "transfer_mp_mediaserver_paths": self._transfer_mp_mediaserver_paths or "",
             "transfer_monitor_media_server_refresh_enabled": self._transfer_monitor_media_server_refresh_enabled,
@@ -2535,6 +2592,8 @@ class P115StrmHelper(_PluginBase):
             "monitor_life_mediaservers": self._monitor_life_mediaservers or [],
             "monitor_life_auto_remove_local_enabled": self._monitor_life_auto_remove_local_enabled,
             "monitor_life_scrape_metadata_enabled": self._monitor_life_scrape_metadata_enabled,
+            "monitor_life_scrape_metadata_exclude_paths": self._monitor_life_scrape_metadata_exclude_paths
+            or "",
             "share_strm_auto_download_mediainfo_enabled": self._share_strm_auto_download_mediainfo_enabled,
             "user_share_code": self._user_share_code or "",
             "user_receive_code": self._user_receive_code or "",
@@ -2574,6 +2633,9 @@ class P115StrmHelper(_PluginBase):
             self._transfer_monitor_scrape_metadata_enabled = data.get(
                 "transfer_monitor_scrape_metadata_enabled", False
             )
+            self._transfer_monitor_scrape_metadata_exclude_paths = data.get(
+                "transfer_monitor_scrape_metadata_exclude_paths", ""
+            )
             self._transfer_monitor_paths = data.get("transfer_monitor_paths", "")
             self._transfer_mp_mediaserver_paths = data.get(
                 "transfer_mp_mediaserver_paths", ""
@@ -2607,6 +2669,9 @@ class P115StrmHelper(_PluginBase):
             )
             self._monitor_life_scrape_metadata_enabled = data.get(
                 "monitor_life_scrape_metadata_enabled", False
+            )
+            self._monitor_life_scrape_metadata_exclude_paths = data.get(
+                "monitor_life_scrape_metadata_exclude_paths", ""
             )
             self._share_strm_auto_download_mediainfo_enabled = data.get(
                 "share_strm_auto_download_mediainfo_enabled", False
