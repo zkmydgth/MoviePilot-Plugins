@@ -13,6 +13,10 @@ from ...core.cache import idpathcacher, pantransfercacher, lifeeventcacher
 from ...core.i18n import i18n
 from ...core.p115 import get_pid_by_path
 from ...utils.path import PathUtils, PathRemoveUtils
+from ...utils.storage_item import (
+    resolve_directory_via_parent_list,
+    resolve_file_via_parent_list,
+)
 from ...utils.sentry import sentry_manager
 from ...utils.strm import StrmUrlGetter, StrmGenerater
 from ...utils.automaton import AutomatonUtils
@@ -188,7 +192,7 @@ class MonitorLife:
         transferchain: TransferChain,
     ) -> Tuple[bool, List[str]]:
         """
-        在 CloudDrive2 挂载路径上递归 list_files，将媒体文件加入整理队列。
+        在 CloudDrive2 挂载路径上递归 list_files，将媒体文件加入整理队列
 
         :param org_file_path: 115 侧目录路径（posix）
         :param rmt_mediaext: 待整理媒体扩展名列表（含前导点）
@@ -198,15 +202,13 @@ class MonitorLife:
         cd2_root = Path(
             configer.pan_transfer_clouddrive2_config.prefix
         ) / org_file_path.lstrip("/")
-        root = self.storagechain.get_file_item(
-            storage="CloudDrive储存",
-            path=cd2_root,
+        root = resolve_directory_via_parent_list(
+            self.storagechain,
+            "CloudDrive储存",
+            cd2_root,
+            log_label="【网盘整理】",
         )
         if not root:
-            logger.error(
-                "【网盘整理】CloudDrive2 无法解析路径，跳过文件夹遍历: %s",
-                cd2_root,
-            )
             return False, []
 
         cache_top_path = False
@@ -287,6 +289,7 @@ class MonitorLife:
             _databasehelper.remove_by_id_batch(int(event["file_id"]), False)
             # 文件夹情况，遍历文件夹，获取整理文件
             if configer.pan_transfer_clouddrive2_config.enabled:
+                sleep(2)
                 cache_top_path, cache_file_id_list = self._media_transfer_folder_cd2(
                     org_file_path,
                     rmt_mediaext,
@@ -401,32 +404,33 @@ class MonitorLife:
                     pantransfercacher.creata_pan_transfer_list.append(
                         str(event["file_id"])
                     )
-                fileitem = FileItem(
-                    storage=configer.storage_module
-                    if not configer.pan_transfer_clouddrive2_config.enabled
-                    else "CloudDrive储存",
-                    fileid=str(file_id),
-                    parent_fileid=str(event["parent_id"]),
-                    path=(
-                        (
-                            Path(configer.pan_transfer_clouddrive2_config.prefix)
-                            / file_path.as_posix().lstrip("/")
-                        ).as_posix()
-                        if configer.pan_transfer_clouddrive2_config.enabled
-                        else file_path.as_posix()
-                    ),
-                    type="file",
-                    name=file_path.name,
-                    basename=file_path.stem,
-                    extension=file_path.suffix[1:].lower(),
-                    size=event["file_size"],
-                    pickcode=(
-                        None
-                        if configer.pan_transfer_clouddrive2_config.enabled
-                        else event["pick_code"]
-                    ),
-                    modify_time=event["update_time"],
-                )
+                if configer.pan_transfer_clouddrive2_config.enabled:
+                    sleep(2)
+                    cd2_path = Path(
+                        configer.pan_transfer_clouddrive2_config.prefix
+                    ) / file_path.as_posix().lstrip("/")
+                    fileitem = resolve_file_via_parent_list(
+                        self.storagechain,
+                        "CloudDrive储存",
+                        cd2_path,
+                        log_label="【网盘整理】",
+                    )
+                    if not fileitem:
+                        return
+                else:
+                    fileitem = FileItem(
+                        storage=configer.storage_module,
+                        fileid=str(file_id),
+                        parent_fileid=str(event["parent_id"]),
+                        path=file_path.as_posix(),
+                        type="file",
+                        name=file_path.name,
+                        basename=file_path.stem,
+                        extension=file_path.suffix[1:].lower(),
+                        size=event["file_size"],
+                        pickcode=event["pick_code"],
+                        modify_time=event["update_time"],
+                    )
                 transferchain.do_transfer(fileitem=fileitem)
                 logger.info(f"【网盘整理】{file_path} 加入整理列队")
 
