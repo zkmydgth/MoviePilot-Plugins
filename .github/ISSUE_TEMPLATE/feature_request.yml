@@ -20,6 +20,7 @@ body:
         - Bangumi每日放送探索
         - 芒果TV探索
         - 腾讯视频探索
+        - 115网盘储存
         - 115网盘STRM助手
         - 123云盘储存
         - 123云盘STRM助手
@@ -27,6 +28,8 @@ body:
         - Emby 302 反向代理
         - MediaWarp
         - 神医媒体文件同步删除
+        - 115订阅站点修复
+        - ffprobe命名补充
         - 其他/通用功能
     validations:
       required: true
