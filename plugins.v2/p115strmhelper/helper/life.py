@@ -19,7 +19,7 @@ from ..helper.mediainfo_download import MediaInfoDownloader
 from ..helper.mediasyncdel import MediaSyncDelHelper
 
 from p115client import P115Client
-from p115client.tool.attr import get_path_to_cid
+from p115client.tool.attr import get_path
 from p115client.tool.iterdir import iter_files_with_path
 from p115client.tool.life import iter_life_behavior_once, life_show
 
@@ -206,7 +206,7 @@ class MonitorLife:
                     logger.debug(f"获取 {cid} 路径（数据库）: {dir_path}")
                     idpathcacher.add_cache(id=cid, directory=str(dir_path))
                     return Path(dir_path)
-            dir_path = get_path_to_cid(self._client, cid=cid)
+            dir_path = get_path(client=self._client, cid=cid, root_id=None)
             idpathcacher.add_cache(id=cid, directory=str(dir_path))
             if not dir_path:
                 logger.error(f"获取 {cid} 路径失败")
