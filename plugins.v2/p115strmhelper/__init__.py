@@ -690,6 +690,17 @@ class P115StrmHelper(_PluginBase):
         """
         return None
 
+    @staticmethod
+    def _get_event_userid(
+        event_data: Optional[Dict[str, Any]],
+    ) -> Optional[str]:
+        """
+        统一获取事件中的用户 ID，兼容 user 与 userid 字段
+        """
+        if not event_data:
+            return None
+        return str(event_data.get("userid") or event_data.get("user"))
+
     @eventmanager.register(EventType.TransferComplete)
     def delete_top_pan_transfer_path(self, event: Event):
         """
@@ -798,8 +809,9 @@ class P115StrmHelper(_PluginBase):
             return
         post_message(
             channel=event.event_data.get("channel"),
+            source=event.event_data.get("source"),
             title=i18n.translate("start_full_sync"),
-            userid=event.event_data.get("user"),
+            userid=self._get_event_userid(event_data),
         )
         servicer.full_sync_strm_files()
 
@@ -815,8 +827,9 @@ class P115StrmHelper(_PluginBase):
             return
         post_message(
             channel=event.event_data.get("channel"),
+            source=event.event_data.get("source"),
             title=i18n.translate("start_inc_sync"),
-            userid=event.event_data.get("user"),
+            userid=self._get_event_userid(event_data),
         )
         servicer.increment_sync_strm_files(send_msg=True)
 
@@ -830,13 +843,15 @@ class P115StrmHelper(_PluginBase):
         event_data = event.event_data
         if not event_data or event_data.get("action") != "p115_strm":
             return
+        userid = self._get_event_userid(event_data)
         args = event_data.get("arg_str")
         if not args:
             logger.error(f"【全量STRM生成】缺少参数：{event_data}")
             post_message(
                 channel=event.event_data.get("channel"),
+                source=event.event_data.get("source"),
                 title=i18n.translate("p115_strm_parameter_error"),
-                userid=event.event_data.get("user"),
+                userid=userid,
             )
             return
         if (
@@ -846,8 +861,9 @@ class P115StrmHelper(_PluginBase):
         ):
             post_message(
                 channel=event.event_data.get("channel"),
+                source=event.event_data.get("source"),
                 title=i18n.translate("p115_strm_full_sync_config_error"),
-                userid=event.event_data.get("user"),
+                userid=userid,
             )
             return
 
@@ -857,8 +873,9 @@ class P115StrmHelper(_PluginBase):
         if not status:
             post_message(
                 channel=event.event_data.get("channel"),
+                source=event.event_data.get("source"),
                 title=f"{args} {i18n.translate('p115_strm_match_path_error')}",
-                userid=event.event_data.get("user"),
+                userid=userid,
             )
             return
         strm_helper = FullSyncStrmHelper(
@@ -867,8 +884,9 @@ class P115StrmHelper(_PluginBase):
         )
         post_message(
             channel=event.event_data.get("channel"),
+            source=event.event_data.get("source"),
             title=i18n.translate("p115_strm_start_sync", paths=args),
-            userid=event.event_data.get("user"),
+            userid=userid,
         )
         strm_helper.generate_strm_files(
             full_sync_strm_paths=paths,
@@ -891,7 +909,8 @@ class P115StrmHelper(_PluginBase):
             text += f"🗑️ 清理无效STRM文件 {remove_unless_strm_count} 个"
         post_message(
             channel=event.event_data.get("channel"),
-            userid=event.event_data.get("user"),
+            source=event.event_data.get("source"),
+            userid=userid,
             title=i18n.translate("full_sync_done_title"),
             text=text,
         )
@@ -906,12 +925,14 @@ class P115StrmHelper(_PluginBase):
         event_data = event.event_data
         if not event_data or event_data.get("action") != "p115_search":
             return
+        userid = self._get_event_userid(event_data)
 
         if not configer.tg_search_channels:
             post_message(
                 channel=event.event_data.get("channel"),
+                source=event.event_data.get("source"),
                 title=i18n.translate("p115_search_config_error"),
-                userid=event.event_data.get("user"),
+                userid=userid,
             )
             return
 
@@ -920,8 +941,9 @@ class P115StrmHelper(_PluginBase):
             logger.error(f"【搜索】缺少参数：{event_data}")
             post_message(
                 channel=event.event_data.get("channel"),
+                source=event.event_data.get("source"),
                 title=i18n.translate("p115_search_parameter_error"),
-                userid=event.event_data.get("user"),
+                userid=userid,
             )
             return
 
@@ -1056,7 +1078,6 @@ class P115StrmHelper(_PluginBase):
         if not configer.enabled:
             return
         text = event.event_data.get("text")
-        userid = event.event_data.get("userid")
         channel = event.event_data.get("channel")
         if not text:
             return
@@ -1071,7 +1092,8 @@ class P115StrmHelper(_PluginBase):
             servicer.sharetransferhelper.add_share(
                 url=text,
                 channel=channel,
-                userid=userid,
+                source=event.event_data.get("source"),
+                userid=self._get_event_userid(event.event_data),
             )
             return
 
@@ -1103,6 +1125,7 @@ class P115StrmHelper(_PluginBase):
         远程分享转存
         """
         args = None
+        event_data = {}
         if event:
             event_data = event.event_data
             if not event_data or event_data.get("action") != "p115_add_share":
@@ -1112,8 +1135,9 @@ class P115StrmHelper(_PluginBase):
                 logger.error(f"【分享转存】缺少参数：{event_data}")
                 post_message(
                     channel=event.event_data.get("channel"),
+                    source=event.event_data.get("source"),
                     title=i18n.translate("p115_add_share_parameter_error"),
-                    userid=event.event_data.get("user"),
+                    userid=self._get_event_userid(event_data),
                 )
                 return
 
@@ -1121,7 +1145,8 @@ class P115StrmHelper(_PluginBase):
             servicer.sharetransferhelper.add_share(
                 url=args,
                 channel=event.event_data.get("channel"),
-                userid=event.event_data.get("user"),
+                source=event.event_data.get("source"),
+                userid=self._get_event_userid(event_data),
             )
             return
 
@@ -1153,17 +1178,20 @@ class P115StrmHelper(_PluginBase):
         添加离线下载任务
         """
         args = None
+        userid = None
         if event:
             event_data = event.event_data
             if not event_data or event_data.get("action") != "p115_add_offline":
                 return
+            userid = self._get_event_userid(event_data)
             args = event_data.get("arg_str")
             if not args:
                 logger.error(f"【离线下载】缺少参数：{event_data}")
                 post_message(
                     channel=event.event_data.get("channel"),
+                    source=event.event_data.get("source"),
                     title=i18n.translate("p115_add_offline_parameter_error"),
-                    userid=event.event_data.get("user"),
+                    userid=userid,
                 )
                 return
 
@@ -1171,14 +1199,16 @@ class P115StrmHelper(_PluginBase):
             if servicer.offlinehelper.add_urls_to_transfer([str(args)]):
                 post_message(
                     channel=event.event_data.get("channel"),
+                    source=event.event_data.get("source"),
                     title=i18n.translate("p115_add_offline_success"),
-                    userid=event.event_data.get("user"),
+                    userid=userid,
                 )
             else:
                 post_message(
                     channel=event.event_data.get("channel"),
+                    source=event.event_data.get("source"),
                     title=i18n.translate("p115_add_offline_fail"),
-                    userid=event.event_data.get("user"),
+                    userid=userid,
                 )
             return
 

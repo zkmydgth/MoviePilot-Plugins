@@ -103,6 +103,7 @@ class ActionHandler(BaseActionHandler):
                 servicer.sharetransferhelper.add_share(
                     url=session.business.share_recieve_url,
                     channel=session.message.channel,
+                    source=session.message.source,
                     userid=session.message.userid,
                     pan_path=path,
                 )
@@ -156,12 +157,14 @@ class ActionHandler(BaseActionHandler):
                 if status:
                     post_message(
                         channel=session.message.channel,
+                        source=session.message.source,
                         title=i18n.translate("p115_add_offline_success"),
                         userid=session.message.userid,
                     )
                 else:
                     post_message(
                         channel=session.message.channel,
+                        source=session.message.source,
                         title=i18n.translate("p115_add_offline_fail"),
                         userid=session.message.userid,
                     )

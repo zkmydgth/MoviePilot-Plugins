@@ -16,7 +16,6 @@ from app.log import logger
 from app.core.metainfo import MetaInfo
 from app.core.context import MediaInfo
 from app.chain.media import MediaChain
-from app.schemas import NotificationType
 from app.utils.string import StringUtils
 
 from ...core.config import configer
@@ -67,10 +66,10 @@ class ShareTransferHelper:
             try:
                 # 获取任务，设置超时避免永久阻塞
                 task = self._add_share_queue.get(timeout=60)  # 60秒无任务则退出
-                url, channel, userid, pan_path = task
+                url, channel, source, userid, pan_path = task
 
                 # 执行任务
-                self.__add_share(url, channel, userid, pan_path)
+                self.__add_share(url, channel, source, userid, pan_path)
 
                 # 任务间隔
                 sleep(3)
@@ -91,7 +90,8 @@ class ShareTransferHelper:
         text: Optional[str] = None,
         image: Optional[str] = None,
         channel: Optional[str | int] = None,
-        userid: Optional[str | int] = None,
+        source: Optional[str] = None,
+        userid: Optional[str] = None,
     ):
         """
         统一消息发送接口，自动选择全局或者指定用户发送
@@ -99,17 +99,11 @@ class ShareTransferHelper:
         if channel and userid:
             post_message(
                 channel=channel,  # noqa
+                source=source,
                 title=title,
                 image=image,
                 text=text,
                 userid=userid,
-            )
-        else:
-            post_message(
-                mtype=NotificationType.Plugin,
-                title=title,
-                text=text,
-                image=image,
             )
 
     def add_share_recognize_mediainfo(self, share_code: str, receive_code: str):
@@ -149,7 +143,8 @@ class ShareTransferHelper:
         self,
         url,
         channel: Optional[str | int] = None,
-        userid: Optional[str | int] = None,
+        source: Optional[str] = None,
+        userid: Optional[str] = None,
         pan_path: Optional[str | Path] = None,
     ):
         """
@@ -162,6 +157,7 @@ class ShareTransferHelper:
             logger.error(f"【Ali2115】解析分享链接失败：{url}")
             self.send_notify(
                 channel=channel,
+                source=source,
                 title=f"{i18n.translate('share_url_extract_error', url=url)}",
                 userid=userid,
             )
@@ -216,6 +212,7 @@ class ShareTransferHelper:
             if not file_mediainfo:
                 self.send_notify(
                     channel=channel,
+                    source=source,
                     title=i18n.translate("share_add_success"),
                     text=f"""
 分享链接：https://www.alipan.com/s/{share_id}
@@ -229,6 +226,7 @@ class ShareTransferHelper:
             else:
                 self.send_notify(
                     channel=channel,
+                    source=source,
                     title=i18n.translate(
                         "share_add_success_2",
                         title=file_mediainfo.title,
@@ -248,6 +246,7 @@ class ShareTransferHelper:
             logger.info(f"【分享转存】秒传失败：{msg}")
             self.send_notify(
                 channel=channel,
+                source=source,
                 title=i18n.translate("share_add_fail"),
                 text=f"""
 分享链接：https://www.alipan.com/s/{share_id}
@@ -260,7 +259,8 @@ class ShareTransferHelper:
         self,
         url,
         channel: Optional[str | int] = None,
-        userid: Optional[str | int] = None,
+        source: Optional[str] = None,
+        userid: Optional[str] = None,
         notify: bool = True,
         pan_path: Optional[str | Path] = None,
     ):
@@ -278,6 +278,7 @@ class ShareTransferHelper:
             if notify:
                 self.send_notify(
                     channel=channel,
+                    source=source,
                     title=f"{i18n.translate('share_url_extract_error', url=url)}",
                     userid=userid,
                 )
@@ -329,6 +330,7 @@ class ShareTransferHelper:
                 if notify:
                     self.send_notify(
                         channel=channel,
+                        source=source,
                         title=i18n.translate("share_add_success"),
                         text=f"""
 分享链接：https://115cdn.com/s/{share_code}?password={receive_code}
@@ -341,6 +343,7 @@ class ShareTransferHelper:
                 if notify:
                     self.send_notify(
                         channel=channel,
+                        source=source,
                         title=i18n.translate(
                             "share_add_success_2",
                             title=file_mediainfo.title,
@@ -361,6 +364,7 @@ class ShareTransferHelper:
         if notify:
             self.send_notify(
                 channel=channel,
+                source=source,
                 title=i18n.translate("share_add_fail"),
                 text=f"""
 分享链接：https://115cdn.com/s/{share_code}?password={receive_code}
@@ -371,13 +375,14 @@ class ShareTransferHelper:
             )
         return False, "转存失败", resp["error"]
 
-    def __add_share(self, url, channel, userid, pan_path):
+    def __add_share(self, url, channel, source, userid, pan_path):
         """
         分享转存
         """
         if not configer.share_recieve_paths:
             self.send_notify(
                 channel=channel,
+                source=source,
                 title=i18n.translate("add_share_config_error"),
                 userid=userid,
             )
@@ -387,6 +392,7 @@ class ShareTransferHelper:
                 if not configer.pan_transfer_unrecognized_path:
                     self.send_notify(
                         channel=channel,
+                        source=source,
                         title=i18n.translate("add_share_config_error"),
                         userid=userid,
                     )
@@ -394,27 +400,31 @@ class ShareTransferHelper:
                 if not self.aligo:
                     self.send_notify(
                         channel=channel,
+                        source=source,
                         title=f"{i18n.translate('share_url_aligo_error', url=url)}",
                         userid=userid,
                     )
                     return
-                self.add_share_aliyunpan(url, channel, userid, pan_path)
+                self.add_share_aliyunpan(url, channel, source, userid, pan_path)
             else:
-                self.add_share_115(url, channel, userid, True, pan_path)
+                self.add_share_115(url, channel, source, userid, True, pan_path)
         except Exception as e:
             logger.error(f"【分享转存】运行失败: {e}")
             self.send_notify(
                 channel=channel,
+                source=source,
                 title=i18n.translate("share_add_fail_2", e=e),
                 userid=userid,
             )
             return
 
-    def add_share(self, url, channel, userid, pan_path=None):
+    def add_share(
+        self, url, channel, userid, pan_path=None, source: Optional[str] = None
+    ):
         """
         将分享任务加入队列
         """
-        self._add_share_queue.put((url, channel, userid, pan_path))
+        self._add_share_queue.put((url, channel, source, userid, pan_path))
         logger.info(
             f"【分享转存】{url} 任务已加入分享转存队列，当前队列大小：{self._add_share_queue.qsize()}"
         )
