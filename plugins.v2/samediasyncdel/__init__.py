@@ -490,6 +490,8 @@ class SaMediaSyncDel(_PluginBase):
         if not event_type or str(event_type) != "deep.delete":
             return
 
+        logger.info(event.event_data)
+
         # 媒体类型
         media_type = event_data.item_type
         # 媒体名称
@@ -502,6 +504,8 @@ class SaMediaSyncDel(_PluginBase):
         season_num = event_data.season_id
         # 集数
         episode_num = event_data.episode_id
+        # 媒体后缀名
+        media_container = event_data.json["Item"]["Container"]
 
         # 执行删除逻辑
 
@@ -522,6 +526,10 @@ class SaMediaSyncDel(_PluginBase):
             logger.error(f"{media_name} 同步删除失败，未识别到储存类型")
             return
 
+        if media_storage == "p115" and (not media_container):
+            logger.error(f"{media_name} 同步删除失败，未识别媒体后缀名")
+            return
+
         if not tmdb_id or not str(tmdb_id).isdigit():
             logger.error(
                 f"{media_name} 同步删除失败，未获取到TMDB ID，请检查媒体库媒体是否刮削"
@@ -536,6 +544,7 @@ class SaMediaSyncDel(_PluginBase):
             season_num=season_num,
             episode_num=episode_num,
             media_storage=media_storage,
+            media_container=media_container,
         )
 
     def __sync_del(
@@ -547,6 +556,7 @@ class SaMediaSyncDel(_PluginBase):
         season_num: str,
         episode_num: str,
         media_storage: str,
+        media_container: str,
     ):
         if not media_type:
             logger.error(
@@ -632,94 +642,28 @@ class SaMediaSyncDel(_PluginBase):
                             except Exception as e:
                                 logger.error("删除种子失败：%s" % str(e))
 
-            logger.info(f"同步删除 {msg} 完成！")
-
-            media_type = (
-                MediaType.MOVIE if media_type in ["Movie", "MOV"] else MediaType.TV
-            )
-
-            # 发送消息
-            if self._notify:
-                backrop_image = (
-                    self.chain.obtain_specific_image(
-                        mediaid=tmdb_id,
-                        mtype=media_type,
-                        image_type=MediaImageType.Backdrop,
-                        season=season_num,
-                        episode=episode_num,
-                    )
-                    or image
-                )
-
-                torrent_cnt_msg = ""
-                if del_torrent_hashs:
-                    torrent_cnt_msg += f"删除种子{len(set(del_torrent_hashs))}个\n"
-                if stop_torrent_hashs:
-                    stop_cnt = 0
-                    # 排除已删除
-                    for stop_hash in set(stop_torrent_hashs):
-                        if stop_hash not in set(del_torrent_hashs):
-                            stop_cnt += 1
-                    if stop_cnt > 0:
-                        torrent_cnt_msg += f"暂停种子{stop_cnt}个\n"
-                if error_cnt:
-                    torrent_cnt_msg += f"删种失败{error_cnt}个\n"
-                # 发送通知
-                self.post_message(
-                    mtype=NotificationType.MediaServer,
-                    title="媒体库同步删除任务完成",
-                    image=backrop_image,
-                    text=f"{msg}\n"
-                    f"删除记录{len(transfer_history)}个\n"
-                    f"{torrent_cnt_msg}"
-                    f"时间 {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}",
-                )
-
-            # 读取历史记录
-            history = self.get_data("history") or []
-
-            # 获取poster
-            poster_image = (
-                self.chain.obtain_specific_image(
-                    mediaid=tmdb_id,
-                    mtype=media_type,
-                    image_type=MediaImageType.Poster,
-                )
-                or image
-            )
-            history.append(
-                {
-                    "type": media_type.value,
-                    "title": media_name,
-                    "year": year,
-                    "path": media_path,
-                    "season": season_num
-                    if season_num and str(season_num).isdigit()
-                    else None,
-                    "episode": episode_num
-                    if episode_num and str(episode_num).isdigit()
-                    else None,
-                    "image": poster_image,
-                    "del_time": time.strftime(
-                        "%Y-%m-%d %H:%M:%S", time.localtime(time.time())
-                    ),
-                    "unique": f"{media_name}:{tmdb_id}:{time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}",
-                }
-            )
-
-            # 保存历史
-            self.save_data("history", history)
-        elif media_storage == "p115":
+        else:
+            # 115网盘
             mp_media_path: Path
-            p115_media_path: Path
             if self._p115_library_path:
                 _, sub_paths = self.__get_p115_media_path(media_path)
                 mp_media_path = media_path.replace(sub_paths[0], sub_paths[1]).replace(
                     "\\", "/"
                 )
-                p115_media_path = media_path.replace(
-                    sub_paths[0], sub_paths[2]
-                ).replace("\\", "/")
+                media_path = media_path.replace(sub_paths[0], sub_paths[2]).replace(
+                    "\\", "/"
+                )
+            media_path = Path(media_path).parent / str(
+                Path(media_path).stem + "." + media_container
+            )
+            # 这里做一次大小写转换，避免资源后缀名为全大写情况
+            if media_container.isupper():
+                media_container = media_container.lower()
+            elif media_container.islower():
+                media_container = media_container.upper()
+            media_path_2 = Path(media_path).parent / str(
+                Path(media_path).stem + "." + media_container
+            )
 
             # 兼容重新整理的场景
             if Path(mp_media_path).exists():
@@ -730,7 +674,7 @@ class SaMediaSyncDel(_PluginBase):
             msg, transfer_history = self.__get_transfer_his(
                 media_type=media_type,
                 media_name=media_name,
-                media_path=p115_media_path,
+                media_path=media_path,
                 tmdb_id=tmdb_id,
                 season_num=season_num,
                 episode_num=episode_num,
@@ -739,10 +683,23 @@ class SaMediaSyncDel(_PluginBase):
             logger.info(f"正在同步删除{msg}")
 
             if not transfer_history:
-                logger.warn(
-                    f"{media_type} {media_name} 未获取到可删除数据，请检查路径映射是否配置错误，请检查tmdbid获取是否正确"
+                msg, transfer_history = self.__get_transfer_his(
+                    media_type=media_type,
+                    media_name=media_name,
+                    media_path=media_path_2,
+                    tmdb_id=tmdb_id,
+                    season_num=season_num,
+                    episode_num=episode_num,
                 )
-                return
+                if not transfer_history:
+                    logger.warn(
+                        f"{media_type} {media_name} 未获取到可删除数据，请检查路径映射是否配置错误，请检查tmdbid获取是否正确"
+                    )
+                    return
+                else:
+                    media_path = media_path_2
+
+            logger.info(transfer_history)
 
             # 开始删除
             year = None
@@ -759,12 +716,13 @@ class SaMediaSyncDel(_PluginBase):
                     continue
                 image = transferhis.image or image
                 year = transferhis.year
+                logger.info(transferhis)
 
                 # 0、删除转移记录
                 self._transferhis.delete(transferhis.id)
 
                 # 1、删除网盘文件
-                self.delete_p115_files(file_path=p115_media_path, media_name=media_name)
+                self.__delete_p115_files(file_path=media_path, media_name=media_name)
 
                 # 删除种子任务
                 if self._del_source:
@@ -794,85 +752,83 @@ class SaMediaSyncDel(_PluginBase):
                             except Exception as e:
                                 logger.error("删除种子失败：%s" % str(e))
 
-            logger.info(f"同步删除 {msg} 完成！")
+        logger.info(f"同步删除 {msg} 完成！")
 
-            media_type = (
-                MediaType.MOVIE if media_type in ["Movie", "MOV"] else MediaType.TV
-            )
+        media_type = MediaType.MOVIE if media_type in ["Movie", "MOV"] else MediaType.TV
 
-            # 发送消息
-            if self._notify:
-                backrop_image = (
-                    self.chain.obtain_specific_image(
-                        mediaid=tmdb_id,
-                        mtype=media_type,
-                        image_type=MediaImageType.Backdrop,
-                        season=season_num,
-                        episode=episode_num,
-                    )
-                    or image
-                )
-
-                torrent_cnt_msg = ""
-                if del_torrent_hashs:
-                    torrent_cnt_msg += f"删除种子{len(set(del_torrent_hashs))}个\n"
-                if stop_torrent_hashs:
-                    stop_cnt = 0
-                    # 排除已删除
-                    for stop_hash in set(stop_torrent_hashs):
-                        if stop_hash not in set(del_torrent_hashs):
-                            stop_cnt += 1
-                    if stop_cnt > 0:
-                        torrent_cnt_msg += f"暂停种子{stop_cnt}个\n"
-                if error_cnt:
-                    torrent_cnt_msg += f"删种失败{error_cnt}个\n"
-                # 发送通知
-                self.post_message(
-                    mtype=NotificationType.MediaServer,
-                    title="媒体库同步删除任务完成",
-                    image=backrop_image,
-                    text=f"{msg}\n"
-                    f"删除记录{len(transfer_history)}个\n"
-                    f"{torrent_cnt_msg}"
-                    f"时间 {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}",
-                )
-
-            # 读取历史记录
-            history = self.get_data("history") or []
-
-            # 获取poster
-            poster_image = (
+        # 发送消息
+        if self._notify:
+            backrop_image = (
                 self.chain.obtain_specific_image(
                     mediaid=tmdb_id,
                     mtype=media_type,
-                    image_type=MediaImageType.Poster,
+                    image_type=MediaImageType.Backdrop,
+                    season=season_num,
+                    episode=episode_num,
                 )
                 or image
             )
-            history.append(
-                {
-                    "type": media_type.value,
-                    "title": media_name,
-                    "year": year,
-                    "path": media_path,
-                    "season": season_num
-                    if season_num and str(season_num).isdigit()
-                    else None,
-                    "episode": episode_num
-                    if episode_num and str(episode_num).isdigit()
-                    else None,
-                    "image": poster_image,
-                    "del_time": time.strftime(
-                        "%Y-%m-%d %H:%M:%S", time.localtime(time.time())
-                    ),
-                    "unique": f"{media_name}:{tmdb_id}:{time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}",
-                }
+
+            torrent_cnt_msg = ""
+            if del_torrent_hashs:
+                torrent_cnt_msg += f"删除种子{len(set(del_torrent_hashs))}个\n"
+            if stop_torrent_hashs:
+                stop_cnt = 0
+                # 排除已删除
+                for stop_hash in set(stop_torrent_hashs):
+                    if stop_hash not in set(del_torrent_hashs):
+                        stop_cnt += 1
+                if stop_cnt > 0:
+                    torrent_cnt_msg += f"暂停种子{stop_cnt}个\n"
+            if error_cnt:
+                torrent_cnt_msg += f"删种失败{error_cnt}个\n"
+            # 发送通知
+            self.post_message(
+                mtype=NotificationType.MediaServer,
+                title="媒体库同步删除任务完成",
+                image=backrop_image,
+                text=f"{msg}\n"
+                f"删除记录{len(transfer_history)}个\n"
+                f"{torrent_cnt_msg}"
+                f"时间 {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}",
             )
 
-            # 保存历史
-            self.save_data("history", history)
+        # 读取历史记录
+        history = self.get_data("history") or []
 
-    def delete_p115_files(self, file_path, media_name):
+        # 获取poster
+        poster_image = (
+            self.chain.obtain_specific_image(
+                mediaid=tmdb_id,
+                mtype=media_type,
+                image_type=MediaImageType.Poster,
+            )
+            or image
+        )
+        history.append(
+            {
+                "type": media_type.value,
+                "title": media_name,
+                "year": year,
+                "path": media_path,
+                "season": season_num
+                if season_num and str(season_num).isdigit()
+                else None,
+                "episode": episode_num
+                if episode_num and str(episode_num).isdigit()
+                else None,
+                "image": poster_image,
+                "del_time": time.strftime(
+                    "%Y-%m-%d %H:%M:%S", time.localtime(time.time())
+                ),
+                "unique": f"{media_name}:{tmdb_id}:{time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}",
+            }
+        )
+
+        # 保存历史
+        self.save_data("history", history)
+
+    def __delete_p115_files(self, file_path, media_name):
         """
         删除115网盘文件
         """
