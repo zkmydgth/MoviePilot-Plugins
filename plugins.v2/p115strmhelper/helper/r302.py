@@ -37,9 +37,14 @@ class Redirect:
 
         self.pid = pid
 
-        if Redirect._http_client is None:
+    @classmethod
+    def http_client(cls) -> httpx.AsyncClient:
+        """
+        获取 HTTP 客户端，如果未初始化则自动初始化
+        """
+        if cls._http_client is None:
             cookies = configer.cookies_dict if configer.cookies else None
-            Redirect._http_client = httpx.AsyncClient(
+            cls._http_client = httpx.AsyncClient(
                 follow_redirects=True,
                 timeout=httpx.Timeout(10.0, connect=5.0),
                 limits=httpx.Limits(
@@ -48,6 +53,7 @@ class Redirect:
                 ),
                 cookies=cookies,
             )
+        return cls._http_client
 
     @classmethod
     async def close_http_client(cls):
@@ -137,14 +143,14 @@ class Redirect:
         suffix = name.rpartition(".")[-1]
         if suffix.isalnum():
             payload["suffix"] = suffix
-        resp = await self._http_client.get(
+        resp = await self.http_client().get(
             f"{api}?{urlencode(payload)}",
         )
         check_response(resp)
         json = loads(cast(bytes, resp.content))
         if self.get_first(json, "errno", "errNo") == 20021:
             payload.pop("suffix")
-            resp = await self._http_client.get(
+            resp = await self.http_client().get(
                 f"{api}?{urlencode(payload)}",
             )
             check_response(resp)
@@ -162,7 +168,7 @@ class Redirect:
         """
         获取接收码
         """
-        resp = await cls._http_client.get(
+        resp = await cls.http_client().get(
             f"http://web.api.115.com/share/shareinfo?share_code={share_code}",
         )
         check_response(resp)
@@ -201,7 +207,7 @@ class Redirect:
             post_pickcode = await self.get_pickcode_for_copy(pickcode)
             logger.debug(f"【302跳转服务】多端播放开启 {pickcode} -> {post_pickcode}")
 
-        resp = await self._http_client.post(
+        resp = await self.http_client().post(
             "http://proapi.115.com/android/2.0/ufile/download",
             data={
                 "data": encrypt(f'{{"pick_code":"{post_pickcode}"}}').decode("utf-8")
@@ -310,7 +316,7 @@ class Redirect:
             "receive_code": receive_code,
             "file_id": file_id,
         }
-        resp = await self._http_client.post(
+        resp = await self.http_client().post(
             "http://proapi.115.com/app/share/downurl",
             data={"data": encrypt(dumps(payload)).decode("utf-8")},
         )
