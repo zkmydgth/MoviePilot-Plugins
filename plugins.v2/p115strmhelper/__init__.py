@@ -122,7 +122,7 @@ class P115StrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png"
     # 插件版本
-    plugin_version = "1.8.30"
+    plugin_version = "1.8.31"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -1825,11 +1825,11 @@ class P115StrmHelper(_PluginBase):
         ) = strm_helper.get_generate_total()
         if configer.get_config("notify"):
             text = f"""
-    📄 生成STRM文件 {strm_count} 个
-    ⬇️ 下载媒体文件 {mediainfo_count} 个
-    ❌ 生成STRM失败 {strm_fail_count} 个
-    🚫 下载媒体失败 {mediainfo_fail_count} 个
-    """
+📄 生成STRM文件 {strm_count} 个
+⬇️ 下载媒体文件 {mediainfo_count} 个
+❌ 生成STRM失败 {strm_fail_count} 个
+🚫 下载媒体失败 {mediainfo_fail_count} 个
+"""
             if remove_unless_strm_count != 0:
                 text += f"🗑️ 清理无效STRM文件 {remove_unless_strm_count} 个"
             self.post_message(

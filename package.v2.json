@@ -92,11 +92,12 @@
         "name": "115网盘STRM助手",
         "description": "115网盘STRM生成一条龙服务",
         "labels": "云盘",
-        "version": "1.8.30",
+        "version": "1.8.31",
         "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png",
         "author": "DDSRem",
         "level": 1,
         "history": {
+            "v1.8.31": "全量同步消息格式错误",
             "v1.8.30": "再次优化布尔值配置自动修正",
             "v1.8.29": "更新配置时自动修复布尔值错误",
             "v1.8.28": "尝试自动修复配置布尔值出错",
