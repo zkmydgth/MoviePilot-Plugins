@@ -7,6 +7,7 @@ from urllib.parse import unquote
 from jinja2 import Template
 
 from app.core.cache import TTLCache
+from app.core.config import settings
 from app.core.event import Event, eventmanager
 from app.log import logger
 from app.plugins import _PluginBase
@@ -646,6 +647,14 @@ class FFprobeNamingSupplement(_PluginBase):
         source_path = str(source_path).strip()
         rename_dict = data.rename_dict
         if not isinstance(rename_dict, dict):
+            return
+
+        if source_item.type != "file":
+            logger.debug("【ffprobe命名补充】圆盘整理跳过本次重命名补全")
+            return
+
+        if Path(source_path).suffix.lower() not in settings.RMT_MEDIAEXT:
+            logger.debug("【ffprobe命名补充】文件后缀不是媒体文件，跳过本次重命名补全")
             return
 
         cls = type(self)
