@@ -1657,6 +1657,7 @@ class P115StrmHelper(_PluginBase):
                     media_info = RenameDictUtils.emby_mediainfo_to_rename_fields(
                         resp[data_dict["sha1"].upper()]
                     )
+                    pantransfercacher.file_item_dict.pop(source_item.fileid)
                     if media_info:
                         logger.info(
                             f"【媒体数据补充】中心化获取媒体信息: {source_path}"
