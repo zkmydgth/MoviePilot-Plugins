@@ -3,6 +3,11 @@
   "extends": [
     "config:recommended"
   ],
+  "npm": {
+    "lockFileMaintenance": {
+      "enabled": false
+    }
+  },
   "packageRules": [
     {
       "matchDatasources": [
