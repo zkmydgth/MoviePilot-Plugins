@@ -14,7 +14,8 @@ from httpx import HTTPStatusError
 from sqlalchemy.orm.exc import MultipleResultsFound
 from oss2 import SizedFileAdapter, determine_part_size
 from oss2.models import PartInfo
-from p115client import P115Client, normalize_attr
+from p115client import P115Client
+from p115client.tool.attr import normalize_attr
 from p115client.type import DirNode
 from cryptography.hazmat.primitives import hashes
 from diskcache import Deque

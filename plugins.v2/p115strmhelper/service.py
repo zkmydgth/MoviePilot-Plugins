@@ -8,7 +8,7 @@ from typing import Optional, List
 import pytz
 from apscheduler.schedulers.background import BackgroundScheduler
 from p115client import P115Client
-from p115client.tool.util import share_extract_payload
+from p115client.util import share_extract_payload
 from watchdog.observers import Observer
 from watchdog.observers.polling import PollingObserver
 from aligo.core import set_config_folder

@@ -9,7 +9,7 @@ from typing import Optional
 
 from p115client import P115Client
 from p115client.tool.iterdir import share_iterdir
-from p115client.tool.util import share_extract_payload
+from p115client.util import share_extract_payload
 
 from app.log import logger
 from app.core.metainfo import MetaInfo
@@ -123,6 +123,7 @@ class ShareTransferHelper:
             receive_code=receive_code,
             share_code=share_code,
             cid=0,
+            app="web"
         ):
             if file_num == 1:
                 file_num = 2

@@ -8,7 +8,8 @@ from pathlib import Path
 from typing import Iterator, Literal, List, Tuple, Dict, Any, Set
 from concurrent.futures import ThreadPoolExecutor, Future, as_completed
 
-from p115client import P115Client, check_response, normalize_attr
+from p115client import P115Client, check_response
+from p115client.tool.attr import normalize_attr
 
 from ..core.cache import idpathcacher
 from ..utils.limiter import ApiEndpointCooldown
