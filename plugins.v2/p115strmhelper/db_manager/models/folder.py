@@ -77,30 +77,6 @@ class Folder(P115StrmHelperBase):
 
     @staticmethod
     @db_update
-    def upsert_batch(db: Session, batch: List[Dict]):
-        """
-        批量写入或更新数据
-        """
-        folders_data_map = {
-            entry["data"]["id"]: entry["data"]
-            for entry in batch
-            if entry.get("table") == "folders" and "id" in entry.get("data", {})
-        }
-
-        if not folders_data_map:
-            return True
-
-        folders_data = list(folders_data_map.values())
-
-        db.execute(text("PRAGMA synchronous = OFF"))
-        db.execute(text("PRAGMA journal_mode = MEMORY"))
-
-        stmt = sqlite_insert(Folder).prefix_with("OR REPLACE").values(folders_data)
-        db.execute(stmt)
-        return True
-
-    @staticmethod
-    @db_update
     def upsert_batch_by_list(db: Session, batch: List[Dict]):
         """
         通过列表批量写入或更新数据
