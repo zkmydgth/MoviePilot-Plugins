@@ -583,7 +583,6 @@ class CloudDriveApi:
     def _iter_stream_with_timeout(stream, timeout: int = 300) -> Iterator:
         """
         包装 gRPC 服务端流，为每条消息添加超时。
-        如果超过 timeout 秒没有收到新消息，抛出 TimeoutError。
 
         :param stream: gRPC 服务端流迭代器
         :param timeout: 每条消息的超时秒数，默认 300 秒
@@ -606,6 +605,10 @@ class CloudDriveApi:
             try:
                 item = q.get(timeout=timeout)
             except Empty:
+                try:
+                    stream.cancel()
+                except Exception:
+                    pass
                 raise TimeoutError(f"gRPC 流超时：{timeout} 秒内未收到服务端消息")
             if item is _SENTINEL:
                 return
@@ -641,6 +644,7 @@ class CloudDriveApi:
         :param new_name: 云端文件名，None 则用 local_path.name
         :return: 上传成功返回云端文件 FileItem，失败返回 None
         """
+        max_retries = 3
         if not local_path.exists() or not local_path.is_file():
             logger.error("【CloudDrive】上传文件不存在或非文件: %s", local_path)
             return None
@@ -651,6 +655,51 @@ class CloudDriveApi:
 
         logger.info("【CloudDrive】预计算文件哈希: %s", target_name)
         precomputed_hashes = self._compute_all_hashes_one_pass(local_path)
+
+        for attempt in range(1, max_retries + 1):
+            if global_vars.is_transfer_stopped(target_path):
+                logger.info("【CloudDrive】上传已取消: %s", target_path)
+                return None
+            result = self._upload_once(
+                target_path=target_path,
+                local_path=local_path,
+                file_size=file_size,
+                precomputed_hashes=precomputed_hashes,
+            )
+            if result is not None:
+                return result
+            if result is None and attempt < max_retries:
+                if global_vars.is_transfer_stopped(target_path):
+                    return None
+                logger.warning(
+                    "【CloudDrive】上传失败，第 %d/%d 次重试: %s",
+                    attempt,
+                    max_retries,
+                    target_path,
+                )
+        logger.error(
+            "【CloudDrive】上传最终失败（已重试 %d 次）: %s",
+            max_retries,
+            target_path,
+        )
+        return None
+
+    def _upload_once(
+        self,
+        target_path: str,
+        local_path: Path,
+        file_size: int,
+        precomputed_hashes: Dict[int, str],
+    ) -> Optional[FileItem]:
+        """
+        执行一次上传尝试。成功返回 FileItem，失败返回 None。
+
+        :param target_path: 云端目标路径
+        :param local_path: 本地文件路径
+        :param file_size: 文件大小
+        :param precomputed_hashes: 预计算的哈希字典
+        :return: 上传成功返回 FileItem，失败返回 None
+        """
         progress_callback = transfer_process(target_path)
         stream = None
         upload_id = None
@@ -798,6 +847,11 @@ class CloudDriveApi:
                             logger.error("【CloudDrive】上传状态错误: %s", msg)
                             self._cancel_upload(upload_id)
                             return None
+        except TimeoutError as e:
+            logger.warning("【CloudDrive】上传流超时: %s", e)
+            if upload_id:
+                self._cancel_upload(upload_id)
+            return None
         except Exception as e:
             logger.error("【CloudDrive】上传过程异常: %s", e)
             if upload_id:
@@ -823,6 +877,8 @@ class CloudDriveApi:
                         stream.cancel()
                     except Exception:
                         pass
+        if not upload_finished:
+            return None
         logger.info(f"【CloudDrive】上传完成: {target_path}")
         return self.get_item(Path(target_path))
 
