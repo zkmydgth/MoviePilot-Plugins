@@ -36,42 +36,42 @@ class TestSanitizePathParts(TestCase):
         """Windows：单个非法字符替换"""
         rel_path = self._create_relative_path("movie:name.mp4")
         result = PathUtils.sanitize_path_parts(rel_path)
-        self.assertEqual(str(result), "movie_name.mp4")
+        self.assertEqual(result.as_posix(), "movie_name.mp4")
 
     @patch("utils.path.os_name", "nt")
     def test_windows_multiple_illegal_chars(self):
         """Windows：多个非法字符替换"""
         rel_path = self._create_relative_path("movie<>name?test*.mp4")
         result = PathUtils.sanitize_path_parts(rel_path)
-        self.assertEqual(str(result), "movie__name_test_.mp4")
+        self.assertEqual(result.as_posix(), "movie__name_test_.mp4")
 
     @patch("utils.path.os_name", "nt")
     def test_windows_all_illegal_chars(self):
         """Windows：所有非法字符 <>:"|?* 都被替换"""
         rel_path = self._create_relative_path('<>:":|?*')
         result = PathUtils.sanitize_path_parts(rel_path)
-        self.assertEqual(str(result), "________")
+        self.assertEqual(result.as_posix(), "________")
 
     @patch("utils.path.os_name", "nt")
     def test_windows_nested_path(self):
         """Windows：多级路径中各分量都处理"""
         rel_path = self._create_relative_path("series: 1", "episode<name>.mp4")
         result = PathUtils.sanitize_path_parts(rel_path)
-        self.assertEqual(str(result), "series_ 1/episode_name_.mp4")
+        self.assertEqual(result.as_posix(), "series_ 1/episode_name_.mp4")
 
     @patch("utils.path.os_name", "nt")
     def test_windows_no_illegal_chars(self):
         """Windows：无非法字符时原样返回"""
         rel_path = self._create_relative_path("normal", "path", "file.mp4")
         result = PathUtils.sanitize_path_parts(rel_path)
-        self.assertEqual(str(result), "normal/path/file.mp4")
+        self.assertEqual(result.as_posix(), "normal/path/file.mp4")
 
     @patch("utils.path.os_name", "nt")
     def test_windows_empty_path(self):
         """Windows：空路径处理"""
         rel_path = self._create_relative_path()
         result = PathUtils.sanitize_path_parts(rel_path)
-        self.assertEqual(str(result), ".")
+        self.assertEqual(result.as_posix(), ".")
 
     @patch("utils.path.os_name", "nt")
     def test_windows_real_world_cases(self):
@@ -98,7 +98,7 @@ class TestSanitizePathParts(TestCase):
             with self.subTest(input=input_path):
                 rel_path = self._create_relative_path(*input_path.split("/"))
                 result = PathUtils.sanitize_path_parts(rel_path)
-                self.assertEqual(str(result), expected)
+                self.assertEqual(result.as_posix(), expected)
 
     @patch("utils.path.os_name", "posix")
     def test_posix_returns_original(self):
@@ -106,28 +106,28 @@ class TestSanitizePathParts(TestCase):
         rel_path = self._create_relative_path("movie:name", "file<test>.mp4")
         result = PathUtils.sanitize_path_parts(rel_path)
         # 应该原样返回，不做任何替换
-        self.assertEqual(str(result), "movie:name/file<test>.mp4")
+        self.assertEqual(result.as_posix(), "movie:name/file<test>.mp4")
 
     @patch("utils.path.os_name", "posix")
     def test_posix_nested_path_unchanged(self):
         """非 Windows 平台：多级路径保持不变"""
         rel_path = self._create_relative_path("series:name", "season<1>", "file*.mp4")
         result = PathUtils.sanitize_path_parts(rel_path)
-        self.assertEqual(str(result), "series:name/season<1>/file*.mp4")
+        self.assertEqual(result.as_posix(), "series:name/season<1>/file*.mp4")
 
     @patch("utils.path.os_name", "linux")
     def test_linux_returns_original(self):
         """Linux：直接返回原路径"""
         rel_path = self._create_relative_path("movie:name.mp4")
         result = PathUtils.sanitize_path_parts(rel_path)
-        self.assertEqual(str(result), "movie:name.mp4")
+        self.assertEqual(result.as_posix(), "movie:name.mp4")
 
     @patch("utils.path.os_name", "darwin")
     def test_macos_returns_original(self):
         """macOS：直接返回原路径"""
         rel_path = self._create_relative_path("movie:name.mp4")
         result = PathUtils.sanitize_path_parts(rel_path)
-        self.assertEqual(str(result), "movie:name.mp4")
+        self.assertEqual(result.as_posix(), "movie:name.mp4")
 
 
 class TestPathUtilsIntegration(TestCase):
@@ -151,16 +151,16 @@ class TestPathUtilsIntegration(TestCase):
 
         # 计算相对路径
         rel_path = pan_file_path.relative_to(pan_media_dir)
-        self.assertEqual(str(rel_path), "Movie: Name (2023)/File:Name.mp4")
+        self.assertEqual(rel_path.as_posix(), "Movie: Name (2023)/File:Name.mp4")
 
         # 使用 sanitize_path_parts 处理
         safe_rel_path = PathUtils.sanitize_path_parts(rel_path)
-        self.assertEqual(str(safe_rel_path), "Movie_ Name (2023)/File_Name.mp4")
+        self.assertEqual(safe_rel_path.as_posix(), "Movie_ Name (2023)/File_Name.mp4")
 
         # 组合成本地路径
         local_file_path = target_dir / safe_rel_path
         self.assertEqual(
-            str(local_file_path), "/local/media/Movie_ Name (2023)/File_Name.mp4"
+            local_file_path.as_posix(), "/local/media/Movie_ Name (2023)/File_Name.mp4"
         )
 
     @patch("utils.path.os_name", "posix")
@@ -176,11 +176,11 @@ class TestPathUtilsIntegration(TestCase):
 
         # 非 Windows 平台不应修改路径
         safe_rel_path = PathUtils.sanitize_path_parts(rel_path)
-        self.assertEqual(str(safe_rel_path), "Movie: Name (2023)/File:Name.mp4")
+        self.assertEqual(safe_rel_path.as_posix(), "Movie: Name (2023)/File:Name.mp4")
 
         local_file_path = target_dir / safe_rel_path
         self.assertEqual(
-            str(local_file_path), "/local/media/Movie: Name (2023)/File:Name.mp4"
+            local_file_path.as_posix(), "/local/media/Movie: Name (2023)/File:Name.mp4"
         )
 
 
