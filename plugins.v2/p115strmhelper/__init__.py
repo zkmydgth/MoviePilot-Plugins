@@ -26,7 +26,7 @@ from p115client.tool.iterdir import (
     share_iterdir,
     get_id_to_path,
 )
-from p115client.tool.life import iter_life_behavior_list
+from p115client.tool.life import iter_life_behavior_list, life_show
 from p115client.tool.util import share_extract_payload
 from p115rsacipher import encrypt, decrypt
 
@@ -524,7 +524,7 @@ class P115StrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png"
     # 插件版本
-    plugin_version = "1.5.3"
+    plugin_version = "1.5.4"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -3070,6 +3070,10 @@ class P115StrmHelper(_PluginBase):
                 else:
                     creata_strm(event=event, file_path=file_path)
 
+        resp = life_show(self._client)
+        if not resp["state"]:
+            logger.error(f"【监控生活事件】生活事件开启失败: {resp}")
+            return
         logger.info("【监控生活事件】生活事件监控启动中...")
         try:
             # 删除缓存，避免删除无限循环
