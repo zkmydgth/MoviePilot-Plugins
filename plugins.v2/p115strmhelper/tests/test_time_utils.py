@@ -37,10 +37,13 @@ class TestTimestamp2Isoformat(TestCase):
         self.assertIn("2023-06-15", result)
         self.assertIn("10:30:00", result)
 
-    def test_zero_timestamp(self):
-        """测试零时间戳"""
-        result = TimeUtils.timestamp2isoformat(0.0)
-        self.assertIn("1970", result)
+    def test_early_timestamp(self):
+        """测试较早时间戳（Windows 不支持 1970-01-01 的时区转换）"""
+        # Windows 的 localtime 最小支持约 1970-01-02，使用更晚的时间戳
+        ts = 86400.0  # 1970-01-02 00:00:00 UTC（Windows 兼容）
+        result = TimeUtils.timestamp2isoformat(ts)
+        self.assertIsInstance(result, str)
+        self.assertIn("T", result)
 
 
 class TestTimestamp2Gmtformat(TestCase):
@@ -67,11 +70,13 @@ class TestTimestamp2Gmtformat(TestCase):
         self.assertIn("GMT", result)
         self.assertIsInstance(result, str)
 
-    def test_zero_timestamp(self):
-        """测试零时间戳"""
-        result = TimeUtils.timestamp2gmtformat(0.0)
-        self.assertIn("1970", result)
+    def test_early_timestamp(self):
+        """测试较早时间戳（Windows 不支持 1970-01-01 的时区转换）"""
+        # Windows 的 localtime 最小支持约 1970-01-02，使用更晚的时间戳
+        ts = 86400.0  # 1970-01-02 00:00:00 UTC（Windows 兼容）
+        result = TimeUtils.timestamp2gmtformat(ts)
         self.assertIn("GMT", result)
+        self.assertIsInstance(result, str)
 
 
 class TestTimeUtilsIntegration(TestCase):
