@@ -112,17 +112,21 @@ class SeedSpaceGuard(_PluginBase):
     _delete_torrents: bool = False
     # 删除文件后清理对应的转移历史记录
     _delete_history: bool = False
+    # 种子级模式：删除种子后连带清理媒体库侧硬链接与同内容辅种（默认开）。
+    # 仅种子级生效。关闭后恢复旧行为：只删主种子，硬链接与辅种不动。
+    _companion_cleanup: bool = True
     # 数据层操作器（懒加载，导入失败时置 None 并降级跳过联动）
     _downloadhis: Optional[DownloadHistoryOper] = None
     _transferhis: Optional[TransferHistoryOper] = None
     _running: bool = False
     _last_result: str = ""
-    # 单次清理的聚合计数（文件/转移记录/种子），仅用于构造通知摘要，
+    # 单次清理的聚合计数（文件/转移记录/种子/辅种），仅用于构造通知摘要，
     # 不进明细：明细全部写入日志由用户自行查阅
     _clean_stats: dict = {
         "files": 0,
         "transfers": 0,
         "seeds": 0,
+        "companions": 0,
         "stalled": False,
         "dry_run": False,
     }
@@ -147,6 +151,7 @@ class SeedSpaceGuard(_PluginBase):
         self._sync_wait_seconds = 90
         self._delete_torrents = False
         self._delete_history = False
+        self._companion_cleanup = True
         if not config:
             return
         self._enabled = bool(config.get("enabled"))
@@ -182,6 +187,10 @@ class SeedSpaceGuard(_PluginBase):
         # 联动清理开关：默认关闭，仅显式为真时开启
         self._delete_torrents = bool(config.get("delete_torrents"))
         self._delete_history = bool(config.get("delete_history"))
+        # 种子级连带清理（硬链接 + 辅种）：默认开启，仅显式为 False 时关闭。
+        # 注意此处刻意不用 bool()——bool(None) 为 False，会让「未配置」变成关闭，
+        # 与「默认开」的语义相反。
+        self._companion_cleanup = config.get("companion_cleanup", True) is not False
         self._init_linkage_opers()
         # 联动释放等待秒数：0~1800，默认 90
         raw_wait = config.get("sync_wait_seconds")
@@ -473,6 +482,21 @@ class SeedSpaceGuard(_PluginBase):
                     {
                         "component": "VSwitch",
                         "props": {
+                            "model": "companion_cleanup",
+                            "label": "种子级：连带清理硬链接与辅种",
+                            "class": "mt-4",
+                            "hint": "仅种子级模式生效，默认开启。删除种子后顺带清理两样东西："
+                                    "①媒体库侧的硬链接（不清理则空间不释放，插件会误判"
+                                    "「删了没释放」而停手告警）；"
+                                    "②同一内容的所有辅种（同目录、同种子名的其它站点种子；"
+                                    "文件已不存在，辅种无做种意义）。"
+                                    "辅种不受保护期约束（H&R 只针对下载的种子）。"
+                                    "关闭后恢复旧行为：只删主种子，硬链接与辅种不动",
+                        },
+                    },
+                    {
+                        "component": "VSwitch",
+                        "props": {
                             "model": "dry_run",
                             "label": "试运行（只列不删）",
                             "class": "mt-4",
@@ -640,6 +664,7 @@ class SeedSpaceGuard(_PluginBase):
                 "files": 0,
                 "transfers": 0,
                 "seeds": 0,
+                "companions": 0,
                 "stalled": False,
                 "dry_run": dry_run,
             }
@@ -783,7 +808,8 @@ class SeedSpaceGuard(_PluginBase):
         """
         s = getattr(self, "_clean_stats", {}) or {}
         has_count = (
-            s.get("files") or s.get("transfers") or s.get("seeds") or s.get("stalled")
+            s.get("files") or s.get("transfers") or s.get("seeds")
+            or s.get("companions") or s.get("stalled")
         )
         if not has_count:
             return msg
@@ -794,6 +820,10 @@ class SeedSpaceGuard(_PluginBase):
         lines.append(f"{prefix}删除文件：{s.get('files') or 0} 个")
         lines.append(f"{prefix}删除转移记录：{s.get('transfers') or 0} 条")
         lines.append(f"{prefix}删除种子：{s.get('seeds') or 0} 个")
+        if s.get("companions"):
+            # 辅种独立成行：并入「删除种子」会让总数虚高，用户无法分辨
+            # 删掉的是主种子还是连带摘除的辅种
+            lines.append(f"{prefix}连带删除辅种：{s.get('companions')} 个")
         return msg + "\n" + "\n".join(lines)
 
     def _disk_free_bytes(self) -> Optional[int]:
@@ -860,8 +890,19 @@ class SeedSpaceGuard(_PluginBase):
         等待空间真正回收，再实测空间决定是否按新缺口补删下一轮——避免边删边用
         滞后的实时空间判停而一次性删除过量或永不停止。
 
-        注意：种子级由下载器负责删文件，若媒体库侧为硬链接，插件无法触及那一侧；
-        空间迟迟不释放时会按下述闭环停止并告警。
+        「连带清理」（``_companion_cleanup`` 开启时，默认开）在每个种子删除时
+        按严格顺序执行，顺序不可调换：
+
+        1. **删种前**建 inode 索引：删种后下载器会删掉下载侧文件，届时该 inode
+           的下载侧路径消失，只剩媒体库侧孤证，无法再确认双侧关系
+        2. 删主种子（``delete_file=True``）
+        3. **删种后**删硬链接：把索引中仍在盘上的同 inode 路径（媒体库侧）
+           unlink 掉，空间才真正释放
+        4. 连带删辅种：同内容（同路径 + 同种子名）的其它 hash 一并摘种。文件已
+           不存在，辅种无做种意义；辅种不受保护期约束（H&R 只针对下载的种子）
+
+        注意：``_companion_cleanup`` 关闭时恢复旧行为——由下载器负责删文件，
+        媒体库侧硬链接插件不去触碰，空间迟迟不释放时按下述闭环停止并告警。
 
         :param free_bytes: 当前剩余空间（字节）
         :param dry_run: 是否试运行
@@ -870,6 +911,13 @@ class SeedSpaceGuard(_PluginBase):
         candidates = self._collect_seed_candidates()
         if not candidates:
             return -1, 0.0, []
+
+        # 辅种映射：整轮构建一次，避免每个种子重复扫描候选列表。
+        # 注意候选已由 _collect_seed_candidates 过滤为「内容在监控目录内」，
+        # 因此监控目录外的同名种子不会被牵连删除。
+        companion_map = (
+            self._build_companion_map(candidates) if self._companion_cleanup else {}
+        )
 
         cutoff = time.time() - self._recent_skip_days * 86400
         candidates = [c for c in candidates if c["added"] < cutoff]
@@ -881,7 +929,7 @@ class SeedSpaceGuard(_PluginBase):
         # 本方法自身也保证统计存在（测试可能直接调用），不与 check_and_clean 重置冲突
         if "seeds" not in getattr(self, "_clean_stats", {}):
             self._clean_stats = {
-                "files": 0, "transfers": 0, "seeds": 0,
+                "files": 0, "transfers": 0, "seeds": 0, "companions": 0,
                 "stalled": False, "dry_run": dry_run,
             }
         self._clean_stats["dry_run"] = dry_run
@@ -898,6 +946,19 @@ class SeedSpaceGuard(_PluginBase):
                     f"添加于 {added_text}，{cand['size_gb']}GB）"
                 )
                 logger.info("【保种空间守护】%s", detail_lines[-1])
+                # 如实预告连带清理范围：用户需据此核对是否会误伤辅种
+                if self._companion_cleanup:
+                    peers = [
+                        h for h in companion_map.get(
+                            self._content_key(cand), []) if h != cand["hash"]
+                    ]
+                    if peers:
+                        line = (
+                            f"[试运行] 　└ 将连带删除辅种 {len(peers)} 个"
+                            f"（同内容其它站点）"
+                        )
+                        detail_lines.append(line)
+                        logger.info("【保种空间守护】%s", line)
                 deleted += 1
                 released_gb += float(cand["size_gb"])
                 est_free += float(cand["size_gb"])
@@ -931,6 +992,20 @@ class SeedSpaceGuard(_PluginBase):
                 # 候选耗尽仍未达标，结束
                 break
             for cand in plan:
+                # ---- ① 删种前建 inode 索引（顺序关键，不可后移）----
+                # 删种后下载器会删掉下载侧文件，届时该 inode 的下载侧路径消失，
+                # 只剩媒体库侧孤证，无法再确认「哪些路径是同一文件」。
+                ino_index: Dict[Tuple[int, int], List[str]] = {}
+                if self._companion_cleanup:
+                    related = self._seed_related_paths(cand)
+                    ino_index = self._build_inode_index(related)
+                    logger.info(
+                        "【保种空间守护】种子 %s 关联路径 %d 条，inode %d 个"
+                        "（含媒体库侧硬链接）",
+                        cand["title"], len(related), len(ino_index),
+                    )
+
+                # ---- ② 删主种子 ----
                 try:
                     ok = cand["module"].remove_torrents(
                         hashs=cand["hash"],
@@ -940,24 +1015,67 @@ class SeedSpaceGuard(_PluginBase):
                 except Exception as err:
                     logger.error("【保种空间守护】删除种子 %s 失败：%s", cand["title"], err)
                     continue
-                if ok:
-                    deleted += 1
-                    released_gb += float(cand["size_gb"])
-                    added_text = datetime.fromtimestamp(
-                        cand["added"]).strftime("%Y-%m-%d")
-                    detail_lines.append(
-                        f"已删除种子：{cand['title']}（{cand['downloader']}，"
-                        f"添加于 {added_text}）"
+                if not ok:
+                    continue
+
+                deleted += 1
+                released_gb += float(cand["size_gb"])
+                added_text = datetime.fromtimestamp(
+                    cand["added"]).strftime("%Y-%m-%d")
+                detail_lines.append(
+                    f"已删除种子：{cand['title']}（{cand['downloader']}，"
+                    f"添加于 {added_text}）"
+                )
+                logger.info("【保种空间守护】%s", detail_lines[-1])
+
+                # ---- ③ 删硬链接：媒体库侧同 inode 路径一并 unlink ----
+                # 下载侧已被下载器删除，此处清理的是媒体库侧；不清理则空间
+                # 不释放，_release_is_healthy 会误判「删了没释放」而停手告警。
+                if self._companion_cleanup and ino_index:
+                    link_removed = self._clean_hardlinks_for(
+                        ino_index, cand["title"]
                     )
-                    logger.info("【保种空间守护】%s", detail_lines[-1])
-                    # 种子级模式下种子已被下载器删除，无需再按「文件全删才删种」
-                    # 判定；这里只需顺带清理文件侧残留（刮削产物、转移记录）
-                    history = self._run_linkage_on_seed_deleted(
-                        cand, detail_lines, dry_run
-                    )
-                    self._clean_stats["transfers"] += history
-                    # 删除种子连带文件后，清理可能遗留的空目录（保护配置目录本身）
-                    self._prune_empty_dirs(cand["path"])
+                    if link_removed:
+                        line = (
+                            f"已清理硬链接 {link_removed} 条"
+                            f"（种子：{cand['title']}）"
+                        )
+                        detail_lines.append(line)
+                        logger.info("【保种空间守护】%s", line)
+
+                # ---- ④ 连带删辅种：同内容其它 hash 一并摘种 ----
+                # 文件已不存在，辅种无做种意义。辅种不受保护期约束——保护期
+                # 针对的是「新下载尚未做种」的资源，而 H&R 只针对下载的种子。
+                if self._companion_cleanup and companion_map:
+                    peers = [
+                        h for h in companion_map.get(
+                            self._content_key(cand), []) if h != cand["hash"]
+                    ]
+                    if peers:
+                        done = 0
+                        for peer_hash in peers:
+                            if self._delete_torrent_by_hash(peer_hash, cand["title"]):
+                                done += 1
+                        if done:
+                            line = (
+                                f"已连带删除辅种 {done} 个"
+                                f"（内容：{cand['title']}）"
+                            )
+                            detail_lines.append(line)
+                            logger.info("【保种空间守护】%s", line)
+                            self._clean_stats["companions"] = (
+                                (self._clean_stats.get("companions") or 0) + done
+                            )
+
+                # ---- ⑤ 联动收尾：转移记录 + 空目录 ----
+                # 种子级模式下种子已被下载器删除，无需再按「文件全删才删种」
+                # 判定；这里只需顺带清理文件侧残留（刮削产物、转移记录）
+                history = self._run_linkage_on_seed_deleted(
+                    cand, detail_lines, dry_run
+                )
+                self._clean_stats["transfers"] += history
+                # 删除种子连带文件后，清理可能遗留的空目录（保护配置目录本身）
+                self._prune_empty_dirs(cand["path"])
             # 轮询等待空间释放（达标提前退出），再复核
             logger.info(
                 "【保种空间守护】本轮已删除 %d 个种子，等待空间释放（最长 %d 秒）后复核…",
@@ -1814,6 +1932,160 @@ class SeedSpaceGuard(_PluginBase):
             ),
         }
 
+    # ============ 种子级连带清理（硬链接 + 辅种） ============
+
+    @staticmethod
+    def _content_key(cand: Dict[str, Any]) -> Tuple[str, str]:
+        """
+        计算种子的「内容身份」键，用于识别辅种。
+
+        键为 (归一化内容路径, 归一化种子名)。**两者都必须相同**才视为同一
+        内容的不同种子：
+
+        - 同目录 + 同种子名 + 多 hash → **真辅种**（同一内容在不同站点各一条
+          种子），文件已删则无做种意义，应连带删除
+        - 同目录 + **不同**种子名 + 多 hash → **合集/多集各自成种**（如一部剧
+          33 集各自一条种子共用一个目录），**绝不能**连带删除
+
+        实测生产环境：真辅种 29 组（单组最多 19 个 hash），合集多集 121 组。
+        仅凭路径判定会把后者全部误删，是本次改造最高危的点。
+
+        :param cand: 种子候选
+        :return: (normpath(path), title.casefold())
+        """
+        path = os.path.normpath(str(cand.get("path") or ""))
+        title = str(cand.get("title") or "").strip().casefold()
+        return path, title
+
+    def _build_companion_map(self, cands: List[Dict[str, Any]]
+                             ) -> Dict[Tuple[str, str], List[str]]:
+        """
+        构建「内容键 → hash 列表」映射，整轮复用。
+
+        只纳入已被 ``_collect_seed_candidates`` 判定为「内容路径在监控目录内」
+        的种子——即辅种连带同样受「只删监控目录内种子」的约束，范围外的同名
+        种子不会被牵连。
+
+        :param cands: 候选种子列表
+        :return: {(path, title): [hash, ...]}
+        """
+        mapping: Dict[Tuple[str, str], List[str]] = {}
+        for cand in cands:
+            key = self._content_key(cand)
+            h = str(cand.get("hash") or "")
+            if not key[0] or not key[1] or not h:
+                continue
+            mapping.setdefault(key, []).append(h)
+        return mapping
+
+    def _seed_related_paths(self, cand: Dict[str, Any]) -> List[str]:
+        """
+        汇总某种子在配置目录内的全部可能路径（下载侧 + 媒体库侧）。
+
+        与 ``_seed_file_paths`` 的区别：本方法**不过滤存在性**，且额外补充
+        「按种子名在各配置目录下推断的路径」——下载目录与媒体库目录常常同名
+        同结构，媒体库侧的硬链接正是落在这里。
+
+        这三个来源缺一不可：
+        1. DownloadFiles 记录 → 下载侧的权威清单（含各集文件的完整路径）
+        2. 各配置目录 + 种子名 → 媒体库侧硬链接的落点
+        3. 下载器报告的 content_path → 兜底（记录缺失/路径迁移时）
+
+        :param cand: 种子候选
+        :return: 去重后的路径列表（可能含尚不存在的路径，由调用方过滤）
+        """
+        paths: List[str] = []
+        seen: set = set()
+
+        def _add(p: str) -> None:
+            p = os.path.normpath(str(p or "").strip())
+            if p and p != "." and p not in seen:
+                seen.add(p)
+                paths.append(p)
+
+        # ① DownloadFiles 记录：下载侧权威清单
+        for p in self._seed_file_paths(cand):
+            _add(p)
+        # ② 各配置目录 + 种子名：媒体库侧硬链接的落点
+        title = str(cand.get("title") or "").strip()
+        if title:
+            for base in (self._active_dirs or self._target_dirs):
+                _add(os.path.join(base, title))
+        # ③ 下载器报告的真实内容路径
+        _add(str(cand.get("path") or ""))
+        return paths
+
+    def _build_inode_index(self, paths: List[str]
+                           ) -> Dict[Tuple[int, int], List[str]]:
+        """
+        对给定路径清单建立 inode 索引（不遍历全盘）。
+
+        复用 ``_index_files`` 的 ``(st_dev, st_ino)`` 身份判定与 ``os.lstat``
+        语义（symlink 不算普通文件），但作用域限定为「本次要删的种子涉及的
+        路径」，避免在大媒体库上做全盘 walk。
+
+        索引必须**在删种之前**建立：删种后下载器会删掉下载侧文件，届时再想
+        枚举该 inode 的所有路径已不可能（下载侧路径消失，只剩媒体库侧孤证）。
+
+        :param paths: 待索引的路径（文件或目录）
+        :return: (st_dev, st_ino) -> 该 inode 在配置目录内的全部路径
+        """
+        index: Dict[Tuple[int, int], List[str]] = {}
+
+        def _record(fpath: str) -> None:
+            try:
+                st = os.lstat(fpath)
+            except OSError:
+                return
+            if not stat.S_ISREG(st.st_mode):
+                return
+            plist = index.setdefault((st.st_dev, st.st_ino), [])
+            if fpath not in plist:
+                plist.append(fpath)
+
+        for p in paths:
+            if not p or not self._path_under_any(p):
+                continue
+            if os.path.isdir(p):
+                for root, dirs, fnames in os.walk(p):
+                    # 与 _index_files 一致：跳过 DSM 系统目录与回收站
+                    dirs[:] = [d for d in dirs
+                               if not d.startswith("@") and d != "#recycle"]
+                    for fname in fnames:
+                        _record(os.path.join(root, fname))
+            else:
+                _record(p)
+        return index
+
+    def _clean_hardlinks_for(
+        self, ino_index: Dict[Tuple[int, int], List[str]], title: str = ""
+    ) -> int:
+        """
+        删除给定 inode 索引中仍存在于磁盘的同 inode 路径（媒体库侧硬链接）。
+
+        复用 ``_delete_one`` 的三层安全边界（词法校验 / inode 复核 / realpath
+        校验），确保不会越出配置目录、不会误删已被重建的同名新文件。
+
+        调用时机：**主种子删除之后**。此时下载侧路径已被下载器删除，索引中
+        仍存在的基本就是媒体库侧的硬链接。
+
+        :param ino_index: ``_build_inode_index`` 的返回值
+        :param title: 种子名（仅用于日志）
+        :return: 成功 unlink 的路径数
+        """
+        if not ino_index:
+            return 0
+        # _delete_one 从该成员取「同 inode 的全部路径」
+        self._ino_paths = ino_index
+        removed = 0
+        for key, plist in ino_index.items():
+            for path in plist:
+                if not os.path.exists(path):
+                    # 下载侧已被下载器删除，属预期
+                    continue
+                removed += self._delete_one(path, key)
+        return removed
+
     # ============================ 仅文件清理 ============================
 
     def _index_files(self, patterns: List[str], recent_secs: float
@@ -1957,7 +2229,7 @@ class SeedSpaceGuard(_PluginBase):
         # 本方法自身也保证统计存在（测试可能直接调用），不与 check_and_clean 重置冲突
         if "files" not in getattr(self, "_clean_stats", {}):
             self._clean_stats = {
-                "files": 0, "transfers": 0, "seeds": 0,
+                "files": 0, "transfers": 0, "seeds": 0, "companions": 0,
                 "stalled": False, "dry_run": dry_run,
             }
         self._clean_stats["dry_run"] = dry_run
@@ -2282,6 +2554,7 @@ class SeedSpaceGuard(_PluginBase):
             "notify": True,
             "delete_torrents": False,
             "delete_history": False,
+            "companion_cleanup": True,
             "downloaders": [],
             "manual_action": "",
         }
