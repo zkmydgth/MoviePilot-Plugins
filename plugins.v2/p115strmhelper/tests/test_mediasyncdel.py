@@ -35,10 +35,9 @@ def _load_mediasyncdel_module():
     package = ModuleType(package_name)
     package.__path__ = [str(plugin_root)]
     sys.modules[package_name] = package
-
-    return importlib.import_module(
-        "app.plugins.p115strmhelper.helper.mediasyncdel"
-    )
+    module_name = "app.plugins.p115strmhelper.helper.mediasyncdel"
+    sys.modules.pop(module_name, None)
+    return importlib.import_module(module_name)
 
 
 class TestMediaSyncDelHelper(TestCase):
