@@ -12,22 +12,12 @@ from typing import Any, List, Dict, Tuple, Optional, Union
 from app.chain.media import MediaChain
 from app.chain.storage import StorageChain
 from app.core.config import settings
-from app.core.context import MediaInfo
 from app.core.event import eventmanager, Event
-from app.core.meta import MetaBase
 from app.core.metainfo import MetaInfo
-from app.helper.mediaserver import MediaServerHelper
 from app.log import logger
 from app.plugins import _PluginBase
-from app.schemas import (
-    TransferInfo,
-    FileItem,
-    RefreshMediaItem,
-    ServiceInfo,
-    NotificationType,
-)
+from app.schemas import TransferInfo, FileItem, RefreshMediaItem, NotificationType
 from app.schemas.types import EventType, MessageChannel
-from app.utils.system import SystemUtils
 from apscheduler.triggers.cron import CronTrigger
 from fastapi import Request
 from p115client.tool.iterdir import share_iterdir
@@ -41,7 +31,6 @@ from .core.cache import (
     cacher_create_strm_file_dict,
 )
 from .core.config import configer
-from .core.scrape import media_scrape_metadata
 from .db_manager import ct_db_manager
 from .db_manager.init import init_db, update_db
 from .db_manager.oper import FileDbHelper
@@ -51,7 +40,7 @@ from .interactive.framework.schemas import TSession
 from .interactive.handler import ActionHandler
 from .interactive.session import Session
 from .interactive.views import ViewRenderer
-from .helper.strm import FullSyncStrmHelper
+from .helper.strm import FullSyncStrmHelper, TransferStrmHelper
 from .utils.path import PathMatchingHelper
 
 # 实例化一个该插件专用的 SessionManager
@@ -78,17 +67,6 @@ class P115StrmHelper(_PluginBase):
     # 可使用的用户级别
     auth_level = 1
 
-    # 私有属性
-    pathmatchinghelper = None
-    mediainfodownloader = None
-
-    # 生活事件缓存
-    cache_top_delete_pan_transfer_list = None
-    cache_create_strm_file_dict = None
-
-    # 网盘客户端
-    _client = None
-    monitorlife = None
     api = None
 
     # 分享转存队列
@@ -160,11 +138,6 @@ class P115StrmHelper(_PluginBase):
         """
         初始化插件
         """
-        self.pathmatchinghelper = PathMatchingHelper()
-
-        self.cache_top_delete_pan_transfer_list = cacher_top_delete_pan_transfer_list
-        self.cache_create_strm_file_dict = cacher_create_strm_file_dict
-
         self._add_share_queue = Queue()
         self._add_share_worker_thread = None
         self._add_share_worker_lock = threading.Lock()
@@ -182,10 +155,7 @@ class P115StrmHelper(_PluginBase):
             self.init_database()
 
             if servicer.init_service():
-                self._client = servicer.client
-                self.mediainfodownloader = servicer.mediainfodownloader
-                self.monitorlife = servicer.monitorlife
-                self.api = Api(client=self._client)
+                self.api = Api(client=servicer.client)
 
             # 目录上传监控服务
             servicer.start_directory_upload()
@@ -218,37 +188,6 @@ class P115StrmHelper(_PluginBase):
         插件状态
         """
         return configer.get_config("enabled")
-
-    @property
-    def transfer_service_infos(self) -> Optional[Dict[str, ServiceInfo]]:
-        """
-        监控MP整理 媒体服务器服务信息
-        """
-        if not configer.get_config("transfer_monitor_mediaservers"):
-            logger.warning("尚未配置媒体服务器，请检查配置")
-            return None
-
-        mediaserver_helper = MediaServerHelper()
-
-        services = mediaserver_helper.get_services(
-            name_filters=configer.get_config("transfer_monitor_mediaservers")
-        )
-        if not services:
-            logger.warning("获取媒体服务器实例失败，请检查配置")
-            return None
-
-        active_services = {}
-        for service_name, service_info in services.items():
-            if service_info.instance.is_inactive():
-                logger.warning(f"媒体服务器 {service_name} 未连接，请检查配置")
-            else:
-                active_services[service_name] = service_info
-
-        if not active_services:
-            logger.warning("没有已连接的媒体服务器，请检查配置")
-            return None
-
-        return active_services
 
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:
@@ -472,7 +411,7 @@ class P115StrmHelper(_PluginBase):
         ):
             return
 
-        if not self.cache_top_delete_pan_transfer_list:
+        if not cacher_top_delete_pan_transfer_list:
             return
 
         item = event.event_data
@@ -489,7 +428,9 @@ class P115StrmHelper(_PluginBase):
         if dest_fileitem.storage != "u115" or src_fileitem.storage != "u115":
             return
 
-        if not self.pathmatchinghelper.get_run_transfer_path(
+        pathmatchinghelper = PathMatchingHelper()
+
+        if not pathmatchinghelper.get_run_transfer_path(
             paths=configer.get_config("pan_transfer_paths"),
             transfer_path=src_fileitem.path,
         ):
@@ -497,11 +438,11 @@ class P115StrmHelper(_PluginBase):
 
         remove_id = ""
         # 遍历删除字典
-        for key, item_list in self.cache_top_delete_pan_transfer_list.items():
+        for key, item_list in cacher_top_delete_pan_transfer_list.items():
             # 只有目前处理完成的这个文件ID在处理列表中，才表明匹配到了该删除的顶层目录
             if str(dest_fileitem.fileid) in item_list:
                 # 从列表中删除这个ID
-                self.cache_top_delete_pan_transfer_list[key] = [
+                cacher_top_delete_pan_transfer_list[key] = [
                     item for item in item_list if item != str(dest_fileitem.fileid)
                 ]
                 # 记录需删除的顶层目录
@@ -510,9 +451,9 @@ class P115StrmHelper(_PluginBase):
 
         if remove_id:
             # 只有需删除的顶层目录下面的文件全部整理完成才进行删除操作
-            if not self.cache_top_delete_pan_transfer_list.get(remove_id):
-                del self.cache_top_delete_pan_transfer_list[remove_id]
-                resp = self._client.fs_delete(int(remove_id))
+            if not cacher_top_delete_pan_transfer_list.get(remove_id):
+                del cacher_top_delete_pan_transfer_list[remove_id]
+                resp = servicer.client.fs_delete(int(remove_id))
                 if resp["state"]:
                     logger.info(f"【网盘整理】删除 {remove_id} 文件夹成功")
                 else:
@@ -525,39 +466,6 @@ class P115StrmHelper(_PluginBase):
         """
         监控目录整理生成 STRM 文件
         """
-
-        def generate_strm_files(
-            target_dir: Path,
-            pan_media_dir: Path,
-            item_dest_path: Path,
-            basename: str,
-            url: str,
-        ):
-            """
-            依据网盘路径生成 STRM 文件
-            """
-            try:
-                pan_media_dir = str(Path(pan_media_dir))
-                pan_path = Path(item_dest_path).parent
-                pan_path = str(Path(pan_path))
-                if self.pathmatchinghelper.has_prefix(pan_path, pan_media_dir):
-                    pan_path = pan_path[len(pan_media_dir) :].lstrip("/").lstrip("\\")
-                file_path = Path(target_dir) / pan_path
-                file_name = basename + ".strm"
-                new_file_path = file_path / file_name
-                new_file_path.parent.mkdir(parents=True, exist_ok=True)
-                with open(new_file_path, "w", encoding="utf-8") as file:
-                    file.write(url)
-                logger.info(
-                    "【监控整理STRM生成】生成 STRM 文件成功: %s", str(new_file_path)
-                )
-                return True, str(new_file_path)
-            except Exception as e:  # noqa: F841
-                logger.error(
-                    "【监控整理STRM生成】生成 %s 文件失败: %s", str(new_file_path), e
-                )
-                return False, None
-
         if (
             not configer.get_config("enabled")
             or not configer.get_config("transfer_monitor_enabled")
@@ -570,202 +478,8 @@ class P115StrmHelper(_PluginBase):
         if not item:
             return
 
-        # 转移信息
-        item_transfer: TransferInfo = item.get("transferinfo")
-        # 媒体信息
-        mediainfo: MediaInfo = item.get("mediainfo")
-        # 元数据信息
-        meta: MetaBase = item.get("meta")
-
-        item_dest_storage = item_transfer.target_item.storage
-        if item_dest_storage != "u115":
-            return
-
-        # 网盘目的地目录
-        itemdir_dest_path = item_transfer.target_diritem.path
-        # 网盘目的地路径（包含文件名称）
-        item_dest_path = item_transfer.target_item.path
-        # 网盘目的地文件名称
-        item_dest_name = item_transfer.target_item.name
-        # 网盘目的地文件名称（不包含后缀）
-        item_dest_basename = item_transfer.target_item.basename
-        # 网盘目的地文件 pickcode
-        item_dest_pickcode = item_transfer.target_item.pickcode
-        # 是否蓝光原盘
-        item_bluray = SystemUtils.is_bluray_dir(Path(itemdir_dest_path))
-        # 目标字幕文件清单
-        subtitle_list = getattr(item_transfer, "subtitle_list_new", [])
-        # 目标音频文件清单
-        audio_list = getattr(item_transfer, "audio_list_new", [])
-
-        __itemdir_dest_path, local_media_dir, pan_media_dir = (
-            self.pathmatchinghelper.get_media_path(
-                configer.get_config("transfer_monitor_paths"), itemdir_dest_path
-            )
-        )
-        if not __itemdir_dest_path:
-            logger.debug(
-                f"【监控整理STRM生成】{item_dest_name} 路径匹配不符合，跳过整理"
-            )
-            return
-        logger.debug("【监控整理STRM生成】匹配到网盘文件夹路径: %s", str(pan_media_dir))
-
-        if item_bluray:
-            logger.warning(
-                f"【监控整理STRM生成】{item_dest_name} 为蓝光原盘，不支持生成 STRM 文件: {item_dest_path}"
-            )
-            return
-
-        if not item_dest_pickcode:
-            logger.error(
-                f"【监控整理STRM生成】{item_dest_name} 不存在 pickcode 值，无法生成 STRM 文件"
-            )
-            return
-        if not (len(item_dest_pickcode) == 17 and str(item_dest_pickcode).isalnum()):
-            logger.error(
-                f"【监控整理STRM生成】错误的 pickcode 值 {item_dest_name}，无法生成 STRM 文件"
-            )
-            return
-        strm_url = f"{configer.get_config('moviepilot_address').rstrip('/')}/api/v1/plugin/P115StrmHelper/redirect_url?apikey={settings.API_TOKEN}&pickcode={item_dest_pickcode}"
-        if configer.get_config("strm_url_format") == "pickname":
-            strm_url += f"&file_name={item_dest_name}"
-
-        _databasehelper = FileDbHelper()
-        _databasehelper.upsert_batch(
-            _databasehelper.process_fileitem(fileitem=item_transfer.target_item)
-        )
-
-        status, strm_target_path = generate_strm_files(
-            target_dir=local_media_dir,
-            pan_media_dir=pan_media_dir,
-            item_dest_path=item_dest_path,
-            basename=item_dest_basename,
-            url=strm_url,
-        )
-        if not status:
-            return
-
-        try:
-            storagechain = StorageChain()
-            if subtitle_list:
-                logger.info("【监控整理STRM生成】开始下载字幕文件")
-                for _path in subtitle_list:
-                    fileitem = storagechain.get_file_item(
-                        storage="u115", path=Path(_path)
-                    )
-                    _databasehelper.upsert_batch(
-                        _databasehelper.process_fileitem(fileitem)
-                    )
-                    download_url = self.mediainfodownloader.get_download_url(
-                        pickcode=fileitem.pickcode
-                    )
-                    if not download_url:
-                        logger.error(
-                            f"【监控整理STRM生成】{Path(_path).name} 下载链接获取失败，无法下载该文件"
-                        )
-                        continue
-                    _file_path = Path(local_media_dir) / Path(_path).relative_to(
-                        pan_media_dir
-                    )
-                    self.mediainfodownloader.save_mediainfo_file(
-                        file_path=Path(_file_path),
-                        file_name=_file_path.name,
-                        download_url=download_url,
-                    )
-
-            if audio_list:
-                logger.info("【监控整理STRM生成】开始下载音频文件")
-                for _path in audio_list:
-                    fileitem = storagechain.get_file_item(
-                        storage="u115", path=Path(_path)
-                    )
-                    _databasehelper.upsert_batch(
-                        _databasehelper.process_fileitem(fileitem)
-                    )
-                    download_url = self.mediainfodownloader.get_download_url(
-                        pickcode=fileitem.pickcode
-                    )
-                    if not download_url:
-                        logger.error(
-                            f"【监控整理STRM生成】{Path(_path).name} 下载链接获取失败，无法下载该文件"
-                        )
-                        continue
-                    _file_path = Path(local_media_dir) / Path(_path).relative_to(
-                        pan_media_dir
-                    )
-                    self.mediainfodownloader.save_mediainfo_file(
-                        file_path=Path(_file_path),
-                        file_name=_file_path.name,
-                        download_url=download_url,
-                    )
-        except Exception as e:
-            logger.error(f"【监控整理STRM生成】媒体信息文件下载出现未知错误: {e}")
-
-        scrape_metadata = True
-        if configer.get_config("transfer_monitor_scrape_metadata_enabled"):
-            if configer.get_config("transfer_monitor_scrape_metadata_exclude_paths"):
-                if self.pathmatchinghelper.get_scrape_metadata_exclude_path(
-                    configer.get_config(
-                        "transfer_monitor_scrape_metadata_exclude_paths"
-                    ),
-                    str(strm_target_path),
-                ):
-                    logger.debug(
-                        f"【监控整理STRM生成】匹配到刮削排除目录，不进行刮削: {strm_target_path}"
-                    )
-                    scrape_metadata = False
-            if scrape_metadata:
-                media_scrape_metadata(
-                    path=strm_target_path,
-                    item_name=item_dest_name,
-                    mediainfo=mediainfo,
-                    meta=meta,
-                )
-
-        if configer.get_config("transfer_monitor_media_server_refresh_enabled"):
-            if not self.transfer_service_infos:
-                return
-
-            logger.info(f"【监控整理STRM生成】 {item_dest_name} 开始刷新媒体服务器")
-
-            if configer.get_config("transfer_mp_mediaserver_paths"):
-                status, mediaserver_path, moviepilot_path = (
-                    self.pathmatchinghelper.get_media_path(
-                        configer.get_config("transfer_mp_mediaserver_paths"),
-                        strm_target_path,
-                    )
-                )
-                if status:
-                    logger.info(
-                        f"【监控整理STRM生成】 {item_dest_name} 刷新媒体服务器目录替换中..."
-                    )
-                    strm_target_path = strm_target_path.replace(
-                        moviepilot_path, mediaserver_path
-                    ).replace("\\", "/")
-                    logger.info(
-                        f"【监控整理STRM生成】刷新媒体服务器目录替换: {moviepilot_path} --> {mediaserver_path}"
-                    )
-                    logger.info(
-                        f"【监控整理STRM生成】刷新媒体服务器目录: {strm_target_path}"
-                    )
-            items = [
-                RefreshMediaItem(
-                    title=mediainfo.title,
-                    year=mediainfo.year,
-                    type=mediainfo.type,
-                    category=mediainfo.category,
-                    target_path=Path(strm_target_path),
-                )
-            ]
-            for name, service in self.transfer_service_infos.items():
-                if hasattr(service.instance, "refresh_library_by_items"):
-                    service.instance.refresh_library_by_items(items)
-                elif hasattr(service.instance, "refresh_root_library"):
-                    service.instance.refresh_root_library()
-                else:
-                    logger.warning(
-                        f"【监控整理STRM生成】 {item_dest_name} {name} 不支持刷新"
-                    )
+        strm_helper = TransferStrmHelper()
+        strm_helper.do_generate(item)
 
     @eventmanager.register(EventType.PluginAction)
     def p115_full_sync(self, event: Event):
@@ -831,7 +545,8 @@ class P115StrmHelper(_PluginBase):
                 userid=event.event_data.get("user"),
             )
             return
-        status, paths = self.pathmatchinghelper.get_p115_strm_path(
+        pathmatchinghelper = PathMatchingHelper()
+        status, paths = pathmatchinghelper.get_p115_strm_path(
             paths=configer.get_config("full_sync_strm_paths"), media_path=args
         )
         if not status:
@@ -841,21 +556,7 @@ class P115StrmHelper(_PluginBase):
                 userid=event.event_data.get("user"),
             )
             return
-        strm_helper = FullSyncStrmHelper(
-            user_rmt_mediaext=configer.get_config("user_rmt_mediaext"),
-            user_download_mediaext=configer.get_config("user_download_mediaext"),
-            auto_download_mediainfo=configer.get_config(
-                "full_sync_auto_download_mediainfo_enabled"
-            ),
-            client=self._client,
-            mediainfodownloader=self.mediainfodownloader,
-            server_address=configer.get_config("moviepilot_address"),
-            pan_transfer_enabled=configer.get_config("pan_transfer_enabled"),
-            pan_transfer_paths=configer.get_config("pan_transfer_paths"),
-            strm_url_format=configer.get_config("strm_url_format"),
-            overwrite_mode=configer.get_config("full_sync_overwrite_mode"),
-            remove_unless_strm=configer.get_config("full_sync_remove_unless_strm"),
-        )
+        strm_helper = FullSyncStrmHelper()
         self.post_message(
             channel=event.event_data.get("channel"),
             title=f"开始 {args} 全量同步 ...",
@@ -1076,7 +777,7 @@ class P115StrmHelper(_PluginBase):
         file_num = 0
         file_mediainfo = None
         for item in share_iterdir(
-            self._client,
+            servicer.client,
             receive_code=receive_code,
             share_code=share_code,
             cid=0,
@@ -1123,7 +824,7 @@ class P115StrmHelper(_PluginBase):
             parent_path = configer.get_config("pan_transfer_paths").split("\n")[0]
             parent_id = idpathcacher.get_id_by_dir(directory=str(parent_path))
             if not parent_id:
-                parent_id = self._client.fs_dir_getid(parent_path)["id"]
+                parent_id = servicer.client.fs_dir_getid(parent_path)["id"]
                 logger.info(f"【分享转存】获取到转存目录 ID：{parent_id}")
                 idpathcacher.add_cache(id=int(parent_id), directory=str(parent_path))
             payload = {
@@ -1145,7 +846,7 @@ class P115StrmHelper(_PluginBase):
                 share_code=share_code, receive_code=receive_code
             )
 
-            resp = self._client.share_receive(payload)
+            resp = servicer.client.share_receive(payload)
             if resp["state"]:
                 logger.info(f"【分享转存】转存 {share_code} 到 {parent_path} 成功！")
                 if not file_mediainfo:
@@ -1225,7 +926,7 @@ class P115StrmHelper(_PluginBase):
         parent_path = configer.get_config("pan_transfer_paths").split("\n")[0]
         parent_id = idpathcacher.get_id_by_dir(directory=str(parent_path))
         if not parent_id:
-            parent_id = self._client.fs_dir_getid(parent_path)["id"]
+            parent_id = servicer.client.fs_dir_getid(parent_path)["id"]
             logger.info(f"【分享转存API】获取到转存目录 ID：{parent_id}")
             idpathcacher.add_cache(id=int(parent_id), directory=str(parent_path))
 
@@ -1236,7 +937,7 @@ class P115StrmHelper(_PluginBase):
             "cid": int(parent_id),
             "is_check": 0,
         }
-        resp = self._client.share_receive(payload)
+        resp = servicer.client.share_receive(payload)
         if resp["state"]:
             logger.info(f"【分享转存API】转存 {share_code} 到 {parent_path} 成功！")
             if configer.get_config("notify"):
@@ -1330,12 +1031,13 @@ class P115StrmHelper(_PluginBase):
             刷新媒体服务器
             """
             if configer.get_config("monitor_life_media_server_refresh_enabled"):
-                if not self.monitorlife.monitor_life_service_infos:
+                if not servicer.monitorlife.monitor_life_service_infos:
                     return
                 logger.info(f"【监控生活事件】 {file_name} 开始刷新媒体服务器")
                 if configer.get_config("monitor_life_mp_mediaserver_paths"):
+                    pathmatchinghelper = PathMatchingHelper()
                     status, mediaserver_path, moviepilot_path = (
-                        self.pathmatchinghelper.get_media_path(
+                        pathmatchinghelper.get_media_path(
                             configer.get_config("monitor_life_mp_mediaserver_paths"),
                             file_path,
                         )
@@ -1363,7 +1065,7 @@ class P115StrmHelper(_PluginBase):
                 for (
                     name,
                     service,
-                ) in self.monitorlife.monitor_life_service_infos.items():
+                ) in servicer.monitorlife.monitor_life_service_infos.items():
                     if hasattr(service.instance, "refresh_library_by_items"):
                         service.instance.refresh_library_by_items(items)
                     elif hasattr(service.instance, "refresh_root_library"):
@@ -1376,7 +1078,7 @@ class P115StrmHelper(_PluginBase):
             重命名
             """
             target_path = Path(fileitem.path).parent
-            file_item = self.cache_create_strm_file_dict.get(str(fileitem.fileid), None)
+            file_item = cacher_create_strm_file_dict.get(str(fileitem.fileid), None)
             if not file_item:
                 return
             if fileitem.name != file_item[0]:
@@ -1400,7 +1102,7 @@ class P115StrmHelper(_PluginBase):
                         id=int(fileitem.fileid),
                         new_name=str(fileitem.name),
                     )
-                    self.cache_create_strm_file_dict.pop(str(fileitem.fileid), None)
+                    cacher_create_strm_file_dict.pop(str(fileitem.fileid), None)
                     logger.info(
                         f"【监控生活事件】修正文件名称: {life_path} --> {target_file_path}"
                     )
@@ -1471,7 +1173,7 @@ class P115StrmHelper(_PluginBase):
         """
         try:
             logger.info("【回收站清理】开始清理回收站")
-            self._client.recyclebin_clean(password=configer.get_config("password"))
+            servicer.client.recyclebin_clean(password=configer.get_config("password"))
             logger.info("【回收站清理】回收站已清空")
         except Exception as e:
             logger.error(f"【回收站清理】清理回收站运行失败: {e}")
@@ -1483,12 +1185,12 @@ class P115StrmHelper(_PluginBase):
         """
         try:
             logger.info("【我的接收清理】开始清理我的接收")
-            parent_id = int(self._client.fs_dir_getid("/我的接收")["id"])
+            parent_id = int(servicer.client.fs_dir_getid("/我的接收")["id"])
             if parent_id == 0:
                 logger.info("【我的接收清理】我的接收目录为空，无需清理")
                 return
             logger.info(f"【我的接收清理】我的接收目录 ID 获取成功: {parent_id}")
-            self._client.fs_delete(parent_id)
+            servicer.client.fs_delete(parent_id)
             logger.info("【我的接收清理】我的接收已清空")
         except Exception as e:
             logger.error(f"【我的接收清理】清理我的接收运行失败: {e}")

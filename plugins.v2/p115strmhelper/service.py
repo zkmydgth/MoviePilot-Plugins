@@ -117,21 +117,7 @@ class ServiceHelper:
         ):
             return
 
-        strm_helper = FullSyncStrmHelper(
-            user_rmt_mediaext=configer.get_config("user_rmt_mediaext"),
-            user_download_mediaext=configer.get_config("user_download_mediaext"),
-            auto_download_mediainfo=configer.get_config(
-                "full_sync_auto_download_mediainfo_enabled"
-            ),
-            client=self.client,
-            mediainfodownloader=self.mediainfodownloader,
-            server_address=configer.get_config("moviepilot_address"),
-            pan_transfer_enabled=configer.get_config("pan_transfer_enabled"),
-            pan_transfer_paths=configer.get_config("pan_transfer_paths"),
-            strm_url_format=configer.get_config("strm_url_format"),
-            overwrite_mode=configer.get_config("full_sync_overwrite_mode"),
-            remove_unless_strm=configer.get_config("full_sync_remove_unless_strm"),
-        )
+        strm_helper = FullSyncStrmHelper()
         strm_helper.generate_strm_files(
             full_sync_strm_paths=configer.get_config("full_sync_strm_paths"),
         )
@@ -199,19 +185,7 @@ class ServiceHelper:
             receive_code = configer.get_config("user_receive_code")
 
         try:
-            strm_helper = ShareStrmHelper(
-                user_rmt_mediaext=configer.get_config("user_rmt_mediaext"),
-                user_download_mediaext=configer.get_config("user_download_mediaext"),
-                auto_download_mediainfo=configer.get_config(
-                    "share_strm_auto_download_mediainfo_enabled"
-                ),
-                client=self.client,
-                server_address=configer.get_config("moviepilot_address"),
-                share_media_path=configer.get_config("user_share_pan_path"),
-                local_media_path=configer.get_config("user_share_local_path"),
-                strm_url_format=configer.get_config("strm_url_format"),
-                mediainfodownloader=self.mediainfodownloader,
-            )
+            strm_helper = ShareStrmHelper()
             strm_helper.get_share_list_creata_strm(
                 cid=0,
                 share_code=share_code,
@@ -260,33 +234,7 @@ class ServiceHelper:
         ):
             return
 
-        strm_helper = IncrementSyncStrmHelper(
-            user_rmt_mediaext=configer.get_config("user_rmt_mediaext"),
-            user_download_mediaext=configer.get_config("user_download_mediaext"),
-            auto_download_mediainfo=configer.get_config(
-                "increment_sync_auto_download_mediainfo_enabled"
-            ),
-            client=self.client,
-            mediainfodownloader=self.mediainfodownloader,
-            server_address=configer.get_config("moviepilot_address"),
-            pan_transfer_enabled=configer.get_config("pan_transfer_enabled"),
-            pan_transfer_paths=configer.get_config("pan_transfer_paths"),
-            strm_url_format=configer.get_config("strm_url_format"),
-            id_path_cache=idpathcacher,
-            mp_mediaserver_paths=configer.get_config(
-                "increment_sync_mp_mediaserver_paths"
-            ),
-            scrape_metadata_enabled=configer.get_config(
-                "increment_sync_scrape_metadata_enabled"
-            ),
-            scrape_metadata_exclude_paths=configer.get_config(
-                "increment_sync_scrape_metadata_exclude_paths"
-            ),
-            media_server_refresh_enabled=configer.get_config(
-                "increment_sync_media_server_refresh_enabled"
-            ),
-            mediaservers=configer.get_config("increment_sync_mediaservers"),
-        )
+        strm_helper = IncrementSyncStrmHelper()
         strm_helper.generate_strm_files(
             sync_strm_paths=configer.get_config("increment_sync_strm_paths"),
         )
@@ -372,6 +320,30 @@ class ServiceHelper:
                         logger.error(
                             f"【目录上传】{mon_path} 启动实时监控失败：{err_msg}"
                         )
+
+    def stop(self):
+        """
+        停止所有服务
+        """
+        try:
+            if self.service_observer:
+                for observer in self.service_observer:
+                    try:
+                        observer.stop()
+                        observer.join()
+                        logger.debug(f"【目录上传】{observer} 关闭")
+                    except Exception as e:
+                        logger.error(f"【目录上传】关闭失败: {e}")
+                logger.info("【目录上传】目录监控已关闭")
+            self.service_observer = []
+            if self.scheduler:
+                self.scheduler.remove_all_jobs()
+                if self.scheduler.running:
+                    self.scheduler.shutdown()
+                self.scheduler = None
+            self.monitor_stop_event.set()
+        except Exception as e:
+            logger.error(f"发生错误: {e}")
 
 
 servicer = ServiceHelper()
