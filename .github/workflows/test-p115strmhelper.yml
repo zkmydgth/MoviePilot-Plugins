@@ -3,11 +3,39 @@ name: Test p115strmhelper
 on:
   push:
     paths:
-      - 'plugins.v2/p115strmhelper/**'
+      # utils (test_cron_utils.py)
+      - 'plugins.v2/p115strmhelper/utils/cron.py'
+      # utils (test_exception_utils.py)
+      - 'plugins.v2/p115strmhelper/utils/exception.py'
+      # utils (test_limiter.py)
+      - 'plugins.v2/p115strmhelper/utils/limiter.py'
+      # utils (test_path_utils.py)
+      - 'plugins.v2/p115strmhelper/utils/path.py'
+      # utils (test_time_utils.py)
+      - 'plugins.v2/p115strmhelper/utils/time.py'
+      # utils (test_url_utils.py)
+      - 'plugins.v2/p115strmhelper/utils/url.py'
+      # utils (test_webhook_utils.py)
+      - 'plugins.v2/p115strmhelper/utils/webhook.py'
+      - 'plugins.v2/p115strmhelper/tests/**'
       - '.github/workflows/test-p115strmhelper.yml'
   pull_request:
     paths:
-      - 'plugins.v2/p115strmhelper/**'
+      # utils (test_cron_utils.py)
+      - 'plugins.v2/p115strmhelper/utils/cron.py'
+      # utils (test_exception_utils.py)
+      - 'plugins.v2/p115strmhelper/utils/exception.py'
+      # utils (test_limiter.py)
+      - 'plugins.v2/p115strmhelper/utils/limiter.py'
+      # utils (test_path_utils.py)
+      - 'plugins.v2/p115strmhelper/utils/path.py'
+      # utils (test_time_utils.py)
+      - 'plugins.v2/p115strmhelper/utils/time.py'
+      # utils (test_url_utils.py)
+      - 'plugins.v2/p115strmhelper/utils/url.py'
+      # utils (test_webhook_utils.py)
+      - 'plugins.v2/p115strmhelper/utils/webhook.py'
+      - 'plugins.v2/p115strmhelper/tests/**'
       - '.github/workflows/test-p115strmhelper.yml'
   workflow_dispatch:
 
