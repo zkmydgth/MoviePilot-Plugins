@@ -89,6 +89,32 @@ class MediaInfoDownloader:
     def __del__(self):
         self.oof_fast_mi_cacher.close()
 
+    def _record_mediainfo_success(self) -> None:
+        """
+        将成功下载的媒体信息文件计入统计
+        """
+        self.mediainfo_count += 1
+
+    def _record_mediainfo_failure(self, path: str) -> None:
+        """
+        将单次失败的媒体信息文件计入统计
+
+        :param path: 文件路径（posix 形式）
+        """
+        self.mediainfo_fail_count += 1
+        self.mediainfo_fail_dict.append(path)
+
+    def _record_failures_for_items(self, item_list) -> None:
+        """
+        按条目将本批全部记为下载失败（用于批处理在异步下载前异常等场景）
+
+        :param item_list: 含 path 键的条目列表或批次
+        """
+        for item in item_list:
+            path = item.get("path")
+            if path:
+                self._record_mediainfo_failure(Path(path).as_posix())
+
     @staticmethod
     async def async_is_file_leq_1k(file_path: str | Path) -> bool:
         """
@@ -163,7 +189,7 @@ class MediaInfoDownloader:
                     logger.info(
                         f"【媒体信息文件下载】OOF {key} 保存 {file_name} 成功: {file_path}"
                     )
-                    self.mediainfo_count += 1
+                    self._record_mediainfo_success()
                 except Exception as e:
                     logger.error(
                         f"【媒体信息文件下载】处理 {item['path']} 时发生错误: {e}"
@@ -203,7 +229,7 @@ class MediaInfoDownloader:
         semaphore: Semaphore,
         file_path: Path,
         file_name: str,
-        download_url: str,
+        download_url: str | None,
         hide_cookies: bool = False,
         sha1: str | None = None,
     ) -> Optional[Tuple[str, Tuple[str, bytes, str]]]:
@@ -214,10 +240,16 @@ class MediaInfoDownloader:
         :param semaphore: 并发量
         :param file_path: 文件路径
         :param file_name：文件名称
-        :param download_url: 下载地址
+        :param download_url: 下载地址，为空则直接记失败并返回
         :param hide_cookies: 是否使用 Cookie 下载，默认 False
         :param sha1: 文件 115 网盘 sha1，如果设置则会返回数据压缩信息
+
+        :return: 成功且需要 OOF 上传时返回元组，否则返回 None（含失败与 403 中止）
         """
+        if not download_url:
+            self._record_mediainfo_failure(file_path.as_posix())
+            return None
+
         async with semaphore:
             max_retries = 3
             for attempt in range(max_retries):
@@ -249,7 +281,7 @@ class MediaInfoDownloader:
                     logger.info(
                         f"【媒体信息文件下载】保存 {file_name} 成功: {file_path}"
                     )
-                    self.mediainfo_count += 1
+                    self._record_mediainfo_success()
 
                     if sha1:
                         return "files", (
@@ -268,6 +300,7 @@ class MediaInfoDownloader:
                         logger.error(
                             f"【下载失败】获取 {file_name} 时被拒绝 (403 Forbidden)，将不会重试。"
                         )
+                        self._record_mediainfo_failure(file_path.as_posix())
                         return None
                     error_message = f"HTTP错误 {e.response.status_code}"
                 except RequestError as e:
@@ -282,8 +315,7 @@ class MediaInfoDownloader:
                 if attempt < max_retries - 1:
                     await asyncio_sleep(1)
                 else:
-                    self.mediainfo_fail_count += 1
-                    self.mediainfo_fail_dict.append(file_path.as_posix())
+                    self._record_mediainfo_failure(file_path.as_posix())
                     logger.error(
                         f"【媒体信息文件下载】保存 {file_name} 在 {max_retries} 次尝试后最终失败"
                     )
@@ -303,22 +335,40 @@ class MediaInfoDownloader:
             tasks = []
             for item in item_list:
                 url = data_map.get(item[value])
-                if url:
-                    path = Path(item["path"])
-                    task = self.async_save_mediainfo_file(
-                        client,
-                        semaphore,
-                        path,
-                        path.name,
-                        url,
-                        hide_cookies=bool(value == "sha1"),
-                        sha1=item["sha1"] if oof_upload else None,
-                    )
-                    tasks.append(task)
+                if not url:
+                    self._record_mediainfo_failure(Path(item["path"]).as_posix())
+                    continue
+                path = Path(item["path"])
+                task = self.async_save_mediainfo_file(
+                    client,
+                    semaphore,
+                    path,
+                    path.name,
+                    url,
+                    hide_cookies=bool(value == "sha1"),
+                    sha1=item["sha1"] if oof_upload else None,
+                )
+                tasks.append(task)
             if tasks:
-                result = await gather(*tasks)
+                results = await gather(*tasks, return_exceptions=True)
                 if oof_upload:
-                    return list(filter(bool, result))
+                    out: List = []
+                    for res in results:
+                        if isinstance(res, Exception):
+                            logger.error(
+                                f"【媒体信息文件下载】并发下载任务异常: {res}",
+                                exc_info=True,
+                            )
+                            continue
+                        if res:
+                            out.append(res)
+                    return out
+                for res in results:
+                    if isinstance(res, Exception):
+                        logger.error(
+                            f"【媒体信息文件下载】并发下载任务异常: {res}",
+                            exc_info=True,
+                        )
         return None
 
     async def __async_download_batch_share(
@@ -342,9 +392,25 @@ class MediaInfoDownloader:
                 )
                 tasks.append(task)
             if tasks:
-                result = await gather(*tasks)
+                results = await gather(*tasks, return_exceptions=True)
                 if oof_upload:
-                    return list(filter(bool, result))
+                    out: List = []
+                    for res in results:
+                        if isinstance(res, Exception):
+                            logger.error(
+                                f"【媒体信息文件下载】并发下载任务异常: {res}",
+                                exc_info=True,
+                            )
+                            continue
+                        if res:
+                            out.append(res)
+                    return out
+                for res in results:
+                    if isinstance(res, Exception):
+                        logger.error(
+                            f"【媒体信息文件下载】并发下载任务异常: {res}",
+                            exc_info=True,
+                        )
         return None
 
     def batch_subtitle_downloader(self, downloads_list: List):
@@ -395,11 +461,17 @@ class MediaInfoDownloader:
                     for info in resp["data"]["list"]
                     if info.get("file_id")
                 }
-                asyncio_run(
-                    self.__async_download_batch_subtitle_image(subtitles, item_list)
-                )
             except Exception as e:
                 logger.error(f"【媒体信息文件下载】批处理字幕文件失败: {e}")
+                self._record_failures_for_items(item_list)
+            else:
+                try:
+                    asyncio_run(
+                        self.__async_download_batch_subtitle_image(subtitles, item_list)
+                    )
+                except Exception as e:
+                    logger.error(f"【媒体信息文件下载】批处理字幕异步下载失败: {e}")
+                    self._record_failures_for_items(item_list)
             finally:
                 self.client.fs_delete(scid, **configer.get_ios_ua_app(app=False))
 
@@ -445,11 +517,17 @@ class MediaInfoDownloader:
                     for info in resp["data"]["list"]
                     if info.get("file_id")
                 }
-                asyncio_run(
-                    self.__async_download_batch_subtitle_image(subtitles, item_list)
-                )
             except Exception as e:
                 logger.error(f"【媒体信息文件下载】批处理字幕文件失败: {e}")
+                self._record_failures_for_items(item_list)
+            else:
+                try:
+                    asyncio_run(
+                        self.__async_download_batch_subtitle_image(subtitles, item_list)
+                    )
+                except Exception as e:
+                    logger.error(f"【媒体信息文件下载】批处理字幕异步下载失败: {e}")
+                    self._record_failures_for_items(item_list)
             finally:
                 self.client.fs_delete(scid, **configer.get_ios_ua_app(app=False))
 
@@ -499,11 +577,17 @@ class MediaInfoDownloader:
                             )
                     if url:
                         images[attr["sha1"]] = url
-                asyncio_run(
-                    self.__async_download_batch_subtitle_image(images, item_list)
-                )
             except Exception as e:
                 logger.error(f"【媒体信息文件下载】批处理图片文件失败: {e}")
+                self._record_failures_for_items(item_list)
+            else:
+                try:
+                    asyncio_run(
+                        self.__async_download_batch_subtitle_image(images, item_list)
+                    )
+                except Exception as e:
+                    logger.error(f"【媒体信息文件下载】批处理图片异步下载失败: {e}")
+                    self._record_failures_for_items(item_list)
             finally:
                 self.client.fs_delete(scid, **configer.get_ios_ua_app(app=False))
 
@@ -518,9 +602,16 @@ class MediaInfoDownloader:
         3. 115 cdn 下载（下载完成后自动上传+本地缓存）
         """
         for item_list in batched(downloads_list, self.batch_size):
-            json = loads(
-                self.oof_fast_mi_cacher.batch_get([item["sha1"] for item in item_list])
-            )
+            try:
+                json = loads(
+                    self.oof_fast_mi_cacher.batch_get(
+                        [item["sha1"] for item in item_list]
+                    )
+                )
+            except Exception as e:
+                logger.error(f"【媒体信息文件下载】OOF 本地缓存读取失败: {e}")
+                self._record_failures_for_items(item_list)
+                continue
             api_item_lst = list(self.save_oof_mediainfo_file(item_list, json, "Cache"))
             dl_lst: List = api_item_lst
             if not api_item_lst:
@@ -583,26 +674,36 @@ class MediaInfoDownloader:
                 resp = self.client.download_urls(
                     ",".join(pcs), user_agent=configer.get_user_agent()
                 )
-                for batch in batched(resp.items(), self.max_workers):
-                    r_lst = asyncio_run(
-                        self.__async_download_batch_share(
-                            [
-                                {
-                                    "url": value.geturl(),
-                                    "path": sha1_to_path.get(value["sha1"]),
-                                    "sha1": value["sha1"],
-                                }
-                                for _, value in batch
-                            ],
-                            value="url",
-                            oof_upload=oof_upload,
-                        )
-                    )
-                    if oof_upload:
-                        upload_lst.extend(r_lst)
-                    time_sleep(1)
             except Exception as e:
                 logger.error(f"【媒体信息文件下载】批处理下载文件失败: {e}")
+                self._record_failures_for_items(item_list)
+            else:
+                for batch in batched(resp.items(), self.max_workers):
+                    share_batch = [
+                        {
+                            "url": value.geturl(),
+                            "path": sha1_to_path.get(value["sha1"]),
+                            "sha1": value["sha1"],
+                        }
+                        for _, value in batch
+                    ]
+                    try:
+                        r_lst = asyncio_run(
+                            self.__async_download_batch_share(
+                                share_batch,
+                                value="url",
+                                oof_upload=oof_upload,
+                            )
+                        )
+                    except Exception as err:
+                        logger.error(
+                            f"【媒体信息文件下载】批处理分享异步下载失败: {err}"
+                        )
+                        self._record_failures_for_items(share_batch)
+                    else:
+                        if oof_upload and r_lst:
+                            upload_lst.extend(r_lst)
+                    time_sleep(1)
             finally:
                 self.client.fs_delete(scid, **configer.get_ios_ua_app(app=False))
 
@@ -616,26 +717,34 @@ class MediaInfoDownloader:
         for item in downloads_list:
             item["file_id"] = pickcode_to_id(item["pickcode"])
         upload_lst: List = []
+        processed = 0
         try:
             for item_list in batched(downloads_list, self.batch_size):
+                if self.stop_all_flag:
+                    self._record_failures_for_items(downloads_list[processed:])
+                    return
                 pcs = [item["pickcode"] for item in item_list]
                 resp = self.client.download_urls(
                     ",".join(pcs), user_agent=configer.get_user_agent()
                 )
                 data_map = {key: value.geturl() for key, value in resp.items()}
                 for batch in batched(item_list, self.max_workers):
+                    batch_list = list(batch)
                     if self.stop_all_flag:
+                        self._record_failures_for_items(downloads_list[processed:])
                         return
                     r_lst = asyncio_run(
                         self.__async_download_batch_subtitle_image(
-                            data_map, batch, value="file_id", oof_upload=oof_upload
+                            data_map, batch_list, value="file_id", oof_upload=oof_upload
                         )
                     )
-                    if oof_upload:
+                    if oof_upload and r_lst:
                         upload_lst.extend(r_lst)
                     time_sleep(1)
+                    processed += len(batch_list)
         except Exception as e:
             logger.error(f"【媒体信息文件下载】批处理下载文件失败: {e}")
+            self._record_failures_for_items(downloads_list[processed:])
 
         if oof_upload and upload_lst:
             self._oof_data_upload(upload_lst)
