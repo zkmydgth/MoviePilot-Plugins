@@ -122,6 +122,8 @@ class ConfigManager(BaseModel):
     full_sync_auto_download_mediainfo_enabled: bool = False
     # 定期全量同步周期
     cron_full_sync_strm: Optional[str] = None
+    # 全量生成最小文件大小
+    full_sync_min_file_size: Optional[int] = None
     # 全量同步路径
     full_sync_strm_paths: Optional[str] = None
     # 全量生成输出详细日志
@@ -151,6 +153,8 @@ class ConfigManager(BaseModel):
     increment_sync_media_server_refresh_enabled: bool = False
     # 刷新媒体服务器
     increment_sync_mediaservers: Optional[List[str]] = None
+    # 增量生成最小文件大小
+    increment_sync_min_file_size: Optional[int] = None
 
     # 监控生活事件开关
     monitor_life_enabled: bool = False
@@ -174,6 +178,8 @@ class ConfigManager(BaseModel):
     monitor_life_remove_mp_history: bool = False
     # 同上方情况时是否删除源文件
     monitor_life_remove_mp_source: bool = False
+    # 生活事件生成最小文件大小
+    monitor_life_min_file_size: Optional[int] = None
 
     # 分享生成 STRM 运行开关
     share_strm_auto_download_mediainfo_enabled: bool = False
@@ -187,6 +193,8 @@ class ConfigManager(BaseModel):
     user_share_pan_path: Optional[str] = None
     # 本地 STRM 目录
     user_share_local_path: Optional[str] = None
+    # 分享生成最小文件大小
+    share_strm_min_file_size: Optional[int] = None
 
     # 清理回收站开关
     clear_recyclebin_enabled: bool = False

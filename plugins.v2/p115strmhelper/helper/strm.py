@@ -165,6 +165,17 @@ class IncrementSyncStrmHelper:
         logger.debug(f"【增量STRM生成】获取 {path} cid（缓存）: {cid}")
         return int(cid)
 
+    def __get_size(self, path: str) -> Optional[int]:
+        """
+        通过数据库获取文件大小
+        """
+        data = self.databasehelper.get_by_path(path=path)
+        if data:
+            size = data.get("size", None)
+            if size and size > 0:
+                return size
+        return None
+
     def __get_pickcode(self, path: str):
         """
         通过路径获取 pickcode
@@ -376,11 +387,23 @@ class IncrementSyncStrmHelper:
                 logger.warn(f"【增量STRM生成】跳过网盘路径: {pan_path}")
                 return
 
-            if not (result := StrmGenerater.should_generate_strm(pan_path_obj.name))[1]:
+            if not (
+                result := StrmGenerater.should_generate_strm(
+                    pan_path_obj.name, "increment", self.__get_size(pan_path)
+                )
+            )[1]:
                 logger.warn(f"【增量STRM生成】{result[0]}，跳过网盘路径: {pan_path}")
                 return
 
             pickcode = self.__get_pickcode(pan_path)
+
+            if not (
+                result := StrmGenerater.not_min_limit(
+                    "increment", self.__get_size(pan_path)
+                )
+            )[1]:
+                logger.warn(f"【增量STRM生成】{result[0]}，跳过网盘路径: {pan_path}")
+                return
 
             new_file_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -703,9 +726,11 @@ class FullSyncStrmHelper:
                 )
                 return _process_item, path_entry
 
-            if not (result := StrmGenerater.should_generate_strm(original_file_name))[
-                1
-            ]:
+            if not (
+                result := StrmGenerater.should_generate_strm(
+                    original_file_name, "full", item.get("size", None)
+                )
+            )[1]:
                 logger.warn(
                     f"【全量STRM生成】{result[0]}，跳过网盘路径: {item['path']}"
                 )
@@ -989,6 +1014,7 @@ class ShareStrmHelper:
         file_id: str,
         file_path: str,
         pan_file_name: str,
+        file_size: Optional[str] = None,
     ):
         """
         生成 STRM 文件
@@ -1027,9 +1053,11 @@ class ShareStrmHelper:
                 )
                 return
 
-            if not (result := StrmGenerater.should_generate_strm(original_file_name))[
-                1
-            ]:
+            if not (
+                result := StrmGenerater.should_generate_strm(
+                    original_file_name, "share", file_size
+                )
+            )[1]:
                 logger.warn(
                     f"【分享STRM生成】{result[0]}，跳过网盘路径: {str(file_path).replace(str(self.local_media_path), '', 1)}"
                 )
@@ -1108,12 +1136,14 @@ class ShareStrmHelper:
             else:
                 item_with_path = dict(item)
                 item_with_path["path"] = item_path
+                file_size = item_with_path.get("size", None)
                 self.generate_strm_files(
                     share_code=share_code,
                     receive_code=receive_code,
                     file_id=item_with_path["id"],
                     file_path=item_with_path["path"],
                     pan_file_name=item_with_path["name"],
+                    file_size=int(file_size) if file_size else None,
                 )
 
     def download_mediainfo(self):

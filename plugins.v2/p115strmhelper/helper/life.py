@@ -417,7 +417,7 @@ class MonitorLife:
 
                         if not (
                             result := StrmGenerater.should_generate_strm(
-                                original_file_name
+                                original_file_name, "life", item.get("size", None)
                             )
                         )[1]:
                             logger.warn(
@@ -541,7 +541,9 @@ class MonitorLife:
                     return
 
                 if not (
-                    result := StrmGenerater.should_generate_strm(original_file_name)
+                    result := StrmGenerater.should_generate_strm(
+                        original_file_name, "life", event.get("file_size", None)
+                    )
                 )[1]:
                     logger.warn(
                         f"【监控生活事件】{result[0]}，跳过网盘路径: {str(file_path).replace(str(target_dir), '', 1)}"
