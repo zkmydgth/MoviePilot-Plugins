@@ -36,10 +36,12 @@ HEADERS = {
     "Referer": "https://v.qq.com/",
 }
 
+
 def init_base_ui():
     """
     初始化 UI
     """
+
     def get_page_data(channel_id):
         body = {
             "page_params": {
@@ -59,28 +61,32 @@ def init_base_ui():
             if not data:
                 logger.error(f"No data returned for channel_id {channel_id}")
                 return []
-            
+
             module_list_datas = data.get("module_list_datas", [])
             if len(module_list_datas) < 2:
-                logger.error(f"module_list_datas has insufficient length for channel_id {channel_id}: {module_list_datas}")
+                logger.error(
+                    f"module_list_datas has insufficient length for channel_id {channel_id}: {module_list_datas}"
+                )
                 return []
-            
+
             module_datas = module_list_datas[1].get("module_datas", [])
             if not module_datas:
                 logger.error(f"No module_datas for channel_id {channel_id}")
                 return []
-            
+
             item_data_lists = module_datas[0].get("item_data_lists", {})
             item_datas = item_data_lists.get("item_datas", [])
             if not item_datas:
                 logger.warning(f"No item_datas for channel_id {channel_id}")
-            
+
             return item_datas
         except requests.RequestException as e:
             logger.error(f"Failed to fetch data for channel_id {channel_id}: {str(e)}")
             return []
         except (KeyError, IndexError) as e:
-            logger.error(f"Invalid response structure for channel_id {channel_id}: {str(e)}")
+            logger.error(
+                f"Invalid response structure for channel_id {channel_id}: {str(e)}"
+            )
             return []
 
     ui = []
@@ -144,6 +150,7 @@ def init_base_ui():
 
     return ui
 
+
 class TencentVideoDiscover(_PluginBase):
     # 插件名称
     plugin_name = "腾讯视频探索"
@@ -152,7 +159,7 @@ class TencentVideoDiscover(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/DDS-Derek/MoviePilot-Plugins/main/icons/tencentvideo_A.png"
     # 插件版本
-    plugin_version = "1.0.3"  # 更新版本号以标记优化
+    plugin_version = "1.0.1"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -254,28 +261,34 @@ class TencentVideoDiscover(_PluginBase):
             if not data:
                 logger.error(f"No data returned for mtype {mtype}, page {page}")
                 return []
-            
+
             module_list_datas = data.get("module_list_datas", [])
             if len(module_list_datas) < 2:
-                logger.error(f"module_list_datas has insufficient length for mtype {mtype}, page {page}: {module_list_datas}")
+                logger.error(
+                    f"module_list_datas has insufficient length for mtype {mtype}, page {page}: {module_list_datas}"
+                )
                 return []
-            
+
             module_datas = module_list_datas[1].get("module_datas", [])
             if not module_datas:
                 logger.error(f"No module_datas for mtype {mtype}, page {page}")
                 return []
-            
+
             item_data_lists = module_datas[0].get("item_data_lists", {})
             item_datas = item_data_lists.get("item_datas", [])
             if not item_datas:
                 logger.warning(f"No item_datas for mtype {mtype}, page {page}")
-            
+
             return item_datas
         except requests.RequestException as e:
-            logger.error(f"Failed to fetch data for mtype {mtype}, page {page}: {str(e)}")
+            logger.error(
+                f"Failed to fetch data for mtype {mtype}, page {page}: {str(e)}"
+            )
             return []
         except (KeyError, IndexError) as e:
-            logger.error(f"Invalid response structure for mtype {mtype}, page {page}: {str(e)}")
+            logger.error(
+                f"Invalid response structure for mtype {mtype}, page {page}: {str(e)}"
+            )
             return []
 
     def tencentvideo_discover(
@@ -311,26 +324,35 @@ class TencentVideoDiscover(_PluginBase):
         """
         获取腾讯视频探索数据
         """
+
         def __movie_to_media(movie_info: dict) -> schemas.MediaInfo:
             """
             电影数据转换为MediaInfo
             """
             # 尝试获取 new_pic_vt 字段
             poster_url = movie_info.get("new_pic_vt", "")
-            if not poster_url or not poster_url.startswith(('http://', 'https://')):
-                logger.warning(f"Invalid or missing poster URL for {movie_info.get('title')}: {poster_url}")
+            if not poster_url or not poster_url.startswith(("http://", "https://")):
+                logger.warning(
+                    f"Invalid or missing poster URL for {movie_info.get('title')}: {poster_url}"
+                )
                 # 尝试从 item_params 中寻找备用图片字段
-                poster_url = movie_info.get("item_params", {}).get("pic_url") or \
-                            movie_info.get("item_params", {}).get("image_url") or \
-                            "https://v.qq.com/assets/default_poster.jpg"  # 默认图片 URL
+                poster_url = (
+                    movie_info.get("item_params", {}).get("pic_url")
+                    or movie_info.get("item_params", {}).get("image_url")
+                    or "https://v.qq.com/assets/default_poster.jpg"
+                )  # 默认图片 URL
             else:
                 # 移除 /350 后验证 URL
-                poster_url = re.sub(r'/350', '', poster_url)
-                if not poster_url.startswith(('http://', 'https://')):
-                    logger.warning(f"Processed poster URL invalid for {movie_info.get('title')}: {poster_url}")
+                poster_url = re.sub(r"/350", "", poster_url)
+                if not poster_url.startswith(("http://", "https://")):
+                    logger.warning(
+                        f"Processed poster URL invalid for {movie_info.get('title')}: {poster_url}"
+                    )
                     poster_url = "https://v.qq.com/assets/default_poster.jpg"
-            
-            logger.debug(f"Final poster URL for {movie_info.get('title')}: {poster_url}")
+
+            logger.debug(
+                f"Final poster URL for {movie_info.get('title')}: {poster_url}"
+            )
             return schemas.MediaInfo(
                 type="电影",
                 title=movie_info.get("title"),
@@ -347,20 +369,28 @@ class TencentVideoDiscover(_PluginBase):
             """
             # 尝试获取 new_pic_vt 字段
             poster_url = series_info.get("new_pic_vt", "")
-            if not poster_url or not poster_url.startswith(('http://', 'https://')):
-                logger.warning(f"Invalid or missing poster URL for {series_info.get('title')}: {poster_url}")
+            if not poster_url or not poster_url.startswith(("http://", "https://")):
+                logger.warning(
+                    f"Invalid or missing poster URL for {series_info.get('title')}: {poster_url}"
+                )
                 # 尝试从 item_params 中寻找备用图片字段
-                poster_url = series_info.get("item_params", {}).get("pic_url") or \
-                            series_info.get("item_params", {}).get("image_url") or \
-                            "https://v.qq.com/assets/default_poster.jpg"  # 默认图片 URL
+                poster_url = (
+                    series_info.get("item_params", {}).get("pic_url")
+                    or series_info.get("item_params", {}).get("image_url")
+                    or "https://v.qq.com/assets/default_poster.jpg"
+                )  # 默认图片 URL
             else:
                 # 移除 /350 后验证 URL
-                poster_url = re.sub(r'/350', '', poster_url)
-                if not poster_url.startswith(('http://', 'https://')):
-                    logger.warning(f"Processed poster URL invalid for {series_info.get('title')}: {poster_url}")
+                poster_url = re.sub(r"/350", "", poster_url)
+                if not poster_url.startswith(("http://", "https://")):
+                    logger.warning(
+                        f"Processed poster URL invalid for {series_info.get('title')}: {poster_url}"
+                    )
                     poster_url = "https://v.qq.com/assets/default_poster.jpg"
-            
-            logger.debug(f"Final poster URL for {series_info.get('title')}: {poster_url}")
+
+            logger.debug(
+                f"Final poster URL for {series_info.get('title')}: {poster_url}"
+            )
             return schemas.MediaInfo(
                 type="电视剧",
                 title=series_info.get("title"),
