@@ -102,28 +102,32 @@ class ServiceHelper:
 
             # 阿里云盘登入
             aligo_config = configer.get_config("PLUGIN_ALIGO_PATH")
-            if configer.get_config("aliyundrive_token"):
-                set_config_folder(aligo_config)
-                if Path(aligo_config / "aligo.json").exists():
-                    logger.debug("Config login aliyunpan")
-                    self.aligo = BAligo(level=ERROR, re_login=False)
-                else:
-                    logger.debug("Refresh token login aliyunpan")
-                    self.aligo = BAligo(
-                        refresh_token=configer.get_config("aliyundrive_token"),
-                        level=ERROR,
-                        re_login=False,
-                    )
-                # 默认操作资源盘
-                v2_user = self.aligo.v2_user_get()
-                logger.debug(f"AliyunPan user info: {v2_user}")
-                resource_drive_id = v2_user.resource_drive_id
-                self.aligo.default_drive_id = resource_drive_id
-            elif (
-                not configer.get_config("aliyundrive_token")
-                and not Path(aligo_config / "aligo.json").exists()
-            ):
-                logger.debug("Login out aliyunpan")
+            try:
+                if configer.get_config("aliyundrive_token"):
+                    set_config_folder(aligo_config)
+                    if Path(aligo_config / "aligo.json").exists():
+                        logger.debug("Config login aliyunpan")
+                        self.aligo = BAligo(level=ERROR, re_login=False)
+                    else:
+                        logger.debug("Refresh token login aliyunpan")
+                        self.aligo = BAligo(
+                            refresh_token=configer.get_config("aliyundrive_token"),
+                            level=ERROR,
+                            re_login=False,
+                        )
+                    # 默认操作资源盘
+                    v2_user = self.aligo.v2_user_get()
+                    logger.debug(f"AliyunPan user info: {v2_user}")
+                    resource_drive_id = v2_user.resource_drive_id
+                    self.aligo.default_drive_id = resource_drive_id
+                elif (
+                    not configer.get_config("aliyundrive_token")
+                    and not Path(aligo_config / "aligo.json").exists()
+                ):
+                    logger.debug("Login out aliyunpan")
+                    self.aligo = None
+            except Exception as e:
+                logger.warning(f"阿里云盘登入失败，跳过初始化: {e}")
                 self.aligo = None
 
             # 媒体信息下载工具初始化
