@@ -122,5 +122,17 @@
             "v1.0.1": "支持无历史记录时强制删除网盘文件",
             "v1.0.0": "发布"
         }
+    },
+    "P123Disk": {
+        "name": "123云盘储存",
+        "description": "使存储支持123云盘。",
+        "labels": "云盘",
+        "version": "1.0.0",
+        "icon": "https://raw.githubusercontent.com/DDS-Derek/MoviePilot-Plugins/main/icons/P123Disk.png",
+        "author": "DDSRem",
+        "level": 1,
+        "history": {
+            "v1.0.0": "发布，MP版本v2.4.4+支持此插件"
+        }
     }
 }

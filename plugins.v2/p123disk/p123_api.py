@@ -17,13 +17,12 @@ class P123Api:
     123云盘基础操作
     """
 
-    _disk_name = "123云盘"
-
     # FileId和路径缓存
     _id_cache: Dict[str, str] = {}
 
-    def __init__(self, client: P123Client):
+    def __init__(self, client: P123Client, disk_name: str):
         self.client = client
+        self._disk_name = disk_name
 
     def _path_to_id(self, path: str):
         """
@@ -131,6 +130,7 @@ class P123Api:
             new_path = Path(fileitem.path) / name
             resp = self.client.fs_mkdir(name, parent_id=self._path_to_id(fileitem.path))
             check_response(resp)
+            logger.debug(f"【123】创建目录: {resp}")
             data = resp["data"]["Info"]
             # 缓存新目录
             self._id_cache[str(new_path)] = str(data["FileId"])
@@ -194,6 +194,7 @@ class P123Api:
                 return None
             resp = self.client.fs_info(int(file_id))
             check_response(resp)
+            logger.debug(f"【123】获取文件信息: {resp}")
             data = resp["data"]["infoList"][0]
             return schemas.FileItem(
                 storage=self._disk_name,
@@ -222,10 +223,12 @@ class P123Api:
     def delete(self, fileitem: schemas.FileItem) -> bool:
         """
         删除文件
+        此操作将保留回收站文件
         """
         try:
-            resp = self.client.fs_delete(int(fileitem.fileid))
+            resp = self.client.fs_trash(int(fileitem.fileid), event="intoRecycle")
             check_response(resp)
+            logger.debug(f"【123】删除文件: {resp}")
             return True
         except Exception:
             return False
@@ -242,6 +245,7 @@ class P123Api:
             }
             resp = self.client.fs_rename(payload)
             check_response(resp)
+            logger.debug(f"【123】重命名文件: {resp}")
             return True
         except Exception:
             return False
@@ -303,6 +307,8 @@ class P123Api:
             check_response(resp)
             if resp["data"]["Info"]:
                 data = resp["data"]["Info"]
+                logger.info(f"【123】秒传文件成功: {target_path}")
+                logger.debug(f"【123】秒传文件: {data}")
                 return schemas.FileItem(
                     storage=self._disk_name,
                     fileid=str(data["FileId"]),
@@ -329,6 +335,8 @@ class P123Api:
             check_response(resp)
             if resp["data"]["Info"]:
                 data = resp["data"]["Info"]
+                logger.info(f"【123】上传文件成功: {target_path}")
+                logger.debug(f"【123】上传文件: {data}")
                 return schemas.FileItem(
                     storage=self._disk_name,
                     fileid=str(data["FileId"]),
@@ -370,6 +378,7 @@ class P123Api:
                 fileitem.fileid, parent_id=self._path_to_id(str(path))
             )
             check_response(resp)
+            logger.debug(f"【123】复制文件: {resp}")
             new_path = Path(path) / fileitem.name
             new_item = self.get_item(new_path)
             self.rename(new_item, new_name)
@@ -393,6 +402,7 @@ class P123Api:
                 fileitem.fileid, parent_id=self._path_to_id(str(path))
             )
             check_response(resp)
+            logger.debug(f"【123】移动文件: {resp}")
             new_path = Path(path) / fileitem.name
             new_item = self.get_item(new_path)
             self.rename(new_item, new_name)

@@ -17,11 +17,11 @@ class P123Disk(_PluginBase):
     # 插件名称
     plugin_name = "123云盘储存"
     # 插件描述
-    plugin_desc = "支持123云盘储存。"
+    plugin_desc = "使存储支持123云盘。"
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/DDS-Derek/MoviePilot-Plugins/main/icons/P123Disk.png"
     # 插件版本
-    plugin_version = "0.0.1"
+    plugin_version = "1.0.0"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -47,7 +47,6 @@ class P123Disk(_PluginBase):
         if config:
             storage_helper = StorageHelper()
             storages = storage_helper.get_storagies()
-            print(list(storages))
             if not any(
                 s.type == self._disk_name and s.name == self._disk_name
                 for s in storages
@@ -56,7 +55,6 @@ class P123Disk(_PluginBase):
                 storage_helper.add_storage(
                     storage=self._disk_name, name=self._disk_name, conf={}
                 )
-                print(1)
 
             self._enabled = config.get("enabled")
             self._passport = config.get("passport")
@@ -64,7 +62,7 @@ class P123Disk(_PluginBase):
 
             try:
                 self._client = P123Client(self._passport, self._password)
-                self._p123_api = P123Api(self._client)
+                self._p123_api = P123Api(client=self._client, disk_name=self._disk_name)
             except Exception as e:
                 logger.error(f"123云盘客户端创建失败: {e}")
 
