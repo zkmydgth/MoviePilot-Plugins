@@ -1,6 +1,6 @@
 from typing import List
 
-from jieba import cut as jieba_cut
+from jieba_next import cut as jieba_cut
 
 from app.db import DbOper
 from app.db.models.transferhistory import TransferHistory
