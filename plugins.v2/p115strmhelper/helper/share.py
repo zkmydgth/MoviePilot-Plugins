@@ -123,7 +123,9 @@ class ShareTransferHelper:
             return
         try:
             if bool(
-                re.match(r"^https?://(.*\.)?alipan[^/]*\.[a-zA-Z]{2,}(?:\/|$)", url)
+                re.match(
+                    r"^https?://(.*\.)?(alipan|aliyundrive)\.[a-zA-Z]{2,}(?:\/|$)", url
+                )
             ):
                 ali2115 = Ali2115Helper(self.client, self.aligo)
                 ali2115.add_share(url, channel, userid)

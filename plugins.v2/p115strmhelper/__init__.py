@@ -805,7 +805,9 @@ class P115StrmHelper(_PluginBase):
         if not bool(
             re.match(r"^https?://(.*\.)?115[^/]*\.[a-zA-Z]{2,}(?:\/|$)", text)
         ) and not bool(
-            re.match(r"^https?://(.*\.)?alipan[^/]*\.[a-zA-Z]{2,}(?:\/|$)", text)
+            re.match(
+                r"^https?://(.*\.)?(alipan|aliyundrive)\.[a-zA-Z]{2,}(?:\/|$)", text
+            )
         ):
             return
         servicer.sharetransferhelper.add_share(
