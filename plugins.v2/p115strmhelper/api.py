@@ -722,10 +722,8 @@ class Api:
         """
         添加分享转存整理
         """
-        if not configer.get_config("pan_transfer_enabled") or not configer.get_config(
-            "pan_transfer_paths"
-        ):
-            return ShareApiData(code=-1, msg="用户未配置网盘整理")
+        if not configer.share_recieve_paths:
+            return ShareApiData(code=-1, msg="用户未配置转存目录")
 
         if not share_url:
             return ShareApiData(code=-1, msg="未传入分享链接")

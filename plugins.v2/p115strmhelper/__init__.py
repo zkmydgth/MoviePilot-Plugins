@@ -664,6 +664,7 @@ class P115StrmHelper(_PluginBase):
                 title=i18n.translate("p115_search_config_error"),
                 userid=event.event_data.get("user"),
             )
+            return
 
         args = event_data.get("arg_str")
         if not args:
@@ -823,18 +824,43 @@ class P115StrmHelper(_PluginBase):
             re.match(ALIYUN_SHARE_URL_MATCH, text)
         ):
             return
-        servicer.sharetransferhelper.add_share(
-            url=text,
-            channel=channel,
-            userid=userid,
-        )
-        return
+
+        if len(configer.share_recieve_paths) <= 1:
+            servicer.sharetransferhelper.add_share(
+                url=text,
+                channel=channel,
+                userid=userid,
+            )
+            return
+
+        try:
+            session = session_manager.get_or_create(
+                event.event_data, plugin_id=self.__class__.__name__
+            )
+
+            action = Action(
+                command="share_recieve_path", view="share_recieve_paths", value=text
+            )
+
+            immediate_messages = self.action_handler.process(session, action)
+            # 报错，截断后续运行
+            if immediate_messages:
+                for msg in immediate_messages:
+                    self.__send_message(session, text=msg.get("text"), title="错误")
+                return
+
+            # 设置页面
+            session.go_to("share_recieve_paths")
+            self._render_and_send(session)
+        except Exception as e:
+            logger.error(f"处理分享转存命令失败: {e}")
 
     @eventmanager.register(EventType.PluginAction)
     def p115_add_share(self, event: Event):
         """
         远程分享转存
         """
+        args = None
         if event:
             event_data = event.event_data
             if not event_data or event_data.get("action") != "p115_add_share":
@@ -848,18 +874,43 @@ class P115StrmHelper(_PluginBase):
                     userid=event.event_data.get("user"),
                 )
                 return
-        servicer.sharetransferhelper.add_share(
-            url=args,
-            channel=event.event_data.get("channel"),
-            userid=event.event_data.get("user"),
-        )
-        return
+
+        if len(configer.share_recieve_paths) <= 1:
+            servicer.sharetransferhelper.add_share(
+                url=args,
+                channel=event.event_data.get("channel"),
+                userid=event.event_data.get("user"),
+            )
+            return
+
+        try:
+            session = session_manager.get_or_create(
+                event.event_data, plugin_id=self.__class__.__name__
+            )
+
+            action = Action(
+                command="share_recieve_path", view="share_recieve_paths", value=args
+            )
+
+            immediate_messages = self.action_handler.process(session, action)
+            # 报错，截断后续运行
+            if immediate_messages:
+                for msg in immediate_messages:
+                    self.__send_message(session, text=msg.get("text"), title="错误")
+                return
+
+            # 设置页面
+            session.go_to("share_recieve_paths")
+            self._render_and_send(session)
+        except Exception as e:
+            logger.error(f"处理分享转存命令失败: {e}")
 
     @eventmanager.register(EventType.PluginAction)
     def p115_add_offline(self, event: Event):
         """
         添加离线下载任务
         """
+        args = None
         if event:
             event_data = event.event_data
             if not event_data or event_data.get("action") != "p115_add_offline":
@@ -873,18 +924,45 @@ class P115StrmHelper(_PluginBase):
                     userid=event.event_data.get("user"),
                 )
                 return
-        if servicer.offlinehelper.add_urls_to_transfer([str(args)]):
-            post_message(
-                channel=event.event_data.get("channel"),
-                title=i18n.translate("p115_add_offline_success"),
-                userid=event.event_data.get("user"),
+
+        if len(configer.offline_download_paths) <= 1:
+            if servicer.offlinehelper.add_urls_to_transfer([str(args)]):
+                post_message(
+                    channel=event.event_data.get("channel"),
+                    title=i18n.translate("p115_add_offline_success"),
+                    userid=event.event_data.get("user"),
+                )
+            else:
+                post_message(
+                    channel=event.event_data.get("channel"),
+                    title=i18n.translate("p115_add_offline_fail"),
+                    userid=event.event_data.get("user"),
+                )
+            return
+
+        try:
+            session = session_manager.get_or_create(
+                event.event_data, plugin_id=self.__class__.__name__
             )
-        else:
-            post_message(
-                channel=event.event_data.get("channel"),
-                title=i18n.translate("p115_add_offline_fail"),
-                userid=event.event_data.get("user"),
+
+            action = Action(
+                command="offline_download_path",
+                view="offline_download_paths",
+                value=args,
             )
+
+            immediate_messages = self.action_handler.process(session, action)
+            # 报错，截断后续运行
+            if immediate_messages:
+                for msg in immediate_messages:
+                    self.__send_message(session, text=msg.get("text"), title="错误")
+                return
+
+            # 设置页面
+            session.go_to("offline_download_paths")
+            self._render_and_send(session)
+        except Exception as e:
+            logger.error(f"处理离线下载命令失败: {e}")
 
     @eventmanager.register(EventType.TransferComplete)
     def fix_monitor_life_strm(self, event: Event):

@@ -10,6 +10,9 @@ from .framework.callbacks import Action
 from .framework.handler import BaseActionHandler
 from .session import Session
 from ..core.config import configer
+from ..core.message import post_message
+from ..core.i18n import i18n
+from ..service import servicer
 
 command_registry.clear()
 
@@ -76,6 +79,104 @@ class ActionHandler(BaseActionHandler):
         处理刷新操作
         """
         session.refresh_view()
+
+    @command_registry.command(name="share_recieve_path", code="srp")
+    def handle_share_recieve_path(self, session: Session, action: Action):
+        """
+        处理分享目录选择操作
+        """
+        session.business.share_recieve_path = None
+        session.business.share_recieve_url = action.value
+
+    @command_registry.command(name="share_recieve", code="dsr")
+    def handle_share_recieve(self, session: Session, action: Action):
+        """
+        处理分享转存操作
+        """
+        try:
+            if action.value is None:
+                raise ValueError("value 不能为空。")
+            # 索引号
+            item_index = int(action.value)
+            if 0 <= item_index < len(configer.share_recieve_paths):
+                path = configer.share_recieve_paths[item_index]
+                servicer.sharetransferhelper.add_share(
+                    url=session.business.share_recieve_url,
+                    channel=session.message.channel,
+                    userid=session.message.userid,
+                    pan_path=path,
+                )
+                session.view.name = "close"
+            else:
+                raise IndexError("索引超出范围。")
+        except (ValueError, IndexError, TypeError) as e:
+            logger.error(
+                f"处理 share_recieve 失败: value={action.value}, error={e}",
+                exc_info=True,
+            )
+            session.go_to("start")
+            return [
+                {"type": "error_message", "text": "处理分享转存时发生错误，请重试。"}
+            ]
+        return None
+
+    @command_registry.command(name="offline_download_path", code="odp")
+    def handle_offline_download_path(self, session: Session, action: Action):
+        """
+        处理离线下载目录选择操作
+        """
+        session.business.offline_download_path = None
+        session.business.offline_download_url = action.value
+
+    @command_registry.command(name="offline_download", code="dod")
+    def handle_offline_download(self, session: Session, action: Action):
+        """
+        处理离线下载操作
+        """
+        try:
+            if action.value is None:
+                raise ValueError("value 不能为空。")
+            # 索引号
+            item_index = int(action.value)
+            if 0 <= item_index < len(configer.offline_download_paths):
+                path = configer.offline_download_paths[item_index]
+                session.view.name = "close"
+                # 选择目录为整理目录则进行网盘整理，否则只添加离线下载任务
+                if (
+                    path in configer.pan_transfer_paths
+                    and configer.pan_transfer_enabled
+                ):
+                    status = servicer.offlinehelper.add_urls_to_transfer(
+                        [session.business.offline_download_url]
+                    )
+                else:
+                    status = servicer.offlinehelper.add_urls_to_path(
+                        [session.business.offline_download_url], path
+                    )
+                if status:
+                    post_message(
+                        channel=session.message.channel,
+                        title=i18n.translate("p115_add_offline_success"),
+                        userid=session.message.userid,
+                    )
+                else:
+                    post_message(
+                        channel=session.message.channel,
+                        title=i18n.translate("p115_add_offline_fail"),
+                        userid=session.message.userid,
+                    )
+            else:
+                raise IndexError("索引超出范围。")
+        except (ValueError, IndexError, TypeError) as e:
+            logger.error(
+                f"处理 offline_download 失败: value={action.value}, error={e}",
+                exc_info=True,
+            )
+            session.go_to("start")
+            return [
+                {"type": "error_message", "text": "处理离线下载时发生错误，请重试。"}
+            ]
+        return None
 
     @command_registry.command(name="search", code="sr")
     def handle_search(self, session: Session, action: Action):

@@ -255,6 +255,10 @@ class ConfigManager(BaseModel):
     pan_transfer_paths: Optional[str] = None
     # 网盘整理未识别目录
     pan_transfer_unrecognized_path: Optional[str] = None
+    # 分享转存目录
+    share_recieve_paths: Optional[List] = []
+    # 离线下载目录
+    offline_download_paths: Optional[List] = []
 
     # 监控目录上传开关
     directory_upload_enabled: bool = False

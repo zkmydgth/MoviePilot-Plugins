@@ -703,42 +703,117 @@
                     </v-col>
                   </v-row>
 
-                  <v-row>
-                    <v-col cols="12">
-                      <div class="d-flex flex-column">
-                        <div v-for="(path, index) in panTransferPaths" :key="`pan-${index}`"
-                          class="mb-2 d-flex align-center">
-                          <v-text-field v-model="path.path" label="网盘待整理目录" density="compact"
+                  <!-- 待整理和未识别目录 -->
+                  <v-card variant="outlined" class="mt-4">
+                    <v-card-title class="text-subtitle-1">
+                      <v-icon start>mdi-folder-move</v-icon>
+                      待整理和未识别目录
+                    </v-card-title>
+                    <v-card-text>
+                      <v-row>
+                        <v-col cols="12">
+                          <div class="d-flex flex-column">
+                            <div v-for="(path, index) in panTransferPaths" :key="`pan-${index}`"
+                              class="mb-2 d-flex align-center">
+                              <v-text-field v-model="path.path" label="网盘待整理目录" density="compact"
+                                append-icon="mdi-folder-network"
+                                @click:append="openDirSelector(index, 'remote', 'panTransfer')"
+                                class="flex-grow-1"></v-text-field>
+                              <v-btn icon size="small" color="error" class="ml-2" @click="removePanTransferPath(index)">
+                                <v-icon>mdi-delete</v-icon>
+                              </v-btn>
+                            </div>
+                            <v-btn size="small" prepend-icon="mdi-plus" variant="outlined" class="mt-2 align-self-start"
+                              @click="addPanTransferPath">
+                              添加路径
+                            </v-btn>
+                          </div>
+                        </v-col>
+                      </v-row>
+
+                      <v-row class="mt-4">
+                        <v-col cols="12">
+                          <v-text-field v-model="config.pan_transfer_unrecognized_path" label="网盘整理未识别目录" density="compact"
                             append-icon="mdi-folder-network"
-                            @click:append="openDirSelector(index, 'remote', 'panTransfer')"
-                            class="flex-grow-1"></v-text-field>
-                          <v-btn icon size="small" color="error" class="ml-2" @click="removePanTransferPath(index)">
-                            <v-icon>mdi-delete</v-icon>
-                          </v-btn>
-                        </div>
-                        <v-btn size="small" prepend-icon="mdi-plus" variant="outlined" class="mt-2 align-self-start"
-                          @click="addPanTransferPath">
-                          添加路径
-                        </v-btn>
-                      </div>
-                    </v-col>
-                  </v-row>
+                            @click:append="openDirSelector('unrecognized', 'remote', 'panTransferUnrecognized')"></v-text-field>
+                          <v-alert type="info" variant="tonal" density="compact" class="mt-2">
+                            提示：此目录用于存放整理过程中未能识别的媒体文件。
+                          </v-alert>
+                          <v-alert type="warning" variant="tonal" density="compact" class="mt-2">
+                            注意：未识别目录不能设置在任何媒体库目录或待整理目录的内部。
+                          </v-alert>
+                        </v-col>
+                      </v-row>
+                    </v-card-text>
+                  </v-card>
 
-                  <v-row class="mt-4">
-                    <v-col cols="12">
-                      <v-text-field v-model="config.pan_transfer_unrecognized_path" label="网盘整理未识别目录" density="compact"
-                        append-icon="mdi-folder-network"
-                        @click:append="openDirSelector('unrecognized', 'remote', 'panTransferUnrecognized')"></v-text-field>
+                  <!-- 分享转存目录 -->
+                  <v-card variant="outlined" class="mt-4">
+                    <v-card-title class="text-subtitle-1">
+                      <v-icon start>mdi-share-variant</v-icon>
+                      分享转存目录
+                    </v-card-title>
+                    <v-card-text>
+                      <v-row>
+                        <v-col cols="12">
+                          <div class="d-flex flex-column">
+                            <div v-for="(path, index) in shareReceivePaths" :key="`share-${index}`"
+                              class="mb-2 d-flex align-center">
+                              <v-text-field v-model="path.path" label="分享转存目录" density="compact"
+                                append-icon="mdi-folder-network"
+                                @click:append="openDirSelector(index, 'remote', 'shareReceive')"
+                                class="flex-grow-1"></v-text-field>
+                              <v-btn icon size="small" color="error" class="ml-2" @click="removeShareReceivePath(index)">
+                                <v-icon>mdi-delete</v-icon>
+                              </v-btn>
+                            </div>
+                            <v-btn size="small" prepend-icon="mdi-plus" variant="outlined" class="mt-2 align-self-start"
+                              @click="addShareReceivePath">
+                              添加路径
+                            </v-btn>
+                          </div>
+                        </v-col>
+                      </v-row>
                       <v-alert type="info" variant="tonal" density="compact" class="mt-2">
-                        提示：此目录用于存放整理过程中未能识别的媒体文件。
+                        提示：此目录用于存放通过分享链接转存的资源。
                       </v-alert>
-                      <v-alert type="warning" variant="tonal" density="compact" class="mt-2">
-                        注意：未识别目录不能设置在任何媒体库目录或待整理目录的内部。
-                      </v-alert>
-                    </v-col>
-                  </v-row>
+                    </v-card-text>
+                  </v-card>
 
-                  <v-divider class="my-3"></v-divider>
+                  <!-- 离线下载目录 -->
+                  <v-card variant="outlined" class="mt-4">
+                    <v-card-title class="text-subtitle-1">
+                      <v-icon start>mdi-download</v-icon>
+                      离线下载目录
+                    </v-card-title>
+                    <v-card-text>
+                      <v-row>
+                        <v-col cols="12">
+                          <div class="d-flex flex-column">
+                            <div v-for="(path, index) in offlineDownloadPaths" :key="`offline-${index}`"
+                              class="mb-2 d-flex align-center">
+                              <v-text-field v-model="path.path" label="离线下载目录" density="compact"
+                                append-icon="mdi-folder-network"
+                                @click:append="openDirSelector(index, 'remote', 'offlineDownload')"
+                                class="flex-grow-1"></v-text-field>
+                              <v-btn icon size="small" color="error" class="ml-2" @click="removeOfflineDownloadPath(index)">
+                                <v-icon>mdi-delete</v-icon>
+                              </v-btn>
+                            </div>
+                            <v-btn size="small" prepend-icon="mdi-plus" variant="outlined" class="mt-2 align-self-start"
+                              @click="addOfflineDownloadPath">
+                              添加路径
+                            </v-btn>
+                          </div>
+                        </v-col>
+                      </v-row>
+                      <v-alert type="info" variant="tonal" density="compact" class="mt-2">
+                        提示：此目录用于存放通过离线下载功能下载的资源。
+                      </v-alert>
+                    </v-card-text>
+                  </v-card>
+
+                  <v-divider class="my-4"></v-divider>
 
                   <v-alert type="info" variant="tonal" density="compact" class="mt-2">
                     使用本功能需要先进入 设定-目录 进行配置：<br>
@@ -1522,6 +1597,8 @@ const config = reactive({
   pan_transfer_enabled: false,
   pan_transfer_paths: '',
   pan_transfer_unrecognized_path: '',
+  share_recieve_paths: [],
+  offline_download_paths: [],
   directory_upload_enabled: false,
   directory_upload_mode: 'compatibility',
   directory_upload_uploadext: 'mp4,mkv,ts,iso,rmvb,avi,mov,mpeg,mpg,wmv,3gp,asf,m4v,flv,m2ts,tp,f4v',
@@ -1650,6 +1727,8 @@ const incrementSyncMPPaths = ref([{ local: '', remote: '' }]);
 const monitorLifePaths = ref([{ local: '', remote: '' }]);
 const monitorLifeMpPaths = ref([{ local: '', remote: '' }]);
 const panTransferPaths = ref([{ path: '' }]);
+const shareReceivePaths = ref([{ path: '' }]);
+const offlineDownloadPaths = ref([{ path: '' }]);
 const transferExcludePaths = ref([{ path: '' }]);
 const incrementSyncExcludePaths = ref([{ local: '', remote: '' }]);
 const monitorLifeExcludePaths = ref([{ path: '' }]);
@@ -1890,6 +1969,42 @@ watch(() => config.pan_transfer_paths, (newVal) => {
   }
 }, { immediate: true });
 
+watch(() => config.share_recieve_paths, (newVal) => {
+  if (!newVal || !Array.isArray(newVal)) {
+    shareReceivePaths.value = [{ path: '' }];
+    return;
+  }
+  try {
+    shareReceivePaths.value = newVal.map(path => {
+      return { path: typeof path === 'string' ? path : '' };
+    });
+    if (shareReceivePaths.value.length === 0) {
+      shareReceivePaths.value = [{ path: '' }];
+    }
+  } catch (e) {
+    console.error('解析share_recieve_paths出错:', e);
+    shareReceivePaths.value = [{ path: '' }];
+  }
+}, { immediate: true });
+
+watch(() => config.offline_download_paths, (newVal) => {
+  if (!newVal || !Array.isArray(newVal)) {
+    offlineDownloadPaths.value = [{ path: '' }];
+    return;
+  }
+  try {
+    offlineDownloadPaths.value = newVal.map(path => {
+      return { path: typeof path === 'string' ? path : '' };
+    });
+    if (offlineDownloadPaths.value.length === 0) {
+      offlineDownloadPaths.value = [{ path: '' }];
+    }
+  } catch (e) {
+    console.error('解析offline_download_paths出错:', e);
+    offlineDownloadPaths.value = [{ path: '' }];
+  }
+}, { immediate: true });
+
 watch(() => config.transfer_monitor_scrape_metadata_exclude_paths, (newVal) => {
   if (typeof newVal !== 'string' || !newVal.trim()) {
     transferExcludePaths.value = [{ path: '' }];
@@ -2087,6 +2202,8 @@ const saveConfig = async () => {
     config.monitor_life_paths = generatePathsConfig(monitorLifePaths.value, 'monitorLife');
     config.monitor_life_mp_mediaserver_paths = generatePathsConfig(monitorLifeMpPaths.value, 'monitorLifeMp');
     config.pan_transfer_paths = generatePathsConfig(panTransferPaths.value, 'panTransfer');
+    config.share_recieve_paths = shareReceivePaths.value.filter(p => p.path?.trim()).map(p => p.path);
+    config.offline_download_paths = offlineDownloadPaths.value.filter(p => p.path?.trim()).map(p => p.path);
     config.directory_upload_path = directoryUploadPaths.value.filter(p => p.src?.trim() || p.dest_remote?.trim() || p.dest_local?.trim());
     const validChannels = tgChannels.value.filter(
       c => c.name && c.name.trim() !== '' && c.id && c.id.trim() !== ''
@@ -2293,6 +2410,18 @@ const removePanTransferPath = (index) => {
   if (panTransferPaths.value.length === 0) panTransferPaths.value = [{ path: '' }];
 };
 
+const addShareReceivePath = () => { shareReceivePaths.value.push({ path: '' }); };
+const removeShareReceivePath = (index) => {
+  shareReceivePaths.value.splice(index, 1);
+  if (shareReceivePaths.value.length === 0) shareReceivePaths.value = [{ path: '' }];
+};
+
+const addOfflineDownloadPath = () => { offlineDownloadPaths.value.push({ path: '' }); };
+const removeOfflineDownloadPath = (index) => {
+  offlineDownloadPaths.value.splice(index, 1);
+  if (offlineDownloadPaths.value.length === 0) offlineDownloadPaths.value = [{ path: '' }];
+};
+
 const openImportDialog = () => {
   importDialog.jsonText = '';
   importDialog.error = '';
@@ -2456,6 +2585,8 @@ const confirmDirSelection = () => {
       case 'incrementSync': dirDialog.isLocal ? incrementSyncPaths.value[dirDialog.index].local = processedPath : incrementSyncPaths.value[dirDialog.index].remote = processedPath; break;
       case 'monitorLife': dirDialog.isLocal ? monitorLifePaths.value[dirDialog.index].local = processedPath : monitorLifePaths.value[dirDialog.index].remote = processedPath; break;
       case 'panTransfer': panTransferPaths.value[dirDialog.index].path = processedPath; break;
+      case 'shareReceive': shareReceivePaths.value[dirDialog.index].path = processedPath; break;
+      case 'offlineDownload': offlineDownloadPaths.value[dirDialog.index].path = processedPath; break;
       case 'directoryUpload':
         if (dirDialog.fieldKey && directoryUploadPaths.value[dirDialog.index]) directoryUploadPaths.value[dirDialog.index][dirDialog.fieldKey] = processedPath;
         break;

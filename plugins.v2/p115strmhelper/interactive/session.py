@@ -20,6 +20,12 @@ class Business(BaseBusiness):
 
     resource_info: Optional[Dict] = field(default_factory=dict)
 
+    share_recieve_path: Optional[str] = None
+    share_recieve_url: Optional[str] = None
+
+    offline_download_path: Optional[str] = None
+    offline_download_url: Optional[str] = None
+
 
 @dataclass
 class Session(BaseSession):

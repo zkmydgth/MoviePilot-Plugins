@@ -10,7 +10,7 @@ from p115client.tool.attr import get_attr
 from app.log import logger
 
 from ..core.config import configer
-from ..core.cache import idpathcacher
+from ..core.p115 import get_pid_by_path
 from ..helper.life import MonitorLife
 from ..schemas.offline import OfflineTaskItem
 from ..utils.string import StringUtils
@@ -145,12 +145,27 @@ class OfflineDownloadHelper:
         添加一组任务并进行网盘整理
         """
         try:
-            parent_path = configer.get_config("pan_transfer_paths").split("\n")[0]
-            parent_id = idpathcacher.get_id_by_dir(directory=str(parent_path))
-            if not parent_id:
-                parent_id = self.client.fs_dir_getid(parent_path)["id"]
-                logger.debug(f"【离线下载】获取到转存目录 ID：{parent_id}")
-                idpathcacher.add_cache(id=int(parent_id), directory=str(parent_path))
+            # 寻找离线下载目录中可运行网盘整理的目录，如果无则调用 add_urls_to_path 函数
+            parent_path = None
+            for path in configer.pan_transfer_paths.split("\n"):
+                if not path:
+                    continue
+                if path in configer.offline_download_paths:
+                    parent_path = path
+                break
+            if not parent_path:
+                return self.add_urls_to_path(
+                    url_list, configer.offline_download_paths[0]
+                )
+
+            parent_id = get_pid_by_path(
+                client=self.client,
+                path=parent_path,
+                mkdir=True,
+                update_cache=True,
+                by_cache=True,
+            )
+            logger.debug(f"【离线下载】获取到下载目录 {parent_path} ID：{parent_id}")
 
             resp = self.add_urls(url_list=url_list, cid=parent_id)
             if not resp.get("state", None):
@@ -176,11 +191,14 @@ class OfflineDownloadHelper:
         添加一组任务下载到指定路径
         """
         try:
-            parent_id = idpathcacher.get_id_by_dir(directory=path)
-            if not parent_id:
-                parent_id = self.client.fs_dir_getid(path)["id"]
-                logger.debug(f"【离线下载】获取到下载目录 {path} ID：{parent_id}")
-                idpathcacher.add_cache(id=int(parent_id), directory=path)
+            parent_id = get_pid_by_path(
+                client=self.client,
+                path=path,
+                mkdir=True,
+                update_cache=True,
+                by_cache=True,
+            )
+            logger.debug(f"【离线下载】获取到下载目录 {path} ID：{parent_id}")
 
             resp = self.add_urls(url_list=url_list, cid=parent_id)
             if not resp.get("state", None):
@@ -233,11 +251,9 @@ class OfflineDownloadHelper:
                     size=task.get("size", 0),
                     size_text=StringUtils.format_size(task.get("size", 0)),
                     status=task.get("status", 0),
-                    status_text=status_mapping.get(
-                        task.get("status", 4), "未知状态"
-                    ),
+                    status_text=status_mapping.get(task.get("status", 4), "未知状态"),
                     percent=task.get("percentDone", 0.0),
-                    add_time=task.get("add_time", 0)
+                    add_time=task.get("add_time", 0),
                 )
                 formatted_tasks.append(task_model)
 

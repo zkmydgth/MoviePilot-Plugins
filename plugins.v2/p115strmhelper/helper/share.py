@@ -1,6 +1,7 @@
 import threading
 import time
 import re
+from pathlib import Path
 from queue import Queue, Empty
 from enum import Enum
 from datetime import datetime, timezone
@@ -18,9 +19,9 @@ from app.schemas import NotificationType
 
 from ..core.config import configer
 from ..core.message import post_message
-from ..core.cache import idpathcacher
 from ..core.i18n import i18n
 from ..core.aliyunpan import BAligo
+from ..core.p115 import get_pid_by_path
 from ..helper.ali2115 import Ali2115Helper
 from ..utils.sentry import sentry_manager
 from ..utils.oopserver import OOPServerRequest
@@ -65,10 +66,10 @@ class ShareTransferHelper:
             try:
                 # 获取任务，设置超时避免永久阻塞
                 task = self._add_share_queue.get(timeout=60)  # 60秒无任务则退出
-                url, channel, userid = task
+                url, channel, userid, pan_path = task
 
                 # 执行任务
-                self.__add_share(url, channel, userid)
+                self.__add_share(url, channel, userid, pan_path)
 
                 # 任务间隔
                 time.sleep(3)
@@ -146,6 +147,7 @@ class ShareTransferHelper:
         url,
         channel: Optional[str | int] = None,
         userid: Optional[str | int] = None,
+        pan_path: Optional[str | Path] = None,
     ):
         """
         添加阿里云盘分享任务
@@ -161,21 +163,30 @@ class ShareTransferHelper:
                 userid=userid,
             )
             return
-        parent_path = configer.get_config("pan_transfer_paths").split("\n")[0]
-        parent_id = idpathcacher.get_id_by_dir(directory=str(parent_path))
-        if not parent_id:
-            parent_id = self.client.fs_dir_getid(parent_path)["id"]
-            logger.info(f"【Ali2115】获取到转存目录 ID：{parent_id}")
-            idpathcacher.add_cache(id=int(parent_id), directory=str(parent_path))
+        if not pan_path:
+            parent_path = configer.share_recieve_paths[0]
+        else:
+            parent_path = pan_path
+        parent_id = get_pid_by_path(
+            client=self.client,
+            path=parent_path,
+            mkdir=True,
+            update_cache=True,
+            by_cache=True,
+        )
+        logger.info(f"【Ali2115】获取到转存目录 {parent_path} ID：{parent_id}")
 
         unrecognized_path = configer.pan_transfer_unrecognized_path
-        unrecognized_id = idpathcacher.get_id_by_dir(directory=str(unrecognized_path))
-        if not unrecognized_id:
-            unrecognized_id = self.client.fs_dir_getid(unrecognized_path)["id"]
-            logger.info(f"【Ali2115】获取到未识别目录 ID：{unrecognized_id}")
-            idpathcacher.add_cache(
-                id=int(unrecognized_id), directory=str(unrecognized_path)
-            )
+        unrecognized_id = get_pid_by_path(
+            client=self.client,
+            path=unrecognized_path,
+            mkdir=True,
+            update_cache=True,
+            by_cache=True,
+        )
+        logger.info(
+            f"【Ali2115】获取到未识别目录 {unrecognized_path} ID：{unrecognized_id}"
+        )
 
         share_token = ali2115.get_ali_share_token(share_id)
 
@@ -248,6 +259,7 @@ class ShareTransferHelper:
         channel: Optional[str | int] = None,
         userid: Optional[str | int] = None,
         notify: bool = True,
+        pan_path: Optional[str | Path] = None,
     ):
         """
         添加115分享任务
@@ -267,12 +279,20 @@ class ShareTransferHelper:
                     userid=userid,
                 )
             return False, "解析分享链接失败"
-        parent_path = configer.get_config("pan_transfer_paths").split("\n")[0]
-        parent_id = idpathcacher.get_id_by_dir(directory=str(parent_path))
-        if not parent_id:
-            parent_id = self.client.fs_dir_getid(parent_path)["id"]
-            logger.info(f"【分享转存】获取到转存目录 ID：{parent_id}")
-            idpathcacher.add_cache(id=int(parent_id), directory=str(parent_path))
+
+        if not pan_path:
+            parent_path = configer.share_recieve_paths[0]
+        else:
+            parent_path = pan_path
+        parent_id = get_pid_by_path(
+            client=self.client,
+            path=parent_path,
+            mkdir=True,
+            update_cache=True,
+            by_cache=True,
+        )
+        logger.info(f"【分享转存】获取到转存目录 {parent_path} ID：{parent_id}")
+
         payload = {
             "share_code": share_code,
             "receive_code": receive_code,
@@ -333,13 +353,11 @@ class ShareTransferHelper:
             )
         return False, "转存失败", resp["error"]
 
-    def __add_share(self, url, channel, userid):
+    def __add_share(self, url, channel, userid, pan_path):
         """
         分享转存
         """
-        if not configer.get_config("pan_transfer_enabled") or not configer.get_config(
-            "pan_transfer_paths"
-        ):
+        if not configer.share_recieve_paths:
             self.send_notify(
                 channel=channel,
                 title=i18n.translate("add_share_config_error"),
@@ -362,9 +380,9 @@ class ShareTransferHelper:
                         userid=userid,
                     )
                     return
-                self.add_share_aliyunpan(url, channel, userid)
+                self.add_share_aliyunpan(url, channel, userid, pan_path)
             else:
-                self.add_share_115(url, channel, userid, True)
+                self.add_share_115(url, channel, userid, True, pan_path)
         except Exception as e:
             logger.error(f"【分享转存】运行失败: {e}")
             self.send_notify(
@@ -374,11 +392,11 @@ class ShareTransferHelper:
             )
             return
 
-    def add_share(self, url, channel, userid):
+    def add_share(self, url, channel, userid, pan_path=None):
         """
         将分享任务加入队列
         """
-        self._add_share_queue.put((url, channel, userid))
+        self._add_share_queue.put((url, channel, userid, pan_path))
         logger.info(
             f"【分享转存】{url} 任务已加入分享转存队列，当前队列大小：{self._add_share_queue.qsize()}"
         )

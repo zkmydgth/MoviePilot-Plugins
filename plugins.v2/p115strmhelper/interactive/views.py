@@ -138,6 +138,134 @@ class ViewRenderer(BaseViewRenderer):
         # 记录到session，待渲染使用
         session.business.resource_info = {"data": data, "datatime": self.__now_date()}
 
+    @view_registry.view(name="share_recieve_paths", code="srps")
+    def render_share_recieve_paths(self, session: Session) -> Dict:
+        """
+        渲染分享目录选择器
+        """
+        title, buttons, text_lines = (
+            "分享转存目录列表",
+            [],
+            ["请选择您要转存的目录：\n"],
+        )
+
+        # 获取频道能力，是否渲染按钮
+        supports_buttons = ChannelCapabilityManager.supports_buttons(
+            session.message.channel
+        )
+        # 最大行数，每行最大按钮数
+        page_size, max_buttons_per_row = self.__get_page_size(session=session)
+        # 当前页的数据，当前页的索引起点
+        paged_items, start_index = self.__get_paged_items_and_start_index(
+            session=session, page_size=page_size, data=configer.share_recieve_paths
+        )
+
+        button_row = []
+
+        for i, path in enumerate(paged_items):
+            original_index = configer.share_recieve_paths.index(path)
+
+            text_lines.append(
+                f"{StringUtils.to_emoji_number(start_index + i + 1)}. {path}"
+            )
+
+            # 支持按钮时，生成按钮
+            if supports_buttons:
+                button_row.append(
+                    self._build_button(
+                        session,
+                        text=StringUtils.to_emoji_number(start_index + i + 1),
+                        action=Action(command="share_recieve", value=original_index),
+                    )
+                )
+
+                # 如果当前行已满，添加到按钮列表
+                if len(button_row) == max_buttons_per_row:
+                    buttons.append(button_row)
+                    button_row = []
+
+        if button_row:
+            buttons.append(button_row)
+
+        text_lines.append(
+            f"\n页码: {session.view.page + 1} / {session.view.total_pages}"
+        )
+        text_lines.append(f"\n数据刷新时间：{self.__now_date()}")
+
+        # 添加分页行
+        if page_nav := self.get_page_switch_buttons(session):
+            buttons.append(page_nav)
+
+        text = "\n".join(text_lines)
+        # 添加刷新与关闭行
+        buttons.append(self.get_navigation_buttons(session, refresh=True, close=True))
+
+        return {"title": title, "text": text, "buttons": buttons}
+
+    @view_registry.view(name="offline_download_paths", code="odps")
+    def render_offline_download_paths(self, session: Session) -> Dict:
+        """
+        渲染离线下载目录选择器
+        """
+        title, buttons, text_lines = (
+            "离线下载目录列表",
+            [],
+            ["请选择您要下载到的目录：\n"],
+        )
+
+        # 获取频道能力，是否渲染按钮
+        supports_buttons = ChannelCapabilityManager.supports_buttons(
+            session.message.channel
+        )
+        # 最大行数，每行最大按钮数
+        page_size, max_buttons_per_row = self.__get_page_size(session=session)
+        # 当前页的数据，当前页的索引起点
+        paged_items, start_index = self.__get_paged_items_and_start_index(
+            session=session, page_size=page_size, data=configer.offline_download_paths
+        )
+
+        button_row = []
+
+        for i, path in enumerate(paged_items):
+            original_index = configer.offline_download_paths.index(path)
+
+            text_lines.append(
+                f"{StringUtils.to_emoji_number(start_index + i + 1)}. {path}"
+            )
+
+            # 支持按钮时，生成按钮
+            if supports_buttons:
+                button_row.append(
+                    self._build_button(
+                        session,
+                        text=StringUtils.to_emoji_number(start_index + i + 1),
+                        action=Action(command="offline_download", value=original_index),
+                    )
+                )
+
+                # 如果当前行已满，添加到按钮列表
+                if len(button_row) == max_buttons_per_row:
+                    buttons.append(button_row)
+                    button_row = []
+
+        if button_row:
+            buttons.append(button_row)
+
+        text_lines.append(
+            f"\n页码: {session.view.page + 1} / {session.view.total_pages}"
+        )
+        text_lines.append(f"\n数据刷新时间：{self.__now_date()}")
+
+        # 添加分页行
+        if page_nav := self.get_page_switch_buttons(session):
+            buttons.append(page_nav)
+
+        text = "\n".join(text_lines)
+        # 添加刷新与关闭行
+        buttons.append(self.get_navigation_buttons(session, refresh=True, close=True))
+
+        return {"title": title, "text": text, "buttons": buttons}
+
     @view_registry.view(name="search_list", code="shl")
     def render_search_list(self, session: Session) -> Dict:
         """
