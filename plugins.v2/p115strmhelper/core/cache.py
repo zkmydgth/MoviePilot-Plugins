@@ -1,7 +1,9 @@
-from typing import List, Dict, MutableMapping
+from typing import List, Dict, MutableMapping, Optional
 from time import time
 
-from cachetools import LRUCache, TTLCache
+from cachetools import TTLCache as MemoryTTLCache
+
+from app.core.cache import Cache, TTLCache
 
 
 class IdPathCache:
@@ -10,27 +12,37 @@ class IdPathCache:
     """
 
     def __init__(self, maxsize=128):
-        self.id_to_dir = LRUCache(maxsize=maxsize)
-        self.dir_to_id = LRUCache(maxsize=maxsize)
+        self.id_to_dir = TTLCache(maxsize=maxsize, ttl=3600 * 24 * 365 * 10)
+        self.dir_to_id = TTLCache(maxsize=maxsize, ttl=3600 * 24 * 365 * 10)
 
     def add_cache(self, id: int, directory: str):
         """
         添加缓存
         """
-        self.id_to_dir[id] = directory
-        self.dir_to_id[directory] = id
+        self.id_to_dir.set(key=str(id), value=directory)
+        self.dir_to_id.set(key=directory, value=str(id))
 
-    def get_dir_by_id(self, id: int):
+    def get_dir_by_id(self, id: int) -> Optional[str]:
         """
         通过 ID 获取路径
-        """
-        return self.id_to_dir.get(id)
 
-    def get_id_by_dir(self, directory: str):
+        return: str | None
+        """
+        return self.id_to_dir.get(str(id))
+
+    def get_id_by_dir(self, directory: str) -> Optional[int]:
         """
         通过路径获取 ID
+
+        return: int | None
         """
-        return self.dir_to_id.get(directory)
+        _id = self.dir_to_id.get(directory)
+        if _id is None:
+            return None
+        try:
+            return int(_id)
+        except ValueError:
+            return None
 
     def clear(self):
         """
@@ -57,7 +69,7 @@ class LifeEventCache:
     """
 
     def __init__(self):
-        self.create_strm_file_dict: MutableMapping[str, List] = TTLCache(
+        self.create_strm_file_dict: MutableMapping[str, List] = MemoryTTLCache(
             maxsize=1_000_000, ttl=600
         )
 
@@ -74,7 +86,7 @@ class R302Cache:
         参数:
         maxsize (int): 缓存可以容纳的最大条目数
         """
-        self._cache = LRUCache(maxsize=maxsize)
+        self._cache = Cache(maxsize=maxsize)
 
     def set(self, pick_code, ua_code, url, expires_time):
         """
@@ -86,11 +98,11 @@ class R302Cache:
         url (str): 需要缓存的URL
         expires_time (int): 过期时间
         """
-        key = (pick_code, ua_code)
+        self._cache.set(
+            key=f"{pick_code}○{ua_code}", value=url, ttl=int(expires_time - time())
+        )
 
-        self._cache[key] = {"url": url, "expires_at": expires_time}
-
-    def get(self, pick_code, ua_code):
+    def get(self, pick_code, ua_code) -> Optional[str]:
         """
         从缓存中获取一个URL，如果它存在且未过期
 
@@ -98,47 +110,37 @@ class R302Cache:
         pick_code (str): 第一层键
         ua_code (str): 第二层键
 
-        返回:
+        return: str | None
         str: 如果URL存在且未过期，则返回该URL
         None: 如果URL不存在或已过期
         """
-        key = (pick_code, ua_code)
+        return self._cache.get(f"{pick_code}○{ua_code}")
 
-        item = self._cache.get(key)
-
-        if item is None:
-            return None
-
-        if time() > item["expires_at"]:
-            del self._cache[key]
-            return None
-
-        return item["url"]
-
-    def count_by_pick_code(self, pick_code):
+    def count_by_pick_code(self, pick_code) -> int:
         """
         计算与指定 pick_code 匹配的缓存条目数量。
 
         参数:
         pick_code (str): 要匹配的第一层键
 
-        返回:
+        return: int
         int: 匹配的缓存条目数量
         """
         count = 0
-        for key in self._cache.keys():
+        for key_str in self._cache:
+            key = key_str.split("○")
             if key[0] == pick_code:
                 count += 1
         return count
 
-    def __str__(self):
+    def clear(self):
         """
-        返回底层缓存当前状态的字符串表示
+        清空所有缓存
         """
-        return str(self._cache)
+        self._cache.clear()
 
 
-idpathcacher = IdPathCache()
+idpathcacher = IdPathCache(maxsize=4096)
 pantransfercacher = PanTransferCache()
 lifeeventcacher = LifeEventCache()
 r302cacher = R302Cache(maxsize=8096)
