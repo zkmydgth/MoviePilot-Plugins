@@ -1498,25 +1498,7 @@ class P115StrmHelper(_PluginBase):
         """
         退出插件
         """
-        try:
-            if servicer.service_observer:
-                for observer in servicer.service_observer:
-                    try:
-                        observer.stop()
-                        observer.join()
-                        logger.debug(f"【目录上传】{observer} 关闭")
-                    except Exception as e:
-                        print(str(e))
-                logger.info("【目录上传】目录监控已关闭")
-            servicer.service_observer = []
-            if servicer.scheduler:
-                servicer.scheduler.remove_all_jobs()
-                if servicer.scheduler.running:
-                    servicer.scheduler.shutdown()
-                servicer.scheduler = None
-            servicer.monitor_stop_event.set()
-        except Exception as e:
-            print(str(e))
+        servicer.stop()
 
     async def _save_config_api(self, request: Request) -> Dict:
         """

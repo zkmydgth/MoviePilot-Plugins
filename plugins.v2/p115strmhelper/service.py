@@ -67,7 +67,7 @@ class ServiceHelper:
             from_time = time()
             from_id = 0
             while True:
-                if servicer.monitor_stop_event.is_set():
+                if self.monitor_stop_event.is_set():
                     logger.info("【监控生活事件】收到停止信号，退出上传事件监控")
                     break
                 from_time, from_id = self.monitorlife.once_pull(
