@@ -506,11 +506,12 @@
         "name": "CloudDrive2储存",
         "description": "使存储支持 CloudDrive2，grpc 原生 API 操作。",
         "labels": "云盘",
-        "version": "0.0.4",
+        "version": "0.0.5",
         "icon": "Cloudrive_A.png",
         "author": "DDSRem",
         "level": 1,
         "history": {
+            "v0.0.5": "优化上传文件哈希计算，增强功能稳定性",
             "v0.0.4": "修复上传协议问题，增强功能稳定性",
             "v0.0.3": "修复依赖版本问题",
             "v0.0.2": "修复依赖循环导入问题",
