@@ -1056,7 +1056,7 @@ class P115StrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png"
     # 插件版本
-    plugin_version = "1.8.3"
+    plugin_version = "1.8.4"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -1580,6 +1580,31 @@ class P115StrmHelper(_PluginBase):
         Vue模式不使用Vuetify页面定义
         """
         return None
+
+    def _get_path_by_cid(self, cid: int):
+        """
+        通过 cid 获取路径
+        先从缓存获取，再从数据库获取，最后通过API获取
+        """
+        _databasehelper = FileDbHelper()
+        dir_path = self.id_path_cache.get_dir_by_id(cid)
+        if not dir_path:
+            data = _databasehelper.get_by_id(id=cid)
+            if data:
+                dir_path = data.get("path", None)
+                if dir_path:
+                    logger.debug(f"获取 {cid} 路径（数据库）: {dir_path}")
+                    self.id_path_cache.add_cache(id=cid, directory=str(dir_path))
+                    return Path(dir_path)
+            dir_path = get_path_to_cid(self._client, cid=cid)
+            self.id_path_cache.add_cache(id=cid, directory=str(dir_path))
+            if not dir_path:
+                logger.error(f"获取 {cid} 路径失败")
+                return None
+            logger.debug(f"获取 {cid} 路径（API）: {dir_path}")
+            return Path(dir_path)
+        logger.debug(f"获取 {cid} 路径（缓存）: {dir_path}")
+        return Path(dir_path)
 
     def media_transfer(self, event, file_path: Path, rmt_mediaext):
         """
@@ -3370,15 +3395,7 @@ class P115StrmHelper(_PluginBase):
             """
             # 1.获取绝对文件路径
             file_name = event["file_name"]
-            dir_path = self.id_path_cache.get_dir_by_id(int(event["parent_id"]))
-            if not dir_path:
-                dir_path = get_path_to_cid(self._client, cid=int(event["parent_id"]))
-                logger.debug(
-                    f"【监控生活事件】获取 {event['parent_id']} 路径: {dir_path}"
-                )
-                self.id_path_cache.add_cache(
-                    id=int(event["parent_id"]), directory=str(dir_path)
-                )
+            dir_path = self._get_path_by_cid(int(event["parent_id"]))
             file_path = Path(dir_path) / file_name
             # 匹配逻辑 整理路径目录 > 生成STRM文件路径目录
             # 2.匹配是否为整理路径目录
@@ -3438,7 +3455,7 @@ class P115StrmHelper(_PluginBase):
                 if not events_batch:
                     time.sleep(20)
                     continue
-                for event in events_batch:
+                for event in reversed(events_batch):
                     rmt_mediaext = [
                         f".{ext.strip()}"
                         for ext in self._user_rmt_mediaext.replace("，", ",").split(",")
@@ -3491,19 +3508,7 @@ class P115StrmHelper(_PluginBase):
                         # 对于创建文件夹事件直接写入数据库
                         _databasehelper = FileDbHelper()
                         file_name = event["file_name"]
-                        dir_path = self.id_path_cache.get_dir_by_id(
-                            int(event["parent_id"])
-                        )
-                        if not dir_path:
-                            dir_path = get_path_to_cid(
-                                self._client, cid=int(event["parent_id"])
-                            )
-                            logger.debug(
-                                f"【监控生活事件】获取 {event['parent_id']} 路径: {dir_path}"
-                            )
-                            self.id_path_cache.add_cache(
-                                id=int(event["parent_id"]), directory=str(dir_path)
-                            )
+                        dir_path = self._get_path_by_cid(int(event["parent_id"]))
                         file_path = Path(dir_path) / file_name
                         _databasehelper.upsert_batch(
                             _databasehelper.process_life_dir_item(
