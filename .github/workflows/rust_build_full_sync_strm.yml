@@ -80,6 +80,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
 
+      - name: Remove old files
+        run: |
+          rm -rf plugins.v2/p115strmhelper/wheels/full_strm_sync*
+
       - name: Download all wheels
         uses: actions/download-artifact@v5
         with:
