@@ -6,7 +6,8 @@ from uvicorn import Config, Server
 from app.log import logger
 from app.plugins import _PluginBase
 
-from .proxy_app import EXTERNAL_PLAYERS, create_app
+from .external_players import EXTERNAL_PLAYERS
+from .proxy_app import create_app
 
 
 PIN_RULES_SEP = " => "

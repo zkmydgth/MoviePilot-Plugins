@@ -1,5 +1,4 @@
 from asyncio import Lock, gather
-from base64 import urlsafe_b64encode
 from contextlib import asynccontextmanager
 from hashlib import sha256
 from re import IGNORECASE, compile as re_compile, search as re_search, sub as re_sub
@@ -21,11 +20,20 @@ from websockets import connect
 
 from app.log import logger
 
+from .external_players import (
+    ALL_EXTERNAL_PLAYER_KEYS,
+    EXTERNAL_PLAYERS,
+    EXTERNAL_PLAYER_MARKER,
+    REDIRECT_PATH,
+    build_external_player_script,
+    decode_redirect_link,
+    extract_api_key,
+    inject_external_urls,
+)
+
 PLAYBACK_URL_CACHE_TTL_SECONDS = 90
 PLAYBACK_URL_CACHE_MAX_SIZE = 500
 PLAYBACK_STRM_CACHE_TTL_SECONDS = 300
-
-EMBY_AUTH_TOKEN_RE = re_compile(r'Token="([^"]+)"')
 
 CACHE_KEY_HEADERS = (
     "authorization",
@@ -67,63 +75,6 @@ MEDIA_ROUTES = [
     "/emby/sync/jobitems/{item_id}/file",
 ]
 
-EXTERNAL_PLAYERS: dict[str, dict[str, Any]] = {
-    "potplayer": {
-        "name": "PotPlayer",
-        "fmt": "potplayer://{url} /seek={hhmmss}",
-    },
-    "vlc": {
-        "name": "VLC",
-        "fmt": "vlc://{url}",
-    },
-    "iina": {
-        "name": "IINA",
-        "fmt": "iina://weblink?url={encoded}&new_window=1&mpv_start={hhmmss}",
-    },
-    "infuse": {
-        "name": "Infuse",
-        "fmt": "infuse://x-callback-url/play?url={encoded}",
-    },
-    "mpv": {
-        "name": "MPV",
-        "fmt": "mpv://play/{base64url}/?position={sec}",
-    },
-    "nplayer": {
-        "name": "nPlayer",
-        "fmt": "nplayer-{url}",
-    },
-    "omniplayer": {
-        "name": "OmniPlayer",
-        "fmt": "omniplayer://weblink?url={encoded}&new_window=1",
-    },
-    "figplayer": {
-        "name": "FigPlayer",
-        "fmt": "figplayer://weblink?url={encoded}&new_window=1",
-    },
-    "senplayer": {
-        "name": "SenPlayer",
-        "fmt": "SenPlayer://x-callback-url/play?url={encoded}",
-    },
-    "fileball": {
-        "name": "Fileball",
-        "fmt": "filebox://play?url={encoded}",
-    },
-    "stellarplayer": {
-        "name": "StellarPlayer",
-        "fmt": "stellar://play/{url}",
-    },
-    "mxplayer": {
-        "name": "MX Player",
-        "fmt": "intent:{url}#Intent;package=com.mxtech.videoplayer.ad;i.position={ms};end",
-    },
-    "ddplay": {
-        "name": "弹弹Play",
-        "fmt": "ddplay:{encoded}&seek={sec}",
-    },
-}
-
-ALL_EXTERNAL_PLAYER_KEYS = list(EXTERNAL_PLAYERS.keys())
-
 CROSS_ORIGIN_PATTERN = r"&&\s*\(elem\.crossOrigin\s*=\s*initialSubtitleStream\)"
 
 PLUGIN_CROSS_ORIGIN_RE = re_compile(r"&&\(\w+\.crossOrigin=\w+\)")
@@ -131,8 +82,6 @@ PLUGIN_CROSS_ORIGIN_RE = re_compile(r"&&\(\w+\.crossOrigin=\w+\)")
 CROSS_ORIGIN_VALUE_RE = re_compile(
     r'\w+\.IsRemote\s*&&\s*"DirectPlay"\s*===\s*\w+\s*\?\s*null\s*:\s*"anonymous"'
 )
-
-EXTERNAL_PLAYER_MARKER = "[EmbyReverseProxy] externalPlayer"
 
 CROSS_ORIGIN_INTERCEPT_MARKER = "[EmbyReverseProxy] crossOrigin"
 
@@ -203,177 +152,7 @@ def create_app(
     else:
         _player_keys = []
 
-    _external_player_script: str | None = None
-    if _player_keys:
-        import json as _json
-
-        _players_json = _json.dumps(
-            [
-                {
-                    "key": k,
-                    "name": EXTERNAL_PLAYERS[k]["name"],
-                    "fmt": EXTERNAL_PLAYERS[k]["fmt"],
-                }
-                for k in _player_keys
-            ],
-            ensure_ascii=False,
-        )
-        _external_player_script = (
-            "<script>\n// "
-            + EXTERNAL_PLAYER_MARKER
-            + "\n"
-            + """(function(){
-  var PLAYERS="""
-            + _players_json
-            + """;
-  var ICON_BASE='https://emby-external-url.7o7o.cc/embyWebAddExternalUrl/icons';
-  var ICON_MAP={
-    potplayer:'icon-PotPlayer',vlc:'icon-VLC',iina:'icon-IINA',
-    infuse:'icon-infuse',mpv:'icon-MPV',nplayer:'icon-NPlayer',
-    omniplayer:'icon-OmniPlayer',figplayer:'icon-FigPlayer',
-    senplayer:'icon-SenPlayer',fileball:'icon-Fileball',
-    stellarplayer:'icon-StellarPlayer',mxplayer:'icon-MXPlayer',
-    ddplay:'icon-DDPlay'
-  };
-  function b64url(s){
-    return btoa(unescape(encodeURIComponent(s))).replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=+$/,'');
-  }
-  function pad2(n){return n<10?'0'+n:''+n;}
-  function toHMS(sec){
-    var h=Math.floor(sec/3600),m=Math.floor((sec%3600)/60),s=Math.floor(sec%60);
-    return pad2(h)+':'+pad2(m)+':'+pad2(s);
-  }
-  function buildUrl(fmt,streamUrl,posSec){
-    var enc=encodeURIComponent(streamUrl);
-    var b64=b64url(streamUrl);
-    var ms=Math.floor(posSec*1000);
-    var sec=Math.floor(posSec);
-    var hhmmss=toHMS(posSec);
-    return fmt.replace('{url}',streamUrl).replace('{encoded}',enc)
-      .replace('{base64url}',b64).replace('{hhmmss}',hhmmss)
-      .replace('{sec}',sec).replace('{ms}',ms);
-  }
-  function getStreamUrl(item,baseUrl,apiKey){
-    var ms=item.MediaSources;
-    if(!ms||!ms.length) return null;
-    var s=ms[0];
-    var container=s.Container||'mp4';
-    var sourceId=encodeURIComponent(s.Id||'');
-    var type=(s.Type||'').toLowerCase()==='audio'?'audio':'videos';
-    return baseUrl+'/emby/'+type+'/'+item.Id+'/stream.'+container+'?Static=true&MediaSourceId='+sourceId+'&api_key='+apiKey;
-  }
-  function getApiKey(){
-    try{
-      var c=ApiClient._serverInfo&&ApiClient._serverInfo.AccessToken;
-      if(c) return c;
-    }catch(e){}
-    try{return ApiClient.accessToken();}catch(e){}
-    return '';
-  }
-  function makeBtn(p,url){
-    var btn=document.createElement('button');
-    btn.type='button';
-    btn.className='detailButton emby-button emby-button-backdropfilter raised-backdropfilter detailButton-primary';
-    btn.title='使用 '+p.name+' 播放';
-    var content=document.createElement('div');
-    content.className='detailButton-content';
-    var icon=document.createElement('i');
-    icon.className='md-icon detailButton-icon button-icon button-icon-left';
-    var iconFile=ICON_MAP[p.key];
-    if(iconFile){
-      icon.textContent='\\u3000';
-      icon.style.backgroundImage='url('+ICON_BASE+'/'+iconFile+'.webp)';
-      icon.style.backgroundRepeat='no-repeat';
-      icon.style.backgroundSize='100% 100%';
-      icon.style.fontSize='1.4em';
-    } else {
-      icon.classList.add('material-icons');
-      icon.textContent='open_in_new';
-    }
-    var span=document.createElement('span');
-    span.className='button-text';
-    span.textContent=p.name;
-    content.appendChild(icon);
-    content.appendChild(span);
-    btn.appendChild(content);
-    btn.addEventListener('click',function(){location.href=url;});
-    return btn;
-  }
-  function getPositionSec(item){
-    try{
-      var ticks=item.UserData&&item.UserData.PlaybackPositionTicks;
-      if(ticks&&ticks>0) return ticks/10000000;
-    }catch(e){}
-    return 0;
-  }
-  function createButtons(anchor,item){
-    var baseUrl=ApiClient._serverAddress||location.origin;
-    var apiKey=getApiKey();
-    var streamUrl=getStreamUrl(item,baseUrl,apiKey);
-    if(!streamUrl) return;
-    var posSec=getPositionSec(item);
-    var wrapper=document.createElement('div');
-    wrapper.id='ExternalPlayersBtns';
-    wrapper.className='detailButtons flex align-items-flex-start flex-wrap-wrap detail-lineItem';
-    PLAYERS.forEach(function(p){
-      var url=buildUrl(p.fmt,streamUrl,posSec);
-      wrapper.appendChild(makeBtn(p,url));
-    });
-    anchor.insertAdjacentElement('afterend',wrapper);
-  }
-  function showFlag(){
-    return !!document.querySelector("div[is='emby-scroller']:not(.hide) .mediaInfo:not(.hide)");
-  }
-  var _injecting=false;
-  var _lastItemId=null;
-  function tryInject(){
-    if(_injecting) return;
-    var detailBtns=document.querySelector("div[is='emby-scroller']:not(.hide) .mainDetailButtons");
-    if(!detailBtns) return;
-    if(!showFlag()) return;
-    var itemId=null;
-    try{
-      var hash=location.hash||'';
-      var m=hash.match(/[?&]id=([^&]+)/i);
-      if(m) itemId=m[1];
-    }catch(e){}
-    if(!itemId) return;
-    var existing=document.getElementById('ExternalPlayersBtns');
-    if(existing&&_lastItemId===itemId) return;
-    if(existing) existing.remove();
-    _injecting=true;
-    _lastItemId=itemId;
-    try{
-      var userId=(ApiClient._currentUser&&ApiClient._currentUser.Id)||ApiClient.getCurrentUserId();
-      ApiClient.getItem(userId,itemId).then(function(item){
-        var old=document.getElementById('ExternalPlayersBtns');
-        if(old) old.remove();
-        if(item&&item.MediaSources&&item.MediaSources.length>0){
-          var anchor=document.querySelector("div[is='emby-scroller']:not(.hide) .mainDetailButtons");
-          if(anchor) createButtons(anchor,item);
-        }
-      }).catch(function(){}).then(function(){_injecting=false;});
-    }catch(e){_injecting=false;}
-  }
-  function startObserver(){
-    var ob=new MutationObserver(function(){
-      if(showFlag()&&!document.getElementById('ExternalPlayersBtns')){
-        tryInject();
-      }
-    });
-    ob.observe(document.body,{childList:true,subtree:true});
-  }
-  if(document.body){startObserver();}
-  else{document.addEventListener('DOMContentLoaded',startObserver);}
-  document.addEventListener('viewshow',function(){
-    _lastItemId=null;
-    var old=document.getElementById('ExternalPlayersBtns');
-    if(old) old.remove();
-    setTimeout(tryInject,300);
-  });
-})();
-</script>"""
-        )
+    _external_player_script = build_external_player_script(_player_keys)
 
     async def _read_request_body_safe(request: Request) -> bytes | None:
         """
@@ -579,28 +358,6 @@ def create_app(
             request.scope["path"] = lower
         return await call_next(request)
 
-    def _extract_api_key(request: Request) -> str | None:
-        """
-        从请求中提取 api_key（query、X-Emby-Token 头、或 MediaBrowser 认证头）
-
-        :param request: 当前请求
-        :return: API Key 或 None
-        """
-        api_key = request.query_params.get("api_key") or request.query_params.get(
-            "X-Emby-Token"
-        )
-        if not api_key:
-            api_key = request.headers.get("X-Emby-Token")
-        if not api_key:
-            for hdr in ("X-Emby-Authorization", "Authorization"):
-                val = request.headers.get(hdr)
-                if val:
-                    m = EMBY_AUTH_TOKEN_RE.search(val)
-                    if m:
-                        api_key = m.group(1)
-                        break
-        return api_key
-
     def _build_forward_headers(request: Request) -> dict[str, str]:
         """
         构建转发请求头，排除 host 和 hop-by-hop 头。
@@ -639,7 +396,7 @@ def create_app(
         :param name: 路径中的名称（未使用，由路由匹配）
         :return: 重定向、流式响应或错误 JSON
         """
-        api_key = _extract_api_key(request)
+        api_key = extract_api_key(request)
         resp = await _try_media_response(item_id, api_key, request)
         if resp:
             return resp
@@ -1357,107 +1114,6 @@ def create_app(
             _patch_plugin_js
         )
 
-    def _build_external_player_url(
-        fmt: str, stream_url: str, position_ticks: int = 0
-    ) -> str:
-        """
-        根据格式模板和流地址构建外部播放器 URL。
-
-        :param fmt: 播放器 URL 格式模板。
-        :param stream_url: 完整的流媒体地址。
-        :param position_ticks: 播放位置（Emby ticks，1 tick = 100ns）。
-        :return: 构建好的播放器 URL。
-        """
-        encoded = quote(stream_url, safe="")
-        b64 = urlsafe_b64encode(stream_url.encode("utf-8")).decode("ascii").rstrip("=")
-        sec = int(position_ticks / 10_000_000) if position_ticks > 0 else 0
-        ms = sec * 1000
-        h, remainder = divmod(sec, 3600)
-        m, s = divmod(remainder, 60)
-        hhmmss = f"{h:02d}:{m:02d}:{s:02d}"
-        return fmt.format(
-            url=stream_url,
-            encoded=encoded,
-            base64url=b64,
-            hhmmss=hhmmss,
-            sec=sec,
-            ms=ms,
-        )
-
-    def _build_stream_url_for_item(
-        request: Request, item_id: str, source: dict[str, Any], api_key: str
-    ) -> str:
-        """
-        为媒体项构建流媒体直链 URL（指向代理自身，触发 302）。
-
-        :param request: 当前请求（用于获取 Host）。
-        :param item_id: 媒体项 ID。
-        :param source: MediaSource 字典。
-        :param api_key: API Key。
-        :return: 完整的流地址 URL。
-        """
-        host_header = request.headers.get("host") or ""
-        scheme = (
-            request.headers.get("x-forwarded-proto") or request.url.scheme or "http"
-        )
-        base_url = f"{scheme}://{host_header}" if host_header else emby_host
-
-        container = source.get("Container", "mp4")
-        source_id = quote(source.get("Id", ""), safe="")
-        media_type = str(source.get("Type", "")).lower()
-        prefix = "audio" if media_type == "audio" else "videos"
-        return (
-            f"{base_url}/emby/{prefix}/{item_id}/stream.{container}"
-            f"?Static=true&MediaSourceId={source_id}&api_key={api_key}"
-        )
-
-    def _inject_external_urls(
-        data: dict[str, Any],
-        request: Request,
-        item_id: str,
-        api_key: str,
-    ) -> bool:
-        """
-        向 Items 响应注入 ExternalUrls 外部播放器链接。
-
-        :param data: Items API 响应 JSON 字典（就地修改）。
-        :param request: 当前请求。
-        :param item_id: 媒体项 ID。
-        :param api_key: API Key。
-        :return: 是否注入了链接。
-        """
-        sources = data.get("MediaSources")
-        if not isinstance(sources, list) or not sources:
-            return False
-
-        external_urls = data.get("ExternalUrls")
-        if not isinstance(external_urls, list):
-            external_urls = []
-            data["ExternalUrls"] = external_urls
-
-        user_data = data.get("UserData")
-        position_ticks = 0
-        if isinstance(user_data, dict):
-            position_ticks = user_data.get("PlaybackPositionTicks", 0) or 0
-
-        injected = False
-        for source in sources:
-            if not isinstance(source, dict):
-                continue
-            stream_url = _build_stream_url_for_item(request, item_id, source, api_key)
-            source_name = source.get("Name", "")
-            for key in _player_keys:
-                player = EXTERNAL_PLAYERS[key]
-                player_url = _build_external_player_url(
-                    player["fmt"], stream_url, position_ticks
-                )
-                label = player["name"]
-                if source_name:
-                    label = f"{player['name']} - {source_name}"
-                external_urls.append({"Name": label, "Url": player_url})
-                injected = True
-        return injected
-
     if _player_keys:
 
         async def _items_external_player_handler(
@@ -1521,8 +1177,15 @@ def create_app(
                 )
 
             if isinstance(data, dict):
-                api_key = _extract_api_key(request) or ""
-                if _inject_external_urls(data, request, item_id, api_key):
+                api_key = extract_api_key(request) or ""
+                if inject_external_urls(
+                    data=data,
+                    request=request,
+                    emby_host=emby_host,
+                    item_id=item_id,
+                    api_key=api_key,
+                    player_keys=_player_keys,
+                ):
                     logger.debug(
                         "已注入 ExternalUrls: user_id=%s, item_id=%s",
                         user_id,
@@ -1544,6 +1207,25 @@ def create_app(
                 methods=["GET"],
                 response_model=None,
             )(_items_external_player_handler)
+
+    if _player_keys:
+
+        @app.get(REDIRECT_PATH, response_model=None)
+        async def redirect_to_external(link: str | None = None) -> RedirectResponse:
+            """
+            解码外部播放器链接并 302 跳转
+
+            :param link: base64 编码后的原始播放器链接
+            :return: 302 重定向响应
+            """
+            if not link:
+                return RedirectResponse(url="/", status_code=302)
+            try:
+                decoded = decode_redirect_link(link)
+            except Exception:
+                logger.warning("无效的 redirect2external link 参数")
+                return RedirectResponse(url="/", status_code=302)
+            return RedirectResponse(url=decoded, status_code=302)
 
     @app.api_route(
         "/{path:path}",
