@@ -474,7 +474,7 @@ class P115StrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png"
     # 插件版本
-    plugin_version = "1.4.6"
+    plugin_version = "1.4.7"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -630,7 +630,8 @@ class P115StrmHelper(_PluginBase):
                 self._scheduler.start()
 
         if (
-            self._monitor_life_enabled
+            self._enabled
+            and self._monitor_life_enabled
             and self._monitor_life_paths
         ):
             self.monitor_stop_event.clear()
