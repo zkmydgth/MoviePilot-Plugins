@@ -57,7 +57,7 @@ jobs:
 
       - name: Build aarch64 musl wheels
         if: matrix.os == 'ubuntu-latest' && matrix.target == 'aarch64'
-        uses: konstin/maturin-action@stable
+        uses: PyO3/maturin-action@v1
         with:
           target: aarch64-unknown-linux-musl
           command: build
