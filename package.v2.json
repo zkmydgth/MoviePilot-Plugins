@@ -101,6 +101,7 @@
         "version": "2.0.18",
         "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png",
         "author": "DDSRem",
+        "release": true,
         "level": 1,
         "history": {
             "v2.0.18": "高级配置增加STRM生成文件关键词过滤黑名单",
@@ -328,20 +329,6 @@
             "v1.0.2": "下载使用MP代理",
             "v1.0.1": "兼容更多友商STRM文件地址，修复STRM地址编码错误",
             "v1.0.0": "发布"
-        }
-    },
-    "TestPlugin": {
-        "name": "TestPlugin",
-        "description": "Test 插件",
-        "version": "0.0.3",
-        "icon": "cloud.png",
-        "author": "DDSRem",
-        "level": 1,
-        "release": true,
-        "history": {
-            "v0.0.3": "再次测试",
-            "v0.0.2": "修改发布文件标签",
-            "v0.0.1": "Github Action测试"
         }
     }
 }
