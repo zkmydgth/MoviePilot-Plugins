@@ -262,12 +262,12 @@
             </v-card-title>
             <v-divider></v-divider>
             <v-card-text class="py-3 px-4">
-              <v-row align="center">
-                <v-col cols="12" md="4">
+              <v-row>
+                <v-col cols="12">
                   <v-switch v-model="config.share_strm_overwrite_check_enabled" label="启用功能" color="primary"
                     density="compact" hide-details></v-switch>
                 </v-col>
-                <v-col cols="12" md="8">
+                <v-col cols="12">
                   <v-alert type="info" variant="tonal" density="compact" class="text-caption">
                     解决按大小覆盖时 STRM 文件被误判为小文件的问题<br>
                     优先使用生成时的缓存数据，未命中时使用 ffprobe 探测实际大小
@@ -285,12 +285,12 @@
             </v-card-title>
             <v-divider></v-divider>
             <v-card-text class="py-3 px-4">
-              <v-row align="center">
-                <v-col cols="12" md="4">
+              <v-row>
+                <v-col cols="12">
                   <v-switch v-model="config.auto_delete_inferior_source_enabled" label="启用功能" color="warning"
                     density="compact" hide-details></v-switch>
                 </v-col>
-                <v-col cols="12" md="8">
+                <v-col cols="12">
                   <v-alert type="warning" variant="tonal" density="compact" class="text-caption">
                     <strong>注意：</strong>按文件大小整理失败时（媒体库已存在更高质量文件），自动删除源文件<br>
                     支持所有存储类型：本地、115网盘、CloudDrive
@@ -308,12 +308,12 @@
             </v-card-title>
             <v-divider></v-divider>
             <v-card-text class="py-3 px-4">
-              <v-row align="center">
-                <v-col cols="12" md="4">
+              <v-row>
+                <v-col cols="12">
                   <v-switch v-model="config.transfer_intercept_exists_enabled" label="启用功能" color="error"
                     density="compact" hide-details></v-switch>
                 </v-col>
-                <v-col cols="12" md="8">
+                <v-col cols="12">
                   <v-alert type="error" variant="tonal" density="compact" class="text-caption">
                     整理前查询所有媒体服务器，若已存在则立即终止并记录失败<br>
                     <strong>生效条件：</strong>目标路径尚无同名文件时触发（首次入库场景）<br>
