@@ -25,13 +25,21 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import List, Optional, Sequence
+from typing import Any, Dict, List, Mapping, Optional, Sequence
 
 __all__ = [
     "AccountConfig",
     "BotTarget",
     "SIGN_TYPE_BUTTON",
     "SIGN_TYPE_COMMAND",
+    "MAX_ACCOUNT_SLOTS",
+    "MAX_TARGET_SLOTS",
+    "PROXY_MODE_MP",
+    "PROXY_MODE_CUSTOM",
+    "PROXY_MODE_DIRECT",
+    "LOGIN_ACTION_NONE",
+    "LOGIN_ACTION_SEND",
+    "LOGIN_ACTION_CONFIRM",
     "DEFAULT_API_ID",
     "DEFAULT_API_HASH",
     "DEFAULT_ACCOUNTS_TEXT",
@@ -40,6 +48,11 @@ __all__ = [
     "accounts_to_text",
     "parse_targets",
     "targets_to_text",
+    "accounts_from_slots",
+    "account_login_fields",
+    "login_actions",
+    "targets_from_slots",
+    "default_slot_config",
     "normalize_key",
     "validate_config",
 ]
@@ -61,6 +74,20 @@ _KEY_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,15}$")
 # Telegram Desktop 官方公开应用凭据（应用级，可登录任意多个账号）
 DEFAULT_API_ID = 2040
 DEFAULT_API_HASH = "b18441a1ff607e10a989891a5462e627"
+
+# 表单槽位数量：账号与签到目标各给这么多「一行一组」的可视化槽位
+MAX_ACCOUNT_SLOTS = 4
+MAX_TARGET_SLOTS = 8
+
+# 代理模式：跟随 MoviePilot / 自定义 / 直连
+PROXY_MODE_MP = "mp"
+PROXY_MODE_CUSTOM = "custom"
+PROXY_MODE_DIRECT = "direct"
+
+# 账号槽里的「登录动作」：保存配置时按它执行，执行完自动复位
+LOGIN_ACTION_NONE = "不操作"
+LOGIN_ACTION_SEND = "发送验证码"
+LOGIN_ACTION_CONFIRM = "确认登录"
 
 # 交接单里已实测确认的默认账号与签到目标（用户可随意增删改）
 DEFAULT_ACCOUNTS_TEXT = """# 一行一个账号：标识 | 显示名 | 手机号
@@ -344,3 +371,194 @@ def validate_config(
                 f"签到目标 {target.bot_username} 引用了不存在的账号「{target.account_key}」"
             )
     return problems
+
+
+def accounts_from_slots(config: Mapping[str, Any]) -> List[AccountConfig]:
+    """
+    从表单槽位字段解析账号列表。
+
+    槽位字段命名：``account_<n>_enabled`` / ``_label`` / ``_phone``。
+    账号标识由槽位序号自动生成（``acc1``…``acc4``），不需要用户填写——
+    它只用于 session 文件名与「签到目标」的账号关联。
+
+    :param config: 插件配置字典
+    :return List[AccountConfig]: 账号列表
+    """
+
+    accounts: List[AccountConfig] = []
+    for index in range(1, MAX_ACCOUNT_SLOTS + 1):
+        if not config.get(f"account_{index}_enabled"):
+            continue
+        key = f"acc{index}"
+        accounts.append(
+            AccountConfig(
+                key=key,
+                label=str(config.get(f"account_{index}_label") or "") or key,
+                phone=str(config.get(f"account_{index}_phone") or "").strip(),
+            )
+        )
+    return accounts
+
+
+def _slot_of(account_key: str) -> int:
+    """
+    由账号标识反推槽位序号（``acc3`` → 3）。
+
+    :param account_key: 账号标识
+    :return int: 槽位序号；无法解析时返回 0
+    """
+
+    text = (account_key or "").strip().lower()
+    if not text.startswith("acc"):
+        return 0
+    try:
+        index = int(text[3:])
+    except ValueError:
+        return 0
+    return index if 1 <= index <= MAX_ACCOUNT_SLOTS else 0
+
+
+def account_login_fields(config: Mapping[str, Any], account_key: str) -> Dict[str, str]:
+    """
+    读取某个账号槽的三个登录字段。
+
+    :param config: 插件配置字典
+    :param account_key: 账号标识（``acc1``…）
+    :return Dict[str, str]: ``{action, code, password}``
+    """
+
+    index = _slot_of(account_key)
+    if not index:
+        return {"action": LOGIN_ACTION_NONE, "code": "", "password": ""}
+    return {
+        "action": str(config.get(f"account_{index}_login_action") or LOGIN_ACTION_NONE),
+        "code": str(config.get(f"account_{index}_login_code") or ""),
+        "password": str(config.get(f"account_{index}_login_password") or ""),
+    }
+
+
+def login_actions(
+    config: Mapping[str, Any],
+) -> List[Sequence[str]]:
+    """
+    收集需要执行的登录动作（保存配置时由插件入口派发）。
+
+    只返回「槽位启用且动作是发送验证码/确认登录」的条目；每个条目形如
+    ``(账号标识, 动作, 验证码, 两步验证密码)``。
+
+    :param config: 插件配置字典
+    :return List[Sequence[str]]: 待执行动作列表
+    """
+
+    actions: List[Sequence[str]] = []
+    for index in range(1, MAX_ACCOUNT_SLOTS + 1):
+        if not config.get(f"account_{index}_enabled"):
+            continue
+        action = str(config.get(f"account_{index}_login_action") or "").strip()
+        if action not in (LOGIN_ACTION_SEND, LOGIN_ACTION_CONFIRM):
+            continue
+        actions.append(
+            (
+                f"acc{index}",
+                action,
+                str(config.get(f"account_{index}_login_code") or "").strip(),
+                str(config.get(f"account_{index}_login_password") or ""),
+            )
+        )
+    return actions
+
+
+def targets_from_slots(
+    config: Mapping[str, Any],
+    account_keys: Sequence[str],
+) -> List[BotTarget]:
+    """
+    从表单槽位字段解析签到目标列表。
+
+    槽位字段命名：``target_<n>_enabled`` / ``_account`` / ``_bot`` / ``_method``
+    / ``_action`` / ``_wait``。只取「启用且 bot 与账号都填了」的槽位；
+    引用了不存在的账号也会保留，交给 ``validate_config`` 提示。
+
+    :param config: 插件配置字典
+    :param account_keys: 已配置的账号标识（仅作文档说明，不用于过滤）
+    :return List[BotTarget]: 目标列表
+    """
+
+    del account_keys  # 仅保留签名语义，过滤交由校验函数
+    targets: List[BotTarget] = []
+    for index in range(1, MAX_TARGET_SLOTS + 1):
+        if not config.get(f"target_{index}_enabled"):
+            continue
+        account_key = normalize_key(str(config.get(f"target_{index}_account") or ""))
+        bot_username = str(config.get(f"target_{index}_bot") or "").strip()
+        if not account_key or not bot_username:
+            continue
+        if not bot_username.startswith("@"):
+            bot_username = f"@{bot_username}"
+        sign_type = _normalize_sign_type(str(config.get(f"target_{index}_method") or ""))
+        action_text = str(config.get(f"target_{index}_action") or "").strip()
+        if not action_text:
+            action_text = "/checkin" if sign_type == SIGN_TYPE_COMMAND else "签到"
+        wait_seconds = 15
+        raw_wait = config.get(f"target_{index}_wait")
+        if raw_wait not in (None, ""):
+            try:
+                wait_seconds = max(1, min(120, int(float(raw_wait))))
+            except (TypeError, ValueError):
+                wait_seconds = 15
+        targets.append(
+            BotTarget(
+                account_key=account_key,
+                bot_username=bot_username,
+                sign_type=sign_type,
+                action_text=action_text,
+                wait_seconds=wait_seconds,
+            )
+        )
+    return targets
+
+
+def default_slot_config() -> Dict[str, Any]:
+    """
+    生成默认的槽位配置（预填交接单里那 2 个账号与 5 条签到目标）。
+
+    :return Dict[str, Any]: 槽位字段字典（可直接并入插件默认配置）
+    """
+
+    config: Dict[str, Any] = {}
+    accounts = [
+        ("账号1", "+12025550101"),
+        ("账号2", "+12025550102"),
+        ("", ""),
+        ("", ""),
+    ]
+    for index, (label, phone) in enumerate(accounts, start=1):
+        config[f"account_{index}_enabled"] = bool(phone)
+        config[f"account_{index}_label"] = label
+        config[f"account_{index}_phone"] = phone
+        config[f"account_{index}_login_action"] = LOGIN_ACTION_NONE
+        config[f"account_{index}_login_code"] = ""
+        config[f"account_{index}_login_password"] = ""
+
+    targets = [
+        ("acc1", "@bb_emby_bot", SIGN_TYPE_BUTTON, "签到", 15),
+        ("acc1", "@HG_Emby_bot", SIGN_TYPE_BUTTON, "签到", 15),
+        ("acc1", "@okemby_bot", SIGN_TYPE_BUTTON, "签到", 15),
+        ("acc1", "@HDHaven_Bot", SIGN_TYPE_COMMAND, "/checkin", 15),
+        ("acc2", "@okemby_bot", SIGN_TYPE_BUTTON, "签到", 15),
+    ]
+    for index in range(1, MAX_TARGET_SLOTS + 1):
+        if index <= len(targets):
+            account_key, bot, sign_type, action, wait = targets[index - 1]
+            config[f"target_{index}_enabled"] = True
+        else:
+            account_key, bot, sign_type, action, wait = ("", "", SIGN_TYPE_BUTTON, "", 15)
+            config[f"target_{index}_enabled"] = False
+        config[f"target_{index}_account"] = account_key
+        config[f"target_{index}_bot"] = bot
+        config[f"target_{index}_method"] = (
+            "命令" if sign_type == SIGN_TYPE_COMMAND else "按钮"
+        )
+        config[f"target_{index}_action"] = action
+        config[f"target_{index}_wait"] = wait
+    return config

@@ -17,6 +17,7 @@ __all__ = [
     "load_state",
     "save_state",
     "record_login",
+    "record_login_event",
     "record_run",
     "recent_results",
 ]
@@ -145,6 +146,38 @@ def record_run(
         if counter[key] <= per_bot_limit:
             keep.append(item)
     state["history"] = list(reversed(keep))
+    save_state(data_dir, state)
+    return state
+
+
+def record_login_event(
+    data_dir: Path,
+    account_key: str,
+    action: str,
+    ok: bool,
+    message: str,
+) -> Dict[str, Any]:
+    """
+    记录一次登录动作（发码/确认）的结果，供详情页与通知展示。
+
+    :param data_dir: 插件数据目录
+    :param account_key: 账号标识
+    :param action: 动作名（发送验证码 / 确认登录）
+    :param ok: 是否成功
+    :param message: 结果描述
+    :return Dict[str, Any]: 更新后的状态字典
+    """
+
+    from datetime import datetime, timedelta, timezone  # pylint: disable=import-outside-toplevel
+
+    state = load_state(data_dir)
+    state["last_login"] = {
+        "time": datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d %H:%M:%S"),
+        "account": account_key,
+        "action": action,
+        "ok": bool(ok),
+        "message": str(message)[:300],
+    }
     save_state(data_dir, state)
     return state
 

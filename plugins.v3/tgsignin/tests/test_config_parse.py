@@ -14,12 +14,20 @@ from tgsignin.core.config import (
     DEFAULT_API_HASH,
     DEFAULT_API_ID,
     DEFAULT_TARGETS_TEXT,
+    LOGIN_ACTION_CONFIRM,
+    LOGIN_ACTION_NONE,
+    LOGIN_ACTION_SEND,
     SIGN_TYPE_BUTTON,
     SIGN_TYPE_COMMAND,
+    account_login_fields,
+    accounts_from_slots,
     accounts_to_text,
+    default_slot_config,
+    login_actions,
     normalize_key,
     parse_accounts,
     parse_targets,
+    targets_from_slots,
     targets_to_text,
     validate_config,
 )
@@ -178,6 +186,92 @@ class TestValidateConfig(unittest.TestCase):
         """两侧都空时各报一条。"""
         problems = validate_config([], [])
         self.assertEqual(len(problems), 2)
+
+
+class TestSlotConfig(unittest.TestCase):
+    """槽位式配置（配置页的可视化表单）解析。"""
+
+    def test_default_slots(self) -> None:
+        """默认槽位解析出 2 个账号与 5 条目标，且标识自动生成。"""
+        config = default_slot_config()
+        accounts = accounts_from_slots(config)
+        self.assertEqual([a.key for a in accounts], ["acc1", "acc2"])
+        self.assertEqual(accounts[0].label, "账号1")
+        self.assertEqual(accounts[0].phone, "+12025550101")
+        targets = targets_from_slots(config, [a.key for a in accounts])
+        self.assertEqual(len(targets), 5)
+        self.assertEqual(targets[3].sign_type, SIGN_TYPE_COMMAND)
+        self.assertEqual(targets[3].action_text, "/checkin")
+        self.assertEqual(validate_config(accounts, targets), [])
+
+    def test_disabled_slot_is_ignored(self) -> None:
+        """关掉的槽位不参与解析（账号与目标都是）。"""
+        config = default_slot_config()
+        config["account_2_enabled"] = False
+        self.assertEqual([a.key for a in accounts_from_slots(config)], ["acc1"])
+        config["target_1_enabled"] = False
+        targets = targets_from_slots(config, ["acc1"])
+        self.assertEqual(len(targets), 4)
+
+    def test_label_falls_back_and_phone_stripped(self) -> None:
+        """显示名缺失时用标识兜底，手机号去空白。"""
+        config = {
+            "account_1_enabled": True,
+            "account_1_label": "",
+            "account_1_phone": "  +8613800138000  ",
+        }
+        accounts = accounts_from_slots(config)
+        self.assertEqual(accounts[0].label, "acc1")
+        self.assertEqual(accounts[0].phone, "+8613800138000")
+
+    def test_target_wait_default_and_invalid(self) -> None:
+        """等待秒数缺失/非法都回落 15，超范围被夹到 1..120。"""
+        base = {
+            "target_1_enabled": True,
+            "target_1_account": "acc1",
+            "target_1_bot": "@b",
+            "target_1_method": "按钮",
+            "target_1_action": "签到",
+        }
+        self.assertEqual(targets_from_slots(base, []).pop().wait_seconds, 15)
+        self.assertEqual(
+            targets_from_slots({**base, "target_1_wait": "abc"}, []).pop().wait_seconds, 15
+        )
+        self.assertEqual(
+            targets_from_slots({**base, "target_1_wait": 999}, []).pop().wait_seconds, 120
+        )
+
+    def test_target_requires_account_and_bot(self) -> None:
+        """账号或 bot 缺失的目标被跳过。"""
+        config = {
+            "target_1_enabled": True,
+            "target_1_account": "acc1",
+            "target_1_bot": "",
+        }
+        self.assertEqual(targets_from_slots(config, ["acc1"]), [])
+
+    def test_login_fields_and_actions(self) -> None:
+        """登录字段读取与「登录动作」筛选。"""
+        config = default_slot_config()
+        config["account_1_login_action"] = LOGIN_ACTION_SEND
+        config["account_1_login_code"] = ""
+        config["account_1_login_password"] = "pwd"
+        config["account_2_login_action"] = LOGIN_ACTION_CONFIRM
+        config["account_2_login_code"] = "12345"
+
+        fields = account_login_fields(config, "acc1")
+        self.assertEqual(fields["action"], LOGIN_ACTION_SEND)
+        self.assertEqual(fields["password"], "pwd")
+        self.assertEqual(account_login_fields(config, "acc9")["action"], LOGIN_ACTION_NONE)
+
+        actions = login_actions(config)
+        self.assertEqual(len(actions), 2)
+        self.assertEqual(actions[0][0], "acc1")
+        self.assertEqual(actions[1], ("acc2", LOGIN_ACTION_CONFIRM, "12345", ""))
+
+    def test_login_action_none_not_dispatched(self) -> None:
+        """默认配置（全是不操作）不派发任何登录动作。"""
+        self.assertEqual(login_actions(default_slot_config()), [])
 
 
 if __name__ == "__main__":

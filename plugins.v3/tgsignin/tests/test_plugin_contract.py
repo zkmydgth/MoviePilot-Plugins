@@ -10,11 +10,13 @@ import asyncio
 import json
 import unittest
 from pathlib import Path
+from unittest import mock
 from unittest.mock import AsyncMock, MagicMock
 
 import tests  # noqa: F401  触发宿主桩与插件路径注入
 
 from tgsignin import TgSignin
+from tgsignin.core.config import LOGIN_ACTION_NONE, LOGIN_ACTION_SEND, default_slot_config
 from tgsignin.version import VERSION
 
 PLUGIN_ROOT = Path(__file__).resolve().parent.parent
@@ -125,7 +127,12 @@ class TestPage(unittest.TestCase):
         plugin.init_plugin({"enabled": True})
         page = plugin.get_page()
         buttons = [node for node in _walk(page) if node.get("component") == "VBtn"]
-        self.assertGreaterEqual(len(buttons), 4)
+        self.assertGreaterEqual(len(buttons), 7)
+        accounts = [
+            button["events"]["click"]["params"].get("account") for button in buttons
+        ]
+        self.assertIn("acc1", accounts)
+        self.assertIn("acc2", accounts)
         for button in buttons:
             params = button["events"]["click"]["params"]
             self.assertIn("apikey", params)
@@ -242,6 +249,121 @@ class TestConfigRoundTrip(unittest.TestCase):
             }
         )
         self.assertTrue(any("不存在的账号" in item for item in plugin._config_problems))
+
+
+class TestLoginDispatch(unittest.TestCase):
+    """保存配置时的「登录动作」派发：后台执行一次，并立刻复位为不操作。"""
+
+    @staticmethod
+    def _config(**overrides) -> dict:
+        """
+        构造一份启用状态的默认槽位配置。
+
+        :param overrides: 需要覆盖的字段
+        :return dict: 配置字典
+        """
+
+        config = dict(default_slot_config())
+        config["enabled"] = True
+        config.update(overrides)
+        return config
+
+    def test_dispatch_spawns_and_resets(self) -> None:
+        """选了「发送验证码」：派发一次后台任务，并把动作复位。"""
+        plugin = TgSignin()
+        spawned: list = []
+        with mock.patch.object(
+            TgSignin,
+            "_spawn_background",
+            staticmethod(lambda target, name: spawned.append(name)),
+        ):
+            plugin.init_plugin(self._config(account_1_login_action=LOGIN_ACTION_SEND))
+        self.assertEqual(spawned, ["login-actions"])
+        self.assertTrue(plugin.config_updates)
+        self.assertEqual(
+            plugin.config_updates[-1]["account_1_login_action"], LOGIN_ACTION_NONE
+        )
+
+    def test_no_dispatch_without_action(self) -> None:
+        """默认动作「不操作」时不派发后台任务、也不写配置。"""
+        plugin = TgSignin()
+        with mock.patch.object(
+            TgSignin,
+            "_spawn_background",
+            staticmethod(lambda target, name: self.fail("不该派发后台任务")),
+        ):
+            plugin.init_plugin(self._config())
+        self.assertEqual(plugin.config_updates, [])
+
+
+class TestBackgroundApi(unittest.TestCase):
+    """发送验证码 / 确认登录 / 立即签到都改为后台执行（前台立即返回）。"""
+
+    def setUp(self) -> None:
+        """构造启用状态的插件，并拦截后台派发。"""
+        self.spawned: list = []
+        patcher = mock.patch.object(
+            TgSignin,
+            "_spawn_background",
+            staticmethod(lambda target, name: self.spawned.append(name)),
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        config = dict(default_slot_config())
+        config["enabled"] = True
+        self.plugin = TgSignin()
+        self.plugin.init_plugin(config)
+
+    @staticmethod
+    def _request(**params) -> MagicMock:
+        """
+        构造带查询参数的请求替身。
+
+        :param params: 查询参数
+        :return MagicMock: 请求替身
+        """
+
+        request = MagicMock()
+        request.query_params = dict(params)
+        request.json = AsyncMock(return_value={})
+        return request
+
+    def test_send_code_is_background(self) -> None:
+        """点「发送验证码」立刻返回，动作在后台线程里跑。"""
+        result = asyncio.run(self.plugin.api_send_code(self._request(account="acc1")))
+        self.assertTrue(result["success"])
+        self.assertTrue(result["data"]["background"])
+        self.assertEqual(self.spawned, ["send-code-acc1"])
+
+    def test_confirm_without_code_is_rejected(self) -> None:
+        """验证码没填时不派发后台任务，直接提示。"""
+        result = asyncio.run(self.plugin.api_confirm_login(self._request(account="acc1")))
+        self.assertFalse(result["success"])
+        self.assertIn("验证码为空", result["message"])
+        self.assertEqual(self.spawned, [])
+
+    def test_confirm_with_slot_code_is_background(self) -> None:
+        """验证码取自账号槽字段时后台派发确认登录。"""
+        self.plugin._raw_config["account_1_login_code"] = "12345"
+        result = asyncio.run(self.plugin.api_confirm_login(self._request(account="acc1")))
+        self.assertTrue(result["success"])
+        self.assertEqual(self.spawned, ["confirm-acc1"])
+
+    def test_signin_is_background(self) -> None:
+        """点「立即签到」立刻返回，签到在后台线程里跑。"""
+        result = asyncio.run(self.plugin.api_signin(self._request()))
+        self.assertTrue(result["success"])
+        self.assertEqual(self.spawned, ["signin"])
+
+    def test_login_reset_clears_slot_fields(self) -> None:
+        """清空动作：三个登录字段都复位。"""
+        self.plugin._raw_config["account_2_login_code"] = "99999"
+        result = asyncio.run(self.plugin.api_login_reset(self._request(account="acc2")))
+        self.assertTrue(result["success"])
+        payload = self.plugin.config_updates[-1]
+        self.assertEqual(payload["account_2_login_action"], LOGIN_ACTION_NONE)
+        self.assertEqual(payload["account_2_login_code"], "")
+        self.assertEqual(payload["account_2_login_password"], "")
 
 
 if __name__ == "__main__":

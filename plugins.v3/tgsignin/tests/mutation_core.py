@@ -40,6 +40,18 @@ MUTANTS = [
     ),
     (
         "core/config.py",
+        "        key = f\"acc{index}\"",
+        "        key = \"\"",
+        "槽位账号标识不再自动生成（账号列表变空）",
+    ),
+    (
+        "core/config.py",
+        "        if action not in (LOGIN_ACTION_SEND, LOGIN_ACTION_CONFIRM):",
+        "        if False:",
+        "「不操作」也被当成待执行登录动作",
+    ),
+    (
+        "core/config.py",
         "        if len(fields) < 4:\n            continue",
         "        if len(fields) < 3:\n            continue",
         "字段数下限放宽，残缺行被误收",

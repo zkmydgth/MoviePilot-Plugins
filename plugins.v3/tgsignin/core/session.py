@@ -15,6 +15,8 @@ from .config import DEFAULT_API_HASH, DEFAULT_API_ID, AccountConfig
 
 __all__ = [
     "build_proxy",
+    "parse_proxy_url",
+    "resolve_proxy",
     "proxy_desc",
     "session_base",
     "session_exists",
@@ -58,6 +60,75 @@ def proxy_desc(proxy: Optional[Tuple[str, str, int]]) -> str:
     if not proxy:
         return "直连"
     return f"{proxy[0]}://{proxy[1]}:{proxy[2]}"
+
+
+def parse_proxy_url(raw: str) -> Optional[Tuple[str, str, int]]:
+    """
+    解析 MoviePilot ``PROXY_HOST`` 这类代理地址。
+
+    兼容 ``http://192.0.2.94:7893``、``socks5://host:port``、``host:port``
+    三种写法；解析不出主机时返回 None。
+
+    :param raw: 代理地址字符串
+    :return Optional[Tuple[str, str, int]]: ``(类型, 主机, 端口)``
+    """
+
+    text = (raw or "").strip()
+    if not text:
+        return None
+    kind = "http"
+    if "://" in text:
+        scheme, text = text.split("://", 1)
+        kind = (scheme or "http").strip().lower()
+    if kind.startswith("socks5"):
+        kind = "socks5"
+    elif kind.startswith("socks4"):
+        kind = "socks4"
+    else:
+        kind = "http"
+    text = text.split("/", 1)[0].strip()
+    if not text:
+        return None
+    host, _, port_text = text.rpartition(":")
+    if not host:
+        # 没有端口号：整体当主机，端口用默认值
+        host = text
+        port = 7893
+    else:
+        try:
+            port = int(port_text)
+        except ValueError:
+            return None
+    if not host:
+        return None
+    return (kind, host, port)
+
+
+def resolve_proxy(
+    mode: str,
+    proxy_type: str,
+    proxy_host: str,
+    proxy_port: int,
+    mp_proxy_host: str,
+) -> Optional[Tuple[str, str, int]]:
+    """
+    按代理模式解析出 telethon 需要的代理元组。
+
+    :param mode: 代理模式（``mp`` 跟随 MoviePilot / ``custom`` 自定义 / ``direct`` 直连）
+    :param proxy_type: 自定义模式的代理类型
+    :param proxy_host: 自定义模式的代理主机
+    :param proxy_port: 自定义模式的代理端口
+    :param mp_proxy_host: MoviePilot 的 ``PROXY_HOST`` 设置值
+    :return Optional[Tuple[str, str, int]]: 代理元组；None 表示直连
+    """
+
+    wanted = (mode or "mp").strip().lower()
+    if wanted == "direct":
+        return None
+    if wanted == "custom":
+        return build_proxy(proxy_type, proxy_host, proxy_port)
+    # 默认：与 MoviePilot 保持一致；MP 没配代理则直连
+    return parse_proxy_url(mp_proxy_host)
 
 
 def session_base(data_dir: Path, account_key: str) -> Path:

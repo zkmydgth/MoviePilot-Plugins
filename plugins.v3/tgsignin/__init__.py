@@ -37,20 +37,33 @@ from .core.config import (
     DEFAULT_API_HASH,
     DEFAULT_API_ID,
     DEFAULT_TARGETS_TEXT,
+    MAX_ACCOUNT_SLOTS,
+    MAX_TARGET_SLOTS,
+    LOGIN_ACTION_CONFIRM,
+    LOGIN_ACTION_NONE,
+    LOGIN_ACTION_SEND,
+    PROXY_MODE_CUSTOM,
+    PROXY_MODE_DIRECT,
+    PROXY_MODE_MP,
     AccountConfig,
     BotTarget,
     accounts_to_text,
+    account_login_fields,
+    accounts_from_slots,
+    default_slot_config,
+    login_actions,
     parse_accounts,
     parse_targets,
+    targets_from_slots,
     targets_to_text,
     validate_config,
 )
 from .core.login import clear_pending, confirm_login, load_pending, send_code
 from .core.session import (
-    build_proxy,
     connection_selftest,
     delete_session,
     proxy_desc,
+    resolve_proxy,
     session_files,
 )
 from .core.signin import now_text, run_all, summarize_results
@@ -59,6 +72,7 @@ from .core.store import (
     load_state,
     recent_results,
     record_login,
+    record_login_event,
     record_run,
 )
 from .version import VERSION
@@ -88,20 +102,23 @@ class TgSignin(_PluginBase):
     _enabled: bool = False
     _cron: str = "0 9 * * *"
     _notify_on_failure: bool = True
+    # 文本模式：用两个多行文本域配置账号与目标（默认关，走槽位表单）
+    _use_text_mode: bool = False
     _accounts_text: str = DEFAULT_ACCOUNTS_TEXT
     _targets_text: str = DEFAULT_TARGETS_TEXT
-    _login_account: str = ""
-    _login_code: str = ""
-    _login_password: str = ""
+    # 代理：默认跟随 MoviePilot；自定义时用下面三个字段
+    _proxy_mode: str = PROXY_MODE_MP
     _proxy_type: str = "socks5"
-    _proxy_host: str = "192.0.2.94"
-    _proxy_port: int = 7893
+    _proxy_host: str = ""
+    _proxy_port: int = 0
     _api_id: int = DEFAULT_API_ID
     _api_hash: str = DEFAULT_API_HASH
     # 解析后的配置（每次 init_plugin 刷新）
     _accounts: List[AccountConfig] = []
     _targets: List[BotTarget] = []
     _config_problems: List[str] = []
+    # 原始配置（供表单回显与局部更新）
+    _raw_config: Dict[str, Any] = {}
 
     # ==================== 生命周期 ====================
 
@@ -117,39 +134,54 @@ class TgSignin(_PluginBase):
         self._enabled = False
         self._cron = "0 9 * * *"
         self._notify_on_failure = True
+        self._use_text_mode = False
         self._accounts_text = DEFAULT_ACCOUNTS_TEXT
         self._targets_text = DEFAULT_TARGETS_TEXT
-        self._login_account = ""
-        self._login_code = ""
-        self._login_password = ""
+        self._proxy_mode = PROXY_MODE_MP
         self._proxy_type = "socks5"
-        self._proxy_host = "192.0.2.94"
-        self._proxy_port = 7893
+        self._proxy_host = ""
+        self._proxy_port = 0
         self._api_id = DEFAULT_API_ID
         self._api_hash = DEFAULT_API_HASH
+        self._raw_config = {}
 
         if config:
             self._enabled = bool(config.get("enabled"))
             self._cron = str(config.get("cron") or "0 9 * * *")
             self._notify_on_failure = bool(config.get("notify_on_failure", True))
+            self._use_text_mode = bool(config.get("use_text_mode"))
             self._accounts_text = str(config.get("accounts_text") or DEFAULT_ACCOUNTS_TEXT)
             self._targets_text = str(config.get("targets_text") or DEFAULT_TARGETS_TEXT)
-            self._login_account = str(config.get("login_account") or "")
-            self._login_code = str(config.get("login_code") or "")
-            self._login_password = str(config.get("login_password") or "")
+            self._proxy_mode = str(config.get("proxy_mode") or PROXY_MODE_MP)
             self._proxy_type = str(config.get("proxy_type") or "socks5")
             self._proxy_host = str(config.get("proxy_host") or "")
-            try:
-                self._proxy_port = int(config.get("proxy_port") or 7893)
-            except (TypeError, ValueError):
-                self._proxy_port = 7893
+            self._proxy_port = self._safe_int(config.get("proxy_port"), 0)
             try:
                 self._api_id = int(config.get("api_id") or DEFAULT_API_ID)
             except (TypeError, ValueError):
                 self._api_id = DEFAULT_API_ID
             self._api_hash = str(config.get("api_hash") or DEFAULT_API_HASH)
+            # 槽位字段原样留存，供表单回显与局部更新
+            self._raw_config = dict(config)
 
         self._refresh_parsed_config()
+        # 保存配置时若选了「登录动作」，在后台派发（不阻塞保存请求）
+        self._dispatch_login_actions()
+
+    @staticmethod
+    def _safe_int(value: Any, fallback: int) -> int:
+        """
+        宽松转整数（空值/非法值回落）。
+
+        :param value: 原值
+        :param fallback: 回落值
+        :return int: 整数值
+        """
+
+        try:
+            return int(float(value))
+        except (TypeError, ValueError):
+            return fallback
 
     def _refresh_parsed_config(self) -> None:
         """
@@ -157,11 +189,138 @@ class TgSignin(_PluginBase):
 
         :return None
         """
-        self._accounts = parse_accounts(self._accounts_text, self._api_id, self._api_hash)
-        self._targets = parse_targets(self._targets_text)
+        if self._use_text_mode:
+            # 文本模式：两个多行文本域（可无限扩展，适合批量粘贴）
+            self._accounts = parse_accounts(
+                self._accounts_text, self._api_id, self._api_hash
+            )
+            self._targets = parse_targets(self._targets_text)
+        else:
+            # 槽位模式（默认）：表单里一行一组，账号用下拉选择
+            self._accounts = accounts_from_slots(self._raw_config)
+            if not self._accounts and self._accounts_text:
+                # 首次从旧版本升级：槽位为空时回退到历史文本配置
+                self._accounts = parse_accounts(
+                    self._accounts_text, self._api_id, self._api_hash
+                )
+            self._targets = targets_from_slots(
+                self._raw_config, [account.key for account in self._accounts]
+            )
+            if not self._targets and self._targets_text:
+                self._targets = parse_targets(self._targets_text)
         self._config_problems = validate_config(self._accounts, self._targets)
         for problem in self._config_problems:
             logger.warning("【TgSignin】配置问题：%s", problem)
+
+    def _proxy_tuple(self) -> Optional[Tuple[str, str, int]]:
+        """
+        按代理模式解析出当前生效的代理（跟随 MP / 自定义 / 直连）。
+
+        :return Optional[Tuple[str, str, int]]: 代理元组；None 表示直连
+        """
+
+        return resolve_proxy(
+            self._proxy_mode,
+            self._proxy_type,
+            self._proxy_host,
+            self._proxy_port,
+            str(getattr(settings, "PROXY_HOST", "") or ""),
+        )
+
+    def _slot_login(self, account_key: str) -> Dict[str, str]:
+        """
+        读取某个账号槽的登录字段（动作 / 验证码 / 两步验证密码）。
+
+        :param account_key: 账号标识（``acc1``…）
+        :return Dict[str, str]: ``{action, code, password}``
+        """
+
+        return account_login_fields(self._raw_config, account_key)
+
+    @staticmethod
+    def _spawn_background(target: Callable[[], None], name: str) -> None:
+        """
+        在后台线程执行一个同步函数（前台请求立即返回，避免页面进度条）。
+
+        :param target: 无参可调用对象
+        :param name: 线程名（便于排障）
+        :return None
+        """
+
+        def runner() -> None:
+            """线程体：执行目标，异常只记日志不外抛。"""
+            try:
+                target()
+            except Exception as error:  # pylint: disable=broad-except
+                logger.error("【TgSignin】后台任务 %s 失败：%s", name, error)
+
+        threading.Thread(target=runner, name=f"tgsignin-{name}", daemon=True).start()
+
+    def _dispatch_login_actions(self) -> None:
+        """
+        把配置里选中的「登录动作」放后台执行，并立刻把动作复位为「不操作」。
+
+        这样用户只需「选动作 + 保存」即可完成发码/确认登录，无需切页面；
+        且保存请求立刻返回（动作在后台线程里跑）。
+
+        :return None
+        """
+
+        actions = login_actions(self._raw_config)
+        if not actions:
+            return
+        # 先复位动作，避免保存触发的重入把同一动作跑两遍
+        reset_payload = dict(self._raw_config)
+        for index in range(1, MAX_ACCOUNT_SLOTS + 1):
+            reset_payload[f"account_{index}_login_action"] = LOGIN_ACTION_NONE
+        self._raw_config = reset_payload
+        self.update_config(reset_payload)
+        self._spawn_background(
+            lambda: self._run_sync(lambda: self._execute_login_actions(actions)),
+            "login-actions",
+        )
+
+    async def _execute_login_actions(self, actions: List[Any]) -> None:
+        """
+        依次执行登录动作（发送验证码 / 确认登录），结果写状态并按需通知。
+
+        :param actions: ``[(账号标识, 动作, 验证码, 两步验证密码)]``
+        :return None
+        """
+
+        proxy = self._proxy_tuple()
+        for account_key, action, code, password in actions:
+            account = self._find_account(account_key)
+            if account is None:
+                logger.warning("【TgSignin】登录动作找不到账号：%s", account_key)
+                continue
+            if action == LOGIN_ACTION_SEND:
+                result = await send_code(self.get_data_path(), account, proxy)
+            else:
+                result = await confirm_login(
+                    self.get_data_path(), account, code, password, proxy
+                )
+                if result.get("ok"):
+                    record_login(
+                        self.get_data_path(), account.key, result.get("me") or {}
+                    )
+            ok = bool(result.get("ok"))
+            message = str(result.get("message") or "")
+            record_login_event(
+                self.get_data_path(), account.key, str(action), ok, message
+            )
+            logger.info(
+                "【TgSignin】登录动作 %s %s → %s", account.key, action, message
+            )
+            if not ok:
+                try:
+                    self.post_message(
+                        mtype=MessageType.Plugin,
+                        title="【Telegram 登录】",
+                        text=f"{account.display()} {action} 失败：{message}",
+                    )
+                except Exception as error:  # pylint: disable=broad-except
+                    logger.error("【TgSignin】登录失败通知发送出错：%s", error)
 
     def get_state(self) -> bool:
         """
@@ -211,260 +370,471 @@ class TgSignin(_PluginBase):
         account_items = [
             {"title": account.display(), "value": account.key} for account in self._accounts
         ]
-        return [
+        method_items = [
+            {"title": "按钮式（先 /start 再点按钮）", "value": "按钮"},
+            {"title": "命令式（直接发命令）", "value": "命令"},
+        ]
+        login_action_items = [
+            {"title": LOGIN_ACTION_NONE, "value": LOGIN_ACTION_NONE},
+            {"title": LOGIN_ACTION_SEND, "value": LOGIN_ACTION_SEND},
+            {"title": LOGIN_ACTION_CONFIRM, "value": LOGIN_ACTION_CONFIRM},
+        ]
+        proxy_items = [
+            {"title": "跟随 MoviePilot 代理", "value": PROXY_MODE_MP},
+            {"title": "自定义代理", "value": PROXY_MODE_CUSTOM},
+            {"title": "直连（不走代理）", "value": PROXY_MODE_DIRECT},
+        ]
+        mp_proxy = str(getattr(settings, "PROXY_HOST", "") or "").strip()
+
+        content: List[dict] = [
             {
-                "component": "VForm",
+                "component": "VRow",
                 "content": [
                     {
-                        "component": "VRow",
+                        "component": "VCol",
+                        "props": {"cols": 12, "md": 3},
                         "content": [
                             {
-                                "component": "VCol",
-                                "props": {"cols": 12, "md": 3},
-                                "content": [
-                                    {
-                                        "component": "VSwitch",
-                                        "props": {
-                                            "model": "enabled",
-                                            "label": "启用插件",
-                                        },
-                                    }
-                                ],
-                            },
-                            {
-                                "component": "VCol",
-                                "props": {"cols": 12, "md": 4},
-                                "content": [
-                                    {
-                                        "component": "VTextField",
-                                        "props": {
-                                            "model": "cron",
-                                            "label": "定时签到（cron）",
-                                            "placeholder": "0 9 * * *",
-                                            "persistent-hint": True,
-                                            "hint": "五段式 cron，默认每天 09:00 签到一次",
-                                        },
-                                    }
-                                ],
-                            },
-                            {
-                                "component": "VCol",
-                                "props": {"cols": 12, "md": 3},
-                                "content": [
-                                    {
-                                        "component": "VSwitch",
-                                        "props": {
-                                            "model": "notify_on_failure",
-                                            "label": "失败时通知",
-                                        },
-                                    }
-                                ],
-                            },
-                        ],
-                    },
-                    self._group_header("账号", "一行一个；改完保存后详情页的账号下拉会同步刷新"),
-                    {
-                        "component": "VRow",
-                        "content": [
-                            {
-                                "component": "VCol",
-                                "props": {"cols": 12},
-                                "content": [
-                                    {
-                                        "component": "VTextarea",
-                                        "props": {
-                                            "model": "accounts_text",
-                                            "label": "Telegram 账号列表",
-                                            "rows": 4,
-                                            "persistent-hint": True,
-                                            "hint": "格式：标识 | 显示名 | 手机号（含国际区号）。"
-                                                    "标识只允许小写字母/数字/_/-，会用作 session 文件名。"
-                                                    "需要单独指定 api_id/api_hash 时，在行尾再补两段即可。",
-                                        },
-                                    }
-                                ],
+                                "component": "VSwitch",
+                                "props": {"model": "enabled", "label": "启用插件"},
                             }
                         ],
                     },
-                    self._group_header("签到目标", "每个账号可配多个 bot；按钮式与命令式二选一"),
                     {
-                        "component": "VRow",
+                        "component": "VCol",
+                        "props": {"cols": 12, "md": 4},
                         "content": [
                             {
-                                "component": "VCol",
-                                "props": {"cols": 12},
-                                "content": [
-                                    {
-                                        "component": "VTextarea",
-                                        "props": {
-                                            "model": "targets_text",
-                                            "label": "签到目标列表",
-                                            "rows": 6,
-                                            "persistent-hint": True,
-                                            "hint": "格式：账号标识 | bot用户名 | 按钮或命令 | 按钮文字或命令 [| 等待秒数]。"
-                                                    "例：acc1 | @okemby_bot | 按钮 | 签到　/　acc1 | @HDHaven_Bot | 命令 | /checkin",
-                                        },
-                                    }
-                                ],
+                                "component": "VTextField",
+                                "props": {
+                                    "model": "cron",
+                                    "label": "定时签到（cron）",
+                                    "placeholder": "0 9 * * *",
+                                    "persistent-hint": True,
+                                    "hint": "五段式 cron，默认每天 09:00 签到一次",
+                                },
                             }
                         ],
                     },
-                    self._group_header("登录（两阶段）", "先保存配置，再到详情页点按钮"),
                     {
-                        "component": "VRow",
+                        "component": "VCol",
+                        "props": {"cols": 12, "md": 3},
                         "content": [
                             {
-                                "component": "VCol",
-                                "props": {"cols": 12, "md": 4},
-                                "content": [
-                                    {
-                                        "component": "VSelect",
-                                        "props": {
-                                            "model": "login_account",
-                                            "label": "本次要登录的账号",
-                                            "items": account_items,
-                                            "persistent-hint": True,
-                                            "hint": "先在这里选中账号并保存，再到详情页点「发送验证码」",
-                                        },
-                                    }
-                                ],
-                            },
-                            {
-                                "component": "VCol",
-                                "props": {"cols": 12, "md": 4},
-                                "content": [
-                                    {
-                                        "component": "VTextField",
-                                        "props": {
-                                            "model": "login_code",
-                                            "label": "登录验证码",
-                                            "persistent-hint": True,
-                                            "hint": "收到 Telegram 验证码后填这里并保存，再点详情页「确认登录」",
-                                        },
-                                    }
-                                ],
-                            },
-                            {
-                                "component": "VCol",
-                                "props": {"cols": 12, "md": 4},
-                                "content": [
-                                    {
-                                        "component": "VTextField",
-                                        "props": {
-                                            "model": "login_password",
-                                            "label": "两步验证密码（可选）",
-                                            "type": "password",
-                                            "persistent-hint": True,
-                                            "hint": "该账号启用了两步验证时填写；登录成功后建议清空该项",
-                                        },
-                                    }
-                                ],
-                            },
+                                "component": "VSwitch",
+                                "props": {"model": "notify_on_failure", "label": "失败时通知"},
+                            }
                         ],
                     },
-                    self._group_header("网络与凭据", "默认走旁路由 socks5 代理；凭据为 Telegram 应用级公开值"),
-                    {
-                        "component": "VRow",
-                        "content": [
-                            {
-                                "component": "VCol",
-                                "props": {"cols": 12, "md": 3},
-                                "content": [
-                                    {
-                                        "component": "VSelect",
-                                        "props": {
-                                            "model": "proxy_type",
-                                            "label": "代理类型",
-                                            "items": [
-                                                {"title": "socks5", "value": "socks5"},
-                                                {"title": "http", "value": "http"},
-                                            ],
-                                            "persistent-hint": True,
-                                            "hint": "留空代理主机即直连",
-                                        },
-                                    }
-                                ],
-                            },
-                            {
-                                "component": "VCol",
-                                "props": {"cols": 12, "md": 5},
-                                "content": [
-                                    {
-                                        "component": "VTextField",
-                                        "props": {
-                                            "model": "proxy_host",
-                                            "label": "代理主机",
-                                            "placeholder": "192.0.2.94",
-                                        },
-                                    }
-                                ],
-                            },
-                            {
-                                "component": "VCol",
-                                "props": {"cols": 12, "md": 4},
-                                "content": [
-                                    {
-                                        "component": "VTextField",
-                                        "props": {
-                                            "model": "proxy_port",
-                                            "label": "代理端口",
-                                            "placeholder": "7893",
-                                        },
-                                    }
-                                ],
-                            },
-                        ],
-                    },
-                    {
-                        "component": "VRow",
-                        "content": [
-                            {
-                                "component": "VCol",
-                                "props": {"cols": 12, "md": 4},
-                                "content": [
-                                    {
-                                        "component": "VTextField",
-                                        "props": {
-                                            "model": "api_id",
-                                            "label": "api_id",
-                                            "persistent-hint": True,
-                                            "hint": "应用级凭据；默认用 Telegram Desktop 公开值，可整套替换",
-                                        },
-                                    }
-                                ],
-                            },
-                            {
-                                "component": "VCol",
-                                "props": {"cols": 12, "md": 8},
-                                "content": [
-                                    {
-                                        "component": "VTextField",
-                                        "props": {
-                                            "model": "api_hash",
-                                            "label": "api_hash",
-                                        },
-                                    }
-                                ],
-                            },
-                        ],
-                    },
-                ]
+                ],
+            },
+            self._group_header(
+                "账号", f"最多 {MAX_ACCOUNT_SLOTS} 个；打开左侧开关即可编辑该账号"
+            ),
+        ]
+
+        for index in range(1, MAX_ACCOUNT_SLOTS + 1):
+            enabled_expr = f"account_{index}_enabled"
+            phone_props: Dict[str, Any] = {
+                "model": f"account_{index}_phone",
+                "label": "手机号（含国际区号）",
+                "placeholder": "+8613800138000",
+                "show": enabled_expr,
             }
-        ], {
+            if index == 1:
+                phone_props["persistent-hint"] = True
+                phone_props["hint"] = "账号内部标识由槽位自动生成（acc1…），无需填写"
+            content.append(
+                {
+                    "component": "VRow",
+                    "content": [
+                        {
+                            "component": "VCol",
+                            "props": {"cols": 12, "md": 2},
+                            "content": [
+                                {
+                                    "component": "VSwitch",
+                                    "props": {
+                                        "model": enabled_expr,
+                                        "label": f"账号 {index}",
+                                    },
+                                }
+                            ],
+                        },
+                        {
+                            "component": "VCol",
+                            "props": {"cols": 12, "md": 3},
+                            "content": [
+                                {
+                                    "component": "VTextField",
+                                    "props": {
+                                        "model": f"account_{index}_label",
+                                        "label": "显示名",
+                                        "placeholder": f"账号{index}",
+                                        "show": enabled_expr,
+                                    },
+                                }
+                            ],
+                        },
+                        {
+                            "component": "VCol",
+                            "props": {"cols": 12, "md": 4},
+                            "content": [
+                                {
+                                    "component": "VTextField",
+                                    "props": phone_props,
+                                }
+                            ],
+                        },
+                        {
+                            "component": "VCol",
+                            "props": {"cols": 12, "md": 3},
+                            "content": [
+                                {
+                                    "component": "VCombobox",
+                                    "props": {
+                                        "model": f"account_{index}_login_action",
+                                        "label": "登录动作",
+                                        "items": login_action_items,
+                                        "show": enabled_expr,
+                                    },
+                                }
+                            ],
+                        },
+                    ],
+                }
+            )
+            content.append(
+                {
+                    "component": "VRow",
+                    "content": [
+                        {
+                            "component": "VCol",
+                            "props": {"cols": 12, "md": 4},
+                            "content": [
+                                {
+                                    "component": "VTextField",
+                                    "props": {
+                                        "model": f"account_{index}_login_code",
+                                        "label": "登录验证码",
+                                        "show": enabled_expr,
+                                    },
+                                }
+                            ],
+                        },
+                        {
+                            "component": "VCol",
+                            "props": {"cols": 12, "md": 4},
+                            "content": [
+                                {
+                                    "component": "VTextField",
+                                    "props": {
+                                        "model": f"account_{index}_login_password",
+                                        "label": "两步验证密码（可选）",
+                                        "type": "password",
+                                        "show": enabled_expr,
+                                    },
+                                }
+                            ],
+                        },
+                        {
+                            "component": "VCol",
+                            "props": {"cols": 12, "md": 4},
+                            "content": [
+                                {
+                                    "component": "VAlert",
+                                    "props": {
+                                        "type": "info",
+                                        "variant": "tonal",
+                                        "show": enabled_expr,
+                                        "text": "① 选「发送验证码」保存 → ② 填验证码、选「确认登录」再保存",
+                                    },
+                                }
+                            ],
+                        },
+                    ],
+                }
+            )
+
+        content.append(
+            self._group_header(
+                "签到目标",
+                f"最多 {MAX_TARGET_SLOTS} 条；打开左侧开关后选账号（下拉）/填 bot/选方式",
+            )
+        )
+        for index in range(1, MAX_TARGET_SLOTS + 1):
+            enabled_expr = f"target_{index}_enabled"
+            content.append(
+                {
+                    "component": "VRow",
+                    "content": [
+                        {
+                            "component": "VCol",
+                            "props": {"cols": 12, "md": 1},
+                            "content": [
+                                {
+                                    "component": "VSwitch",
+                                    "props": {"model": enabled_expr, "label": str(index)},
+                                }
+                            ],
+                        },
+                        {
+                            "component": "VCol",
+                            "props": {"cols": 12, "md": 2},
+                            "content": [
+                                {
+                                    "component": "VCombobox",
+                                    "props": {
+                                        "model": f"target_{index}_account",
+                                        "label": "账号",
+                                        "items": account_items,
+                                        "show": enabled_expr,
+                                    },
+                                }
+                            ],
+                        },
+                        {
+                            "component": "VCol",
+                            "props": {"cols": 12, "md": 3},
+                            "content": [
+                                {
+                                    "component": "VTextField",
+                                    "props": {
+                                        "model": f"target_{index}_bot",
+                                        "label": "bot 用户名",
+                                        "placeholder": "@okemby_bot",
+                                        "show": enabled_expr,
+                                    },
+                                }
+                            ],
+                        },
+                        {
+                            "component": "VCol",
+                            "props": {"cols": 12, "md": 2},
+                            "content": [
+                                {
+                                    "component": "VCombobox",
+                                    "props": {
+                                        "model": f"target_{index}_method",
+                                        "label": "方式",
+                                        "items": method_items,
+                                        "show": enabled_expr,
+                                    },
+                                }
+                            ],
+                        },
+                        {
+                            "component": "VCol",
+                            "props": {"cols": 12, "md": 2},
+                            "content": [
+                                {
+                                    "component": "VTextField",
+                                    "props": {
+                                        "model": f"target_{index}_action",
+                                        "label": "按钮文字/命令",
+                                        "placeholder": "签到 或 /checkin",
+                                        "show": enabled_expr,
+                                    },
+                                }
+                            ],
+                        },
+                        {
+                            "component": "VCol",
+                            "props": {"cols": 12, "md": 2},
+                            "content": [
+                                {
+                                    "component": "VTextField",
+                                    "props": {
+                                        "model": f"target_{index}_wait",
+                                        "label": "等待秒数",
+                                        "placeholder": "15",
+                                        "show": enabled_expr,
+                                    },
+                                }
+                            ],
+                        },
+                    ],
+                }
+            )
+
+        content.extend(
+            [
+                self._group_header(
+                    "网络与凭据",
+                    "默认跟随 MoviePilot 的代理设置；Telegram 流量需要能出去的节点",
+                ),
+                {
+                    "component": "VRow",
+                    "content": [
+                        {
+                            "component": "VCol",
+                            "props": {"cols": 12, "md": 3},
+                            "content": [
+                                {
+                                    "component": "VSelect",
+                                    "props": {
+                                        "model": "proxy_mode",
+                                        "label": "代理模式",
+                                        "items": proxy_items,
+                                        "persistent-hint": True,
+                                        "hint": f"跟随 MP 时用 MP 的 PROXY_HOST（当前：{mp_proxy or '未配置'}）",
+                                    },
+                                }
+                            ],
+                        },
+                        {
+                            "component": "VCol",
+                            "props": {"cols": 12, "md": 3},
+                            "content": [
+                                {
+                                    "component": "VCombobox",
+                                    "props": {
+                                        "model": "proxy_type",
+                                        "label": "代理类型（自定义）",
+                                        "items": [
+                                            {"title": "socks5", "value": "socks5"},
+                                            {"title": "http", "value": "http"},
+                                        ],
+                                        "show": "proxy_mode === 'custom'",
+                                    },
+                                }
+                            ],
+                        },
+                        {
+                            "component": "VCol",
+                            "props": {"cols": 12, "md": 3},
+                            "content": [
+                                {
+                                    "component": "VTextField",
+                                    "props": {
+                                        "model": "proxy_host",
+                                        "label": "代理主机（自定义）",
+                                        "show": "proxy_mode === 'custom'",
+                                    },
+                                }
+                            ],
+                        },
+                        {
+                            "component": "VCol",
+                            "props": {"cols": 12, "md": 3},
+                            "content": [
+                                {
+                                    "component": "VTextField",
+                                    "props": {
+                                        "model": "proxy_port",
+                                        "label": "代理端口（自定义）",
+                                        "show": "proxy_mode === 'custom'",
+                                    },
+                                }
+                            ],
+                        },
+                    ],
+                },
+                {
+                    "component": "VRow",
+                    "content": [
+                        {
+                            "component": "VCol",
+                            "props": {"cols": 12, "md": 4},
+                            "content": [
+                                {
+                                    "component": "VTextField",
+                                    "props": {
+                                        "model": "api_id",
+                                        "label": "api_id",
+                                        "persistent-hint": True,
+                                        "hint": "应用级凭据；默认用 Telegram Desktop 公开值，可整套替换",
+                                    },
+                                }
+                            ],
+                        },
+                        {
+                            "component": "VCol",
+                            "props": {"cols": 12, "md": 8},
+                            "content": [
+                                {
+                                    "component": "VTextField",
+                                    "props": {"model": "api_hash", "label": "api_hash"},
+                                }
+                            ],
+                        },
+                    ],
+                },
+                self._group_header(
+                    "高级：文本批量配置",
+                    "默认关闭；开启后用多行文本代替上面的槽位（适合批量粘贴或超过槽位数）",
+                ),
+                {
+                    "component": "VRow",
+                    "content": [
+                        {
+                            "component": "VCol",
+                            "props": {"cols": 12, "md": 4},
+                            "content": [
+                                {
+                                    "component": "VSwitch",
+                                    "props": {
+                                        "model": "use_text_mode",
+                                        "label": "启用文本模式",
+                                    },
+                                }
+                            ],
+                        },
+                        {
+                            "component": "VCol",
+                            "props": {"cols": 12, "md": 8},
+                            "content": [
+                                {
+                                    "component": "VTextarea",
+                                    "props": {
+                                        "model": "accounts_text",
+                                        "label": "账号列表（文本模式）",
+                                        "rows": 3,
+                                        "show": "use_text_mode",
+                                        "persistent-hint": True,
+                                        "hint": "格式：标识 | 显示名 | 手机号（含国际区号）",
+                                    },
+                                }
+                            ],
+                        },
+                        {
+                            "component": "VCol",
+                            "props": {"cols": 12},
+                            "content": [
+                                {
+                                    "component": "VTextarea",
+                                    "props": {
+                                        "model": "targets_text",
+                                        "label": "签到目标列表（文本模式）",
+                                        "rows": 5,
+                                        "show": "use_text_mode",
+                                        "persistent-hint": True,
+                                        "hint": "格式：账号标识 | bot用户名 | 按钮或命令 | 按钮文字或命令 [| 等待秒数]",
+                                    },
+                                }
+                            ],
+                        },
+                    ],
+                },
+            ]
+        )
+
+        defaults: Dict[str, Any] = {
             "enabled": False,
             "cron": "0 9 * * *",
             "notify_on_failure": True,
+            "use_text_mode": False,
             "accounts_text": DEFAULT_ACCOUNTS_TEXT,
             "targets_text": DEFAULT_TARGETS_TEXT,
-            "login_account": "",
-            "login_code": "",
-            "login_password": "",
+            "proxy_mode": PROXY_MODE_MP,
             "proxy_type": "socks5",
-            "proxy_host": "192.0.2.94",
-            "proxy_port": 7893,
+            "proxy_host": "",
+            "proxy_port": 0,
             "api_id": DEFAULT_API_ID,
             "api_hash": DEFAULT_API_HASH,
         }
+        defaults.update(default_slot_config())
+        return [{"component": "VForm", "content": content}], defaults
 
     # ==================== 详情页 ====================
 
@@ -548,6 +918,7 @@ class TgSignin(_PluginBase):
         path: str,
         color: str = "primary",
         method: str = "get",
+        params: Optional[Dict[str, Any]] = None,
     ) -> dict:
         """
         构造详情页操作按钮（按钮只在详情页可用）。
@@ -556,9 +927,13 @@ class TgSignin(_PluginBase):
         :param path: 插件 API 路径（相对 ``plugin/<插件ID>``）
         :param color: 按钮颜色
         :param method: HTTP 方法
+        :param params: 除 apikey 外要额外携带的参数（如 account/bot）
         :return dict: 表单节点
         """
 
+        query: Dict[str, Any] = {"apikey": settings.API_TOKEN}
+        if params:
+            query.update(params)
         return {
             "component": "VBtn",
             "props": {
@@ -572,7 +947,7 @@ class TgSignin(_PluginBase):
                 "click": {
                     "api": f"plugin/{self.__class__.__name__}{path}",
                     "method": method,
-                    "params": {"apikey": settings.API_TOKEN},
+                    "params": query,
                 }
             },
         }
@@ -594,11 +969,7 @@ class TgSignin(_PluginBase):
         self._refresh_parsed_config()
         state = load_state(self.get_data_path())
         pending = load_pending(self.get_data_path())
-        proxy = build_proxy(self._proxy_type, self._proxy_host, self._proxy_port)
-        login_key = self._login_account or (self._accounts[0].key if self._accounts else "")
-        login_account = next(
-            (account for account in self._accounts if account.key == login_key), None
-        )
+        proxy = self._proxy_tuple()
 
         header: List[dict] = [
             {
@@ -621,18 +992,23 @@ class TgSignin(_PluginBase):
                     },
                 }
             )
-        if login_account is not None:
-            pending_info = pending.get(login_account.key) or {}
-            header.append(
-                {
-                    "component": "VAlert",
-                    "props": {
-                        "type": "success" if pending_info else "secondary",
-                        "text": f"待登录账号：{login_account.display()}（{login_account.phone or '未填手机号'}）"
-                                + ("　—　验证码已发送，等待确认" if pending_info else ""),
-                    },
-                }
-            )
+        if pending:
+            waiting = [
+                f"{account.display()}"
+                for account in self._accounts
+                if pending.get(account.key)
+            ]
+            if waiting:
+                header.append(
+                    {
+                        "component": "VAlert",
+                        "props": {
+                            "type": "success",
+                            "text": "验证码已发送，等待确认：" + "、".join(waiting)
+                                    + "　—　把验证码填进配置页后点对应账号的「确认登录」",
+                        },
+                    }
+                )
         header.append(
             {
                 "component": "VAlert",
@@ -644,14 +1020,46 @@ class TgSignin(_PluginBase):
                 },
             }
         )
+        login_event = state.get("last_login") or {}
+        if login_event:
+            header.append(
+                {
+                    "component": "VAlert",
+                    "props": {
+                        "type": "success" if login_event.get("ok") else "error",
+                        "text": f"最近登录动作：{login_event.get('time', '')} "
+                                f"{login_event.get('account', '')} "
+                                f"{login_event.get('action', '')} —— "
+                                f"{login_event.get('message', '')}",
+                    },
+                }
+            )
 
-        actions = [
-            self._button("① 发送验证码", "/login/send_code"),
-            self._button("② 确认登录", "/login/confirm", color="success"),
-            self._button("立即签到", "/signin/run", color="primary"),
-            self._button("连通性自检", "/selftest", color="secondary"),
-            self._button("清空验证码/密码", "/login/reset", color="warning"),
-        ]
+        actions: List[dict] = []
+        for account in self._accounts:
+            actions.append(
+                self._button(
+                    f"发送验证码 · {account.label}",
+                    "/login/send_code",
+                    color="primary",
+                    params={"account": account.key},
+                )
+            )
+            actions.append(
+                self._button(
+                    f"确认登录 · {account.label}",
+                    "/login/confirm",
+                    color="success",
+                    params={"account": account.key},
+                )
+            )
+        actions.extend(
+            [
+                self._button("立即签到", "/signin/run", color="primary"),
+                self._button("连通性自检", "/selftest", color="secondary"),
+                self._button("清空验证码/密码", "/login/reset", color="warning"),
+            ]
+        )
 
         def table(headers: List[str], rows: List[Dict[str, Any]]) -> dict:
             """
@@ -787,8 +1195,6 @@ class TgSignin(_PluginBase):
         :return Optional[AccountConfig]: 找到的账号配置
         """
         wanted = (key or "").strip()
-        if not wanted:
-            wanted = self._login_account
         if not wanted and self._accounts:
             wanted = self._accounts[0].key
         return next((account for account in self._accounts if account.key == wanted), None)
@@ -810,7 +1216,7 @@ class TgSignin(_PluginBase):
                 "enabled": self._enabled,
                 "cron": self._cron,
                 "proxy": proxy_desc(
-                    build_proxy(self._proxy_type, self._proxy_host, self._proxy_port)
+                    self._proxy_tuple()
                 ),
                 "problems": self._config_problems,
                 "accounts": [
@@ -827,6 +1233,8 @@ class TgSignin(_PluginBase):
         """
         阶段一：给指定账号发送登录验证码。
 
+        后台执行：接口立刻返回，避免前台进度条；结果写状态并按需通知。
+
         :param request: FastAPI 请求对象
         :return Dict[str, Any]: 统一响应结构
         """
@@ -838,20 +1246,40 @@ class TgSignin(_PluginBase):
             return {"success": False, "message": "找不到要登录的账号，请先配置", "data": None}
         if params.get("phone"):
             account.phone = str(params["phone"])
-        proxy = build_proxy(self._proxy_type, self._proxy_host, self._proxy_port)
-        result = await send_code(self.get_data_path(), account, proxy)
-        logger.info(
-            "【TgSignin】发送验证码：%s → %s", account.key, result.get("message")
+        self._spawn_background(
+            lambda: self._run_sync(lambda: self._do_send_code(account)),
+            f"send-code-{account.key}",
         )
         return {
-            "success": bool(result.get("ok")),
-            "message": result.get("message", ""),
-            "data": {"account": account.key, "already": bool(result.get("already"))},
+            "success": True,
+            "message": f"已在后台给 {account.display()} 发送验证码；收到后填进该账号的"
+                       f"「登录验证码」并把「登录动作」选成「确认登录」再保存",
+            "data": {"account": account.key, "background": True},
         }
+
+    async def _do_send_code(self, account: AccountConfig) -> None:
+        """
+        后台执行发码，并把结果写进状态（失败发通知）。
+
+        :param account: 账号配置
+        :return None
+        """
+
+        result = await send_code(self.get_data_path(), account, self._proxy_tuple())
+        ok = bool(result.get("ok"))
+        message = str(result.get("message") or "")
+        record_login_event(
+            self.get_data_path(), account.key, LOGIN_ACTION_SEND, ok, message
+        )
+        logger.info("【TgSignin】发送验证码：%s → %s", account.key, message)
+        if not ok:
+            self._notify_login_failure(account, LOGIN_ACTION_SEND, message)
 
     async def api_confirm_login(self, request: Request) -> Dict[str, Any]:
         """
         阶段二：用验证码（含可选两步验证密码）完成登录。
+
+        后台执行：接口立刻返回；验证码优先取请求参数，其次取该账号槽里的字段。
 
         :param request: FastAPI 请求对象
         :return Dict[str, Any]: 统一响应结构
@@ -862,20 +1290,73 @@ class TgSignin(_PluginBase):
         account = self._find_account(params.get("account"))
         if account is None:
             return {"success": False, "message": "找不到要登录的账号，请先配置", "data": None}
-        code = str(params.get("code") or self._login_code or "").strip()
-        password = str(params.get("password") or self._login_password or "").strip()
-        proxy = build_proxy(self._proxy_type, self._proxy_host, self._proxy_port)
-        result = await confirm_login(
-            self.get_data_path(), account, code, password, proxy
+        slot = self._slot_login(account.key)
+        code = str(params.get("code") or slot.get("code") or "").strip()
+        password = str(params.get("password") or slot.get("password") or "")
+        if not code:
+            return {
+                "success": False,
+                "message": "验证码为空：请先把验证码填进该账号的「登录验证码」并保存",
+                "data": {"account": account.key},
+            }
+        self._spawn_background(
+            lambda: self._run_sync(
+                lambda: self._do_confirm_login(account, code, password)
+            ),
+            f"confirm-{account.key}",
         )
-        if result.get("ok"):
-            record_login(self.get_data_path(), account.key, result.get("me") or {})
-        logger.info("【TgSignin】确认登录：%s → %s", account.key, result.get("message"))
         return {
-            "success": bool(result.get("ok")),
-            "message": result.get("message", ""),
-            "data": result.get("me"),
+            "success": True,
+            "message": f"已在后台确认 {account.display()} 的登录，稍后到详情页看状态",
+            "data": {"account": account.key, "background": True},
         }
+
+    async def _do_confirm_login(
+        self, account: AccountConfig, code: str, password: str
+    ) -> None:
+        """
+        后台执行确认登录，并把结果写进状态（失败发通知）。
+
+        :param account: 账号配置
+        :param code: 登录验证码
+        :param password: 两步验证密码（可为空）
+        :return None
+        """
+
+        result = await confirm_login(
+            self.get_data_path(), account, code, password, self._proxy_tuple()
+        )
+        ok = bool(result.get("ok"))
+        message = str(result.get("message") or "")
+        if ok:
+            record_login(self.get_data_path(), account.key, result.get("me") or {})
+        record_login_event(
+            self.get_data_path(), account.key, LOGIN_ACTION_CONFIRM, ok, message
+        )
+        logger.info("【TgSignin】确认登录：%s → %s", account.key, message)
+        if not ok:
+            self._notify_login_failure(account, LOGIN_ACTION_CONFIRM, message)
+
+    def _notify_login_failure(
+        self, account: AccountConfig, action: str, message: str
+    ) -> None:
+        """
+        登录动作失败时发 MP 通知（后台执行的结果用户看不到前台提示）。
+
+        :param account: 账号配置
+        :param action: 动作名
+        :param message: 失败原因
+        :return None
+        """
+
+        try:
+            self.post_message(
+                mtype=MessageType.Plugin,
+                title="【Telegram 登录】",
+                text=f"{account.display()} {action} 失败：{message}",
+            )
+        except Exception as error:  # pylint: disable=broad-except
+            logger.error("【TgSignin】登录失败通知发送出错：%s", error)
 
     async def api_login_reset(self, request: Request) -> Dict[str, Any]:
         """
@@ -888,30 +1369,28 @@ class TgSignin(_PluginBase):
         account = self._find_account(params.get("account"))
         if account is not None:
             clear_pending(self.get_data_path(), account.key)
-        self.update_config(
+        payload = dict(self._raw_config)
+        payload.update(
             {
                 "enabled": self._enabled,
                 "cron": self._cron,
                 "notify_on_failure": self._notify_on_failure,
-                "accounts_text": self._accounts_text,
-                "targets_text": self._targets_text,
-                "login_account": self._login_account,
-                "login_code": "",
-                "login_password": "",
-                "proxy_type": self._proxy_type,
-                "proxy_host": self._proxy_host,
-                "proxy_port": self._proxy_port,
-                "api_id": self._api_id,
-                "api_hash": self._api_hash,
+                "use_text_mode": self._use_text_mode,
             }
         )
-        self._login_code = ""
-        self._login_password = ""
+        for index in range(1, MAX_ACCOUNT_SLOTS + 1):
+            payload[f"account_{index}_login_action"] = LOGIN_ACTION_NONE
+            payload[f"account_{index}_login_code"] = ""
+            payload[f"account_{index}_login_password"] = ""
+        self.update_config(payload)
+        self._raw_config = payload
         return {"success": True, "message": "已清空验证码/密码与待登录状态", "data": None}
 
     async def api_signin(self, request: Request) -> Dict[str, Any]:
         """
         立即执行一次签到（可限定账号或 bot）。
+
+        后台执行：接口立刻返回，避免前台进度条；结果写状态并按需通知。
 
         :param request: FastAPI 请求对象
         :return Dict[str, Any]: 统一响应结构
@@ -919,12 +1398,21 @@ class TgSignin(_PluginBase):
         if not self._enabled:
             return {"success": False, "message": "插件未启用", "data": None}
         params = await self._read_params(request)
-        result = await self._signin(
-            source="手动",
-            only_account=(params.get("account") or None),
-            only_bot=(params.get("bot") or None),
+        only_account = params.get("account") or None
+        only_bot = params.get("bot") or None
+        self._spawn_background(
+            lambda: self._run_sync(
+                lambda: self._signin(
+                    source="手动", only_account=only_account, only_bot=only_bot
+                )
+            ),
+            "signin",
         )
-        return result
+        return {
+            "success": True,
+            "message": "已在后台执行签到，稍后到详情页看结果（失败会通知）",
+            "data": {"background": True},
+        }
 
     async def api_selftest(self, request: Request) -> Dict[str, Any]:
         """
@@ -934,7 +1422,7 @@ class TgSignin(_PluginBase):
         :return Dict[str, Any]: 统一响应结构
         """
         del request
-        proxy = build_proxy(self._proxy_type, self._proxy_host, self._proxy_port)
+        proxy = self._proxy_tuple()
         result = await connection_selftest(self.get_data_path(), proxy)
         return {
             "success": bool(result.get("ok")),
@@ -1030,7 +1518,7 @@ class TgSignin(_PluginBase):
         if not self._accounts:
             return {"success": False, "message": "没有配置任何账号", "data": None}
 
-        proxy = build_proxy(self._proxy_type, self._proxy_host, self._proxy_port)
+        proxy = self._proxy_tuple()
         logger.info(
             "【TgSignin】开始签到：来源=%s 账号=%s 代理=%s",
             source,
@@ -1203,7 +1691,7 @@ class TgSignin(_PluginBase):
                     sent = await send_code(
                         self.get_data_path(),
                         account,
-                        build_proxy(self._proxy_type, self._proxy_host, self._proxy_port),
+                        self._proxy_tuple(),
                     )
                     if not sent.get("ok"):
                         return sent
@@ -1212,7 +1700,7 @@ class TgSignin(_PluginBase):
                     account,
                     code,
                     password,
-                    build_proxy(self._proxy_type, self._proxy_host, self._proxy_port),
+                    self._proxy_tuple(),
                 )
 
             try:
