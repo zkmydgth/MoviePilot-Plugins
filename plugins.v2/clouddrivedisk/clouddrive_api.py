@@ -661,7 +661,7 @@ class CloudDriveApi:
                                 lazy_read=getattr(req, "lazy_read", False),
                             )
                             logger.info(
-                                f"【CloudDrive】RemoteReadData {offset} {len(data)}"
+                                f"【CloudDrive】RemoteReadData 成功: {offset} {len(data)}"
                             )
                         except Exception as e:
                             logger.error("【CloudDrive】RemoteReadData 失败: %s", e)
@@ -710,9 +710,13 @@ class CloudDriveApi:
                                         hash_value="",
                                         block_hashes=None,
                                     )
-                                    logger.info(f"【CloudDrive】{resp}")
+                                    logger.info(
+                                        f"【CloudDrive】上报本地哈希计算状态: {resp}"
+                                    )
                                 except Exception as e:
-                                    logger.error(f"【CloudDrive】{e}")
+                                    logger.error(
+                                        f"【CloudDrive】RemoteHashProgress 失败: {e}"
+                                    )
                                     pass
                                 return
                             try:
@@ -724,9 +728,13 @@ class CloudDriveApi:
                                     hash_value="",
                                     block_hashes=None,
                                 )
-                                logger.info(f"【CloudDrive】{resp}")
+                                logger.info(
+                                    f"【CloudDrive】上报本地哈希计算状态: {resp}"
+                                )
                             except Exception as e:
-                                logger.error(f"【CloudDrive】{e}")
+                                logger.error(
+                                    f"【CloudDrive】RemoteHashProgress 失败: {e}"
+                                )
                                 pass
 
                         if ht == HashType.MD5 and block_size > 0:
@@ -753,9 +761,13 @@ class CloudDriveApi:
                                     hash_value="",
                                     block_hashes=None,
                                 )
-                                logger.info(f"【CloudDrive】{resp}")
+                                logger.info(
+                                    f"【CloudDrive】上报本地哈希计算状态: {resp}"
+                                )
                             except Exception as e:
-                                logger.error(f"【CloudDrive】{e}")
+                                logger.error(
+                                    f"【CloudDrive】RemoteHashProgress 失败: {e}"
+                                )
                                 pass
                             self._cancel_upload(upload_id)
                             return None
@@ -768,7 +780,7 @@ class CloudDriveApi:
                                 hash_value=hash_val or "",
                                 block_hashes=block_hashes,
                             )
-                            logger.info(f"【CloudDrive】{resp}")
+                            logger.info(f"【CloudDrive】上报本地哈希计算状态: {resp}")
                         except Exception as e:
                             logger.warning(
                                 "【CloudDrive】RemoteHashProgress 失败: %s", e
@@ -780,7 +792,7 @@ class CloudDriveApi:
                         if st == UploadStatus.FINISH:
                             progress_callback(100)
                             upload_finished = True
-                            logger.info(f"【CloudDrive】上传完成: {st}")
+                            logger.info(f"【CloudDrive】上传完成状态码: {st}")
                             break
                         if st in (UploadStatus.ERROR, UploadStatus.FATAL_ERROR):
                             msg = reply.status_changed.error_message or "上传失败"
