@@ -1,10 +1,11 @@
 from logging import ERROR
 from time import time
-from threading import Lock
-from multiprocessing import Process, Event as ProcessEvent
+from threading import Lock, Thread
+from multiprocessing import Process, Event as ProcessEvent, Queue as ProcessQueue
+from queue import Empty
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 
 import pytz
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -54,6 +55,10 @@ class ServiceHelper:
         self.monitor_life_process: Optional[Process] = None
         self.monitor_life_lock = Lock()
         self.monitor_life_fail_time: Optional[float] = None
+
+        self.transfer_queue: Optional[ProcessQueue] = None
+        self.transfer_queue_thread: Optional[Thread] = None
+        self.transfer_queue_thread_stop = False
 
         self.offlinehelper: Optional[OfflineDownloadHelper] = None
 
@@ -107,6 +112,7 @@ class ServiceHelper:
                 client=self.client,
                 mediainfodownloader=self.mediainfodownloader,
                 stop_event=None,
+                transfer_queue=None,
             )
 
             # 分享转存初始化
@@ -216,6 +222,65 @@ class ServiceHelper:
             if self.monitor_stop_event:
                 self.monitor_stop_event = None
 
+        self._stop_transfer_queue_thread()
+
+    def _process_transfer_queue(self):
+        """
+        处理从子进程接收的 do_transfer 任务队列
+        """
+        logger.info("【网盘整理】任务队列处理线程已启动")
+
+        while not self.transfer_queue_thread_stop:
+            try:
+                task_data: Dict[str, Any] = self.transfer_queue.get(timeout=1)
+                if task_data is None:
+                    continue
+                if self.monitorlife:
+                    try:
+                        self.monitorlife.process_transfer_task(task_data)
+                    except Exception as e:
+                        logger.error(f"【监控生活事件】处理队列任务失败: {e}")
+                else:
+                    logger.warning(
+                        "【监控生活事件】MonitorLife实例未初始化，无法处理队列任务"
+                    )
+            except Empty:
+                continue
+            except Exception as e:
+                logger.error(f"【监控生活事件】队列处理异常: {e}")
+                continue
+
+        logger.info("【监控生活事件】任务队列处理线程已停止")
+
+    def _start_transfer_queue_thread(self):
+        """
+        启动任务队列处理线程
+        """
+        if self.transfer_queue_thread and self.transfer_queue_thread.is_alive():
+            return
+
+        self.transfer_queue_thread_stop = False
+        self.transfer_queue_thread = Thread(
+            target=self._process_transfer_queue,
+            name="P115StrmHelper-TransferQueue",
+            daemon=True,
+        )
+        self.transfer_queue_thread.start()
+        logger.debug("【网盘整理】任务队列处理线程已启动")
+
+    def _stop_transfer_queue_thread(self):
+        """
+        停止任务队列处理线程
+        """
+        if self.transfer_queue_thread and self.transfer_queue_thread.is_alive():
+            self.transfer_queue_thread_stop = True
+            self.transfer_queue_thread.join(timeout=5)
+            if self.transfer_queue_thread.is_alive():
+                logger.warning("【网盘整理】任务队列处理线程未在预期时间内停止")
+            else:
+                logger.debug("【网盘整理】任务队列处理线程已停止")
+            self.transfer_queue_thread = None
+
     def _start_monitor_life_internal(self):
         """
         启动生活事件监控进程
@@ -238,9 +303,14 @@ class ServiceHelper:
 
             self.monitor_stop_event = ProcessEvent()
 
+            if self.transfer_queue is None:
+                self.transfer_queue = ProcessQueue()
+
+            self._start_transfer_queue_thread()
+
             self.monitor_life_process = Process(
                 target=monitor_life_process_worker,
-                args=(self.monitor_stop_event, configer.cookies),
+                args=(self.monitor_stop_event, configer.cookies, self.transfer_queue),
                 name="P115StrmHelper-MonitorLife",
                 daemon=False,
             )
@@ -589,6 +659,7 @@ class ServiceHelper:
                 elif self.monitor_stop_event:
                     self.monitor_stop_event.set()
                     self.monitor_stop_event = None
+                self._stop_transfer_queue_thread()
         except Exception as e:
             logger.error(f"发生错误: {e}")
 

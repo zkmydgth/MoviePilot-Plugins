@@ -2,9 +2,10 @@ from shutil import rmtree
 from collections import defaultdict
 from threading import Timer, Event, Thread
 from time import sleep, strftime, localtime, time
-from typing import List, Set, Dict, Optional
+from typing import List, Set, Dict, Optional, Any
 from pathlib import Path
 from itertools import batched, chain
+from multiprocessing import Queue as ProcessQueue
 
 from ...core.config import configer
 from ...core.message import post_message
@@ -75,10 +76,12 @@ class MonitorLife:
         client: P115Client,
         mediainfodownloader: MediaInfoDownloader,
         stop_event: Optional[Event] = None,
+        transfer_queue: Optional[ProcessQueue] = None,
     ):
         self._client = client
         self.mediainfodownloader = mediainfodownloader
         self.stop_event = stop_event
+        self.transfer_queue = transfer_queue
 
         self.tasks_queue = LifeTasksQueue()
 
@@ -183,7 +186,10 @@ class MonitorLife:
         """
         org_file_path = file_path.as_posix()
         _databasehelper = FileDbHelper()
-        transferchain = TransferChain()
+        use_queue = self.transfer_queue is not None
+        transferchain = None
+        if not use_queue:
+            transferchain = TransferChain()
         file_category = event["file_category"]
         file_id = event["file_id"]
         if file_category == 0:
@@ -228,22 +234,28 @@ class MonitorLife:
                         cache_top_path = True
                     if str(item["id"]) not in cache_file_id_list:
                         cache_file_id_list.append(str(item["id"]))
-                    transferchain.do_transfer(
-                        fileitem=FileItem(
-                            storage=configer.storage_module,
-                            fileid=str(item["id"]),
-                            parent_fileid=str(item["parent_id"]),
-                            path=file_path.as_posix(),
-                            type="file",
-                            name=file_path.name,
-                            basename=file_path.stem,
-                            extension=file_path.suffix[1:].lower(),
-                            size=item["size"],
-                            pickcode=item["pickcode"],
-                            modify_time=item["ctime"],
-                        )
+                    fileitem = FileItem(
+                        storage=configer.storage_module,
+                        fileid=str(item["id"]),
+                        parent_fileid=str(item["parent_id"]),
+                        path=file_path.as_posix(),
+                        type="file",
+                        name=file_path.name,
+                        basename=file_path.stem,
+                        extension=file_path.suffix[1:].lower(),
+                        size=item["size"],
+                        pickcode=item["pickcode"],
+                        modify_time=item["ctime"],
                     )
-                    logger.info(f"【网盘整理】{file_path} 加入整理列队")
+                    if use_queue:
+                        try:
+                            self.transfer_queue.put(fileitem.model_dump())
+                            logger.info(f"【网盘整理】{file_path} 已发送到主进程队列")
+                        except Exception as e:
+                            logger.error(f"【网盘整理】发送任务到队列失败: {e}")
+                    else:
+                        transferchain.do_transfer(fileitem=fileitem)
+                        logger.info(f"【网盘整理】{file_path} 加入整理列队")
                 if (
                     file_path.suffix.lower() in settings.RMT_AUDIOEXT
                     or file_path.suffix.lower() in settings.RMT_SUBEXT
@@ -292,22 +304,28 @@ class MonitorLife:
                     pantransfercacher.creata_pan_transfer_list.append(
                         str(event["file_id"])
                     )
-                transferchain.do_transfer(
-                    fileitem=FileItem(
-                        storage=configer.storage_module,
-                        fileid=str(file_id),
-                        parent_fileid=str(event["parent_id"]),
-                        path=file_path.as_posix(),
-                        type="file",
-                        name=file_path.name,
-                        basename=file_path.stem,
-                        extension=file_path.suffix[1:].lower(),
-                        size=event["file_size"],
-                        pickcode=event["pick_code"],
-                        modify_time=event["update_time"],
-                    )
+                fileitem = FileItem(
+                    storage=configer.storage_module,
+                    fileid=str(file_id),
+                    parent_fileid=str(event["parent_id"]),
+                    path=file_path.as_posix(),
+                    type="file",
+                    name=file_path.name,
+                    basename=file_path.stem,
+                    extension=file_path.suffix[1:].lower(),
+                    size=event["file_size"],
+                    pickcode=event["pick_code"],
+                    modify_time=event["update_time"],
                 )
-                logger.info(f"【网盘整理】{file_path} 加入整理列队")
+                if use_queue:
+                    try:
+                        self.transfer_queue.put(fileitem.model_dump())
+                        logger.info(f"【网盘整理】{file_path} 已发送到主进程队列")
+                    except Exception as e:
+                        logger.error(f"【网盘整理】发送任务到队列失败: {e}")
+                else:
+                    transferchain.do_transfer(fileitem=fileitem)
+                    logger.info(f"【网盘整理】{file_path} 加入整理列队")
 
     def creata_strm(self, event: Dict, file_path: Path):
         """
@@ -1255,6 +1273,21 @@ class MonitorLife:
             error_messages.append(f"拉取数据异常: {str(e)}")
 
         return success, debug_info, error_messages
+
+    def process_transfer_task(self, task_data: Dict[str, Any]):
+        """
+        处理从队列接收的 do_transfer 任务（在主进程中调用）
+
+        :param task_data: FileItem 的字典数据
+        """
+        try:
+            fileitem = FileItem(**task_data)
+            transferchain = TransferChain()
+            transferchain.do_transfer(fileitem=fileitem)
+            logger.debug(f"【网盘整理】任务已添加到整理队列: {fileitem.path}")
+        except Exception as e:
+            logger.error(f"【网盘整理】处理队列任务失败: {e}")
+            raise
 
     def start_manual_transfer(self, path: str) -> bool:
         """

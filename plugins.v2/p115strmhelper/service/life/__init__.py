@@ -1,4 +1,6 @@
 from time import time
+from multiprocessing import Queue as ProcessQueue
+from typing import Optional
 
 from p115client import P115Client
 
@@ -11,12 +13,15 @@ from app.log import logger
 
 
 @sentry_manager.capture_plugin_exceptions
-def monitor_life_process_worker(stop_event, cookies: str):
+def monitor_life_process_worker(
+    stop_event, cookies: str, transfer_queue: Optional[ProcessQueue] = None
+):
     """
     生活事件监控进程工作函数
 
     :param stop_event: multiprocessing.Event 对象，用于接收停止信号
     :param cookies: 115 网盘的 cookies 字符串
+    :param transfer_queue: 进程间通信队列，用于将 do_transfer 任务发送到主进程
     """
     try:
         client = P115Client(cookies)
@@ -27,6 +32,7 @@ def monitor_life_process_worker(stop_event, cookies: str):
             client=client,
             mediainfodownloader=mediainfodownloader,
             stop_event=stop_event,
+            transfer_queue=transfer_queue,
         )
 
         if not monitorlife.check_status():
