@@ -386,6 +386,12 @@ class ConfigManager(BaseModel):
     fuse_readdir_ttl: float = Field(
         default=60, ge=0, description="FUSE 目录读取缓存 TTL（秒）"
     )
+    fuse_uid: Optional[int] = Field(
+        default=None, ge=0, description="FUSE 挂载文件所有者 UID（默认使用当前用户）"
+    )
+    fuse_gid: Optional[int] = Field(
+        default=None, ge=0, description="FUSE 挂载文件所有者 GID（默认使用当前用户）"
+    )
     fuse_strm_takeover_enabled: bool = Field(
         default=False, description="是否接管 STRM 文件生成内容（FUSE 挂载模式）"
     )

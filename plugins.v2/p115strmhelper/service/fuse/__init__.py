@@ -1,3 +1,4 @@
+from os import getuid, getgid
 from subprocess import CalledProcessError, TimeoutExpired, run
 from platform import system
 from threading import Lock, Thread
@@ -171,9 +172,23 @@ class FuseManager:
             pass
 
         try:
+            uid = configer.fuse_uid
+            gid = configer.fuse_gid
+            if uid is None or gid is None:
+                try:
+                    current_uid = getuid()
+                    current_gid = getgid()
+                    uid = uid if uid is not None else current_uid
+                    gid = gid if gid is not None else current_gid
+                except (AttributeError, OSError):
+                    uid = uid if uid is not None else 0
+                    gid = gid if gid is not None else 0
+
             self.fuse_operations = P115FuseOperations(
                 client=self.client,
                 readdir_ttl=readdir_ttl or configer.fuse_readdir_ttl,
+                uid=uid,
+                gid=gid,
             )
 
             self.fuse_thread = Thread(

@@ -53,14 +53,14 @@ def log(func=None, *, level=None):
         return decorator(func)
 
 
-def attr_to_stat(attr: Mapping, /) -> dict:
+def attr_to_stat(attr: Mapping, /, uid: int = 0, gid: int = 0) -> dict:
     return {
         "st_mode": (S_IFDIR if attr["is_dir"] else S_IFREG) | 0o777,
         "st_ino": attr["id"],
         "st_dev": 0,
         "st_nlink": 1,
-        "st_uid": 0,
-        "st_gid": 0,
+        "st_uid": uid,
+        "st_gid": gid,
         "st_size": attr.get("size", 0),
         "st_atime": attr.get("atime") or attr.get("mtime", 0),
         "st_mtime": attr.get("mtime", 0),
@@ -75,12 +75,16 @@ class P115FuseOperations(Operations):
         /,
         client: str | PathLike | P115Client = None,
         readdir_ttl: float = 60,
+        uid: int = 0,
+        gid: int = 0,
     ):
         """
         初始化 FUSE 操作类
 
         :param client: P115Client 实例或 cookie 字符串/路径
         :param readdir_ttl: 目录读取缓存 TTL（秒）
+        :param uid: 文件所有者 UID
+        :param gid: 文件所有者 GID
         """
         if client is None:
             raise ValueError("client 参数不能为 None，请提供 P115Client 实例或 cookie")
@@ -88,6 +92,8 @@ class P115FuseOperations(Operations):
         if not isinstance(client, P115Client):
             client = P115Client(client, check_for_relogin=True)
         self.client = client
+        self.uid = uid
+        self.gid = gid
         ttl_cache = TTLCache(
             ttl=int(readdir_ttl),
             region="p115strmhelper_fuse_readdir",
@@ -99,7 +105,7 @@ class P115FuseOperations(Operations):
         self._get_id: Callable[[], int] = count(1).__next__
 
     def getattr(self, /, path: str, fh: int = 0) -> dict[str, Any]:
-        return attr_to_stat(self.fs.get_attr(path))
+        return attr_to_stat(self.fs.get_attr(path), uid=self.uid, gid=self.gid)
 
     @log
     def getxattr(self, /, path: str, name: str, position: int = 0) -> bytes:

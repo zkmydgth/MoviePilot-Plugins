@@ -1470,10 +1470,20 @@
                     </v-col>
                   </v-row>
                   <v-row>
-                    <v-col cols="12" md="6">
+                    <v-col cols="12" md="4">
                       <v-text-field v-model.number="config.fuse_readdir_ttl" label="目录读取缓存 TTL（秒）" type="number"
                         hint="目录列表缓存时间，默认60秒" persistent-hint density="compact" variant="outlined" hide-details="auto"
                         min="0"></v-text-field>
+                    </v-col>
+                    <v-col cols="12" md="4">
+                      <v-text-field v-model.number="config.fuse_uid" label="文件所有者 UID" type="number"
+                        hint="挂载文件的用户ID，留空则使用当前运行用户" persistent-hint density="compact" variant="outlined"
+                        hide-details="auto" min="0" clearable></v-text-field>
+                    </v-col>
+                    <v-col cols="12" md="4">
+                      <v-text-field v-model.number="config.fuse_gid" label="文件所有者 GID" type="number"
+                        hint="挂载文件的组ID，留空则使用当前运行用户" persistent-hint density="compact" variant="outlined"
+                        hide-details="auto" min="0" clearable></v-text-field>
                     </v-col>
                   </v-row>
 
@@ -1601,6 +1611,7 @@
                         <code>/data/115</code>）
                       </div>
                       <div class="mb-1">• <strong>目录读取缓存 TTL：</strong>目录列表缓存时间，默认60秒</div>
+                      <div class="mb-1">• <strong>文件所有者 UID/GID：</strong>设置挂载文件的用户和组ID，留空则自动使用当前运行用户（Docker 容器中建议设置为非 root 用户）</div>
                       <div class="mb-1">• <strong>容器权限：</strong>需要容器以 <code>--privileged</code> 或
                         <code>--cap-add SYS_ADMIN</code>
                         权限运行
