@@ -103,3 +103,24 @@ class StrmUrlModeResolver:
         extension = Path(file).suffix.lower()
 
         return self.rules.get(extension, self.default_mode)
+
+
+class StrmGenerater:
+    """
+    STRM 文件生成工具类
+    """
+
+    @staticmethod
+    def should_generate_strm(filename: str) -> tuple[str, bool]:
+        """
+        判断文件名是否包含黑名单中的任何关键词
+        """
+        blacklist = configer.strm_generate_blacklist
+
+        if not blacklist:
+            return "", True
+        lower_filename = filename.lower()
+        for keyword in blacklist:  # pylint: disable=E1133
+            if keyword.lower() in lower_filename:
+                return f"匹配到黑名单关键词 {keyword}", False
+        return "", True

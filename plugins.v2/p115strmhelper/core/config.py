@@ -239,6 +239,8 @@ class ConfigManager(BaseModel):
 
     # 高级配置，STRM URL 自定义配置
     strm_url_mode_custom: Optional[str] = None
+    # STRM 文件生成黑名单
+    strm_generate_blacklist: Optional[List] = None
 
     @property
     def PLUGIN_ALIGO_PATH(self) -> Path:

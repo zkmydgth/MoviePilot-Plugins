@@ -13,7 +13,7 @@ from ..core.cache import idpathcacher, pantransfercacher, lifeeventcacher
 from ..core.i18n import i18n
 from ..utils.path import PathUtils
 from ..utils.sentry import sentry_manager
-from ..utils.strm import StrmUrlGetter
+from ..utils.strm import StrmUrlGetter, StrmGenerater
 from ..db_manager.oper import FileDbHelper
 from ..helper.mediainfo_download import MediaInfoDownloader
 
@@ -367,7 +367,7 @@ class MonitorLife:
                         processed.extend(_process_item)
                     if item["is_dir"]:
                         continue
-                    if "creata" in configer.get_config("monitor_life_event_modes"):
+                    if "creata" in configer.get_config("monitor_life_event_modes"):  # pylint: disable=E1135
                         file_path = item["path"]
                         file_path = Path(target_dir) / Path(file_path).relative_to(
                             pan_media_dir
@@ -410,7 +410,17 @@ class MonitorLife:
                         if file_path.suffix.lower() not in self.rmt_mediaext:
                             logger.warn(
                                 "【监控生活事件】跳过网盘路径: %s",
-                                str(file_path).replace(str(target_dir), "", 1),
+                                item["path"],
+                            )
+                            continue
+
+                        if not (
+                            result := StrmGenerater.should_generate_strm(
+                                original_file_name
+                            )
+                        )[1]:
+                            logger.warn(
+                                f"【监控生活事件】{result[0]}，跳过网盘路径: {item['path']}"
                             )
                             continue
 
@@ -477,7 +487,7 @@ class MonitorLife:
             _databasehelper.upsert_batch(
                 _databasehelper.process_life_file_item(event=event, file_path=file_path)
             )
-            if "creata" in configer.get_config("monitor_life_event_modes"):
+            if "creata" in configer.get_config("monitor_life_event_modes"):  # pylint: disable=E1135
                 # 文件情况，直接生成
                 file_path = Path(target_dir) / Path(file_path).relative_to(
                     pan_media_dir
@@ -526,6 +536,14 @@ class MonitorLife:
                     logger.warn(
                         "【监控生活事件】跳过网盘路径: %s",
                         str(file_path).replace(str(target_dir), "", 1),
+                    )
+                    return
+
+                if not (
+                    result := StrmGenerater.should_generate_strm(original_file_name)
+                )[1]:
+                    logger.warn(
+                        f"【监控生活事件】{result[0]}，跳过网盘路径: {str(file_path).replace(str(target_dir), '', 1)}"
                     )
                     return
 
@@ -734,7 +752,7 @@ class MonitorLife:
             if str(event["file_id"]) in pantransfercacher.creata_pan_transfer_list:
                 # 检查是否命中缓存
                 pantransfercacher.creata_pan_transfer_list.remove(str(event["file_id"]))
-                if "transfer" in configer.get_config("monitor_life_event_modes"):
+                if "transfer" in configer.get_config("monitor_life_event_modes"):  # pylint: disable=E1135
                     self.creata_strm(event=event, file_path=file_path)
             else:
                 self.creata_strm(event=event, file_path=file_path)
@@ -818,7 +836,7 @@ class MonitorLife:
                     if (
                         configer.get_config("monitor_life_enabled")
                         and configer.get_config("monitor_life_paths")
-                        and "remove" in configer.get_config("monitor_life_event_modes")
+                        and "remove" in configer.get_config("monitor_life_event_modes")  # pylint: disable=E1135
                     ):
                         self.remove_strm(event=event)
 

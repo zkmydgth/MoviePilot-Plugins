@@ -979,6 +979,7 @@
 
               <v-window-item value="tab-advanced-configuration">
                 <v-card-text>
+
                   <v-row>
                     <v-col cols="12">
                       <v-textarea v-model="config.strm_url_mode_custom" label="自定义STRM URL格式" variant="outlined"
@@ -996,6 +997,15 @@
                     &nbsp;&nbsp;<code>iso => pickname</code> (iso文件使用 pickcode+name 格式)<br>
                     &nbsp;&nbsp;<code>mp4,mkv,ts => pickcode</code> (mp4, mkv, ts 文件使用 pickcode 格式)
                   </v-alert>
+
+                  <v-row class="mt-4">
+                    <v-col cols="12">
+                      <v-combobox v-model="config.strm_generate_blacklist" label="STRM文件关键词过滤黑名单"
+                        hint="输入关键词后按回车确认，可添加多个。包含这些词的视频文件将不会生成STRM文件。" persistent-hint multiple chips closable-chips
+                        variant="outlined" density="compact"></v-combobox>
+                    </v-col>
+                  </v-row>
+
                 </v-card-text>
               </v-window-item>
 
@@ -1345,7 +1355,8 @@ const config = reactive({
   upload_module_force_upload_wait_size: 0,
   upload_share_info: true,
   upload_offline_info: true,
-  strm_url_mode_custom: ''
+  strm_url_mode_custom: '',
+  strm_generate_blacklist: []
 });
 
 // 消息提示

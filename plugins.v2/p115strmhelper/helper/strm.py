@@ -23,7 +23,7 @@ from ..utils.sentry import sentry_manager
 from ..core.scrape import media_scrape_metadata
 from ..db_manager.oper import FileDbHelper
 from ..utils.path import PathUtils
-from ..utils.strm import StrmUrlGetter
+from ..utils.strm import StrmUrlGetter, StrmGenerater
 from ..helper.mediainfo_download import MediaInfoDownloader
 
 from app.log import logger
@@ -376,6 +376,10 @@ class IncrementSyncStrmHelper:
                 logger.warn(f"【增量STRM生成】跳过网盘路径: {pan_path}")
                 return
 
+            if not (result := StrmGenerater.should_generate_strm(pan_path.name))[1]:
+                logger.warn(f"【增量STRM生成】{result[0]}，跳过网盘路径: {pan_path}")
+                return
+
             pickcode = self.__get_pickcode(pan_path.as_posix())
 
             new_file_path.parent.mkdir(parents=True, exist_ok=True)
@@ -695,7 +699,15 @@ class FullSyncStrmHelper:
             if file_path.suffix.lower() not in self.rmt_mediaext:
                 logger.warn(
                     "【全量STRM生成】跳过网盘路径: %s",
-                    str(file_path).replace(str(target_dir), "", 1),
+                    item["path"],
+                )
+                return _process_item, path_entry
+
+            if not (result := StrmGenerater.should_generate_strm(original_file_name))[
+                1
+            ]:
+                logger.warn(
+                    f"【全量STRM生成】{result[0]}，跳过网盘路径: {item['path']}"
                 )
                 return _process_item, path_entry
 
@@ -999,6 +1011,14 @@ class ShareStrmHelper:
                 logger.warn(
                     "【分享STRM生成】文件后缀不匹配，跳过网盘路径: %s",
                     str(file_path).replace(str(self.local_media_path), "", 1),
+                )
+                return
+
+            if not (result := StrmGenerater.should_generate_strm(original_file_name))[
+                1
+            ]:
+                logger.warn(
+                    f"【分享STRM生成】{result[0]}，跳过网盘路径: {str(file_path).replace(str(self.local_media_path), '', 1)}"
                 )
                 return
 
