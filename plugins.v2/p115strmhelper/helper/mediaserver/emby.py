@@ -193,7 +193,7 @@ class EmbyMediaInfoOperate:
                         media_data = res_data
                 else:
                     logger.warning(
-                        f"{self.func_name}{service_name} 更新媒体信息失败: {res.status_code} {res_data}"
+                        f"{self.func_name}{service_name} 更新媒体信息失败: [{res.status_code}] {res_data}"
                     )
             except RequestError as e:
                 logger.error(f"{self.func_name}{service_name} 更新媒体信息失败: {e}")
@@ -201,5 +201,6 @@ class EmbyMediaInfoOperate:
         if need_upload and media_data:
             try:
                 self.center.upload_emby_mediainfo_data(sha1, media_data)
+                logger.info(f"{self.func_name}上传媒体信息成功: [{sha1}]{file_path}")
             except Exception as e:
                 logger.warn(f"{self.func_name}上传媒体信息失败: {sha1} {file_path} {e}")
