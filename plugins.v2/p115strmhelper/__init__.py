@@ -524,7 +524,7 @@ class P115StrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png"
     # 插件版本
-    plugin_version = "1.5.2"
+    plugin_version = "1.5.3"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -2159,7 +2159,7 @@ class P115StrmHelper(_PluginBase):
             mediainfo = self.mediachain.recognize_by_meta(meta)
             if not meta or not mediainfo:
                 # 如果上级目录没有媒体信息则使用传入的路径
-                logger.warn(f"{dir_path} 无法识别文件媒体信息！")
+                logger.warn(f"【媒体刮削】{dir_path} 无法识别文件媒体信息！")
                 finish_path = Path(path)
                 meta = MetaInfoPath(finish_path)
                 mediainfo = self.mediachain.recognize_by_meta(meta)
@@ -2170,12 +2170,12 @@ class P115StrmHelper(_PluginBase):
                     dir_path = dir_path.parent
                     meta = MetaInfoPath(dir_path)
                     mediainfo = self.mediachain.recognize_by_meta(meta)
-                    if not meta or not mediainfo:
+                    if meta and mediainfo:
                         # 存在 mediainfo 则使用本级目录
                         finish_path = dir_path
                     else:
                         # 否则使用上级目录
-                        logger.warn(f"{dir_path} 无法识别文件媒体信息！")
+                        logger.warn(f"【媒体刮削】{dir_path} 无法识别文件媒体信息！")
                         finish_path = Path(path).parent
                         meta = MetaInfoPath(finish_path)
                         mediainfo = self.mediachain.recognize_by_meta(meta)
@@ -3074,12 +3074,12 @@ class P115StrmHelper(_PluginBase):
         try:
             # 删除缓存，避免删除无限循环
             delete_list = []
-            for events_batch in iter_life_behavior_list(self._client, cooldown=int(10)):
+            for events_batch in iter_life_behavior_list(self._client, cooldown=int(20)):
                 if self.monitor_stop_event.is_set():
                     logger.info("【监控生活事件】收到停止信号，退出上传事件监控")
                     break
                 if not events_batch:
-                    time.sleep(10)
+                    time.sleep(20)
                     continue
                 for event in events_batch:
                     rmt_mediaext = [
