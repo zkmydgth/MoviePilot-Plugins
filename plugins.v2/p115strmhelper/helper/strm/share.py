@@ -70,6 +70,7 @@ from httpx import HTTPStatusError
 from orjson import dumps, loads
 from p115center import P115Center
 
+from p115client import check_response
 from p115client.util import share_extract_payload
 
 from app.chain.transfer import TransferChain
@@ -152,6 +153,25 @@ class ShareOOPServerHelper:
     """
     分享 OOF 服务助手
     """
+
+    @staticmethod
+    def delete_share_files(batch_id: str) -> Dict[str, Any]:
+        """
+        删除分享文件数据
+
+        :param batch_id: 分享码和提取码组成的 batch_id
+
+        :return: 删除结果响应数据
+        """
+        client = P115Center(
+            license=configer.p115center_license,
+            file_path=str(Path(__file__).resolve().parent.parent.parent / "api.py"),
+        )
+        resp = client.delete_share_files(
+            batch_id,
+            headers={"user-agent": configer.get_user_agent()},
+        )
+        return resp.model_dump()
 
     @staticmethod
     def download_share_files_data(
@@ -563,9 +583,38 @@ class ShareStrmHelper:
             )
             start_time = perf_counter()
 
+            batch_id = f"{config.share_code}{config.share_receive}"
+
+            # 分享状态校验
+            resp = None
+            try:
+                resp = self.share_client.share_snap_cookie(
+                    {"share_code": config.share_code}
+                )
+                check_response(resp)
+            except Exception:
+                if not resp:
+                    e = "访问分享接口失败"
+                else:
+                    if isinstance(resp, dict):
+                        e = resp.get("error", "未知错误")
+                        try:
+                            if resp.get("error"):
+                                delete_result = ShareOOPServerHelper.delete_share_files(
+                                    batch_id
+                                )
+                                logger.info(
+                                    f"【分享STRM生成】删除无效分享数据{comment_info}: {delete_result}"
+                                )
+                        except Exception:
+                            pass
+                    else:
+                        e = str(resp)
+                logger.error(f"【分享STRM生成】校验分享状态出错{comment_info}: {e}")
+                continue
+
             # 迭代器选择
             data_collector = None
-            batch_id = f"{config.share_code}{config.share_receive}"
             temp_file = path_join(gettempdir(), f"share_data_{batch_id}.json.gz")
             download_success = ShareOOPServerHelper.download_share_files_data(
                 share_code=config.share_code,
