@@ -193,8 +193,10 @@
                       </div>
                       <div class="text-body-2 text-medium-emphasis mt-2">
                         耗时 <strong class="text-high-emphasis">{{ formatNum(row.elapsed_sec) }}</strong> 秒 ·
-                        扫描 <strong class="text-high-emphasis">{{ row.total_iterated }}</strong> 项 ·
-                        API <strong class="text-high-emphasis">{{ row.api_requests }}</strong> 次
+                        扫描 <strong class="text-high-emphasis">{{ row.total_iterated }}</strong> 项
+                        <template v-if="row.kind === 'increment'">
+                          · API <strong class="text-high-emphasis">{{ row.api_requests }}</strong> 次
+                        </template>
                       </div>
                     </div>
                     <template v-slot:append>
@@ -207,7 +209,7 @@
                   <v-card-text class="pt-0">
                     <div class="text-caption text-medium-emphasis strm-section-label mb-2">生成统计</div>
                     <div class="d-flex flex-wrap gap-1 mb-1">
-                      <v-chip v-for="s in parseStatsEntries(row.stats)" :key="s.key" size="small"
+                      <v-chip v-for="s in parseStatsEntries(row.stats, row.kind)" :key="s.key" size="small"
                         :color="statChipColor(s)" variant="tonal">
                         {{ s.label }} {{ formatStatValue(s.value) }}
                       </v-chip>
@@ -384,9 +386,9 @@ const strmKindSelectItems = [
 
 const STAT_FIELD_META = [
   { key: 'strm_count', label: 'STRM 生成' },
-  { key: 'mediainfo_count', label: 'MediaInfo' },
+  { key: 'mediainfo_count', label: '下载媒体数据文件' },
   { key: 'strm_fail_count', label: 'STRM 失败' },
-  { key: 'mediainfo_fail_count', label: 'MediaInfo 失败' },
+  { key: 'mediainfo_fail_count', label: '下载媒体数据失败' },
   { key: 'remove_unless_strm_count', label: '清理失效 STRM' },
 ];
 
@@ -417,11 +419,16 @@ const formatStatValue = (v) => {
   return String(v);
 };
 
-const parseStatsEntries = (stats) => {
+/** 仅全量 / 全量分段任务会写入清理失效 STRM 计数 */
+const KINDS_WITH_REMOVE_UNLESS_STRM = new Set(['full', 'full_partial']);
+
+const parseStatsEntries = (stats, kind) => {
   if (!stats || typeof stats !== 'object') return [];
+  const showRemoveUnless = kind && KINDS_WITH_REMOVE_UNLESS_STRM.has(kind);
   const seen = new Set();
   const ordered = [];
   for (const { key, label } of STAT_FIELD_META) {
+    if (key === 'remove_unless_strm_count' && !showRemoveUnless) continue;
     if (Object.prototype.hasOwnProperty.call(stats, key)) {
       seen.add(key);
       ordered.push({ key, label, value: stats[key] });
@@ -429,6 +436,7 @@ const parseStatsEntries = (stats) => {
   }
   for (const [key, value] of Object.entries(stats)) {
     if (seen.has(key)) continue;
+    if (key === 'remove_unless_strm_count' && !showRemoveUnless) continue;
     ordered.push({ key, label: key, value });
   }
   return ordered;
