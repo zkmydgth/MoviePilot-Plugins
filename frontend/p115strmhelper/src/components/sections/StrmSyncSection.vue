@@ -945,6 +945,36 @@
               </div>
             </v-col>
           </v-row>
+
+          <v-divider class="my-4"></v-divider>
+
+          <div class="text-subtitle-2 mb-2">MoviePilot-媒体库 目录转换:</div>
+          <v-alert type="info" variant="tonal" density="compact" class="mb-3" icon="mdi-information">
+            <div class="text-caption">媒体服务器映射路径和MP映射路径不一样时请配置此项，如果不配置则无法正常刷新或Emby提取媒体信息</div>
+          </v-alert>
+
+          <v-row>
+            <v-col cols="12">
+              <div class="d-flex flex-column">
+                <div v-for="(pair, index) in apiStrmMPPaths" :key="`api-strm-mp-${index}`" class="mb-2 d-flex align-center">
+                  <div class="path-selector flex-grow-1 mr-2">
+                    <v-text-field v-model="pair.local" label="媒体库服务器映射目录" density="compact"></v-text-field>
+                  </div>
+                  <v-icon>mdi-pound</v-icon>
+                  <div class="path-selector flex-grow-1 ml-2">
+                    <v-text-field v-model="pair.remote" label="MP映射目录" density="compact"></v-text-field>
+                  </div>
+                  <v-btn icon size="small" color="error" class="ml-2" @click="removePath(index, 'apiStrm-mp')">
+                    <v-icon>mdi-delete</v-icon>
+                  </v-btn>
+                </div>
+                <v-btn size="small" prepend-icon="mdi-plus" variant="outlined" class="mt-2 align-self-start"
+                  @click="addPath('apiStrm-mp')">
+                  添加路径
+                </v-btn>
+              </div>
+            </v-col>
+          </v-row>
         </v-card-text>
       </v-window-item>
     </v-window>
@@ -976,6 +1006,7 @@ const incrementSyncMPPaths = inject('incrementSyncMPPaths');
 const monitorLifePaths = inject('monitorLifePaths');
 const monitorLifeMpPaths = inject('monitorLifeMpPaths');
 const apiStrmPaths = inject('apiStrmPaths');
+const apiStrmMPPaths = inject('apiStrmMPPaths');
 const transferExcludePaths = inject('transferExcludePaths');
 const incrementSyncExcludePaths = inject('incrementSyncExcludePaths');
 const monitorLifeExcludePaths = inject('monitorLifeExcludePaths');
