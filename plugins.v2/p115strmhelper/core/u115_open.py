@@ -1,8 +1,8 @@
 import hashlib
-import threading
 from random import randint
 from datetime import datetime, timezone
 from pathlib import Path
+from threading import Lock
 from time import sleep, time, perf_counter
 from typing import Optional, Union
 
@@ -32,7 +32,7 @@ from ..utils.exception import U115NoCheckInException
 from ..utils.path import PathUtils
 
 
-p115_open_lock = threading.Lock()
+p115_open_lock = Lock()
 
 
 @sentry_manager.capture_all_class_exceptions
