@@ -139,7 +139,7 @@ class DirectoryTree:
                                 stripped.startswith(s) for s in comment_symbols
                             ):
                                 count += 1
-            except Exception:
+            except (FileNotFoundError, IOError):
                 return None
             return count
 

@@ -110,7 +110,7 @@ class MediaSyncDelHelper:
 
         if not transfer_history:
             logger.warn(f"【同步删除】无 {path} 有关的历史记录")
-            return
+            return [], [], 0, []
 
         del_torrent_hashs = []
         stop_torrent_hashs = []
@@ -186,7 +186,7 @@ class MediaSyncDelHelper:
                 logger.error(
                     f"【同步删除】未查询到种子任务 {torrent_hash} 存在文件记录，未执行下载器文件同步或该种子已被删除"
                 )
-                return False, False, 0
+                return False, False, []
 
             # 查询未删除数
             no_del_cnt = 0
@@ -295,7 +295,7 @@ class MediaSyncDelHelper:
             return delete_flag, True, handle_torrent_hashs
         except Exception as e:
             logger.error(f"【同步删除】删种失败： {str(e)}")
-            return False, False, 0
+            return False, False, []
 
     def __del_collection(
         self,
