@@ -184,6 +184,7 @@ class MonitorLife:
                 client=self._client,
                 attr=cid,
                 root_id=None,
+                ensure_file=False,
                 refresh=True,
                 **configer.get_ios_ua_app(app=False),
             )
@@ -1015,6 +1016,7 @@ class MonitorLife:
                     client=self._client,
                     attr=event["file_id"],
                     root_id=None,
+                    ensure_file=int(event["file_category"]) != 0,
                     refresh=True,
                     **configer.get_ios_ua_app(app=False),
                 )
