@@ -1,10 +1,10 @@
-import time
 from enum import IntEnum
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
 from threading import Thread
+from time import monotonic
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
-import grpc
+from grpc import RpcError, StatusCode
 from cryptography.hazmat.primitives import hashes
 from httpx import RequestError
 from httpx import stream as httpx_stream
@@ -152,8 +152,8 @@ class CloudDriveApi:
             path_str = "/"
         try:
             f = self.client.find_file_by_path(path_str)
-        except grpc.RpcError as e:
-            if e.code() == grpc.StatusCode.NOT_FOUND:
+        except RpcError as e:
+            if e.code() == StatusCode.NOT_FOUND:
                 return None
             logger.error("【CloudDrive】FindFileByPath 失败 %s: %s", path_str, e)
             return None
@@ -571,7 +571,7 @@ class CloudDriveApi:
                 blocks.append(block_hasher.finalize().hex())
                 bytes_hashed += len(chunk)
                 if progress_callback:
-                    now = time.monotonic()
+                    now = monotonic()
                     if now - last_report >= 0.25:
                         last_report = now
                         progress_callback(bytes_hashed, total_bytes)
@@ -679,63 +679,45 @@ class CloudDriveApi:
                         req = reply.hash_data
                         ht = req.hash_type
                         block_size = getattr(req, "block_size", 0) or 0
-                        if global_vars.is_transfer_stopped(target_path):
+
+                        def _report_hash_progress(
+                            bytes_hashed: int,
+                            total_bytes: int,
+                            hash_value: str = "",
+                            blocks: Optional[List[str]] = None,
+                        ) -> None:
                             try:
-                                self.client.remote_hash_progress(
+                                resp = self.client.remote_hash_progress(
                                     upload_id=upload_id,
-                                    bytes_hashed=0,
-                                    total_bytes=file_size,
+                                    bytes_hashed=bytes_hashed,
+                                    total_bytes=total_bytes,
                                     hash_type=ht,
-                                    hash_value="",
-                                    block_hashes=None,
+                                    hash_value=hash_value,
+                                    block_hashes=blocks,
                                 )
-                            except Exception:
-                                pass
+                                logger.info(
+                                    "【CloudDrive】上报本地哈希计算状态: %s", resp
+                                )
+                            except Exception as e:
+                                logger.error(
+                                    "【CloudDrive】上报本地哈希计算状态失败: %s", e
+                                )
+
+                        if global_vars.is_transfer_stopped(target_path):
+                            _report_hash_progress(0, file_size)
                             logger.info("【CloudDrive】上传已取消: %s", target_path)
                             self._cancel_upload(upload_id)
                             return None
-                        hash_val: Optional[str] = None
+                        hash_val: Optional[str]
                         block_hashes: Optional[List[str]] = None
                         cancelled_ref: List[bool] = [False]
 
                         def _hash_progress_callback(bh: int, tb: int) -> None:
                             if global_vars.is_transfer_stopped(target_path):
                                 cancelled_ref[0] = True
-                                try:
-                                    resp = self.client.remote_hash_progress(
-                                        upload_id=upload_id,
-                                        bytes_hashed=bh,
-                                        total_bytes=tb,
-                                        hash_type=ht,
-                                        hash_value="",
-                                        block_hashes=None,
-                                    )
-                                    logger.info(
-                                        f"【CloudDrive】上报本地哈希计算状态: {resp}"
-                                    )
-                                except Exception as e:
-                                    logger.error(
-                                        f"【CloudDrive】RemoteHashProgress 失败: {e}"
-                                    )
-                                    pass
+                                _report_hash_progress(bh, tb)
                                 return
-                            try:
-                                resp = self.client.remote_hash_progress(
-                                    upload_id=upload_id,
-                                    bytes_hashed=bh,
-                                    total_bytes=tb,
-                                    hash_type=ht,
-                                    hash_value="",
-                                    block_hashes=None,
-                                )
-                                logger.info(
-                                    f"【CloudDrive】上报本地哈希计算状态: {resp}"
-                                )
-                            except Exception as e:
-                                logger.error(
-                                    f"【CloudDrive】RemoteHashProgress 失败: {e}"
-                                )
-                                pass
+                            _report_hash_progress(bh, tb)
 
                         if ht == HashType.MD5 and block_size > 0:
                             hash_val, block_hashes = self._compute_file_md5_with_blocks(
@@ -752,23 +734,7 @@ class CloudDriveApi:
                             if hash_val is None:
                                 hash_val = self._compute_file_hash(local_path, ht)
                         if global_vars.is_transfer_stopped(target_path):
-                            try:
-                                resp = self.client.remote_hash_progress(
-                                    upload_id=upload_id,
-                                    bytes_hashed=file_size,
-                                    total_bytes=file_size,
-                                    hash_type=ht,
-                                    hash_value="",
-                                    block_hashes=None,
-                                )
-                                logger.info(
-                                    f"【CloudDrive】上报本地哈希计算状态: {resp}"
-                                )
-                            except Exception as e:
-                                logger.error(
-                                    f"【CloudDrive】RemoteHashProgress 失败: {e}"
-                                )
-                                pass
+                            _report_hash_progress(file_size, file_size)
                             self._cancel_upload(upload_id)
                             return None
                         try:
