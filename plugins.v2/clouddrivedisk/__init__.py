@@ -9,7 +9,7 @@ from app.schemas import FileItem, StorageOperSelectionEventData, StorageUsage
 from app.schemas.types import ChainEventType
 
 from .clouddrive_api import CloudDriveApi
-from .client.clouddrive_client import CloudDriveClient
+from clouddrive2_client import CloudDriveClient
 from .version import VERSION
 
 

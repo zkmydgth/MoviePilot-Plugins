@@ -11,7 +11,7 @@ from app.log import logger
 from app.modules.filemanager.storages import transfer_process
 from app.schemas import FileItem, StorageUsage
 
-from .client.clouddrive_client import CloudDriveClient
+from clouddrive2_client import CloudDriveClient
 
 
 # 上传状态枚举
