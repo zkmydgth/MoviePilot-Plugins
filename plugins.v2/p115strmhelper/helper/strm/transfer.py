@@ -228,6 +228,6 @@ class TransferStrmHelper:
                     skim=True,
                     **configer.get_ios_ua_app(app=False),
                 )
-                helper.get_mediainfo(item["sha1"], strm_target_path)
+                helper.get_mediainfo(item["sha1"], Path(strm_target_path))
             except Exception as e:
                 logger.error(f"【监控整理STRM生成】提取媒体信息失败: {e}")

@@ -171,7 +171,12 @@ class EmbyMediaInfoOperate:
                     json=media_data,
                     headers={"Content-Type": "application/json"},
                 )
-                if res.status_code == 200 and res.json():
+                if (
+                    res.status_code == 200
+                    and res.json()
+                    and res.json().get("Chapters", None)
+                    and res.json().get("MediaSourceInfo", None)
+                ):
                     logger.info(
                         f"{self.func_name}{service_name} 更新媒体信息成功: {file_path}"
                     )
@@ -179,7 +184,7 @@ class EmbyMediaInfoOperate:
                         media_data = res.json()
                 else:
                     logger.warning(
-                        f"{self.func_name}{service_name} 更新媒体信息失败: 错误码{res.status_code}"
+                        f"{self.func_name}{service_name} 更新媒体信息失败: {res.status_code} {res.json()}"
                     )
             except RequestError as e:
                 logger.error(f"{self.func_name}{service_name} 更新媒体信息失败: {e}")
