@@ -31,6 +31,10 @@ Telegram 交流群: https://t.me/+1lcscM_EbqhkN2Rl
 - [神医媒体文件同步删除](https://github.com/DDSRem-Dev/MoviePilot-Plugins/tree/main/plugins.v2/samediasyncdel)：通过神医插件通知同步删除历史记录、源文件和下载任务。
 - [ffprobe命名补充](https://github.com/DDSRem-Dev/MoviePilot-Plugins/tree/main/plugins.v2/ffprobenamingsupplement)：整理重命名时调用 `ffprobe`，补全命名模板中的 `videoFormat`、`videoCodec`、`audioCodec`、`fps`、`effect`，支持 STRM
 
+#### 工具类
+
+- [115订阅站点修复](https://github.com/DDSRem-Dev/MoviePilot-Plugins/tree/main/plugins.v2/p115subfixer)：修复115网盘订阅追更插件导致的订阅站点被篡改问题，并自动卸载该插件
+
 ## 感谢
 
 - [p115client](https://github.com/ChenyangGao/p115client)
