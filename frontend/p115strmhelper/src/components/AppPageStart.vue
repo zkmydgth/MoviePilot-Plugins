@@ -57,42 +57,74 @@
         <div v-else class="text-body-2 text-medium-emphasis">暂无扫描摘要，可在插件全页分享同步中配置清理目录并保存后执行「立即扫描」</div>
       </div>
 
-      <v-data-table v-else :headers="batchHeaders" :items="shareBatches" :loading="pendingLoading"
-        item-value="request_id" density="compact" hover hide-default-footer fixed-header class="app-start-data-table"
-        :height="batchTableHeight">
-        <template #item.path_count="{ item }">
-          <v-chip size="small" variant="tonal" color="primary" label>{{ item.path_count ?? 0 }}</v-chip>
-        </template>
-        <template #item.created_at="{ item }">
-          <span class="text-caption">{{ formatTs(item.created_at) }}</span>
-        </template>
-        <template #item.request_id="{ item }">
-          <code class="text-caption text-medium-emphasis text-break">{{ item.request_id }}</code>
-        </template>
-        <template #item.actions="{ item }">
-          <v-btn icon size="small" variant="text" :disabled="!!execId || !!cancelId">
-            <v-icon icon="mdi-dots-vertical" />
-            <v-menu activator="parent" location="bottom">
-              <v-list density="compact" min-width="180">
-                <v-list-item prepend-icon="mdi-format-list-bulleted" title="查看路径" slim
-                  @click="openBatchPathsDialog(item)" />
-                <v-list-item prepend-icon="mdi-delete-forever" title="确认删除" base-color="error" slim
-                  :disabled="execId === item.request_id" @click="executeBatch(item.request_id)" />
-                <v-list-item prepend-icon="mdi-close" title="取消批次" slim :disabled="cancelId === item.request_id"
-                  @click="cancelBatch(item.request_id)" />
-              </v-list>
-            </v-menu>
-          </v-btn>
-        </template>
-        <template #no-data>
-          <div class="text-body-2 text-medium-emphasis py-8 text-center">
-            暂无待确认批次，可点击「立即扫描」生成
+      <div v-else class="pending-cleanup-plugin-ui">
+        <div v-if="pendingLoading" class="pa-4">
+          <v-skeleton-loader class="ma-2" type="table" />
+        </div>
+        <div v-else-if="!pendingBatch" class="text-body-2 text-medium-emphasis py-8 text-center px-4">
+          暂无待确认批次，可点击「立即扫描」生成
+        </div>
+        <template v-else>
+          <div
+            class="px-4 pt-3 pb-2 d-flex flex-column flex-sm-row flex-wrap align-stretch align-sm-center justify-space-between gap-3">
+            <div class="text-body-2 min-w-0">
+              待删 <strong>{{ pendingPaths.total }}</strong> 条 STRM
+              <span class="text-caption text-medium-emphasis d-block mt-1">
+                批次 <code class="text-caption">{{ pendingBatch.request_id }}</code>
+                · {{ formatTs(pendingBatch.created_at) }}
+              </span>
+            </div>
+            <div class="d-flex flex-wrap gap-2 flex-shrink-0">
+              <v-btn color="error" variant="flat" size="small" prepend-icon="mdi-delete-forever"
+                :loading="execId === pendingBatch.request_id" :disabled="!!cancelId"
+                @click="executeBatch(pendingBatch.request_id)">
+                确认删除
+              </v-btn>
+              <v-btn variant="outlined" size="small" prepend-icon="mdi-close"
+                :loading="cancelId === pendingBatch.request_id" :disabled="!!execId"
+                @click="cancelBatch(pendingBatch.request_id)">
+                取消
+              </v-btn>
+            </div>
           </div>
+          <v-data-table :headers="batchPathsHeaders" :items="pendingPathsTableItems" :loading="pendingPaths.loading"
+            item-value="rowKey" density="compact" hover hide-default-footer fixed-header class="app-start-data-table"
+            :height="pendingPathsTableHeight">
+            <template #item.path="{ item }">
+              <span class="text-body-2 text-break">{{ item.path }}</span>
+            </template>
+            <template #no-data>
+              <div class="text-body-2 text-medium-emphasis py-8 text-center">
+                {{ pendingPaths.loading ? '' : '暂无路径或批次已失效，请刷新' }}
+              </div>
+            </template>
+            <template #loading>
+              <v-skeleton-loader class="ma-4" type="table" />
+            </template>
+          </v-data-table>
+          <template v-if="!pendingPaths.loading && pendingPaths.total > 0">
+            <v-divider />
+            <div
+              class="app-start-page-footer d-flex flex-column flex-md-row align-stretch align-md-center justify-space-between gap-2 gap-md-3 px-2 px-md-3 py-2">
+              <div class="d-flex align-center justify-center justify-md-start gap-2 app-start-page-footer__select">
+                <v-select v-model="pendingPaths.limit" :items="missingPageSizes" item-title="title" item-value="value"
+                  density="compact" variant="plain" hide-details class="missing-per-page"
+                  @update:model-value="onPendingPathsLimitChange" />
+              </div>
+              <div
+                class="text-caption text-medium-emphasis text-center text-md-center flex-grow-1 order-3 order-md-2 px-1 app-start-page-footer__tip">
+                {{ pendingPathsPageTip }}
+              </div>
+              <div class="app-start-pagination-scroll order-2 order-md-3 w-100 w-md-auto">
+                <v-pagination v-model="pendingPaths.page" :length="pendingPathsTotalPages"
+                  :total-visible="paginationTotalVisible" :show-first-last-page="paginationShowFirstLast"
+                  first-aria-label="第一页" last-aria-label="最后一页" prev-aria-label="上一页" next-aria-label="下一页"
+                  :density="paginationDensity" size="small" @update:model-value="loadPendingPathsPage" />
+              </div>
+            </div>
+          </template>
         </template>
-        <template #loading>
-          <v-skeleton-loader class="ma-4" type="table" />
-        </template>
-      </v-data-table>
+      </div>
     </v-card>
 
     <!-- 无效分享 STRM 关联媒体缺失 -->
@@ -201,61 +233,6 @@
       </template>
     </v-card>
 
-    <!-- 待删路径（表格 + 底栏分页，与下方列表分页一致） -->
-    <v-dialog v-model="batchPathsDialog.show" max-width="900">
-      <v-card class="batch-paths-dialog-card" rounded="lg">
-        <v-card-item class="py-3">
-          <v-card-title class="text-subtitle-1 pa-0 d-flex align-center flex-wrap gap-2">
-            <v-icon icon="mdi-file-tree-outline" color="primary" size="22" />
-            <span class="text-high-emphasis">待删 STRM 路径</span>
-            <v-chip size="small" variant="tonal" color="primary" label>共 {{ batchPathsDialog.total }} 条</v-chip>
-            <v-spacer />
-            <v-btn icon size="small" variant="text" aria-label="关闭" @click="batchPathsDialog.show = false">
-              <v-icon>mdi-close</v-icon>
-            </v-btn>
-          </v-card-title>
-        </v-card-item>
-        <v-divider />
-        <v-card-text class="pa-0">
-          <v-data-table :headers="batchPathsHeaders" :items="batchPathsTableItems" :loading="batchPathsDialog.loading"
-            item-value="rowKey" density="compact" hover hide-default-footer fixed-header class="app-start-data-table"
-            :height="batchPathsTableHeight">
-            <template #item.path="{ item }">
-              <span class="text-body-2 text-break">{{ item.path }}</span>
-            </template>
-            <template #no-data>
-              <div class="text-body-2 text-medium-emphasis py-8 text-center">
-                暂无路径或批次已失效，请关闭后刷新
-              </div>
-            </template>
-            <template #loading>
-              <v-skeleton-loader class="ma-4" type="table" />
-            </template>
-          </v-data-table>
-          <template v-if="!batchPathsDialog.loading && batchPathsDialog.total > 0">
-            <v-divider />
-            <div
-              class="app-start-page-footer d-flex flex-column flex-md-row align-stretch align-md-center justify-space-between gap-2 gap-md-3 px-2 px-md-3 py-2">
-              <div class="d-flex align-center justify-center justify-md-start gap-2 app-start-page-footer__select">
-                <v-select v-model="batchPathsDialog.limit" :items="missingPageSizes" item-title="title"
-                  item-value="value" density="compact" variant="plain" hide-details class="missing-per-page"
-                  @update:model-value="onBatchPathsLimitChange" />
-              </div>
-              <div
-                class="text-caption text-medium-emphasis text-center text-md-center flex-grow-1 order-3 order-md-2 px-1 app-start-page-footer__tip">
-                {{ batchPathsPageTip }}
-              </div>
-              <div class="app-start-pagination-scroll order-2 order-md-3 w-100 w-md-auto">
-                <v-pagination v-model="batchPathsDialog.page" :length="batchPathsTotalPages"
-                  :total-visible="paginationTotalVisible" :show-first-last-page="paginationShowFirstLast"
-                  first-aria-label="第一页" last-aria-label="最后一页" prev-aria-label="上一页" next-aria-label="下一页"
-                  :density="paginationDensity" size="small" @update:model-value="loadBatchPathsPage" />
-              </div>
-            </div>
-          </template>
-        </v-card-text>
-      </v-card>
-    </v-dialog>
   </v-container>
 </template>
 
@@ -297,6 +274,7 @@ const initialConfig = reactive({});
 const deleteMode = computed(() =>
   (initialConfig.share_strm_cleanup_config && initialConfig.share_strm_cleanup_config.delete_mode) || 'plugin_ui',
 );
+
 const canScan = computed(
   () =>
     !!(initialConfig.enabled && initialConfig.cookies && String(initialConfig.cookies).trim()),
@@ -305,6 +283,10 @@ const canScan = computed(
 const pendingLoading = ref(true);
 const shareBatches = ref([]);
 const lastSummary = ref(null);
+
+const pendingBatch = computed(() =>
+  shareBatches.value.length > 0 ? shareBatches.value[0] : null,
+);
 
 const missingLoading = ref(true);
 const missingItems = ref([]);
@@ -317,13 +299,6 @@ const missingPageSizes = [
   { title: '25', value: 25 },
   { title: '50', value: 50 },
   { title: '100', value: 100 },
-];
-
-const batchHeaders = [
-  { title: '路径数', key: 'path_count', sortable: false, width: '100px' },
-  { title: '创建时间', key: 'created_at', sortable: false },
-  { title: '批次 ID', key: 'request_id', sortable: false },
-  { title: '', key: 'actions', sortable: false, align: 'end', width: '56px' },
 ];
 
 const missingHeaders = [
@@ -343,8 +318,14 @@ const batchPathsHeaders = [
   { title: 'STRM 路径', key: 'path', sortable: false, minWidth: '320px' },
 ];
 
-/** 固定表头需要高度；数据少时用较小高度，多行时可滚动（对齐媒体整理列表） */
-const batchTableHeight = computed(() => (shareBatches.value.length > 8 ? 360 : 280));
+const pendingPaths = reactive({
+  requestId: '',
+  page: 1,
+  limit: 25,
+  paths: [],
+  total: 0,
+  loading: false,
+});
 
 const missingTableHeight = computed(() => (missingItems.value.length > 12 ? 520 : 360));
 
@@ -362,29 +343,29 @@ const missingPageTip = computed(() => {
   return `第 ${from}–${to} 条，共 ${t} 条`;
 });
 
-const batchPathsPageTip = computed(() => {
-  const t = batchPathsDialog.total;
-  const per = batchPathsDialog.limit;
-  const page = batchPathsDialog.page;
+const pendingPathsPageTip = computed(() => {
+  const t = pendingPaths.total;
+  const per = pendingPaths.limit;
+  const page = pendingPaths.page;
   if (t <= 0) return '共 0 条';
   const from = (page - 1) * per + 1;
   const to = Math.min(page * per, t);
   return `第 ${from}–${to} 条，共 ${t} 条`;
 });
 
-const batchPathsTotalPages = computed(() =>
-  Math.max(1, Math.ceil(batchPathsDialog.total / batchPathsDialog.limit)),
+const pendingPathsTotalPages = computed(() =>
+  Math.max(1, Math.ceil(pendingPaths.total / pendingPaths.limit)),
 );
 
-const batchPathsTableItems = computed(() =>
-  batchPathsDialog.paths.map((path, i) => ({
-    rowKey: `${batchPathsDialog.page}-${i}`,
+const pendingPathsTableItems = computed(() =>
+  pendingPaths.paths.map((path, i) => ({
+    rowKey: `${pendingPaths.page}-${i}`,
     path,
   })),
 );
 
-const batchPathsTableHeight = computed(() =>
-  batchPathsDialog.paths.length > 12 ? 420 : 320,
+const pendingPathsTableHeight = computed(() =>
+  pendingPaths.paths.length > 12 ? 420 : 320,
 );
 
 const scanLoading = ref(false);
@@ -392,16 +373,6 @@ const execId = ref(null);
 const cancelId = ref(null);
 const deletingUid = ref(null);
 const clearAllLoading = ref(false);
-
-const batchPathsDialog = reactive({
-  show: false,
-  requestId: '',
-  page: 1,
-  limit: 25,
-  paths: [],
-  total: 0,
-  loading: false,
-});
 
 const formatTs = (t) => {
   if (t == null) return '';
@@ -430,6 +401,35 @@ const loadConfig = async () => {
   }
 };
 
+const loadPendingPathsPage = async () => {
+  if (!pendingPaths.requestId) return;
+  pendingPaths.loading = true;
+  try {
+    const qs = new URLSearchParams({
+      request_id: pendingPaths.requestId,
+      page: String(pendingPaths.page),
+      limit: String(pendingPaths.limit),
+    });
+    const res = await props.api.get(
+      `plugin/${props.pluginId}/share_strm_cleanup_batch_paths?${qs.toString()}`,
+    );
+    if (res && res.code === 0 && res.data) {
+      pendingPaths.paths = Array.isArray(res.data.paths) ? res.data.paths : [];
+      pendingPaths.total = Number(res.data.total) || 0;
+    } else {
+      pendingPaths.paths = [];
+      if (res?.msg) {
+        error.value = res.msg;
+      }
+    }
+  } catch (e) {
+    pendingPaths.paths = [];
+    error.value = e.message || '加载路径失败';
+  } finally {
+    pendingPaths.loading = false;
+  }
+};
+
 const loadPending = async () => {
   pendingLoading.value = true;
   try {
@@ -439,9 +439,25 @@ const loadPending = async () => {
     } else {
       shareBatches.value = [];
     }
+    if (shareBatches.value.length > 0) {
+      const b = shareBatches.value[0];
+      pendingPaths.requestId = b.request_id;
+      pendingPaths.page = 1;
+      pendingPaths.limit = pendingPaths.limit || 25;
+      await loadPendingPathsPage();
+    } else {
+      pendingPaths.requestId = '';
+      pendingPaths.paths = [];
+      pendingPaths.total = 0;
+      pendingPaths.loading = false;
+    }
   } catch (e) {
     console.error(e);
     shareBatches.value = [];
+    pendingPaths.requestId = '';
+    pendingPaths.paths = [];
+    pendingPaths.total = 0;
+    pendingPaths.loading = false;
   } finally {
     pendingLoading.value = false;
   }
@@ -460,49 +476,9 @@ const loadSummary = async () => {
   }
 };
 
-const openBatchPathsDialog = (b) => {
-  if (!b?.request_id) return;
-  batchPathsDialog.requestId = b.request_id;
-  batchPathsDialog.page = 1;
-  batchPathsDialog.paths = [];
-  batchPathsDialog.total = b.path_count ?? 0;
-  batchPathsDialog.limit = missingLimit.value;
-  batchPathsDialog.show = true;
-  loadBatchPathsPage();
-};
-
-const onBatchPathsLimitChange = () => {
-  batchPathsDialog.page = 1;
-  loadBatchPathsPage();
-};
-
-const loadBatchPathsPage = async () => {
-  if (!batchPathsDialog.requestId) return;
-  batchPathsDialog.loading = true;
-  try {
-    const qs = new URLSearchParams({
-      request_id: batchPathsDialog.requestId,
-      page: String(batchPathsDialog.page),
-      limit: String(batchPathsDialog.limit),
-    });
-    const res = await props.api.get(
-      `plugin/${props.pluginId}/share_strm_cleanup_batch_paths?${qs.toString()}`,
-    );
-    if (res && res.code === 0 && res.data) {
-      batchPathsDialog.paths = Array.isArray(res.data.paths) ? res.data.paths : [];
-      batchPathsDialog.total = Number(res.data.total) || 0;
-    } else {
-      batchPathsDialog.paths = [];
-      if (res?.msg) {
-        error.value = res.msg;
-      }
-    }
-  } catch (e) {
-    batchPathsDialog.paths = [];
-    error.value = e.message || '加载路径失败';
-  } finally {
-    batchPathsDialog.loading = false;
-  }
+const onPendingPathsLimitChange = () => {
+  pendingPaths.page = 1;
+  loadPendingPathsPage();
 };
 
 const loadMissing = async () => {
@@ -583,9 +559,6 @@ const executeBatch = async (requestId) => {
     if (res && res.code === 0) {
       actionMessage.value = res.msg || '已执行';
       actionMessageType.value = 'success';
-      if (batchPathsDialog.show && batchPathsDialog.requestId === requestId) {
-        batchPathsDialog.show = false;
-      }
       await loadPending();
     } else {
       throw new Error(res?.msg || '执行失败');
@@ -606,9 +579,6 @@ const cancelBatch = async (requestId) => {
     if (res && res.code === 0) {
       actionMessage.value = res.msg || '已取消';
       actionMessageType.value = 'success';
-      if (batchPathsDialog.show && batchPathsDialog.requestId === requestId) {
-        batchPathsDialog.show = false;
-      }
       await loadPending();
     } else {
       throw new Error(res?.msg || '取消失败');
@@ -699,10 +669,8 @@ onMounted(async () => {
   line-height: 1.35;
 }
 
-.batch-paths-dialog-card {
-  overflow: hidden;
-  border: 1px solid rgba(var(--v-theme-on-surface), 0.08);
-  background: rgb(var(--v-theme-surface));
+.pending-cleanup-plugin-ui {
+  min-inline-size: 0;
 }
 
 .missing-per-page {

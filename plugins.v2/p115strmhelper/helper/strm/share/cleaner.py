@@ -81,6 +81,46 @@ class ShareStrmPendingCleanupQueue:
         )
         self._save_store(store)
 
+    def clear_all_batches(self) -> None:
+        """
+        清空全部待确认批次（不删磁盘文件）
+        """
+        self._save_store({"batches": []})
+
+    def replace_single_batch(
+        self,
+        request_id: str,
+        paths: List[str],
+        remove_related_mediainfo: bool,
+        remove_empty_parent_dirs: bool,
+        remove_stale_transfer_history: bool,
+    ) -> None:
+        """
+        用单一批次替换整个队列（与「只保留最新一次扫描」一致）
+
+        :param request_id: 批次唯一标识
+        :param paths: 待删 STRM 路径列表
+        :param remove_related_mediainfo: 确认执行时是否清理关联媒体信息文件
+        :param remove_empty_parent_dirs: 确认执行时是否清理无效 STRM 目录
+        :param remove_stale_transfer_history: 确认执行时是否删除 MP 整理记录
+        """
+        self._save_store(
+            {
+                "batches": [
+                    {
+                        "request_id": request_id,
+                        "created_at": time_unix(),
+                        "paths": paths,
+                        "remove_related_mediainfo": bool(remove_related_mediainfo),
+                        "remove_empty_parent_dirs": bool(remove_empty_parent_dirs),
+                        "remove_stale_transfer_history": bool(
+                            remove_stale_transfer_history
+                        ),
+                    }
+                ]
+            }
+        )
+
     @staticmethod
     def _pop_batch_by_id(
         store: Dict[str, Any], request_id: str
@@ -244,6 +284,16 @@ class ShareStrmMissingMediaStore:
         :param rows: 由 ``row_from_transfer_history`` 等组装的行列表
         """
         self._store.extend(rows)
+
+    def replace_all(self, rows: List[Dict[str, Any]]) -> None:
+        """
+        用本轮扫描结果替换全部缺失媒体记录（先清空再写入）
+
+        :param rows: 由 ``row_from_transfer_history`` 等组装的行列表，可为空
+        """
+        self._store.clear_all()
+        if rows:
+            self._store.extend(rows)
 
     def page(self, page: int, limit: int) -> Tuple[List[Dict[str, Any]], int]:
         """
@@ -640,10 +690,9 @@ class ShareStrmCleaner:
 
             summary["invalid_strm_count"] = len(paths_only)
 
-            if missing_rows:
-                self._missing_store.extend(missing_rows)
-                summary["missing_recorded"] = len(missing_rows)
             if record_missing:
+                self._missing_store.replace_all(missing_rows)
+                summary["missing_recorded"] = len(missing_rows)
                 summary["missing_skipped_no_history"] = skipped_no_history
             missing_rows = []
 
@@ -659,7 +708,7 @@ class ShareStrmCleaner:
                     summary["message"] = last_err
             elif paths_only:
                 rid = uuid4().hex[:16]
-                self._pending_queue.append_batch(
+                self._pending_queue.replace_single_batch(
                     rid,
                     paths_only,
                     cfg.remove_related_mediainfo,
@@ -668,6 +717,8 @@ class ShareStrmCleaner:
                 )
                 summary["queued_batch"] = True
                 summary["request_id"] = rid
+            else:
+                self._pending_queue.clear_all_batches()
 
             self._summary_store.save(summary)
             self._notify_cleanup_result(summary)
