@@ -84,13 +84,8 @@ class Api:
 
         mediaserver_helper = MediaServerHelper()
         config["mediaservers"] = [
-            {"title": config.name, "value": config.name}
+            {"title": config.name, "value": config.name, "type": config.type}
             for config in mediaserver_helper.get_configs().values()
-        ]
-        config["sync_del_mediaservers"] = [
-            {"title": config.name, "value": config.name}
-            for config in mediaserver_helper.get_configs().values()
-            if config.type == "emby"
         ]
 
         return config

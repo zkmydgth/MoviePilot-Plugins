@@ -900,8 +900,8 @@
 
                   <v-row>
                     <v-col cols="12" md="6">
-                      <v-select v-model="config.sync_del_mediaservers" label="媒体服务器" :items="syncDelMediaservers"
-                        multiple chips closable-chips hint="用于获取TMDB ID，仅支持Emby" persistent-hint></v-select>
+                      <v-select v-model="config.sync_del_mediaservers" label="媒体服务器" :items="embyMediaservers" multiple
+                        chips closable-chips hint="用于获取TMDB ID，仅支持Emby" persistent-hint></v-select>
                     </v-col>
                   </v-row>
 
@@ -913,9 +913,7 @@
                           <v-row dense>
                             <v-col cols="12" md="4">
                               <v-text-field v-model="path.mediaserver" label="媒体服务器STRM路径" density="compact"
-                                variant="outlined" hint="例如：/media/strm" persistent-hint
-                                append-icon="mdi-folder-network"
-                                @click:append="openDirSelector(index, 'remote', 'syncDelLibrary', 'mediaserver')"></v-text-field>
+                                variant="outlined" hint="例如：/media/strm" persistent-hint></v-text-field>
                             </v-col>
                             <v-col cols="12" md="4">
                               <v-text-field v-model="path.moviepilot" label="MoviePilot路径" density="compact"
@@ -2104,7 +2102,7 @@
                         size="small" class="mr-2"></v-icon>
                       <span class="text-caption">MonitorLife初始化:
                         <strong>{{ lifeEventCheckDialog.result.data?.summary?.monitorlife_initialized ? '是' : '否'
-                        }}</strong>
+                          }}</strong>
                       </span>
                     </div>
                   </v-col>
@@ -2220,7 +2218,10 @@ const clearIdPathCacheLoading = ref(false);
 const clearIncrementSkipCacheLoading = ref(false);
 const activeTab = ref('tab-transfer');
 const mediaservers = ref([]);
-const syncDelMediaservers = ref([]);
+// 过滤出 Emby 类型的媒体服务器（用于同步删除功能）
+const embyMediaservers = computed(() => {
+  return mediaservers.value.filter(server => server.type === 'emby');
+});
 const isCookieVisible = ref(false);
 const isAliTokenVisible = ref(false);
 const isTransferModuleEnhancementLocked = ref(true);
@@ -2957,7 +2958,10 @@ const loadConfig = async () => {
       }
       if (data.mediaservers) {
         mediaservers.value = data.mediaservers;
-        syncDelMediaservers.value = data.sync_del_mediaservers || [];
+      }
+      // 确保 sync_del_mediaservers 如果是 null，转换为空数组以匹配前端显示
+      if (config.sync_del_mediaservers === null || config.sync_del_mediaservers === undefined) {
+        config.sync_del_mediaservers = [];
       }
       const p115LocalPaths = new Set();
       if (config.transfer_monitor_paths) {
@@ -3004,10 +3008,9 @@ const saveConfig = async () => {
       .filter(p => p.mediaserver?.trim() || p.moviepilot?.trim() || p.p115?.trim())
       .map(p => `${p.mediaserver || ''}#${p.moviepilot || ''}#${p.p115 || ''}`)
       .join('\n');
-    if (Array.isArray(config.sync_del_mediaservers)) {
-      config.sync_del_mediaservers = config.sync_del_mediaservers.map(item => {
-        return typeof item === 'string' ? item : (item?.value || item);
-      }).filter(Boolean);
+    // 处理 sync_del_mediaservers：如果数组为空，转换为 null 以匹配后端的 Optional[List[str]]
+    if (Array.isArray(config.sync_del_mediaservers) && config.sync_del_mediaservers.length === 0) {
+      config.sync_del_mediaservers = null;
     }
     config.pan_transfer_paths = generatePathsConfig(panTransferPaths.value, 'panTransfer');
     config.share_recieve_paths = shareReceivePaths.value.filter(p => p.path?.trim()).map(p => p.path);
