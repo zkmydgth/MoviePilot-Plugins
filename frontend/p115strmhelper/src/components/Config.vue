@@ -312,6 +312,7 @@ const saveLoading = ref(false);
 const syncLoading = ref(false);
 const clearIdPathCacheLoading = ref(false);
 const clearIncrementSkipCacheLoading = ref(false);
+const clearR302CacheLoading = ref(false);
 // 主分类标签
 const mainCategory = ref('category-strm');
 const mediaservers = ref([]);
@@ -970,6 +971,32 @@ const clearIncrementSkipCache = async () => {
   }
 };
 
+// 清理302跳转缓存
+const clearR302Cache = async () => {
+  clearR302CacheLoading.value = true;
+  message.text = '';
+  try {
+    const result = await props.api.post(`plugin/${PLUGIN_ID}/clear_302_cache`);
+    if (result && result.code === 0) {
+      message.text = result.msg || '302跳转缓存清理成功';
+      message.type = 'success';
+    } else {
+      throw new Error(result?.msg || '302跳转缓存清理失败');
+    }
+  } catch (err) {
+    message.text = `302跳转缓存清理失败: ${err.message || '未知错误'}`;
+    message.type = 'error';
+    console.error('302跳转缓存清理失败:', err);
+  } finally {
+    clearR302CacheLoading.value = false;
+    setTimeout(() => {
+      if (message.type === 'success' || message.type === 'error') {
+        message.text = '';
+      }
+    }, 3000);
+  }
+};
+
 const openImportDialog = () => {
   importDialog.jsonText = '';
   importDialog.error = '';
@@ -1263,6 +1290,7 @@ provide('monitorLifeMinFileSizeFormattedRef', monitorLifeMinFileSizeFormattedRef
 provide('syncLoading', syncLoading);
 provide('clearIdPathCacheLoading', clearIdPathCacheLoading);
 provide('clearIncrementSkipCacheLoading', clearIncrementSkipCacheLoading);
+provide('clearR302CacheLoading', clearR302CacheLoading);
 
 // UI states
 provide('isTransferModuleEnhancementLocked', isTransferModuleEnhancementLocked);
@@ -1273,6 +1301,7 @@ provide('isAliTokenVisible', isAliTokenVisible);
 provide('triggerFullSync', triggerFullSync);
 provide('clearIdPathCache', clearIdPathCache);
 provide('clearIncrementSkipCache', clearIncrementSkipCache);
+provide('clearR302Cache', clearR302Cache);
 provide('checkLifeEventStatus', checkLifeEventStatus);
 provide('openConfigGeneratorDialog', openConfigGeneratorDialog);
 provide('manualTransfer', manualTransfer);

@@ -19,7 +19,7 @@ from fastapi.responses import JSONResponse
 from .service import servicer
 from .core.config import configer
 from .schemas.donate import DEFAULT_DONATE_INFO as DONATE_INFO
-from .core.cache import idpathcacher, DirectoryCache
+from .core.cache import idpathcacher, DirectoryCache, r302cacher
 from .core.aliyunpan import AliyunPanLogin
 from .core.p115 import get_pid_by_path, get_pickcode_by_path
 from .helper.life.test import MonitorLifeTest
@@ -977,6 +977,14 @@ class Api:
         directory_cache = DirectoryCache(configer.PLUGIN_TEMP_PATH / "increment_skip")
         directory_cache.clear_group("increment_skip")
         return ApiResponse(msg="增量同步跳过路径缓存已清理")
+
+    @staticmethod
+    async def clear_302_cache_api() -> ApiResponse:
+        """
+        清理302跳转缓存
+        """
+        await r302cacher.clear()
+        return ApiResponse(msg="302跳转缓存已清理")
 
     @staticmethod
     def get_status_api() -> ApiResponse[PluginStatusData]:

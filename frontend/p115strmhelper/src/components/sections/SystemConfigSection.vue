@@ -63,6 +63,23 @@
                         </v-btn>
                       </v-card>
                     </v-col>
+
+                    <v-col cols="12" md="6">
+                      <v-card variant="outlined" class="pa-4 d-flex flex-column cache-card">
+                        <div class="d-flex align-center mb-3">
+                          <v-icon color="info" class="mr-2">mdi-link-off</v-icon>
+                          <span class="text-subtitle-1 font-weight-medium">清理302跳转缓存</span>
+                        </div>
+                        <p class="text-body-2 text-grey-darken-1 mb-3 flex-grow-1">
+                          清理302跳转链接缓存，强制重新获取最新下载跳转地址。
+                        </p>
+                        <v-btn color="info" variant="outlined"
+                          :loading="clearR302CacheLoading" @click="clearR302Cache"
+                          prepend-icon="mdi-link-off" block>
+                          清理302跳转缓存
+                        </v-btn>
+                      </v-card>
+                    </v-col>
                   </v-row>
                 </v-card-text>
               </v-card>
@@ -518,11 +535,13 @@ const config = inject('config');
 const isTransferModuleEnhancementLocked = inject('isTransferModuleEnhancementLocked');
 const clearIdPathCacheLoading = inject('clearIdPathCacheLoading');
 const clearIncrementSkipCacheLoading = inject('clearIncrementSkipCacheLoading');
+const clearR302CacheLoading = inject('clearR302CacheLoading');
 const skipUploadWaitSizeFormattedRef = inject('skipUploadWaitSizeFormattedRef');
 const forceUploadWaitSizeFormattedRef = inject('forceUploadWaitSizeFormattedRef');
 const skipSlowUploadSizeFormattedRef = inject('skipSlowUploadSizeFormattedRef');
 const machineId = inject('machineId');
 const clearIdPathCache = inject('clearIdPathCache');
 const clearIncrementSkipCache = inject('clearIncrementSkipCache');
+const clearR302Cache = inject('clearR302Cache');
 const getMachineId = inject('getMachineId');
 </script>
