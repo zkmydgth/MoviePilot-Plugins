@@ -1,4 +1,5 @@
-from typing import Any, Dict, Optional
+from inspect import signature as inspect_signature
+from typing import Any, Callable, Dict, Optional
 
 from p115client import P115Client
 
@@ -35,6 +36,14 @@ NO_TIMEOUT_METHODS = {
 }
 
 
+def _accepts_extra_kwargs(func: Callable) -> bool:
+    try:
+        sig = inspect_signature(func)
+        return any(p.kind == p.VAR_KEYWORD for p in sig.parameters.values())
+    except (ValueError, TypeError):
+        return False
+
+
 def _make_timeout_wrapper(
     default_timeout: Dict[str, Any], slow_timeout: Dict[str, Any]
 ):
@@ -56,6 +65,8 @@ def _make_timeout_wrapper(
         timeout = slow_timeout if name in SLOW_METHODS else default_timeout
 
         if callable(attr) and timeout:
+            if not _accepts_extra_kwargs(attr):
+                return attr
 
             def wrapper(*args, **kwargs):
                 if "extensions" in kwargs and "timeout" in kwargs.get("extensions", {}):
@@ -158,6 +169,8 @@ class P115ClientWithTimeout(P115Client):
         timeout = slow_timeout if name in SLOW_METHODS else default_timeout
 
         if callable(attr) and timeout:
+            if not _accepts_extra_kwargs(attr):
+                return attr
 
             def wrapper(*args, **kwargs):
                 if "extensions" in kwargs and "timeout" in kwargs.get("extensions", {}):
