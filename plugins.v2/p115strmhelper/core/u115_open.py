@@ -1442,15 +1442,18 @@ class U115OpenHelper:
 
         if not cache_path:
             cache_path = configer.PLUGIN_TEMP_PATH / "u115_iter_files_inc"
-        if not cache_path.exists():
+        cache: Deque = Deque(directory=cache_path)
+
+        if len(cache) == 0:
             """
             cache 磁盘缓存 与 file_ids 列表 index 相对应
-            cache[-1] 储存为 file_ids 列表
+            cache[-2] 储存为 file_ids 列表
+            cache[-1] 储存 parent_id_paths 键值对
             """
-            cache: Deque = Deque(directory=cache_path)
             need_parent_id_set: Set[int] = set()
             db_parent_id_set: Set[int] = db.get_all_id("folder")
             file_ids: List[int] = []
+            parent_id_paths: Dict[int, str] = {}
 
             def _pull_files_job(
                 cid: int,
@@ -1538,6 +1541,7 @@ class U115OpenHelper:
                         "path": path,
                     }
                 )
+                parent_id_paths[file_id] = path
                 try:
                     find_parent_id_set.remove(file_id)
                 except KeyError:
@@ -1564,7 +1568,7 @@ class U115OpenHelper:
                             executor.shutdown(wait=False, cancel_futures=True)
                             raise e
                         break
-                cache.append(file_ids)
+                cache.append(file_ids)  # cache[-2]
 
                 find_parent_id_set: Set[int] = need_parent_id_set - db_parent_id_set
 
@@ -1575,22 +1579,26 @@ class U115OpenHelper:
                         for item in items:
                             datas.extend(item)
                         db.upsert_batch(datas, "folder")
+                cache.append(parent_id_paths)  # cache[-1]
 
-        cache: Deque = Deque(directory=cache_path)
-        file_ids_list: List[int] = cache[-1]
-        file_ids_set: Set[int] = set(file_ids_list)
+        file_ids_list: List[int] = cache[-2]
+        parent_id_paths_dict: Dict[int, str] = cache[-1]
         db_file_ids: Set[int] = db.get_all_id("file")
         if mode == "add":
-            find_file_ids: Set[int] = file_ids_set - db_file_ids
+            find_file_ids: Set[int] = set(file_ids_list) - db_file_ids
             if find_file_ids:
                 for file_id in find_file_ids:
                     index = file_ids_list.index(file_id)
                     item = cache[index]
-                    item["path"] = (
-                        f"{db.get_parent_path_by_id(item['parent_id'])}/{item['name']}"
-                    )
+                    try:
+                        path = (
+                            f"{parent_id_paths_dict[item['parent_id']]}/{item['name']}"
+                        )
+                    except KeyError:
+                        path = f"{db.get_parent_path_by_id(item['parent_id'])}/{item['name']}"
+                    item["path"] = path
                     yield item
         else:
-            find_file_ids: Set[int] = db_file_ids - file_ids_set
+            find_file_ids: Set[int] = db_file_ids - set(file_ids_list)
             if find_file_ids:
                 yield from db.get_files_info_by_id(find_file_ids)
