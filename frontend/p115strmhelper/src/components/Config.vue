@@ -1638,6 +1638,14 @@
                       <div>• <strong>正确方法：</strong>使用本插件的 STRM 文件生成功能，在本地生成 STRM 文件后，再让媒体服务器对 STRM 文件进行刮削</div>
                     </div>
                   </v-alert>
+                  <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-book-open-page-variant">
+                    <div class="text-body-2 mb-1"><strong>配置教程：</strong></div>
+                    <div class="text-caption">
+                      详细的 FUSE 挂载配置指南请参考：
+                      <a href="https://blog.ddsrem.com/archives/115strmhelper-fuse-use" target="_blank" rel="noopener noreferrer"
+                        style="color: inherit; text-decoration: underline;">FUSE 挂载详细配置指南</a>
+                    </div>
+                  </v-alert>
                 </v-card-text>
               </v-window-item>
 
