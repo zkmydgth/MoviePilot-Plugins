@@ -15,7 +15,8 @@
         "plugins.v2/p115strmhelper/requirements.txt"
       ],
       "matchPackageNames": [
-        "full-strm-sync"
+        "full-strm-sync",
+        "txt_tree_storage"
       ],
       "enabled": false
     },
