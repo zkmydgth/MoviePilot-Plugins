@@ -83,27 +83,32 @@ class U115OpenHelper:
         访问token
         """
         with p115_open_lock:
-            storagehelper = StorageHelper()
-            u115_info = storagehelper.get_storage(storage="u115")
-            if not u115_info:
-                return None
-            tokens = u115_info.config
-            refresh_token = tokens.get("refresh_token")
-            if not refresh_token:
-                return None
-            expires_in = tokens.get("expires_in", 0)
-            refresh_time = tokens.get("refresh_time", 0)
-            if expires_in and refresh_time + expires_in < int(time()):
-                tokens = self.__refresh_access_token(refresh_token)
-                if tokens:
-                    storagehelper.set_storage(
-                        storage="u115",
-                        conf={"refresh_time": int(time()), **tokens},
+            try:
+                storagehelper = StorageHelper()
+                u115_info = storagehelper.get_storage(storage="u115")
+                if not u115_info:
+                    return None
+                tokens = u115_info.config
+                refresh_token = tokens.get("refresh_token")
+                if not refresh_token:
+                    return None
+                expires_in = tokens.get("expires_in", 0)
+                refresh_time = tokens.get("refresh_time", 0)
+                if expires_in and refresh_time + expires_in < int(time()):
+                    tokens = self.__refresh_access_token(refresh_token)
+                    if tokens:
+                        storagehelper.set_storage(
+                            storage="u115",
+                            conf={"refresh_time": int(time()), **tokens},
+                        )
+                access_token = tokens.get("access_token")
+                if access_token:
+                    self.session.headers.update(
+                        {"Authorization": f"Bearer {access_token}"}
                     )
-            access_token = tokens.get("access_token")
-            if access_token:
-                self.session.headers.update({"Authorization": f"Bearer {access_token}"})
-            return access_token
+                return access_token
+            except Exception as e:
+                logger.error(f"【P115Open】获取访问 Token 出现未知错误: {e}")
 
     def __refresh_access_token(self, refresh_token: str) -> Optional[dict]:
         """
@@ -123,6 +128,7 @@ class U115OpenHelper:
             logger.warn(
                 f"【P115Open】刷新 access_token 失败：{result.get('code')} - {result.get('message')}！"
             )
+            return None
         return result.get("data")
 
     def _request_api(
@@ -161,9 +167,12 @@ class U115OpenHelper:
         # 返回数据
         ret_data = resp.json()
         if ret_data.get("code") != 0:
-            logger.warn(
-                f"【P115Open】{method} 请求 {endpoint} 出错：{ret_data.get('message')}！"
-            )
+            error_msg = ret_data.get("message")
+            logger.warn(f"【P115Open】{method} 请求 {endpoint} 出错：{error_msg}！")
+            if "已达到当前访问上限" in error_msg:
+                sleep(70)
+                return self._request_api(method, endpoint, result_key, **kwargs)
+            return None
 
         if result_key:
             return ret_data.get(result_key)
@@ -174,8 +183,8 @@ class U115OpenHelper:
         自动延迟重试 get_item 模块
         """
         storagechain = StorageChain()
-        for _ in range(2):
-            sleep(2)
+        for i in range(1, 4):
+            sleep(2**i)
             fileitem = storagechain.get_file_item(storage="u115", path=Path(path))
             if fileitem:
                 return fileitem
@@ -199,7 +208,11 @@ class U115OpenHelper:
         if not download_info:
             return None
         logger.debug(f"【P115Open】获取到下载信息: {download_info}")
-        return list(download_info.values())[0].get("url", {}).get("url")
+        try:
+            return list(download_info.values())[0].get("url", {}).get("url")
+        except Exception as e:
+            logger.error(f"【P115Open】解析下载链接失败: {e}")
+            return None
 
     @staticmethod
     def _calc_sha1(filepath: Path, size: Optional[int] = None) -> str:
@@ -388,6 +401,11 @@ class U115OpenHelper:
                 )
                 if not init_resp:
                     return None
+                if not init_resp.get("state"):
+                    logger.warn(
+                        f"【P115Open】处理二次认证失败: {init_resp.get('error')}"
+                    )
+                    return None
                 # 二次认证结果
                 init_result = init_resp.get("data")
                 logger.debug(f"【P115Open】上传 Step 2 二次认证结果: {init_result}")
@@ -427,23 +445,31 @@ class U115OpenHelper:
                         params={"file_id": int(file_id)},
                     )
                     if info_resp:
-                        return schemas.FileItem(
-                            storage="u115",
-                            fileid=str(info_resp["file_id"]),
-                            path=str(target_path)
-                            + ("/" if info_resp["file_category"] == "0" else ""),
-                            type="file" if info_resp["file_category"] == "1" else "dir",
-                            name=info_resp["file_name"],
-                            basename=Path(info_resp["file_name"]).stem,
-                            extension=Path(info_resp["file_name"]).suffix[1:].lower()
-                            if info_resp["file_category"] == "1"
-                            else None,
-                            pickcode=info_resp["pick_code"],
-                            size=StringUtils.num_filesize(info_resp["size"])
-                            if info_resp["file_category"] == "1"
-                            else None,
-                            modify_time=info_resp["utime"],
-                        )
+                        try:
+                            return schemas.FileItem(
+                                storage="u115",
+                                fileid=str(info_resp["file_id"]),
+                                path=str(target_path)
+                                + ("/" if info_resp["file_category"] == "0" else ""),
+                                type="file"
+                                if info_resp["file_category"] == "1"
+                                else "dir",
+                                name=info_resp["file_name"],
+                                basename=Path(info_resp["file_name"]).stem,
+                                extension=Path(info_resp["file_name"])
+                                .suffix[1:]
+                                .lower()
+                                if info_resp["file_category"] == "1"
+                                else None,
+                                pickcode=info_resp["pick_code"],
+                                size=StringUtils.num_filesize(info_resp["size"])
+                                if info_resp["file_category"] == "1"
+                                else None,
+                                modify_time=info_resp["utime"],
+                            )
+                        except Exception as e:
+                            logger.error(f"【P115Open】处理返回信息失败: {e}")
+                            return None
                 return self._delay_get_item(target_path)
 
             # 判断是等待秒传还是直接上传
@@ -745,15 +771,19 @@ class U115OpenHelper:
                 logger.warn(f"【P115Open】创建目录失败: {resp.get('error')}")
                 return None
             logger.debug(f"【P115Open】OpenAPI 创建目录: {new_path}")
-            return schemas.FileItem(
-                storage="u115",
-                fileid=str(resp["data"]["file_id"]),
-                path=str(new_path) + "/",
-                name=name,
-                basename=name,
-                type="dir",
-                modify_time=int(time()),
-            )
+            try:
+                return schemas.FileItem(
+                    storage="u115",
+                    fileid=str(resp["data"]["file_id"]),
+                    path=str(new_path) + "/",
+                    name=name,
+                    basename=name,
+                    type="dir",
+                    modify_time=int(time()),
+                )
+            except Exception as e:
+                logger.error(f"【P115Open】处理返回信息失败: {e}")
+                return None
         else:
             resp = self.cookie_client.fs_mkdir(name, pid=int(parent_item.fileid or "0"))
             if not resp.get("state"):
@@ -762,15 +792,19 @@ class U115OpenHelper:
                 logger.warn(f"【P115Open】创建目录失败: {resp}")
                 return None
             logger.debug(f"【P115Open】Cookie 创建目录: {new_path}")
-            return schemas.FileItem(
-                storage="u115",
-                fileid=str(resp["cid"]),
-                path=str(new_path) + "/",
-                name=name,
-                basename=name,
-                type="dir",
-                modify_time=int(time()),
-            )
+            try:
+                return schemas.FileItem(
+                    storage="u115",
+                    fileid=str(resp["cid"]),
+                    path=str(new_path) + "/",
+                    name=name,
+                    basename=name,
+                    type="dir",
+                    modify_time=int(time()),
+                )
+            except Exception as e:
+                logger.error(f"【P115Open】处理返回信息失败: {e}")
+                return None
 
     def open_get_item(self, path: Path) -> Optional[schemas.FileItem]:
         """
