@@ -148,6 +148,20 @@ class TransferTaskManager:
             with self._lock:
                 self._processing = False
 
+                # 检查是否还有待处理的任务，如果有则立即触发下一批处理
+                if self._pending_tasks:
+                    pending_count = len(self._pending_tasks)
+                    logger.info(
+                        f"【整理接管】批量处理完成后，队列中仍有 {pending_count} 个待处理任务，"
+                        f"立即触发下一批处理"
+                    )
+                    should_trigger_next = True
+                else:
+                    should_trigger_next = False
+
+            if should_trigger_next:
+                self._trigger_batch_process()
+
     def flush(self) -> None:
         """
         立即处理所有待处理任务（不等待延迟）
