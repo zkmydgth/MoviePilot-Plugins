@@ -33,11 +33,12 @@
         "name": "哔哩哔哩探索",
         "description": "让探索支持哔哩哔哩的数据浏览。",
         "labels": "探索",
-        "version": "1.0.2",
+        "version": "1.0.3",
         "icon": "Bilibili_E.png",
         "author": "DDSRem",
         "level": 1,
         "history": {
+            "v1.0.3": "优化加载速度",
             "v1.0.2": "修复分类菜单切换后显示错误",
             "v1.0.1": "显示B站评分",
             "v1.0.0": "正式发布，检索功能完成",
