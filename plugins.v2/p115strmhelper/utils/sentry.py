@@ -39,8 +39,35 @@ def capture_all_class_exceptions(cls):
     """
     类装饰器
     """
-    for name, method in inspect.getmembers(cls, inspect.isfunction):
-        if not name.startswith("_"):
-            setattr(cls, name, capture_plugin_exceptions(method))
+    for name, attr in cls.__dict__.items():
+        if name.startswith("_"):
+            continue
+
+        original_function = None
+        is_static = False
+        is_class = False
+
+        if isinstance(attr, staticmethod):
+            original_function = attr.__func__
+            is_static = True
+        elif isinstance(attr, classmethod):
+            original_function = attr.__func__
+            is_class = True
+        elif inspect.isfunction(attr):
+            original_function = attr
+
+        if original_function:
+            wrapped_function = capture_plugin_exceptions(original_function)
+
+            if is_static:
+                # 重新包装为 staticmethod
+                final_method = staticmethod(wrapped_function)
+            elif is_class:
+                # 重新包装为 classmethod
+                final_method = classmethod(wrapped_function)
+            else:
+                final_method = wrapped_function
+
+            setattr(cls, name, final_method)
 
     return cls
