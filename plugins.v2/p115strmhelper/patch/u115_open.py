@@ -100,6 +100,8 @@ class U115Patcher:
             logger.info("【P115Open】上传接口补丁应用成功")
 
         if configer.transfer_module_enhancement:
+            logger.warn("【P115Open】整理增强功能目前不可用！")
+            return
             modules = ["create_folder", "get_item", "get_folder"]
             for module in modules:
                 if cls._func_active.get(module):
