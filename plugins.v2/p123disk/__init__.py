@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import Any, List, Dict, Tuple, Optional
 
-from p123 import P123Client
+from p123client import P123Client
 from .p123_api import P123Api
 
 from app import schemas
@@ -55,7 +55,7 @@ class P123Disk(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/DDS-Derek/MoviePilot-Plugins/main/icons/P123Disk.png"
     # 插件版本
-    plugin_version = "1.0.13"
+    plugin_version = "1.0.14"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -75,9 +75,18 @@ class P123Disk(_PluginBase):
     _passport = None
     _password = None
 
-    def init_plugin(self, config: dict = None):
+    def __init__(self):
+        """
+        初始化
+        """
+        super().__init__()
+
         self._disk_name = "123云盘"
 
+    def init_plugin(self, config: dict = None):
+        """
+        初始化插件
+        """
         if config:
             storage_helper = StorageHelper()
             storages = storage_helper.get_storagies()
