@@ -573,17 +573,20 @@ class MediaSyncDelHelper:
             return "", []
         return msg, transfer_history
 
-    def __delete_p115_files(self, file_path: str, media_name: str):
+    def __delete_p115_files(self, storage: str, file_path: str, media_name: str):
         """
         删除 115 网盘文件
 
+        :param storage: 储存类型
         :param file_path: 文件路径
         :param media_name: 媒体名称
         """
         try:
+            if storage not in {"u115", "115网盘Plus", "CloudDrive储存"}:
+                raise OSError("不支持的储存类型")
             # 获取文件(夹)详细信息
             fileitem = self.storagechain.get_file_item(
-                storage=configer.storage_module, path=Path(file_path)
+                storage=storage, path=Path(file_path)
             )
             if fileitem.type == "dir":
                 # 删除整个文件夹
@@ -853,6 +856,7 @@ class MediaSyncDelHelper:
                 if p115_force_delete_files:
                     logger.warn(f"【同步删除】{media_name} 强制删除网盘媒体文件")
                     self.__delete_p115_files(
+                        storage=configer.storage_module,
                         file_path=media_path,
                         media_name=media_name,
                     )
@@ -879,6 +883,7 @@ class MediaSyncDelHelper:
                 self.transferhis.delete(transferhis.id)
 
                 self.__delete_p115_files(
+                    storage=transferhis.dest_storage,
                     file_path=transferhis.dest,
                     media_name=media_name,
                 )
