@@ -2,7 +2,7 @@ from itertools import batched
 from pathlib import Path
 from threading import Thread
 from time import sleep
-from typing import List, Dict, Optional, Tuple, Iterator
+from typing import List, Dict, Optional, Tuple, Iterator, Any, Generator
 
 from p115client import P115Client
 from p115client.tool.export_dir import export_dir_parse_iter
@@ -120,7 +120,9 @@ class IncrementSyncStrmHelper:
         self.pan_tree.clear()
         self.pan_to_local_tree.clear()
 
-    def __itertree(self, pan_path: str, local_path: str) -> Iterator:
+    def __itertree(
+        self, pan_path: str, local_path: str
+    ) -> Generator[tuple[str, str], Any, None]:
         """
         迭代目录树
 
@@ -135,34 +137,43 @@ class IncrementSyncStrmHelper:
         if cid == -1:
             raise PanPathNotFound(f"网盘路径不存在: {pan_path}")
         self.api_count += 4
-        cnt = 0
-        for item in export_dir_parse_iter(
+
+        items_iterator = export_dir_parse_iter(
             client=self.client, export_file_ids=cid, delete=True
-        ):
-            if cnt < 1:
-                cnt += 1
-                continue
-            elif cnt == 1:
-                relative_path = item
-                cnt += 1
-                continue
-            item_path = Path(pan_path) / Path(item).relative_to(relative_path)
-            if item_path.name != item_path.stem:
-                relative_item_path = item_path.relative_to(pan_path)
-                local_item_path = Path(local_path) / relative_item_path
-                if item_path.suffix.lower() in self.rmt_mediaext:
-                    yield (
-                        local_item_path.with_suffix(".strm").as_posix(),
-                        item_path.as_posix(),
-                    )
-                elif (
-                    item_path.suffix.lower() in self.download_mediaext
-                    and self.auto_download_mediainfo
-                ):
-                    yield (
-                        local_item_path.as_posix(),
-                        item_path.as_posix(),
-                    )
+        )
+        try:
+            next(items_iterator)
+            relative_path = next(items_iterator)
+        except StopIteration:
+            return
+
+        def process_file_item(item_str: str):
+            item_path = Path(pan_path) / Path(item_str).relative_to(relative_path)
+            relative_item_path = item_path.relative_to(pan_path)
+            local_item_path = Path(local_path) / relative_item_path
+
+            if item_path.suffix.lower() in self.rmt_mediaext:
+                yield (
+                    local_item_path.with_suffix(".strm").as_posix(),
+                    item_path.as_posix(),
+                )
+            elif (
+                item_path.suffix.lower() in self.download_mediaext
+                and self.auto_download_mediainfo
+            ):
+                yield (
+                    local_item_path.as_posix(),
+                    item_path.as_posix(),
+                )
+
+        previous_item = None
+        for current_item in items_iterator:
+            if previous_item is not None:
+                if not current_item.startswith(previous_item + "/"):
+                    yield from process_file_item(previous_item)
+            previous_item = current_item
+        if previous_item is not None:
+            yield from process_file_item(previous_item)
 
     def __iterdir(self, cid: int, path: str) -> Iterator:
         """
