@@ -29,7 +29,7 @@ from watchdog.observers.polling import PollingObserver
 from p115client import P115Client
 from p115client.exception import DataError
 from p115client.tool.iterdir import iter_files_with_path, get_path_to_cid, share_iterdir
-from p115client.tool.life import iter_life_behavior_list, life_show
+from p115client.tool.life import iter_life_behavior_once, life_show
 from p115client.tool.util import share_extract_payload
 from p115rsacipher import encrypt, decrypt
 
@@ -1033,7 +1033,7 @@ class P115StrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png"
     # 插件版本
-    plugin_version = "1.8.0"
+    plugin_version = "1.8.1"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -1191,10 +1191,6 @@ class P115StrmHelper(_PluginBase):
         """
         初始化插件
         """
-        self.mediaserver_helper = MediaServerHelper()
-        self.transferchain = TransferChain()
-        self.mediachain = MediaChain()
-        self.storagechain = StorageChain()
         self.pathmatchinghelper = PathMatchingHelper()
         self.monitor_stop_event = threading.Event()
 
@@ -1326,7 +1322,9 @@ class P115StrmHelper(_PluginBase):
             logger.warning("尚未配置媒体服务器，请检查配置")
             return None
 
-        services = self.mediaserver_helper.get_services(
+        mediaserver_helper = MediaServerHelper()
+
+        services = mediaserver_helper.get_services(
             name_filters=self._transfer_monitor_mediaservers
         )
         if not services:
@@ -1355,7 +1353,9 @@ class P115StrmHelper(_PluginBase):
             logger.warning("尚未配置媒体服务器，请检查配置")
             return None
 
-        services = self.mediaserver_helper.get_services(
+        mediaserver_helper = MediaServerHelper()
+
+        services = mediaserver_helper.get_services(
             name_filters=self._monitor_life_mediaservers
         )
         if not services:
@@ -1565,6 +1565,7 @@ class P115StrmHelper(_PluginBase):
         :param file_path: 文件路径
         :param rmt_mediaext: 媒体文件后缀名
         """
+        transferchain = TransferChain()
         file_category = event["file_category"]
         file_id = event["file_id"]
         if file_category == 0:
@@ -1591,7 +1592,7 @@ class P115StrmHelper(_PluginBase):
                         cache_top_path = True
                     if str(item["id"]) not in cache_file_id_list:
                         cache_file_id_list.append(str(item["id"]))
-                    self.transferchain.do_transfer(
+                    transferchain.do_transfer(
                         fileitem=FileItem(
                             storage="u115",
                             fileid=str(item["id"]),
@@ -1639,7 +1640,7 @@ class P115StrmHelper(_PluginBase):
                 # 缓存文件ID
                 if str(event["file_id"]) not in self.cache_creata_pan_transfer_list:
                     self.cache_creata_pan_transfer_list.append(str(event["file_id"]))
-                self.transferchain.do_transfer(
+                transferchain.do_transfer(
                     fileitem=FileItem(
                         storage="u115",
                         fileid=str(file_id),
@@ -1671,6 +1672,7 @@ class P115StrmHelper(_PluginBase):
         :param mediainfo: 媒体信息
         """
         item_name = item_name if item_name else Path(path).name
+        mediachain = MediaChain()
         logger.info(f"【媒体刮削】{item_name} 开始刮削元数据")
         if mediainfo:
             # 整理文件刮削
@@ -1712,27 +1714,25 @@ class P115StrmHelper(_PluginBase):
                         basename=dir_path.stem,
                         modify_time=dir_path.stat().st_mtime,
                     )
-            self.mediachain.scrape_metadata(
+            mediachain.scrape_metadata(
                 fileitem=fileitem, meta=meta, mediainfo=mediainfo
             )
         else:
             # 对于没有 mediainfo 的媒体文件刮削
             # 获取媒体信息
             meta = MetaInfoPath(Path(path))
-            mediainfo = self.mediachain.recognize_by_meta(meta)
+            mediainfo = mediachain.recognize_by_meta(meta)
             # 判断刮削路径
             # 先获取上级目录 meta
             file_type = "dir"
             dir_path = Path(path).parent
-            tem_mediainfo = self.mediachain.recognize_by_meta(MetaInfoPath(dir_path))
+            tem_mediainfo = mediachain.recognize_by_meta(MetaInfoPath(dir_path))
             # 只有上级目录信息和文件的信息一致时才继续判断上级目录
             if tem_mediainfo and tem_mediainfo.imdb_id == mediainfo.imdb_id:
                 if mediainfo.type == MediaType.TV:
                     # 如果是电视剧，再次获取上级目录媒体信息，兼容电视剧命名，获取 mediainfo
                     dir_path = dir_path.parent
-                    tem_mediainfo = self.mediachain.recognize_by_meta(
-                        MetaInfoPath(dir_path)
-                    )
+                    tem_mediainfo = mediachain.recognize_by_meta(MetaInfoPath(dir_path))
                     if tem_mediainfo and tem_mediainfo.imdb_id == mediainfo.imdb_id:
                         # 存在 mediainfo 则使用本级目录
                         finish_path = dir_path
@@ -1756,7 +1756,7 @@ class P115StrmHelper(_PluginBase):
                 basename=finish_path.stem,
                 modify_time=finish_path.stat().st_mtime,
             )
-            self.mediachain.scrape_metadata(
+            mediachain.scrape_metadata(
                 fileitem=fileitem, meta=meta, mediainfo=mediainfo
             )
 
@@ -1985,6 +1985,7 @@ class P115StrmHelper(_PluginBase):
         :param mon_path: 监控目录
         """
         file_path = Path(event_path)
+        storagechain = StorageChain()
         try:
             if not file_path.exists():
                 return
@@ -2005,9 +2006,7 @@ class P115StrmHelper(_PluginBase):
                     return
 
                 # 先判断文件是否存在
-                file_item = self.storagechain.get_file_item(
-                    storage="local", path=file_path
-                )
+                file_item = storagechain.get_file_item(storage="local", path=file_path)
                 if not file_item:
                     logger.warn(f"【目录上传】{event_path} 未找到对应的文件")
                     return
@@ -2046,14 +2045,14 @@ class P115StrmHelper(_PluginBase):
                         """
                         查找下级目录中匹配名称的目录
                         """
-                        for sub_folder in self.storagechain.list_files(_fileitem):
+                        for sub_folder in storagechain.list_files(_fileitem):
                             if sub_folder.type != "dir":
                                 continue
                             if sub_folder.name == _name:
                                 return sub_folder
                         return None
 
-                    target_fileitem = self.storagechain.get_file_item(
+                    target_fileitem = storagechain.get_file_item(
                         storage="u115", path=target_file_path.parent
                     )
                     if not target_fileitem:
@@ -2064,7 +2063,7 @@ class P115StrmHelper(_PluginBase):
                             if dir_file:
                                 target_fileitem = dir_file
                             else:
-                                dir_file = self.storagechain.create_folder(
+                                dir_file = storagechain.create_folder(
                                     target_fileitem, part
                                 )
                                 if not dir_file:
@@ -2075,7 +2074,7 @@ class P115StrmHelper(_PluginBase):
                                 target_fileitem = dir_file
 
                     # 上传流程
-                    if self.storagechain.upload_file(
+                    if storagechain.upload_file(
                         target_fileitem, file_path, file_path.name
                     ):
                         logger.info(
@@ -2305,10 +2304,11 @@ class P115StrmHelper(_PluginBase):
             return
 
         try:
+            storagechain = StorageChain()
             if subtitle_list:
                 logger.info("【监控整理STRM生成】开始下载字幕文件")
                 for _path in subtitle_list:
-                    fileitem = self.storagechain.get_file_item(
+                    fileitem = storagechain.get_file_item(
                         storage="u115", path=Path(_path)
                     )
                     _databasehelper.upsert_batch(
@@ -2334,7 +2334,7 @@ class P115StrmHelper(_PluginBase):
             if audio_list:
                 logger.info("【监控整理STRM生成】开始下载音频文件")
                 for _path in audio_list:
-                    fileitem = self.storagechain.get_file_item(
+                    fileitem = storagechain.get_file_item(
                         storage="u115", path=Path(_path)
                     )
                     _databasehelper.upsert_batch(
@@ -2864,18 +2864,15 @@ class P115StrmHelper(_PluginBase):
 
         file_rename(fileitem=dest_fileitem, refresh=True)
 
+        storagechain = StorageChain()
         if subtitle_list:
             for _path in subtitle_list:
-                fileitem = self.storagechain.get_file_item(
-                    storage="u115", path=Path(_path)
-                )
+                fileitem = storagechain.get_file_item(storage="u115", path=Path(_path))
                 file_rename(fileitem=fileitem)
 
         if audio_list:
             for _path in audio_list:
-                fileitem = self.storagechain.get_file_item(
-                    storage="u115", path=Path(_path)
-                )
+                fileitem = storagechain.get_file_item(storage="u115", path=Path(_path))
                 file_rename(fileitem=fileitem)
 
     def monitor_life_strm_files(self):
@@ -3382,10 +3379,33 @@ class P115StrmHelper(_PluginBase):
             return
         logger.info("【监控生活事件】生活事件监控启动中...")
         try:
-            for events_batch in iter_life_behavior_list(self._client, cooldown=int(20)):
+            from_time = time.time()
+            from_id = 0
+            while True:
                 if self.monitor_stop_event.is_set():
                     logger.info("【监控生活事件】收到停止信号，退出上传事件监控")
                     break
+                while True:
+                    if not TransferChain().get_queue_tasks():
+                        break
+                    logger.debug(
+                        "【监控生活事件】MoviePilot 整理运行中，等待整理完成后继续监控生活事件..."
+                    )
+                    time.sleep(20)
+                events_batch: List = []
+                first_loop: bool = True
+                for event in iter_life_behavior_once(
+                    self._client,
+                    from_time,
+                    from_id,
+                    app="web",
+                    cooldown=2,
+                ):
+                    if first_loop:
+                        from_id = int(event["id"])
+                        from_time = int(event["update_time"])
+                        first_loop = False
+                    events_batch.append(event)
                 if not events_batch:
                     time.sleep(20)
                     continue
@@ -3668,9 +3688,10 @@ class P115StrmHelper(_PluginBase):
                 if hasattr(self, f"_{key}")
                 else self.__default_config[key]
             )
+        mediaserver_helper = MediaServerHelper()
         config["mediaservers"] = [
             {"title": config.name, "value": config.name}
-            for config in self.mediaserver_helper.get_configs().values()
+            for config in mediaserver_helper.get_configs().values()
         ]
         return config
 

@@ -408,6 +408,10 @@
                       </v-alert>
                     </v-col>
                   </v-row>
+
+                  <v-alert type="warning" variant="tonal" density="compact" class="mt-2">
+                    注意：当 MoviePilot 主程序运行整理任务时 115生活事件 监控会自动暂停，整理运行完成后会继续监控。
+                  </v-alert>
                 </v-card-text>
               </v-window-item>
 
