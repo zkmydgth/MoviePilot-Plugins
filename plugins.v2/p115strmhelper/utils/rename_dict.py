@@ -357,6 +357,7 @@ class RenameDictUtils:
         has_dovi, has_hdr10plus = RenameDictUtils._video_stream_hdr_flags(video_s)
         ct = (video_s.get("color_transfer") or "").lower().strip()
         cp = (video_s.get("color_primaries") or "").lower().strip()
+        cs = (video_s.get("color_space") or "").lower().strip()
 
         tokens: List[str] = []
         if has_dovi:
@@ -370,7 +371,9 @@ class RenameDictUtils:
                 tokens.append("HLG")
 
         if not tokens:
-            if ct == "bt709" and (not cp or cp == "bt709"):
+            primaries_ok = not cp or cp == "bt709"
+            transfer_sdr = ct == "bt709" or (not ct and cs == "bt709")
+            if transfer_sdr and primaries_ok:
                 tokens.append("SDR")
 
         if not tokens:

@@ -23,7 +23,7 @@ class FFprobeNamingSupplement(_PluginBase):
     plugin_name = "ffprobe命名补充"
     plugin_desc = "整理重命名时调用 ffprobe，补全命名模板中的 videoFormat、videoCodec、audioCodec、fps、effect，支持 STRM "
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/refs/heads/main/icons/ffmpeg.png"
-    plugin_version = "0.1.4"
+    plugin_version = "0.1.5"
     plugin_author = "DDSRem"
     author_url = "https://github.com/DDSRem"
     plugin_config_prefix = "ffprobenamingsupplement_"
@@ -572,6 +572,7 @@ class FFprobeNamingSupplement(_PluginBase):
         has_dovi, has_hdr10plus = cls._video_stream_hdr_flags(video_s)
         ct = (video_s.get("color_transfer") or "").lower().strip()
         cp = (video_s.get("color_primaries") or "").lower().strip()
+        cs = (video_s.get("color_space") or "").lower().strip()
 
         tokens: List[str] = []
         if has_dovi:
@@ -585,7 +586,9 @@ class FFprobeNamingSupplement(_PluginBase):
                 tokens.append("HLG")
 
         if not tokens:
-            if ct == "bt709" and (not cp or cp == "bt709"):
+            primaries_ok = not cp or cp == "bt709"
+            transfer_sdr = ct == "bt709" or (not ct and cs == "bt709")
+            if transfer_sdr and primaries_ok:
                 tokens.append("SDR")
 
         if not tokens:
