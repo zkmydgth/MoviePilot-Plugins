@@ -43,7 +43,7 @@ from .schemas.u115 import (
     StorageInfo,
 )
 from .schemas.plugin import PluginStatusData
-from .schemas.base import ApiResponse
+from .schemas.api import ApiResponse
 from .schemas.share import ShareApiData, ShareResponseData, ShareSaveParent
 from .schemas.strm_api import StrmApiPayloadData
 from .utils.sentry import sentry_manager

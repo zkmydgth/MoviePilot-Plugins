@@ -113,34 +113,47 @@ class ConfigManager(BaseModel):
         return data
 
     # 插件名称
-    PLUSIN_NAME: str = Field("P115StrmHelper", min_length=1)
+    PLUSIN_NAME: str = Field(
+        default="P115StrmHelper", min_length=1, description="插件名称"
+    )
     # 是否开启数据库WAL模式
     DB_WAL_ENABLE: bool = True
     # 插件配置目录
-    PLUGIN_CONFIG_PATH: Path = Field(default_factory=_get_default_plugin_config_path)
+    PLUGIN_CONFIG_PATH: Path = Field(
+        default_factory=_get_default_plugin_config_path, description="插件配置目录"
+    )
     # 插件数据库目录
-    PLUGIN_DB_PATH: Path = Field(default_factory=_get_default_plugin_db_path)
+    PLUGIN_DB_PATH: Path = Field(
+        default_factory=_get_default_plugin_db_path, description="插件数据库目录"
+    )
     # 插件数据库表目录
     PLUGIN_DATABASE_SCRIPT_LOCATION: Path = Field(
-        default_factory=_get_default_plugin_database_script_location
+        default_factory=_get_default_plugin_database_script_location,
+        description="插件数据库表目录",
     )
     PLUGIN_DATABASE_VERSION_LOCATIONS: List[str] = [
         str(_get_default_plugin_config_path() / "database/versions")
     ]
     # 插件临时目录
-    PLUGIN_TEMP_PATH: Path = Field(default_factory=_get_default_plugin_temp_path)
+    PLUGIN_TEMP_PATH: Path = Field(
+        default_factory=_get_default_plugin_temp_path, description="插件临时目录"
+    )
 
     # 插件语言
-    language: str = Field("zh_CN", min_length=1)
+    language: str = Field(default="zh_CN", min_length=1, description="插件语言")
 
     # 插件总开关
     enabled: bool = False
     # 通知开关
     notify: bool = False
     # 生成 STRM URL 格式
-    strm_url_format: str = Field("pickcode", min_length=1)
+    strm_url_format: str = Field(
+        default="pickcode", min_length=1, description="生成 STRM URL 格式"
+    )
     # 302 跳转方式
-    link_redirect_mode: str = Field("cookie", min_length=1)
+    link_redirect_mode: str = Field(
+        default="cookie", min_length=1, description="302 跳转方式"
+    )
     # 115 Cookie
     cookies: Optional[str] = None
     # 阿里云盘 Token
@@ -148,14 +161,19 @@ class ConfigManager(BaseModel):
     # 115 安全码
     password: Optional[str] = None
     # MoviePilot 地址
-    moviepilot_address: Optional[str] = Field(None, min_length=1)
+    moviepilot_address: Optional[str] = Field(
+        default=None, min_length=1, description="MoviePilot 地址"
+    )
     # 可识别媒体后缀
     user_rmt_mediaext: str = Field(
-        "mp4,mkv,ts,iso,rmvb,avi,mov,mpeg,mpg,wmv,3gp,asf,m4v,flv,m2ts,tp,f4v",
+        default="mp4,mkv,ts,iso,rmvb,avi,mov,mpeg,mpg,wmv,3gp,asf,m4v,flv,m2ts,tp,f4v",
         min_length=1,
+        description="可识别媒体后缀",
     )
     # 可识别下载后缀
-    user_download_mediaext: str = Field("srt,ssa,ass", min_length=1)
+    user_download_mediaext: str = Field(
+        default="srt,ssa,ass", min_length=1, description="可识别下载后缀"
+    )
 
     # 整理事件监控开关
     transfer_monitor_enabled: bool = False
@@ -201,7 +219,11 @@ class ConfigManager(BaseModel):
     # 全量同步文件处理线程数
     full_sync_process_num: Union[int, str] = 128
     # 全量同步使用的函数
-    full_sync_iter_function: str = Field("iter_files_with_path_skim", min_length=1)
+    full_sync_iter_function: str = Field(
+        default="iter_files_with_path_skim",
+        min_length=1,
+        description="全量同步使用的函数",
+    )
     # 全量同步处理数据使用 rust 模块
     full_sync_process_rust: bool = False
 
@@ -251,7 +273,9 @@ class ConfigManager(BaseModel):
     # 生活事件生成最小文件大小
     monitor_life_min_file_size: Optional[int] = None
     # 生活事件启动拉取模式
-    monitor_life_first_pull_mode: str = Field("latest", min_length=1)
+    monitor_life_first_pull_mode: str = Field(
+        default="latest", min_length=1, description="生活事件启动拉取模式"
+    )
     # 生活事件事件等待时间
     monitor_life_event_wait_time: int = 0
 
@@ -294,23 +318,32 @@ class ConfigManager(BaseModel):
     # 监控目录上传开关
     directory_upload_enabled: bool = False
     # 监控目录模式
-    directory_upload_mode: str = Field("compatibility", min_length=1)
+    directory_upload_mode: str = Field(
+        default="compatibility", min_length=1, description="监控目录模式"
+    )
     # 可上传文件后缀
     directory_upload_uploadext: str = Field(
-        "mp4,mkv,ts,iso,rmvb,avi,mov,mpeg,mpg,wmv,3gp,asf,m4v,flv,m2ts,tp,f4v",
+        default="mp4,mkv,ts,iso,rmvb,avi,mov,mpeg,mpg,wmv,3gp,asf,m4v,flv,m2ts,tp,f4v",
         min_length=1,
+        description="可上传文件后缀",
     )
     # 可本地操作文件后缀
-    directory_upload_copyext: str = Field("srt,ssa,ass", min_length=1)
+    directory_upload_copyext: str = Field(
+        default="srt,ssa,ass", min_length=1, description="可本地操作文件后缀"
+    )
     # 监控目录信息
     directory_upload_path: Optional[List[Dict]] = None
 
     # TG 搜索频道
     tg_search_channels: Optional[List[Dict]] = None
     # Nullbr APP ID
-    nullbr_app_id: Optional[str] = Field(None, min_length=1)
+    nullbr_app_id: Optional[str] = Field(
+        default=None, min_length=1, description="Nullbr APP ID"
+    )
     # Nullbr API KEY
-    nullbr_api_key: Optional[str] = Field(None, min_length=1)
+    nullbr_api_key: Optional[str] = Field(
+        default=None, min_length=1, description="Nullbr API KEY"
+    )
 
     # 多端播放同一个文件
     same_playback: bool = False
