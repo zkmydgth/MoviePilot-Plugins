@@ -27,6 +27,7 @@ from cachetools import cached, TTLCache, LRUCache
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 from watchdog.observers.polling import PollingObserver
+from sqlalchemy.orm.exc import MultipleResultsFound
 from p115client import P115Client
 from p115client.exception import DataError
 from p115client.tool.fs_files import iter_fs_files
@@ -639,7 +640,11 @@ class IncrementSyncStrmHelper:
         通过路径获取 pickcode
         """
         while True:
-            file_item = self.databasehelper.get_by_path(path=path)
+            try:
+                file_item = self.databasehelper.get_by_path(path=path)
+            except MultipleResultsFound:
+                self.databasehelper.remove_by_path_batch(path=path, only_file=True)
+                file_item = None
             if file_item:
                 return file_item.get("pickcode")
             file_path = Path(path)
@@ -1524,7 +1529,7 @@ class P115StrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png"
     # 插件版本
-    plugin_version = "1.8.14"
+    plugin_version = "1.8.15"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
