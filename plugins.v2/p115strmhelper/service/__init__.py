@@ -693,6 +693,126 @@ class ServiceHelper:
             return False
         return self.fuse_manager.start_fuse(mountpoint, readdir_ttl)
 
+    def run_backup_task(self, task_name: str):
+        """
+        执行备份任务
+
+        :param task_name: 备份任务名称
+        """
+        if not configer.strm_backup_enabled:
+            return
+
+        backup_items = configer.strm_backup_items
+        task = None
+        for item in backup_items:
+            if item.name == task_name:
+                task = item
+                break
+
+        if not task:
+            logger.error(f"【STRM备份】备份任务不存在: {task_name}")
+            return
+
+        from ..helper.backup import backup_helper
+
+        logger.info(f"【STRM备份】开始执行备份任务: {task_name}")
+        history = backup_helper.execute_backup(task, client=self.client)
+
+        if history.status == "success":
+            logger.info(
+                f"【STRM备份】备份成功: {task_name}, "
+                f"文件: {history.filename}, 大小: {history.file_size} 字节"
+            )
+        elif history.status == "skipped":
+            logger.info(
+                f"【STRM备份】备份任务已跳过: {task_name}, 原因: {history.error_msg}"
+            )
+        else:
+            logger.error(
+                f"【STRM备份】备份失败: {task_name}, 错误: {history.error_msg}"
+            )
+
+    def start_backup_task(self, task):
+        """
+        启动备份任务
+
+        :param task: StrmBackupItem 备份任务配置
+        """
+        scheduler = BackgroundScheduler(timezone=settings.TZ)
+        scheduler.add_job(
+            func=self.run_backup_task,
+            args=[task.name],
+            trigger="date",
+            run_date=datetime.now(tz=timezone(settings.TZ)) + timedelta(seconds=3),
+            name=f"STRM备份-{task.name}",
+        )
+        if scheduler.get_jobs():
+            scheduler.print_jobs()
+            scheduler.start()
+
+    def run_restore_task(self, task_name: str, backup_path: str):
+        """
+        执行恢复任务
+
+        :param task_name: 备份任务名称
+        :param backup_path: 备份文件路径
+        """
+        if not configer.strm_backup_enabled:
+            return
+
+        backup_items = configer.strm_backup_items
+        task = None
+        for item in backup_items:
+            if item.name == task_name:
+                task = item
+                break
+
+        if not task:
+            logger.error(f"【STRM恢复】备份任务不存在: {task_name}")
+            return
+
+        from ..helper.backup import backup_helper
+
+        logger.info(f"【STRM恢复】开始执行恢复任务: {task_name}, 路径: {backup_path}")
+
+        if task.target_type.value == "local":
+            success, error_msg = backup_helper.restore_from_local(
+                backup_path=backup_path,
+                source_paths=task.source_paths,
+            )
+        elif task.target_type.value == "cloud":
+            success, error_msg = backup_helper.restore_from_cloud(
+                cloud_path=backup_path,
+                source_paths=task.source_paths,
+                client=self.client,
+            )
+        else:
+            success, error_msg = False, f"不支持的备份目标类型: {task.target_type}"
+
+        if success:
+            logger.info(f"【STRM恢复】恢复成功: {task_name}")
+        else:
+            logger.error(f"【STRM恢复】恢复失败: {task_name}, 错误: {error_msg}")
+
+    def start_restore_task(self, task_name: str, backup_path: str):
+        """
+        启动恢复任务
+
+        :param task_name: 备份任务名称
+        :param backup_path: 备份文件路径
+        """
+        scheduler = BackgroundScheduler(timezone=settings.TZ)
+        scheduler.add_job(
+            func=self.run_restore_task,
+            args=[task_name, backup_path],
+            trigger="date",
+            run_date=datetime.now(tz=timezone(settings.TZ)) + timedelta(seconds=3),
+            name=f"STRM恢复-{task_name}",
+        )
+        if scheduler.get_jobs():
+            scheduler.print_jobs()
+            scheduler.start()
+
     def stop_fuse(self):
         """
         停止 FUSE 文件系统

@@ -662,6 +662,27 @@ class P115StrmHelper(_PluginBase):
                 "auth": "bear",
                 "summary": "获取 FUSE 状态",
             },
+            {
+                "path": "/trigger_backup",
+                "endpoint": self.api.trigger_backup_api,
+                "methods": ["POST"],
+                "auth": "bear",
+                "summary": "手动触发 STRM 备份任务",
+            },
+            {
+                "path": "/list_backups",
+                "endpoint": self.api.list_backups_api,
+                "methods": ["GET"],
+                "auth": "bear",
+                "summary": "列出 STRM 备份文件",
+            },
+            {
+                "path": "/restore_backup",
+                "endpoint": self.api.restore_backup_api,
+                "methods": ["POST"],
+                "auth": "bear",
+                "summary": "从 STRM 备份恢复",
+            },
         ]
         if getattr(self, "mcp_manager", None) is not None:
             apis.extend(
@@ -835,6 +856,22 @@ class P115StrmHelper(_PluginBase):
                     "kwargs": {},
                 }
             )
+        if configer.strm_backup_enabled and configer.strm_backup_items:
+            for backup_item in configer.strm_backup_items:
+                if (
+                    backup_item.enabled
+                    and backup_item.timing_enabled
+                    and backup_item.cron
+                ):
+                    cron_service.append(
+                        {
+                            "id": f"P115StrmHelper_strm_backup_{backup_item.name}",
+                            "name": f"STRM 定时备份-{backup_item.name}",
+                            "trigger": CronTrigger.from_crontab(backup_item.cron),
+                            "func": servicer.run_backup_task,
+                            "kwargs": {"task_name": backup_item.name},
+                        }
+                    )
         if cron_service:
             return cron_service
 

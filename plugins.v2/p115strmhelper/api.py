@@ -25,6 +25,7 @@ from .core.aliyunpan import AliyunPanLogin
 from .core.p115 import get_pid_by_path, get_pickcode_by_path
 from .helper.life.test import MonitorLifeTest
 from .helper.strm import ApiSyncStrmHelper
+from .helper.backup import backup_helper
 from .schemas.offline import (
     OfflineTasksPayload,
     AddOfflineTaskPayload,
@@ -1782,3 +1783,107 @@ class Api:
         except Exception as e:
             logger.error(f"【FUSE】获取状态失败: {e}", exc_info=True)
             return ApiResponse(code=-1, msg=f"获取状态失败: {str(e)}", data=None)
+
+    @staticmethod
+    def trigger_backup_api(task_name: str = Body(..., embed=True)) -> ApiResponse:
+        """
+        手动触发备份任务
+        """
+        try:
+            if not configer.strm_backup_enabled:
+                return ApiResponse(code=-1, msg="STRM 备份功能未启用")
+
+            if not task_name or not task_name.strip():
+                return ApiResponse(code=-1, msg="备份任务名称不能为空")
+
+            backup_items = configer.strm_backup_items
+            task = None
+            for item in backup_items:
+                if item.name == task_name:
+                    task = item
+                    break
+
+            if not task:
+                return ApiResponse(code=-1, msg=f"备份任务不存在: {task_name}")
+
+            servicer.start_backup_task(task)
+            return ApiResponse(msg=f"备份任务已启动: {task_name}")
+        except Exception as e:
+            logger.error(f"【STRM备份】启动备份任务失败: {e}", exc_info=True)
+            return ApiResponse(code=-1, msg=f"启动备份任务失败: {str(e)}")
+
+    @staticmethod
+    def list_backups_api(
+        task_name: str = Query(..., description="备份任务名称"),
+    ) -> ApiResponse:
+        """
+        列出备份文件
+        """
+        try:
+            if not configer.strm_backup_enabled:
+                return ApiResponse(code=-1, msg="STRM 备份功能未启用")
+
+            if not task_name or not task_name.strip():
+                return ApiResponse(code=-1, msg="备份任务名称不能为空")
+
+            backup_items = configer.strm_backup_items
+            task = None
+            for item in backup_items:
+                if item.name == task_name:
+                    task = item
+                    break
+
+            if not task:
+                return ApiResponse(code=-1, msg=f"备份任务不存在: {task_name}")
+
+            if task.target_type.value == "local":
+                backups = backup_helper.list_local_backups(task)
+            elif task.target_type.value == "cloud":
+                backups = backup_helper.list_cloud_backups(task)
+            else:
+                return ApiResponse(
+                    code=-1, msg=f"不支持的备份目标类型: {task.target_type}"
+                )
+
+            return ApiResponse(
+                code=0,
+                msg="获取备份列表成功",
+                data=[b.model_dump(mode="json") for b in backups],
+            )
+        except Exception as e:
+            logger.error(f"【STRM备份】列出备份失败: {e}", exc_info=True)
+            return ApiResponse(code=-1, msg=f"列出备份失败: {str(e)}")
+
+    @staticmethod
+    def restore_backup_api(
+        task_name: str = Body(...),
+        backup_path: str = Body(...),
+    ) -> ApiResponse:
+        """
+        从备份恢复
+        """
+        try:
+            if not configer.strm_backup_enabled:
+                return ApiResponse(code=-1, msg="STRM 备份功能未启用")
+
+            if not task_name or not task_name.strip():
+                return ApiResponse(code=-1, msg="备份任务名称不能为空")
+
+            backup_items = configer.strm_backup_items
+            task = None
+            for item in backup_items:
+                if item.name == task_name:
+                    task = item
+                    break
+
+            if not task:
+                return ApiResponse(code=-1, msg=f"备份任务不存在: {task_name}")
+
+            servicer.start_restore_task(
+                task_name=task_name,
+                backup_path=backup_path,
+            )
+            return ApiResponse(msg="恢复任务已启动，后台执行中")
+        except Exception as e:
+            logger.error(f"【STRM备份】恢复备份失败: {e}", exc_info=True)
+            return ApiResponse(code=-1, msg=f"恢复备份失败: {str(e)}")

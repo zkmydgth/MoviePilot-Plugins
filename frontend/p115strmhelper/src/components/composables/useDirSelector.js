@@ -108,6 +108,26 @@ export function useDirSelector(api, config, message, PLUGIN_ID, pathRefs) {
     if (pathType === 'syncDelLibrary' && index >= 0 && syncDelLibraryPaths.value[index] && fieldKey) {
       const currentPath = syncDelLibraryPaths.value[index][fieldKey] || '/';
       dirDialog.currentPath = currentPath;
+    } else if (pathType === 'backupItems' && index >= 0 && fieldKey) {
+      const backupItems = config.strm_backup_items;
+      if (backupItems && backupItems[index]) {
+        const currentPath = backupItems[index][fieldKey] || '/';
+        dirDialog.currentPath = currentPath;
+      } else {
+        dirDialog.currentPath = '/';
+      }
+    } else if (pathType === 'backupSourcePath' && index >= 0 && fieldKey) {
+      const backupItems = config.strm_backup_items;
+      if (backupItems && backupItems[index] && backupItems[index].source_paths) {
+        const srcIndex = parseInt(fieldKey, 10);
+        if (!isNaN(srcIndex) && backupItems[index].source_paths[srcIndex]) {
+          dirDialog.currentPath = backupItems[index].source_paths[srcIndex];
+        } else {
+          dirDialog.currentPath = '/';
+        }
+      } else {
+        dirDialog.currentPath = '/';
+      }
     } else {
       dirDialog.currentPath = '/';
     }
@@ -196,6 +216,26 @@ export function useDirSelector(api, config, message, PLUGIN_ID, pathRefs) {
           break;
         case 'directoryUpload':
           if (dirDialog.fieldKey && directoryUploadPaths.value[dirDialog.index]) directoryUploadPaths.value[dirDialog.index][dirDialog.fieldKey] = processedPath;
+          break;
+        case 'backupItems':
+          if (dirDialog.index >= 0 && dirDialog.fieldKey) {
+            const backupItems = config.strm_backup_items;
+            if (backupItems && backupItems[dirDialog.index]) {
+              backupItems[dirDialog.index][dirDialog.fieldKey] = processedPath;
+            }
+          }
+          break;
+        case 'backupSourcePath':
+          if (dirDialog.index >= 0 && dirDialog.fieldKey) {
+            const backupItems = config.strm_backup_items;
+            const item = backupItems && backupItems[dirDialog.index];
+            if (item && item.source_paths) {
+              const srcIndex = parseInt(dirDialog.fieldKey, 10);
+              if (!isNaN(srcIndex) && srcIndex < item.source_paths.length) {
+                item.source_paths[srcIndex] = processedPath;
+              }
+            }
+          }
           break;
       }
     }

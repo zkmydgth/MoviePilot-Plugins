@@ -24,6 +24,7 @@ from ..sidebar_nav import sidebar_nav_keys_known
 from ..version import VERSION
 from ..core.aliyunpan import AliyunPanLogin
 from ..schemas.cookie import U115Cookie
+from ..schemas.backup import StrmBackupItem
 from ..schemas.share import (
     ShareInteractiveGenStrmConfig,
     ShareStrmCleanupConfig,
@@ -151,6 +152,21 @@ class ConfigManager(BaseModel):
         if isinstance(v, list):
             return [
                 ShareStrmConfig.model_validate(item) if isinstance(item, dict) else item
+                for item in v
+            ]
+        return []
+
+    @field_validator("strm_backup_items", mode="before")
+    @classmethod
+    def _validate_strm_backup_items(cls, v: Any) -> List[StrmBackupItem]:
+        """
+        验证并转换 strm_backup_items
+        """
+        if v is None:
+            return []
+        if isinstance(v, list):
+            return [
+                StrmBackupItem.model_validate(item) if isinstance(item, dict) else item
                 for item in v
             ]
         return []
@@ -747,6 +763,11 @@ class ConfigManager(BaseModel):
     )
     strm_url_encode: bool = Field(default=False, description="STRM URL 文件名称编码")
 
+    strm_backup_enabled: bool = Field(default=False, description="STRM 备份功能总开关")
+    strm_backup_items: List[StrmBackupItem] = Field(
+        default_factory=list, description="STRM 备份任务列表"
+    )
+
     sync_del_enabled: bool = Field(default=False, description="同步删除开关")
     sync_del_notify: bool = Field(default=True, description="同步删除通知开关")
     sync_del_source: bool = Field(default=False, description="同步删除源文件")
@@ -785,7 +806,7 @@ class ConfigManager(BaseModel):
         """
         返回 p115center 许可证
         """
-        return "9898b17adf81b9fc08d7d4ef7fe387182ca89235e1fd5d5dff0c6d9f2e4f8866"
+        return "9a7fd3f1a902cea2042e2315a3b686aec20af7dcd05e022eadc63b5eeac62afd"
 
     @property
     def PLUGIN_ALIGO_PATH(self) -> Path:
