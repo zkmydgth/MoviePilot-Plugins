@@ -10,6 +10,7 @@
   D. 安全边界：试运行不过滤、异常放行、补丁可装可卸、失配不抛
 """
 
+import re
 import unittest
 
 import tests  # noqa: F401  触发宿主桩路径注入
@@ -392,32 +393,66 @@ class VarietyGuardTestCase(unittest.TestCase):
         )
         self.assertEqual(checkpoint.items, ())
 
-    def test_default_plus_keyword_does_not_hit_release_group(self):
-        """默认词表：发行组名 MAXPLUS 不得命中，单独的 .Plus. 标记必须命中。
+    def test_default_keyword_list_integrity(self):
+        """默认词表：47 项、无重复、全部合法正则；ASCII 项带词边界、中文项不带。"""
+        from varietyguard import DEFAULT_EXCLUDE_KEYWORDS
 
-        背景：2026-10-08 真机盘点发现下载目录里 70 个文件名含 `MAXPLUS`
-        （如 `...60Fps.MAXPLUS.H265...`），裸写 `Plus` 会把正片一起误伤。
-        """
+        self.assertEqual(len(DEFAULT_EXCLUDE_KEYWORDS), 47)
+        self.assertEqual(len(set(DEFAULT_EXCLUDE_KEYWORDS)), 47)
+        for pattern in DEFAULT_EXCLUDE_KEYWORDS:
+            re.compile(pattern)  # 非法正则会直接抛错
+        chinese_items = [w for w in DEFAULT_EXCLUDE_KEYWORDS if not w.isascii()]
+        ascii_items = [w for w in DEFAULT_EXCLUDE_KEYWORDS if w.isascii()]
+        self.assertEqual(len(chinese_items) + len(ascii_items), 47)
+        for item in ascii_items:
+            self.assertTrue(item.startswith("(?<!"), f"{item} 缺少左词边界")
+        for item in chinese_items:
+            self.assertFalse(item.startswith("(?<!"), f"{item} 中文词不应加词边界")
+
+    def test_default_boundary_does_not_hit_word_containing_strings(self):
+        """词边界：含词串（MAXPLUS / StartUp / Clubhouse / Reactionary / E0012）不得命中。"""
         from varietyguard import DEFAULT_EXCLUDE_KEYWORDS
 
         plugin = VarietyGuard()
-        self.assertIsNone(plugin._match_first(DEFAULT_EXCLUDE_KEYWORDS,
-                                             "[风声].The.Message.S01E01.2160p.60Fps.MAXPLUS.H265.mp4"))
-        self.assertEqual(
-            plugin._match_first(DEFAULT_EXCLUDE_KEYWORDS, "现在就出发.S04E01.Plus.2160p.mkv"),
-            r"(?<![A-Za-z])Plus(?![A-Za-z])",
-        )
-        self.assertIsNotNone(
-            plugin._match_first(DEFAULT_EXCLUDE_KEYWORDS, "现在就出发.S04E01.Plus版.2160p.mkv")
-        )
+        for name in (
+            "[风声].The.Message.S01E01.2160p.60Fps.MAXPLUS.H265.mp4",
+            "StartUp.S01E03.1080p.mkv",
+            "Clubhouse.S01E01.mkv",
+            "Reactionary.S01E02.mkv",
+            "Show.S01E0012.mkv",
+        ):
+            self.assertIsNone(
+                plugin._match_first(DEFAULT_EXCLUDE_KEYWORDS, name), f"{name} 不应命中"
+            )
+
+    def test_default_boundary_hits_real_markers(self):
+        """词边界：真标记仍必须命中（含多词短语与集号 E00/EP00）。"""
+        from varietyguard import DEFAULT_EXCLUDE_KEYWORDS
+
+        plugin = VarietyGuard()
+        for name in (
+            "现在就出发.S04E01.Plus.2160p.mkv",
+            "Show.Rapid.Case.1080p.mkv",
+            "Show.Rapid Case.1080p.mkv",
+            "Show.Detective.Club.S01E01.mkv",
+            "Show.S01E00.mkv",
+            "Show.EP00.mkv",
+            "现在就出发.S04E01.Pure.mkv",
+            "现在就出发.S04E01.Prologue.mkv",
+        ):
+            self.assertIsNotNone(
+                plugin._match_first(DEFAULT_EXCLUDE_KEYWORDS, name), f"{name} 应命中"
+            )
 
     def test_default_keywords_still_catch_real_non_main(self):
-        """默认词表的真非正片关键词仍必须命中。"""
+        """默认词表：中文非正片词（含本次新增）仍必须命中。"""
         from varietyguard import DEFAULT_EXCLUDE_KEYWORDS
 
         plugin = VarietyGuard()
         for name in ("现在就出发.先导片.S04E01.mkv", "现在就出发.花絮.S04E01.mkv",
-                     "现在就出发.S04E01.Prologue.mkv", "现在就出发.纯享版.S04E01.mkv"):
+                     "现在就出发.纯享版.S04E01.mkv", "现在就出发.巅峰.S04E01.mkv",
+                     "现在就出发.盛典.S04E01.mkv", "现在就出发.独家.S04E01.mkv",
+                     "现在就出发.未播.S04E01.mkv", "现在就出发.加更.S04E01.mkv"):
             self.assertIsNotNone(
                 plugin._match_first(DEFAULT_EXCLUDE_KEYWORDS, name), f"{name} 应命中"
             )

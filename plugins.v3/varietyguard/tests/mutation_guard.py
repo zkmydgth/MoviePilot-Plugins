@@ -71,10 +71,22 @@ MUTANTS = [
         "应导致 test_dry_run_records_but_keeps_items 失败",
     ),
     (
-        "默认词表退化：Plus 去掉词边界（会误伤 MAXPLUS 等发行组名）",
-        """    r"(?<![A-Za-z])Plus(?![A-Za-z])",""",
-        """    "Plus",""",
-        "应导致 test_default_plus_keyword_does_not_hit_release_group 失败",
+        "词边界机制失效：包装函数直接返回裸关键词（MAXPLUS / StartUp 会被误伤）",
+        """    parts = [re.escape(part) for part in re.split(r"[ ._-]+", keyword) if part]
+    body = r"[ ._-]*".join(parts)
+    if re.search(r"\\d", keyword):
+        return rf"(?<![A-Za-z]){body}(?![0-9])"
+    return rf"(?<![A-Za-z]){body}(?![A-Za-z])"
+""",
+        """    return keyword
+""",
+        "应导致 test_default_boundary_does_not_hit_word_containing_strings 失败",
+    ),
+    (
+        "集号右边界退化：含数字的关键词改用字母边界（S01E0012 会被误命中）",
+        """        return rf"(?<![A-Za-z]){body}(?![0-9])\"""",
+        """        return rf"(?<![A-Za-z]){body}(?![A-Za-z])\"""",
+        "应导致 test_default_boundary_does_not_hit_word_containing_strings 失败",
     ),
     (
         "异常不再放行：内部异常被抛出（会中断整理链）",

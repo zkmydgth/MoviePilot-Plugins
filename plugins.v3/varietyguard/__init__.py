@@ -49,21 +49,83 @@ from .version import VERSION
 
 # ============================ 默认配置 ============================
 
-# 默认的非正片关键词（正则，忽略大小写）。刻意不含过泛的 SP，避免误杀。
-# ⚠️ Plus 必须带「非字母」边界：实测本机下载目录里有 70 个文件名含发行组名 MAXPLUS
+# 默认的非正片关键词（中文原样；纯 ASCII 词在加载时统一加词边界，见 _wrap_boundary）。
+# ⚠️ 词边界是必需的：实测本机下载目录里有 70 个文件名含发行组名 MAXPLUS
 #    （如 `...60Fps.MAXPLUS.H265...`），裸写 Plus 会把正片一起误伤（2026-10-08 实测）。
-DEFAULT_EXCLUDE_KEYWORDS: Tuple[str, ...] = (
-    "先导",
-    "花絮",
-    "加更",
+# 词表来源：用户 2026-10-08 提供的 RULE4「排除综艺非正片」词表，去重后并入（47 项）。
+_RAW_DEFAULT_EXCLUDE: Tuple[str, ...] = (
+    # —— 中文关键词（无需边界）——
     "纯享",
+    "花絮",
     "预告",
-    r"(?<![A-Za-z])Plus(?![A-Za-z])",
-    "Prologue",
+    "学院",
+    "互动",
+    "采访",
+    "幕后",
+    "会员版",
+    "加更",
+    "抢先",
+    "先导",
+    "衍生",
+    "见面会",
+    "发布会",
+    "巅峰",
+    "盛典",
+    "颁奖",
+    "群访",
+    "晋级",
+    "突围",
+    "直击",
+    "速看",
+    "特别篇",
     "特辑",
     "彩蛋",
-    "会员版",
-    "抢先",
+    "未播",
+    "独家",
+    # —— 英文/数字关键词（自动加词边界）——
+    "Dinner",
+    "Pure",
+    "Plus",
+    "Teaser",
+    "Preview",
+    "Behind",
+    "Making",
+    "Club",
+    "Rapid Case",
+    "E00",
+    "EP00",
+    "Battle",
+    "Round",
+    "Cut",
+    "Reaction",
+    "Prologue",
+    "Epilogue",
+    "Start",
+    "SP",
+    "Detective Club",
+)
+
+
+def _wrap_boundary(keyword: str) -> str:
+    """给纯 ASCII 关键词加词边界，避免命中 MAXPLUS / StartUp 这类"含词串"。
+
+    - 中文（或含中文）关键词原样返回；
+    - 多词短语允许 `.` `_` `-` 空格 作为词间分隔（如 `Rapid Case` 也能命中 `Rapid.Case`）；
+    - 含数字的关键词右边界改为"不接数字"，这样 `S01E00` 能命中、`E0012` 不会误命中；
+    - 大小写不敏感由匹配处的 re.IGNORECASE 保证（与 Plus 一致）。
+    """
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9 ._-]*", keyword or ""):
+        return keyword
+    parts = [re.escape(part) for part in re.split(r"[ ._-]+", keyword) if part]
+    body = r"[ ._-]*".join(parts)
+    if re.search(r"\d", keyword):
+        return rf"(?<![A-Za-z]){body}(?![0-9])"
+    return rf"(?<![A-Za-z]){body}(?![A-Za-z])"
+
+
+# 生效的默认词表（ASCII 关键词已带词边界）
+DEFAULT_EXCLUDE_KEYWORDS: Tuple[str, ...] = tuple(
+    _wrap_boundary(word) for word in _RAW_DEFAULT_EXCLUDE
 )
 
 # 默认的正片白名单：命中即保留，优先于排除词（用于「正片花絮」这类混合文件名）。
@@ -633,7 +695,7 @@ class VarietyGuard(_PluginBase):
                                             "label": "非正片关键词（每行一个，支持正则）",
                                             "rows": 6,
                                             "persistent-hint": True,
-                                            "hint": "命中即跳过。默认已含 先导/花絮/加更/纯享/预告/Plus/Prologue/特辑/彩蛋/会员版/抢先；Plus 用词边界匹配，不会误伤 MAXPLUS 这类发行组名。",
+                                            "hint": "命中即跳过（正则、忽略大小写）。内置默认 47 项已带词边界：中文原样匹配，英文/数字词自动包成「非字母边界」（多词短语可用 . _ - 空格分隔；E00 用「不接数字」右边界）。⚠️ 自己新增的英文词不会自动加边界，若要防误伤请照写 (?<![A-Za-z])Word(?![A-Za-z])。",
                                         },
                                     }
                                 ],
