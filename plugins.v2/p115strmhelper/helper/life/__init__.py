@@ -6,22 +6,23 @@ from typing import List, Set, Dict, Optional
 from pathlib import Path
 from itertools import batched, chain
 
-from ..core.config import configer
-from ..core.message import post_message
-from ..core.scrape import media_scrape_metadata
-from ..core.cache import idpathcacher, pantransfercacher, lifeeventcacher
-from ..core.i18n import i18n
-from ..utils.path import PathUtils, PathRemoveUtils
-from ..utils.sentry import sentry_manager
-from ..utils.strm import StrmUrlGetter, StrmGenerater
-from ..utils.automaton import AutomatonUtils
-from ..utils.mediainfo_download import MediainfoDownloadMiddleware
-from ..utils.http import check_iter_path_data
-from ..utils.exception import FileItemKeyMiss
-from ..db_manager.oper import FileDbHelper, LifeEventDbHelper
-from ..helper.mediainfo_download import MediaInfoDownloader
-from ..helper.mediasyncdel import MediaSyncDelHelper
-from ..helper.mediaserver import MediaServerRefresh
+from ...core.config import configer
+from ...core.message import post_message
+from ...core.scrape import media_scrape_metadata
+from ...core.cache import idpathcacher, pantransfercacher, lifeeventcacher
+from ...core.i18n import i18n
+from ...utils.path import PathUtils, PathRemoveUtils
+from ...utils.sentry import sentry_manager
+from ...utils.strm import StrmUrlGetter, StrmGenerater
+from ...utils.automaton import AutomatonUtils
+from ...utils.mediainfo_download import MediainfoDownloadMiddleware
+from ...utils.http import check_iter_path_data
+from ...utils.exception import FileItemKeyMiss
+from ...db_manager.oper import FileDbHelper, LifeEventDbHelper
+from ...helper.mediainfo_download import MediaInfoDownloader
+from ...helper.mediasyncdel import MediaSyncDelHelper
+from ...helper.mediaserver import MediaServerRefresh
+from ...helper.life.queue import LifeTasksQueue
 
 from p115client import P115Client, AuthenticationError
 from p115client.tool.attr import get_path
@@ -69,6 +70,8 @@ class MonitorLife:
     def __init__(self, client: P115Client, mediainfodownloader: MediaInfoDownloader):
         self._client = client
         self.mediainfodownloader = mediainfodownloader
+
+        self.tasks_queue = LifeTasksQueue()
 
         self._monitor_life_notification_timer = None
         self._monitor_life_notification_queue = defaultdict(
@@ -810,15 +813,10 @@ class MonitorLife:
             sleep(20)
 
         events_batch: List = []
-        return_from_time: int = from_time
-        return_from_id: int = from_id
-
         for attempt in range(3, -1, -1):
             try:
                 # 每次尝试先清空旧的值
                 events_batch: List = []
-                return_from_time: int = from_time
-                return_from_id: int = from_id
 
                 events_iterator = iter_life_behavior_once(
                     client=self._client,
@@ -837,10 +835,7 @@ class MonitorLife:
                     # 迭代器为空，没有数据，属于正常情况
                     break
 
-                if "update_time" in first_event and "id" in first_event:
-                    return_from_id = int(first_event["id"])
-                    return_from_time = int(first_event["update_time"])
-                else:
+                if "update_time" not in first_event or "id" not in first_event:
                     break
 
                 events_batch = [first_event]
@@ -862,6 +857,13 @@ class MonitorLife:
         db_helper = LifeEventDbHelper()
         db_helper.upsert_batch_by_list(events_batch)
 
+        return_from_time: int = from_time
+        return_from_id: int = from_id
+        wait_time = configer.monitor_life_event_wait_time
+        if wait_time < 0:
+            wait_time = 0
+        process_time: int = int(time()) - wait_time
+        process_item: bool = False
         for event in reversed(events_batch):
             self.rmt_mediaext = [
                 f".{ext.strip()}"
@@ -891,6 +893,33 @@ class MonitorLife:
                 and int(event["type"]) != 18
                 and int(event["type"]) != 22
             ):
+                continue
+
+            if wait_time == 0:
+                return_from_id = int(event["id"])
+                return_from_time = int(event["update_time"])
+            elif self.tasks_queue.exist(event):
+                if not self.tasks_queue.time_done(process_time):
+                    continue
+                old_event = self.tasks_queue.pop()
+                return_from_id = int(event["id"])
+                return_from_time = int(event["update_time"])
+                if old_event["file_name"] != event["file_name"]:
+                    logger.info(
+                        f"【监控生活事件】{event['id']} 文件名称改变：{old_event['file_name']} -> {event['file_name']}"
+                    )
+                process_item = True
+            elif self.tasks_queue.inq(event) and self.tasks_queue.time_done(process_time):
+                logger.warning("【监控生活事件】生活事件等待队列出错，清空重新拉取...")
+                self.tasks_queue.clear()
+                break
+            elif not self.tasks_queue.inq(event):
+                self.tasks_queue.add(event)
+                logger.info(
+                    f"【监控生活事件】{event['id']} {event['file_name']} 加入等待队列"
+                )
+                continue
+            else:
                 continue
 
             if (
@@ -943,6 +972,10 @@ class MonitorLife:
                         event=event, file_path=file_path
                     )
                 )
+
+        if not process_item:
+            sleep(20)
+
         return return_from_time, return_from_id
 
     def check_status(self):
