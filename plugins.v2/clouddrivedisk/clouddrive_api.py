@@ -800,7 +800,7 @@ class CloudDriveApi:
 
                     dynamic_stall_timeout = stall_timeout
                     status_lc = str(status_str).lower()
-                    if "preprocess" in status_lc:
+                    if status_lc == "waitingforpreprocessing":
                         dynamic_stall_timeout = None
 
                     if dynamic_stall_timeout is not None and (
