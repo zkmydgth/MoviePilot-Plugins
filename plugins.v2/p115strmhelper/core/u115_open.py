@@ -101,7 +101,10 @@ class U115OpenHelper:
         检查会话是否过期
         """
         if not self.access_token:
-            raise U115NoCheckInException("【P115Open】请先扫码登录！")
+            raise U115NoCheckInException(
+                "【P115Open】未获取到有效的 115 Open 访问令牌（未授权或已失效）。"
+                "请在 MoviePilot「设置 → 存储」中为 115 网盘完成授权"
+            )
 
     @property
     def access_token(self) -> Optional[str]:
