@@ -1340,43 +1340,6 @@
                     </div>
                   </v-expand-transition>
 
-                  <v-row class="mt-4">
-                    <v-col cols="12">
-                      <v-combobox v-model="config.strm_generate_blacklist" label="STRM文件关键词过滤黑名单"
-                        hint="输入关键词后按回车确认，可添加多个。包含这些词的视频文件将不会生成STRM文件。" persistent-hint multiple chips closable-chips
-                        variant="outlined" density="compact"></v-combobox>
-                    </v-col>
-                  </v-row>
-
-                  <v-row class="mt-4">
-                    <v-col cols="12">
-                      <v-combobox v-model="config.mediainfo_download_whitelist" label="媒体信息文件下载关键词过滤白名单"
-                        hint="输入关键词后按回车确认，可添加多个。不包含这些词的媒体信息文件将不会下载。" persistent-hint multiple chips closable-chips
-                        variant="outlined" density="compact"></v-combobox>
-                    </v-col>
-                  </v-row>
-
-                  <v-row class="mt-4">
-                    <v-col cols="12">
-                      <v-combobox v-model="config.mediainfo_download_blacklist" label="媒体信息文件下载关键词过滤黑名单"
-                        hint="输入关键词后按回车确认，可添加多个。包含这些词的媒体信息文件将不会下载。" persistent-hint multiple chips closable-chips
-                        variant="outlined" density="compact"></v-combobox>
-                    </v-col>
-                  </v-row>
-
-                  <v-row class="mt-4">
-                    <v-col cols="12" md="4">
-                      <v-switch 
-                        v-model="config.strm_url_encode" 
-                        label="STRM URL 文件名称编码" 
-                        color="info" 
-                        density="compact"
-                        :hint="config.strm_url_template_enabled ? '已启用自定义模板时优先使用模板，模板渲染失败时将使用此设置作为后备方案。在模板中可使用 urlencode 过滤器进行编码。' : '启用后，STRM文件中的URL会对文件名进行编码处理'"
-                        persistent-hint
-                      ></v-switch>
-                    </v-col>
-                  </v-row>
-
                   <!-- STRM 文件名自定义模板 -->
                   <v-row class="mt-6">
                     <v-col cols="12">
@@ -1462,6 +1425,55 @@
                       </v-alert>
                     </div>
                   </v-expand-transition>
+
+                  <v-row class="mt-6">
+                    <v-col cols="12">
+                      <v-divider></v-divider>
+                    </v-col>
+                  </v-row>
+
+                  <v-row class="mt-4">
+                    <v-col cols="12">
+                      <v-combobox v-model="config.strm_generate_blacklist" label="STRM文件关键词过滤黑名单"
+                        hint="输入关键词后按回车确认，可添加多个。包含这些词的视频文件将不会生成STRM文件。" persistent-hint multiple chips closable-chips
+                        variant="outlined" density="compact"></v-combobox>
+                    </v-col>
+                  </v-row>
+
+                  <v-row class="mt-4">
+                    <v-col cols="12">
+                      <v-combobox v-model="config.mediainfo_download_whitelist" label="媒体信息文件下载关键词过滤白名单"
+                        hint="输入关键词后按回车确认，可添加多个。不包含这些词的媒体信息文件将不会下载。" persistent-hint multiple chips closable-chips
+                        variant="outlined" density="compact"></v-combobox>
+                    </v-col>
+                  </v-row>
+
+                  <v-row class="mt-4">
+                    <v-col cols="12">
+                      <v-combobox v-model="config.mediainfo_download_blacklist" label="媒体信息文件下载关键词过滤黑名单"
+                        hint="输入关键词后按回车确认，可添加多个。包含这些词的媒体信息文件将不会下载。" persistent-hint multiple chips closable-chips
+                        variant="outlined" density="compact"></v-combobox>
+                    </v-col>
+                  </v-row>
+
+                  <v-row class="mt-6">
+                    <v-col cols="12">
+                      <v-divider></v-divider>
+                    </v-col>
+                  </v-row>
+
+                  <v-row class="mt-4">
+                    <v-col cols="12" md="4">
+                      <v-switch 
+                        v-model="config.strm_url_encode" 
+                        label="STRM URL 文件名称编码" 
+                        color="info" 
+                        density="compact"
+                        :hint="config.strm_url_template_enabled ? '已启用自定义模板时优先使用模板，模板渲染失败时将使用此设置作为后备方案。在模板中可使用 urlencode 过滤器进行编码。' : '启用后，STRM文件中的URL会对文件名进行编码处理'"
+                        persistent-hint
+                      ></v-switch>
+                    </v-col>
+                  </v-row>
 
                 </v-card-text>
               </v-window-item>
