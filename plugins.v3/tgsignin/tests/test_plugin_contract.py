@@ -320,6 +320,68 @@ class TestConfigRoundTrip(unittest.TestCase):
         plugin.init_plugin({"enabled": True, "notify_mode": NOTIFY_MODE_ALL})
         self.assertEqual(plugin._notify_label(), "成功与失败都通知")
 
+    def test_notify_mode_object_from_frontend(self) -> None:
+        """回归：前端把下拉选中写成整项对象时，通知方式仍要生效。
+
+        实测（2026-10-06）：用户在页面上选了「成功与失败都通知」，配置里存的是
+        ``{"title": "成功与失败都通知", "value": "all"}``；若不归一化，
+        会被判成非法值并回落「仅失败时」，导致跑完不通知。
+        """
+
+        plugin = TgSignin()
+        plugin.init_plugin(
+            {
+                "enabled": True,
+                "notify_mode": {"title": "成功与失败都通知", "value": NOTIFY_MODE_ALL},
+            }
+        )
+        self.assertEqual(plugin._notify_mode, NOTIFY_MODE_ALL)
+        self.assertEqual(plugin._notify_label(), "成功与失败都通知")
+
+    def test_slot_fields_as_objects(self) -> None:
+        """槽位字段同样是对象形态时也要能解析（账号/方式/登录动作）。"""
+        config = dict(default_slot_config())
+        config["enabled"] = True
+        config["target_1_method"] = {"title": "命令式（直接发命令）", "value": "命令"}
+        config["target_1_account"] = {"title": "账号1(acc1)", "value": "acc1"}
+        config["account_1_login_action"] = {"title": "发送验证码", "value": "发送验证码"}
+        plugin = TgSignin()
+        spawned: list = []
+        with mock.patch.object(
+            TgSignin,
+            "_spawn_background",
+            staticmethod(lambda target, name: spawned.append(name)),
+        ):
+            plugin.init_plugin(config)
+        # 对象形态的「登录动作」被正确识别成待执行动作并派发
+        self.assertEqual(spawned, ["login-actions"])
+        # 派发后动作复位为不操作
+        self.assertEqual(plugin._slot_login("acc1")["action"], LOGIN_ACTION_NONE)
+        first = plugin._targets[0]
+        self.assertEqual(first.sign_type, "command")
+        self.assertEqual(first.account_key, "acc1")
+
+    def test_legacy_config_keys_are_dropped(self) -> None:
+        """升级后清掉 v1.0.1 遗留的全局登录字段（避免两步密码长期留存）。"""
+        config = dict(default_slot_config())
+        config.update(
+            {
+                "enabled": True,
+                "notify_on_failure": True,
+                "login_account": "acc2",
+                "login_code": "85249",
+                "login_password": "secret-2fa",
+                "notify_mode": {"title": "成功与失败都通知", "value": NOTIFY_MODE_ALL},
+            }
+        )
+        plugin = TgSignin()
+        plugin.init_plugin(config)
+        self.assertTrue(plugin.config_updates)
+        saved = plugin.config_updates[-1]
+        for key in ("login_account", "login_code", "login_password", "notify_on_failure"):
+            self.assertNotIn(key, saved)
+        self.assertEqual(saved["notify_mode"], NOTIFY_MODE_ALL)
+
 
 class TestLoginDispatch(unittest.TestCase):
     """保存配置时的「登录动作」派发：后台执行一次，并立刻复位为不操作。"""

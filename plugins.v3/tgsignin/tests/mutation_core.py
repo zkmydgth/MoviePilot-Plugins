@@ -87,6 +87,18 @@ MUTANTS = [
         "「仅成功时通知」在有失败项时也会发",
     ),
     (
+        "core/config.py",
+        "    if isinstance(value, dict):",
+        "    if False:",
+        "下拉选中的对象取值不再归一化（选了也按默认走）",
+    ),
+    (
+        "core/signin.py",
+        '    if "签到成功" in text:',
+        "    if False:",
+        "「签到成功」不再被识别（状态分类失真）",
+    ),
+    (
         "core/login.py",
         "    if not code:",
         "    if False:",

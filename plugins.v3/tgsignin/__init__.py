@@ -54,6 +54,7 @@ from .core.config import (
     accounts_to_text,
     account_login_fields,
     accounts_from_slots,
+    coerce_scalar,
     default_slot_config,
     login_actions,
     parse_accounts,
@@ -154,9 +155,9 @@ class TgSignin(_PluginBase):
             self._enabled = bool(config.get("enabled"))
             self._cron = str(config.get("cron") or "0 9 * * *")
             # 通知方式：新字段优先；旧版只有布尔「失败时通知」，按它兼容映射
-            raw_mode = config.get("notify_mode")
+            raw_mode = coerce_scalar(config.get("notify_mode"))
             if raw_mode:
-                self._notify_mode = str(raw_mode)
+                self._notify_mode = raw_mode
             else:
                 self._notify_mode = (
                     NOTIFY_MODE_FAILURE
@@ -173,10 +174,10 @@ class TgSignin(_PluginBase):
             self._use_text_mode = bool(config.get("use_text_mode"))
             self._accounts_text = str(config.get("accounts_text") or DEFAULT_ACCOUNTS_TEXT)
             self._targets_text = str(config.get("targets_text") or DEFAULT_TARGETS_TEXT)
-            self._proxy_mode = str(config.get("proxy_mode") or PROXY_MODE_MP)
-            self._proxy_type = str(config.get("proxy_type") or "socks5")
-            self._proxy_host = str(config.get("proxy_host") or "")
-            self._proxy_port = self._safe_int(config.get("proxy_port"), 0)
+            self._proxy_mode = coerce_scalar(config.get("proxy_mode")) or PROXY_MODE_MP
+            self._proxy_type = coerce_scalar(config.get("proxy_type")) or "socks5"
+            self._proxy_host = coerce_scalar(config.get("proxy_host"))
+            self._proxy_port = self._safe_int(coerce_scalar(config.get("proxy_port")), 0)
             try:
                 self._api_id = int(config.get("api_id") or DEFAULT_API_ID)
             except (TypeError, ValueError):
@@ -184,6 +185,8 @@ class TgSignin(_PluginBase):
             self._api_hash = str(config.get("api_hash") or DEFAULT_API_HASH)
             # 槽位字段原样留存，供表单回显与局部更新
             self._raw_config = dict(config)
+
+        self._drop_legacy_config_keys()
 
         self._refresh_parsed_config()
         # 保存配置时若选了「登录动作」，在后台派发（不阻塞保存请求）
@@ -203,6 +206,29 @@ class TgSignin(_PluginBase):
             return int(float(value))
         except (TypeError, ValueError):
             return fallback
+
+    def _drop_legacy_config_keys(self) -> None:
+        """
+        清掉旧版本遗留的配置键（含已废弃的验证码/两步密码字段）。
+
+        v1.0.1 的登录字段是全局的 ``login_code`` / ``login_password``，v1.0.2 起
+        改为每个账号槽各一份；这些旧键如果留着，会把**两步验证密码**长期保存在
+        插件配置里，所以升级后主动删一次。
+
+        :return None
+        """
+
+        legacy = ("login_account", "login_code", "login_password", "notify_on_failure")
+        present = [key for key in legacy if key in self._raw_config]
+        if not present:
+            return
+        cleaned = {
+            key: value for key, value in self._raw_config.items() if key not in legacy
+        }
+        cleaned["notify_mode"] = self._notify_mode
+        self._raw_config = cleaned
+        logger.info("【TgSignin】已清理旧版遗留配置键：%s", "、".join(present))
+        self.update_config(cleaned)
 
     def _refresh_parsed_config(self) -> None:
         """
@@ -936,6 +962,7 @@ class TgSignin(_PluginBase):
         rows: List[Dict[str, Any]] = []
         for item in results:
             ok = bool(item.get("ok"))
+            status = str(item.get("status") or ("签到成功" if ok else "失败"))
             detail = item.get("reply") or item.get("error") or ""
             rows.append(
                 {
@@ -944,7 +971,10 @@ class TgSignin(_PluginBase):
                         {"component": "td", "text": item.get("time", "")},
                         {"component": "td", "text": item.get("account", "")},
                         {"component": "td", "text": item.get("bot", "")},
-                        {"component": "td", "text": "✅ 成功" if ok else "❌ 失败"},
+                        {
+                            "component": "td",
+                            "text": f"{'✅' if ok else '❌'} {status}",
+                        },
                         {"component": "td", "text": str(detail)[:120]},
                     ],
                 }
@@ -1152,7 +1182,7 @@ class TgSignin(_PluginBase):
                     self._group_header("账号登录状态"),
                     table(["账号", "手机号", "状态"], self._login_status_rows()),
                     self._group_header(f"最近 {PAGE_RESULT_LIMIT} 条签到结果"),
-                    table(["时间", "账号", "bot", "结果", "回复/错误"], self._result_rows()),
+                    table(["时间", "账号", "bot", "状态", "回复/错误"], self._result_rows()),
                 ],
             }
         ]

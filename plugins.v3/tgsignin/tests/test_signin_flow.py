@@ -26,7 +26,12 @@ from tgsignin.core.config import (
     BotTarget,
 )
 from tgsignin.core.signin import (
+    STATUS_FAILED,
+    STATUS_REPEATED,
+    STATUS_SUCCESS,
+    STATUS_UNCONFIRMED,
     build_notify_text,
+    classify_result,
     run_account,
     signin_one,
     summarize_results,
@@ -263,6 +268,42 @@ class TestSummarize(unittest.TestCase):
         self.assertEqual(summarize_results([]), "没有可执行的目标")
 
 
+class TestClassifyResult(unittest.TestCase):
+    """结果分类：签到成功 / 今日已签到 / 未确认 / 失败。"""
+
+    def test_failed_when_not_ok(self) -> None:
+        """失败优先。"""
+        self.assertEqual(classify_result("任意", False, "点按钮「签到」"), STATUS_FAILED)
+
+    def test_success_marker(self) -> None:
+        """回复含「签到成功」判为签到成功。"""
+        self.assertEqual(
+            classify_result("✅ 签到成功！获得 5 积分、5 经验", True, "发命令「/checkin」"),
+            STATUS_SUCCESS,
+        )
+
+    def test_repeated_marker(self) -> None:
+        """回复含「已签到」判为今日已签到。"""
+        self.assertEqual(
+            classify_result("✅ 今日已签到，明天再来。", True, "发命令「/checkin」"),
+            STATUS_REPEATED,
+        )
+
+    def test_button_menu_reply_is_repeated(self) -> None:
+        """按钮式签到只回菜单（无成功标记）：按实测口径判为今日已签到。"""
+        self.assertEqual(
+            classify_result("🍉 你好鸭 请选择功能", True, "点按钮「签到」"),
+            STATUS_REPEATED,
+        )
+
+    def test_command_reply_without_marker_is_unconfirmed(self) -> None:
+        """命令式回复里没有成功标记时判为未确认（不硬说成功）。"""
+        self.assertEqual(
+            classify_result("我不知道你在说什么", True, "发命令「/checkin」"),
+            STATUS_UNCONFIRMED,
+        )
+
+
 class TestBuildNotifyText(unittest.TestCase):
     """通知正文生成：四档通知方式 + 明细条数上限 + 摘要截断。"""
 
@@ -360,6 +401,24 @@ class TestBuildNotifyText(unittest.TestCase):
         self.assertIsNotNone(text)
         self.assertIn("账号1(acc1) → @bad0", text)
         self.assertIn("账号2(acc2) → @bad1", text)
+
+    def test_repeated_status_in_success_text(self) -> None:
+        """全绿但有重复签到时：首行标注「其中 N 项为今日已签到」，行内标明原因。"""
+        results = self._results(2, 0)
+        results[0]["status"] = STATUS_SUCCESS
+        results[1]["status"] = STATUS_REPEATED
+        text = build_notify_text(results, "手动", NOTIFY_MODE_SUCCESS)
+        self.assertIsNotNone(text)
+        self.assertIn("2/2 全部成功（其中 1 项为今日已签到）", text)
+        self.assertIn("今日已签到（bot 只回菜单，未重复发放）", text)
+
+    def test_success_line_keeps_reply_snippet(self) -> None:
+        """签到成功那行会带上 bot 回复摘要。"""
+        results = self._results(1, 0)
+        results[0]["status"] = STATUS_SUCCESS
+        text = build_notify_text(results, "手动", NOTIFY_MODE_SUCCESS)
+        self.assertIsNotNone(text)
+        self.assertIn("签到成功｜🎉 签到成功", text)
 
 
 class TestRunAccountAddsLabel(unittest.TestCase):

@@ -57,6 +57,7 @@ __all__ = [
     "login_actions",
     "targets_from_slots",
     "default_slot_config",
+    "coerce_scalar",
     "normalize_key",
     "validate_config",
 ]
@@ -190,8 +191,39 @@ def normalize_key(raw: str) -> str:
     :return str: 规范化后的标识（可能为空字符串，调用方需判空）
     """
 
-    cleaned = re.sub(r"[^0-9a-zA-Z_-]", "", (raw or "").strip().lower())
+    cleaned = re.sub(r"[^0-9a-zA-Z_-]", "", coerce_scalar(raw).strip().lower())
     return cleaned
+
+
+def coerce_scalar(value: Any) -> str:
+    """
+    把表单控件的取值压成标量字符串。
+
+    MoviePilot 前端对 **VCombobox / VSelect** 的「从下拉选中」会写入整项对象
+    （``{"title": "成功与失败都通知", "value": "all"}``），而不是只写 ``value``；
+    只有未改动过、沿用默认值的字段才是裸标量。若不归一化，``notify_mode`` 这类
+    枚举字段会被判成非法值并回落默认，表现为「明明选了却按默认走」。
+
+    :param value: 控件原始取值（标量 / 字典 / 列表）
+    :return str: 归一化后的字符串（无法识别时返回空串）
+    """
+
+    if value is None:
+        return ""
+    if isinstance(value, dict):
+        for key in ("value", "title", "name", "id"):
+            if key in value:
+                return coerce_scalar(value.get(key))
+        return ""
+    if isinstance(value, (list, tuple)):
+        for item in value:
+            text = coerce_scalar(item)
+            if text:
+                return text
+        return ""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return str(value).strip()
 
 
 def parse_accounts(
@@ -403,8 +435,8 @@ def accounts_from_slots(config: Mapping[str, Any]) -> List[AccountConfig]:
         accounts.append(
             AccountConfig(
                 key=key,
-                label=str(config.get(f"account_{index}_label") or "") or key,
-                phone=str(config.get(f"account_{index}_phone") or "").strip(),
+                label=coerce_scalar(config.get(f"account_{index}_label")) or key,
+                phone=coerce_scalar(config.get(f"account_{index}_phone")),
             )
         )
     return accounts
@@ -441,9 +473,10 @@ def account_login_fields(config: Mapping[str, Any], account_key: str) -> Dict[st
     if not index:
         return {"action": LOGIN_ACTION_NONE, "code": "", "password": ""}
     return {
-        "action": str(config.get(f"account_{index}_login_action") or LOGIN_ACTION_NONE),
-        "code": str(config.get(f"account_{index}_login_code") or ""),
-        "password": str(config.get(f"account_{index}_login_password") or ""),
+        "action": coerce_scalar(config.get(f"account_{index}_login_action"))
+        or LOGIN_ACTION_NONE,
+        "code": coerce_scalar(config.get(f"account_{index}_login_code")),
+        "password": coerce_scalar(config.get(f"account_{index}_login_password")),
     }
 
 
@@ -464,15 +497,15 @@ def login_actions(
     for index in range(1, MAX_ACCOUNT_SLOTS + 1):
         if not config.get(f"account_{index}_enabled"):
             continue
-        action = str(config.get(f"account_{index}_login_action") or "").strip()
+        action = coerce_scalar(config.get(f"account_{index}_login_action"))
         if action not in (LOGIN_ACTION_SEND, LOGIN_ACTION_CONFIRM):
             continue
         actions.append(
             (
                 f"acc{index}",
                 action,
-                str(config.get(f"account_{index}_login_code") or "").strip(),
-                str(config.get(f"account_{index}_login_password") or ""),
+                coerce_scalar(config.get(f"account_{index}_login_code")),
+                coerce_scalar(config.get(f"account_{index}_login_password")),
             )
         )
     return actions
@@ -499,14 +532,14 @@ def targets_from_slots(
     for index in range(1, MAX_TARGET_SLOTS + 1):
         if not config.get(f"target_{index}_enabled"):
             continue
-        account_key = normalize_key(str(config.get(f"target_{index}_account") or ""))
-        bot_username = str(config.get(f"target_{index}_bot") or "").strip()
+        account_key = normalize_key(config.get(f"target_{index}_account"))
+        bot_username = coerce_scalar(config.get(f"target_{index}_bot"))
         if not account_key or not bot_username:
             continue
         if not bot_username.startswith("@"):
             bot_username = f"@{bot_username}"
-        sign_type = _normalize_sign_type(str(config.get(f"target_{index}_method") or ""))
-        action_text = str(config.get(f"target_{index}_action") or "").strip()
+        sign_type = _normalize_sign_type(coerce_scalar(config.get(f"target_{index}_method")))
+        action_text = coerce_scalar(config.get(f"target_{index}_action"))
         if not action_text:
             action_text = "/checkin" if sign_type == SIGN_TYPE_COMMAND else "签到"
         wait_seconds = 15

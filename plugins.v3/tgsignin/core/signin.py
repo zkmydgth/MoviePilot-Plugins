@@ -32,6 +32,11 @@ __all__ = [
     "run_all",
     "summarize_results",
     "build_notify_text",
+    "classify_result",
+    "STATUS_SUCCESS",
+    "STATUS_REPEATED",
+    "STATUS_UNCONFIRMED",
+    "STATUS_FAILED",
     "now_text",
 ]
 
@@ -39,6 +44,12 @@ __all__ = [
 _SNIPPET_LIMIT = 60
 # 通知正文最多列出的明细条数
 _DETAIL_LIMIT = 10
+
+# 结果状态分类（按 bot 回复内容判定）
+STATUS_SUCCESS = "签到成功"
+STATUS_REPEATED = "今日已签到"
+STATUS_UNCONFIRMED = "未确认"
+STATUS_FAILED = "失败"
 
 # 读取 bot 消息的条数上限（够覆盖菜单与回复）
 _MSG_SCAN_LIMIT = 5
@@ -100,7 +111,54 @@ async def _click_button(
     return False, "", f"最近 {_MSG_SCAN_LIMIT} 条消息里没找到含「{keyword}」的按钮"
 
 
+def classify_result(reply: str, ok: bool, method: str = "") -> str:
+    """
+    按 bot 回复内容给签到结果分档。
+
+    判据来自交接单实测：emby 类 bot 真签到成功会回「🎉 签到成功 | N 子弹…」，
+    重复签到只回主菜单（不再发放）；HDHaven 重复签到回「✅ 今日已签到，明天再来。」。
+
+    :param reply: bot 回复文本
+    :param ok: 本次是否判定为成功（有回复即算动作完成）
+    :param method: 签到方式描述（用于区分「点了按钮但只回菜单」）
+    :return str: STATUS_SUCCESS / STATUS_REPEATED / STATUS_UNCONFIRMED / STATUS_FAILED
+    """
+
+    if not ok:
+        return STATUS_FAILED
+    text = str(reply or "")
+    if "签到成功" in text:
+        return STATUS_SUCCESS
+    if "已签到" in text:
+        return STATUS_REPEATED
+    if "按钮" in str(method or ""):
+        # 按钮点到了、bot 只回菜单：按交接单，这就是「今日已签到、不再重复发放」
+        return STATUS_REPEATED
+    return STATUS_UNCONFIRMED
+
+
 async def signin_one(
+    client: Any,
+    target: BotTarget,
+) -> Dict[str, Any]:
+    """
+    对单个 bot 执行一次签到，并补上结果状态分类。
+
+    :param client: 已登录的 TelegramClient
+    :param target: 签到目标配置
+    :return Dict[str, Any]: 结果字典（含 status）
+    """
+
+    result = await _signin_one_impl(client, target)
+    result["status"] = classify_result(
+        str(result.get("reply") or ""),
+        bool(result.get("ok")),
+        str(result.get("method") or ""),
+    )
+    return result
+
+
+async def _signin_one_impl(
     client: Any,
     target: BotTarget,
 ) -> Dict[str, Any]:
@@ -321,11 +379,13 @@ def build_notify_text(
         return None
 
     time_text = str(results[0].get("time") or now_text())
-    head = (
-        f"{total - len(failed)}/{total} 成功，{len(failed)} 项失败"
-        if failed
-        else f"{total}/{total} 全部成功"
-    )
+    repeated = sum(1 for item in results if item.get("status") == STATUS_REPEATED)
+    if failed:
+        head = f"{total - len(failed)}/{total} 成功，{len(failed)} 项失败"
+    else:
+        head = f"{total}/{total} 全部成功"
+        if repeated:
+            head += f"（其中 {repeated} 项为今日已签到）"
     lines: List[str] = [f"{head}（{time_text} · {source}）", ""]
     if failed:
         lines.append("失败明细：")
@@ -338,9 +398,17 @@ def build_notify_text(
             lines.append(f"…等 {len(failed)} 项")
     else:
         for item in list(results)[:_DETAIL_LIMIT]:
-            lines.append(
-                f"- {_account_name(item)} → {item.get('bot')}：{_snippet(item.get('reply'))}"
-            )
+            status = str(item.get("status") or STATUS_SUCCESS)
+            line = f"- {_account_name(item)} → {item.get('bot')}：{status}"
+            if status == STATUS_REPEATED:
+                line += "（bot 只回菜单，未重复发放）"
+            elif status == STATUS_UNCONFIRMED:
+                line += "（未在回复里看到签到结果）"
+            else:
+                snippet = _snippet(item.get("reply"))
+                if snippet:
+                    line += f"｜{snippet}"
+            lines.append(line)
         if total > _DETAIL_LIMIT:
             lines.append(f"…等 {total} 项")
     return "\n".join(lines)

@@ -22,6 +22,7 @@ from tgsignin.core.config import (
     account_login_fields,
     accounts_from_slots,
     accounts_to_text,
+    coerce_scalar,
     default_slot_config,
     login_actions,
     normalize_key,
@@ -47,6 +48,32 @@ class TestNormalizeKey(unittest.TestCase):
     def test_empty_input(self) -> None:
         """空输入返回空串。"""
         self.assertEqual(normalize_key("   "), "")
+
+
+class TestCoerceScalar(unittest.TestCase):
+    """表单取值归一化：VCombobox 从下拉选中会写入整项对象。"""
+
+    def test_plain_values(self) -> None:
+        """标量原样返回，None 转空串，布尔转文本。"""
+        self.assertEqual(coerce_scalar("all"), "all")
+        self.assertEqual(coerce_scalar(" 按钮 "), "按钮")
+        self.assertEqual(coerce_scalar(None), "")
+        self.assertEqual(coerce_scalar(True), "true")
+        self.assertEqual(coerce_scalar(15), "15")
+
+    def test_dict_item_uses_value_then_title(self) -> None:
+        """对象型取值优先取 value，其次 title。"""
+        self.assertEqual(
+            coerce_scalar({"title": "成功与失败都通知", "value": "all"}), "all"
+        )
+        self.assertEqual(coerce_scalar({"title": "未确认"}), "未确认")
+
+    def test_nested_and_list(self) -> None:
+        """嵌套对象与数组按同样规则取第一个可用值。"""
+        self.assertEqual(coerce_scalar({"value": {"value": "x"}}), "x")
+        self.assertEqual(coerce_scalar([{"value": "a"}, "b"]), "a")
+        self.assertEqual(coerce_scalar([]), "")
+        self.assertEqual(coerce_scalar({}), "")
 
 
 class TestParseAccounts(unittest.TestCase):
