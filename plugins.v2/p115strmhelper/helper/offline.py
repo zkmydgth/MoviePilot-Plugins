@@ -199,7 +199,6 @@ class OfflineDownloadHelper:
         等待下载完成运行指定任务
         """
         if not self.transfer_list:
-            logger.debug("【离线下载】无离线下载任务")
             return
         # 获取待整理的 hash 列表
         hash_list = list(map(lambda x: x["hash"], self.transfer_list))
