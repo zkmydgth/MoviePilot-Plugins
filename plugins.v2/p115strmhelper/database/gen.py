@@ -17,10 +17,10 @@ while not plugin_id:
         check = input(f"插件ID [{plugin_id}] 确认(Y/n): ").strip().lower()
         if not check == 'y':
             plugin_id = None
-
+plugin_id = plugin_id.lower()
 
 # 读取 migration_meta.json
-if not (config_file_path := (settings.ROOT_PATH / 'app.plugins' / plugin_id / 'migration_meta.json')).exists():
+if not (config_file_path := (settings.ROOT_PATH / 'app' / 'plugins' / plugin_id / 'migration_meta.json')).exists():
     print(f"插件ID [{plugin_id}] 下未找到 migration_meta.json 文件，无法继续")
     exit(1)
 
@@ -52,7 +52,7 @@ else:
     models_fs_path = models.replace('.', '/')
 
 # 交互式输入版本号
-new_db_version = input("请输入版本号 (当前默认值: 1.0.1)：") or version
+new_version = input(f"请输入版本号 (当前版本: {version})：") or version
 
 # 构造数据库文件路径，如果 db_file_name 为空则使用默认的 user.db
 if not db_file_name:
@@ -61,8 +61,12 @@ else:
     db_location = settings.PLUGIN_DATA_PATH / plugin_id / db_file_name
 
 # 构造脚本路径，env.py 和 mako 需要在这个路径下
-script_location_path = settings.ROOT_PATH / 'app/plugins' / plugin_id / script_location
-version_location_path = settings.ROOT_PATH / 'app/plugins' / plugin_id / version_location
+script_fs_path = script_location.replace('.', '/')
+script_location_path = settings.ROOT_PATH / 'app' / 'plugins' / plugin_id / script_fs_path
+
+# versions 存放目录
+version_fs_path = version_location.replace('.', '/')
+version_location_path = settings.ROOT_PATH / 'app' / 'plugins' / plugin_id / version_fs_path
 # 如果结尾不是 versions，则补上
 if version_location_path and not str(version_location_path).endswith('versions'):
     version_location_path = version_location_path / 'versions'
@@ -75,16 +79,16 @@ if not version_location_path.exists() or not version_location_path.is_dir() or n
 # 配置 Alembic
 alembic_cfg = AlembicConfig()
 alembic_cfg.set_main_option('script_location', str(script_location_path))
-alembic_cfg.set_main_option('version_locations', version_location)
+alembic_cfg.set_main_option('version_locations', str(version_location_path))
 alembic_cfg.set_main_option('sqlalchemy.url', f"sqlite:///{db_location}")
 
 # 设置文件名格式
-filename_prefix = f"{plugin_id}-v{version}"
+filename_prefix = f"{plugin_id}-v{new_version}"
 alembic_cfg.set_main_option('file_template', f'{filename_prefix}-%%(rev)s')
 
 # 传递自定义变量
 alembic_cfg.attributes['plugin_id'] = plugin_id
-alembic_cfg.attributes['version'] = version
+alembic_cfg.attributes['version'] = new_version
 
 
 # 构造正确的文件搜索路径
@@ -108,7 +112,7 @@ for module_file in search_path.glob("*.py"):
 
 new_revision_script = alembic_revision(
     config=alembic_cfg,
-    message=new_db_version,
+    message=new_version,
     autogenerate=True,
     branch_label=plugin_id if is_new_branch else None
 )
@@ -126,14 +130,15 @@ else:
 print("\n迁移脚本生成成功，正在更新 migration_meta.json...")
 try:
     # 更新内存中的字典
-    config_data['db_version'] = new_db_version
+    config_data['version'] = new_version
     if new_revision_id:
         config_data['revision'] = new_revision_id
     # 以写入模式打开文件并写回
     with open(config_file_path, 'w', encoding='utf-8') as f:
         json.dump(config_data, f, ensure_ascii=False, indent=4)
 
-    print(f"成功将 db_version 更新为: {new_db_version}")
+    print(f"成功将 version 更新为: {new_version}")
+    print(f"成功将 revision 更新为: {new_revision_id}")
 
 except Exception as e:
     print(f"错误：更新 migration_meta.json 文件失败: {e}")
