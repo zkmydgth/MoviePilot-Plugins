@@ -317,6 +317,35 @@ class SeedSpaceGuard(_PluginBase):
             logger.error("【保种空间守护】读取下载器列表失败：%s", err)
         return items
 
+    @staticmethod
+    def _group_header(title: str, desc: str = "",
+                      show: Optional[str] = None) -> dict:
+        """构造配置表单的「分组标题」节点（无 model，纯展示）。
+
+        背景：本插件配置项较多，且部分项只在某一清理模式下生效，
+        平铺展示时用户难以分辨「某项到底属于哪种模式」（历史误会来源）。
+        故按「全局 / 种子级 / 仅文件 / 种子联动」分四组，用标题条区隔。
+
+        :param title: 组标题
+        :param desc: 组说明（一句话讲清生效范围）
+        :param show: 条件显示的表达式（如 ``mode === 'seed'``）。
+                     由 MoviePilot 前端 FormRender 求值为假时隐藏整条；
+                     不传则该组标题常驻显示。
+        :return: 表单节点 dict（不带 model，故不会被「表单字段须在默认
+                 配置中」的校验误判）
+        """
+        props: Dict[str, Any] = {
+            "type": "info",
+            "variant": "tonal",
+            "class": "mt-6",
+            "text": f"▼ {title}　—　{desc}" if desc else f"▼ {title}",
+        }
+        # 注意：此处传的是 props 层级的 "show"，由前端 FormRender 解析；
+        # 不要写成 v-show，二者前端都支持，但 show 更简洁。
+        if show:
+            props["show"] = show
+        return {"component": "VAlert", "props": props}
+
     def get_form(self) -> Tuple[Optional[List[dict]], Dict[str, Any]]:
         """返回插件配置表单与默认配置。"""
         downloader_items = self._get_downloader_items()
@@ -348,6 +377,11 @@ class SeedSpaceGuard(_PluginBase):
                             }
                         ],
                     },
+                    # ---- 分组标题：全局基础设置 ----
+                    self._group_header(
+                        "全局基础设置",
+                        "以下设置与清理模式无关，两种模式均生效",
+                    ),
                     {
                         "component": "VSelect",
                         "props": {
@@ -385,18 +419,6 @@ class SeedSpaceGuard(_PluginBase):
                                 {"title": "种子级（推荐）", "value": "seed"},
                                 {"title": "仅文件", "value": "file"},
                             ],
-                        },
-                    },
-                    {
-                        "component": "VSelect",
-                        "props": {
-                            "model": "downloaders",
-                            "label": "目标下载器（种子级模式）",
-                            "class": "mt-4",
-                            "hint": "弹出选项卡多选；不选 = 处理所有已启用下载器",
-                            "multiple": True,
-                            "chips": True,
-                            "items": downloader_items,
                         },
                     },
                     {
@@ -466,87 +488,6 @@ class SeedSpaceGuard(_PluginBase):
                         },
                     },
                     {
-                        "component": "VTextField",
-                        "props": {
-                            "model": "protect_pattern",
-                            "label": "保护文件后缀（仅文件模式）",
-                            "class": "mt-4",
-                            "placeholder": "*.part|*.!qb|*.download|*.aria2|*.tmp|*.crdownload",
-                            "hint": "以 | 分隔的通配符，命中的文件不删除",
-                        },
-                    },
-                    {
-                        "component": "VSwitch",
-                        "props": {
-                            "model": "delete_torrents",
-                            "label": "联动删除种子",
-                            "class": "mt-4",
-                            "hint": "删除文件后，联动删除对应的下载器种子。"
-                                    "仅文件模式下**必须该种子的所有文件都已删除**才会删种，"
-                                    "任一文件仍在（含被保护后缀跳过的）则保留种子；"
-                                    "种子级模式下种子本身即为清理对象，不受此约束",
-                        },
-                    },
-                    {
-                        "component": "VSwitch",
-                        "props": {
-                            "model": "delete_history",
-                            "label": "删除转移记录",
-                            "class": "mt-4",
-                            "hint": "删除文件后，顺带删除 MoviePilot 中对应的转移历史记录"
-                                    "（先按目标路径匹配，未命中再按源路径匹配）",
-                        },
-                    },
-                    {
-                        "component": "VSwitch",
-                        "props": {
-                            "model": "companion_cleanup",
-                            "label": "种子级：连带清理硬链接与辅种",
-                            "class": "mt-4",
-                            "hint": "仅种子级模式生效，默认开启。删除种子后顺带清理两样东西："
-                                    "①媒体库侧的硬链接（不清理则空间不释放，插件会误判"
-                                    "「删了没释放」而停手告警）；"
-                                    "②同一内容的所有辅种（同目录、同种子名的其它站点种子；"
-                                    "文件已不存在，辅种无做种意义）。"
-                                    "辅种不受保护期约束（H&R 只针对下载的种子）。"
-                                    "关闭后恢复旧行为：只删主种子，硬链接与辅种不动",
-                        },
-                    },
-                    {
-                        "component": "VSwitch",
-                        "props": {
-                            "model": "orphan_cleanup",
-                            "label": "种子级：清理无主文件（无种子引用）",
-                            "class": "mt-4",
-                            "hint": "仅种子级模式生效，**默认关闭**。清理「不被任何种子引用」"
-                                    "的孤儿硬链接——典型成因：种子的内容与种子本身都被"
-                                    "移到了「保种/清理目录」之外，只剩媒体库侧的硬链接"
-                                    "残留，既无种子可依、也不被「仅文件」模式触及。"
-                                    "判定采取保守策略：无法确证种子清单时整轮跳过；"
-                                    "同一 inode 只要有任一路径被种子引用就整组保留；"
-                                    "保护期内的文件与保护后缀不动。"
-                                    "因涉及主动删除用户文件，请务必先开「试运行」核对清单",
-                        },
-                    },
-                    {
-                        "component": "VSwitch",
-                        "props": {
-                            "model": "orphan_seed_scope",
-                            "label": "种子级：空壳回收覆盖监控目录外的种子",
-                            "class": "mt-4",
-                            "hint": "**默认关闭，需先开启「联动删除种子」才生效**。"
-                                    "空壳回收原本只扫「内容路径在监控目录内」的种子，"
-                                    "而空壳越彻底（目录已消失）越容易被这道范围过滤挡掉——"
-                                    "最常见的情况是种子做过保存目录变更或做种转移，"
-                                    "其内容路径已不在监控范围内，于是永远扫不到。"
-                                    "开启后会把范围外的已完成种子一并纳入判定："
-                                    "**只回收已无任何文件的空壳，只摘种子、不删除任何文件**；"
-                                    "只要磁盘上仍有文件就绝不回收。"
-                                    "注意这会让插件的行为边界扩展到配置目录之外，"
-                                    "请确认理解后再开启",
-                        },
-                    },
-                    {
                         "component": "VSwitch",
                         "props": {
                             "model": "dry_run",
@@ -562,6 +503,124 @@ class SeedSpaceGuard(_PluginBase):
                             "label": "完成后通知",
                             "class": "mt-4",
                             "hint": "清理完成后发送站内消息通知",
+                        },
+                    },
+                    # ---- 分组标题：种子级模式设置（仅 mode=seed 显示） ----
+                    self._group_header(
+                        "种子级模式设置",
+                        "仅在「清理模式 = 种子级」下生效；当前模式下显示",
+                        show="mode === 'seed'",
+                    ),
+                    {
+                        "component": "VSelect",
+                        "props": {
+                            "model": "downloaders",
+                            "label": "目标下载器",
+                            "class": "mt-4",
+                            "hint": "弹出选项卡多选；不选 = 处理所有已启用下载器。"
+                                    "仅种子级模式生效",
+                            "multiple": True,
+                            "chips": True,
+                            "items": downloader_items,
+                            "show": "mode === 'seed'",
+                        },
+                    },
+                    {
+                        "component": "VSwitch",
+                        "props": {
+                            "model": "companion_cleanup",
+                            "label": "连带清理硬链接与辅种",
+                            "class": "mt-4",
+                            "hint": "仅种子级模式生效，默认开启。删除种子后顺带清理两样东西："
+                                    "①媒体库侧的硬链接（不清理则空间不释放，插件会误判"
+                                    "「删了没释放」而停手告警）；"
+                                    "②同一内容的所有辅种（同目录、同种子名的其它站点种子；"
+                                    "文件已不存在，辅种无做种意义）。"
+                                    "辅种不受保护期约束（H&R 只针对下载的种子）。"
+                                    "关闭后恢复旧行为：只删主种子，硬链接与辅种不动",
+                            "show": "mode === 'seed'",
+                        },
+                    },
+                    {
+                        "component": "VSwitch",
+                        "props": {
+                            "model": "orphan_cleanup",
+                            "label": "清理无主文件（无种子引用）",
+                            "class": "mt-4",
+                            "hint": "仅种子级模式生效，**默认关闭**。清理「不被任何种子引用」"
+                                    "的孤儿硬链接——典型成因：种子的内容与种子本身都被"
+                                    "移到了「保种/清理目录」之外，只剩媒体库侧的硬链接"
+                                    "残留，既无种子可依、也不被「仅文件」模式触及。"
+                                    "判定采取保守策略：无法确证种子清单时整轮跳过；"
+                                    "同一 inode 只要有任一路径被种子引用就整组保留；"
+                                    "保护期内的文件与保护后缀不动。"
+                                    "因涉及主动删除用户文件，请务必先开「试运行」核对清单",
+                            "show": "mode === 'seed'",
+                        },
+                    },
+                    # ---- 分组标题：仅文件模式设置（仅 mode=file 显示） ----
+                    self._group_header(
+                        "仅文件模式设置",
+                        "仅在「清理模式 = 仅文件」下生效；当前模式下显示",
+                        show="mode === 'file'",
+                    ),
+                    {
+                        "component": "VTextField",
+                        "props": {
+                            "model": "protect_pattern",
+                            "label": "保护文件后缀",
+                            "class": "mt-4",
+                            "placeholder": "*.part|*.!qb|*.download|*.aria2|*.tmp|*.crdownload",
+                            "hint": "以 | 分隔的通配符，命中的文件不删除。"
+                                    "在「仅文件」模式与种子级的「清理无主文件」中生效；"
+                                    "种子级主链路（直接删种子）不适用",
+                            "show": "mode === 'file'",
+                        },
+                    },
+                    # ---- 分组标题：种子联动设置（两模式通用，不显隐） ----
+                    self._group_header(
+                        "种子联动设置（两种模式通用）",
+                        "以下开关在两种模式下均生效",
+                    ),
+                    {
+                        "component": "VSwitch",
+                        "props": {
+                            "model": "delete_torrents",
+                            "label": "联动删除种子",
+                            "class": "mt-4",
+                            "hint": "**两种模式通用**。仅文件模式下：删除文件后联动删除对应种子，"
+                                    "**必须该种子的所有文件都已删除**才会删种，"
+                                    "任一文件仍在（含被保护后缀跳过的）则保留种子。"
+                                    "种子级模式下：它是「空壳回收」的总闸——"
+                                    "关闭后，文件已删完但仍留在下载器里的空壳种子不会被回收",
+                        },
+                    },
+                    {
+                        "component": "VSwitch",
+                        "props": {
+                            "model": "delete_history",
+                            "label": "删除转移记录",
+                            "class": "mt-4",
+                            "hint": "**两种模式通用**。删除文件后，顺带删除 MoviePilot 中对应的"
+                                    "转移历史记录（先按目标路径匹配，未命中再按源路径匹配）",
+                        },
+                    },
+                    {
+                        "component": "VSwitch",
+                        "props": {
+                            "model": "orphan_seed_scope",
+                            "label": "空壳回收覆盖监控目录外的种子",
+                            "class": "mt-4",
+                            "hint": "**两种模式通用，默认关闭，需先开启「联动删除种子」才生效**。"
+                                    "空壳回收原本只扫「内容路径在监控目录内」的种子，"
+                                    "而空壳越彻底（目录已消失）越容易被这道范围过滤挡掉——"
+                                    "最常见的情况是种子做过保存目录变更或做种转移，"
+                                    "其内容路径已不在监控范围内，于是永远扫不到。"
+                                    "开启后会把范围外的已完成种子一并纳入判定："
+                                    "**只回收已无任何文件的空壳，只摘种子、不删除任何文件**；"
+                                    "只要磁盘上仍有文件就绝不回收。"
+                                    "注意这会让插件的行为边界扩展到配置目录之外，"
+                                    "请确认理解后再开启",
                         },
                     },
                 ],
@@ -2591,10 +2650,7 @@ class SeedSpaceGuard(_PluginBase):
         index: Dict[Tuple[int, int], List[str]] = {}
 
         def _record(fpath: str) -> None:
-            try:
-                st = os.lstat(fpath)
-            except OSError:
-                return
+            st = os.lstat(fpath)
             if not stat.S_ISREG(st.st_mode):
                 return
             plist = index.setdefault((st.st_dev, st.st_ino), [])
