@@ -1,10 +1,13 @@
+import random
 from typing import Optional
+from base64 import b64decode
 
 from app.chain import ChainBase
 from app.core.config import settings
 from app.schemas import Notification, NotificationType, MessageChannel
 
-from .config import configer
+from ..core.config import configer
+from ..core.i18n import i18n
 
 
 class PluginChian(ChainBase):
@@ -34,6 +37,17 @@ def post_message(
         link = settings.MP_DOMAIN(
             f"#/plugins?tab=installed&id={configer.get_config('PLUSIN_NAME')}"
         )
+    if configer.get_config("language") == "zh_CN_catgirl":
+        message = b64decode(random.choice(i18n.get("fuck")).encode("utf-8")).decode(
+            "utf-8"
+        )
+        if text:
+            if text.endswith("\n"):
+                text += f"{message}\n"
+            else:
+                text += f"\n{message}"
+        else:
+            text = f"\n{message}\n"
     chain.post_message(
         Notification(
             channel=channel,

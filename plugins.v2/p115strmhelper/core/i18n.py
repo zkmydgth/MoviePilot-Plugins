@@ -70,5 +70,11 @@ class I18N:
         except (KeyError, AttributeError):
             return template
 
+    def get(self, key: str):
+        """
+        直接获取键的值
+        """
+        return self.translations.get(key)
+
 
 i18n = I18N()

@@ -20,6 +20,7 @@ from .service import servicer
 from .core.cache import pantransfercacher, lifeeventcacher
 from .core.config import configer
 from .core.i18n import i18n
+from .core.message import post_message
 from .db_manager import ct_db_manager
 from .db_manager.init import init_db, update_db
 from .db_manager.oper import FileDbHelper
@@ -493,7 +494,7 @@ class P115StrmHelper(_PluginBase):
         event_data = event.event_data
         if not event_data or event_data.get("action") != "p115_full_sync":
             return
-        self.post_message(
+        post_message(
             channel=event.event_data.get("channel"),
             title=i18n.translate("start_full_sync"),
             userid=event.event_data.get("user"),
@@ -510,7 +511,7 @@ class P115StrmHelper(_PluginBase):
         event_data = event.event_data
         if not event_data or event_data.get("action") != "p115_inc_sync":
             return
-        self.post_message(
+        post_message(
             channel=event.event_data.get("channel"),
             title=i18n.translate("start_inc_sync"),
             userid=event.event_data.get("user"),
@@ -530,7 +531,7 @@ class P115StrmHelper(_PluginBase):
         args = event_data.get("arg_str")
         if not args:
             logger.error(f"【全量STRM生成】缺少参数：{event_data}")
-            self.post_message(
+            post_message(
                 channel=event.event_data.get("channel"),
                 title=i18n.translate("p115_strm_parameter_error"),
                 userid=event.event_data.get("user"),
@@ -541,7 +542,7 @@ class P115StrmHelper(_PluginBase):
             or not configer.get_config("moviepilot_address")
             or not configer.get_config("user_download_mediaext")
         ):
-            self.post_message(
+            post_message(
                 channel=event.event_data.get("channel"),
                 title=i18n.translate("p115_strm_full_sync_config_error"),
                 userid=event.event_data.get("user"),
@@ -552,7 +553,7 @@ class P115StrmHelper(_PluginBase):
             paths=configer.get_config("full_sync_strm_paths"), media_path=args
         )
         if not status:
-            self.post_message(
+            post_message(
                 channel=event.event_data.get("channel"),
                 title=f"{args} {i18n.translate('p115_strm_match_path_error')}",
                 userid=event.event_data.get("user"),
@@ -562,7 +563,7 @@ class P115StrmHelper(_PluginBase):
             client=servicer.client,
             mediainfodownloader=servicer.mediainfodownloader,
         )
-        self.post_message(
+        post_message(
             channel=event.event_data.get("channel"),
             title=i18n.translate("p115_strm_start_sync", paths=args),
             userid=event.event_data.get("user"),
@@ -586,7 +587,7 @@ class P115StrmHelper(_PluginBase):
 """
         if remove_unless_strm_count != 0:
             text += f"🗑️ 清理无效STRM文件 {remove_unless_strm_count} 个"
-        self.post_message(
+        post_message(
             channel=event.event_data.get("channel"),
             userid=event.event_data.get("user"),
             title=i18n.translate("full_sync_done_title"),
@@ -609,7 +610,7 @@ class P115StrmHelper(_PluginBase):
             or not configer.get_config("cloudsaver_username")
             or not configer.get_config("cloudsaver_password")
         ):
-            self.post_message(
+            post_message(
                 channel=event.event_data.get("channel"),
                 title=i18n.translate("p115_search_config_error"),
                 userid=event.event_data.get("user"),
@@ -618,7 +619,7 @@ class P115StrmHelper(_PluginBase):
         args = event_data.get("arg_str")
         if not args:
             logger.error(f"【搜索】缺少参数：{event_data}")
-            self.post_message(
+            post_message(
                 channel=event.event_data.get("channel"),
                 title=i18n.translate("p115_search_parameter_error"),
                 userid=event.event_data.get("user"),
@@ -782,7 +783,7 @@ class P115StrmHelper(_PluginBase):
             args = event_data.get("arg_str")
             if not args:
                 logger.error(f"【分享转存】缺少参数：{event_data}")
-                self.post_message(
+                post_message(
                     channel=event.event_data.get("channel"),
                     title=i18n.translate("p115_add_share_parameter_error"),
                     userid=event.event_data.get("user"),
@@ -807,20 +808,20 @@ class P115StrmHelper(_PluginBase):
             args = event_data.get("arg_str")
             if not args:
                 logger.error(f"【离线下载】缺少参数：{event_data}")
-                self.post_message(
+                post_message(
                     channel=event.event_data.get("channel"),
                     title=i18n.translate("p115_add_offline_parameter_error"),
                     userid=event.event_data.get("user"),
                 )
                 return
         if servicer.offlinehelper.add_urls_to_transfer([str(args)]):
-            self.post_message(
+            post_message(
                 channel=event.event_data.get("channel"),
                 title=i18n.translate("p115_add_offline_success"),
                 userid=event.event_data.get("user"),
             )
         else:
-            self.post_message(
+            post_message(
                 channel=event.event_data.get("channel"),
                 title=i18n.translate("p115_add_offline_fail"),
                 userid=event.event_data.get("user"),
