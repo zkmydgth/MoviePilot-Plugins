@@ -2,7 +2,8 @@ from collections import namedtuple
 from concurrent.futures import as_completed, ThreadPoolExecutor
 from itertools import batched
 from pathlib import Path
-from queue import Queue
+from os import makedirs
+from queue import Empty, Queue
 from threading import Thread
 from time import perf_counter, sleep
 from typing import List, Dict, Optional, Set, Tuple
@@ -101,7 +102,6 @@ class FullSyncStrmHelper:
 
         self.write_queue = Queue(maxsize=4096)
         self.result_queue = Queue()
-        self.created_dirs: Set = set()
 
         self.local_tree_path = configer.PLUGIN_TEMP_PATH / "local_tree.txt"
         self.pan_tree_path = configer.PLUGIN_TEMP_PATH / "pan_tree.txt"
@@ -255,22 +255,60 @@ class FullSyncStrmHelper:
         """
         写入 STRM 文件操作
         """
+        buffer_size = 64
+
         while True:
+            tasks: List[Tuple[Path, str, str]] = []
+            task_done_handled = False
             try:
-                task = self.write_queue.get()
-
-                if task is None:
+                first_task = self.write_queue.get()
+                if first_task is None:
                     self.result_queue.put(None)
+                    self.write_queue.task_done()
                     break
+                tasks.append(first_task)
 
-                new_file_path, strm_url, original_file_name = task
+                while len(tasks) < buffer_size:
+                    try:
+                        extra_task = self.write_queue.get_nowait()
+                        if extra_task is None:
+                            self.__flush_write_buffer(tasks)
+                            for _ in tasks:
+                                self.write_queue.task_done()
+                            self.result_queue.put(None)
+                            self.write_queue.task_done()
+                            task_done_handled = True
+                            return
+                        tasks.append(extra_task)
+                    except Empty:
+                        break
+                self.__flush_write_buffer(tasks)
+            finally:
+                if not task_done_handled:
+                    for _ in tasks:
+                        self.write_queue.task_done()
 
+    def __flush_write_buffer(self, tasks: List[Tuple[Path, str, str]]):
+        """
+        批量处理写入任务
+        """
+        for new_file_path, strm_url, original_file_name in tasks:
+            try:
+                with open(new_file_path, "w", encoding="utf-8") as file:
+                    file.write(strm_url)
+
+                self.result_queue.put(
+                    ProcessResult(
+                        status="success",
+                        path=str(new_file_path),
+                        message=None,
+                        data=None,
+                        path_entry=None,
+                    )
+                )
+            except FileNotFoundError:
                 try:
-                    parent_dir = new_file_path.parent
-                    if parent_dir not in self.created_dirs:
-                        parent_dir.mkdir(parents=True, exist_ok=True)
-                        self.created_dirs.add(parent_dir)
-
+                    makedirs(new_file_path.parent, exist_ok=True)
                     with open(new_file_path, "w", encoding="utf-8") as file:
                         file.write(strm_url)
 
@@ -283,7 +321,6 @@ class FullSyncStrmHelper:
                             path_entry=None,
                         )
                     )
-
                 except Exception as e:
                     sentry_manager.sentry_hub.capture_exception(e)
                     logger.error(
@@ -300,8 +337,22 @@ class FullSyncStrmHelper:
                             path_entry=None,
                         )
                     )
-            finally:
-                self.write_queue.task_done()
+            except Exception as e:
+                sentry_manager.sentry_hub.capture_exception(e)
+                logger.error(
+                    "【全量STRM生成】写入 STRM 文件失败: %s  %s",
+                    str(new_file_path),
+                    e,
+                )
+                self.result_queue.put(
+                    ProcessResult(
+                        status="fail",
+                        path=str(new_file_path),
+                        message=str(e),
+                        data=None,
+                        path_entry=None,
+                    )
+                )
 
     def __process_single_item(
         self, item: Dict, target_dir: Path, pan_media_dir: str
