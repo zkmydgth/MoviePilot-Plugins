@@ -727,10 +727,36 @@ class MonitorLife:
             # 同步删除历史记录
             if configer.monitor_life_remove_mp_history:
                 mediasyncdel = MediaSyncDelHelper()
-                mediasyncdel.remove_by_path(
-                    path=pan_file_path,
-                    del_source=configer.monitor_life_remove_mp_source,
+                del_torrent_hashs, stop_torrent_hashs, error_cnt, transfer_history = (
+                    mediasyncdel.remove_by_path(
+                        path=pan_file_path,
+                        del_source=configer.monitor_life_remove_mp_source,
+                    )
                 )
+                if configer.notify and transfer_history:
+                    torrent_cnt_msg = ""
+                    if del_torrent_hashs:
+                        torrent_cnt_msg += (
+                            f"删除种子 {len(set(del_torrent_hashs))} 个\n"
+                        )
+                    if stop_torrent_hashs:
+                        stop_cnt = 0
+                        # 排除已删除
+                        for stop_hash in set(stop_torrent_hashs):
+                            if stop_hash not in set(del_torrent_hashs):
+                                stop_cnt += 1
+                        if stop_cnt > 0:
+                            torrent_cnt_msg += f"暂停种子 {stop_cnt} 个\n"
+                    if error_cnt:
+                        torrent_cnt_msg += f"删种失败 {error_cnt} 个\n"
+                    post_message(
+                        mtype=NotificationType.Plugin,
+                        title=i18n.translate("life_sync_media_del_title"),
+                        text=f"\n删除{'文件夹' if file_category == 0 else '文件'} {pan_file_path}\n"
+                        f"删除记录{len(transfer_history) if transfer_history else '0'}个\n"
+                        f"{torrent_cnt_msg}"
+                        f"时间 {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}\n",
+                    )
         except Exception as e:
             logger.error(f"【监控生活事件】{file_path} 删除失败: {e}")
 

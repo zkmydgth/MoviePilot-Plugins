@@ -15,6 +15,7 @@
     "share_sync_done_title": "✅【115网盘】分享生成 STRM 文件完成啦喵！",
     "inc_sync_done_title": "✅【115网盘】增量生成 STRM 文件顺利完成喵 ~",
     "life_sync_done_title": "✅【115网盘】生活事件生成 STRM 文件完成喵",
+    "life_sync_media_del_title": "【115网盘】生活事件同步删除喵",
     "add_share_config_error": "配置出问题了喵 ~~ 主人要先配置网盘整理才能继续喵",
     "share_url_extract_error": "呜...解析分享链接失败了喵：{url} 主人检查一下喵",
     "share_add_success": "【115网盘】转存成功喵！主人好厉害 ~",

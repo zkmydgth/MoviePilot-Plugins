@@ -123,6 +123,7 @@ class MediaSyncDelHelper:
                 continue
 
             self.transferhis.delete(transferhis.id)
+            logger.info(f"【同步删除】{transferhis.id} {dest_path} 历史记录已删除")
 
             if del_source:
                 if (
@@ -156,6 +157,8 @@ class MediaSyncDelHelper:
                                     stop_torrent_hashs += handle_torrent_hashs
                         except Exception as e:
                             logger.error("【同步删除】删除种子失败：%s" % str(e))
+
+        return del_torrent_hashs, stop_torrent_hashs, error_cnt, transfer_history
 
     def handle_torrent(self, type: str, src: str, torrent_hash: str):
         """

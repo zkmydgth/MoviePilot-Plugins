@@ -15,6 +15,7 @@
     "share_sync_done_title": "✅【115网盘】分享STRM砖块搬完啦！",
     "inc_sync_done_title": "✅【115网盘】增量STRM砖块搬好了！",
     "life_sync_done_title": "✅【115网盘】生活事件砖块码好",
+    "life_sync_media_del_title": "【115网盘】生活事件同步删除",
     "add_share_config_error": "砖堆歪了...要先配置网盘整理",
     "share_url_extract_error": "砖头裂了...解析分享链接失败：{url}",
     "share_add_success": "【115网盘】砖头入库成功！",
