@@ -2,7 +2,7 @@ import shutil
 import time
 from collections import defaultdict
 from threading import Timer
-from typing import Dict, Optional, List
+from typing import Dict, Optional, List, Set
 from pathlib import Path
 from itertools import batched, chain
 
@@ -74,8 +74,9 @@ class MonitorLife:
             lambda: {"strm_count": 0, "mediainfo_count": 0}
         )
 
-        self.rmt_mediaext = None
-        self.download_mediaext = None
+        self.rmt_mediaext: List = []
+        self.rmt_mediaext_set: Set = set()
+        self.download_mediaext_set: Set = set()
 
     def _schedule_notification(self):
         """
@@ -396,7 +397,7 @@ class MonitorLife:
                         if configer.get_config(
                             "monitor_life_auto_download_mediainfo_enabled"
                         ):
-                            if file_path.suffix.lower() in self.download_mediaext:
+                            if file_path.suffix.lower() in self.download_mediaext_set:
                                 pickcode = item["pickcode"]
                                 if not pickcode:
                                     logger.error(
@@ -423,7 +424,7 @@ class MonitorLife:
                                 mediainfo_count += 1
                                 continue
 
-                        if file_path.suffix.lower() not in self.rmt_mediaext:
+                        if file_path.suffix.lower() not in self.rmt_mediaext_set:
                             logger.warn(
                                 "【监控生活事件】跳过网盘路径: %s",
                                 item["path"],
@@ -514,7 +515,7 @@ class MonitorLife:
                 new_file_path = file_target_dir / file_name
 
                 if configer.get_config("monitor_life_auto_download_mediainfo_enabled"):
-                    if file_path.suffix.lower() in self.download_mediaext:
+                    if file_path.suffix.lower() in self.download_mediaext_set:
                         if not pickcode:
                             logger.error(
                                 f"【监控生活事件】{original_file_name} 不存在 pickcode 值，无法下载该文件"
@@ -548,7 +549,7 @@ class MonitorLife:
                             self._schedule_notification()
                         return
 
-                if file_path.suffix.lower() not in self.rmt_mediaext:
+                if file_path.suffix.lower() not in self.rmt_mediaext_set:
                     logger.warn(
                         "【监控生活事件】跳过网盘路径: %s",
                         str(file_path).replace(str(target_dir), "", 1),
@@ -725,7 +726,7 @@ class MonitorLife:
             return
 
         file_path = Path(target_dir) / Path(file_path).relative_to(pan_media_dir)
-        if file_path.suffix.lower() in self.rmt_mediaext:
+        if file_path.suffix.lower() in self.rmt_mediaext_set:
             file_target_dir = file_path.parent
             file_name = file_path.stem + ".strm"
             file_path = file_target_dir / file_name
@@ -859,12 +860,13 @@ class MonitorLife:
                 .replace("，", ",")
                 .split(",")
             ]
-            self.download_mediaext = [
+            self.rmt_mediaext_set = set(self.rmt_mediaext)
+            self.download_mediaext_set = {
                 f".{ext.strip()}"
                 for ext in configer.get_config("user_download_mediaext")
                 .replace("，", ",")
                 .split(",")
-            ]
+            }
 
             logger.debug(
                 f"【监控生活事件】{BEHAVIOR_TYPE_TO_NAME[event['type']]}: {event}"
