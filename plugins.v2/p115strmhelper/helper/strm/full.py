@@ -12,6 +12,7 @@ from p115client.tool.iterdir import (
     iter_files_with_path_skim,
 )
 
+from app.core.config import settings
 from app.log import logger
 
 from ...core.cache import idpathcacher
@@ -81,8 +82,10 @@ class FullSyncStrmHelper:
             configer.mediainfo_download_blacklist
         )
 
-        self.local_tree = configer.PLUGIN_TEMP_PATH / "local_tree.txt"
-        self.pan_tree = configer.PLUGIN_TEMP_PATH / "pan_tree.txt"
+        self.local_tree_path = configer.PLUGIN_TEMP_PATH / "local_tree.txt"
+        self.pan_tree_path = configer.PLUGIN_TEMP_PATH / "pan_tree.txt"
+        self.local_tree = DirectoryTree(self.local_tree_path)
+        self.pan_tree = DirectoryTree(self.pan_tree_path)
 
         if configer.full_sync_strm_log:
             self.__base_logger = self.__base_has_logger
@@ -90,10 +93,14 @@ class FullSyncStrmHelper:
             self.__base_logger = self.__base_no_logger
 
     def __del__(self):
-        if Path(self.local_tree).exists():
-            Path(self.local_tree).unlink(missing_ok=True)
-        if Path(self.pan_tree).exists():
-            Path(self.pan_tree).unlink(missing_ok=True)
+        self._clean_tree()
+
+    def _clean_tree(self):
+        """
+        清理目录树文件
+        """
+        self.local_tree.clear()
+        self.pan_tree.clear()
 
     @staticmethod
     def __base_no_logger(level, msg, *args):
@@ -114,20 +121,16 @@ class FullSyncStrmHelper:
         """
         清理无效 STRM 本地扫描
         """
-        if Path(self.local_tree).exists():
-            Path(self.local_tree).unlink(missing_ok=True)
-        if Path(self.pan_tree).exists():
-            Path(self.pan_tree).unlink(missing_ok=True)
+        self._clean_tree()
 
-        def background_task(_target_dir, local_tree):
+        def background_task(_target_dir):
             """
             后台运行任务
             """
             logger.info(f"【全量STRM生成】开始扫描本地媒体库文件: {_target_dir}")
             try:
-                DirectoryTree().scan_directory_to_tree(
+                self.local_tree.scan_directory_to_tree(
                     root_path=_target_dir,
-                    output_file=local_tree,
                     append=False,
                     extensions=[".strm"],
                 )
@@ -139,10 +142,7 @@ class FullSyncStrmHelper:
 
         local_tree_task_thread = threading.Thread(
             target=background_task,
-            args=(
-                target_dir,
-                self.local_tree,
-            ),
+            args=(target_dir,),
         )
         local_tree_task_thread.start()
 
@@ -560,9 +560,7 @@ class FullSyncStrmHelper:
                             )
 
                     if self.remove_unless_strm:
-                        DirectoryTree().generate_tree_from_list(
-                            path_list, self.pan_tree, append=True
-                        )
+                        self.pan_tree.generate_tree_from_list(path_list, append=True)
 
                 end_time = time.perf_counter()
                 self.elapsed_time += end_time - start_time
@@ -579,19 +577,18 @@ class FullSyncStrmHelper:
                 while local_tree_task_thread.is_alive():  # noqa
                     logger.info("【全量STRM生成】扫描本地媒体库运行中...")
                     time.sleep(10)
-                if not self.strm_fail_dict and Path(self.local_tree).exists():
+                if not self.strm_fail_dict and (
+                    settings.CACHE_BACKEND_TYPE == "redis"
+                    or self.local_tree_path.exists()
+                ):
                     try:
-                        count = DirectoryTree().compare_file_lines(
-                            self.local_tree, self.pan_tree
-                        )
+                        count = self.local_tree.compare_entry_counts(self.pan_tree)
                         if count > 500:
                             logger.warn(
                                 f"【全量STRM生成】本次将删除文件个数为 {count}，超过安全阈值不进行删除操作"
                             )
                             continue
-                        for path in DirectoryTree().compare_trees(
-                            self.local_tree, self.pan_tree
-                        ):
+                        for path in self.local_tree.compare_trees(self.pan_tree):
                             logger.info(f"【全量STRM生成】清理无效 STRM 文件: {path}")
                             Path(path).unlink(missing_ok=True)
                             PathRemoveUtils.remove_parent_dir(

@@ -9,6 +9,7 @@ from p115client.tool.export_dir import export_dir_parse_iter
 from p115client.tool.fs_files import iter_fs_files
 from sqlalchemy.orm.exc import MultipleResultsFound
 
+from app.core.config import settings
 from app.log import logger
 
 from ...core.cache import idpathcacher, DirectoryCache
@@ -99,25 +100,24 @@ class IncrementSyncStrmHelper:
             mediaservers=self.mediaservers,
         )
 
-        # 临时文件配置
-        self.local_tree = (
+        self.local_tree_path = (
             configer.get_config("PLUGIN_TEMP_PATH") / "increment_local_tree.txt"
         )
-        self.pan_tree = (
+        self.pan_tree_path = (
             configer.get_config("PLUGIN_TEMP_PATH") / "increment_pan_tree.txt"
         )
-        self.pan_to_local_tree = (
+        self.pan_to_local_tree_path = (
             configer.get_config("PLUGIN_TEMP_PATH") / "increment_pan_to_local_tree.txt"
         )
+        self.local_tree = DirectoryTree(self.local_tree_path)
+        self.pan_tree = DirectoryTree(self.pan_tree_path)
+        self.pan_to_local_tree = DirectoryTree(self.pan_to_local_tree_path)
 
     def __del__(self):
         self.directory_cache.close()
-        if Path(self.local_tree).exists():
-            Path(self.local_tree).unlink(missing_ok=True)
-        if Path(self.pan_tree).exists():
-            Path(self.pan_tree).unlink(missing_ok=True)
-        if Path(self.pan_to_local_tree).exists():
-            Path(self.pan_to_local_tree).unlink(missing_ok=True)
+        self.local_tree.clear()
+        self.pan_tree.clear()
+        self.pan_to_local_tree.clear()
 
     def __itertree(self, pan_path: str, local_path: str):
         """
@@ -247,36 +247,31 @@ class IncrementSyncStrmHelper:
         """
         生成本地目录树
         """
-        if Path(self.local_tree).exists():
-            Path(self.local_tree).unlink(missing_ok=True)
+        self.local_tree.clear()
 
-        def background_task(target_dir, local_tree):
+        def background_task(_target_dir):
             """
             后台运行任务
             """
-            logger.info(f"【增量STRM生成】开始扫描本地媒体库文件: {target_dir}")
+            logger.info(f"【增量STRM生成】开始扫描本地媒体库文件: {_target_dir}")
             try:
-                DirectoryTree().scan_directory_to_tree(
-                    root_path=target_dir,
-                    output_file=local_tree,
+                self.local_tree.scan_directory_to_tree(
+                    root_path=_target_dir,
                     append=False,
                     use_posix=True,
                     extensions=[".strm"]
                     if not self.auto_download_mediainfo
                     else [".strm"] + self.download_mediaext,
                 )
-                logger.info(f"【增量STRM生成】扫描本地媒体库文件完成: {target_dir}")
+                logger.info(f"【增量STRM生成】扫描本地媒体库文件完成: {_target_dir}")
             except Exception as e:
                 logger.error(
-                    f"【增量STRM生成】扫描本地媒体库文件 {target_dir} 错误: {e}"
+                    f"【增量STRM生成】扫描本地媒体库文件 {_target_dir} 错误: {e}"
                 )
 
         local_tree_task_thread = threading.Thread(
             target=background_task,
-            args=(
-                target_dir,
-                self.local_tree,
-            ),
+            args=(target_dir,),
         )
         local_tree_task_thread.start()
 
@@ -295,12 +290,8 @@ class IncrementSyncStrmHelper:
         """
         生成网盘目录树
         """
-        tree = DirectoryTree()
-
-        if Path(self.pan_tree).exists():
-            Path(self.pan_tree).unlink(missing_ok=True)
-        if Path(self.pan_to_local_tree).exists():
-            Path(self.pan_to_local_tree).unlink(missing_ok=True)
+        self.pan_tree.clear()
+        self.pan_to_local_tree.clear()
 
         logger.info(f"【增量STRM生成】开始生成网盘目录树: {pan_media_dir}")
 
@@ -308,10 +299,8 @@ class IncrementSyncStrmHelper:
             for path1, path2 in self.__itertree(
                 pan_path=pan_media_dir, local_path=target_dir
             ):
-                tree.generate_tree_from_list(
-                    [path1], self.pan_to_local_tree, append=True
-                )
-                tree.generate_tree_from_list([path2], self.pan_tree, append=True)
+                self.pan_to_local_tree.generate_tree_from_list([path1], append=True)
+                self.pan_tree.generate_tree_from_list([path2], append=True)
 
             logger.info(f"【增量STRM生成】网盘目录树生成完成: {pan_media_dir}")
         except Exception as e:
@@ -325,7 +314,9 @@ class IncrementSyncStrmHelper:
         new_file_path = Path(local_path)
 
         try:
-            if self.directory_cache.is_in_cache(self.directory_cache_group_name, pan_path):
+            if self.directory_cache.is_in_cache(
+                self.directory_cache_group_name, pan_path
+            ):
                 return
 
             if self.pan_transfer_enabled and self.pan_transfer_paths:
@@ -496,21 +487,17 @@ class IncrementSyncStrmHelper:
                 self.__wait_generate_local_tree(local_tree_task_thread)
 
                 if (
-                    not Path(self.pan_to_local_tree).exists()
-                    or not Path(self.local_tree).exists()
-                ):
+                    not self.pan_to_local_tree_path.exists()
+                    or not self.local_tree_path.exists()
+                ) and settings.CACHE_BACKEND_TYPE != "redis":
                     logger.error(f"【增量STRM生成】{path} 目录树生成错误")
                     return
 
                 # 生成或者下载文件
-                for line in DirectoryTree().compare_trees_lines(
-                    self.pan_to_local_tree, self.local_tree
-                ):
-                    pan_path_str = DirectoryTree().get_path_by_line_number(
-                        self.pan_tree, line
-                    )
-                    local_path_str = DirectoryTree().get_path_by_line_number(
-                        self.pan_to_local_tree, line
+                for line in self.pan_to_local_tree.compare_trees_lines(self.local_tree):
+                    pan_path_str = self.pan_tree.get_path_by_line_number(line)
+                    local_path_str = self.pan_to_local_tree.get_path_by_line_number(
+                        line
                     )
                     if pan_path_str and local_path_str:
                         self.__handle_addition_path(
