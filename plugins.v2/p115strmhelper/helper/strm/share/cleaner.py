@@ -1,7 +1,7 @@
 from itertools import batched
 from pathlib import Path
 from threading import Lock
-from time import time as time_unix
+from time import perf_counter, time as time_unix
 from typing import Any, Dict, List, Optional, Tuple
 from uuid import uuid4
 
@@ -354,6 +354,26 @@ class ShareStrmCleaner:
     """
 
     _SHARE_VALIDATE_SNAP_BATCH = 2000
+    _VALIDATE_PROGRESS_LOG_INTERVAL_SEC = 10.0
+
+    @staticmethod
+    def _format_log_progress_bar(ratio: float, width: int = 20) -> str:
+        """
+        将 0–1 比例格式化为日志用 ASCII 进度条
+
+        :param ratio: 完成比例
+        :param width: 进度条宽度（字符数）
+        :return: 形如 ``[████████░░░░] 42.5%`` 的字符串
+        """
+        ratio = max(0.0, min(1.0, ratio))
+        filled = int(ratio * width)
+        if filled >= width:
+            bar = "=" * width
+        elif ratio > 0:
+            bar = "=" * filled + ">" + " " * (width - filled - 1)
+        else:
+            bar = " " * width
+        return f"[{bar}] {ratio * 100:.1f}%"
 
     def __init__(
         self,
@@ -381,21 +401,55 @@ class ShareStrmCleaner:
             client = ShareOOPServerHelper.get_client()
             valid_total = 0
             invalid_pairs: List[Tuple[str, str]] = []
-            for batch in batched(
-                self.scaner.scan(path), self._SHARE_VALIDATE_SNAP_BATCH
-            ):
-                chunk = [
-                    [share_code, receive_code] for share_code, receive_code in batch
-                ]
-                resp = client.share_validate_snap(chunk)
-                valid_total += resp.valid_count
-                for i in resp.invalid:
-                    logger.warn(
-                        f"【分享STRM清理】无效分享: {i.share_code} {i.receive_code} {i.error}"
-                    )
-                    invalid_pairs.append((i.share_code, i.receive_code))
+
+            logger.info(f"【分享STRM清理】开始扫描目录: {path}")
+            scan_t0 = perf_counter()
+            pairs = self.scaner.scan(path)
+            scan_elapsed = perf_counter() - scan_t0
             logger.info(
-                f"【分享STRM清理】验证分享有效性成功，有效分享数量: {valid_total}，无效分享数量: {len(invalid_pairs)}"
+                f"【分享STRM清理】扫描完成，共 {len(pairs)} 个分享组，"
+                f"耗时 {scan_elapsed:.1f}s"
+            )
+
+            total = len(pairs)
+            if total == 0:
+                logger.info("【分享STRM清理】无分享组，跳过校验")
+            else:
+                validated = 0
+                last_log_t = 0.0
+                for batch_idx, batch in enumerate(
+                    batched(pairs, self._SHARE_VALIDATE_SNAP_BATCH),
+                    start=1,
+                ):
+                    chunk = [
+                        [share_code, receive_code] for share_code, receive_code in batch
+                    ]
+                    resp = client.share_validate_snap(chunk)
+                    valid_total += resp.valid_count
+                    for i in resp.invalid:
+                        logger.warn(
+                            f"【分享STRM清理】无效分享: {i.share_code} "
+                            f"{i.receive_code} {i.error}"
+                        )
+                        invalid_pairs.append((i.share_code, i.receive_code))
+                    validated += len(batch)
+                    now = perf_counter()
+                    if (
+                        batch_idx == 1
+                        or validated >= total
+                        or (now - last_log_t)
+                        >= self._VALIDATE_PROGRESS_LOG_INTERVAL_SEC
+                    ):
+                        ratio = validated / total
+                        logger.info(
+                            f"【分享STRM清理】验证分享 "
+                            f"{self._format_log_progress_bar(ratio)} "
+                            f"({validated}/{total}) 无效 {len(invalid_pairs)}"
+                        )
+                        last_log_t = now
+            logger.info(
+                f"【分享STRM清理】验证分享有效性成功，有效分享数量: {valid_total}，"
+                f"无效分享数量: {len(invalid_pairs)}"
             )
         except Exception as e:
             logger.error(
@@ -404,7 +458,17 @@ class ShareStrmCleaner:
             )
             return False, {}
         try:
+            if invalid_pairs:
+                logger.info(
+                    f"【分享STRM清理】开始解析无效分享 STRM 路径，"
+                    f"共 {len(invalid_pairs)} 组"
+                )
             invalid_paths = self.scaner.paths_for_many(path, invalid_pairs)
+            if invalid_pairs:
+                strm_count = sum(len(v) for v in invalid_paths.values())
+                logger.info(
+                    f"【分享STRM清理】路径映射完成，共 {strm_count} 个 STRM 文件"
+                )
         except Exception as e:
             logger.error(f"【分享STRM清理】获取无效分享路径失败: {e}")
             return False, {}
