@@ -192,9 +192,15 @@ class TestCleanByFile(_E2EBase):
         self.assertTrue(os.path.exists(path), "空间充足时不应删除")
 
     def test_protect_pattern_respected(self):
-        """保护后缀的文件不应被删除。"""
+        """保护后缀的文件不应被删除（v3.0.10 起需显式配置模板）。
+
+        ``configure`` 绕过 ``init_plugin``，而现行语义是「留空 = 不保护任何
+        文件」，故此处显式写入默认模板；不写入时 ``.part`` 会被清理，
+        见 ``test_empty_config_deletes_part_files``。
+        """
         part = self.make_file(os.path.join(self.dl, "x.part"), 4096, 30)
         self.configure([self.dl], threshold=5000, sync_wait=0)
+        self.plugin._protect_pattern = PROTECT_PATTERN
 
         with self.patch_free([1 * GIB]):
             self.plugin._clean_by_file(1 * GIB, dry_run=False)
@@ -832,6 +838,40 @@ class TestProtectPatternIntegration(_E2EBase):
 
         self.assertFalse(os.path.exists(media))
         self.assertTrue(os.path.exists(guard), "逗号分隔的第二个后缀未生效")
+
+    def test_empty_config_deletes_part_files(self):
+        """留空 = 不保护任何文件：``.part`` 同样进入候选（v3.0.10 回归）。
+
+        回归背景：``init_plugin`` 曾把空值回落为默认后缀模板，于是用户清空
+        「保护文件后缀」后 ``.part`` 仍被挡住——「清空」成了无效操作，且没有
+        任何提示。本用例走 ``init_plugin`` 的完整配置通路（而非直接改私有
+        属性），确保「空值不再回落」在真实链路上成立。
+        """
+        part = self.make_file(
+            os.path.join(self.dl, "movie.mkv.part"), 2 * 1024 * 1024, 30
+        )
+        self.plugin.init_plugin({
+            "enabled": True,
+            "mode": "file",
+            "target_dirs": self.dl,
+            "volume_path": self.base,
+            "threshold_gb": 5000,
+            "recent_skip_days": 0,
+            "protect_pattern": "",
+            "sync_wait_seconds": 0,
+            "notify": False,
+        })
+        self.assertEqual(self.plugin._protect_pattern, "")
+
+        with self.patch_free([1 * GIB, 10 * GIB, 10 * GIB]):
+            count, _released, _details = self.plugin._clean_by_file(
+                1 * GIB, dry_run=False
+            )
+
+        self.assertEqual(count, 1, "留空后 .part 应进入清理候选")
+        self.assertFalse(
+            os.path.exists(part), "留空时 .part 仍被保护（默认回落未去除）"
+        )
 
 
 class TestDryRunFullPreview(_E2EBase):

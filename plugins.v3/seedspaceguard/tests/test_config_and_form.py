@@ -5,11 +5,13 @@
 这些用例针对「改造后新增/变更的配置契约」，防止后续改动破坏兼容性。
 """
 
+import json
+import re
 import unittest
 
 import tests  # noqa: F401  触发宿主桩路径注入
 
-from seedspaceguard import SeedSpaceGuard
+from seedspaceguard import DEFAULT_PROTECT_PATTERN, SeedSpaceGuard
 
 
 class TestParseDirs(unittest.TestCase):
@@ -172,6 +174,57 @@ class TestConfigMigration(unittest.TestCase):
         self.assertEqual(plugin._target_dirs, [])
 
 
+class TestProtectPatternSemantics(unittest.TestCase):
+    """「保护文件后缀」的取值语义：**留空 = 不保护任何文件**（v3.0.10）。
+
+    回归背景：``init_plugin`` 曾把空值回落为默认后缀模板，于是用户清空该项后
+    ``.part`` 等未完成文件仍被挡住——「清空」成了无效操作，且没有任何提示。
+    这些用例锁定新语义：空串 / 纯空白 / 缺键 / 未传配置，一律不保护任何文件。
+    """
+
+    @staticmethod
+    def _patterns(plugin):
+        """按 ``_clean_by_file`` 的真实口径把配置串解析为后缀列表。"""
+        return [
+            p.strip()
+            for p in re.split(r"[,|，]", plugin._protect_pattern)
+            if p.strip()
+        ]
+
+    def test_empty_string_protects_nothing(self):
+        """空串 = 不保护任何文件。"""
+        plugin = SeedSpaceGuard()
+        plugin.init_plugin({"enabled": True, "protect_pattern": ""})
+        self.assertEqual(plugin._protect_pattern, "")
+        self.assertEqual(self._patterns(plugin), [])
+
+    def test_missing_key_protects_nothing(self):
+        """配置缺该项时不回落模板（旧行为会回落，属本条回归点）。"""
+        plugin = SeedSpaceGuard()
+        plugin._protect_pattern = "*.part"
+        plugin.init_plugin({"enabled": True})
+        self.assertEqual(self._patterns(plugin), [])
+
+    def test_whitespace_only_protects_nothing(self):
+        """纯空白同样视为留空。"""
+        plugin = SeedSpaceGuard()
+        plugin.init_plugin({"enabled": True, "protect_pattern": "   "})
+        self.assertEqual(self._patterns(plugin), [])
+
+    def test_no_config_protects_nothing(self):
+        """未传配置时复位为空（不留上一次的旧值）。"""
+        plugin = SeedSpaceGuard()
+        plugin._protect_pattern = "*.part"
+        plugin.init_plugin(None)
+        self.assertEqual(self._patterns(plugin), [])
+
+    def test_configured_patterns_still_parsed(self):
+        """显式配置的后缀依旧逐项生效（含 ``|`` 分隔）。"""
+        plugin = SeedSpaceGuard()
+        plugin.init_plugin({"enabled": True, "protect_pattern": "*.part|*.!qb"})
+        self.assertEqual(self._patterns(plugin), ["*.part", "*.!qb"])
+
+
 class TestDefaultConfigAndForm(unittest.TestCase):
     """默认配置与表单结构一致性。"""
 
@@ -188,6 +241,15 @@ class TestDefaultConfigAndForm(unittest.TestCase):
         """兼容字段 target_dir 默认为空，避免与新字段冲突。"""
         conf = self.plugin._default_config()
         self.assertEqual(conf["target_dir"], "")
+
+    def test_default_config_keeps_protect_template(self):
+        """默认配置仍预填推荐后缀：新装即受保护，只有显式清空才不保护。
+
+        ``_default_config`` 是**新装初始模板**，与「空值不回落」并不冲突：
+        空值回落曾让「清空」失效，而模板只决定安装时的初始值。
+        """
+        conf = self.plugin._default_config()
+        self.assertEqual(conf["protect_pattern"], DEFAULT_PROTECT_PATTERN)
 
     def test_form_uses_textarea_for_dirs(self):
         """目录输入应使用多行文本框。"""
@@ -387,6 +449,89 @@ class TestStatusAndPage(unittest.TestCase):
         self.assertIn("/vol/a", text)
         self.assertIn("/vol/b", text)
         self.assertNotIn("个目录", text)
+
+
+class TestRestoreProtectPatternButton(unittest.TestCase):
+    """配置页「恢复默认保护后缀」按钮（v3.0.10）。
+
+    宿主配置表单渲染器（``FormRender.vue`` 的 ``parseProps``）只认
+    ``props.on*`` 形式的字符串脚本，且在 ``with(model)`` 作用域内求值；
+    ``events`` 在配置表单里不生效（只有详情页按钮支持）。故本按钮采用
+    ``onClick`` + 原生 ``confirm`` 确认弹窗，且只改本地表单——
+    **仍需用户点击「保存」才落库**，不会直接改配置。
+    """
+
+    def setUp(self):
+        self.plugin = SeedSpaceGuard()
+        self.form, self.default = self.plugin.get_form()
+
+    def _walk(self, node):
+        """深度遍历表单节点。"""
+        if isinstance(node, dict):
+            yield node
+            if "content" in node:
+                yield from self._walk(node["content"])
+        elif isinstance(node, list):
+            for item in node:
+                yield from self._walk(item)
+
+    def _button(self):
+        """取「恢复默认保护后缀」按钮节点。"""
+        for node in self._walk(self.form):
+            if (node.get("component") == "VBtn"
+                    and node.get("text") == "恢复默认保护后缀"):
+                return node
+        return None
+
+    def _props_by_model(self, model):
+        """按 model 取控件 props。"""
+        for node in self._walk(self.form):
+            props = node.get("props") or {}
+            if props.get("model") == model:
+                return props
+        return {}
+
+    def test_button_present_in_form(self):
+        """按钮必须出现在配置表单里。"""
+        self.assertIsNotNone(self._button(), "表单缺少「恢复默认保护后缀」按钮")
+
+    def test_button_has_no_model_and_no_events(self):
+        """按钮不得带 model（否则会污染表单字段校验），也不得用 events。
+
+        ``events`` 只在详情页按钮生效，放进配置表单会静默失效。
+        """
+        button = self._button()
+        self.assertNotIn("model", button["props"])
+        self.assertNotIn("events", button)
+
+    def test_button_follows_file_only_visibility(self):
+        """按钮与输入框同属「仅文件」组，可见性必须一致。"""
+        button = self._button()
+        self.assertEqual(button["props"].get("show"), "mode === 'file'")
+        self.assertEqual(
+            self._props_by_model("protect_pattern").get("show"),
+            button["props"].get("show"),
+        )
+
+    def test_button_js_confirms_and_fills_default(self):
+        """脚本必须：先 ``confirm`` 确认，再把默认模板写回表单字段。"""
+        script = self._button()["props"].get("onClick")
+        self.assertIsInstance(script, str, "onClick 必须是字符串脚本")
+        self.assertIn("confirm(", script, "缺少确认弹窗")
+        self.assertIn("model.protect_pattern", script, "未写回表单字段")
+        self.assertIn(
+            json.dumps(DEFAULT_PROTECT_PATTERN, ensure_ascii=False),
+            script,
+            "脚本内联的模板与 DEFAULT_PROTECT_PATTERN 不一致",
+        )
+
+    def test_default_template_single_source(self):
+        """默认模板只有一个真源：新装默认值 / 占位符 / 按钮脚本三者一致。"""
+        self.assertEqual(self.default["protect_pattern"], DEFAULT_PROTECT_PATTERN)
+        self.assertEqual(
+            self._props_by_model("protect_pattern").get("placeholder"),
+            DEFAULT_PROTECT_PATTERN,
+        )
 
 
 if __name__ == "__main__":

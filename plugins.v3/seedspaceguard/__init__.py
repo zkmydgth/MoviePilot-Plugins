@@ -13,7 +13,8 @@
 - 安全兜底：每轮删除后实测空间释放量，若空间几乎未释放（如硬链接仍有残留引用、
   快照占用），立即停止并告警，宁可空间不足也不过量删除。
 - 清理范围：**除「保护文件后缀」命中的文件外，配置目录下所有文件均纳入清理候选**，
-  不区分文件类型（视频、nfo、图片、字幕等一视同仁）。需要保留的文件请写入保护后缀。
+  不区分文件类型（视频、nfo、图片、字幕等一视同仁）。需要保留的文件请写入保护后缀；
+  该项**留空即不保护任何文件**。
 - 联动清理：可选的「删除种子 / 删除转移记录」两项联动，由本插件主动执行，
   无需依赖其它插件。其中仅文件模式删除种子有严格前置条件：
   **必须该种子下的所有文件都已删除**，任一文件仍在磁盘上（含被保护后缀跳过的）
@@ -22,6 +23,7 @@
 
 import asyncio
 import functools
+import json
 import os
 import re
 import shutil
@@ -58,6 +60,10 @@ RELEASE_POLL_SECONDS: int = 5
 # 名义释放量低于该值时跳过「未释放即停止」硬判定，避免小文件被测量噪声误伤
 RELEASE_HARD_STOP_MIN_BYTES: int = 1024 ** 3
 GIB: int = 1024 ** 3
+# 默认保护后缀模板：**唯一真源**。表单占位符、新装默认配置与配置页
+# 「恢复默认保护后缀」按钮的内联脚本都取自这里（由测试校验三者一致，
+# 避免「按钮填回的模板」与「新装默认模板」各自漂移）。
+DEFAULT_PROTECT_PATTERN: str = "*.part|*.!qb|*.download|*.aria2|*.tmp|*.crdownload"
 # 空壳判定的目录扫描上限：超过该条目数即视为「扫不完」，保守判定为「有文件」。
 # 设上限是为了防御异常巨大的目录，绝不允许因扫不完而把有内容的种子判成空壳。
 DIR_SCAN_MAX_ENTRIES: int = 5000
@@ -92,7 +98,9 @@ class SeedSpaceGuard(_PluginBase):
     _cron: str = "0 */6 * * *"
     _recent_skip_days: int = 1
     _mode: str = "seed"
-    _protect_pattern: str = "*.part|*.!qb|*.download|*.aria2|*.tmp|*.crdownload"
+    # 保护文件后缀：**留空 = 不保护任何文件**（空值不再回落默认模板，
+    # 否则「清空」会变成无效操作）。新装默认模板见 _default_config()。
+    _protect_pattern: str = ""
 
     # Synology DSM 媒体索引目录与其中的元数据文件（删除真实文件后不会自动回收，
     # 会阻止父目录 rmdir，需按白名单甄别后清理，避免误删 @eaDir 下的用户数据）
@@ -154,7 +162,8 @@ class SeedSpaceGuard(_PluginBase):
         self._cron = "0 */6 * * *"
         self._recent_skip_days = 1
         self._mode = "seed"
-        self._protect_pattern = "*.part|*.!qb|*.download|*.aria2|*.tmp|*.crdownload"
+        # 未配置一律复位为空：空 = 不保护任何文件
+        self._protect_pattern = ""
         self._dry_run = False
         self._notify = True
         self._downloaders = []
@@ -190,10 +199,10 @@ class SeedSpaceGuard(_PluginBase):
         self._cron = str(config.get("cron") or "0 */6 * * *").strip()
         self._recent_skip_days = max(0, int(config.get("recent_skip_days") or 0))
         self._mode = str(config.get("mode") or "seed").strip() or "seed"
-        self._protect_pattern = str(
-            config.get("protect_pattern")
-            or "*.part|*.!qb|*.download|*.aria2|*.tmp|*.crdownload"
-        ).strip()
+        # 保护文件后缀：**留空即不保护任何文件**（2026-10-09 定案）。
+        # 此处刻意不回落到默认模板——用户显式清空该项就是要「不做后缀保护」，
+        # 回落会让清空变成无效操作（.part 等仍被挡住且无任何提示）。
+        self._protect_pattern = str(config.get("protect_pattern") or "").strip()
         self._dry_run = bool(config.get("dry_run"))
         self._notify = bool(config.get("notify"))
         # 联动清理开关：默认关闭，仅显式为真时开启
@@ -347,6 +356,35 @@ class SeedSpaceGuard(_PluginBase):
         if show:
             props["show"] = show
         return {"component": "VAlert", "props": props}
+
+    @staticmethod
+    def _restore_protect_pattern_js() -> str:
+        """生成配置表单「恢复默认保护后缀」按钮的前端脚本。
+
+        宿主配置表单渲染器（``FormRender.vue`` 的 ``parseProps``）只支持
+        ``props.on*`` 形式的**字符串脚本**，且在 ``with(model)`` 作用域内以
+        ``(${value})(event)`` 求值；``events`` 在配置表单里不生效（只有详情页
+        按钮支持）。因此脚本先弹浏览器原生 ``confirm`` 让用户确认，再把默认
+        模板写回表单字段——**只改本地表单，仍需用户点击「保存」才会落库**。
+
+        脚本内联的模板与 ``DEFAULT_PROTECT_PATTERN`` 逐字节一致，由测试校验。
+
+        :return: 可直接放进 ``props.onClick`` 的 JS 函数源码
+        """
+        guard = json.dumps(
+            "将把「保护文件后缀」恢复为默认模板：\n"
+            f"{DEFAULT_PROTECT_PATTERN}\n"
+            "（只改这一项，点完仍需按「保存」才会生效）\n确定恢复？",
+            ensure_ascii=False,
+        )
+        value = json.dumps(DEFAULT_PROTECT_PATTERN, ensure_ascii=False)
+        return (
+            "function () { if (!confirm("
+            + guard
+            + ")) { return; } model.protect_pattern = "
+            + value
+            + "; }"
+        )
 
     def get_form(self) -> Tuple[Optional[List[dict]], Dict[str, Any]]:
         """返回插件配置表单与默认配置。"""
@@ -586,12 +624,44 @@ class SeedSpaceGuard(_PluginBase):
                             "model": "protect_pattern",
                             "label": "保护文件后缀",
                             "class": "mt-4",
-                            "placeholder": "*.part|*.!qb|*.download|*.aria2|*.tmp|*.crdownload",
-                            "hint": "以 | 分隔的通配符，命中的文件不删除。"
+                            "placeholder": DEFAULT_PROTECT_PATTERN,
+                            "hint": "以 | 分隔的通配符，命中的文件不删除；"
+                                    "留空 = 不保护任何文件（未完成的 *.part 等"
+                                    "同样会被清理，留空请谨慎）。"
                                     "在「仅文件」模式与种子级的「清理无主文件」中生效；"
-                                    "种子级主链路（直接删种子）不适用",
+                                    "种子级主链路（直接删种子）不适用。"
+                                    "点下方按钮可一键填回默认模板",
                             "persistent-hint": True,
                             "show": "mode === 'file'",
+                        },
+                    },
+                    # ---- 「恢复默认保护后缀」按钮：紧贴上方输入框 ----
+                    # 表单渲染器只认 props.on* 字符串脚本（with(model) 作用域），
+                    # events 在配置表单里不生效，故用 onClick + 原生 confirm 确认弹窗。
+                    {
+                        "component": "VBtn",
+                        "props": {
+                            "color": "warning",
+                            "variant": "tonal",
+                            "size": "small",
+                            "class": "mt-2 mb-1",
+                            "prepend-icon": "mdi-restore",
+                            "onClick": self._restore_protect_pattern_js(),
+                            "show": "mode === 'file'",
+                        },
+                        "text": "恢复默认保护后缀",
+                    },
+                    {
+                        "component": "VAlert",
+                        "props": {
+                            "type": "info",
+                            "variant": "tonal",
+                            "class": "mt-2",
+                            "show": "mode === 'file'",
+                            "text": "点按钮先把默认模板填回上方输入框"
+                                    "（会先弹确认，且只改这一项）；"
+                                    "点完仍需按「保存」才会生效。"
+                                    "要「不保护任何文件」则把输入框清空。",
                         },
                     },
                     # ---- 分组标题：种子联动设置（两模式通用，不显隐） ----
@@ -2977,9 +3047,10 @@ class SeedSpaceGuard(_PluginBase):
           但若先过滤 mtime，一旦某侧被保护期拦截会出现去重失效
         - 除 protect_pattern 命中的文件外，**目录下所有文件均纳入候选**
           （含 nfo/图片/字幕等刮削产物）：统一由一条规则决定删除范围，
-          不区分文件类型。需要保留的文件请写入「保护文件后缀」
+          不区分文件类型。需要保留的文件请写入「保护文件后缀」；
+          该项留空时 ``patterns`` 为空列表，即**不做任何后缀保护**
 
-        :param patterns: 保护文件后缀通配符列表
+        :param patterns: 保护文件后缀通配符列表；空列表 = 不做任何后缀保护
         :param recent_secs: 保护期秒数，最近修改的文件不纳入候选
         :return: (候选文件列表, inode→全部路径映射)
                  候选元素为 (mtime, 代表路径, 大小字节, inode 键)，按 mtime 升序
@@ -3417,7 +3488,9 @@ class SeedSpaceGuard(_PluginBase):
             "recent_skip_days": 1,
             "cron": "0 */6 * * *",
             "sync_wait_seconds": 90,
-            "protect_pattern": "*.part|*.!qb|*.download|*.aria2|*.tmp|*.crdownload",
+            # 新装默认模板：预填一组推荐后缀。该值仅作安装时的初始配置，
+            # 用户清空后即为「不保护任何文件」，不会再被 init_plugin 回落。
+            "protect_pattern": DEFAULT_PROTECT_PATTERN,
             "dry_run": False,
             "notify": True,
             "delete_torrents": False,
