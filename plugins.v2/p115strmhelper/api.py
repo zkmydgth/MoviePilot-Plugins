@@ -357,7 +357,7 @@ class Api:
 
             resp = requests.get(
                 f"https://qrcodeapi.115.com/get/status/?uid={uid}&time={_time}&sign={sign}",
-                timeout=10,
+                timeout=120,
             )
             status_code = resp.json().get("data").get("status")
         except Exception as e:
@@ -429,11 +429,7 @@ class Api:
                     }
             return result
         elif status_code is None:
-            return {
-                "code": -1,
-                "error": "无法解析二维码状态",
-                "message": "无法解析二维码状态",
-            }
+            return status_map[0].copy()
         else:
             return {
                 "code": -1,
