@@ -787,10 +787,14 @@ class FullSyncStrmHelper:
 
             try:
                 parent_id = int(self.client.fs_dir_getid(pan_media_dir)["id"])
-                logger.info(f"【全量STRM生成】网盘媒体目录 ID 获取成功: {parent_id}")
+                logger.info(
+                    f"【全量STRM生成】网盘媒体目录 ID 获取成功: {pan_media_dir} {parent_id}"
+                )
             except Exception as e:
                 sentry_manager.sentry_hub.capture_exception(e)
-                logger.error(f"【全量STRM生成】网盘媒体目录 ID 获取失败: {e}")
+                logger.error(
+                    f"【全量STRM生成】网盘媒体目录 ID 获取失败: {pan_media_dir} {e}"
+                )
                 return False
 
             try:
@@ -858,7 +862,8 @@ class FullSyncStrmHelper:
             except Exception as e:
                 sentry_manager.sentry_hub.capture_exception(e)
                 logger.error(
-                    f"【全量STRM生成】全量生成 STRM 文件失败: {e}", exc_info=True
+                    f"【全量STRM生成】全量生成 STRM 文件失败: {pan_media_dir} {e}",
+                    exc_info=True,
                 )
                 return False
 
@@ -875,6 +880,7 @@ class FullSyncStrmHelper:
                             logger.warn(
                                 f"【全量STRM生成】本次将删除文件个数为 {count}，超过安全阈值不进行删除操作"
                             )
+                            continue
                         for path in DirectoryTree().compare_trees(
                             self.local_tree, self.pan_tree
                         ):
