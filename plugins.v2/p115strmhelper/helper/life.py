@@ -220,6 +220,7 @@ class MonitorLife:
         :param file_path: 文件路径
         :param rmt_mediaext: 媒体文件后缀名
         """
+        _databasehelper = FileDbHelper()
         transferchain = TransferChain()
         file_category = event["file_category"]
         file_id = event["file_id"]
@@ -244,6 +245,7 @@ class MonitorLife:
                         str(item["parent_id"])
                     )
                 if file_path.suffix.lower() in rmt_mediaext:
+                    _databasehelper.remove_by_id("file", item["id"])
                     # 缓存文件ID
                     if (
                         str(item["id"])
@@ -277,6 +279,7 @@ class MonitorLife:
                     file_path.suffix.lower() in settings.RMT_AUDIOEXT
                     or file_path.suffix.lower() in settings.RMT_SUBEXT
                 ):
+                    _databasehelper.remove_by_id("file", item["id"])
                     # 如果是MP可处理的音轨或字幕文件，则缓存文件ID
                     if (
                         str(item["id"])
@@ -312,6 +315,7 @@ class MonitorLife:
         else:
             # 文件情况，直接整理
             if file_path.suffix.lower() in rmt_mediaext:
+                _databasehelper.remove_by_id("file", event["file_id"])
                 # 缓存文件ID
                 if (
                     str(event["file_id"])
