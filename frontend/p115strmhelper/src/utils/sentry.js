@@ -1,6 +1,6 @@
 import * as Sentry from '@sentry/vue';
 
-const FRONTEND_DSN = 'https://9a6338e4ec0a4e41bd24ad5b84eb437b@glitchtip.ddsrem.com/7';
+const FRONTEND_DSN = 'https://96a2c369b42c4656bbcb9292d677064d@glitchtip.ddsrem.com/3';
 
 export function initSentry(app = null, router = null, options = {}) {
   const isEnabled = options.enabled !== false;

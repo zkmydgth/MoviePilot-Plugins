@@ -169,7 +169,7 @@ class SentryManager:
             self.sentry_hub = Hub(
                 Client(
                     dsn=b64decode(
-                        "aHR0cHM6Ly82YTk0ZjI2N2NjOTY0Y2ZiOTk5ZjQyNDgwNGIyMTE1M0BnbGl0Y2h0aXAuZGRzcmVtLmNvbS80"
+                        "aHR0cHM6Ly9lYjlhNGJkYWMyNDk0MjY4ODYzNTI1Y2VlNTJkMzJmOEBnbGl0Y2h0aXAuZGRzcmVtLmNvbS8y"
                     ).decode("utf-8"),
                     release=f"p115strmhelper@v{VERSION}",
                     default_integrations=False,
