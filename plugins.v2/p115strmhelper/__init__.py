@@ -19,6 +19,7 @@ from .api import Api
 from .service import servicer
 from .core.cache import pantransfercacher, lifeeventcacher
 from .core.config import configer
+from .core.i18n import i18n
 from .db_manager import ct_db_manager
 from .db_manager.init import init_db, update_db
 from .db_manager.oper import FileDbHelper
@@ -106,6 +107,9 @@ class P115StrmHelper(_PluginBase):
         self.action_handler = ActionHandler()
         self.view_renderer = ViewRenderer()
 
+        # 初始化通知语言
+        i18n.load_translations()
+
     def init_plugin(self, config: dict = None):
         """
         初始化插件
@@ -115,6 +119,7 @@ class P115StrmHelper(_PluginBase):
         if config:
             configer.update_config(config)
             configer.update_plugin_config()
+            i18n.load_translations()
 
         # 停止现有任务
         self.stop_service()
@@ -490,7 +495,7 @@ class P115StrmHelper(_PluginBase):
             return
         self.post_message(
             channel=event.event_data.get("channel"),
-            title=servicer.i18n.translate("start_full_sync"),
+            title=i18n.translate("start_full_sync"),
             userid=event.event_data.get("user"),
         )
         servicer.full_sync_strm_files()
@@ -507,7 +512,7 @@ class P115StrmHelper(_PluginBase):
             return
         self.post_message(
             channel=event.event_data.get("channel"),
-            title=servicer.i18n.translate("start_inc_sync"),
+            title=i18n.translate("start_inc_sync"),
             userid=event.event_data.get("user"),
         )
         servicer.increment_sync_strm_files(send_msg=True)
@@ -527,7 +532,7 @@ class P115StrmHelper(_PluginBase):
             logger.error(f"【全量STRM生成】缺少参数：{event_data}")
             self.post_message(
                 channel=event.event_data.get("channel"),
-                title=servicer.i18n.translate("p115_strm_parameter_error"),
+                title=i18n.translate("p115_strm_parameter_error"),
                 userid=event.event_data.get("user"),
             )
             return
@@ -538,7 +543,7 @@ class P115StrmHelper(_PluginBase):
         ):
             self.post_message(
                 channel=event.event_data.get("channel"),
-                title=servicer.i18n.translate("p115_strm_full_sync_config_error"),
+                title=i18n.translate("p115_strm_full_sync_config_error"),
                 userid=event.event_data.get("user"),
             )
             return
@@ -549,7 +554,7 @@ class P115StrmHelper(_PluginBase):
         if not status:
             self.post_message(
                 channel=event.event_data.get("channel"),
-                title=f"{args} {servicer.i18n.translate('p115_strm_match_path_error')}",
+                title=f"{args} {i18n.translate('p115_strm_match_path_error')}",
                 userid=event.event_data.get("user"),
             )
             return
@@ -584,7 +589,7 @@ class P115StrmHelper(_PluginBase):
         self.post_message(
             channel=event.event_data.get("channel"),
             userid=event.event_data.get("user"),
-            title=servicer.i18n.translate("full_sync_done_title"),
+            title=i18n.translate("full_sync_done_title"),
             text=text,
         )
 
@@ -606,7 +611,7 @@ class P115StrmHelper(_PluginBase):
         ):
             self.post_message(
                 channel=event.event_data.get("channel"),
-                title="配置错误！ 请先进入插件界面配置频道搜索",
+                title=i18n.translate("p115_search_config_error"),
                 userid=event.event_data.get("user"),
             )
 
@@ -615,7 +620,7 @@ class P115StrmHelper(_PluginBase):
             logger.error(f"【搜索】缺少参数：{event_data}")
             self.post_message(
                 channel=event.event_data.get("channel"),
-                title="参数错误！ /search 搜索关键词",
+                title=i18n.translate("p115_search_parameter_error"),
                 userid=event.event_data.get("user"),
             )
             return
@@ -779,7 +784,7 @@ class P115StrmHelper(_PluginBase):
                 logger.error(f"【分享转存】缺少参数：{event_data}")
                 self.post_message(
                     channel=event.event_data.get("channel"),
-                    title="参数错误！ /p115_add_share 分享链接",
+                    title=i18n.translate("p115_add_share_parameter_error"),
                     userid=event.event_data.get("user"),
                 )
                 return
@@ -804,20 +809,20 @@ class P115StrmHelper(_PluginBase):
                 logger.error(f"【离线下载】缺少参数：{event_data}")
                 self.post_message(
                     channel=event.event_data.get("channel"),
-                    title="参数错误！ /ol 链接",
+                    title=i18n.translate("p115_add_offline_parameter_error"),
                     userid=event.event_data.get("user"),
                 )
                 return
         if servicer.offlinehelper.add_urls_to_transfer([str(args)]):
             self.post_message(
                 channel=event.event_data.get("channel"),
-                title="添加离线下载任务成功！",
+                title=i18n.translate("p115_add_offline_success"),
                 userid=event.event_data.get("user"),
             )
         else:
             self.post_message(
                 channel=event.event_data.get("channel"),
-                title="添加离线下载任务失败！",
+                title=i18n.translate("p115_add_offline_fail"),
                 userid=event.event_data.get("user"),
             )
 
@@ -979,6 +984,8 @@ class P115StrmHelper(_PluginBase):
 
             # 持久化存储配置
             configer.update_plugin_config()
+
+            i18n.load_translations()
 
             # 重新初始化插件
             self.init_plugin(config=self.get_config())

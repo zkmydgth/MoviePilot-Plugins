@@ -22,6 +22,7 @@ from .core.config import configer
 from .core.u115_open import U115OpenHelper
 from .core.cache import idpathcacher
 from .core.message import post_message
+from .core.i18n import i18n
 from .utils.http import check_response
 from .utils.url import Url
 
@@ -787,13 +788,24 @@ class Api:
                 if not file_mediainfo:
                     post_message(
                         mtype=NotificationType.Plugin,
-                        title=f"转存 {share_code} 到 {parent_path} 成功！",
+                        title=i18n.translate("share_add_success"),
+                        text=f"""
+分享链接：https://115cdn.com/s/{share_code}?password={receive_code}
+转存目录：{parent_path}
+""",
                     )
                 else:
                     post_message(
                         mtype=NotificationType.Plugin,
-                        title=f"转存 {file_mediainfo.title}（{file_mediainfo.year}）成功",
-                        text=f"\n简介: {file_mediainfo.overview}",
+                        title=i18n.translate(
+                            "share_add_success_2",
+                            title=file_mediainfo.title,
+                            year=file_mediainfo.year,
+                        ),
+                        text=f"""
+链接：https://115cdn.com/s/{share_code}?password={receive_code}
+简介：{file_mediainfo.overview}
+""",
                         image=file_mediainfo.poster_path,
                     )
             return {

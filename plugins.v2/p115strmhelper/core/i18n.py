@@ -1,31 +1,74 @@
 import json
+from typing import Any, Dict, Optional
+from string import Formatter
 
 from app.core.config import settings
+
+from ..core.config import configer
+
+
+class NestedFormatter(Formatter):
+    """
+    支持嵌套字典的字符串格式化器
+    """
+
+    def get_value(self, key: str, args: Any, kwargs: Dict[str, Any]) -> Any:
+        if "." in key:
+            keys = key.split(".")
+            value = kwargs
+            for k in keys:
+                if isinstance(value, dict) and k in value:
+                    value = value[k]
+                else:
+                    return f"{{{key}}}"
+            return value
+        return super().get_value(key, args, kwargs)
 
 
 class I18N:
     """
-    国际化
+    国际化处理类
     """
 
-    def __init__(self, locale="zh_CN"):
-        self.locale = locale
-        self.translations = {}
-        self.load_translations()
+    def __init__(self):
+        self.translations: Dict[str, str] = {}
+        self.formatter = NestedFormatter()
 
-    def load_translations(self):
+    def load_translations(self) -> None:
         """
         加载语言文件
         """
         locales_dir = settings.ROOT_PATH / "app/plugins" / "p115strmhelper" / "locales"
+        lang = configer.get_config("language") or "zh_CN"
+        lang_file = locales_dir / f"{lang}.json"
+
         try:
-            with open(locales_dir / f"{self.locale}.json", "r", encoding="utf-8") as f:
+            with open(lang_file, "r", encoding="utf-8") as f:
                 self.translations = json.load(f)
         except FileNotFoundError:
             self.translations = {}
+        except json.JSONDecodeError:
+            self.translations = {}
 
-    def translate(self, key, default=None):
+    def translate(self, key: str, default: Optional[str] = None, **kwargs: Any) -> str:
         """
-        输出语言
+        获取翻译文本并格式化
+
+        Args:
+            key: 翻译键名
+            default: 如果找不到键时返回的默认值
+            **kwargs: 格式化参数
+
+        Returns:
+            格式化后的字符串
         """
-        return self.translations.get(key, default or key)
+        template = self.translations.get(key, default or key)
+        if not template:
+            return key
+        try:
+            return self.formatter.format(template, **kwargs)
+        except (KeyError, AttributeError):
+            return template
+
+
+i18n = I18N()
