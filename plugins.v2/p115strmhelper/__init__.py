@@ -1311,6 +1311,7 @@ class ShareStrmHelper:
         share_media_path: str,
         local_media_path: str,
         server_address: str,
+        strm_url_format: str,
         mediainfodownloader: MediaInfoDownloader,
         auto_download_mediainfo: bool = False,
     ):
@@ -1332,6 +1333,7 @@ class ShareStrmHelper:
         self.share_media_path = share_media_path
         self.local_media_path = local_media_path
         self.server_address = server_address.rstrip("/")
+        self.strm_url_format = strm_url_format
         self.pathmatchinghelper = PathMatchingHelper()
         self.mediainfodownloader = mediainfodownloader
         self.download_mediainfo_list = []
@@ -1342,6 +1344,7 @@ class ShareStrmHelper:
         receive_code: str,
         file_id: str,
         file_path: str,
+        pan_file_name: str,
     ):
         """
         生成 STRM 文件
@@ -1404,6 +1407,8 @@ class ShareStrmHelper:
                 self.strm_fail_count += 1
                 return
             strm_url = f"{self.server_address}/api/v1/plugin/P115StrmHelper/redirect_url?apikey={settings.API_TOKEN}&share_code={share_code}&receive_code={receive_code}&id={file_id}"
+            if self.strm_url_format == "pickname":
+                strm_url += f"&file_name={pan_file_name}"
 
             with open(new_file_path, "w", encoding="utf-8") as file:
                 file.write(strm_url)
@@ -1454,6 +1459,7 @@ class ShareStrmHelper:
                     receive_code=receive_code,
                     file_id=item_with_path["id"],
                     file_path=item_with_path["path"],
+                    pan_file_name=item_with_path["name"],
                 )
 
     def download_mediainfo(self):
@@ -1532,7 +1538,7 @@ class P115StrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png"
     # 插件版本
-    plugin_version = "1.8.19"
+    plugin_version = "1.8.20"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -3536,6 +3542,7 @@ class P115StrmHelper(_PluginBase):
                 server_address=self._moviepilot_address,
                 share_media_path=self._user_share_pan_path,
                 local_media_path=self._user_share_local_path,
+                strm_url_format=self._strm_url_format,
                 mediainfodownloader=self.mediainfodownloader,
             )
             strm_helper.get_share_list_creata_strm(
