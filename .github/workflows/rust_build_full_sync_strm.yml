@@ -12,11 +12,8 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            target: x86_64
           - os: windows-latest
-            target: x86_64
           - os: macos-latest
-            target: x86_64-aarch64
           - os: ubuntu-latest
             target: aarch64
 
@@ -39,8 +36,9 @@ jobs:
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
+          target: ${{ matrix.target }}
           command: build
-          args: --release --out dist --target ${{ matrix.target }}
+          args: --release --out dist
           manylinux: auto
           working-directory: plugins.v2/p115strmhelper/rust_utils/full_strm_sync/
 
@@ -48,8 +46,9 @@ jobs:
         if: matrix.os == 'ubuntu-latest' && matrix.target == 'x86_64'
         uses: PyO3/maturin-action@v1
         with:
+          target: x86_64-unknown-linux-musl
           command: build
-          args: --release --out dist --target x86_64-unknown-linux-musl
+          args: --release --out dist
           manylinux: auto
           working-directory: plugins.v2/p115strmhelper/rust_utils/full_strm_sync/
 
