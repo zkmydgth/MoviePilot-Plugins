@@ -329,7 +329,19 @@ class ShareTransferHelper:
         payload = {
             "share_code": share_code,
             "receive_code": receive_code,
-            "file_id": 0,
+            "file_id": ",".join(
+                [
+                    str(f["id"])
+                    for f in share_iterdir(
+                        self.client,
+                        receive_code=receive_code,
+                        share_code=share_code,
+                        cid=0,
+                        app="web",
+                        **configer.get_ios_ua_app(app=False),
+                    )
+                ]
+            ),
             "cid": int(parent_id),
             "is_check": 0,
         }
