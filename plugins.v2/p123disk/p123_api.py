@@ -358,7 +358,7 @@ class P123Api:
             resp = self.client.download_info(payload)
             check_response(resp)
             download_url = resp["data"]["DownloadUrl"]
-            local_path = path or settings.TEMP_PATH / fileitem.name
+            local_path = (path or settings.TEMP_PATH) / fileitem.name
         except Exception as e:
             logger.error(f"【123】获取下载链接失败: {fileitem.name} - {str(e)}")
             return None
