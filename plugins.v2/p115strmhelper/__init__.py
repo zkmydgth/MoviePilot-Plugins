@@ -33,15 +33,14 @@ from .interactive.session import Session
 from .interactive.views import ViewRenderer
 from .helper.strm import FullSyncStrmHelper, TransferStrmHelper
 from .utils.path import PathUtils
-from .utils.sentry import capture_all_class_exceptions
-from .utils.machineid import MachineID
+from .utils.sentry import sentry_manager
 
 
 # 实例化一个该插件专用的 SessionManager
 session_manager = BaseSessionManager(session_class=Session)
 
 
-@capture_all_class_exceptions
+@sentry_manager.capture_all_class_exceptions
 class P115StrmHelper(_PluginBase):
     # 插件名称
     plugin_name = "115网盘STRM助手"
@@ -125,19 +124,13 @@ class P115StrmHelper(_PluginBase):
             configer.update_config(config)
             configer.update_plugin_config()
             i18n.load_translations()
+            sentry_manager.reload_config()
 
         # 停止现有任务
         self.stop_service()
 
         if configer.get_config("enabled"):
             self.init_database()
-
-            if not MachineID.has_machine_id(
-                configer.get_config("PLUGIN_CONFIG_PATH") / "machine_id.txt"
-            ):
-                MachineID.generate_machine_id(
-                    configer.get_config("PLUGIN_CONFIG_PATH") / "machine_id.txt"
-                )
 
             if servicer.init_service():
                 self.api = Api(client=servicer.client)
@@ -1023,6 +1016,8 @@ class P115StrmHelper(_PluginBase):
             configer.update_plugin_config()
 
             i18n.load_translations()
+
+            sentry_manager.reload_config()
 
             # 重新初始化插件
             self.init_plugin(config=self.get_config())

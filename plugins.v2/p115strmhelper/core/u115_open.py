@@ -19,7 +19,7 @@ from app.utils.string import StringUtils
 
 from ..core.config import configer
 from ..utils.oopserver import OOPServerRequest
-from ..utils.sentry import capture_all_class_exceptions
+from ..utils.sentry import sentry_manager
 
 
 p115_open_lock = threading.Lock()
@@ -31,7 +31,7 @@ class U115NoCheckInException(Exception):
     """
 
 
-@capture_all_class_exceptions
+@sentry_manager.capture_all_class_exceptions
 class U115OpenHelper:
     """
     115 Open Api

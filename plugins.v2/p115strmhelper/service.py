@@ -20,14 +20,14 @@ from .helper.clean import Cleaner
 from .helper.r302 import Redirect
 from .core.config import configer
 from .core.message import post_message
-from .utils.sentry import capture_all_class_exceptions
+from .utils.sentry import sentry_manager
 
 from app.log import logger
 from app.core.config import settings
 from app.schemas import NotificationType
 
 
-@capture_all_class_exceptions
+@sentry_manager.capture_all_class_exceptions
 class ServiceHelper:
     """
     服务项

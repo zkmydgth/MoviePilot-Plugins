@@ -2,10 +2,10 @@ import re
 
 import requests
 
-from ..utils.sentry import capture_all_class_exceptions
+from ..utils.sentry import sentry_manager
 
 
-@capture_all_class_exceptions
+@sentry_manager.capture_all_class_exceptions
 class CloudSaverHelper:
     """
     CloudSaver 类，用于获取云盘资源

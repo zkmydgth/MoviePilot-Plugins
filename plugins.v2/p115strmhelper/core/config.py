@@ -269,13 +269,7 @@ class ConfigManager:
         ]:
             return Path(self._configs.get(key))
         elif key == "MACHINE_ID":
-            if not MachineID.has_machine_id(
-                self.get_config("PLUGIN_CONFIG_PATH") / "machine_id.txt"
-            ):
-                MachineID.generate_machine_id(
-                    self.get_config("PLUGIN_CONFIG_PATH") / "machine_id.txt"
-                )
-            return MachineID.read_machine_id(
+            return MachineID.get_or_generate_machine_id(
                 self.get_config("PLUGIN_CONFIG_PATH") / "machine_id.txt"
             )
         return self._configs.get(key)
