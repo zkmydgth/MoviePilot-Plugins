@@ -201,12 +201,14 @@ class FullSyncStrmHelper:
 
             try:
                 for item in iterdir(
-                    self.client,
-                    parent_id=parent_id,
-                    interval=1,
+                    client=self.client,
+                    payload=parent_id,
+                    cooldown=1,
                     max_depth=-1,
-                    predicate=lambda a: not a["is_dir"],
+                    keep_raw=True,
                 ):
+                    if item["is_dir"]:
+                        continue
                     file_path = pan_media_dir + "/" + item["relpath"]
                     file_path = Path(target_dir) / Path(file_path).relative_to(
                         pan_media_dir
@@ -215,6 +217,7 @@ class FullSyncStrmHelper:
                     file_name = file_path.stem + ".strm"
                     new_file_path = file_target_dir / file_name
 
+                    item = item["raw"]
                     try:
                         if self.auto_download_mediainfo:
                             if file_path.suffix in self.download_mediaext:
@@ -340,13 +343,16 @@ class ShareStrmHelper:
         获取分享文件，生成 STRM
         """
         for item in share_iterdir(
-            share_code,
-            share_pwd,
-            parent_id=parent_id,
-            interval=1,
+            client=self.client,
+            share_key=share_code,
+            share_pwd=share_pwd,
+            payload=parent_id,
+            cooldown=1,
             max_depth=-1,
-            predicate=lambda a: not a["is_dir"],
+            keep_raw=True,
         ):
+            if item["is_dir"]:
+                continue
             file_path = "/" + item["relpath"]
             if not self.has_prefix(file_path, self.share_media_path):
                 logger.debug(
@@ -361,6 +367,7 @@ class ShareStrmHelper:
             file_name = file_path.stem + ".strm"
             new_file_path = file_target_dir / file_name
 
+            item = item["raw"]
             try:
                 if self.auto_download_mediainfo:
                     if file_path.suffix in self.download_mediaext:
@@ -433,7 +440,7 @@ class P123StrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/DDS-Derek/MoviePilot-Plugins/main/icons/P123Disk.png"
     # 插件版本
-    plugin_version = "1.0.11"
+    plugin_version = "1.0.12"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
