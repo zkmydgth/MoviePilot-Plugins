@@ -214,7 +214,7 @@ class ActionHandler(BaseActionHandler):
         处理离线下载目录选择操作
         """
         session.business.offline_download_path = None
-        session.business.offline_download_url = action.value
+        session.business.offline_download_urls = action.value
 
     @command_registry.command(name="offline_download", code="dod")
     def handle_offline_download(self, session: Session, action: Action):
@@ -230,17 +230,14 @@ class ActionHandler(BaseActionHandler):
                 path = configer.offline_download_paths[item_index]
                 session.view.name = "close"
                 # 选择目录为整理目录则进行网盘整理，否则只添加离线下载任务
+                url_list = session.business.offline_download_urls
                 if (
                     path in configer.pan_transfer_paths
                     and configer.pan_transfer_enabled
                 ):
-                    status = servicer.offlinehelper.add_urls_to_transfer(
-                        [session.business.offline_download_url]
-                    )
+                    status = servicer.offlinehelper.add_urls_to_transfer(url_list)
                 else:
-                    status = servicer.offlinehelper.add_urls_to_path(
-                        [session.business.offline_download_url], path
-                    )
+                    status = servicer.offlinehelper.add_urls_to_path(url_list, path)
                 if status:
                     post_message(
                         channel=session.message.channel,

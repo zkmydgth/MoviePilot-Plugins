@@ -29,6 +29,8 @@
     "p115_share_link_intent_transfer_error": "搞转存搞出错了，再试下啦",
     "p115_share_link_intent_strm_error": "提交分享交互生成 STRM 失败，再试下啦",
     "p115_add_offline_parameter_error": "成日甩漏！/ol 后面唔加链接你搞咩啊？",
+    "p115_add_offline_no_recognized_link": "睇唔出有条离线链接喎",
+    "p115_add_offline_no_recognized_link_detail": "\n检查下係唔係 magnet、ed2k 或者 .torrent 嘅 http 链接先；若係啱嘅都弹呢句，可能係插件未识得呢种格式，试下升级插件或者甩条样例去仓库",
     "p115_add_offline_success": "正啦！离线任务加咗落去，饮杯茶等完成啦！",
     "p115_add_offline_fail": "衰咗啦兄弟，离线任务加唔到，气死我啦！",
     "share_sync_done_title": "✅【115网盘】STRM 分享搞掂啦～唔洗谢我，快啲撩片睇啦！",

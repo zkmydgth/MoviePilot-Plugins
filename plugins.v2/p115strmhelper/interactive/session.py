@@ -26,7 +26,7 @@ class Business(BaseBusiness):
     share_strm_u115_url: Optional[str] = None
 
     offline_download_path: Optional[str] = None
-    offline_download_url: Optional[str] = None
+    offline_download_urls: Optional[List[str]] = None
 
 
 @dataclass

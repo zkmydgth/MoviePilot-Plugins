@@ -43,6 +43,7 @@ from .helper.mediasyncdel.webhook_queue import (
     sync_del_webhook_queue,
 )
 from .utils.path import PathUtils
+from .utils.offline_link import OfflineLinkResolver
 from .utils.sentry import sentry_manager
 from .helper.share.share_links import ShareLinkResolver
 from .utils.strm import StrmGenerater
@@ -1113,6 +1114,73 @@ class P115StrmHelper(_PluginBase):
         )
         return can_transfer, can_strm, u115 if can_strm else None
 
+    def _handle_offline_download(
+        self,
+        urls: Optional[List[str]],
+        event_data: Dict[str, Any],
+        userid: Optional[str],
+    ):
+        """
+        处理离线下载公共流程
+
+        :param urls: 已解析好的离线下载链接列表
+        :param event_data: 事件上下文
+        :param userid: 用户ID
+        """
+        url_list = [u for u in (urls or []) if u]
+
+        if not url_list:
+            logger.error(f"【离线下载】缺少参数：{event_data}")
+            post_message(
+                channel=event_data.get("channel"),
+                source=event_data.get("source"),
+                title=i18n.translate("p115_add_offline_no_recognized_link"),
+                text=i18n.translate("p115_add_offline_no_recognized_link_detail"),
+                userid=self._get_event_userid(event_data),
+            )
+            return
+
+        if len(configer.offline_download_paths) <= 1:
+            if servicer.offlinehelper.add_urls_to_transfer(url_list):
+                post_message(
+                    channel=event_data.get("channel"),
+                    source=event_data.get("source"),
+                    title=i18n.translate("p115_add_offline_success"),
+                    userid=userid,
+                )
+            else:
+                post_message(
+                    channel=event_data.get("channel"),
+                    source=event_data.get("source"),
+                    title=i18n.translate("p115_add_offline_fail"),
+                    userid=userid,
+                )
+            return
+
+        try:
+            session = session_manager.get_or_create(
+                event_data, plugin_id=self.__class__.__name__
+            )
+
+            action = Action(
+                command="offline_download_path",
+                view="offline_download_paths",
+                value=url_list,
+            )
+
+            immediate_messages = self.action_handler.process(session, action)
+            # 报错，截断后续运行
+            if immediate_messages:
+                for msg in immediate_messages:
+                    self.__send_message(session, text=msg.get("text"), title="错误")
+                return
+
+            # 设置页面
+            session.go_to("offline_download_paths")
+            self._render_and_send(session)
+        except Exception as e:
+            logger.error(f"处理离线下载命令失败: {e}")
+
     @eventmanager.register(EventType.UserMessage)
     def user_add_share(self, event: Event):
         """
@@ -1191,6 +1259,31 @@ class P115StrmHelper(_PluginBase):
             url=share_url,
             channel=channel,
             source=source,
+            userid=userid,
+        )
+
+    @eventmanager.register(EventType.UserMessage)
+    def user_add_offline_links(self, event: Event):
+        """
+        用户消息中的离线链接：触发离线下载流程
+        """
+        if not configer.enabled:
+            return
+        if not configer.offline_download_paths:
+            return
+        if len(configer.offline_download_paths) <= 0:
+            return
+        event_data = event.event_data if event else {}
+        text = (event_data.get("text") or "").strip()
+        if not text:
+            return
+        offline_urls = OfflineLinkResolver.parse_offline_input(text)
+        if not offline_urls:
+            return
+        userid = self._get_event_userid(event_data)
+        self._handle_offline_download(
+            urls=offline_urls,
+            event_data=event_data,
             userid=userid,
         )
 
@@ -1325,64 +1418,35 @@ class P115StrmHelper(_PluginBase):
         """
         添加离线下载任务
         """
-        args = None
-        userid = None
-        if event:
-            event_data = event.event_data
-            if not event_data or event_data.get("action") != "p115_add_offline":
-                return
-            userid = self._get_event_userid(event_data)
-            args = event_data.get("arg_str")
-            if not args:
-                logger.error(f"【离线下载】缺少参数：{event_data}")
-                post_message(
-                    channel=event.event_data.get("channel"),
-                    source=event.event_data.get("source"),
-                    title=i18n.translate("p115_add_offline_parameter_error"),
-                    userid=userid,
-                )
-                return
-
-        if len(configer.offline_download_paths) <= 1:
-            if servicer.offlinehelper.add_urls_to_transfer([str(args)]):
-                post_message(
-                    channel=event.event_data.get("channel"),
-                    source=event.event_data.get("source"),
-                    title=i18n.translate("p115_add_offline_success"),
-                    userid=userid,
-                )
-            else:
-                post_message(
-                    channel=event.event_data.get("channel"),
-                    source=event.event_data.get("source"),
-                    title=i18n.translate("p115_add_offline_fail"),
-                    userid=userid,
-                )
+        event_data = event.event_data if event else {}
+        if not event_data or event_data.get("action") != "p115_add_offline":
             return
-
-        try:
-            session = session_manager.get_or_create(
-                event.event_data, plugin_id=self.__class__.__name__
+        raw = (event_data.get("arg_str") or "").strip()
+        if not raw:
+            logger.error(f"【离线下载】缺少参数：{event_data}")
+            post_message(
+                channel=event_data.get("channel"),
+                source=event_data.get("source"),
+                title=i18n.translate("p115_add_offline_parameter_error"),
+                userid=self._get_event_userid(event_data),
             )
-
-            action = Action(
-                command="offline_download_path",
-                view="offline_download_paths",
-                value=args,
+            return
+        url_list = OfflineLinkResolver.parse_offline_input(raw)
+        if not url_list:
+            logger.error(f"【离线下载】无法从参数中解析离线下载链接：{event_data}")
+            post_message(
+                channel=event_data.get("channel"),
+                source=event_data.get("source"),
+                title=i18n.translate("p115_add_offline_no_recognized_link"),
+                text=i18n.translate("p115_add_offline_no_recognized_link_detail"),
+                userid=self._get_event_userid(event_data),
             )
-
-            immediate_messages = self.action_handler.process(session, action)
-            # 报错，截断后续运行
-            if immediate_messages:
-                for msg in immediate_messages:
-                    self.__send_message(session, text=msg.get("text"), title="错误")
-                return
-
-            # 设置页面
-            session.go_to("offline_download_paths")
-            self._render_and_send(session)
-        except Exception as e:
-            logger.error(f"处理离线下载命令失败: {e}")
+            return
+        self._handle_offline_download(
+            urls=url_list,
+            event_data=event_data,
+            userid=self._get_event_userid(event_data),
+        )
 
     @eventmanager.register(
         [
