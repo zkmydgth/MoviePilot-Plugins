@@ -2534,32 +2534,32 @@ class P115StrmHelper(_PluginBase):
                                     f"【监控生活事件】本地空目录 {parent_path} 已删除"
                                 )
 
-            def __get_file_path(
-                file_name: str, file_size: str, file_id: str, file_category: int
-            ):
-                """
-                通过 还原文件/文件夹 再删除 获取文件路径
-                """
-                for item in self._client.recyclebin_list()["data"]:
-                    if (
-                        file_category == 0
-                        and str(item["file_name"]) == file_name
-                        and str(item["type"]) == "2"
-                    ) or (
-                        file_category != 0
-                        and str(item["file_name"]) == file_name
-                        and str(item["file_size"]) == file_size
-                    ):
-                        resp = self._client.recyclebin_revert(item["id"])
-                        if resp["state"]:
-                            time.sleep(1)
-                            path = get_path_to_cid(self._client, cid=int(item["cid"]))
-                            time.sleep(1)
-                            self._client.fs_delete(file_id)
-                            return str(Path(path) / item["file_name"])
-                        else:
-                            return None
-                return None
+            # def __get_file_path(
+            #     file_name: str, file_size: str, file_id: str, file_category: int
+            # ):
+            #     """
+            #     通过 还原文件/文件夹 再删除 获取文件路径
+            #     """
+            #     for item in self._client.recyclebin_list()["data"]:
+            #         if (
+            #             file_category == 0
+            #             and str(item["file_name"]) == file_name
+            #             and str(item["type"]) == "2"
+            #         ) or (
+            #             file_category != 0
+            #             and str(item["file_name"]) == file_name
+            #             and str(item["file_size"]) == file_size
+            #         ):
+            #             resp = self._client.recyclebin_revert(item["id"])
+            #             if resp["state"]:
+            #                 time.sleep(1)
+            #                 path = get_path_to_cid(self._client, cid=int(item["cid"]))
+            #                 time.sleep(1)
+            #                 self._client.fs_delete(file_id)
+            #                 return str(Path(path) / item["file_name"])
+            #             else:
+            #                 return None
+            #     return None
 
             _databasehelper = FileDbHelper()
 
@@ -2569,16 +2569,11 @@ class P115StrmHelper(_PluginBase):
             if file_item:
                 file_path = file_item.get("path", "")
             if not file_path:
-                file_path = __get_file_path(
-                    file_name=str(event["file_name"]),
-                    file_size=str(event["file_size"]),
-                    file_id=str(event["file_id"]),
-                    file_category=file_category,
+                logger.warn(
+                    f"【监控生活事件】{event['file_name']} 无法通过数据库获取路径，防止误删不处理"
                 )
-            else:
-                logger.debug(f"【监控生活事件】通过数据库获取路径：{file_path}")
-            if not file_path:
                 return
+            logger.debug(f"【监控生活事件】通过数据库获取路径：{file_path}")
 
             pan_file_path = file_path
             # 优先匹配待整理目录，如果删除的目录为待整理目录则不进行操作
@@ -2612,7 +2607,6 @@ class P115StrmHelper(_PluginBase):
             else:
                 Path(file_path).unlink(missing_ok=True)
                 __remove_parent_dir(Path(file_path))
-            logger.info(pan_file_path)
             _databasehelper.remove_by_path_batch(str(pan_file_path))
             logger.info(f"【监控生活事件】{file_path} 已删除")
 
