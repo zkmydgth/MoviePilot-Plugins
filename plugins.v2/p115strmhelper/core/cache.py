@@ -1,6 +1,8 @@
 from typing import List, Dict, MutableMapping
 from time import time
 
+from cachetools import TTLCache as MemoryTTLCache
+
 from app.core.cache import TTLCache
 
 
@@ -25,20 +27,20 @@ class IdPathCache:
         """
         添加缓存
         """
-        self.id_to_dir[id] = directory
-        self.dir_to_id[directory] = id
+        self.id_to_dir[str(id)] = directory
+        self.dir_to_id[directory] = str(id)
 
     def get_dir_by_id(self, id: int):
         """
         通过 ID 获取路径
         """
-        return self.id_to_dir.get(id)
+        return self.id_to_dir.get(str(id))
 
     def get_id_by_dir(self, directory: str):
         """
         通过路径获取 ID
         """
-        return self.dir_to_id.get(directory)
+        return int(self.dir_to_id.get(directory))
 
     def clear(self):
         """
@@ -65,10 +67,8 @@ class LifeEventCache:
     """
 
     def __init__(self):
-        self.create_strm_file_dict: MutableMapping[str, List] = TTLCache(
-            region="p115strmhelper_life_event_cache_create_strm_file_dict",
-            maxsize=1_000_000,
-            ttl=600,
+        self.create_strm_file_dict: MutableMapping[str, List] = MemoryTTLCache(
+            maxsize=1_000_000, ttl=600
         )
 
 
@@ -100,7 +100,7 @@ class R302Cache:
         url (str): 需要缓存的URL
         expires_time (int): 过期时间
         """
-        key = (pick_code, ua_code)
+        key = f"{pick_code}○{ua_code}"
 
         self._cache[key] = {"url": url, "expires_at": expires_time}
 
@@ -116,7 +116,7 @@ class R302Cache:
         str: 如果URL存在且未过期，则返回该URL
         None: 如果URL不存在或已过期
         """
-        key = (pick_code, ua_code)
+        key = f"{pick_code}○{ua_code}"
 
         item = self._cache.get(key)
 
@@ -140,7 +140,8 @@ class R302Cache:
         int: 匹配的缓存条目数量
         """
         count = 0
-        for key in self._cache.keys():
+        for key_str in self._cache.keys():
+            key = key_str.split("○")
             if key[0] == pick_code:
                 count += 1
         return count
