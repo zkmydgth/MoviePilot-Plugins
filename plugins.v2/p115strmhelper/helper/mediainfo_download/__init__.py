@@ -1,10 +1,9 @@
 from asyncio import Semaphore, gather, run as asyncio_run, sleep as asyncio_sleep
 from base64 import b64decode
-from errno import EIO
 from itertools import batched
 from pathlib import Path
 from time import sleep as time_sleep
-from typing import Dict, Generator, List, Optional, Set, Tuple, cast
+from typing import Dict, Generator, List, Optional, Set, Tuple
 from urllib.parse import unquote, urlsplit
 from uuid import uuid4
 
@@ -15,13 +14,11 @@ from httpx import (
     HTTPStatusError,
     LocalProtocolError,
     RequestError,
-    post as httpx_post,
     stream as httpx_stream,
 )
 from orjson import loads
-from p115rsacipher import encrypt, decrypt
 from p115pickcode import pickcode_to_id
-from p115client import P115Client, check_response as p115_check_response
+from p115client import P115Client, check_response
 from p115client.const import TYPE_TO_SUFFIXES
 from p115client.util import reduce_image_url_layers
 from p115client.tool.iterdir import (
@@ -36,7 +33,6 @@ from app.log import logger
 from ...core.config import configer
 from ...core.cache import OofFastMiCache
 from ...utils.oopserver import OOPServerRequest
-from ...utils.http import check_response
 from ...utils.url import Url
 from ...utils.sentry import sentry_manager
 from ...utils.exception import DownloadValidationFail
@@ -126,24 +122,20 @@ class MediaInfoDownloader:
         except Exception as e:
             logger.warn(f"【媒体信息文件下载】获取 OOF 服务器数据失败: {e}")
 
-    def get_download_url(self, pickcode: str):
+    def get_download_url(self, pickcode: str) -> Optional[Url]:
         """
         获取下载链接
         """
-        resp = httpx_post(
-            "http://proapi.115.com/android/2.0/ufile/download",
-            data={"data": encrypt(f'{{"pick_code":"{pickcode}"}}').decode("utf-8")},
-            headers=self.headers,
-            follow_redirects=True,
-        )
-        if resp.status_code == 403:
-            self.stop_all_flag = True
-        check_response(resp)
-        json = loads(cast(bytes, resp.content))
-        if not json["state"]:
-            raise OSError(EIO, json)
-        data = json["data"] = loads(decrypt(json["data"]))
-        data["file_name"] = unquote(urlsplit(data["url"]).path.rpartition("/")[-1])
+        try:
+            resp = self.client.download_url_app(
+                pickcode, app="android", user_agent=configer.get_user_agent()
+            )
+            check_response(resp)
+            data = resp["data"]
+            data["file_name"] = unquote(urlsplit(data["url"]).path.rpartition("/")[-1])
+        except Exception as e:
+            logger.error(f"【媒体信息文件下载】{pickcode} 获取下载链接异常: {e}")
+            return None
         return Url.of(data["url"], data)
 
     def save_oof_mediainfo_file(
@@ -182,25 +174,30 @@ class MediaInfoDownloader:
             else:
                 yield item
 
-    def save_mediainfo_file(self, file_path: Path, file_name: str, download_url: str):
+    def save_mediainfo_file(
+        self, file_path: Path, file_name: str, download_url: str
+    ) -> bool:
         """
         保存媒体信息文件
         """
-        file_path.parent.mkdir(parents=True, exist_ok=True)
-        with httpx_stream(
-            "GET",
-            download_url,
-            timeout=30,
-            headers=self.headers,
-            follow_redirects=True,
-        ) as response:
-            if response.status_code == 403:
-                self.stop_all_flag = True
-            response.raise_for_status()
-            with open(file_path, "wb") as f:
-                for chunk in response.iter_bytes(chunk_size=8192):
-                    f.write(chunk)
+        try:
+            file_path.parent.mkdir(parents=True, exist_ok=True)
+            with httpx_stream(
+                "GET",
+                download_url,
+                timeout=30,
+                headers=self.headers,
+                follow_redirects=True,
+            ) as response:
+                response.raise_for_status()
+                with open(file_path, "wb") as f:
+                    for chunk in response.iter_bytes(chunk_size=8192):
+                        f.write(chunk)
+        except Exception as e:
+            logger.error(f"【媒体信息文件下载】保存 {file_name} 文件失败: {e}")
+            return False
         logger.info(f"【媒体信息文件下载】保存 {file_name} 文件成功: {file_path}")
+        return True
 
     async def async_save_mediainfo_file(
         self,
@@ -366,7 +363,7 @@ class MediaInfoDownloader:
             resp = self.client.fs_mkdir(
                 f"subtitle-{uuid4()}", **configer.get_ios_ua_app(app=False)
             )
-            p115_check_response(resp)
+            check_response(resp)
             if "cid" in resp:
                 scid = resp["cid"]
             else:
@@ -381,7 +378,7 @@ class MediaInfoDownloader:
                     pid=scid,
                     **configer.get_ios_ua_app(app=False),
                 )
-                p115_check_response(resp)
+                check_response(resp)
                 attr = next(
                     _iter_fs_files(
                         client=self.client,
@@ -394,7 +391,7 @@ class MediaInfoDownloader:
                 resp = self.client.fs_video_subtitle(
                     attr["pickcode"], **configer.get_ios_ua_app(app=False)
                 )
-                p115_check_response(resp)
+                check_response(resp)
                 subtitles = {
                     info["sha1"]: info["url"]
                     for info in resp["data"]["list"]
@@ -416,7 +413,7 @@ class MediaInfoDownloader:
             resp = self.client.fs_mkdir(
                 f"subtitle-{uuid4()}", **configer.get_ios_ua_app(app=False)
             )
-            p115_check_response(resp)
+            check_response(resp)
             scid = resp["cid"]
             try:
                 payload = {
@@ -429,7 +426,7 @@ class MediaInfoDownloader:
                 resp = self.client.share_receive(
                     payload, **configer.get_ios_ua_app(app=False)
                 )
-                p115_check_response(resp)
+                check_response(resp)
                 # 休眠等待 115 全部转存完成
                 time_sleep(8)
                 attr = next(
@@ -444,7 +441,7 @@ class MediaInfoDownloader:
                 resp = self.client.fs_video_subtitle(
                     attr["pickcode"], **configer.get_ios_ua_app(app=False)
                 )
-                p115_check_response(resp)
+                check_response(resp)
                 subtitles = {
                     info["sha1"]: info["url"]
                     for info in resp["data"]["list"]
@@ -469,7 +466,7 @@ class MediaInfoDownloader:
             resp = self.client.fs_mkdir(
                 f"image-{uuid4()}", **configer.get_ios_ua_app(app=False)
             )
-            p115_check_response(resp)
+            check_response(resp)
             scid = resp["cid"]
             try:
                 ids = [pickcode_to_id(item["pickcode"]) for item in item_list]
@@ -478,7 +475,7 @@ class MediaInfoDownloader:
                     pid=scid,
                     **configer.get_ios_ua_app(app=False),
                 )
-                p115_check_response(resp)
+                check_response(resp)
                 images: Dict = {}
                 for attr in iter_files(
                     client=self.client,
@@ -565,7 +562,7 @@ class MediaInfoDownloader:
                 f"receive_files-{uuid4()}",
                 **configer.get_ios_ua_app(app=False),
             )
-            p115_check_response(resp)
+            check_response(resp)
             scid = resp["cid"]
             try:
                 payload = {
@@ -578,7 +575,7 @@ class MediaInfoDownloader:
                 resp = self.client.share_receive(
                     payload, **configer.get_ios_ua_app(app=False)
                 )
-                p115_check_response(resp)
+                check_response(resp)
                 # 休眠等待 115 全部转存完成
                 time_sleep(8)
                 file_info_lst = list(
