@@ -26,9 +26,8 @@ class P115DiskPatcher:
     _patched_class: Optional[Any] = None
     _active: bool = False
 
-    @classmethod
+    @staticmethod
     def _patch_upload_file(
-        cls,
         self_instance: Any,
         fileitem: FileItem,
         path: Path,

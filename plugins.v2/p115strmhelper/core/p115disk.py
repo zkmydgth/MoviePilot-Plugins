@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from pathlib import Path
 from time import perf_counter, sleep
-from typing import TYPE_CHECKING, Optional
+from typing import Any, TYPE_CHECKING, Optional
 
 from cryptography.hazmat.primitives import hashes
 from oss2 import StsAuth, Bucket, determine_part_size
@@ -230,9 +230,9 @@ class P115DiskCore:
                     elapsed_time = end_time - start_time
                     send_upload_info(
                         file_sha1,
-                        None,
+                        "",
                         True,
-                        None,
+                        "",
                         str(file_size),
                         target_name,
                         int(elapsed_time),
@@ -520,9 +520,9 @@ class P115DiskCore:
                 elapsed_time = end_time - start_time
                 send_upload_info(
                     file_sha1,
-                    None,
+                    "",
                     False,
-                    None,
+                    "",
                     str(file_size),
                     target_name,
                     int(elapsed_time),
