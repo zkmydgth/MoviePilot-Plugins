@@ -221,6 +221,26 @@ class FFprobeNamingSupplement(_PluginBase):
                                             "type": "info",
                                             "variant": "tonal",
                                             "density": "compact",
+                                        },
+                                        "content": [
+                                            {
+                                                "component": "div",
+                                                "props": {
+                                                    "class": "text-body-2",
+                                                },
+                                                "text": (
+                                                    "说明：仅在整理源文件位于本地存储时，才会调用 ffprobe 读取媒体信息；"
+                                                    "若来源为网盘等非本地路径，无法访问媒体流，将跳过补全"
+                                                ),
+                                            },
+                                        ],
+                                    },
+                                    {
+                                        "component": "VAlert",
+                                        "props": {
+                                            "type": "info",
+                                            "variant": "tonal",
+                                            "density": "compact",
                                             "class": "mt-2",
                                         },
                                         "content": [
