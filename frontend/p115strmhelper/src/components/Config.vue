@@ -524,14 +524,23 @@
                   </v-row>
 
                   <v-row>
-                    <v-col cols="12" md="4">
+                    <v-col cols="12" md="3">
                       <v-switch v-model="config.monitor_life_media_server_refresh_enabled" label="媒体服务器刷新"
                         color="warning"></v-switch>
                     </v-col>
-                    <v-col cols="12" md="8">
+                    <v-col cols="12" md="3">
                       <v-select v-model="config.monitor_life_mediaservers" label="媒体服务器" :items="mediaservers" multiple
                         chips closable-chips></v-select>
                     </v-col>
+                    <v-col cols="12" md="3">
+                      <v-switch v-model="config.monitor_life_remove_mp_history" label="同步删除历史记录" color="warning"
+                        :disabled="config.monitor_life_remove_mp_source"></v-switch>
+                    </v-col>
+                    <v-col cols="12" md="3">
+                      <v-switch v-model="config.monitor_life_remove_mp_source" label="同步删除源文件" color="warning"
+                        @change="value => { if (value) config.monitor_life_remove_mp_history = true }"></v-switch>
+                    </v-col>
+
                   </v-row>
 
                   <!-- Monitor Life Exclude Paths -->
@@ -1350,6 +1359,8 @@ const config = reactive({
   monitor_life_event_modes: [],
   monitor_life_scrape_metadata_enabled: false,
   monitor_life_scrape_metadata_exclude_paths: '',
+  monitor_life_remove_mp_history: false,
+  monitor_life_remove_mp_source: false,
   share_strm_auto_download_mediainfo_enabled: false,
   user_share_code: '',
   user_receive_code: '',

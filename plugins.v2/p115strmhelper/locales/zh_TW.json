@@ -15,6 +15,7 @@
     "share_sync_done_title": "✅【115網盤】分享生成 STRM 檔案完成",
     "inc_sync_done_title": "✅【115網盤】增量生成 STRM 檔案完成",
     "life_sync_done_title": "✅【115網盤】生活事件生成 STRM 檔案",
+    "life_sync_media_del_title": "【115網盤】生活事件同步删除",
     "add_share_config_error": "設定錯誤！請先進入插件介面設定網盤整理",
     "share_url_extract_error": "解析分享連結失敗：{url}",
     "share_add_success": "【115網盤】轉存成功",

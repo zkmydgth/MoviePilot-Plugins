@@ -15,6 +15,7 @@
     "share_sync_done_title": "✅【115网盘】分享生成 STRM 文件完成",
     "inc_sync_done_title": "✅【115网盘】增量生成 STRM 文件完成",
     "life_sync_done_title": "✅【115网盘】生活事件生成 STRM 文件",
+    "life_sync_media_del_title": "【115网盘】生活事件同步删除",
     "add_share_config_error": "配置错误！ 请先进入插件界面配置网盘整理",
     "share_url_extract_error": "解析分享链接失败：{url}",
     "share_add_success": "【115网盘】转存成功",
