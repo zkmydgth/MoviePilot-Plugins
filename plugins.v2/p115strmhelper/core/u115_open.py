@@ -528,11 +528,22 @@ class U115OpenHelper:
             total=file_size, unit="B", unit_scale=True, desc="上传进度", ascii=True
         )
 
-        def progress_callback(bytes_consumed, _):
+        last_uploaded_size = 0
+
+        def progress_callback(bytes_consumed, total_bytes):
             """
-            进度条回调函数
+            进度条回调函数，并为每个分片增加日志
             """
-            progress_bar.update(bytes_consumed - progress_bar.n)
+            nonlocal last_uploaded_size
+            chunk_size = bytes_consumed - last_uploaded_size
+            progress_bar.update(chunk_size)
+            if chunk_size > 0:
+                logger.info(
+                    f"【P115Open】分片上传成功: {target_name}, "
+                    f"大小: {StringUtils.str_filesize(chunk_size)}, "
+                    f"总进度: {bytes_consumed}/{total_bytes}"
+                )
+            last_uploaded_size = bytes_consumed
 
         try:
             result = oss2.resumable_upload(
