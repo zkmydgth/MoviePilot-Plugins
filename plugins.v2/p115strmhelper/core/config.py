@@ -4,6 +4,7 @@ import json
 from pydantic import BaseModel, ValidationError
 
 from app.log import logger
+from app.db.systemconfig_oper import SystemConfigOper
 
 
 class BaseConfig(BaseModel):
@@ -13,6 +14,9 @@ class BaseConfig(BaseModel):
 
     class Config:
         extra = "ignore"
+
+    # 插件名称
+    plugin_name: str = "P115StrmHelper"
 
     # 插件总开关
     enabled: bool = False
@@ -180,6 +184,14 @@ class ConfigManager:
         except ValidationError as e:
             logger.error(f"【配置管理器】配置更新失败: {e.json()}")
             return False
+
+    def update_plugin_config(self):
+        """
+        更新插件配置到数据库
+        """
+        systemconfig = SystemConfigOper()
+        plugin_id = self._configs.get("plugin_name")
+        return systemconfig.set(f"plugin.{plugin_id}", self._configs)
 
 
 configer = ConfigManager()
