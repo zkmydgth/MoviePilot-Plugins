@@ -440,8 +440,16 @@ class P115StrmHelper(_PluginBase):
             {
                 "path": "/delete_sync_del_history",
                 "endpoint": self.api.delete_sync_del_history,
-                "methods": ["GET"],
+                "methods": ["POST"],
+                "auth": "bear",
                 "summary": "删除同步删除历史记录",
+            },
+            {
+                "path": "/delete_all_sync_del_history",
+                "endpoint": self.api.delete_all_sync_del_history,
+                "methods": ["POST"],
+                "auth": "bear",
+                "summary": "一键删除所有同步删除历史记录",
             },
         ]
 

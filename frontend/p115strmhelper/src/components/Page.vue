@@ -246,9 +246,9 @@
                   <v-icon icon="mdi-history" class="mr-2" color="primary" size="small" />
                   <span>同步删除历史</span>
                   <v-spacer></v-spacer>
-                  <v-btn v-if="syncDelHistory.length > 6" size="x-small" variant="text"
+                  <v-btn v-if="syncDelHistoryTotal > 5" size="x-small" variant="text"
                     @click="syncDelHistoryDialog.show = true" prepend-icon="mdi-open-in-new">
-                    查看全部 ({{ syncDelHistory.length }})
+                    查看全部 ({{ syncDelHistoryTotal }})
                   </v-btn>
                   <v-btn icon size="x-small" variant="text" @click="loadSyncDelHistory" :loading="syncDelHistoryLoading"
                     class="ml-1">
@@ -285,7 +285,7 @@
                         </v-list-item-subtitle>
                         <template v-slot:append>
                           <v-btn icon size="x-small" variant="text" color="error"
-                            @click="deleteSyncDelHistory(item.unique)" :loading="deletingHistoryId === item.unique">
+                            @click="confirmDeleteHistory(item)" :loading="deletingHistoryId === item.unique">
                             <v-icon>mdi-delete</v-icon>
                           </v-btn>
                         </template>
@@ -993,30 +993,23 @@
               </v-alert>
               <v-textarea v-model="offlineDownloadDialog.links" label="下载链接" hint="每行一个链接，支持 http(s)/ftp/magnet/ed2k"
                 persistent-hint variant="outlined" rows="5" clearable></v-textarea>
-              
+
               <!-- 路径选择：下拉列表 + 手动输入 -->
-              <v-combobox v-model="offlineDownloadDialog.destPath" 
-                :items="offlineDownloadDialog.availablePathStrings" 
-                label="网盘保存路径 (可选)" 
-                hint="可选，默认为网盘待整理目录。可从缓存路径或配置路径中选择，也可手动输入"
-                persistent-hint 
-                variant="outlined" 
-                density="compact"
-                class="mt-3"
-                clearable>
-                  <template v-slot:prepend-inner>
-                    <v-icon icon="mdi-folder-network-outline" size="small"></v-icon>
-                  </template>
-                  <template v-slot:append-inner>
-                    <v-btn icon="mdi-folder-network" variant="text" size="x-small" 
-                      @click.stop="openOfflineDestDirSelector" 
-                      class="mr-n2"></v-btn>
-                  </template>
-                  <template v-slot:item="{ props: itemProps, item }">
-                    <v-list-item v-bind="itemProps" :title="getPathLabel(item.raw)">
-                    </v-list-item>
-                  </template>
-                </v-combobox>
+              <v-combobox v-model="offlineDownloadDialog.destPath" :items="offlineDownloadDialog.availablePathStrings"
+                label="网盘保存路径 (可选)" hint="可选，默认为网盘待整理目录。可从缓存路径或配置路径中选择，也可手动输入" persistent-hint variant="outlined"
+                density="compact" class="mt-3" clearable>
+                <template v-slot:prepend-inner>
+                  <v-icon icon="mdi-folder-network-outline" size="small"></v-icon>
+                </template>
+                <template v-slot:append-inner>
+                  <v-btn icon="mdi-folder-network" variant="text" size="x-small"
+                    @click.stop="openOfflineDestDirSelector" class="mr-n2"></v-btn>
+                </template>
+                <template v-slot:item="{ props: itemProps, item }">
+                  <v-list-item v-bind="itemProps" :title="getPathLabel(item.raw)">
+                  </v-list-item>
+                </template>
+              </v-combobox>
 
               <div class="d-flex justify-end mt-3">
                 <v-btn color="primary" @click="addOfflineTask" :loading="offlineDownloadDialog.adding"
@@ -1183,13 +1176,80 @@
     </v-card>
   </v-dialog>
 
+  <!-- 确认删除单条历史记录对话框 -->
+  <v-dialog v-model="deleteHistoryConfirmDialog.show" max-width="450" persistent>
+    <v-card>
+      <v-card-title class="text-h6 d-flex align-center">
+        <v-icon icon="mdi-alert-circle-outline" color="error" class="mr-2"></v-icon>
+        确认删除
+      </v-card-title>
+      <v-card-text>
+        <div class="mb-2">确定要删除这条历史记录吗？</div>
+        <v-card variant="outlined" class="mt-3" v-if="deleteHistoryConfirmDialog.item">
+          <v-card-text class="pa-3">
+            <div class="text-body-1 font-weight-medium">{{ deleteHistoryConfirmDialog.item.title }}</div>
+            <div class="text-caption text-grey mt-1" v-if="deleteHistoryConfirmDialog.item.path" style="word-break: break-all;">
+              {{ deleteHistoryConfirmDialog.item.path }}
+            </div>
+            <div class="text-caption text-grey mt-1">{{ deleteHistoryConfirmDialog.item.del_time }}</div>
+          </v-card-text>
+        </v-card>
+        <v-alert type="warning" variant="tonal" density="compact" class="mt-2" icon="mdi-alert">
+          <div class="text-caption">此操作不可恢复，请谨慎操作！</div>
+        </v-alert>
+      </v-card-text>
+      <v-card-actions>
+        <v-spacer></v-spacer>
+        <v-btn color="grey" variant="text" @click="deleteHistoryConfirmDialog.show = false"
+          :disabled="deletingHistoryId === deleteHistoryConfirmDialog.item?.unique">
+          取消
+        </v-btn>
+        <v-btn color="error" variant="text" @click="handleConfirmDeleteHistory" 
+          :loading="deletingHistoryId === deleteHistoryConfirmDialog.item?.unique">
+          确认删除
+        </v-btn>
+      </v-card-actions>
+    </v-card>
+  </v-dialog>
+
+  <!-- 确认删除所有历史记录对话框 -->
+  <v-dialog v-model="deleteAllHistoryConfirmDialog" max-width="450" persistent>
+    <v-card>
+      <v-card-title class="text-h6 d-flex align-center">
+        <v-icon icon="mdi-alert-circle-outline" color="error" class="mr-2"></v-icon>
+        确认删除
+      </v-card-title>
+      <v-card-text>
+        <div class="mb-2">确定要删除全部 <strong>{{ syncDelHistoryTotal }}</strong> 条历史记录吗？</div>
+        <v-alert type="error" variant="tonal" density="compact" class="mt-2" icon="mdi-alert">
+          <div class="text-caption">此操作不可恢复，请谨慎操作！</div>
+        </v-alert>
+      </v-card-text>
+      <v-card-actions>
+        <v-spacer></v-spacer>
+        <v-btn color="grey" variant="text" @click="deleteAllHistoryConfirmDialog = false"
+          :disabled="deletingAllHistory">
+          取消
+        </v-btn>
+        <v-btn color="error" variant="text" @click="handleConfirmDeleteAllHistory" :loading="deletingAllHistory">
+          确认删除
+        </v-btn>
+      </v-card-actions>
+    </v-card>
+  </v-dialog>
+
   <!-- 同步删除历史记录对话框 -->
   <v-dialog v-model="syncDelHistoryDialog.show" max-width="900" scrollable>
     <v-card>
       <v-card-title class="text-subtitle-1 d-flex align-center px-3 py-2 bg-primary-gradient">
         <v-icon icon="mdi-history" class="mr-2" color="primary" size="small" />
-        <span>同步删除历史记录 (共 {{ syncDelHistory.length }} 条)</span>
+        <span>同步删除历史记录 (共 {{ syncDelHistoryTotal }} 条)</span>
         <v-spacer></v-spacer>
+        <v-btn v-if="syncDelHistoryTotal > 0" size="small" variant="text" color="error" @click="confirmDeleteAllHistory"
+          :loading="deletingAllHistory" class="mr-2">
+          <v-icon start>mdi-delete-sweep</v-icon>
+          一键全部删除
+        </v-btn>
         <v-btn icon size="x-small" variant="text" @click="loadSyncDelHistory" :loading="syncDelHistoryLoading">
           <v-icon>mdi-refresh</v-icon>
         </v-btn>
@@ -1224,7 +1284,7 @@
                 <div class="text-grey mt-1">{{ item.del_time }}</div>
               </v-list-item-subtitle>
               <template v-slot:append>
-                <v-btn icon size="small" variant="text" color="error" @click="deleteSyncDelHistory(item.unique)"
+                <v-btn icon size="small" variant="text" color="error" @click="confirmDeleteHistory(item)"
                   :loading="deletingHistoryId === item.unique">
                   <v-icon>mdi-delete</v-icon>
                 </v-btn>
@@ -1234,6 +1294,14 @@
           </template>
         </v-list>
       </v-card-text>
+      <v-card-actions v-if="syncDelHistoryTotal > 0" class="px-4 py-3 d-flex justify-space-between align-center">
+        <div class="text-caption text-grey">
+          显示第 {{ (syncDelHistoryPage - 1) * syncDelHistoryLimit + 1 }} - {{ Math.min(syncDelHistoryPage *
+            syncDelHistoryLimit, syncDelHistoryTotal) }} 条，共 {{ syncDelHistoryTotal }} 条
+        </div>
+        <v-pagination v-model="syncDelHistoryPage" :length="Math.ceil(syncDelHistoryTotal / syncDelHistoryLimit)"
+          :total-visible="7" @update:model-value="loadSyncDelHistory"></v-pagination>
+      </v-card-actions>
     </v-card>
   </v-dialog>
 
@@ -1295,14 +1363,23 @@ const actionMessageType = ref('info');
 const actionLoading = ref(false);
 const fullSyncConfirmDialog = ref(false);
 const fullSyncDbConfirmDialog = ref(false);
+const deleteAllHistoryConfirmDialog = ref(false);
+const deleteHistoryConfirmDialog = reactive({
+  show: false,
+  item: null
+});
 const syncDelHistory = ref([]);
 const syncDelHistoryLoading = ref(false);
 const deletingHistoryId = ref(null);
+const deletingAllHistory = ref(false);
+const syncDelHistoryTotal = ref(0);
+const syncDelHistoryPage = ref(1);
+const syncDelHistoryLimit = ref(20);
 let syncDelHistoryRefreshTimer = null;
 
-// 只显示最近6条记录
+// 只显示最近5条记录
 const displayedSyncDelHistory = computed(() => {
-  return syncDelHistory.value.slice(0, 6);
+  return syncDelHistory.value.slice(0, 5);
 });
 
 // 同步删除历史记录对话框
@@ -1920,7 +1997,7 @@ const executeShareSync = async () => {
 const buildAvailablePaths = () => {
   const paths = [];
   const pathSet = new Set();
-  
+
   // 1. 添加缓存的路径
   const cachedPaths = getCachedPaths();
   cachedPaths.forEach(path => {
@@ -1929,7 +2006,7 @@ const buildAvailablePaths = () => {
       pathSet.add(path);
     }
   });
-  
+
   // 2. 添加配置的离线下载路径
   if (props.initialConfig?.offline_download_paths && Array.isArray(props.initialConfig.offline_download_paths)) {
     props.initialConfig.offline_download_paths.forEach(path => {
@@ -1939,7 +2016,7 @@ const buildAvailablePaths = () => {
       }
     });
   }
-  
+
   offlineDownloadDialog.availablePaths = paths;
   // 同时生成字符串数组供 v-combobox 使用
   offlineDownloadDialog.availablePathStrings = paths.map(p => p.path);
@@ -2112,6 +2189,14 @@ watch(() => props.initialConfig, (newConfig) => {
   }
 }, { immediate: true });
 
+// 监听对话框打开，重置分页
+watch(() => syncDelHistoryDialog.show, (isOpen) => {
+  if (isOpen) {
+    syncDelHistoryPage.value = 1;
+    loadSyncDelHistory();
+  }
+});
+
 const loadSyncDelHistory = async () => {
   if (!props.initialConfig?.sync_del_enabled) {
     syncDelHistory.value = [];
@@ -2120,24 +2205,49 @@ const loadSyncDelHistory = async () => {
   syncDelHistoryLoading.value = true;
   try {
     const pluginId = "P115StrmHelper";
-    const response = await props.api.get(`plugin/${pluginId}/get_sync_del_history`);
-    if (response && response.success && response.data) {
-      syncDelHistory.value = Array.isArray(response.data)
-        ? response.data.sort((a, b) => {
+    const response = await props.api.get(
+      `plugin/${pluginId}/get_sync_del_history?page=${syncDelHistoryPage.value}&limit=${syncDelHistoryLimit.value}`
+    );
+    if (response && response.code === 0 && response.data) {
+      if (response.data.items && Array.isArray(response.data.items)) {
+        syncDelHistory.value = response.data.items;
+        syncDelHistoryTotal.value = response.data.total || 0;
+      } else if (Array.isArray(response.data)) {
+        // 兼容旧版本API（无分页）
+        syncDelHistory.value = response.data.sort((a, b) => {
           const timeA = new Date(a.del_time || 0).getTime();
           const timeB = new Date(b.del_time || 0).getTime();
           return timeB - timeA;
-        })
-        : [];
+        });
+        syncDelHistoryTotal.value = response.data.length;
+      } else {
+        syncDelHistory.value = [];
+        syncDelHistoryTotal.value = 0;
+      }
     } else {
       syncDelHistory.value = [];
+      syncDelHistoryTotal.value = 0;
     }
   } catch (err) {
     console.error('加载同步删除历史失败:', err);
     syncDelHistory.value = [];
+    syncDelHistoryTotal.value = 0;
   } finally {
     syncDelHistoryLoading.value = false;
   }
+};
+
+const confirmDeleteHistory = (item) => {
+  if (!item || !item.unique) return;
+  deleteHistoryConfirmDialog.item = item;
+  deleteHistoryConfirmDialog.show = true;
+};
+
+const handleConfirmDeleteHistory = async () => {
+  const unique = deleteHistoryConfirmDialog.item?.unique;
+  if (!unique) return;
+  deleteHistoryConfirmDialog.show = false;
+  await deleteSyncDelHistory(unique);
 };
 
 const deleteSyncDelHistory = async (unique) => {
@@ -2145,17 +2255,22 @@ const deleteSyncDelHistory = async (unique) => {
   deletingHistoryId.value = unique;
   try {
     const pluginId = "P115StrmHelper";
-    const apiToken = await props.api.get('system/config?key=app.api_token');
-    const token = apiToken?.value || '';
-    const response = await props.api.get(
-      `plugin/${pluginId}/delete_sync_del_history?key=${encodeURIComponent(unique)}&apikey=${encodeURIComponent(token)}`
+    const response = await props.api.post(
+      `plugin/${pluginId}/delete_sync_del_history`,
+      {
+        key: unique
+      }
     );
-    if (response && response.success) {
-      actionMessage.value = '删除成功';
+    if (response && response.code === 0) {
+      actionMessage.value = response.msg || '删除成功';
       actionMessageType.value = 'success';
+      // 如果当前页删除后没有数据了，且不是第一页，则跳转到上一页
+      if (syncDelHistory.value.length === 1 && syncDelHistoryPage.value > 1) {
+        syncDelHistoryPage.value--;
+      }
       await loadSyncDelHistory();
     } else {
-      actionMessage.value = response?.message || '删除失败';
+      actionMessage.value = response?.msg || '删除失败';
       actionMessageType.value = 'error';
     }
   } catch (err) {
@@ -2164,6 +2279,41 @@ const deleteSyncDelHistory = async (unique) => {
     actionMessageType.value = 'error';
   } finally {
     deletingHistoryId.value = null;
+  }
+};
+
+const confirmDeleteAllHistory = () => {
+  if (syncDelHistoryTotal.value === 0) return;
+  deleteAllHistoryConfirmDialog.value = true;
+};
+
+const handleConfirmDeleteAllHistory = async () => {
+  deleteAllHistoryConfirmDialog.value = false;
+  await deleteAllSyncDelHistory();
+};
+
+const deleteAllSyncDelHistory = async () => {
+  deletingAllHistory.value = true;
+  try {
+    const pluginId = "P115StrmHelper";
+    const response = await props.api.post(
+      `plugin/${pluginId}/delete_all_sync_del_history`
+    );
+    if (response && response.code === 0) {
+      actionMessage.value = response.msg || '全部删除成功';
+      actionMessageType.value = 'success';
+      syncDelHistoryPage.value = 1;
+      await loadSyncDelHistory();
+    } else {
+      actionMessage.value = response?.msg || '删除失败';
+      actionMessageType.value = 'error';
+    }
+  } catch (err) {
+    console.error('一键删除同步删除历史失败:', err);
+    actionMessage.value = `删除失败: ${err.message || '未知错误'}`;
+    actionMessageType.value = 'error';
+  } finally {
+    deletingAllHistory.value = false;
   }
 };
 

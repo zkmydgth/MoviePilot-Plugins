@@ -12,7 +12,7 @@ from orjson import dumps, loads
 from p115client import P115Client, check_response
 from p115client.exception import P115DataError
 from p115client.tool.fs_files import iter_fs_files
-from fastapi import Request, Response, Depends, status
+from fastapi import Request, Response, Depends, status, Query
 from fastapi.responses import JSONResponse
 
 from .service import servicer
@@ -52,14 +52,13 @@ from .schemas.strm_api import (
     StrmApiPayloadRemoveData,
     ManualTransferPayload,
 )
+from .schemas.sync_del_history import DeleteSyncDelHistoryPayload
 from .utils.sentry import sentry_manager
 from .utils.oopserver import OOPServerHelper
 
 from app.log import logger
 from app.core.cache import cached, TTLCache
 from app.helper.mediaserver import MediaServerHelper
-from app.schemas import Response as SchemasResponse
-from app.core.config import settings
 
 
 @sentry_manager.capture_all_class_exceptions
@@ -99,31 +98,71 @@ class Api:
         return MachineID(machine_id=configer.MACHINE_ID)
 
     @staticmethod
-    def get_sync_del_history() -> SchemasResponse:
+    def get_sync_del_history(
+        page: int = Query(default=1, ge=1, description="页码，必须大于等于1"),
+        limit: int = Query(default=20, description="每页数量，-1 表示获取所有"),
+    ) -> ApiResponse:
         """
         获取同步删除历史记录
+
+        :param page: 页码
+        :param limit: 每页数量，-1 表示获取所有
 
         :return: 历史记录列表
         """
         historys = configer.get_plugin_data(key="sync_del_history") or []
-        return SchemasResponse(success=True, data=historys, message="获取成功")
+
+        historys = sorted(historys, key=lambda x: x.get("del_time", ""), reverse=True)
+
+        total = len(historys)
+
+        if limit == -1:
+            paginated_historys = historys
+        else:
+            start = (page - 1) * limit
+            end = start + limit
+            paginated_historys = historys[start:end]
+
+        return ApiResponse(
+            code=0,
+            msg="获取成功",
+            data={
+                "total": total,
+                "page": page,
+                "limit": limit if limit != -1 else total,
+                "items": paginated_historys,
+            },
+        )
 
     @staticmethod
-    def delete_sync_del_history(key: str, apikey: str) -> SchemasResponse:
+    def delete_sync_del_history(payload: DeleteSyncDelHistoryPayload) -> ApiResponse:
         """
         删除同步删除历史记录
 
-        :param key: 历史记录唯一标识
-        :param apikey: API密钥
+        :param payload: 删除请求体
+
+        :return: 删除结果
         """
-        if apikey != settings.API_TOKEN:
-            return SchemasResponse(success=False, message="API密钥错误")
         historys = configer.get_plugin_data(key="sync_del_history") or []
         if not historys:
-            return SchemasResponse(success=False, message="未找到历史记录")
-        historys = [h for h in historys if h.get("unique") != key]
+            return ApiResponse(code=1, msg="未找到历史记录")
+        historys = [h for h in historys if h.get("unique") != payload.key]
         configer.save_plugin_data(key="sync_del_history", value=historys)
-        return SchemasResponse(success=True, message="删除成功")
+        return ApiResponse(code=0, msg="删除成功")
+
+    @staticmethod
+    def delete_all_sync_del_history() -> ApiResponse:
+        """
+        一键删除所有同步删除历史记录
+
+        :return: 删除结果
+        """
+        historys = configer.get_plugin_data(key="sync_del_history") or []
+        if not historys:
+            return ApiResponse(code=1, msg="未找到历史记录")
+        count = len(historys)
+        configer.save_plugin_data(key="sync_del_history", value=[])
+        return ApiResponse(code=0, msg=f"成功删除 {count} 条历史记录")
 
     @cached(
         region="p115strmhelper_api_get_user_storage_status", ttl=60 * 60, skip_none=True
