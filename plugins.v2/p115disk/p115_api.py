@@ -36,6 +36,7 @@ class P115Api:
         self._rename_call_counter = 0
         self._copy_call_counter = 0
         self._move_call_counter = 0
+        self._delete_call_counter = 0
 
         self._get_item_rate_limiter = RateLimiter(
             max_calls=2, time_window=1.0, name="get_item"
@@ -353,6 +354,10 @@ class P115Api:
                 )
             else:
                 self._record_get_item_failure(path_str, now)
+                return None
+            file_item = FileItem(
+                storage=self._disk_name, **file_item.model_dump(exclude={"storage"})
+            )
             return file_item
 
     def _record_get_item_failure(self, path_str: str, now: float):
@@ -398,7 +403,11 @@ class P115Api:
         self._delete_rate_limiter.acquire()
 
         try:
-            resp = self.client.fs_delete(fileitem.fileid)
+            self._delete_call_counter = (self._delete_call_counter + 1) % 2
+            if self._delete_call_counter == 0:
+                resp = self.client.fs_delete(fileitem.fileid)
+            else:
+                resp = self.client.fs_delete_app(fileitem.fileid)
             check_response(resp)
             logger.debug(f"【P115Disk】删除文件: {resp}")
             self._id_cache.remove(id=int(fileitem.fileid))
@@ -407,6 +416,10 @@ class P115Api:
         except Exception as e:
             logger.warn(f"【P115Disk】删除文件错误: {e}")
             storage_chain = StorageChain()
+            fileitem = FileItem(
+                storage="u115",
+                **fileitem.model_dump(exclude={"storage"}),
+            )
             resp = storage_chain.delete_file(fileitem=fileitem)
             if resp:
                 self._id_cache.remove(id=int(fileitem.fileid))
@@ -466,6 +479,10 @@ class P115Api:
         :return: 下载成功返回本地文件路径，失败返回None
         """
         storage_chain = StorageChain()
+        fileitem = FileItem(
+            storage="u115",
+            **fileitem.model_dump(exclude={"storage"}),
+        )
         return storage_chain.download_file(fileitem=fileitem, path=path)
 
     def upload(
@@ -484,9 +501,20 @@ class P115Api:
         :return: 上传成功返回文件项，失败返回None
         """
         storage_chain = StorageChain()
-        return storage_chain.upload_file(
+        target_dir = FileItem(
+            storage="u115",
+            **target_dir.model_dump(exclude={"storage"}),
+        )
+        resp = storage_chain.upload_file(
             fileitem=target_dir, path=local_path, new_name=new_name
         )
+        if not resp:
+            return None
+        resp = FileItem(
+            storage=self._disk_name,
+            **resp.model_dump(exclude={"storage"}),
+        )
+        return resp
 
     def detail(self, fileitem: FileItem) -> Optional[FileItem]:
         """

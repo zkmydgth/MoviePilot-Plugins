@@ -959,9 +959,10 @@ class Api:
         debug_info.append("")
 
         debug_info.append("8. 配置完整性检查")
-        should_run = (
-            monitor_life_enabled and monitor_life_paths and monitor_life_event_modes
-        ) or (pan_transfer_enabled and pan_transfer_paths)
+        should_run = bool(
+            (monitor_life_enabled and monitor_life_paths and monitor_life_event_modes)
+            or (pan_transfer_enabled and pan_transfer_paths)
+        )
         debug_info.append(f"   应运行: {should_run}")
         if should_run:
             if not monitor_life_thread or not monitor_life_thread.is_alive():

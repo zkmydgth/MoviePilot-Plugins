@@ -107,12 +107,13 @@
         "name": "115网盘STRM助手",
         "description": "115网盘STRM生成一条龙服务",
         "labels": "云盘",
-        "version": "2.2.24",
+        "version": "2.2.25",
         "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png",
         "author": "DDSRem",
         "release": true,
         "level": 1,
         "history": {
+            "v2.2.25": "修复生活事件重复启动和故障检查错误的问题",
             "v2.2.24": "1. 优化生活事件和网盘整理 2. 初步支持 P115Disk 插件",
             "v2.2.23": "修复无效日志输出",
             "v2.2.22": "1. API STRM 支持下载媒体元数据 2. 修复生活事件和网盘整理运行失败 3. 优化分享同步速率",
@@ -326,12 +327,13 @@
         "name": "115网盘储存",
         "description": "更快更强的115网盘存储模块。",
         "labels": "云盘",
-        "version": "0.0.1",
+        "version": "0.0.2",
         "release": true,
         "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png",
         "author": "DDSRem",
         "level": 1,
         "history": {
+            "v0.0.2": "尝试修复上传失败和删除文件失败的问题",
             "v0.0.1": "测试版本"
         }
     },
