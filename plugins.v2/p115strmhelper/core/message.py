@@ -43,7 +43,7 @@ def post_message(
         )
         if text:
             if text.endswith("\n"):
-                text += f"{message}\n"
+                text += f"\n{message}\n"
             else:
                 text += f"\n{message}"
         else:
