@@ -10,6 +10,7 @@ from ..core.config import configer
 from ..core.message import post_message
 from ..core.scrape import media_scrape_metadata
 from ..core.cache import idpathcacher, pantransfercacher, lifeeventcacher
+from ..core.i18n import i18n
 from ..utils.path import PathUtils
 from ..db_manager.oper import FileDbHelper
 from ..helper.mediainfo_download import MediaInfoDownloader
@@ -96,7 +97,7 @@ class MonitorLife:
         if text_parts and configer.get_config("notify"):
             post_message(
                 mtype=NotificationType.Plugin,
-                title="✅【115网盘】生活事件生成 STRM 文件",
+                title=i18n.translate("life_sync_done_title"),
                 text="\n" + "\n".join(text_parts),
             )
 

@@ -13,6 +13,7 @@ from app.chain.media import MediaChain
 from ..core.config import configer
 from ..core.message import post_message
 from ..core.cache import idpathcacher
+from ..core.i18n import i18n
 
 
 class ShareTransferHelper:
@@ -105,7 +106,7 @@ class ShareTransferHelper:
         ):
             post_message(
                 channel=channel,
-                title="配置错误！ 请先进入插件界面配置网盘整理",
+                title=i18n.translate("add_share_config_error"),
                 userid=userid,
             )
             return
@@ -120,7 +121,7 @@ class ShareTransferHelper:
                 logger.error(f"【分享转存】解析分享链接失败：{url}")
                 post_message(
                     channel=channel,
-                    title=f"解析分享链接失败：{url}",
+                    title=f"{i18n.translate('share_url_extract_error', url=url)}",
                     userid=userid,
                 )
                 return
@@ -149,7 +150,7 @@ class ShareTransferHelper:
                 if not file_mediainfo:
                     post_message(
                         channel=channel,
-                        title="【115网盘】转存成功",
+                        title=i18n.translate("share_add_success"),
                         text=f"""
 分享链接：https://115cdn.com/s/{share_code}?password={receive_code}
 转存目录：{parent_path}
@@ -159,7 +160,11 @@ class ShareTransferHelper:
                 else:
                     post_message(
                         channel=channel,
-                        title=f"转存 {file_mediainfo.title}（{file_mediainfo.year}）成功",
+                        title=i18n.translate(
+                            "share_add_success_2",
+                            title=file_mediainfo.title,
+                            year=file_mediainfo.year,
+                        ),
                         text=f"""
 链接：https://115cdn.com/s/{share_code}?password={receive_code}
 简介：{file_mediainfo.overview}
@@ -171,7 +176,7 @@ class ShareTransferHelper:
                 logger.info(f"【分享转存】转存 {share_code} 失败：{resp['error']}")
                 post_message(
                     channel=channel,
-                    title="【115网盘】转存失败",
+                    title=i18n.translate("share_add_fail"),
                     text=f"""
 分享链接：https://115cdn.com/s/{share_code}?password={receive_code}
 转存目录：{parent_path}
@@ -184,7 +189,7 @@ class ShareTransferHelper:
             logger.error(f"【分享转存】运行失败: {e}")
             post_message(
                 channel=channel,
-                title=f"转存失败：{e}",
+                title=i18n.translate("share_add_fail_2", e=e),
                 userid=userid,
             )
             return

@@ -23,22 +23,30 @@
             </v-card-title>
             <v-card-text class="pa-3">
               <v-row>
-                <v-col cols="12" md="3">
+                <v-col cols="12" md="4">
                   <v-switch v-model="config.enabled" label="启用插件" color="success" density="compact"></v-switch>
                 </v-col>
-                <v-col cols="12" md="3">
-                  <v-switch v-model="config.notify" label="发送通知" color="success" density="compact"></v-switch>
-                </v-col>
-                <v-col cols="12" md="3">
+                <v-col cols="12" md="4">
                   <v-select v-model="config.strm_url_format" label="STRM文件URL格式" :items="[
                     { title: 'pickcode', value: 'pickcode' },
                     { title: 'pickcode + name', value: 'pickname' }
                   ]" chips closable-chips></v-select>
                 </v-col>
-                <v-col cols="12" md="3">
+                <v-col cols="12" md="4">
                   <v-select v-model="config.link_redirect_mode" label="直链获取模式" :items="[
                     { title: 'Cookie', value: 'cookie' },
                     { title: 'OpenAPI', value: 'open' }
+                  ]" chips closable-chips></v-select>
+                </v-col>
+              </v-row>
+              <v-row>
+                <v-col cols="12" md="4">
+                  <v-switch v-model="config.notify" label="发送通知" color="success" density="compact"></v-switch>
+                </v-col>
+                <v-col cols="12" md="8">
+                  <v-select v-model="config.language" label="通知语言" :items="[
+                    { title: '简体中文', value: 'zh_CN' },
+                    { title: '简中猫娘', value: 'zh_CN_catgirl' }
                   ]" chips closable-chips></v-select>
                 </v-col>
               </v-row>
@@ -796,7 +804,7 @@
           返回
         </v-btn>
         <v-spacer></v-spacer>
-        <v-btn color="warning" variant="text" @click="triggerFullSync" :loading="syncLoading" size="small"
+        <v-btn color="warning" variant="text" @click="fullSyncConfirmDialog = true" size="small"
           prepend-icon="mdi-sync">
           全量同步
         </v-btn>
@@ -806,6 +814,28 @@
         </v-btn>
       </v-card-actions>
     </v-card>
+
+    <!-- 全量同步确认对话框 -->
+    <v-dialog v-model="fullSyncConfirmDialog" max-width="450" persistent>
+      <v-card>
+        <v-card-title class="text-h6 d-flex align-center">
+          <v-icon icon="mdi-alert-circle-outline" color="warning" class="mr-2"></v-icon>
+          确认操作
+        </v-card-title>
+        <v-card-text>
+          您确定要立即执行全量同步吗？
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer></v-spacer>
+          <v-btn color="grey" variant="text" @click="fullSyncConfirmDialog = false" :disabled="syncLoading">
+            取消
+          </v-btn>
+          <v-btn color="warning" variant="text" @click="handleConfirmFullSync" :loading="syncLoading">
+            确认执行
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
 
     <!-- 目录选择器对话框 -->
     <v-dialog v-model="dirDialog.show" max-width="800">
@@ -961,6 +991,7 @@ const activeTab = ref('tab-transfer');
 const mediaservers = ref([]);
 const isCookieVisible = ref(false);
 const config = reactive({
+  language: "zh_CN",
   enabled: false,
   notify: false,
   strm_url_format: 'pickcode',
@@ -1044,6 +1075,7 @@ const transferExcludePaths = ref([{ path: '' }]);
 const incrementSyncExcludePaths = ref([{ local: '', remote: '' }]);
 const monitorLifeExcludePaths = ref([{ path: '' }]);
 const directoryUploadPaths = ref([{ src: '', dest_remote: '', dest_local: '', delete: false }]);
+const fullSyncConfirmDialog = ref(false);
 
 // 目录选择器对话框
 const dirDialog = reactive({
@@ -1456,6 +1488,11 @@ const saveConfig = async () => {
       }
     }, 5000);
   }
+};
+
+const handleConfirmFullSync = async () => {
+  fullSyncConfirmDialog.value = false; // 先关闭对话框
+  await triggerFullSync(); // 然后执行原始的同步函数
 };
 
 // 触发全量同步

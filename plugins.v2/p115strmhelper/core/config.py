@@ -34,6 +34,9 @@ class BaseConfig(BaseModel):
     # 插件临时目录
     PLUGIN_TEMP_PATH: str = str(Path(PLUGIN_CONFIG_PATH) / "temp")
 
+    # 插件语言
+    language: str = "zh_CN"
+
     # 插件总开关
     enabled: bool = False
     # 通知开关

@@ -9,6 +9,7 @@ from p115client.tool.util import share_extract_payload
 from watchdog.observers import Observer
 from watchdog.observers.polling import PollingObserver
 
+from .core.i18n import i18n
 from .helper.mediainfo_download import MediaInfoDownloader
 from .helper.life import MonitorLife
 from .helper.strm import FullSyncStrmHelper, ShareStrmHelper, IncrementSyncStrmHelper
@@ -152,7 +153,7 @@ class ServiceHelper:
                 text += f"🗑️ 清理无效STRM文件 {remove_unless_strm_count} 个"
             post_message(
                 mtype=NotificationType.Plugin,
-                title="✅【115网盘】全量生成 STRM 文件完成",
+                title=i18n.translate("full_sync_done_title"),
                 text=text,
             )
 
@@ -213,7 +214,7 @@ class ServiceHelper:
             if configer.get_config("notify"):
                 post_message(
                     mtype=NotificationType.Plugin,
-                    title="✅【115网盘】分享生成 STRM 文件完成",
+                    title=i18n.translate("share_sync_done_title"),
                     text=f"\n📄 生成STRM文件 {strm_count} 个\n"
                     + f"⬇️ 下载媒体文件 {mediainfo_count} 个\n"
                     + f"❌ 生成STRM失败 {strm_fail_count} 个\n"
@@ -278,7 +279,7 @@ class ServiceHelper:
 """
             post_message(
                 mtype=NotificationType.Plugin,
-                title="✅【115网盘】增量生成 STRM 文件完成",
+                title=i18n.translate("inc_sync_done_title"),
                 text=text,
             )
 
