@@ -7,6 +7,7 @@ from alembic import command
 from alembic.config import Config
 from alembic.runtime.environment import EnvironmentContext
 from alembic.script import ScriptDirectory
+from sqlalchemy import Engine
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.config import settings
@@ -52,7 +53,11 @@ def migration_db(db_path, script_location, version_locations: list):
         logger.debug(f"正在将数据库迁移到版本: {revision} ...")
 
     # 智能迁移到指定版本
+    engine = ct_db_manager.Engine
+    if engine is None:
+        raise SQLAlchemyError("数据库引擎获取失败")
     sync_to_revision(
+        engine=engine,
         sqlalchemy_url=f"sqlite:///{db_path}",
         script_location=str(script_location),
         target_revision=revision,
@@ -130,6 +135,7 @@ def get_ancestors(script: ScriptDirectory, revision_id: str) -> Set[str]:
 
 
 def sync_to_revision(
+    engine: Engine,
     script_location: str,
     sqlalchemy_url: str,
     target_revision: str,
@@ -138,6 +144,7 @@ def sync_to_revision(
     """
     智能地将数据库同步到指定的目标版本，无需 alembic.ini 文件
 
+    :param engine (Engine): 数据库引擎
     :param script_location (str): Alembic 迁移脚本目录路径
     :param sqlalchemy_url (str): 数据库连接 URL
     :param target_revision (str): 目标版本号
@@ -172,7 +179,7 @@ def sync_to_revision(
         return
 
     # 获取数据库当前的版本头 (heads)
-    with ct_db_manager.Engine.connect() as connection:
+    with engine.connect() as connection:
         # 必须先 configure()，然后 get_context()
         env_context = EnvironmentContext(alembic_cfg, script)
         env_context.configure(connection=connection)

@@ -48,8 +48,7 @@ from .core.cache import pantransfercacher, sharestrmcacher
 from .core.config import configer
 from .core.i18n import i18n
 from .core.message import post_message
-from .db_manager import ct_db_manager
-from .db_manager.init import init_db, migration_db, init_migration_scripts
+from .db_manager import ct_db_manager, init_database as ensure_database
 from .mcp import MCPManager
 from .patch.u115_open import U115Patcher
 from .patch.p115disk_upload import P115DiskPatcher
@@ -223,24 +222,7 @@ class P115StrmHelper(_PluginBase):
         """
         if not Path(configer.PLUGIN_CONFIG_PATH).exists():
             Path(configer.PLUGIN_CONFIG_PATH).mkdir(parents=True, exist_ok=True)
-        if not ct_db_manager.is_initialized():
-            # 初始化数据库会话
-            ct_db_manager.init_database(db_path=configer.PLUGIN_DB_PATH)
-            # 表单补全
-            init_db(
-                engine=ct_db_manager.Engine,
-            )
-            # 初始化 迁移脚本
-            if init_migration_scripts():
-                # 更新数据库
-                migration_db(
-                    db_path=configer.PLUGIN_DB_PATH,
-                    script_location=configer.PLUGIN_DATABASE_SCRIPT_LOCATION,
-                    version_locations=configer.PLUGIN_DATABASE_VERSION_LOCATIONS,
-                )
-            else:
-                raise Exception("初始化迁移脚本失败")
-        return True
+        return ensure_database()
 
     def get_state(self) -> bool:
         """

@@ -1,4 +1,5 @@
 from pathlib import Path
+from threading import RLock
 from time import sleep
 from typing import Any, Generator, List, Optional, Self, Tuple
 from sqlite3 import OperationalError as SqlOperationalError, SQLITE_BUSY
@@ -25,6 +26,9 @@ from sqlalchemy.exc import OperationalError
 from ..core.config import configer
 from app.core.config import settings
 from app.log import logger
+
+
+_DATABASE_LIFECYCLE_LOCK = RLock()
 
 
 class _DBManager:
@@ -74,51 +78,52 @@ class _DBManager:
 
         :param db_path (Path): 数据库路径
         """
-        # 数据库已经启动
-        if self.is_initialized():
-            return
-        # 套用 mp 的 timeout
-        connect_args = {"timeout": settings.DB_TIMEOUT}
-        # 在多线程环境中使用 WAL 模式，必须禁用线程检查
-        if configer.get_config("DB_WAL_ENABLE"):
-            connect_args["check_same_thread"] = False
+        with _DATABASE_LIFECYCLE_LOCK:
+            if self.is_initialized():
+                return
 
-        # 根据配置选择连接池类型
-        pool_class = NullPool if settings.DB_POOL_TYPE == "NullPool" else QueuePool
+            connect_args = {"timeout": settings.DB_TIMEOUT}
+            if configer.get_config("DB_WAL_ENABLE"):
+                connect_args["check_same_thread"] = False
 
-        # 组装 create_engine 的所有参数
-        db_kwargs = {
-            "url": f"sqlite:///{db_path}",
-            "pool_pre_ping": settings.DB_POOL_PRE_PING,
-            "echo": settings.DB_ECHO,
-            "pool_recycle": settings.DB_POOL_RECYCLE,
-            "connect_args": connect_args,
-        }
+            pool_class = NullPool if settings.DB_POOL_TYPE == "NullPool" else QueuePool
+            db_kwargs = {
+                "url": f"sqlite:///{db_path}",
+                "pool_pre_ping": settings.DB_POOL_PRE_PING,
+                "echo": settings.DB_ECHO,
+                "pool_recycle": settings.DB_POOL_RECYCLE,
+                "connect_args": connect_args,
+            }
+            if pool_class == QueuePool:
+                db_kwargs.update(
+                    {
+                        "pool_size": getattr(settings, "DB_SQLITE_POOL_SIZE", 30),
+                        "pool_timeout": settings.DB_POOL_TIMEOUT,
+                        "max_overflow": getattr(settings, "DB_SQLITE_MAX_OVERFLOW", 50),
+                    }
+                )
 
-        # 如果使用 QueuePool，则添加其特定参数
-        if pool_class == QueuePool:
-            db_kwargs.update(
-                {
-                    "pool_size": getattr(settings, "DB_SQLITE_POOL_SIZE", 30),
-                    "pool_timeout": settings.DB_POOL_TIMEOUT,
-                    "max_overflow": getattr(settings, "DB_SQLITE_MAX_OVERFLOW", 50),
-                }
+            engine = create_engine(**db_kwargs)
+            event.listen(
+                target=engine,
+                identifier="connect",
+                fn=self._setup_sqlite_pragmas,
             )
+            session_factory = sessionmaker(bind=engine)
+            scoped_session_factory = scoped_session(session_factory)
 
-        self.Engine = create_engine(**db_kwargs)
+            try:
+                with engine.connect() as conn:
+                    mode = conn.execute(text("PRAGMA journal_mode;")).scalar()
+            except Exception:
+                scoped_session_factory.remove()
+                engine.dispose()
+                raise
 
-        # 绑定事件监听器，确保 PRAGMA 对所有连接生效（多线程连接用的）
-        event.listen(
-            target=self.Engine, identifier="connect", fn=self._setup_sqlite_pragmas
-        )
-
-        # 创建会话工厂和线程安全的 ScopedSession
-        self.SessionFactory = sessionmaker(bind=self.Engine)
-        self.ScopedSession = scoped_session(self.SessionFactory)
-
-        logger.info("数据库初始化成功")
-        with self.Engine.connect() as conn:
-            mode = conn.execute(text("PRAGMA journal_mode;")).scalar()
+            self.Engine = engine
+            self.SessionFactory = session_factory
+            self.ScopedSession = scoped_session_factory
+            logger.info("数据库初始化成功")
             logger.debug(f"当前日志模式设置为: {mode.upper()}")
 
     def perform_checkpoint(self, mode: str = "PASSIVE"):
@@ -153,17 +158,18 @@ class _DBManager:
         """
         关闭所有数据库连接并清理资源
         """
-        # 检查是否需要并可以执行 checkpoint
-        if self.Engine and configer.get_config("DB_WAL_ENABLE"):
-            logger.info("正在执行数据库关闭前的最终 checkpoint...")
-            # 使用 TRUNCATE 模式以获得最干净的关闭状态
-            self.perform_checkpoint(mode="TRUNCATE")
+        with _DATABASE_LIFECYCLE_LOCK:
+            if self.Engine and configer.get_config("DB_WAL_ENABLE"):
+                logger.info("正在执行数据库关闭前的最终 checkpoint...")
+                self.perform_checkpoint(mode="TRUNCATE")
 
-        if self.Engine:
-            self.Engine.dispose()
-        self.Engine = None
-        self.SessionFactory = None
-        self.ScopedSession = None
+            if self.ScopedSession:
+                self.ScopedSession.remove()
+            if self.Engine:
+                self.Engine.dispose()
+            self.Engine = None
+            self.SessionFactory = None
+            self.ScopedSession = None
 
     def is_initialized(self) -> bool:
         """
@@ -248,31 +254,25 @@ def init_database() -> bool:
 
     :raises RuntimeError: 数据库会话工厂初始化失败时抛出
     """
-    # 自动初始化数据库管理器
-    if not ct_db_manager.is_initialized():
-        logger.info("数据库管理器未初始化，正在自动初始化...")
+    with _DATABASE_LIFECYCLE_LOCK:
+        if not ct_db_manager.is_initialized():
+            logger.info("数据库管理器未初始化，正在自动初始化...")
 
-        # 延迟导入避免循环导入
-        from .init import init_db, migration_db, init_migration_scripts
+            from .init import init_db, migration_db, init_migration_scripts
 
-        # 初始化数据库
-        ct_db_manager.init_database(db_path=configer.PLUGIN_DB_PATH)
-
-        # 初始化数据库表
-        init_db(engine=ct_db_manager.Engine)
-
-        # 运行迁移脚本
-        if init_migration_scripts():
+            ct_db_manager.init_database(db_path=configer.PLUGIN_DB_PATH)
+            init_db(engine=ct_db_manager.Engine)
+            if not init_migration_scripts():
+                raise RuntimeError("初始化迁移脚本失败")
             migration_db(
                 db_path=configer.PLUGIN_DB_PATH,
                 script_location=configer.PLUGIN_DATABASE_SCRIPT_LOCATION,
                 version_locations=configer.PLUGIN_DATABASE_VERSION_LOCATIONS,
             )
 
-    # 检查 ScopedSession 是否可用
-    if ct_db_manager.ScopedSession is None:
-        logger.error("数据库会话工厂初始化失败")
-        raise RuntimeError("数据库会话工厂初始化失败")
+        if ct_db_manager.ScopedSession is None:
+            logger.error("数据库会话工厂初始化失败")
+            raise RuntimeError("数据库会话工厂初始化失败")
 
     return True
 
