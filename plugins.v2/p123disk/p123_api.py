@@ -12,6 +12,7 @@ from app import schemas
 from app.log import logger
 from app.core.config import settings, global_vars
 from app.modules.filemanager.storages import transfer_process
+from app.schemas.exception import StorageQueryError
 from app.utils.string import StringUtils
 
 from .tool import P123AutoClient
@@ -262,30 +263,59 @@ class P123Api:
         :return: 文件项，如果不存在则返回None
         """
         try:
-            file_id = self._path_to_id(str(path))
-            if not file_id:
-                return None
-            resp = self.client.fs_info(int(file_id))
-            check_response(resp)
-            logger.debug(f"【123】获取文件信息: {resp}")
-            data = resp["data"]["infoList"][0]
-            return schemas.FileItem(
-                storage=self._disk_name,
-                fileid=str(data["FileId"]),
-                path=str(path) + ("/" if data["Type"] == 1 else ""),
-                type="file" if data["Type"] == 0 else "dir",
-                name=data["FileName"],
-                basename=Path(data["FileName"]).stem,
-                extension=Path(data["FileName"]).suffix[1:]
-                if data["Type"] == 0
-                else None,
-                pickcode=str(data),
-                size=data["Size"] if data["Type"] == 0 else None,
-                modify_time=int(datetime.fromisoformat(data["UpdateAt"]).timestamp()),
-            )
+            return self._query_item(path)
         except Exception as e:
             logger.debug(f"【123】获取文件信息失败: {str(e)}")
             return None
+
+    def get_item_strict(self, path: Path) -> Optional[schemas.FileItem]:
+        """
+        严格获取文件或目录，无法确认状态时抛出存储查询异常
+
+        :param path (Path): 文件或目录路径
+
+        :return FileItem: 文件项，确认不存在时返回 None
+
+        :raises StorageQueryError: 网络或接口异常导致无法确认文件状态
+        """
+        try:
+            return self._query_item(path)
+        except FileNotFoundError:
+            return None
+        except StorageQueryError:
+            raise
+        except Exception as e:
+            raise StorageQueryError(f"【123】查询文件信息失败: {path} - {e}") from e
+
+    def _query_item(self, path: Path) -> Optional[schemas.FileItem]:
+        """
+        查询远端文件项
+
+        :param path (Path): 文件或目录路径
+
+        :return FileItem: 查询到的文件项
+
+        :raises FileNotFoundError: 文件或目录确认不存在
+        """
+        file_id = self._path_to_id(str(path))
+        if not file_id:
+            return None
+        resp = self.client.fs_info(int(file_id))
+        check_response(resp)
+        logger.debug(f"【123】获取文件信息: {resp}")
+        data = resp["data"]["infoList"][0]
+        return schemas.FileItem(
+            storage=self._disk_name,
+            fileid=str(data["FileId"]),
+            path=str(path) + ("/" if data["Type"] == 1 else ""),
+            type="file" if data["Type"] == 0 else "dir",
+            name=data["FileName"],
+            basename=Path(data["FileName"]).stem,
+            extension=Path(data["FileName"]).suffix[1:] if data["Type"] == 0 else None,
+            pickcode=str(data),
+            size=data["Size"] if data["Type"] == 0 else None,
+            modify_time=int(datetime.fromisoformat(data["UpdateAt"]).timestamp()),
+        )
 
     def get_parent(self, fileitem: schemas.FileItem) -> Optional[schemas.FileItem]:
         """

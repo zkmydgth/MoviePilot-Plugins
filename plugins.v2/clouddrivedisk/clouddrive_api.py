@@ -15,6 +15,7 @@ from app.core.config import global_vars, settings
 from app.log import logger
 from app.modules.filemanager.storages import transfer_process
 from app.schemas import FileItem, StorageUsage
+from app.schemas.exception import StorageQueryError
 
 from clouddrive2_client import CloudDriveClient
 
@@ -201,42 +202,65 @@ class CloudDriveApi:
 
         :return FileItem: 文件项，未找到返回 None
         """
+        try:
+            return self._query_item(path)
+        except Exception as e:
+            logger.error("【CloudDrive】查询文件失败 %s: %s", path.as_posix(), e)
+            return None
+
+    def get_item_strict(self, path: Path) -> Optional[FileItem]:
+        """
+        严格获取文件或目录，无法确认状态时抛出存储查询异常
+
+        :param path (Path): 文件或目录路径
+
+        :return FileItem: 文件项，确认不存在时返回 None
+
+        :raises StorageQueryError: RPC 或接口异常导致无法确认文件状态
+        """
+        try:
+            return self._query_item(path)
+        except StorageQueryError:
+            raise
+        except Exception as e:
+            raise StorageQueryError(
+                f"【CloudDrive】查询文件信息失败: {path} - {e}"
+            ) from e
+
+    def _query_item(self, path: Path) -> Optional[FileItem]:
+        """
+        查询远端文件项
+
+        :param path (Path): 文件或目录路径
+
+        :return FileItem: 查询到的文件项，确认不存在时返回 None
+        """
         path_str = path.as_posix()
         if not path_str or path_str == ".":
             path_str = "/"
         try:
-            f = self.client.find_file_by_path(path_str)
-            logger.info("【CloudDrive】查找文件成功 %s: %s", path_str, f)
+            cloud_file = self.client.find_file_by_path(path_str)
+            logger.info("【CloudDrive】查找文件成功 %s: %s", path_str, cloud_file)
         except RpcError as e:
-            if isinstance(e, Call) and e.code() == StatusCode.NOT_FOUND:
-                try:
-                    f = self.client.get_file_detail_properties(path_str)
-                    logger.info("【CloudDrive】获取文件详情成功 %s: %s", path_str, f)
-                except RpcError as e2:
-                    if isinstance(e2, Call) and e2.code() == StatusCode.NOT_FOUND:
-                        return None
-                    logger.error(
-                        "【CloudDrive】GetFileDetailProperties 失败 %s: %s",
-                        path_str,
-                        e2,
-                    )
+            if not isinstance(e, Call) or e.code() != StatusCode.NOT_FOUND:
+                raise
+            try:
+                cloud_file = self.client.get_file_detail_properties(path_str)
+                logger.info(
+                    "【CloudDrive】获取文件详情成功 %s: %s",
+                    path_str,
+                    cloud_file,
+                )
+            except RpcError as detail_error:
+                if (
+                    isinstance(detail_error, Call)
+                    and detail_error.code() == StatusCode.NOT_FOUND
+                ):
                     return None
-                except Exception as e2:
-                    logger.error(
-                        "【CloudDrive】GetFileDetailProperties 失败 %s: %s",
-                        path_str,
-                        e2,
-                    )
-                    return None
-            else:
-                logger.error("【CloudDrive】FindFileByPath 失败 %s: %s", path_str, e)
-                return None
-        except Exception as e:
-            logger.error("【CloudDrive】FindFileByPath 失败 %s: %s", path_str, e)
+                raise
+        if not cloud_file or not cloud_file.id:
             return None
-        if not f or not f.id:
-            return None
-        return _cloudfile_to_fileitem(f, self._disk_name)
+        return _cloudfile_to_fileitem(cloud_file, self._disk_name)
 
     def get_parent(self, fileitem: FileItem) -> Optional[FileItem]:
         """

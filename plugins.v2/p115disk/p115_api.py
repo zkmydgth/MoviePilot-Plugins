@@ -21,6 +21,7 @@ from app.core.config import settings, global_vars
 from app.log import logger
 from app.modules.filemanager.storages import transfer_process
 from app.schemas import FileItem, StorageUsage
+from app.schemas.exception import StorageQueryError
 
 from .cache import IdPathCache, ItemIdCache
 from .tools import RateLimiter, get_ios_ua_app
@@ -387,8 +388,8 @@ class P115Api:
 
     def get_item(self, path: Path) -> Optional[FileItem]:
         """
-        获取文件或目录，不存在返回None
-        如果连续三次调用都是同一个目录且API都返回不存在，则接下来的15秒内直接返回None
+        获取文件或目录，不存在返回 None
+        如果连续三次调用都是同一个目录且 API 都返回不存在，则接下来的 15 秒内直接返回 None
 
         :param path (Path): 文件或目录路径
 
@@ -403,98 +404,14 @@ class P115Api:
             else:
                 del self._get_item_blacklist[path_str]
 
-        id = self._id_cache.get_id_by_dir(path_str)
-        if id:
-            item = self._id_item_cache.get_item(id)
-            if item:
-                if path_str in self._get_item_fail_records:
-                    del self._get_item_fail_records[path_str]
-                logger.debug(f"【P115Disk】缓存获取: {item}")
-                path = Path(item["path"])
-                if item["is_dir"]:
-                    return FileItem(
-                        storage=self._disk_name,
-                        fileid=str(item["id"]),
-                        path=path.as_posix() + "/",
-                        name=path.name,
-                        basename=path.name,
-                        type="dir",
-                        modify_time=item["modify_time"],
-                        pickcode=item["pickcode"],
-                    )
-                else:
-                    return FileItem(
-                        storage=self._disk_name,
-                        fileid=str(item["id"]),
-                        parent_fileid=None,
-                        name=path.name,
-                        basename=path.stem,
-                        extension=path.suffix[1:],
-                        type="file",
-                        path=path.as_posix(),
-                        size=item["size"],
-                        modify_time=item["modify_time"],
-                        pickcode=item["pickcode"],
-                    )
+        cached_item = self._get_cached_item(path)
+        if cached_item:
+            return cached_item
 
         self._get_item_rate_limiter.acquire()
 
         try:
-            try:
-                file_id = get_id_to_path(
-                    client=self.client, path=path_str, **get_ios_ua_app(app=False)
-                )
-            except KeyError:
-                file_id = get_id_to_path(
-                    client=self.client,
-                    path=path_str,
-                    refresh=True,
-                    **get_ios_ua_app(app=False),
-                )
-            file_item = get_attr(
-                client=self.client, id=file_id, **get_ios_ua_app(app=False)
-            )
-            logger.debug(f"【P115Disk】文件信息: {file_item}")
-            if path_str in self._get_item_fail_records:
-                del self._get_item_fail_records[path_str]
-            self._id_cache.add_cache(id=file_item["id"], directory=path_str)
-            self._id_item_cache.add_cache(
-                id=file_item["id"],
-                item={
-                    "path": path_str,
-                    "id": file_item["id"],
-                    "size": file_item["size"],
-                    "modify_time": file_item["mtime"],
-                    "pickcode": file_item["pickcode"],
-                    "is_dir": file_item["is_dir"],
-                },
-            )
-            if file_item["is_dir"]:
-                return FileItem(
-                    storage=self._disk_name,
-                    fileid=str(file_item["id"]),
-                    parent_fileid=str(file_item["parent_id"]),
-                    path=path_str + "/",
-                    name=file_item["name"],
-                    basename=file_item["name"],
-                    type="dir",
-                    modify_time=file_item["mtime"],
-                    pickcode=file_item["pickcode"],
-                )
-            else:
-                return FileItem(
-                    storage=self._disk_name,
-                    fileid=str(file_item["id"]),
-                    parent_fileid=str(file_item["parent_id"]),
-                    name=file_item["name"],
-                    basename=path.stem,
-                    extension=path.suffix[1:],
-                    type="file",
-                    path=path_str,
-                    size=file_item["size"],
-                    modify_time=file_item["mtime"],
-                    pickcode=file_item["pickcode"],
-                )
+            return self._query_item(path)
         except FileNotFoundError:
             self._record_get_item_failure(path_str, now)
             return None
@@ -523,6 +440,142 @@ class P115Api:
                 storage=self._disk_name, **file_item.model_dump(exclude={"storage"})
             )
             return file_item
+
+    def get_item_strict(self, path: Path) -> Optional[FileItem]:
+        """
+        严格获取文件或目录，无法确认状态时抛出存储查询异常
+
+        :param path (Path): 文件或目录路径
+
+        :return FileItem: 文件项，确认不存在时返回 None
+
+        :raises StorageQueryError: 网络、限流或接口异常导致无法确认文件状态
+        """
+        try:
+            cached_item = self._get_cached_item(path)
+            if cached_item:
+                return cached_item
+
+            self._get_item_rate_limiter.acquire()
+            return self._query_item(path)
+        except (FileNotFoundError, NotADirectoryError):
+            return None
+        except StorageQueryError:
+            raise
+        except Exception as e:
+            raise StorageQueryError(
+                f"【P115Disk】查询文件信息失败: {path} - {e}"
+            ) from e
+
+    def _get_cached_item(self, path: Path) -> Optional[FileItem]:
+        """
+        从正缓存获取文件项
+
+        :param path (Path): 文件或目录路径
+
+        :return FileItem: 缓存文件项，缓存未命中时返回 None
+        """
+        path_str = path.as_posix()
+        file_id = self._id_cache.get_id_by_dir(path_str)
+        if not file_id:
+            return None
+
+        item = self._id_item_cache.get_item(file_id)
+        if not item:
+            return None
+
+        self._get_item_fail_records.pop(path_str, None)
+        logger.debug(f"【P115Disk】缓存获取: {item}")
+        item_path = Path(item["path"])
+        if item["is_dir"]:
+            return FileItem(
+                storage=self._disk_name,
+                fileid=str(item["id"]),
+                path=item_path.as_posix() + "/",
+                name=item_path.name,
+                basename=item_path.name,
+                type="dir",
+                modify_time=item["modify_time"],
+                pickcode=item["pickcode"],
+            )
+        return FileItem(
+            storage=self._disk_name,
+            fileid=str(item["id"]),
+            parent_fileid=None,
+            name=item_path.name,
+            basename=item_path.stem,
+            extension=item_path.suffix[1:],
+            type="file",
+            path=item_path.as_posix(),
+            size=item["size"],
+            modify_time=item["modify_time"],
+            pickcode=item["pickcode"],
+        )
+
+    def _query_item(self, path: Path) -> FileItem:
+        """
+        查询远端文件项并更新正缓存
+
+        :param path (Path): 文件或目录路径
+
+        :return FileItem: 查询到的文件项
+
+        :raises FileNotFoundError: 文件或目录确认不存在
+        """
+        path_str = path.as_posix()
+        try:
+            file_id = get_id_to_path(
+                client=self.client, path=path_str, **get_ios_ua_app(app=False)
+            )
+        except KeyError:
+            file_id = get_id_to_path(
+                client=self.client,
+                path=path_str,
+                refresh=True,
+                **get_ios_ua_app(app=False),
+            )
+        file_item = get_attr(
+            client=self.client, id=file_id, **get_ios_ua_app(app=False)
+        )
+        logger.debug(f"【P115Disk】文件信息: {file_item}")
+        self._get_item_fail_records.pop(path_str, None)
+        self._id_cache.add_cache(id=file_item["id"], directory=path_str)
+        self._id_item_cache.add_cache(
+            id=file_item["id"],
+            item={
+                "path": path_str,
+                "id": file_item["id"],
+                "size": file_item["size"],
+                "modify_time": file_item["mtime"],
+                "pickcode": file_item["pickcode"],
+                "is_dir": file_item["is_dir"],
+            },
+        )
+        if file_item["is_dir"]:
+            return FileItem(
+                storage=self._disk_name,
+                fileid=str(file_item["id"]),
+                parent_fileid=str(file_item["parent_id"]),
+                path=path_str + "/",
+                name=file_item["name"],
+                basename=file_item["name"],
+                type="dir",
+                modify_time=file_item["mtime"],
+                pickcode=file_item["pickcode"],
+            )
+        return FileItem(
+            storage=self._disk_name,
+            fileid=str(file_item["id"]),
+            parent_fileid=str(file_item["parent_id"]),
+            name=file_item["name"],
+            basename=path.stem,
+            extension=path.suffix[1:],
+            type="file",
+            path=path_str,
+            size=file_item["size"],
+            modify_time=file_item["mtime"],
+            pickcode=file_item["pickcode"],
+        )
 
     def _record_get_item_failure(self, path_str: str, now: float):
         """
