@@ -223,11 +223,12 @@
         "name": "123云盘STRM助手",
         "description": "123云盘STRM生成一条龙服务",
         "labels": "云盘",
-        "version": "1.0.7",
+        "version": "1.0.8",
         "icon": "https://raw.githubusercontent.com/DDS-Derek/MoviePilot-Plugins/main/icons/P123Disk.png",
         "author": "DDSRem",
         "level": 1,
         "history": {
+            "v1.0.8": "优化递归文件速度",
             "v1.0.7": "更新依赖包",
             "v1.0.6": "支持生成STRM文件后自动刮削",
             "v1.0.5": "监控MP整理事件自动下载网盘字幕和音频文件",

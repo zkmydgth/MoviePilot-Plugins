@@ -13,6 +13,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 import requests
 from cachetools import cached, TTLCache
 from p123client import check_response
+from p123client.tool import iterdir, share_iterdir
 
 from app.chain.storage import StorageChain
 from app.core.config import settings
@@ -29,7 +30,7 @@ from app.chain.media import MediaChain
 from app.schemas.types import EventType, MediaType
 from app.utils.system import SystemUtils
 
-from .tool import P123AutoClient, iterdir, share_iterdir
+from .tool import P123AutoClient
 
 
 class MediaInfoDownloader:
@@ -200,7 +201,11 @@ class FullSyncStrmHelper:
 
             try:
                 for item in iterdir(
-                    client=self.client, parent_id=parent_id, interval=1, only_file=True
+                    self.client,
+                    parent_id=parent_id,
+                    interval=1,
+                    max_depth=-1,
+                    predicate=lambda a: not a["is_dir"],
                 ):
                     file_path = pan_media_dir + "/" + item["relpath"]
                     file_path = Path(target_dir) / Path(file_path).relative_to(
@@ -335,11 +340,12 @@ class ShareStrmHelper:
         获取分享文件，生成 STRM
         """
         for item in share_iterdir(
-            share_key=share_code,
-            share_pwd=share_pwd,
+            share_code,
+            share_pwd,
             parent_id=parent_id,
             interval=1,
-            only_file=True,
+            max_depth=-1,
+            predicate=lambda a: not a["is_dir"],
         ):
             file_path = "/" + item["relpath"]
             if not self.has_prefix(file_path, self.share_media_path):
@@ -427,7 +433,7 @@ class P123StrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/DDS-Derek/MoviePilot-Plugins/main/icons/P123Disk.png"
     # 插件版本
-    plugin_version = "1.0.7"
+    plugin_version = "1.0.8"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
