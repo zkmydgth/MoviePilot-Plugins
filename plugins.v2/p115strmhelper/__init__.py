@@ -202,7 +202,7 @@ class P115StrmHelper(_PluginBase):
                 "data": {"action": "p115_strm"},
             },
             {
-                "cmd": "/search",
+                "cmd": "/sh",
                 "event": EventType.PluginAction,
                 "desc": "搜索指定资源",
                 "category": "",
@@ -654,7 +654,7 @@ class P115StrmHelper(_PluginBase):
                 self.post_message(
                     **context,
                     title="⚠️ 会话已过期",
-                    text="操作已超时。\n请重新发起 `/p115_search` 命令。",
+                    text="操作已超时。\n请重新发起 `/sh` 命令。",
                 )
                 return
 
