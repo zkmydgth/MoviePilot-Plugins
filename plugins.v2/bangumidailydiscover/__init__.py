@@ -14,13 +14,7 @@ from app.schemas.types import ChainEventType
 from app.utils.http import RequestUtils
 
 
-@dataclasses.dataclass
-class Option:
-    value: int
-    text: str
-
-
-weekdays = [
+WEEKDAYS = [
     (0, "全部"),
     (1, "星期一"),
     (2, "星期二"),
@@ -31,6 +25,18 @@ weekdays = [
     (7, "星期日"),
 ]
 
+BANGUMI_API_URL = "https://api.bgm.tv/calendar"
+BANGUMI_HEADERS = {
+    "User-Agent": settings.USER_AGENT,
+    "Referer": "https://api.bgm.tv/",
+}
+
+
+@dataclasses.dataclass
+class Option:
+    value: int
+    text: str
+
 
 class BangumiDailyDiscover(_PluginBase):
     # 插件名称
@@ -40,7 +46,7 @@ class BangumiDailyDiscover(_PluginBase):
     # 插件图标
     plugin_icon = "Bangumi_A.png"
     # 插件版本
-    plugin_version = "1.0.1"
+    plugin_version = "1.0.2"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -57,7 +63,7 @@ class BangumiDailyDiscover(_PluginBase):
 
     def init_plugin(self, config: dict = None):
         if config:
-            self._enabled = config.get("enabled")
+            self._enabled = config.get("enabled", False)
 
     def get_state(self) -> bool:
         return self._enabled
@@ -78,9 +84,6 @@ class BangumiDailyDiscover(_PluginBase):
         ]
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
-        """
-        拼装插件配置页面，需要返回两块数据：1、页面配置；2、数据结构
-        """
         return [
             {
                 "component": "VForm",
@@ -111,21 +114,41 @@ class BangumiDailyDiscover(_PluginBase):
         pass
 
     @cached(cache=TTLCache(maxsize=32, ttl=1800))
-    def __request(self) -> List[schemas.MediaInfo]:
+    def __request_bangumi_data(self) -> List[dict]:
         """
         请求Bangumi每日放送 API
         """
-        api_url = "https://api.bgm.tv/calendar"
-        headers = {
-            "User-Agent": settings.USER_AGENT,
-            "Referer": "https://api.bgm.tv/",
-        }
-        res = RequestUtils(headers=headers).get_res(api_url)
-        if res is None:
-            raise Exception("无法连接Bangumi每日放送，请检查网络连接！")
-        if not res.ok:
-            raise Exception(f"请求Bangumi每日放送 API失败：{res.text}")
-        return res.json()
+        try:
+            res = RequestUtils(headers=BANGUMI_HEADERS).get_res(BANGUMI_API_URL)
+            if res is None:
+                raise ConnectionError("无法连接Bangumi每日放送，请检查网络连接！")
+            if not res.ok:
+                raise ValueError(f"请求Bangumi每日放送 API失败：{res.text}")
+            return res.json()
+        except Exception as e:
+            logger.error(f"获取Bangumi数据失败: {str(e)}")
+            raise
+
+    @staticmethod
+    def __convert_to_media_info(series_info: dict) -> schemas.MediaInfo:
+        """
+        将Bangumi数据转换为MediaInfo对象
+        """
+        rating_info = series_info.get("rating", {})
+        title = series_info.get("name_cn") or series_info.get("name", "")
+        images = series_info.get("images", {})
+
+        return schemas.MediaInfo(
+            type="电视剧",
+            source="bangumi",
+            title=title,
+            mediaid_prefix="bangumidaily",
+            media_id=series_info.get("id"),
+            bangumi_id=series_info.get("id"),
+            poster_path=images.get("large"),
+            vote_average=rating_info.get("score"),
+            first_air_date=series_info.get("air_date"),
+        )
 
     def bangumidaily_discover(
         self,
@@ -136,52 +159,26 @@ class BangumiDailyDiscover(_PluginBase):
         """
         获取Bangumi每日放送探索数据
         """
-
-        def __series_to_media(series_info: dict) -> schemas.MediaInfo:
-            vote_average = None
-            rating_info = series_info.get("rating", None)
-            if rating_info is not None:
-                vote_average = rating_info.get("score", None)
-
-            if series_info.get("name_cn"):
-                title = series_info.get("name_cn")
-            else:
-                title = series_info.get("name")
-            return schemas.MediaInfo(
-                type="电视剧",
-                source="bangumi",
-                title=title,
-                mediaid_prefix="bangumidaily",
-                media_id=series_info.get("id"),
-                bangumi_id=series_info.get("id"),
-                poster_path=series_info.get("images").get("large"),
-                vote_average=vote_average,
-                first_air_date=series_info.get("air_date", None)
-            )
-
         try:
-            result = self.__request()
-        except Exception as err:
-            logger.error(str(err))
+            bangumi_data = self.__request_bangumi_data()
+            if not bangumi_data:
+                return []
+
+            results = []
+            for day_entry in bangumi_data:
+                if weekday == "0" or str(day_entry["weekday"]["id"]) == weekday:
+                    results.extend(
+                        self.__convert_to_media_info(item)
+                        for item in day_entry.get("items", [])
+                    )
+
+            start_idx = (page - 1) * count
+            end_idx = min(page * count, len(results))
+            return results[start_idx:end_idx]
+
+        except Exception as e:
+            logger.error(f"获取Bangumi每日放送数据失败: {str(e)}")
             return []
-        if not result:
-            return []
-        results = []
-        for day_entry in result:
-            if str(weekday) == "0":
-                for item in day_entry["items"]:
-                    results.append(__series_to_media(item))
-            else:
-                if str(day_entry["weekday"]["id"]) == str(weekday):
-                    for item in day_entry["items"]:
-                        results.append(__series_to_media(item))
-                else:
-                    continue
-        if page * count <= len(results):
-            last_num = page * count
-        else:
-            last_num = len(results)
-        return results[(page - 1) * count : last_num]
 
     @staticmethod
     def bangumidaily_filter_ui() -> List[dict]:
@@ -189,7 +186,7 @@ class BangumiDailyDiscover(_PluginBase):
         Bangumi每日放送过滤参数UI配置
         """
         today_weekday = datetime.today().weekday() + 1
-        options = [Option(value=w[0], text=w[1]) for w in weekdays]
+        options = [Option(value=w[0], text=w[1]) for w in WEEKDAYS]
 
         def sort_key(opt: Option):
             if opt.value == 0:
@@ -199,14 +196,6 @@ class BangumiDailyDiscover(_PluginBase):
             return (2, opt.value)
 
         sorted_options = sorted(options, key=sort_key)
-        ui_data = [
-            {
-                "component": "VChip",
-                "props": {"filter": True, "tile": True, "value": opt.value},
-                "text": opt.text,
-            }
-            for opt in sorted_options
-        ]
 
         return [
             {
@@ -221,7 +210,18 @@ class BangumiDailyDiscover(_PluginBase):
                     {
                         "component": "VChipGroup",
                         "props": {"model": "weekday"},
-                        "content": ui_data,
+                        "content": [
+                            {
+                                "component": "VChip",
+                                "props": {
+                                    "filter": True,
+                                    "tile": True,
+                                    "value": opt.value,
+                                },
+                                "text": opt.text,
+                            }
+                            for opt in sorted_options
+                        ],
                     },
                 ],
             },
@@ -230,10 +230,11 @@ class BangumiDailyDiscover(_PluginBase):
     @eventmanager.register(ChainEventType.DiscoverSource)
     def discover_source(self, event: Event):
         """
-        监听识别事件，使用ChatGPT辅助识别名称
+        监听识别事件，添加Bangumi每日放送数据源
         """
         if not self._enabled:
             return
+
         event_data: DiscoverSourceEventData = event.event_data
         bangumidaily_source = schemas.DiscoverMediaSource(
             name="Bangumi每日放送",
@@ -242,7 +243,8 @@ class BangumiDailyDiscover(_PluginBase):
             filter_params={"weekday": "0"},
             filter_ui=self.bangumidaily_filter_ui(),
         )
-        if not event_data.extra_sources:
+
+        if event_data.extra_sources is None:
             event_data.extra_sources = [bangumidaily_source]
         else:
             event_data.extra_sources.append(bangumidaily_source)
