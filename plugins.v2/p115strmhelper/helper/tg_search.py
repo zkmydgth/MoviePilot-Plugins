@@ -5,6 +5,7 @@ import requests
 from bs4 import BeautifulSoup
 
 from app.log import logger
+from app.core.config import settings
 
 from ..core.config import configer
 from ..schemas.tg_search import ResourceItem
@@ -27,6 +28,8 @@ class TgSearcher:
     def __init__(self):
         self.session = requests.Session()
         self.session.headers.update({"User-Agent": configer.get_user_agent(utype=1)})
+        if settings.PROXY:
+            self.session.proxies.update(settings.PROXY)
 
     def extract_cloud_links(self, text: str) -> tuple[List[str], str]:
         """
@@ -59,7 +62,7 @@ class TgSearcher:
         搜索单个频道资源
         """
         try:
-            response = self.session.get(url)
+            response = self.session.get(url, timeout=60)
             response.raise_for_status()
             html = response.text
         except requests.exceptions.RequestException as e:
