@@ -160,7 +160,6 @@ class P115StrmHelper(_PluginBase):
                                         "props": {
                                             "model": "cookies",
                                             "label": "115 Cookie",
-                                            "persistent-hint": True,
                                         },
                                     }
                                 ],
@@ -179,7 +178,6 @@ class P115StrmHelper(_PluginBase):
                                         "props": {
                                             "model": "moviepilot_address",
                                             "label": "MoviePilot 外网访问地址",
-                                            "persistent-hint": True,
                                         },
                                     }
                                 ],
@@ -198,7 +196,6 @@ class P115StrmHelper(_PluginBase):
                                         "props": {
                                             "model": "local_media_dir",
                                             "label": "本地 STRM 媒体库路径",
-                                            "persistent-hint": True,
                                         },
                                     }
                                 ],
@@ -217,7 +214,6 @@ class P115StrmHelper(_PluginBase):
                                         "props": {
                                             "model": "pan_media_dir",
                                             "label": "115 网盘媒体库路径",
-                                            "persistent-hint": True,
                                         },
                                     }
                                 ],
@@ -342,14 +338,10 @@ class P115StrmHelper(_PluginBase):
             file_name = basename + ".strm"
             new_file_path = file_path / file_name
             new_file_path.parent.mkdir(parents=True, exist_ok=True)
-            if Path(new_file_path).exists(follow_symlinks=False):
-                logger.info(f"更新 STRM 文件: {new_file_path}")
-            else:
-                logger.info(f"生成 STRM 文件: {new_file_path}")
             try:
                 with open(new_file_path, "w", encoding="utf-8") as file:
                     file.write(url)
-                logger.info("生成 STRM 文件成功： %s", str(new_file_path))
+                logger.info("生成 STRM 文件成功: %s", str(new_file_path))
                 return True
             except Exception as e:  # noqa: F841
                 logger.error("生成 %s 文件失败: %s", str(new_file_path), e)
@@ -370,7 +362,8 @@ class P115StrmHelper(_PluginBase):
         # 转移信息
         item_transfer: TransferInfo = item.get("transferinfo")
 
-        if item_transfer.storage != "u115":
+        item_dest_storage: FileItem = item_transfer.target_item.storage
+        if item_dest_storage != "u115":
             return
 
         # 网盘目的地目录
