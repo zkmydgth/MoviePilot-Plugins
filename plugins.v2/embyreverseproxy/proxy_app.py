@@ -347,6 +347,117 @@ def create_app(emby_host: str) -> FastAPI:
     app.websocket("/embywebsocket")(_ws_proxy)
     app.websocket("/emby/embywebsocket")(_ws_proxy)
 
+    def _current_port(request: Request) -> int:
+        """
+        从请求中解析当前代理端口（供客户端连回），优先 X-Forwarded-Port。
+
+        :param request: 当前请求。
+        :return: 端口号。
+        """
+        forwarded = request.headers.get("x-forwarded-port")
+        if forwarded:
+            try:
+                return int(forwarded.split(",")[0].strip())
+            except (ValueError, AttributeError):
+                pass
+        server = request.scope.get("server")
+        if server and len(server) >= 2:
+            try:
+                return int(server[1])
+            except (ValueError, TypeError):
+                pass
+        return 80
+
+    async def _system_info_handler(
+        request: Request,
+    ) -> JSONResponse | StreamingResponse:
+        """
+        代理 /emby/system/info 并改写响应中的端口，使客户端连回代理而非后端。
+
+        :param request: 当前请求。
+        :return: 改写后的 JSON 或 502 错误。
+        """
+        path = request.scope.get("path", "/")
+        qs = str(request.url.query)
+        target_url = f"{emby_host}{path}"
+        if qs:
+            target_url += f"?{qs}"
+        headers = _build_forward_headers(request)
+        client = request.app.state.http_client_follow
+        try:
+            req = client.build_request(
+                method=request.method,
+                url=target_url,
+                headers=headers,
+            )
+            resp = await client.send(req, timeout=10)
+        except Exception:
+            logger.warning("System/Info 请求失败: %s", target_url, exc_info=True)
+            return JSONResponse(
+                status_code=502,
+                content={
+                    "error": "Bad Gateway",
+                    "detail": "System/Info 请求失败",
+                },
+            )
+        if resp.status_code != 200:
+            logger.warning(
+                "System/Info 后端返回非 200: status=%s, url=%s",
+                resp.status_code,
+                target_url,
+            )
+            return JSONResponse(
+                status_code=502,
+                content={
+                    "error": "Bad Gateway",
+                    "detail": "System/Info 请求失败",
+                },
+            )
+        try:
+            body = resp.json()
+        except Exception:
+            logger.warning("System/Info 响应非 JSON: %s", target_url, exc_info=True)
+            return JSONResponse(
+                status_code=502,
+                content={
+                    "error": "Bad Gateway",
+                    "detail": "System/Info 请求失败",
+                },
+            )
+        origin_port = body.get("WebSocketPortNumber")
+        if origin_port is not None:
+            current_port = _current_port(request)
+            try:
+                origin_port = int(origin_port)
+            except (TypeError, ValueError):
+                origin_port = None
+            if origin_port is not None:
+                body["WebSocketPortNumber"] = current_port
+                if body.get("HttpServerPortNumber") is not None:
+                    body["HttpServerPortNumber"] = current_port
+                for key in ("LocalAddresses", "RemoteAddresses"):
+                    if isinstance(body.get(key), list):
+                        body[key] = [
+                            str(s).replace(str(origin_port), str(current_port))
+                            for s in body[key]
+                        ]
+                for key in ("LocalAddress", "WanAddress"):
+                    if body.get(key) is not None:
+                        body[key] = str(body[key]).replace(
+                            str(origin_port), str(current_port)
+                        )
+        excluded = HOP_BY_HOP_HEADERS | {"content-length"}
+        resp_headers = {
+            k: v for k, v in resp.headers.multi_items() if k.lower() not in excluded
+        }
+        return JSONResponse(status_code=200, content=body, headers=resp_headers)
+
+    app.api_route(
+        "/emby/system/info",
+        methods=["GET", "HEAD"],
+        response_model=None,
+    )(_system_info_handler)
+
     async def _reverse_proxy(request: Request) -> StreamingResponse | JSONResponse:
         """
         将请求反向代理到 Emby 服务器并流式返回响应。
