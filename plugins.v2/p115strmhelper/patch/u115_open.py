@@ -20,18 +20,21 @@ class U115Patcher:
         "create_folder": None,
         "get_item": None,
         "get_folder": None,
+        "rename": None,
     }
     _func_active: Dict[str, bool] = {
         "upload": False,
         "create_folder": False,
         "get_item": False,
         "get_folder": False,
+        "rename": False,
     }
     log_map: Dict[str, str] = {
         "upload": "上传",
         "create_folder": "创建目录",
         "get_item": "获取文件信息",
         "get_folder": "获取目录信息",
+        "rename": "重命名",
     }
 
     @staticmethod
@@ -83,6 +86,17 @@ class U115Patcher:
         logger.debug("【P115Open】调用补丁接口获取目录信息")
         return helper.get_folder(path=path)
 
+    @staticmethod
+    def _patch_rename(
+        self_instance: U115Pan, fileitem: schemas.FileItem, name: str
+    ) -> bool:
+        """
+        自定义 rename
+        """
+        helper = U115OpenHelper()
+        logger.debug("【P115Open】调用补丁接口获取目录信息")
+        return helper.rename(fileitem=fileitem, name=name)
+
     @classmethod
     def enable(cls):
         """
@@ -100,9 +114,7 @@ class U115Patcher:
             logger.info("【P115Open】上传接口补丁应用成功")
 
         if configer.transfer_module_enhancement:
-            logger.warn("【P115Open】整理增强功能目前不可用！")
-            return
-            modules = ["create_folder", "get_item", "get_folder"]
+            modules = ["create_folder", "get_item", "get_folder", "rename"]
             for module in modules:
                 if cls._func_active.get(module):
                     continue

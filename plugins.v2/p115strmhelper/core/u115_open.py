@@ -1,7 +1,6 @@
 import hashlib
 import threading
 import time
-import traceback
 from random import randint
 from datetime import datetime, timezone
 from pathlib import Path
@@ -31,6 +30,7 @@ from ..db_manager.oper import FileDbHelper
 from ..utils.oopserver import OOPServerRequest
 from ..utils.sentry import sentry_manager
 from ..utils.exception import U115NoCheckInException
+from ..utils.path import PathUtils
 
 
 p115_open_lock = threading.Lock()
@@ -165,7 +165,6 @@ class U115OpenHelper:
             logger.warn(
                 f"【P115Open】{method} 请求 {endpoint} 出错：{ret_data.get('message')}！"
             )
-            logger.warn("".join(traceback.format_stack()))
 
         if result_key:
             return ret_data.get(result_key)
@@ -218,6 +217,21 @@ class U115OpenHelper:
                 while chunk := f.read(8192):
                     sha1.update(chunk)
         return sha1.hexdigest()
+
+    @staticmethod
+    def _can_write_db(path: Path) -> bool:
+        """
+        判断目录是否能写入数据库
+        """
+        # 存在待整理目录时，判断非待整理目录才写入，不存在待整理目录直接写入数据库
+        if configer.pan_transfer_paths:
+            if not PathUtils.get_run_transfer_path(
+                configer.pan_transfer_paths, path.as_posix()
+            ):
+                return True
+        else:
+            return True
+        return False
 
     def upload_fail_count(self) -> bool:
         """
@@ -712,6 +726,8 @@ class U115OpenHelper:
     ) -> Optional[schemas.FileItem]:
         """
         创建目录
+
+        Cookie / OpenAPI 随机轮换
         """
         new_path = Path(parent_item.path) / name
 
@@ -767,7 +783,7 @@ class U115OpenHelper:
             )
             if not resp:
                 return None
-            logger.debug(f"【P115Open】OpenAPI 获取文件信息 {path}")
+            logger.debug(f"【P115Open】OpenAPI 获取文件信息 {path} {resp['file_id']}")
             file_item = schemas.FileItem(
                 storage="u115",
                 fileid=str(resp["file_id"]),
@@ -782,9 +798,10 @@ class U115OpenHelper:
                 size=resp["size_byte"] if resp["file_category"] == "1" else None,
                 modify_time=resp["utime"],
             )
-            self.databasehelper.upsert_batch(
-                self.databasehelper.process_fileitem(file_item)
-            )
+            if self._can_write_db(path):
+                self.databasehelper.upsert_batch(
+                    self.databasehelper.process_fileitem(file_item)
+                )
             return file_item
         except Exception as e:
             logger.debug(f"【P115Open】OpenAPI 获取文件信息失败: {str(e)}")
@@ -801,7 +818,9 @@ class U115OpenHelper:
                 return None
             if data:
                 if data.get("id", None):
-                    logger.debug(f"【P115Open】DataBase 获取文件信息 {path}")
+                    logger.debug(
+                        f"【P115Open】DataBase 获取文件信息 {path} {data.get('id')}"
+                    )
                     return schemas.FileItem(
                         storage="u115",
                         fileid=str(data.get("id")),
@@ -832,19 +851,22 @@ class U115OpenHelper:
         try:
             if path.name != path.stem:
                 return None
-            cache_id = idpathcacher.get_id_by_dir(directory=path.as_posix())
-            if cache_id:
-                folder_id = cache_id
+            if path.as_posix() == "/":
+                folder_id = 0
             else:
-                payload = {
-                    "path": path.as_posix(),
-                }
-                resp = self.cookie_client.fs_dir_getid(payload)
-                if not resp.get("state", None):
-                    return None
-                folder_id = resp.get("id", None)
-                if not folder_id:
-                    return None
+                cache_id = idpathcacher.get_id_by_dir(directory=path.as_posix())
+                if cache_id:
+                    folder_id = cache_id
+                else:
+                    payload = {
+                        "path": path.as_posix(),
+                    }
+                    resp = self.cookie_client.fs_dir_getid(payload)
+                    if not resp.get("state", None):
+                        return None
+                    folder_id = resp.get("id", None)
+                    if not folder_id or folder_id == 0:
+                        return None
             sleep(1)
             resp = self.cookie_client.fs_file(folder_id)
             if not resp.get("state", None):
@@ -853,10 +875,12 @@ class U115OpenHelper:
             if not data:
                 return None
             data: dict = data[0]
-            self.databasehelper.upsert_batch(
-                self.databasehelper.process_fs_files_item(data)
-            )
-            logger.debug(f"【P115Open】Cookie 获取文件信息 {path}")
+            data["path"] = path.as_posix()
+            if self._can_write_db(path):
+                self.databasehelper.upsert_batch(
+                    self.databasehelper.process_fs_files_item(data)
+                )
+            logger.debug(f"【P115Open】Cookie 获取文件信息 {path} {data.get('cid')}")
             return schemas.FileItem(
                 storage="u115",
                 fileid=str(data.get("cid")),
@@ -878,15 +902,11 @@ class U115OpenHelper:
         获取指定路径的文件/目录项
 
         1. 数据库获取
-        2. Cookie 接口缓存获取
-        3. OpenAPI 接口获取
+        2. OpenAPI 接口获取
         """
         db_item = self.database_get_item(path)
         if db_item:
             return db_item
-        ck_item = self.cookie_get_item(path)
-        if ck_item:
-            return ck_item
         return self.open_get_item(path)
 
     def get_folder(self, path: Path) -> Optional[schemas.FileItem]:
@@ -903,7 +923,27 @@ class U115OpenHelper:
                 logger.error(f"【P115Open】{path} 目录创建失败：{resp}")
                 return None
             idpathcacher.add_cache(id=int(resp["cid"]), directory=path.as_posix())
-            return self.get_item(path)
+            return self.cookie_get_item(path)
         except Exception as e:
             logger.error(f"【P115Open】{path} 目录创建出现未知错误：{e}")
             return None
+
+    def rename(self, fileitem: schemas.FileItem, name: str) -> bool:
+        """
+        重命名文件/目录
+
+        Cookie / OpenAPI 随机轮换
+        """
+        if randint(0, 1) == 0:
+            resp = self._request_api(
+                "POST",
+                "/open/ufile/update",
+                data={"file_id": int(fileitem.fileid), "file_name": name},
+            )
+        else:
+            resp = self.cookie_client.fs_rename((int(fileitem.fileid), name))
+        if not resp:
+            return False
+        if resp.get("state"):
+            return True
+        return False
