@@ -538,6 +538,7 @@ class FullSyncStrmHelper:
         self.client = client
         self.mediainfodownloader = mediainfodownloader
         self.total_count = 0
+        self.elapsed_time = 0
         self.strm_count = 0
         self.mediainfo_count = 0
         self.strm_fail_count = 0
@@ -584,7 +585,6 @@ class FullSyncStrmHelper:
         """
         tree = DirectoryTree()
         media_paths = full_sync_strm_paths.split("\n")
-        start_time = time.perf_counter()
         for path in media_paths:
             if not path:
                 continue
@@ -628,6 +628,7 @@ class FullSyncStrmHelper:
                 return False
 
             try:
+                start_time = time.perf_counter()
                 for batch in batched(
                     iter_files_with_path_skim(
                         self.client, cid=parent_id, with_ancestors=True
@@ -797,6 +798,8 @@ class FullSyncStrmHelper:
                             path_list, self.pan_tree, append=True
                         )
 
+                end_time = time.perf_counter()
+                self.elapsed_time += end_time - start_time
             except Exception as e:
                 logger.error(f"【全量STRM生成】全量生成 STRM 文件失败: {e}")
                 return False
@@ -818,9 +821,6 @@ class FullSyncStrmHelper:
                     logger.warn(
                         "【全量STRM生成】存在生成失败的 STRM 文件，跳过清理无效 STRM 文件"
                     )
-
-        end_time = time.perf_counter()
-        elapsed_time = end_time - start_time
 
         self.mediainfo_count, self.mediainfo_fail_count, self.mediainfo_fail_dict = (
             self.mediainfodownloader.auto_downloader(
@@ -846,7 +846,7 @@ class FullSyncStrmHelper:
             )
 
         # logger.debug(
-        #     f"【全量STRM生成】时间 {elapsed_time:.6f} 秒，总迭代文件数量 {self.total_count} 个"
+        #     f"【全量STRM生成】时间 {self.elapsed_time:.6f} 秒，总迭代文件数量 {self.total_count} 个"
         # )
 
         return True

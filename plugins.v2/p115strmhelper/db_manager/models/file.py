@@ -1,6 +1,6 @@
 from typing import Dict, List
 
-from sqlalchemy import Column, Integer, String, Text, BigInteger, select, delete
+from sqlalchemy import Column, Integer, String, Text, BigInteger, select, delete, or_
 from sqlalchemy.orm import Session
 
 from ...db_manager import db_update, db_query, P115StrmHelperBase
@@ -80,19 +80,22 @@ class File(P115StrmHelperBase):
           - 先判断需要写入的数据路径是否存在，存在则先删除记录
           - 写入数据
         """
-        seen = set()
         files_data = []
+        seen_ids = set()
+        seen_paths = set()
         append = files_data.append
         for entry in batch:
-            if entry["table"] == "files" and entry["data"]["id"] not in seen:
-                seen.add(entry["data"]["id"])
-                append(entry["data"])
+            if entry["table"] == "files":
+                data = entry["data"]
+                if data["id"] not in seen_ids:
+                    seen_ids.add(data["id"])
+                    seen_paths.add(data["path"])
+                    append(data)
         if not files_data:
             return True
-        paths = [data["path"] for data in files_data]
-        ids = [data["id"] for data in files_data]
-        db.execute(delete(File).where(File.id.in_(ids)))
-        db.execute(delete(File).where(File.path.in_(paths)))
+        db.execute(
+            delete(File).where(or_(File.id.in_(seen_ids), File.path.in_(seen_paths)))
+        )
         db.bulk_insert_mappings(File, files_data)
         return True
 
