@@ -174,9 +174,17 @@ class TransferChainPatcher:
                         Notification(
                             mtype=NotificationType.Manual,
                             title=f"{task.fileitem.name} 未识别到媒体信息，无法入库！",
-                            text=f"回复：```\n/redo {his.id} [tmdbid]|[类型]\n``` 手动识别整理。",
+                            text=(
+                                "原因：未识别到媒体信息\n"
+                                "如果按钮不可用，可回复：\n"
+                                f"```\n/redo {his.id}\n/redo {his.id} [tmdbid]|[类型]\n```\n"
+                                "自动重试或手动识别整理。"
+                            ),
                             username=task.username,
                             link=settings.MP_DOMAIN("#/history"),
+                            buttons=chain_self.build_failed_transfer_buttons(
+                                his.id if his else None
+                            ),
                         )
                     )
                     # 任务失败，直接移除task
