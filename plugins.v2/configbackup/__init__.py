@@ -31,7 +31,7 @@ class ConfigBackup(_PluginBase):
     # 插件描述
     plugin_desc = "定时备份 MoviePilot 系统配置、数据库及插件配置到指定目录，支持保留数量自动清理、手动触发和一键还原。"
     # 插件版本
-    plugin_version = "1.3.1"
+    plugin_version = "1.3.2"
     # 插件作者
     plugin_author = "zkmydgth"
     # 插件配置项ID前缀
@@ -165,6 +165,16 @@ class ConfigBackup(_PluginBase):
             {
                 "component": "VForm",
                 "content": [
+                    {
+                        "component": "VAlert",
+                        "props": {
+                            "type": "info",
+                            "text": "使用说明：定时备份 MoviePilot 系统配置、PostgreSQL 数据库与插件配置，"
+                                    "支持保留最近 N 份与一键还原（还原前自动先备份当前状态作安全网）。"
+                                    "注意：数据库备份/还原要求 MoviePilot 使用 PostgreSQL（兼容 10+ 含 18.x），"
+                                    "SQLite/MySQL 等将自动跳过数据库部分。首次使用建议先手动备份一次验证。",
+                        },
+                    },
                     {
                         "component": "VRow",
                         "content": [
