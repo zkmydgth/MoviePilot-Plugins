@@ -1212,6 +1212,40 @@ return (_ctx, _cache) => {
                                         }, {
                                           prepend: _withCtx(() => [
                                             _createVNode(_component_v_icon, {
+                                              color: __props.initialConfig?.increment_sync_strm_enabled ? 'success' : 'grey',
+                                              icon: "mdi-book-sync",
+                                              size: "small"
+                                            }, null, 8, ["color"])
+                                          ]),
+                                          append: _withCtx(() => [
+                                            _createVNode(_component_v_chip, {
+                                              color: __props.initialConfig?.increment_sync_strm_enabled ? 'success' : 'grey',
+                                              size: "x-small",
+                                              variant: "tonal"
+                                            }, {
+                                              default: _withCtx(() => [
+                                                _createTextVNode(_toDisplayString(__props.initialConfig?.increment_sync_strm_enabled ? '已启用' : '已禁用'), 1)
+                                              ]),
+                                              _: 1
+                                            }, 8, ["color"])
+                                          ]),
+                                          default: _withCtx(() => [
+                                            _createVNode(_component_v_list_item_title, { class: "text-body-2" }, {
+                                              default: _withCtx(() => _cache[26] || (_cache[26] = [
+                                                _createTextVNode("定期增量同步")
+                                              ])),
+                                              _: 1
+                                            })
+                                          ]),
+                                          _: 1
+                                        }),
+                                        _createVNode(_component_v_divider, { class: "my-0" }),
+                                        _createVNode(_component_v_list_item, {
+                                          class: "px-3 py-0",
+                                          style: {"min-height":"34px"}
+                                        }, {
+                                          prepend: _withCtx(() => [
+                                            _createVNode(_component_v_icon, {
                                               color: __props.initialConfig?.monitor_life_enabled ? 'success' : 'grey',
                                               icon: "mdi-calendar-heart",
                                               size: "small"
@@ -1231,7 +1265,7 @@ return (_ctx, _cache) => {
                                           ]),
                                           default: _withCtx(() => [
                                             _createVNode(_component_v_list_item_title, { class: "text-body-2" }, {
-                                              default: _withCtx(() => _cache[26] || (_cache[26] = [
+                                              default: _withCtx(() => _cache[27] || (_cache[27] = [
                                                 _createTextVNode("监控115生活事件")
                                               ])),
                                               _: 1
@@ -1265,7 +1299,7 @@ return (_ctx, _cache) => {
                                           ]),
                                           default: _withCtx(() => [
                                             _createVNode(_component_v_list_item_title, { class: "text-body-2" }, {
-                                              default: _withCtx(() => _cache[27] || (_cache[27] = [
+                                              default: _withCtx(() => _cache[28] || (_cache[28] = [
                                                 _createTextVNode("网盘整理")
                                               ])),
                                               _: 1
@@ -1300,7 +1334,7 @@ return (_ctx, _cache) => {
                                           ]),
                                           default: _withCtx(() => [
                                             _createVNode(_component_v_list_item_title, { class: "text-body-2" }, {
-                                              default: _withCtx(() => _cache[28] || (_cache[28] = [
+                                              default: _withCtx(() => _cache[29] || (_cache[29] = [
                                                 _createTextVNode("定期清理")
                                               ])),
                                               _: 1
@@ -1339,7 +1373,7 @@ return (_ctx, _cache) => {
                                       color: "primary",
                                       size: "small"
                                     }),
-                                    _cache[29] || (_cache[29] = _createElementVNode("span", null, "路径配置", -1))
+                                    _cache[30] || (_cache[30] = _createElementVNode("span", null, "路径配置", -1))
                                   ]),
                                   _: 1
                                 }),
@@ -1354,7 +1388,7 @@ return (_ctx, _cache) => {
                                             }, {
                                               default: _withCtx(() => [
                                                 _createVNode(_component_v_list_item_title, { class: "text-body-2 font-weight-medium" }, {
-                                                  default: _withCtx(() => _cache[30] || (_cache[30] = [
+                                                  default: _withCtx(() => _cache[31] || (_cache[31] = [
                                                     _createTextVNode("监控MP整理路径")
                                                   ])),
                                                   _: 1
@@ -1389,7 +1423,7 @@ return (_ctx, _cache) => {
                                                                         color: "primary",
                                                                         class: "mr-2 flex-shrink-0"
                                                                       }, {
-                                                                        default: _withCtx(() => _cache[31] || (_cache[31] = [
+                                                                        default: _withCtx(() => _cache[32] || (_cache[32] = [
                                                                           _createTextVNode("mdi-folder-home")
                                                                         ])),
                                                                         _: 1
@@ -1398,7 +1432,7 @@ return (_ctx, _cache) => {
                                                                         class: "text-truncate w-100",
                                                                         title: path.local
                                                                       }, [
-                                                                        _cache[32] || (_cache[32] = _createElementVNode("span", {
+                                                                        _cache[33] || (_cache[33] = _createElementVNode("span", {
                                                                           class: "text-caption font-weight-medium d-block",
                                                                           style: {"line-height":"1.2"}
                                                                         }, "本地目录", -1)),
@@ -1417,7 +1451,7 @@ return (_ctx, _cache) => {
                                                                         color: "primary",
                                                                         class: "icon-spin-animation"
                                                                       }, {
-                                                                        default: _withCtx(() => _cache[33] || (_cache[33] = [
+                                                                        default: _withCtx(() => _cache[34] || (_cache[34] = [
                                                                           _createTextVNode("mdi-sync")
                                                                         ])),
                                                                         _: 1
@@ -1436,7 +1470,7 @@ return (_ctx, _cache) => {
                                                                         color: "success",
                                                                         class: "mr-2 flex-shrink-0"
                                                                       }, {
-                                                                        default: _withCtx(() => _cache[34] || (_cache[34] = [
+                                                                        default: _withCtx(() => _cache[35] || (_cache[35] = [
                                                                           _createTextVNode("mdi-cloud")
                                                                         ])),
                                                                         _: 1
@@ -1445,7 +1479,7 @@ return (_ctx, _cache) => {
                                                                         class: "text-truncate w-100",
                                                                         title: path.remote
                                                                       }, [
-                                                                        _cache[35] || (_cache[35] = _createElementVNode("span", {
+                                                                        _cache[36] || (_cache[36] = _createElementVNode("span", {
                                                                           class: "text-caption font-weight-medium d-block",
                                                                           style: {"line-height":"1.2"}
                                                                         }, "网盘目录", -1)),
@@ -1467,7 +1501,7 @@ return (_ctx, _cache) => {
                                                       key: 1,
                                                       class: "text-caption text-error mt-1"
                                                     }, {
-                                                      default: _withCtx(() => _cache[36] || (_cache[36] = [
+                                                      default: _withCtx(() => _cache[37] || (_cache[37] = [
                                                         _createTextVNode("未配置路径")
                                                       ])),
                                                       _: 1
@@ -1489,7 +1523,7 @@ return (_ctx, _cache) => {
                                             }, {
                                               default: _withCtx(() => [
                                                 _createVNode(_component_v_list_item_title, { class: "text-body-2 font-weight-medium" }, {
-                                                  default: _withCtx(() => _cache[37] || (_cache[37] = [
+                                                  default: _withCtx(() => _cache[38] || (_cache[38] = [
                                                     _createTextVNode("全量同步路径")
                                                   ])),
                                                   _: 1
@@ -1524,7 +1558,7 @@ return (_ctx, _cache) => {
                                                                         color: "primary",
                                                                         class: "mr-2 flex-shrink-0"
                                                                       }, {
-                                                                        default: _withCtx(() => _cache[38] || (_cache[38] = [
+                                                                        default: _withCtx(() => _cache[39] || (_cache[39] = [
                                                                           _createTextVNode("mdi-folder-home")
                                                                         ])),
                                                                         _: 1
@@ -1533,7 +1567,7 @@ return (_ctx, _cache) => {
                                                                         class: "text-truncate w-100",
                                                                         title: path.local
                                                                       }, [
-                                                                        _cache[39] || (_cache[39] = _createElementVNode("span", {
+                                                                        _cache[40] || (_cache[40] = _createElementVNode("span", {
                                                                           class: "text-caption font-weight-medium d-block",
                                                                           style: {"line-height":"1.2"}
                                                                         }, "本地目录", -1)),
@@ -1552,7 +1586,7 @@ return (_ctx, _cache) => {
                                                                         color: "primary",
                                                                         class: "icon-spin-animation"
                                                                       }, {
-                                                                        default: _withCtx(() => _cache[40] || (_cache[40] = [
+                                                                        default: _withCtx(() => _cache[41] || (_cache[41] = [
                                                                           _createTextVNode("mdi-sync")
                                                                         ])),
                                                                         _: 1
@@ -1571,7 +1605,7 @@ return (_ctx, _cache) => {
                                                                         color: "success",
                                                                         class: "mr-2 flex-shrink-0"
                                                                       }, {
-                                                                        default: _withCtx(() => _cache[41] || (_cache[41] = [
+                                                                        default: _withCtx(() => _cache[42] || (_cache[42] = [
                                                                           _createTextVNode("mdi-cloud")
                                                                         ])),
                                                                         _: 1
@@ -1580,7 +1614,7 @@ return (_ctx, _cache) => {
                                                                         class: "text-truncate w-100",
                                                                         title: path.remote
                                                                       }, [
-                                                                        _cache[42] || (_cache[42] = _createElementVNode("span", {
+                                                                        _cache[43] || (_cache[43] = _createElementVNode("span", {
                                                                           class: "text-caption font-weight-medium d-block",
                                                                           style: {"line-height":"1.2"}
                                                                         }, "网盘目录", -1)),
@@ -1602,7 +1636,7 @@ return (_ctx, _cache) => {
                                                       key: 1,
                                                       class: "text-caption text-error mt-1"
                                                     }, {
-                                                      default: _withCtx(() => _cache[43] || (_cache[43] = [
+                                                      default: _withCtx(() => _cache[44] || (_cache[44] = [
                                                         _createTextVNode("未配置路径")
                                                       ])),
                                                       _: 1
@@ -1624,7 +1658,7 @@ return (_ctx, _cache) => {
                                             }, {
                                               default: _withCtx(() => [
                                                 _createVNode(_component_v_list_item_title, { class: "text-body-2 font-weight-medium" }, {
-                                                  default: _withCtx(() => _cache[44] || (_cache[44] = [
+                                                  default: _withCtx(() => _cache[45] || (_cache[45] = [
                                                     _createTextVNode("监控115生活事件路径")
                                                   ])),
                                                   _: 1
@@ -1659,7 +1693,7 @@ return (_ctx, _cache) => {
                                                                         color: "primary",
                                                                         class: "mr-2 flex-shrink-0"
                                                                       }, {
-                                                                        default: _withCtx(() => _cache[45] || (_cache[45] = [
+                                                                        default: _withCtx(() => _cache[46] || (_cache[46] = [
                                                                           _createTextVNode("mdi-folder-home")
                                                                         ])),
                                                                         _: 1
@@ -1668,7 +1702,7 @@ return (_ctx, _cache) => {
                                                                         class: "text-truncate w-100",
                                                                         title: path.local
                                                                       }, [
-                                                                        _cache[46] || (_cache[46] = _createElementVNode("span", {
+                                                                        _cache[47] || (_cache[47] = _createElementVNode("span", {
                                                                           class: "text-caption font-weight-medium d-block",
                                                                           style: {"line-height":"1.2"}
                                                                         }, "本地目录", -1)),
@@ -1687,7 +1721,7 @@ return (_ctx, _cache) => {
                                                                         color: "primary",
                                                                         class: "icon-spin-animation"
                                                                       }, {
-                                                                        default: _withCtx(() => _cache[47] || (_cache[47] = [
+                                                                        default: _withCtx(() => _cache[48] || (_cache[48] = [
                                                                           _createTextVNode("mdi-sync")
                                                                         ])),
                                                                         _: 1
@@ -1706,7 +1740,7 @@ return (_ctx, _cache) => {
                                                                         color: "success",
                                                                         class: "mr-2 flex-shrink-0"
                                                                       }, {
-                                                                        default: _withCtx(() => _cache[48] || (_cache[48] = [
+                                                                        default: _withCtx(() => _cache[49] || (_cache[49] = [
                                                                           _createTextVNode("mdi-cloud")
                                                                         ])),
                                                                         _: 1
@@ -1715,7 +1749,7 @@ return (_ctx, _cache) => {
                                                                         class: "text-truncate w-100",
                                                                         title: path.remote
                                                                       }, [
-                                                                        _cache[49] || (_cache[49] = _createElementVNode("span", {
+                                                                        _cache[50] || (_cache[50] = _createElementVNode("span", {
                                                                           class: "text-caption font-weight-medium d-block",
                                                                           style: {"line-height":"1.2"}
                                                                         }, "网盘目录", -1)),
@@ -1737,7 +1771,7 @@ return (_ctx, _cache) => {
                                                       key: 1,
                                                       class: "text-caption text-error mt-1"
                                                     }, {
-                                                      default: _withCtx(() => _cache[50] || (_cache[50] = [
+                                                      default: _withCtx(() => _cache[51] || (_cache[51] = [
                                                         _createTextVNode("未配置路径")
                                                       ])),
                                                       _: 1
@@ -1759,7 +1793,7 @@ return (_ctx, _cache) => {
                                             }, {
                                               default: _withCtx(() => [
                                                 _createVNode(_component_v_list_item_title, { class: "text-body-2 font-weight-medium" }, {
-                                                  default: _withCtx(() => _cache[51] || (_cache[51] = [
+                                                  default: _withCtx(() => _cache[52] || (_cache[52] = [
                                                     _createTextVNode("网盘整理目录")
                                                   ])),
                                                   _: 1
@@ -1784,7 +1818,7 @@ return (_ctx, _cache) => {
                                                                   color: "success",
                                                                   class: "mr-2 flex-shrink-0"
                                                                 }, {
-                                                                  default: _withCtx(() => _cache[52] || (_cache[52] = [
+                                                                  default: _withCtx(() => _cache[53] || (_cache[53] = [
                                                                     _createTextVNode("mdi-folder-arrow-down")
                                                                   ])),
                                                                   _: 1
@@ -1793,7 +1827,7 @@ return (_ctx, _cache) => {
                                                                   class: "text-truncate w-100",
                                                                   title: pathItem.path
                                                                 }, [
-                                                                  _cache[53] || (_cache[53] = _createElementVNode("span", {
+                                                                  _cache[54] || (_cache[54] = _createElementVNode("span", {
                                                                     class: "text-caption font-weight-medium d-block",
                                                                     style: {"line-height":"1.2"}
                                                                   }, "待整理网盘目录", -1)),
@@ -1810,7 +1844,7 @@ return (_ctx, _cache) => {
                                                       key: 1,
                                                       class: "text-caption text-error mt-1"
                                                     }, {
-                                                      default: _withCtx(() => _cache[54] || (_cache[54] = [
+                                                      default: _withCtx(() => _cache[55] || (_cache[55] = [
                                                         _createTextVNode("未配置网盘整理目录")
                                                       ])),
                                                       _: 1
@@ -1832,7 +1866,7 @@ return (_ctx, _cache) => {
                                             }, {
                                               default: _withCtx(() => [
                                                 _createVNode(_component_v_list_item_title, { class: "text-body-2 font-weight-medium" }, {
-                                                  default: _withCtx(() => _cache[55] || (_cache[55] = [
+                                                  default: _withCtx(() => _cache[56] || (_cache[56] = [
                                                     _createTextVNode("目录上传路径")
                                                   ])),
                                                   _: 1
@@ -1867,7 +1901,7 @@ return (_ctx, _cache) => {
                                                                         color: "primary",
                                                                         class: "mr-2 flex-shrink-0"
                                                                       }, {
-                                                                        default: _withCtx(() => _cache[56] || (_cache[56] = [
+                                                                        default: _withCtx(() => _cache[57] || (_cache[57] = [
                                                                           _createTextVNode("mdi-folder-table")
                                                                         ])),
                                                                         _: 1
@@ -1876,7 +1910,7 @@ return (_ctx, _cache) => {
                                                                         class: "text-truncate w-100",
                                                                         title: pathGroup.src
                                                                       }, [
-                                                                        _cache[57] || (_cache[57] = _createElementVNode("span", {
+                                                                        _cache[58] || (_cache[58] = _createElementVNode("span", {
                                                                           class: "text-caption font-weight-medium d-block",
                                                                           style: {"line-height":"1.2"}
                                                                         }, "本地监控", -1)),
@@ -1895,7 +1929,7 @@ return (_ctx, _cache) => {
                                                                         color: "primary",
                                                                         class: "icon-spin-animation"
                                                                       }, {
-                                                                        default: _withCtx(() => _cache[58] || (_cache[58] = [
+                                                                        default: _withCtx(() => _cache[59] || (_cache[59] = [
                                                                           _createTextVNode("mdi-sync")
                                                                         ])),
                                                                         _: 1
@@ -1914,7 +1948,7 @@ return (_ctx, _cache) => {
                                                                         color: "success",
                                                                         class: "mr-2 flex-shrink-0"
                                                                       }, {
-                                                                        default: _withCtx(() => _cache[59] || (_cache[59] = [
+                                                                        default: _withCtx(() => _cache[60] || (_cache[60] = [
                                                                           _createTextVNode("mdi-cloud-upload")
                                                                         ])),
                                                                         _: 1
@@ -1923,7 +1957,7 @@ return (_ctx, _cache) => {
                                                                         class: "text-truncate w-100",
                                                                         title: pathGroup.dest_remote
                                                                       }, [
-                                                                        _cache[60] || (_cache[60] = _createElementVNode("span", {
+                                                                        _cache[61] || (_cache[61] = _createElementVNode("span", {
                                                                           class: "text-caption font-weight-medium d-block",
                                                                           style: {"line-height":"1.2"}
                                                                         }, "网盘上传", -1)),
@@ -1955,7 +1989,7 @@ return (_ctx, _cache) => {
                                                                                     color: "warning",
                                                                                     class: "mr-2 flex-shrink-0"
                                                                                   }, {
-                                                                                    default: _withCtx(() => _cache[61] || (_cache[61] = [
+                                                                                    default: _withCtx(() => _cache[62] || (_cache[62] = [
                                                                                       _createTextVNode("mdi-content-copy")
                                                                                     ])),
                                                                                     _: 1
@@ -1964,7 +1998,7 @@ return (_ctx, _cache) => {
                                                                                     class: "text-truncate w-100",
                                                                                     title: pathGroup.dest_local
                                                                                   }, [
-                                                                                    _cache[62] || (_cache[62] = _createElementVNode("span", {
+                                                                                    _cache[63] || (_cache[63] = _createElementVNode("span", {
                                                                                       class: "text-caption font-weight-medium d-block",
                                                                                       style: {"line-height":"1.2"}
                                                                                     }, "本地复制", -1)),
@@ -2015,7 +2049,7 @@ return (_ctx, _cache) => {
                                                       key: 1,
                                                       class: "text-caption text-error mt-1"
                                                     }, {
-                                                      default: _withCtx(() => _cache[63] || (_cache[63] = [
+                                                      default: _withCtx(() => _cache[64] || (_cache[64] = [
                                                         _createTextVNode("未配置路径")
                                                       ])),
                                                       _: 1
@@ -2050,10 +2084,10 @@ return (_ctx, _cache) => {
                                             size: "small"
                                           }),
                                           _createElementVNode("div", _hoisted_33, [
-                                            _cache[66] || (_cache[66] = _createElementVNode("p", { class: "mb-1" }, [
+                                            _cache[67] || (_cache[67] = _createElementVNode("p", { class: "mb-1" }, [
                                               _createElementVNode("strong", null, "未配置115 Cookie或Cookie无效")
                                             ], -1)),
-                                            _cache[67] || (_cache[67] = _createElementVNode("p", { class: "mb-0" }, "请在配置页面中设置有效的115网盘Cookie，可通过扫码登录获取。", -1)),
+                                            _cache[68] || (_cache[68] = _createElementVNode("p", { class: "mb-0" }, "请在配置页面中设置有效的115网盘Cookie，可通过扫码登录获取。", -1)),
                                             _createVNode(_component_v_btn, {
                                               color: "primary",
                                               variant: "text",
@@ -2066,12 +2100,12 @@ return (_ctx, _cache) => {
                                                   size: "small",
                                                   class: "mr-1"
                                                 }, {
-                                                  default: _withCtx(() => _cache[64] || (_cache[64] = [
+                                                  default: _withCtx(() => _cache[65] || (_cache[65] = [
                                                     _createTextVNode("mdi-cog")
                                                   ])),
                                                   _: 1
                                                 }),
-                                                _cache[65] || (_cache[65] = _createTextVNode("前往配置 "))
+                                                _cache[66] || (_cache[66] = _createTextVNode("前往配置 "))
                                               ]),
                                               _: 1
                                             })
@@ -2100,10 +2134,10 @@ return (_ctx, _cache) => {
                                               size: "small"
                                             }),
                                             _createElementVNode("div", _hoisted_35, [
-                                              _cache[70] || (_cache[70] = _createElementVNode("p", { class: "mb-1" }, [
+                                              _cache[71] || (_cache[71] = _createElementVNode("p", { class: "mb-1" }, [
                                                 _createElementVNode("strong", null, "路径配置不完整")
                                               ], -1)),
-                                              _cache[71] || (_cache[71] = _createElementVNode("p", { class: "mb-0" }, "您已配置115 Cookie，但部分功能路径未配置。请前往配置页面完善路径设置。", -1)),
+                                              _cache[72] || (_cache[72] = _createElementVNode("p", { class: "mb-0" }, "您已配置115 Cookie，但部分功能路径未配置。请前往配置页面完善路径设置。", -1)),
                                               _createVNode(_component_v_btn, {
                                                 color: "primary",
                                                 variant: "text",
@@ -2116,12 +2150,12 @@ return (_ctx, _cache) => {
                                                     size: "small",
                                                     class: "mr-1"
                                                   }, {
-                                                    default: _withCtx(() => _cache[68] || (_cache[68] = [
+                                                    default: _withCtx(() => _cache[69] || (_cache[69] = [
                                                       _createTextVNode("mdi-cog")
                                                     ])),
                                                     _: 1
                                                   }),
-                                                  _cache[69] || (_cache[69] = _createTextVNode("前往配置 "))
+                                                  _cache[70] || (_cache[70] = _createTextVNode("前往配置 "))
                                                 ]),
                                                 _: 1
                                               })
@@ -2153,7 +2187,7 @@ return (_ctx, _cache) => {
                               class: "mr-2",
                               size: "small"
                             }),
-                            _cache[72] || (_cache[72] = _createElementVNode("span", { class: "text-body-2" }, " 点击\"配置\"按钮进行设置，\"全量同步\"和\"分享同步\"按钮可立即执行相应任务。 ", -1))
+                            _cache[73] || (_cache[73] = _createElementVNode("span", { class: "text-body-2" }, " 点击\"配置\"按钮进行设置，\"全量同步\"和\"分享同步\"按钮可立即执行相应任务。 ", -1))
                           ]),
                           _: 1
                         })
@@ -2180,7 +2214,7 @@ return (_ctx, _cache) => {
                 variant: "text",
                 size: "small"
               }, {
-                default: _withCtx(() => _cache[73] || (_cache[73] = [
+                default: _withCtx(() => _cache[74] || (_cache[74] = [
                   _createTextVNode("刷新状态")
                 ])),
                 _: 1
@@ -2196,7 +2230,7 @@ return (_ctx, _cache) => {
                   size: "small",
                   class: "ml-1"
                 }, {
-                  default: _withCtx(() => _cache[74] || (_cache[74] = [
+                  default: _withCtx(() => _cache[75] || (_cache[75] = [
                     _createTextVNode(" 全量同步 ")
                   ])),
                   _: 1
@@ -2211,7 +2245,7 @@ return (_ctx, _cache) => {
                   size: "small",
                   class: "ml-1"
                 }, {
-                  default: _withCtx(() => _cache[75] || (_cache[75] = [
+                  default: _withCtx(() => _cache[76] || (_cache[76] = [
                     _createTextVNode(" 分享同步 ")
                   ])),
                   _: 1
@@ -2224,7 +2258,7 @@ return (_ctx, _cache) => {
                   size: "small",
                   class: "ml-1"
                 }, {
-                  default: _withCtx(() => _cache[76] || (_cache[76] = [
+                  default: _withCtx(() => _cache[77] || (_cache[77] = [
                     _createTextVNode("配置")
                   ])),
                   _: 1
@@ -2240,7 +2274,7 @@ return (_ctx, _cache) => {
                 }, {
                   default: _withCtx(() => [
                     _createVNode(_component_v_icon, { size: "small" }, {
-                      default: _withCtx(() => _cache[77] || (_cache[77] = [
+                      default: _withCtx(() => _cache[78] || (_cache[78] = [
                         _createTextVNode("mdi-close")
                       ])),
                       _: 1
@@ -2272,7 +2306,7 @@ return (_ctx, _cache) => {
                   color: "primary",
                   size: "small"
                 }),
-                _cache[78] || (_cache[78] = _createElementVNode("span", null, "115网盘分享同步", -1))
+                _cache[79] || (_cache[79] = _createElementVNode("span", null, "115网盘分享同步", -1))
               ]),
               _: 1
             }),
@@ -2414,7 +2448,7 @@ return (_ctx, _cache) => {
                   density: "compact",
                   class: "mt-1"
                 }, {
-                  default: _withCtx(() => _cache[79] || (_cache[79] = [
+                  default: _withCtx(() => _cache[80] || (_cache[80] = [
                     _createTextVNode(" 分享链接/分享码和分享密码 只需要二选一配置即可。"),
                     _createElementVNode("br", null, null, -1),
                     _createTextVNode(" 同时填写分享链接，分享码和分享密码时，优先读取分享链接。 ")
@@ -2433,7 +2467,7 @@ return (_ctx, _cache) => {
                   onClick: closeShareDialog,
                   size: "small"
                 }, {
-                  default: _withCtx(() => _cache[80] || (_cache[80] = [
+                  default: _withCtx(() => _cache[81] || (_cache[81] = [
                     _createTextVNode("取消")
                   ])),
                   _: 1
@@ -2447,7 +2481,7 @@ return (_ctx, _cache) => {
                   disabled: !isShareDialogValid.value,
                   size: "small"
                 }, {
-                  default: _withCtx(() => _cache[81] || (_cache[81] = [
+                  default: _withCtx(() => _cache[82] || (_cache[82] = [
                     _createTextVNode(" 开始同步 ")
                   ])),
                   _: 1
@@ -2522,13 +2556,13 @@ return (_ctx, _cache) => {
                                 ]),
                                 default: _withCtx(() => [
                                   _createVNode(_component_v_list_item_title, { class: "text-body-2" }, {
-                                    default: _withCtx(() => _cache[82] || (_cache[82] = [
+                                    default: _withCtx(() => _cache[83] || (_cache[83] = [
                                       _createTextVNode("上级目录")
                                     ])),
                                     _: 1
                                   }),
                                   _createVNode(_component_v_list_item_subtitle, null, {
-                                    default: _withCtx(() => _cache[83] || (_cache[83] = [
+                                    default: _withCtx(() => _cache[84] || (_cache[84] = [
                                       _createTextVNode("..")
                                     ])),
                                     _: 1
@@ -2571,7 +2605,7 @@ return (_ctx, _cache) => {
                               }, {
                                 default: _withCtx(() => [
                                   _createVNode(_component_v_list_item_title, { class: "text-body-2 text-grey" }, {
-                                    default: _withCtx(() => _cache[84] || (_cache[84] = [
+                                    default: _withCtx(() => _cache[85] || (_cache[85] = [
                                       _createTextVNode("该目录为空或访问受限")
                                     ])),
                                     _: 1
@@ -2611,7 +2645,7 @@ return (_ctx, _cache) => {
                   variant: "text",
                   size: "small"
                 }, {
-                  default: _withCtx(() => _cache[85] || (_cache[85] = [
+                  default: _withCtx(() => _cache[86] || (_cache[86] = [
                     _createTextVNode(" 选择当前目录 ")
                   ])),
                   _: 1
@@ -2622,7 +2656,7 @@ return (_ctx, _cache) => {
                   variant: "text",
                   size: "small"
                 }, {
-                  default: _withCtx(() => _cache[86] || (_cache[86] = [
+                  default: _withCtx(() => _cache[87] || (_cache[87] = [
                     _createTextVNode(" 取消 ")
                   ])),
                   _: 1
@@ -2641,6 +2675,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-aea5926e"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-30486a62"]]);
 
 export { Page as default };

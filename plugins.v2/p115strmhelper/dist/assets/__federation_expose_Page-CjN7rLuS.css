@@ -1,10 +1,10 @@
 
-.config-card[data-v-aea5926e] {
+.config-card[data-v-30486a62] {
   box-shadow: none !important;
   transition: all 0.2s ease;
   margin-bottom: 10px !important;
 }
-.config-card[data-v-aea5926e]:hover {
+.config-card[data-v-30486a62]:hover {
   transform: translateY(-2px);
   box-shadow: 0 4px 8px rgba(0, 0, 0, 0.05) !important;
 }
@@ -12,42 +12,42 @@
 /* 统一字体 */
 
 /* 文字大小 */
-[data-v-aea5926e] .text-caption {
+[data-v-30486a62] .text-caption {
   font-size: 0.8rem !important;
 }
-[data-v-aea5926e] .text-body-2 {
+[data-v-30486a62] .text-body-2 {
   font-size: 0.85rem !important;
 }
 
 /* 美化卡片标题 */
-.bg-primary-gradient[data-v-aea5926e] {
+.bg-primary-gradient[data-v-30486a62] {
   background: linear-gradient(135deg, rgba(var(--v-theme-primary), 0.1), rgba(var(--v-theme-primary), 0.05)) !important;
 }
 
 /* 美化芯片 */
 
 /* Ensure py-0 on list items takes effect with Vuetify's defaults if used specifically */
-.py-0[data-v-aea5926e] {
+.py-0[data-v-30486a62] {
   padding-top: 0 !important;
   padding-bottom: 0 !important;
 }
-.my-0[data-v-aea5926e] {
+.my-0[data-v-30486a62] {
   margin-top: 0 !important;
   margin-bottom: 0 !important;
 }
 
 /* Reduce margin for subtitles in path display if they have mt-1 */
-.mt-1[data-v-aea5926e] {
+.mt-1[data-v-30486a62] {
   margin-top: 2px !important;
   /* Reduced from default 4px of Vuetify's mt-1 */
 }
 
 /* Reduce margin for subtitles in path display if they have mb-1 */
-.mb-1[data-v-aea5926e] {
+.mb-1[data-v-30486a62] {
   margin-bottom: 2px !important;
   /* Reduced from default 4px of Vuetify's mb-1 */
 }
-.sticky-actions[data-v-aea5926e] {
+.sticky-actions[data-v-30486a62] {
   position: sticky;
   bottom: 0;
   background-color: var(--v-theme-surface, white);
@@ -67,10 +67,10 @@
 /* Warning Color Switch */
 
 /* Error Color Switch */
-.icon-spin-animation[data-v-aea5926e] {
-  animation: spin-aea5926e 2s linear infinite;
+.icon-spin-animation[data-v-30486a62] {
+  animation: spin-30486a62 2s linear infinite;
 }
-@keyframes spin-aea5926e {
+@keyframes spin-30486a62 {
 0% {
     transform: rotate(0deg);
 }
