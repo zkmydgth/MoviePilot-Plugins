@@ -16,8 +16,10 @@ from app.utils.http import RequestUtils
 from ...core.config import configer
 from ...schemas.emby_mediainfo import EmbyMediainfoTask
 from ...utils.path import PathUtils
+from ...utils.sentry import sentry_manager
 
 
+@sentry_manager.capture_all_class_exceptions
 class EmbyOperate:
     """
     Emby 媒体服务器操作类
@@ -250,6 +252,7 @@ class EmbyOperate:
             return False
 
 
+@sentry_manager.capture_all_class_exceptions
 class EmbyMediaInfoOperate:
     """
     Emby 媒体信息操作类
@@ -516,6 +519,7 @@ class EmbyMediaInfoOperate:
                 )
 
 
+@sentry_manager.capture_all_class_exceptions
 class EmbyMediainfoQueue:
     """
     Emby 媒体信息提取全局队列

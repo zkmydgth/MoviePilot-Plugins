@@ -31,6 +31,8 @@ from slippers import Proxy
 
 from app.core.config import settings
 
+from ...utils.sentry import sentry_manager
+
 
 class HDHiveLoginError(Exception):
     """
@@ -38,6 +40,7 @@ class HDHiveLoginError(Exception):
     """
 
 
+@sentry_manager.capture_all_class_exceptions
 class HDHivePlaywrightClient:
     """
     HDHive 站点 Playwright 客户端

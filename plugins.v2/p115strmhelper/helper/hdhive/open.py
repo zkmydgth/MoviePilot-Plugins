@@ -20,6 +20,8 @@ from httpx import Client, Response
 from app.core.config import settings
 from app.utils.http import AsyncRequestUtils
 
+from ...utils.sentry import sentry_manager
+
 
 class HDHiveAPIError(Exception):
     """
@@ -159,6 +161,7 @@ SubtitleLanguage = Literal[
 SubtitleType = Literal["外挂", "内封", "内嵌"]
 
 
+@sentry_manager.capture_all_class_exceptions
 class HDHiveOpenClient:
     """
     HDHive Open API 同步客户端

@@ -10,9 +10,11 @@ from app.schemas import NotificationType
 from ...core.config import configer
 from ...core.message import post_message
 from ...helper.hdhive.playwright import HDHiveLoginError, HDHivePlaywrightClient
+from ...utils.sentry import sentry_manager
 from .scheduler import _KEY_LAST_DONE
 
 
+@sentry_manager.capture_plugin_exceptions
 def run_hdhive_checkin_once(
     manual: bool = False,
     send_notify: bool = True,

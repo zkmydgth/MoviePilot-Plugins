@@ -21,9 +21,11 @@ from ...core.plunins import PluginChian
 from ...db_manager.oper import TransferHBOper
 from ...helper.mediaserver import EmbyOperate
 from ...utils.path import PathUtils, PathRemoveUtils
+from ...utils.sentry import sentry_manager
 from ...utils.webhook import WebhookUtils
 
 
+@sentry_manager.capture_all_class_exceptions
 class MediaSyncDelHelper:
     """
     媒体文件同步删除

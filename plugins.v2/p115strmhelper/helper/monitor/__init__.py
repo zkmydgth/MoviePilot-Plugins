@@ -16,11 +16,13 @@ from app.schemas import FileItem
 
 from ...core.config import configer
 from ...helper.strm import MonitorStrmHelper
+from ...utils.sentry import sentry_manager
 
 
 directory_upload_dict = defaultdict(Lock)
 
 
+@sentry_manager.capture_plugin_exceptions
 def process_file_change(client: P115Client, file_path: str, mon_path: str) -> None:
     """
     处理 watchfiles 产生的文件变更
@@ -36,6 +38,7 @@ def process_file_change(client: P115Client, file_path: str, mon_path: str) -> No
     handle_file(client, file_path, mon_path)
 
 
+@sentry_manager.capture_plugin_exceptions
 def handle_file(client: P115Client, event_path: str, mon_path: str):
     """
     同步一个文件

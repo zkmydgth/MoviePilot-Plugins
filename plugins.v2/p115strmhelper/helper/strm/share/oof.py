@@ -11,8 +11,10 @@ from p115center import P115Center
 from app.log import logger
 
 from ....core.config import configer
+from ....utils.sentry import sentry_manager
 
 
+@sentry_manager.capture_all_class_exceptions
 class ShareFilesDataCollector:
     """
     分享文件数据收集器
@@ -68,6 +70,7 @@ class ShareFilesDataCollector:
         return self.temp_file, self.count
 
 
+@sentry_manager.capture_all_class_exceptions
 class ShareOOPServerHelper:
     """
     分享 OOF 服务助手
