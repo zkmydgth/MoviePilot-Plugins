@@ -98,10 +98,10 @@ class RenameDictUtils:
     @staticmethod
     def _parse_frame_rate(rate: Optional[str]) -> Optional[str]:
         """
-        将 ffprobe 的帧率字符串转为简短展示用字符串
+        将 ffprobe 的帧率字符串转为无小数点的整型展示字符串（四舍五入）
 
         :param rate: 如 24000/1001 或 30
-        :return: 如 23.976 或 30
+        :return: 如 24（由 23.976… 舍入）或 30
         """
         if not rate or rate in ("0/0", "N/A"):
             return None
@@ -120,10 +120,9 @@ class RenameDictUtils:
                 value = float(rate)
             except ValueError:
                 return None
-        if abs(value - round(value)) < 1e-3:
-            return str(int(round(value)))
-        text = f"{value:.3f}".rstrip("0").rstrip(".")
-        return text or None
+        if value <= 0:
+            return None
+        return str(int(round(value)))
 
     @staticmethod
     def _snap_height_to_standard(height: int) -> int:
@@ -390,7 +389,7 @@ class RenameDictUtils:
     @staticmethod
     def _emby_numeric_fps_to_str(value: Any) -> Optional[str]:
         """
-        将 Emby 的帧率数值格式化为与 _parse_frame_rate 一致的展示字符串
+        将 Emby 的帧率数值格式化为与 _parse_frame_rate 一致的无小数点整数字符串（四舍五入）
         """
         if value is None:
             return None
@@ -398,10 +397,9 @@ class RenameDictUtils:
             v = float(value)
         except (TypeError, ValueError):
             return None
-        if abs(v - round(v)) < 1e-3:
-            return str(int(round(v)))
-        text = f"{v:.3f}".rstrip("0").rstrip(".")
-        return text or None
+        if v <= 0:
+            return None
+        return str(int(round(v)))
 
     @staticmethod
     def _infer_effect_from_emby_video_stream(

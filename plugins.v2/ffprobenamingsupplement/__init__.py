@@ -283,7 +283,7 @@ class FFprobeNamingSupplement(_PluginBase):
                                                 "props": {
                                                     "class": "text-body-2 mt-1",
                                                 },
-                                                "text": "{{fps}} — 帧率（如 24、23.976）",
+                                                "text": "{{fps}} — 帧率（无小数，四舍五入整数，如 24、30）",
                                             },
                                             {
                                                 "component": "div",
@@ -333,10 +333,10 @@ class FFprobeNamingSupplement(_PluginBase):
     @classmethod
     def _parse_frame_rate(cls, rate: Optional[str]) -> Optional[str]:
         """
-        将 ffprobe 的帧率字符串转为简短展示用字符串
+        将 ffprobe 的帧率字符串转为无小数点的整型展示字符串（四舍五入）
 
         :param rate: 如 24000/1001 或 30
-        :return: 如 23.976 或 30
+        :return: 如 24（由 23.976… 舍入）或 30
         """
         if not rate or rate in ("0/0", "N/A"):
             return None
@@ -355,10 +355,9 @@ class FFprobeNamingSupplement(_PluginBase):
                 value = float(rate)
             except ValueError:
                 return None
-        if abs(value - round(value)) < 1e-3:
-            return str(int(round(value)))
-        text = f"{value:.3f}".rstrip("0").rstrip(".")
-        return text or None
+        if value <= 0:
+            return None
+        return str(int(round(value)))
 
     @classmethod
     def _snap_height_to_standard(cls, height: int) -> int:
