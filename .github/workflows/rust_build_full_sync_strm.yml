@@ -96,7 +96,7 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           # 使用上一步计算出的最终路径
-          git add plugins.v2/p115strmhelper/wheels/*.whl
+          git add plugins.v2/p115strmhelper/wheels/
           if git diff --staged --quiet; then
             echo "没有新的 wheel 文件需要提交。"
           else
