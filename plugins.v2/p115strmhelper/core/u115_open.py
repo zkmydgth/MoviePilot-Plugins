@@ -1190,8 +1190,8 @@ class U115OpenHelper:
                 for p in paths[1:]:
                     full_path += f"/{p.get('file_name')}"
             full_path += f"/{data.get("file_name")}"
-        if page_size <= 0 or page_size > 10_000:
-            page_size = 7, 000
+        if page_size <= 0 or page_size > 1_150:
+            page_size = 1_150
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             pending_futures: Set[Future] = set()
@@ -1356,8 +1356,8 @@ class U115OpenHelper:
                 for p in paths[1:]:
                     full_path += f"/{p.get('file_name')}"
             full_path += f"/{data.get("file_name")}"
-        if page_size <= 0 or page_size > 10_000:
-            page_size = 7, 000
+        if page_size <= 0 or page_size > 1_150:
+            page_size = 1_150
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             pending_futures: Set[Future] = set()
@@ -1381,4 +1381,13 @@ class U115OpenHelper:
                     break
 
 
-# TODO 增量同步函数设计
+    def iter_files_with_path_inc(
+        self,
+        path: str | int | Path | PathLike,
+        /,
+        qps: int = 5,
+    ):
+        """
+        依据本地媒体文件数据增量迭代文件信息对象
+        """
+

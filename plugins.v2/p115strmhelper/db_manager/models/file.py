@@ -8,7 +8,6 @@ from sqlalchemy import (
     BigInteger,
     select,
     delete,
-    text,
 )
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
