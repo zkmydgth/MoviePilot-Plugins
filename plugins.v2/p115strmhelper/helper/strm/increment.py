@@ -355,7 +355,6 @@ class IncrementSyncStrmHelper:
             self.client,
             cid,
             cooldown=2,
-            use_media_api=True,
             **configer.get_ios_ua_app(app=next(self._iterdir_app_cycle)),
         ):
             self.api_count += 1
