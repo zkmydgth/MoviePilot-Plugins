@@ -74,7 +74,7 @@ class P115StrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png"
     # 插件版本
-    plugin_version = "0.0.1"
+    plugin_version = "0.0.2"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -403,14 +403,14 @@ class P115StrmHelper(_PluginBase):
         ):
             return
 
-        eventmanager.send_event(
-            EventType.MetadataScrape,
-            {
-                "meta": item.meta,
-                "mediainfo": item.mediainfo,
-                "fileitem": item_transfer.target_diritem,
-            },
-        )
+        # self.eventmanager.send_event(
+        #     EventType.MetadataScrape,
+        #     {
+        #         "meta": item.meta,
+        #         "mediainfo": item.mediainfo,
+        #         "fileitem": item_transfer.target_diritem,
+        #     },
+        # )
 
     def stop_service(self):
         """
