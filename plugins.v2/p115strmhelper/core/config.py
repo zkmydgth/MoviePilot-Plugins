@@ -165,8 +165,17 @@ class ConfigManager:
         try:
             # 合并现有配置和更新
             current = BaseConfig(**self._configs)
-            updated = current.copy(update=updates)
-            self._configs.update(updated.dict())
+            fixed_dict = current.copy(update=updates)
+            for field_name, field in BaseConfig.__fields__.items():
+                if field.type_ is bool and field_name in fixed_dict:
+                    value = fixed_dict[field_name]
+                    if not isinstance(value, bool):
+                        default_value = field.default
+                        logger.warning(
+                            f"【配置管理器】配置项 {field_name} 的值 {value} 不是布尔类型，已替换为默认值 {default_value}"
+                        )
+                        fixed_dict[field_name] = default_value
+            self._configs.update(fixed_dict.dict())
             return True
         except ValidationError as e:
             logger.error(f"【配置管理器】配置更新失败: {e.json()}")
