@@ -960,8 +960,29 @@ class HDHivePlaywrightClient:
             page.wait_for_url(lambda url: "/login" not in url, timeout=30000)
             return True
         except PlaywrightTimeoutError:
+            page_hint = ""
+            try:
+                page_hint = page.evaluate(
+                    """() => {
+                        const selectors = [
+                            '[role="alert"]', '.error', '.alert', '.message',
+                            '[class*="error"]', '[class*="alert"]', '[class*="Error"]',
+                        ];
+                        for (const sel of selectors) {
+                            const el = document.querySelector(sel);
+                            if (el) {
+                                const t = (el.innerText || '').trim();
+                                if (t) return t;
+                            }
+                        }
+                        return '';
+                    }"""
+                )
+            except Exception:
+                pass
+            hint = f"，错误提示: {page_hint}" if page_hint else ""
             raise HDHiveLoginError(
-                f"登录超时，当前 URL: {page.url}，页面标题: {page.title()}"
+                f"登录超时，当前 URL: {page.url}，页面标题: {page.title()}{hint}"
             )
 
     @staticmethod
