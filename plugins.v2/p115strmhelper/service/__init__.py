@@ -563,6 +563,7 @@ class ServiceHelper:
             mediainfo_count,
             strm_fail_count,
             mediainfo_fail_count,
+            remove_unless_strm_count,
         ) = strm_helper.get_generate_total()
         if configer.get_config("notify") and (
             send_msg
@@ -571,6 +572,7 @@ class ServiceHelper:
                 or mediainfo_count != 0
                 or strm_fail_count != 0
                 or mediainfo_fail_count != 0
+                or remove_unless_strm_count != 0
             )
         ):
             text = f"""
@@ -579,6 +581,8 @@ class ServiceHelper:
 ❌ 生成STRM失败 {strm_fail_count} 个
 🚫 下载媒体失败 {mediainfo_fail_count} 个
 """
+            if remove_unless_strm_count != 0:
+                text += f"🗑️ 清理无效STRM文件 {remove_unless_strm_count} 个"
             post_message(
                 mtype=NotificationType.Plugin,
                 title=i18n.translate("inc_sync_done_title"),

@@ -429,6 +429,21 @@
           </v-row>
 
           <v-row>
+            <v-col cols="12" md="4">
+              <v-switch v-model="config.increment_sync_remove_unless_strm" label="清理失效STRM文件"
+                color="warning"></v-switch>
+            </v-col>
+            <v-col cols="12" md="4">
+              <v-switch v-model="config.increment_sync_remove_unless_dir" label="清理无效STRM目录" color="warning"
+                :disabled="!config.increment_sync_remove_unless_strm"></v-switch>
+            </v-col>
+            <v-col cols="12" md="4">
+              <v-switch v-model="config.increment_sync_remove_unless_file" label="清理无效STRM文件关联的媒体信息文件" color="warning"
+                :disabled="!config.increment_sync_remove_unless_strm"></v-switch>
+            </v-col>
+          </v-row>
+
+          <v-row>
             <v-col cols="12">
               <div class="d-flex flex-column">
                 <div v-for="(pair, index) in incrementSyncPaths" :key="`increment-${index}`"
@@ -522,6 +537,18 @@
                         100 个。
                       </div>
                     </v-alert>
+                  </v-col>
+                </v-row>
+                <v-row v-if="config.increment_sync_remove_unless_strm">
+                  <v-col cols="12" md="6">
+                    <v-text-field v-model.number="config.increment_sync_remove_unless_max_threshold"
+                      label="清理无效 STRM 最大删除比例阈值 (%)" type="number" hint="待删除文件数占本地文件总数的百分比超过此值时，将进入数据稳定性检查（默认 10%）"
+                      persistent-hint density="compact"></v-text-field>
+                  </v-col>
+                  <v-col cols="12" md="6">
+                    <v-text-field v-model.number="config.increment_sync_remove_unless_stable_threshold"
+                      label="清理数据稳定性检查阈值 (%)" type="number" hint="数据稳定性检查的变异系数阈值，低于此值表示删除数据稳定可执行操作（默认 5%）"
+                      persistent-hint density="compact"></v-text-field>
                   </v-col>
                 </v-row>
               </v-expansion-panel-text>

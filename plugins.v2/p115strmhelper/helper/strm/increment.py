@@ -28,12 +28,14 @@ from ...utils.exception import (
     PanDataNotInDb,
     PanPathNotFound,
 )
-from ...utils.path import PathUtils
+from ...utils.path import PathRemoveUtils, PathUtils
 from ...utils.sentry import sentry_manager
 from ...utils.strm import StrmUrlGetter, StrmGenerater
 from ...utils.tree import DirectoryTree
 from ...utils.automaton import AutomatonUtils
 from ...utils.mediainfo_download import MediainfoDownloadMiddleware
+from ...utils.base64 import CBase64
+from ...utils.math import MathUtils
 
 
 class IncrementSyncStrmHelper:
@@ -46,6 +48,7 @@ class IncrementSyncStrmHelper:
     def __init__(self, client: P115Client, mediainfodownloader: MediaInfoDownloader):
         self.client = client
         self.mediainfodownloader = mediainfodownloader
+
         self.rmt_mediaext = [
             f".{ext.strip()}"
             for ext in configer.get_config("user_rmt_mediaext")
@@ -75,18 +78,31 @@ class IncrementSyncStrmHelper:
         )
         self.mediaservers = configer.increment_sync_mediaservers
         self.emby_mediainfo_enabled = configer.increment_sync_emby_mediainfo_enabled
+        self.remove_unless_strm = configer.increment_sync_remove_unless_strm
+        self.remove_unless_dir = configer.increment_sync_remove_unless_dir
+        self.remove_unless_file = configer.increment_sync_remove_unless_file
+        self.remove_unless_max_threshold = (
+            configer.increment_sync_remove_unless_max_threshold
+        )
+        self.remove_unless_stable_threshold = (
+            configer.increment_sync_remove_unless_stable_threshold
+        )
+
         self.strm_count = 0
         self.mediainfo_count = 0
         self.strm_fail_count = 0
         self.mediainfo_fail_count = 0
+        self.remove_unless_strm_count = 0
         self.api_count = 0
         self.total_iterated = 0
         self.elapsed_time = 0.0
         self.strm_exec_history_kind: Optional[str] = None
         self.strm_fail_dict: Dict[str, str] = {}
         self.mediainfo_fail_dict: List = []
+
         self.pan_transfer_enabled = configer.pan_transfer_enabled
         self.pan_transfer_paths = configer.pan_transfer_paths
+
         self.databasehelper = FileDbHelper()
         self.directory_cache = DirectoryCache(
             configer.PLUGIN_TEMP_PATH / "increment_skip"
@@ -576,6 +592,51 @@ class IncrementSyncStrmHelper:
                 enqueue_kw["size"] = self.__get_size(pan_path)
             emby_mediainfo_queue.enqueue(**enqueue_kw)
 
+    def __get_remove_unless_strm(self, path_base64: str) -> Dict:
+        """
+        获取增量同步清理无效 STRM 的持久化数据
+
+        :param path_base64: 路径 base64 信息
+        :return: 数据字典
+        """
+        data: Dict = configer.get_plugin_data("increment_remove_unless_strm")
+        if data:
+            return data.get(path_base64, {})
+        return {}
+
+    def __save_remove_unless_strm(self, path_base64: str, value: Dict):
+        """
+        保存增量同步清理无效 STRM 的持久化数据
+
+        :param path_base64: 路径 base64 信息
+        :param value: 保存字典
+        """
+        data: Optional[Dict] = configer.get_plugin_data("increment_remove_unless_strm")
+        if data:
+            data[path_base64] = value
+        else:
+            data = {path_base64: value}
+        configer.save_plugin_data("increment_remove_unless_strm", data)
+
+    def __remove_unless_strm_path(self, remove_path: str) -> None:
+        """
+        立即删除单个无效 STRM 文件
+        """
+        logger.info(f"【增量STRM生成】清理无效 STRM 文件: {remove_path}")
+        Path(remove_path).unlink(missing_ok=True)
+        if self.remove_unless_file:
+            PathRemoveUtils.clean_related_files(
+                file_path=Path(remove_path),
+                func_type="【增量STRM生成】",
+            )
+        if self.remove_unless_dir:
+            PathRemoveUtils.remove_parent_dir(
+                file_path=Path(remove_path),
+                mode=["strm"],
+                func_type="【增量STRM生成】",
+            )
+        self.remove_unless_strm_count += 1
+
     def __scan_second_level_directory(self, path: str) -> List[str]:
         """
         扫描二级目录
@@ -682,6 +743,94 @@ class IncrementSyncStrmHelper:
                                     pan_path=pan_path_str,
                                     local_path=local_path_str,
                                 )
+
+                        # 清理无效 STRM 文件
+                        if self.remove_unless_strm:
+                            if (
+                                not self.strm_fail_dict
+                                and (
+                                    settings.CACHE_BACKEND_TYPE == "redis"
+                                    or self.local_tree_path.exists()
+                                )
+                                and self.local_tree.count() != 0
+                                and self.pan_to_local_tree.count() != 0
+                            ):
+                                try:
+                                    path_base64 = CBase64.encode(
+                                        str(path).encode("utf-8")
+                                    )
+                                    counts = self.__get_remove_unless_strm(
+                                        path_base64
+                                    ).get("counts", [])
+                                    local_tree_count = self.local_tree.count()
+                                    remove_count = self.local_tree.compare_entry_counts(
+                                        self.pan_to_local_tree
+                                    )
+                                    rp = (remove_count / local_tree_count) * 100
+                                    should_delete = True
+                                    if rp > self.remove_unless_max_threshold:
+                                        logger.warning(
+                                            f"【增量STRM生成】本次将删除文件个数为 {remove_count}，"
+                                            f"超过安全阈值 {self.remove_unless_max_threshold}%，"
+                                            "不进行删除操作"
+                                        )
+                                        counts.append(remove_count)
+                                        if len(counts) < 3:
+                                            logger.info(
+                                                f"【增量STRM生成】删除数据稳定性检查，"
+                                                f"已收集 {len(counts)}/3 个数据点 {counts}"
+                                            )
+                                            self.__save_remove_unless_strm(
+                                                path_base64, {"counts": counts}
+                                            )
+                                            should_delete = False
+                                        elif MathUtils.is_stable_cv(
+                                            counts,
+                                            self.remove_unless_stable_threshold / 100,
+                                        ):
+                                            logger.info(
+                                                f"【增量STRM生成】删除数据稳定性检查通过: {counts}"
+                                            )
+                                            self.__save_remove_unless_strm(
+                                                path_base64, {"counts": []}
+                                            )
+                                        else:
+                                            logger.warning(
+                                                f"【增量STRM生成】删除数据稳定性检查失败，重置计数器: {counts}"
+                                            )
+                                            self.__save_remove_unless_strm(
+                                                path_base64,
+                                                {"counts": [remove_count]},
+                                            )
+                                            should_delete = False
+                                    else:
+                                        if len(counts) > 0:
+                                            self.__save_remove_unless_strm(
+                                                path_base64, {"counts": []}
+                                            )
+                                    if should_delete:
+                                        for (
+                                            remove_path
+                                        ) in self.local_tree.compare_trees(
+                                            self.pan_to_local_tree
+                                        ):
+                                            if (
+                                                Path(remove_path).suffix.lower()
+                                                == ".strm"
+                                            ):
+                                                self.__remove_unless_strm_path(
+                                                    remove_path
+                                                )
+                                except Exception as e:
+                                    sentry_manager.sentry_hub.capture_exception(e)
+                                    logger.error(
+                                        f"【增量STRM生成】清理无效 STRM 文件失败: {e}"
+                                    )
+                            else:
+                                logger.warning(
+                                    "【增量STRM生成】存在生成失败的 STRM 文件或扫描本地文件出错，"
+                                    "跳过清理无效 STRM 文件"
+                                )
                 except ItertreeInternalError as e:
                     if retry_count < 2:
                         queue.append((path, retry_count + 1))
@@ -724,6 +873,10 @@ class IncrementSyncStrmHelper:
                 logger.warn(
                     f"【增量STRM生成】{self.strm_fail_count} 个 STRM 文件生成失败，{self.mediainfo_fail_count} 个媒体数据文件下载失败"
                 )
+            if self.remove_unless_strm_count != 0:
+                logger.warning(
+                    f"【增量STRM生成】清理 {self.remove_unless_strm_count} 个失效 STRM 文件"
+                )
             logger.info(f"【增量STRM生成】API 请求次数 {self.api_count} 次")
         finally:
             self.elapsed_time = perf_counter() - t0
@@ -737,6 +890,7 @@ class IncrementSyncStrmHelper:
             self.mediainfo_count,
             self.strm_fail_count,
             self.mediainfo_fail_count,
+            self.remove_unless_strm_count,
         )
         kind = self.strm_exec_history_kind
         if kind:
@@ -748,6 +902,7 @@ class IncrementSyncStrmHelper:
                     "mediainfo_count": self.mediainfo_count,
                     "strm_fail_count": self.strm_fail_count,
                     "mediainfo_fail_count": self.mediainfo_fail_count,
+                    "remove_unless_strm_count": self.remove_unless_strm_count,
                 },
                 elapsed_sec=float(self.elapsed_time),
                 total_iterated=int(self.total_iterated),

@@ -439,6 +439,21 @@ class ConfigManager(BaseModel):
         ge=0,
         description="增量同步迭代目录树(115导出)超时秒数，0表示不限制",
     )
+    increment_sync_remove_unless_strm: bool = Field(
+        default=False, description="增量同步清理无效 STRM 文件"
+    )
+    increment_sync_remove_unless_dir: bool = Field(
+        default=False, description="增量同步清理无效 STRM 目录"
+    )
+    increment_sync_remove_unless_file: bool = Field(
+        default=False, description="增量同步清理无效 STRM 文件关联的媒体信息文件"
+    )
+    increment_sync_remove_unless_max_threshold: int = Field(
+        default=10, ge=0, description="增量同步清理无效 STRM 最大删除阈值"
+    )
+    increment_sync_remove_unless_stable_threshold: int = Field(
+        default=5, ge=0, description="增量同步清理无效 STRM 稳定阈值"
+    )
 
     monitor_life_enabled: bool = Field(default=False, description="监控生活事件开关")
     monitor_life_auto_download_mediainfo_enabled: bool = Field(

@@ -441,6 +441,14 @@ export function usePathManagement(config) {
     }
   });
 
+  // 监听 increment_sync_remove_unless_strm 变化，当禁用时自动禁用依赖的配置项
+  watch(() => config.increment_sync_remove_unless_strm, (newVal) => {
+    if (!newVal) {
+      config.increment_sync_remove_unless_dir = false;
+      config.increment_sync_remove_unless_file = false;
+    }
+  });
+
   // ============================================================
   // 路径增删函数
   // ============================================================
