@@ -225,10 +225,9 @@ def iter_share_files_with_path(
         }
         resp = _call_endpoint(api_info, payload)
         count, items = _extract(resp)
-        new_offset = offset + len(items)
         if (
-            api_info.api_name == "share_snap_app_https"
-            and new_offset < count
+            api_info.api_name in ("share_snap_app_https", "share_snap_app_http")
+            and offset + len(items) < count
             and len(items) > 0
         ):
             resp = _call_endpoint(snap_api_info, payload)
