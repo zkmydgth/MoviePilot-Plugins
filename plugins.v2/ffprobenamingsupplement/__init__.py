@@ -172,6 +172,11 @@ class FFprobeNamingSupplement(_PluginBase):
         pass
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
+        """
+        拼装插件配置页面
+
+        :return: (页面配置列表, 表单默认值字典)
+        """
         cls = type(self)
         overwrite_items = [
             {"title": "仅补全缺失或空值", "value": cls._OVERWRITE_FILL_MISSING},

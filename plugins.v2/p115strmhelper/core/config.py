@@ -1016,15 +1016,20 @@ class ConfigManager(BaseModel):
             return user_agents[utype]
         _cpu_arch = (
             SystemUtils.cpu_arch()
-            if hasattr(SystemUtils, 'cpu_arch') and callable(SystemUtils.cpu_arch)
-            else 'UnknownArch'
+            if hasattr(SystemUtils, "cpu_arch") and callable(SystemUtils.cpu_arch)
+            else "UnknownArch"
         )
-        return (
-            f"{self.PLUSIN_NAME}/{VERSION} "
-            f"({system()} {release()}; {_cpu_arch})"
-        )
+        return f"{self.PLUSIN_NAME}/{VERSION} ({system()} {release()}; {_cpu_arch})"
 
     def get_default_timeout(self) -> Optional[Dict[str, Any]]:
+        """
+        获取普通操作超时配置
+
+        根据 timeout_enabled 开关和各超时字段组装超时字典，
+        仅包含值大于 0 的项（connect、pool、read、write）
+
+        :return: 超时配置字典，若未启用或所有项均为 0 则返回 None
+        """
         if not self.timeout_enabled:
             return None
         timeout = {}
@@ -1039,6 +1044,13 @@ class ConfigManager(BaseModel):
         return timeout if timeout else None
 
     def get_slow_timeout(self) -> Optional[Dict[str, Any]]:
+        """
+        获取慢操作（上传/下载/迭代等）超时配置
+
+        与 get_default_timeout 逻辑一致，但使用 slow 系列超时字段
+
+        :return: 超时配置字典，若未启用或所有项均为 0 则返回 None
+        """
         if not self.timeout_enabled:
             return None
         timeout = {}

@@ -83,6 +83,13 @@ class MonitorLife:
         mediainfodownloader: MediaInfoDownloader,
         stop_event: Optional[Event] = None,
     ):
+        """
+        初始化生活事件监听器
+
+        :param client: P115Client 实例
+        :param mediainfodownloader: 媒体信息下载器实例
+        :param stop_event: 可选的停止事件，用于控制监听循环
+        """
         self._client = client
         self.mediainfodownloader = mediainfodownloader
         self.stop_event = stop_event
@@ -222,6 +229,11 @@ class MonitorLife:
             pantransfercacher.delete_pan_transfer_list.append(str(root.fileid))
 
         def walk_cd2_dir(dir_item: FileItem) -> None:
+            """
+            递归遍历 CloudDrive2 目录，将媒体文件加入整理队列
+
+            :param dir_item: CloudDrive2 目录 FileItem
+            """
             try:
                 entries = self.storagechain.list_files(dir_item)
             except Exception as e:
@@ -2175,6 +2187,9 @@ class MonitorLife:
         path = path.strip()
 
         def run_transfer():
+            """
+            在后台线程中执行手动网盘整理任务
+            """
             try:
                 logger.info(f"【监控生活事件】开始执行手动整理任务: {path}")
                 self.once_transfer(path)

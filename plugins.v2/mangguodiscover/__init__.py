@@ -86,6 +86,10 @@ def init_base_ui():
 
 
 class MangGuoDiscover(_PluginBase):
+    """
+    芒果 TV 探索插件，让探索支持芒果 TV 的数据浏览
+    """
+
     # 插件名称
     plugin_name = "芒果TV探索"
     # 插件描述
@@ -109,6 +113,11 @@ class MangGuoDiscover(_PluginBase):
     _enabled = False
 
     def init_plugin(self, config: dict = None):
+        """
+        根据配置初始化插件启用状态
+
+        :param config: 插件配置字典
+        """
         global BASE_UI
         if config:
             self._enabled = config.get("enabled")
@@ -117,13 +126,28 @@ class MangGuoDiscover(_PluginBase):
         BASE_UI = init_base_ui()
 
     def get_state(self) -> bool:
+        """
+        返回插件是否已启用
+
+        :return: 插件启用状态
+        """
         return self._enabled
 
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:
+        """
+        返回插件命令列表
+
+        :return: 命令列表
+        """
         pass
 
     def get_api(self) -> List[Dict[str, Any]]:
+        """
+        返回插件 API 端点列表
+
+        :return: API 端点列表
+        """
         return [
             {
                 "path": "/mangguo_discover",
@@ -165,6 +189,11 @@ class MangGuoDiscover(_PluginBase):
         ], {"enabled": False}
 
     def get_page(self) -> List[dict]:
+        """
+        返回插件静态页面列表
+
+        :return: 静态页面列表
+        """
         pass
 
     @cached(region="mangguo_discover", ttl=1800, skip_none=True)

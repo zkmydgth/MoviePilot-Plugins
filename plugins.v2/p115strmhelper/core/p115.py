@@ -405,6 +405,14 @@ def iter_life_behavior_once(
         from_time = -1
 
     def gen_step():
+        """
+        生成器函数，逐步拉取 115 生活行为事件列表
+
+        首次请求使用指定的 first_batch_size，后续每页 1000 条，
+        自动在 cookie API 和 app API 之间轮换以规避风控
+
+        :yield: 通过 Yield 抛出单个生活行为事件字典
+        """
         payload = {"type": type, "date": date, "limit": first_batch_size, "offset": 0}
         seen: set[str] = set()
         seen_add = seen.add

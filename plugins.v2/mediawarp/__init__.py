@@ -21,6 +21,10 @@ from app.plugins import _PluginBase
 
 
 class MediaWarp(_PluginBase):
+    """
+    Emby/Jellyfin 中间件：优化 Strm 播放、自定义前端样式、允许访问客户端控制、脚本注入
+    """
+
     # 插件名称
     plugin_name = "MediaWarp"
     # 插件描述
@@ -82,6 +86,11 @@ class MediaWarp(_PluginBase):
         )
 
     def init_plugin(self, config: dict = None):
+        """
+        初始化插件：读取配置，获取媒体服务器信息，启动代理服务
+
+        :param config: 插件配置字典，包含 enabled、port、mediaservers 等
+        """
         self._mediaserver_helper = MediaServerHelper()
         self._mediaserver = None
 
@@ -152,13 +161,28 @@ class MediaWarp(_PluginBase):
         )
 
     def get_state(self) -> bool:
+        """
+        返回插件启用状态
+
+        :return: True 表示插件已启用
+        """
         return self._enabled
 
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:
+        """
+        返回插件远程命令列表，本插件无远程命令
+
+        :return: None
+        """
         pass
 
     def get_api(self) -> List[Dict[str, Any]]:
+        """
+        返回插件 API 端点列表，本插件无自定义 API
+
+        :return: None
+        """
         pass
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
@@ -371,7 +395,8 @@ class MediaWarp(_PluginBase):
                                                                     self._mediaserver_helper.get_configs().values()
                                                                 )
                                                                 if config.type == "emby"
-                                                                or config.type == "jellyfin"
+                                                                or config.type
+                                                                == "jellyfin"
                                                             ],
                                                             "hint": "同时只能选择一个",
                                                             "persistent-hint": True,
@@ -546,6 +571,11 @@ class MediaWarp(_PluginBase):
         }
 
     def get_page(self) -> List[dict]:
+        """
+        返回插件数据页面配置，本插件无数据页面
+
+        :return: None
+        """
         pass
 
     def __run_service(self):
@@ -621,6 +651,12 @@ class MediaWarp(_PluginBase):
         yaml.indent(mapping=2, sequence=4, offset=2)
 
         def represent_bool(self, data):
+            """
+            将 Python bool 序列化为 YAML 大写 True/False 字符串
+
+            :param data: 布尔值
+            :return: YAML 标量节点
+            """
             if data:
                 return self.represent_scalar("tag:yaml.org,2002:bool", "True")
             else:

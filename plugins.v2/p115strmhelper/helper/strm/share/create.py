@@ -55,7 +55,9 @@ class ShareStrmHelper:
         if configer.timeout_enabled:
             default_timeout = configer.get_default_timeout()
             slow_timeout = configer.get_slow_timeout()
-            self.share_client = create_client_with_timeout(raw_client, default_timeout, slow_timeout)
+            self.share_client = create_client_with_timeout(
+                raw_client, default_timeout, slow_timeout
+            )
         else:
             self.share_client = raw_client
         self.mediainfodownloader = mediainfodownloader
@@ -434,6 +436,11 @@ class ShareStrmHelper:
 
             # 数据上传服务器
             def cleanup_temp_file(file_path: str) -> None:
+                """
+                清理临时数据文件
+
+                :param file_path: 临时文件路径
+                """
                 if path_exists(file_path):
                     try:
                         os_remove(file_path)

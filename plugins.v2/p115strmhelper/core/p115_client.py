@@ -67,6 +67,11 @@ def _make_timeout_wrapper(
                 return attr
 
             def wrapper(*args, **kwargs):
+                """
+                拦截 API 方法调用，自动注入超时配置到 extensions 参数中
+
+                若调用者已显式指定 extensions["timeout"]，则跳过注入
+                """
                 if "extensions" in kwargs and "timeout" in kwargs.get("extensions", {}):
                     logger.debug(f"【超时包装】{name} 调用者已指定超时，跳过注入")
                     return attr(*args, **kwargs)
@@ -102,6 +107,10 @@ def create_client_with_timeout(
     slow_timeout = slow_timeout or default_timeout
 
     class TimeoutMixin:
+        """
+        超时注入混入类，通过自定义 __getattribute__ 拦截方法调用并注入超时参数
+        """
+
         __getattribute__ = _make_timeout_wrapper(default_timeout, slow_timeout)
 
     wrapper_class = type(
@@ -173,6 +182,11 @@ class P115ClientWithTimeout(P115Client):
                 return attr
 
             def wrapper(*args, **kwargs):
+                """
+                拦截 API 方法调用，自动注入超时配置到 extensions 参数中
+
+                若调用者已显式指定 extensions["timeout"]，则跳过注入
+                """
                 if "extensions" in kwargs and "timeout" in kwargs.get("extensions", {}):
                     logger.debug(f"【超时包装】{name} 调用者已指定超时，跳过注入")
                     return attr(*args, **kwargs)

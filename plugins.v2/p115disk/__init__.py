@@ -13,6 +13,10 @@ from .p115_client import create_client, build_timeout_config
 
 
 class P115Disk(_PluginBase):
+    """
+    115 网盘储存插件：更快更强的 115 网盘存储模块，支持文件列表、上传下载、快照等功能
+    """
+
     # 插件名称
     plugin_name = "115网盘储存"
     # 插件描述
@@ -103,10 +107,20 @@ class P115Disk(_PluginBase):
                 logger.error(f"115 网盘客户端创建失败: {e}")
 
     def get_state(self) -> bool:
+        """
+        返回插件启用状态
+
+        :return: True 表示插件已启用
+        """
         return self._enabled
 
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:
+        """
+        返回插件远程命令列表，本插件无远程命令
+
+        :return: None
+        """
         pass
 
     def get_api(self) -> List[Dict[str, Any]]:

@@ -212,9 +212,19 @@ class P115SubFixer(_PluginBase):
         return True
 
     def get_state(self) -> bool:
+        """
+        返回插件启用状态
+
+        :return: True 表示插件已启用
+        """
         return self._enabled
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
+        """
+        拼装插件配置页面
+
+        :return: (页面配置列表, 表单默认值字典)
+        """
         return [
             {
                 "component": "VForm",
@@ -280,15 +290,33 @@ class P115SubFixer(_PluginBase):
         ], {"enabled": False, "onlyonce": False}
 
     def get_page(self) -> Optional[List[dict]]:
+        """
+        返回插件数据页面配置，本插件无数据页面
+
+        :return: None
+        """
         pass
 
     def get_api(self) -> List[Dict[str, Any]]:
+        """
+        返回插件 API 端点列表，本插件无自定义 API
+
+        :return: None
+        """
         pass
 
     def get_service(self) -> List[Dict[str, Any]]:
+        """
+        返回插件服务注册列表，本插件无自定义服务
+
+        :return: None
+        """
         pass
 
     def stop_service(self):
+        """
+        停止插件服务，本插件无需额外清理
+        """
         pass
 
 

@@ -60,6 +60,12 @@ class P115DiskCore:
         """
 
         def read_range_hash(range_str: str) -> str:
+            """
+            计算文件指定字节区间的 SHA1 哈希值
+
+            :param range_str: 区间字符串，格式为 "start-end"
+            :return: 区间的 SHA1 十六进制大写字符串
+            """
             start, end = map(int, range_str.split("-"))
             with open(local_path, "rb") as f:
                 f.seek(start)
@@ -69,6 +75,12 @@ class P115DiskCore:
                 return sha1.finalize().hex().upper()
 
         def encode_callback(cb: str) -> str:
+            """
+            对回调字符串进行 Base64 编码
+
+            :param cb: 待编码的回调字符串
+            :return: Base64 编码后的字符串
+            """
             return b64encode_as_string(cb)
 
         def send_upload_info(

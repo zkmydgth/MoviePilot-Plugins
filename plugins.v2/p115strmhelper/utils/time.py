@@ -13,6 +13,12 @@ class TimeUtils:
 
     @staticmethod
     def timestamp2isoformat(ts: None | float | datetime = None, /) -> str:
+        """
+        将时间戳或 datetime 对象转换为 ISO 8601 格式字符串
+
+        :param ts: Unix 时间戳（秒）、datetime 对象或 None（默认使用当前时间）
+        :return: 带时区信息的 ISO 8601 格式字符串
+        """
         if ts is None:
             dt = datetime.now()
         elif isinstance(ts, datetime):
@@ -23,6 +29,12 @@ class TimeUtils:
 
     @staticmethod
     def timestamp2gmtformat(ts: None | float | datetime = None, /) -> str:
+        """
+        将时间戳或 datetime 对象转换为 GMT 格式的 HTTP 日期字符串
+
+        :param ts: Unix 时间戳（秒）、datetime 对象或 None（默认使用当前时间）
+        :return: GMT 格式的 HTTP 日期字符串（如 "Mon, 01 Jan 2024 00:00:00 GMT"）
+        """
         if ts is None:
             ts = time()
         elif isinstance(ts, datetime):

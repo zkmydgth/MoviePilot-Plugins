@@ -93,6 +93,14 @@ class Redirect:
 
     @staticmethod
     def get_first(m: Mapping, *keys, default=None):
+        """
+        从映射容器中按顺序查找第一个存在的键并返回对应值
+
+        :param m: 映射容器
+        :param keys: 按优先级排列的键
+        :param default: 未找到时的默认值
+        :return: 第一个命中键的值或 default
+        """
         for k in keys:
             if k in m:
                 return m[k]

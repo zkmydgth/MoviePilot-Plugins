@@ -14,6 +14,15 @@ class NestedFormatter(Formatter):
     """
 
     def get_value(self, key: str, args: Any, kwargs: Dict[str, Any]) -> Any:
+        """
+        获取格式化参数中指定键的值，支持嵌套字典的 '.' 分隔路径
+
+        :param key: 参数键名，可包含 '.' 表示嵌套路径
+        :param args: 位置参数
+        :param kwargs: 关键字参数
+
+        :return: 参数值，若路径不存在则返回原始占位符字符串
+        """
         if "." in key:
             keys = key.split(".")
             value = kwargs

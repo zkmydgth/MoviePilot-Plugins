@@ -12,6 +12,10 @@ from app.utils.http import RequestUtils
 
 
 class MiGuDiscover(_PluginBase):
+    """
+    咪咕视频探索插件，让探索支持咪咕视频的数据浏览
+    """
+
     # 插件名称
     plugin_name = "咪咕视频探索"
     # 插件描述
@@ -36,19 +40,39 @@ class MiGuDiscover(_PluginBase):
     _enabled = False
 
     def init_plugin(self, config: dict = None):
+        """
+        根据配置初始化插件启用状态
+
+        :param config: 插件配置字典
+        """
         if config:
             self._enabled = config.get("enabled")
         if "https://wapx.cmvideo.cn" not in settings.SECURITY_IMAGE_DOMAINS:
             settings.SECURITY_IMAGE_DOMAINS.append("https://wapx.cmvideo.cn")
 
     def get_state(self) -> bool:
+        """
+        返回插件是否已启用
+
+        :return: 插件启用状态
+        """
         return self._enabled
 
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:
+        """
+        返回插件命令列表
+
+        :return: 命令列表
+        """
         pass
 
     def get_api(self) -> List[Dict[str, Any]]:
+        """
+        返回插件 API 端点列表
+
+        :return: API 端点列表
+        """
         return [
             {
                 "path": "/migu_discover",
@@ -90,12 +114,15 @@ class MiGuDiscover(_PluginBase):
         ], {"enabled": False}
 
     def get_page(self) -> List[dict]:
+        """
+        返回插件静态页面列表
+
+        :return: 静态页面列表
+        """
         pass
 
     @cached(region="migu_discover", ttl=1800, skip_none=True)
-    def __request(
-        self, page_num: int, page_size: int, **kwargs
-    ) -> List[Dict]:
+    def __request(self, page_num: int, page_size: int, **kwargs) -> List[Dict]:
         """
         请求 咪咕视频 API
         """

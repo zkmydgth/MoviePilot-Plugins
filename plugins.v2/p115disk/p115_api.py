@@ -805,6 +805,12 @@ class P115Api:
         try:
             # Step 1: 初始化上传
             def read_range_hash(range_str: str) -> str:
+                """
+                读取本地文件指定范围并计算 SHA1 哈希
+
+                :param range_str: 字节范围字符串，格式为 "start-end"
+                :return: 大写的 SHA1 十六进制哈希值
+                """
                 start, end = map(int, range_str.split("-"))
                 with open(local_path, "rb") as f:
                     f.seek(start)
@@ -1007,6 +1013,12 @@ class P115Api:
 
             # Step 4: 完成OSS上传并回调115服务器
             def encode_callback(cb: str) -> str:
+                """
+                将回调信息编码为 Base64 字符串
+
+                :param cb: 原始回调字符串
+                :return: Base64 编码后的回调字符串
+                """
                 return b64encode_as_string(cb)
 
             headers = {

@@ -6,6 +6,12 @@ from app.log import logger
 
 @dataclass
 class Action:
+    """
+    交互框架的回调动作数据类
+
+    封装用户触发的命令、目标视图及可选传值
+    """
+
     command: str
     view: Optional[str] = None
     value: Optional[Any] = None

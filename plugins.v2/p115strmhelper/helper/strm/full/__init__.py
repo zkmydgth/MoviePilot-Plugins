@@ -62,6 +62,12 @@ class FullSyncStrmHelper:
         client: P115Client,
         mediainfodownloader: MediaInfoDownloader,
     ):
+        """
+        初始化全量同步 STRM 生成器
+
+        :param client: P115Client 实例
+        :param mediainfodownloader: 媒体信息下载器实例
+        """
         self.rmt_mediaext_set = {
             f".{ext.strip()}"
             for ext in configer.user_rmt_mediaext.replace("，", ",").split(",")
@@ -786,6 +792,9 @@ class FullSyncStrmHelper:
             io_threads.append(thread)
 
         def result_collector():
+            """
+            从结果队列收集 IO 写入线程的处理结果并统计
+            """
             finished_workers = 0
             while finished_workers < num_io_workers:
                 try:

@@ -70,6 +70,12 @@ class IncrementSyncStrmHelper:
     _EXPORT_DIR_WAIT_LOG_INTERVAL_SEC = 60.0
 
     def __init__(self, client: P115Client, mediainfodownloader: MediaInfoDownloader):
+        """
+        初始化增量同步 STRM 生成器
+
+        :param client: P115Client 实例
+        :param mediainfodownloader: 媒体信息下载器实例
+        """
         self.client = client
         self.mediainfodownloader = mediainfodownloader
 
@@ -262,6 +268,12 @@ class IncrementSyncStrmHelper:
                 return
 
             def process_file_item(item_str: str):
+                """
+                处理导出目录树中的单个文件路径条目
+
+                :param item_str: 网盘中的相对文件路径
+                :yields: (本地 STRM 路径, 网盘路径) 元组
+                """
                 item_path = Path(pan_path) / Path(item_str).relative_to(relative_path)
                 relative_item_path = item_path.relative_to(pan_path)
                 local_item_path = Path(local_path) / PathUtils.sanitize_path_parts(

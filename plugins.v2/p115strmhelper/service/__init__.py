@@ -683,6 +683,13 @@ class ServiceHelper:
                     force_polling = configer.directory_upload_mode == "compatibility"
 
                     def watch_worker(path: str, stop_evt: ThreadEvent, polling: bool):
+                        """
+                        目录监控工作线程，监听文件新增事件并加入上传队列
+
+                        :param path: 要监控的目录路径
+                        :param stop_evt: 停止事件
+                        :param polling: 是否使用轮询模式（兼容模式）
+                        """
                         try:
                             for changes in watch(
                                 path,

@@ -58,6 +58,14 @@ class TransferChainPatcher:
                 def patched_handle_transfer(
                     self, task, callback: Optional[Callable] = None
                 ) -> Optional[Tuple[bool, str]]:
+                    """
+                    补丁版 TransferChain 整理方法，拦截 115 → 115 的整理任务并委托给插件处理
+
+                    :param self: TransferChain 实例
+                    :param task: MoviePilot TransferTask
+                    :param callback: 可选的完成回调
+                    :return: (成功状态, 消息) 或 None
+                    """
                     return cls._patched_handle_transfer(self, task, callback)
 
                 # 应用补丁

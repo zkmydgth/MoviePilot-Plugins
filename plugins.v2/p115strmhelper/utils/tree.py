@@ -68,11 +68,22 @@ class TxtFileStorage(DirectoryTreeStorage):
     """
 
     def __init__(self, file_path: Union[str, Path]):
+        """
+        初始化 TXT 文件存储
+
+        :param file_path: TXT 文件的路径，父目录会自动创建
+        """
         self._rust = txt_tree_storage
         self.file_path = Path(file_path)
         self.file_path.parent.mkdir(parents=True, exist_ok=True)
 
     def add_paths(self, paths: Iterable[str], append: bool = False):
+        """
+        向 TXT 文件添加路径条目
+
+        :param paths: 路径字符串迭代器
+        :param append: True 时追加，False 时覆盖
+        """
         return self._rust.add_paths(
             self.file_path, (p if isinstance(p, str) else str(p) for p in paths), append
         )
@@ -80,6 +91,13 @@ class TxtFileStorage(DirectoryTreeStorage):
     def compare_trees(
         self, other_storage: "DirectoryTreeStorage"
     ) -> Generator[str, None, None]:
+        """
+        比较两个 TXT 树，找出本树中存在而另一棵树中不存在的路径
+
+        :param other_storage: 另一个 TxtFileStorage 实例
+        :return: 差异路径的生成器
+        :raises TypeError: 当 other_storage 不是 TxtFileStorage 时抛出
+        """
         if not isinstance(other_storage, TxtFileStorage):
             raise TypeError("TxtFileStorage 只能与同类型的树进行比较")
 
@@ -89,6 +107,13 @@ class TxtFileStorage(DirectoryTreeStorage):
     def compare_trees_lines(
         self, other_storage: "DirectoryTreeStorage"
     ) -> Generator[int, None, None]:
+        """
+        比较两个 TXT 树，返回差异路径在本树中的行号
+
+        :param other_storage: 另一个 TxtFileStorage 实例
+        :return: 差异行号的生成器
+        :raises TypeError: 当 other_storage 不是 TxtFileStorage 时抛出
+        """
         if not isinstance(other_storage, TxtFileStorage):
             raise TypeError("TxtFileStorage 只能与同类型的树进行比较")
 
@@ -96,12 +121,26 @@ class TxtFileStorage(DirectoryTreeStorage):
         yield from lines
 
     def get_path_by_line_number(self, line_number: int) -> Union[str, None]:
+        """
+        根据行号获取 TXT 文件中对应行的路径
+
+        :param line_number: 行号（从 1 开始）
+        :return: 路径字符串，无效行号时返回 None
+        """
         return self._rust.get_path_by_line_number(self.file_path, line_number)
 
     def count(self) -> int:
+        """
+        统计 TXT 文件中的有效条目总数
+
+        :return: 条目总数
+        """
         return int(self._rust.count(self.file_path))
 
     def clear(self):
+        """
+        清空 TXT 文件的所有内容
+        """
         return self._rust.clear(self.file_path)
 
 
@@ -111,6 +150,11 @@ class RedisStorage(DirectoryTreeStorage):
     """
 
     def __init__(self, tree_name: str):
+        """
+        初始化 Redis 存储
+
+        :param tree_name: 树名称，用于生成 Redis 键名前缀
+        """
         self.tree_name = tree_name
 
         self.redis_helper = RedisHelper()
@@ -121,6 +165,12 @@ class RedisStorage(DirectoryTreeStorage):
         self._list_key = f"dirtree:list:{tree_name}"
 
     def add_paths(self, paths: Iterable[str], append: bool = False):
+        """
+        向 Redis 添加路径条目（通过 Pipeline 批量操作）
+
+        :param paths: 路径字符串迭代器
+        :param append: True 时追加，False 时先清空已有数据
+        """
         pipe = self.client.pipeline()
 
         if not append:
@@ -144,6 +194,13 @@ class RedisStorage(DirectoryTreeStorage):
     def compare_trees(
         self, other_storage: "DirectoryTreeStorage"
     ) -> Generator[str, None, None]:
+        """
+        使用 Redis SDIFF 命令高效比较两个树，返回本树中存在而另一棵树中不存在的路径
+
+        :param other_storage: 另一个 RedisStorage 实例
+        :return: 差异路径的生成器
+        :raises TypeError: 当 other_storage 不是 RedisStorage 时抛出
+        """
         if not isinstance(other_storage, RedisStorage):
             raise TypeError("RedisStorage 只能与同类型的树进行高性能比较")
 
@@ -154,6 +211,13 @@ class RedisStorage(DirectoryTreeStorage):
     def compare_trees_lines(
         self, other_storage: "DirectoryTreeStorage"
     ) -> Generator[int, None, None]:
+        """
+        使用 Redis 分批比较两个树，返回差异路径在本树中的行号
+
+        :param other_storage: 另一个 RedisStorage 实例
+        :return: 差异行号的生成器
+        :raises TypeError: 当 other_storage 不是 RedisStorage 时抛出
+        """
         if not isinstance(other_storage, RedisStorage):
             raise TypeError("RedisStorage 只能与同类型的树进行高性能比较")
 
@@ -171,15 +235,29 @@ class RedisStorage(DirectoryTreeStorage):
                     yield line_num
 
     def get_path_by_line_number(self, line_number: int) -> Union[str, None]:
+        """
+        根据行号获取 Redis 列表中对应位置的路径
+
+        :param line_number: 行号（从 1 开始）
+        :return: 路径字符串，无效行号时返回 None
+        """
         if line_number <= 0:
             return None
         path_bytes = self.client.lindex(self._list_key, line_number - 1)
         return path_bytes.decode("utf-8") if path_bytes else None
 
     def count(self) -> int:
+        """
+        统计 Redis 集合中的有效条目总数
+
+        :return: 条目总数
+        """
         return self.client.scard(self._set_key)
 
     def clear(self):
+        """
+        删除 Redis 中与当前树相关的所有键
+        """
         self.client.delete(self._set_key, self._list_key)
 
 
@@ -208,6 +286,11 @@ class DirectoryTree:
             extensions = {f".{ext.lower().lstrip('.')}" for ext in extensions}
 
         def path_generator():
+            """
+            遍历目录并过滤出符合条件的文件路径
+
+            :return: 生成器，逐个产出文件路径字符串
+            """
             for path in root.rglob("*"):
                 if path.is_file() and (
                     extensions is None or path.suffix.lower() in extensions

@@ -86,6 +86,10 @@ session_manager = BaseSessionManager(session_class=Session)
 
 @sentry_manager.capture_all_class_exceptions
 class P115StrmHelper(_PluginBase):
+    """
+    115网盘STRM助手插件入口，提供STRM生成、分享转存、离线下载、302跳转、FUSE挂载等功能
+    """
+
     # 插件名称
     plugin_name = "115网盘STRM助手"
     # 插件描述
@@ -120,8 +124,23 @@ class P115StrmHelper(_PluginBase):
         """
 
         def decorator(func):
+            """
+            数据库操作装饰器，捕获异常并记录日志
+
+            :param func: 被装饰的数据库操作函数
+            :return: 包装后的函数
+            """
+
             @wraps(func)
             def wrapper(self, *args, **kwargs):
+                """
+                包装函数：执行操作、捕获异常、合并日志消息
+
+                :param self: P115StrmHelper 实例
+                :param args: 位置参数
+                :param kwargs: 关键字参数
+                :return: 原函数返回值，失败返回 False
+                """
                 level, text = "success", f"{oper_name} 成功"
                 try:
                     result = func(self, *args, **kwargs)
@@ -1831,6 +1850,12 @@ class P115StrmHelper(_PluginBase):
             return
 
         def share_strm_center(url: str) -> Optional[Dict[str, Any]]:
+            """
+            从中心化服务获取分享STRM的媒体信息
+
+            :param url: 包含 share_code、receive_code、id 参数的 STRM URL
+            :return: 媒体信息字典，获取失败返回 None
+            """
             for i in ["P115StrmHelper", "share_code=", "receive_code=", "id="]:
                 if i not in url:
                     return None

@@ -466,6 +466,10 @@ class ShareStrmHelper:
 
 
 class P123StrmHelper(_PluginBase):
+    """
+    123 云盘 STRM 助手：生成 STRM、监控整理入库、分享生成 STRM、空间清理一条龙服务
+    """
+
     # 插件名称
     plugin_name = "123云盘STRM助手"
     # 插件描述
@@ -614,6 +618,11 @@ class P123StrmHelper(_PluginBase):
                 self._scheduler.start()
 
     def get_state(self) -> bool:
+        """
+        返回插件启用状态
+
+        :return: True 表示插件已启用
+        """
         return self._enabled
 
     @property
@@ -649,6 +658,11 @@ class P123StrmHelper(_PluginBase):
 
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:
+        """
+        返回插件远程命令列表，本插件无远程命令
+
+        :return: None
+        """
         pass
 
     def get_api(self) -> List[Dict[str, Any]]:
@@ -1439,6 +1453,11 @@ class P123StrmHelper(_PluginBase):
         }
 
     def get_page(self) -> List[dict]:
+        """
+        返回插件数据页面配置，本插件无数据页面
+
+        :return: None
+        """
         pass
 
     def __update_config(self):

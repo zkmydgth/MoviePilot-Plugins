@@ -351,6 +351,12 @@ class U115OpenHelper:
         """
 
         def encode_callback(cb: str) -> str:
+            """
+            对回调字符串进行 Base64 编码
+
+            :param cb: 待编码的回调字符串
+            :return: Base64 编码后的字符串
+            """
             return b64encode_as_string(cb)
 
         def send_upload_info(

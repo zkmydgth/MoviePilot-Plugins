@@ -15,6 +15,10 @@ class CheckLifeEventStatusPayload(BaseModel):
 
 
 class PluginStatusData(BaseModel):
+    """
+    插件运行状态数据
+    """
+
     enabled: bool = Field(..., description="是否启用")
     has_client: bool = Field(..., description="是否有客户端")
     running: bool = Field(..., description="是否运行中")

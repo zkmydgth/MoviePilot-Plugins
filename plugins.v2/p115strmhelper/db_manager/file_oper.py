@@ -263,6 +263,12 @@ class FileDbHelper(DbOper):
         subfolders = Folder.get_by_parent_id(self._db, parent_id)
 
         def clean_record(record):
+            """
+            清洗数据库记录，移除内部状态并添加类型标记
+
+            :param record: File 或 Folder 的 ORM 实例
+            :return: 清理后的字典
+            """
             d = record.__dict__
             d.pop("_sa_instance_state", None)
             d["type"] = "file" if isinstance(record, File) else "folder"

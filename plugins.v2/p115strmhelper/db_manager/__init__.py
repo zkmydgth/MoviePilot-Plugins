@@ -261,6 +261,14 @@ def db_update(func):
     """
 
     def wrapper(*args, **kwargs):
+        """
+        自动获取数据库会话、执行更新操作并处理重试逻辑
+
+        :param args: 原始位置参数
+        :param kwargs: 原始关键字参数
+        :return: 被装饰函数的返回值
+        :raises OperationalError: 重试耗尽后仍无法获取数据库锁时抛出
+        """
         # 是否关闭数据库会话
         _close_db = False
         db = get_args_db(args, kwargs)
@@ -321,6 +329,13 @@ def db_query(func):
     """
 
     def wrapper(*args, **kwargs):
+        """
+        自动获取数据库会话、执行查询操作并管理会话生命周期
+
+        :param args: 原始位置参数
+        :param kwargs: 原始关键字参数
+        :return: 被装饰函数的返回值
+        """
         # 是否关闭数据库会话
         _close_db = False
         # 从参数中获取数据库会话
@@ -348,20 +363,42 @@ def db_query(func):
 
 
 class P115StrmHelperBase(DeclarativeBase):
+    """
+    P115StrmHelper 数据库模型基类，提供通用的 CRUD 操作方法
+    """
+
     id: Any
     __name__: str
 
     @db_update
     def create(self, db: Session):
+        """
+        创建新记录并添加到数据库
+
+        :param db: 数据库会话
+        """
         db.add(self)
 
     @classmethod
     @db_query
     def get(cls, db: Session, rid: int) -> Self:
+        """
+        根据主键 ID 查询单条记录
+
+        :param db: 数据库会话
+        :param rid: 记录 ID
+        :return: 匹配的模型实例，未找到时返回 None
+        """
         return db.query(cls).filter(and_(cls.id == rid)).first()
 
     @db_update
     def update(self, db: Session, payload: dict):
+        """
+        更新当前记录的部分字段
+
+        :param db: 数据库会话
+        :param payload: 要更新的字段字典，值为 None 的键会被过滤
+        """
         payload = {k: v for k, v in payload.items() if v is not None}
         for key, value in payload.items():
             setattr(self, key, value)
@@ -371,20 +408,42 @@ class P115StrmHelperBase(DeclarativeBase):
     @classmethod
     @db_update
     def delete(cls, db: Session, rid):
+        """
+        根据主键 ID 删除记录
+
+        :param db: 数据库会话
+        :param rid: 记录 ID
+        """
         db.query(cls).filter(and_(cls.id == rid)).delete()
 
     @classmethod
     @db_update
     def truncate(cls, db: Session):
+        """
+        清空当前模型对应的数据库表所有记录
+
+        :param db: 数据库会话
+        """
         db.query(cls).delete()
 
     @classmethod
     @db_query
     def list(cls, db: Session) -> List[Self]:
+        """
+        查询当前模型的所有记录
+
+        :param db: 数据库会话
+        :return: 所有记录列表
+        """
         result = db.query(cls).all()
         return list(result)
 
     def to_dict(self):
+        """
+        将模型实例的所有数据库列转换为字典
+
+        :return: 列名到列值的字典映射
+        """
         return {c.name: getattr(self, c.name, None) for c in self.__table__.columns}  # noqa
 
     @declared_attr

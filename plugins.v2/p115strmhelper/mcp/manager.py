@@ -69,6 +69,14 @@ class MCPManager:
             endpoint_url += f"&apikey={apikey}"
 
         async def event_stream():
+            """
+            SSE 事件流生成器协程
+
+            持续从会话队列中读取响应并作为 SSE message 事件发送，
+            每 300 秒发送一次 ping 以保持连接
+
+            :yields: SSE 格式的事件字符串
+            """
             try:
                 yield _sse_message("endpoint", endpoint_url)
                 while True:

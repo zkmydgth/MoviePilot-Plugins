@@ -14,6 +14,10 @@ from app.schemas import StorageOperSelectionEventData, FileItem
 
 
 class P123Disk(_PluginBase):
+    """
+    123 云盘储存插件：使存储支持 123 云盘，提供文件列表、上传下载、快照等功能
+    """
+
     # 插件名称
     plugin_name = "123云盘储存"
     # 插件描述
@@ -76,13 +80,28 @@ class P123Disk(_PluginBase):
                 logger.error(f"123云盘客户端创建失败: {e}")
 
     def get_state(self) -> bool:
+        """
+        返回插件启用状态
+
+        :return: True 表示插件已启用
+        """
         return self._enabled
 
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:
+        """
+        返回插件远程命令列表，本插件无远程命令
+
+        :return: None
+        """
         pass
 
     def get_api(self) -> List[Dict[str, Any]]:
+        """
+        返回插件 API 端点列表，本插件无自定义 API
+
+        :return: None
+        """
         pass
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
@@ -146,6 +165,11 @@ class P123Disk(_PluginBase):
         }
 
     def get_page(self) -> List[dict]:
+        """
+        返回插件数据页面配置，本插件无数据页面
+
+        :return: None
+        """
         pass
 
     def get_module(self) -> Dict[str, Any]:

@@ -27,6 +27,11 @@ class TransferHandlerLinkedBatch:
     """
 
     def __init__(self, handler: "TransferHandler") -> None:
+        """
+        初始化关联批量整理处理器
+
+        :param handler: 所属的 TransferHandler 实例
+        """
         self._handler = handler
 
     def batch_create_directories(

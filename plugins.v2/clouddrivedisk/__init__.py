@@ -383,6 +383,11 @@ class CloudDriveDisk(_PluginBase):
 
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:
+        """
+        返回插件远程命令列表
+
+        :return: /cd2_restart、/cd2_info、/cd 命令
+        """
         return [
             {
                 "cmd": "/cd2_restart",
@@ -408,6 +413,11 @@ class CloudDriveDisk(_PluginBase):
         ]
 
     def get_api(self) -> List[Dict[str, Any]]:
+        """
+        返回插件 API 端点列表
+
+        :return: homepage 自定义 API
+        """
         return [
             {
                 "path": "/homepage",
@@ -419,6 +429,11 @@ class CloudDriveDisk(_PluginBase):
         ]
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
+        """
+        拼装插件配置页面
+
+        :return: (页面配置列表, 表单默认值字典)
+        """
         # 编历 NotificationType 枚举，生成消息类型选项
         MsgTypeOptions = []
         for item in NotificationType:
@@ -806,6 +821,11 @@ class CloudDriveDisk(_PluginBase):
         }
 
     def get_page(self) -> List[dict]:
+        """
+        拼装插件详情页面
+
+        :return: CloudDrive2 仪表盘页面配置，含系统状态卡片
+        """
         if not self._client:
             return []
         cd2_info = get_cd2_system_info(self._client, self._black_dir)

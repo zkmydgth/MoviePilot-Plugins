@@ -13,7 +13,17 @@ class OpenStrmHelper:
         pass
 
     def full(self):
+        """
+        全量同步 STRM 文件（暂未实现）
+
+        基于 Open API 接口进行全量 STRM 同步
+        """
         pass
 
     def inc(self):
+        """
+        增量同步 STRM 文件（暂未实现）
+
+        基于 Open API 接口进行增量 STRM 同步
+        """
         pass

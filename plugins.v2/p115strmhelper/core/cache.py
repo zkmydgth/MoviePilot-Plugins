@@ -30,6 +30,11 @@ class IdPathCache:
     """
 
     def __init__(self, maxsize=128):
+        """
+        初始化双向路径ID缓存
+
+        :param maxsize: 缓存最大条目数
+        """
         self.id_to_dir = LRUCache(
             region="p115strmhelper_id_path_cache_id_to_dir",
             maxsize=maxsize,
@@ -82,6 +87,9 @@ class PanTransferCache:
     """
 
     def __init__(self):
+        """
+        初始化网盘整理缓存，创建删除/创建列表及文件项缓存
+        """
         self.delete_pan_transfer_list = []
         self.creata_pan_transfer_list = []
         self.file_item_dict: MutableMapping[str, Dict[str, Any]] = MemoryTTLCache(
@@ -95,6 +103,9 @@ class ShareStrmCache:
     """
 
     def __init__(self):
+        """
+        初始化分享 STRM 缓存，创建带 TTL 的文件项内存缓存
+        """
         self.file_item_dict: MutableMapping[str, Dict[str, Any]] = MemoryTTLCache(
             maxsize=1_000_000, ttl=3600
         )
@@ -189,22 +200,49 @@ class BaseCacheDirectory(ABC):
 
     @abstractmethod
     def add_to_group(self, group_name: str, paths: Union[str, List[str]]):
+        """
+        将路径添加到指定缓存组
+
+        :param group_name: 缓存组名称
+        :param paths: 单个路径或路径列表
+        """
         pass
 
     @abstractmethod
     def is_in_cache(self, group_name: str, path: str) -> bool:
+        """
+        检查路径是否已在指定缓存组中
+
+        :param group_name: 缓存组名称
+        :param path: 待检查的路径
+        :return: 是否存在于缓存组中
+        """
         pass
 
     @abstractmethod
     def get_group_paths(self, group_name: str) -> Set[str]:
+        """
+        获取指定缓存组中的所有路径
+
+        :param group_name: 缓存组名称
+        :return: 路径集合
+        """
         pass
 
     @abstractmethod
     def clear_group(self, group_name: str):
+        """
+        清空指定缓存组
+
+        :param group_name: 缓存组名称
+        """
         pass
 
     @abstractmethod
     def close(self):
+        """
+        关闭缓存并释放资源
+        """
         pass
 
 
@@ -214,11 +252,22 @@ class DiskCacheDirectory(BaseCacheDirectory):
     """
 
     def __init__(self, cache_directory: Path):
+        """
+        初始化基于磁盘的目录缓存
+
+        :param cache_directory: 缓存文件在磁盘上的存储目录
+        """
         if not cache_directory.exists():
             cache_directory.mkdir(parents=True, exist_ok=True)
         self._cache = DiskCache(cache_directory.as_posix())
 
     def add_to_group(self, group_name: str, paths: Union[str, List[str]]):
+        """
+        将路径添加到指定分组
+
+        :param group_name: 分组名称
+        :param paths: 单个路径字符串或路径列表
+        """
         paths_to_add = {paths} if isinstance(paths, str) else set(paths)
         with self._cache.transact():
             existing_paths = self._cache.get(group_name, set())
@@ -226,18 +275,41 @@ class DiskCacheDirectory(BaseCacheDirectory):
             self._cache.set(group_name, updated_paths)
 
     def is_in_cache(self, group_name: str, path: str) -> bool:
+        """
+        检查指定路径是否已在缓存分组中
+
+        :param group_name: 分组名称
+        :param path: 要检查的路径
+
+        :return: 路径存在于缓存中返回 True，否则返回 False
+        """
         directory_set = self._cache.get(group_name)
         return directory_set is not None and path in directory_set
 
     def get_group_paths(self, group_name: str) -> Set[str]:
+        """
+        获取指定分组中的所有路径
+
+        :param group_name: 分组名称
+
+        :return: 路径集合
+        """
         return self._cache.get(group_name, set())
 
     def clear_group(self, group_name: str):
+        """
+        清除指定分组的所有缓存
+
+        :param group_name: 分组名称
+        """
         with self._cache.transact():
             if group_name in self._cache:
                 del self._cache[group_name]
 
     def close(self):
+        """
+        关闭磁盘缓存连接
+        """
         self._cache.close()
 
 
@@ -247,6 +319,9 @@ class RedisCacheDirectory(BaseCacheDirectory):
     """
 
     def __init__(self):
+        """
+        初始化基于 Redis 的目录缓存，建立 Redis 连接
+        """
         self.redis_helper = RedisHelper()
         self.redis_helper._connect()
         self.client = self.redis_helper.client
@@ -260,25 +335,54 @@ class RedisCacheDirectory(BaseCacheDirectory):
         return f"dir_cache_set:{group_name}"
 
     def add_to_group(self, group_name: str, paths: Union[str, List[str]]):
+        """
+        将路径添加到指定分组的 Redis Set 中
+
+        :param group_name: 分组名称
+        :param paths: 单个路径字符串或路径列表
+        """
         key = self._make_set_key(group_name)
         paths_to_add = [paths] if isinstance(paths, str) else paths
         if paths_to_add:
             self.client.sadd(key, *paths_to_add)
 
     def is_in_cache(self, group_name: str, path: str) -> bool:
+        """
+        检查指定路径是否已在 Redis Set 的缓存分组中
+
+        :param group_name: 分组名称
+        :param path: 要检查的路径
+
+        :return: 路径存在于缓存中返回 True，否则返回 False
+        """
         key = self._make_set_key(group_name)
         return self.client.sismember(key, path)
 
     def get_group_paths(self, group_name: str) -> Set[str]:
+        """
+        获取指定分组 Redis Set 中的所有路径
+
+        :param group_name: 分组名称
+
+        :return: 解码后的路径集合
+        """
         key = self._make_set_key(group_name)
         byte_set = self.client.smembers(key)
         return {b.decode("utf-8") for b in byte_set}
 
     def clear_group(self, group_name: str):
+        """
+        清除指定分组的 Redis Set 缓存
+
+        :param group_name: 分组名称
+        """
         key = self._make_set_key(group_name)
         self.client.delete(key)
 
     def close(self):
+        """
+        关闭 Redis 连接（当前为空操作）
+        """
         pass
 
 
@@ -297,18 +401,47 @@ class DirectoryCache:
             self._storage: BaseCacheDirectory = DiskCacheDirectory(cache_directory)
 
     def add_to_group(self, group_name: str, paths: Union[str, List[str]]):
+        """
+        将路径添加到指定分组
+
+        :param group_name: 分组名称
+        :param paths: 单个路径字符串或路径列表
+        """
         self._storage.add_to_group(group_name, paths)
 
     def is_in_cache(self, group_name: str, path: str) -> bool:
+        """
+        检查指定路径是否已在缓存分组中
+
+        :param group_name: 分组名称
+        :param path: 要检查的路径
+
+        :return: 路径存在于缓存中返回 True，否则返回 False
+        """
         return self._storage.is_in_cache(group_name, path)
 
     def get_group_paths(self, group_name: str) -> Set[str]:
+        """
+        获取指定分组中的所有路径
+
+        :param group_name: 分组名称
+
+        :return: 路径集合
+        """
         return self._storage.get_group_paths(group_name)
 
     def clear_group(self, group_name: str):
+        """
+        清除指定分组的所有缓存
+
+        :param group_name: 分组名称
+        """
         self._storage.clear_group(group_name)
 
     def close(self):
+        """
+        关闭底层缓存连接
+        """
         self._storage.close()
 
 
@@ -388,6 +521,11 @@ class IntKeyCacheAdapter(MutableMapping[int, Any]):
     """
 
     def __init__(self, cache: TTLCache):
+        """
+        初始化 int 键缓存适配器
+
+        :param cache: 底层 TTLCache 实例
+        """
         self._cache = cache
 
     def __getitem__(self, key: int) -> Any:

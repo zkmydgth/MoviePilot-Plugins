@@ -16,6 +16,13 @@ class P123AutoClient:
             self._client = P123Client(self._passport, self._password)
 
         def wrapped(*args, **kwargs):
+            """
+            代理调用 P123Client 的方法，自动处理 Token 超限重连
+
+            :param args: 传递给客户端方法的位置参数
+            :param kwargs: 传递给客户端方法的关键字参数
+            :return: 客户端方法的返回值
+            """
             attr = getattr(self._client, name)
             if not callable(attr):
                 return attr

@@ -23,6 +23,10 @@ from app.utils.http import RequestUtils
 
 
 class SaMediaSyncDel(_PluginBase):
+    """
+    神医媒体文件同步删除插件：监听 Emby 删除事件，同步删除转移记录、源文件、下载任务
+    """
+
     # 插件名称
     plugin_name = "神医媒体文件同步删除"
     # 插件描述
@@ -67,6 +71,11 @@ class SaMediaSyncDel(_PluginBase):
     _emby_user = None
 
     def init_plugin(self, config: dict = None):
+        """
+        初始化插件：读取配置，获取下载器和媒体服务器信息
+
+        :param config: 插件配置字典
+        """
         self._transferchain = TransferChain()
         self._downloader_helper = DownloaderHelper()
         self._transferhis = TransferHistoryOper()
@@ -141,6 +150,11 @@ class SaMediaSyncDel(_PluginBase):
         pass
 
     def get_api(self) -> List[Dict[str, Any]]:
+        """
+        返回插件 API 端点列表
+
+        :return: delete_history 删除订阅历史记录端点
+        """
         return [
             {
                 "path": "/delete_history",
@@ -1863,6 +1877,11 @@ class SaMediaSyncDel(_PluginBase):
         return handle_torrent_hashs
 
     def get_state(self):
+        """
+        返回插件启用状态
+
+        :return: True 表示插件已启用
+        """
         return self._enabled
 
     def stop_service(self):

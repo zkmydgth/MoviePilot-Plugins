@@ -42,6 +42,12 @@ def init_base_ui():
     """
 
     def get_page_data(channel_id):
+        """
+        获取指定频道页面的数据
+
+        :param channel_id: 频道 ID
+        :return: 频道条目数据列表
+        """
         body = {
             "page_params": {
                 "channel_id": channel_id,
@@ -151,6 +157,10 @@ def init_base_ui():
 
 
 class TencentVideoDiscover(_PluginBase):
+    """
+    腾讯视频探索插件，让探索支持腾讯视频的数据浏览
+    """
+
     # 插件名称
     plugin_name = "腾讯视频探索"
     # 插件描述
@@ -174,6 +184,11 @@ class TencentVideoDiscover(_PluginBase):
     _enabled = False
 
     def init_plugin(self, config: dict = None):
+        """
+        根据配置初始化插件启用状态
+
+        :param config: 插件配置字典
+        """
         global BASE_UI
         if config:
             self._enabled = config.get("enabled")
@@ -182,13 +197,28 @@ class TencentVideoDiscover(_PluginBase):
         BASE_UI = init_base_ui()
 
     def get_state(self) -> bool:
+        """
+        返回插件是否已启用
+
+        :return: 插件启用状态
+        """
         return self._enabled
 
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:
+        """
+        返回插件命令列表
+
+        :return: 命令列表
+        """
         pass
 
     def get_api(self) -> List[Dict[str, Any]]:
+        """
+        返回插件 API 端点列表
+
+        :return: API 端点列表
+        """
         return [
             {
                 "path": "/tencentvideo_discover",
@@ -230,6 +260,11 @@ class TencentVideoDiscover(_PluginBase):
         ], {"enabled": False}
 
     def get_page(self) -> List[dict]:
+        """
+        返回插件静态页面列表
+
+        :return: 静态页面列表
+        """
         pass
 
     @cached(region="tencentvideo_discover", ttl=1800, skip_none=True)

@@ -333,6 +333,9 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        """
+        FastAPI 生命周期管理器：创建共享 httpx 客户端及缓存，关闭时清理资源
+        """
         limits = Limits(max_keepalive_connections=20, keepalive_expiry=30.0)
         app.state.http_client_follow = AsyncClient(follow_redirects=True, limits=limits)
         app.state.http_client_no_follow = AsyncClient(
@@ -361,6 +364,9 @@ def create_app(
 
     @app.middleware("http")
     async def path_to_lower_middleware(request: Request, call_next):
+        """
+        FastAPI 中间件：将 Emby API 路径中的大写转小写，提升路由匹配兼容性
+        """
         path = request.scope["path"]
         lower = path.lower()
         _api_prefixes = (
@@ -686,6 +692,9 @@ def create_app(
             async with connect(backend_url) as ws_backend:
 
                 async def client_to_backend() -> None:
+                    """
+                    WebSocket 客户端→后端：转发客户端文本消息到后端
+                    """
                     try:
                         while True:
                             data = await ws_client.receive_text()
@@ -694,6 +703,9 @@ def create_app(
                         pass
 
                 async def backend_to_client() -> None:
+                    """
+                    WebSocket 后端→客户端：转发后端消息到客户端
+                    """
                     try:
                         async for msg in ws_backend:
                             if isinstance(msg, str):
@@ -1098,6 +1110,9 @@ def create_app(
         }
 
         async def stream():
+            """
+            流式读取 httpx 响应并逐块输出，完成后关闭响应
+            """
             try:
                 async for chunk in resp.aiter_bytes(chunk_size=65536):
                     yield chunk

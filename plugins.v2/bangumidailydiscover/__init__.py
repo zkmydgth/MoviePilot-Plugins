@@ -33,6 +33,10 @@ BANGUMI_HEADERS = {
 
 
 class BangumiDailyDiscover(_PluginBase):
+    """
+    Bangumi 每日放送探索插件，让探索支持 Bangumi 每日放送的数据浏览
+    """
+
     # 插件名称
     plugin_name = "Bangumi每日放送探索"
     # 插件描述
@@ -82,9 +86,19 @@ class BangumiDailyDiscover(_PluginBase):
 
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:
+        """
+        返回插件命令列表
+
+        :return: 命令列表
+        """
         pass
 
     def get_api(self) -> List[Dict[str, Any]]:
+        """
+        返回插件 API 端点列表
+
+        :return: API 端点列表
+        """
         return [
             {
                 "path": "/bangumidaily_discover",
@@ -96,6 +110,9 @@ class BangumiDailyDiscover(_PluginBase):
         ]
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
+        """
+        拼装插件配置页面，需要返回两块数据：1、页面配置；2、数据结构
+        """
         return [
             {
                 "component": "VForm",
@@ -123,6 +140,11 @@ class BangumiDailyDiscover(_PluginBase):
         ], {"enabled": False}
 
     def get_page(self) -> List[dict]:
+        """
+        返回插件静态页面列表
+
+        :return: 静态页面列表
+        """
         pass
 
     @staticmethod

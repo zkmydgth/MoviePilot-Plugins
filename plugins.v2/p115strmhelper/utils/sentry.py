@@ -51,16 +51,37 @@ class NoopSentryHub(Hub):
     """
 
     def capture_event(self, event, hint=None, scope=None, **scope_kwargs):
+        """
+        空实现：捕获并上报事件
+        """
         pass
 
     def capture_exception(self, error=None, **kwargs):
+        """
+        空实现：捕获并上报异常
+        """
         pass
 
     def capture_message(self, message, **kwargs):
+        """
+        空实现：捕获并上报消息
+        """
         pass
 
     def configure_scope(self, callback=None, continue_trace=True):
+        """
+        空实现：配置 Sentry 作用域并返回一个 NoopScope
+
+        :param callback: 可选的作用域配置回调
+        :param continue_trace: 是否继续追踪（忽略）
+        :return: NoopScope 实例
+        """
+
         class NoopScope:
+            """
+            空实现的作用域上下文管理器
+            """
+
             def __enter__(self):
                 return self
 
@@ -75,10 +96,25 @@ class NoopSentryHub(Hub):
         return NoopScope()
 
     def add_breadcrumb(self, crumb=None, hint=None, **kwargs):
+        """
+        空实现：添加面包屑
+        """
         pass
 
     def push_scope(self, callback=None, continue_trace=True):
+        """
+        空实现：推送作用域并返回 NoopContextManager
+
+        :param callback: 可选的回调
+        :param continue_trace: 是否继续追踪（忽略）
+        :return: NoopContextManager 实例
+        """
+
         class NoopContextManager:
+            """
+            空实现的上下文管理器
+            """
+
             def __enter__(self):
                 pass
 
@@ -88,12 +124,24 @@ class NoopSentryHub(Hub):
         return NoopContextManager()
 
     def pop_scope(self, *args, **kwargs):
+        """
+        空实现：弹出作用域
+        """
         pass
 
     def flush(self, timeout=None, callback=None):
+        """
+        空实现：刷新缓冲区
+
+        :param timeout: 超时时间（忽略）
+        :param callback: 完成回调（忽略）
+        """
         pass
 
     def __getattr__(self, name):
+        """
+        空实现：对任意属性返回一个空函数
+        """
         return lambda *args, **kwargs: None
 
 
@@ -103,6 +151,9 @@ class SentryManager:
     """
 
     def __init__(self):
+        """
+        初始化 Sentry 管理器，加载忽略规则和配置
+        """
         self.sentry_hub = NoopSentryHub()
         self._patched = False
 
@@ -216,7 +267,12 @@ class SentryManager:
 
     def capture_plugin_exceptions(self, func):
         """
-        作为方法使用的函数装饰器
+        函数装饰器，自动捕获函数内部的异常并上报 Sentry
+
+        支持同步和异步函数，被装饰的函数名和来源会被标记到 Sentry 事件中
+
+        :param func: 要包装的函数
+        :return: 包装后的函数
         """
         if getattr(func, "_sentry_captured", False):
             return func
@@ -225,6 +281,14 @@ class SentryManager:
 
             @functools.wraps(func)
             async def async_wrapper(*args, **kwargs):
+                """
+                包装异步函数，自动捕获并上报异常
+
+                :param args: 传递给被装饰函数的位置参数
+                :param kwargs: 传递给被装饰函数的关键字参数
+                :return: 被装饰函数的返回值
+                :raises: 捕获异常后重新抛出
+                """
                 with self.sentry_hub:
                     try:
                         return await func(*args, **kwargs)
@@ -241,6 +305,14 @@ class SentryManager:
 
             @functools.wraps(func)
             def wrapper(*args, **kwargs):
+                """
+                包装同步函数，自动捕获并上报异常
+
+                :param args: 传递给被装饰函数的位置参数
+                :param kwargs: 传递给被装饰函数的关键字参数
+                :return: 被装饰函数的返回值
+                :raises: 捕获异常后重新抛出
+                """
                 with self.sentry_hub:
                     try:
                         return func(*args, **kwargs)
@@ -256,7 +328,13 @@ class SentryManager:
 
     def capture_all_class_exceptions(self, cls):
         """
-        作为方法使用的类装饰器
+        类装饰器，自动为类中所有公开方法添加 Sentry 异常捕获
+
+        遍历类的公开方法（非下划线开头），为每个方法应用 capture_plugin_exceptions 装饰器，
+        同时保留 staticmethod 和 classmethod 的类型
+
+        :param cls: 要包装的类
+        :return: 包装后的类
         """
         for name, attr in cls.__dict__.items():
             if name.startswith("_"):

@@ -9,9 +9,19 @@ try:
 except ImportError:
 
     def getuid() -> int:
+        """
+        获取当前用户 UID 的兼容实现（非 UNIX 系统返回 0）
+
+        :return: 用户 UID
+        """
         return 0
 
     def getgid() -> int:
+        """
+        获取当前用户 GID 的兼容实现（非 UNIX 系统返回 0）
+
+        :return: 用户 GID
+        """
         return 0
 
 

@@ -163,16 +163,36 @@ class EmbyReverseProxy(_PluginBase):
                 self._thread = None
 
     def get_state(self) -> bool:
+        """
+        返回插件启用状态
+
+        :return: True 表示插件已启用
+        """
         return self._enabled
 
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:
+        """
+        返回插件远程命令列表，本插件无远程命令
+
+        :return: None
+        """
         pass
 
     def get_api(self) -> List[Dict[str, Any]]:
+        """
+        返回插件 API 端点列表，本插件无自定义 API
+
+        :return: 空列表
+        """
         return []
 
     def get_page(self) -> List[dict]:
+        """
+        返回插件数据页面配置，本插件无数据页面
+
+        :return: None
+        """
         pass
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
