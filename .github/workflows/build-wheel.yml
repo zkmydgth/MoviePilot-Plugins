@@ -28,10 +28,9 @@ on:
         default: 'windows-amd64 linux-x86_64 linux-i686 linux-aarch64 macos-x86_64 macos-arm64'
         type: string
       commit_directory:
-        description: '构建好的 wheels 最终提交到仓库的目录'
+        description: '可选：自定义提交目录。留空则使用默认值 wheels/包名/版本/'
         required: false
-        # 默认值会使用其他输入参数来构造，保持原有逻辑
-        default: 'wheels/${{ github.event.inputs.package_name }}/${{ github.event.inputs.package_version }}'
+        default: ''
         type: string
 
 
@@ -160,34 +159,41 @@ jobs:
     # 运行环境
     runs-on: ubuntu-latest
     steps:
-      # 步骤1：检出代码
       - name: 检出代码
         uses: actions/checkout@v4
 
-      # 步骤2：创建用于存放 wheel 的目录
+      - name: 确定最终提交目录
+        id: set_path
+        shell: bash
+        run: |
+          # 使用 bash 参数扩展：如果 inputs.commit_directory 变量未设置或为空，则使用 :- 后面的默认值
+          FINAL_PATH="${{ inputs.commit_directory:-wheels/${{ inputs.package_name }}/${{ inputs.package_version }} }}"
+          echo "最终提交目录: ${FINAL_PATH}"
+          # 将最终路径设置为本步骤的输出，供后续步骤使用
+          echo "path=${FINAL_PATH}" >> $GITHUB_OUTPUT
+
       - name: 创建目标目录
         run: |
-          mkdir -p ${{ inputs.commit_directory }}
+          mkdir -p ${{ steps.set_path.outputs.path }}
 
-      # 步骤3：下载所有构建任务上传的产物
       - name: 下载所有 Wheels 产物
         uses: actions/download-artifact@v4
         with:
           path: temp-wheels
 
-      # 步骤4：整理所有 wheel 文件到最终目录
       - name: 整理 Wheel 文件
         run: |
-          find temp-wheels -name "*.whl" -exec mv {} ${{ inputs.commit_directory }}/ \;
+          # 使用上一步计算出的最终路径
+          find temp-wheels -name "*.whl" -exec mv {} ${{ steps.set_path.outputs.path }}/ \;
           echo "所有 wheel 文件已整理到目标目录:"
-          ls -R ${{ inputs.commit_directory }}
+          ls -R ${{ steps.set_path.outputs.path }}
 
-      # 步骤5：提交并推送到代码仓库
       - name: 提交并推送文件
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add ${{ inputs.commit_directory }}/*.whl
+          # 使用上一步计算出的最终路径
+          git add ${{ steps.set_path.outputs.path }}/*.whl
           if git diff --staged --quiet; then
             echo "没有新的 wheel 文件需要提交。"
           else
