@@ -27,8 +27,6 @@ NO_TIMEOUT_METHODS = {
     "to_id",
     "get_fs",
     "login_app",
-    "login_web",
-    "login_open",
     "login_qrcode",
     "login_qrcode_token",
     "login_qrcode_scan_status",
