@@ -29,7 +29,7 @@ on:
         type: string
 
 jobs:
-  # 新增任务：准备构建矩阵
+  # 任务0：准备构建矩阵
   prepare_matrix:
     # 任务名称
     name: 0. 准备构建矩阵
@@ -37,19 +37,20 @@ jobs:
     runs-on: ubuntu-latest
     # 任务输出
     outputs:
-      # 输出转换后的 JSON 数组字符串
-      matrix_json: ${{ steps.generate_matrix.outputs.matrix_json }}
+      # 输出一个包含完整 matrix 配置的 JSON 字符串
+      matrix: ${{ steps.generate_matrix.outputs.matrix }}
     steps:
-      # 步骤1：将输入的字符串转换为 JSON 格式
+      # 步骤1：将输入的字符串转换为一个完整的 matrix JSON 对象
       - name: 从输入字符串生成矩阵 JSON
         id: generate_matrix
         run: |
-          # 使用 jq 工具将空格分隔的字符串安全地转换为 JSON 数组格式
-          JSON_ARRAY=$(echo '${{ inputs.platforms }}' | jq -R 'split(" ") | tojson')
-          echo "matrix_json=${JSON_ARRAY}" >> $GITHUB_OUTPUT
-          echo "生成的矩阵: ${JSON_ARRAY}"
+          # 将空格分隔的字符串转换为一个 JSON 对象 {"target": ["item1", "item2", ...]}
+          # tojson 会确保输出的是一个格式正确的、单行的 JSON 字符串，便于后续步骤使用
+          JSON_OBJECT=$(echo '${{ inputs.platforms }}' | jq -R '{target: split(" ")} | tojson')
+          echo "matrix=${JSON_OBJECT}" >> $GITHUB_OUTPUT
+          echo "生成的矩阵对象: ${JSON_OBJECT}"
 
-  # 第一个任务：获取源码包信息
+  # 任务1：获取源码包信息
   get_source_info:
     # 任务名称
     name: 1. 获取源码包下载地址
@@ -57,9 +58,7 @@ jobs:
     runs-on: ubuntu-latest
     # 任务输出
     outputs:
-      # 输出源码包的 URL
       sdist_url: ${{ steps.get_url.outputs.sdist_url }}
-      # 输出源码解压后的目录名
       source_dir: ${{ steps.get_url.outputs.source_dir }}
     steps:
       # 步骤1：通过 PyPI JSON API 获取信息
@@ -82,7 +81,7 @@ jobs:
           echo "成功获取到源码包 URL: ${SDIST_URL}"
           echo "源码目录名: ${SOURCE_DIR}"
 
-  # 第二个任务：构建 wheel 文件
+  # 任务2：构建 wheel 文件
   build_wheels:
     # 任务名称
     name: 2. 在 ${{ matrix.target }} 上编译
@@ -93,9 +92,8 @@ jobs:
     # 构建矩阵策略
     strategy:
       fail-fast: false
-      # 定义矩阵，从 prepare_matrix 任务的输出中动态生成
-      matrix:
-        target: ${{ fromJSON(needs.prepare_matrix.outputs.matrix_json) }}
+      # 关键改动：直接从上一个任务的输出中注入整个 matrix 配置
+      matrix: ${{ fromJSON(needs.prepare_matrix.outputs.matrix) }}
 
     steps:
       # 步骤1：检出代码库
@@ -115,11 +113,8 @@ jobs:
       - name: 准备构建变量
         id: vars
         run: |
-          # 将 Python 版本 '3.12.8' 转换为 cibuildwheel 需要的格式 'cp312-*'
           PY_VERSION_SHORT=$(echo "${{ inputs.python_version }}" | cut -d. -f1,2 | tr -d .)
           echo "cibw_build_version=cp${PY_VERSION_SHORT}-*" >> $GITHUB_OUTPUT
-
-          # 从目标平台 'windows-amd64' 中提取架构部分 'amd64'
           ARCH=$(echo "${{ matrix.target }}" | cut -d- -f2-)
           echo "cibw_arch=${ARCH}" >> $GITHUB_OUTPUT
 
@@ -132,16 +127,11 @@ jobs:
       - name: 构建 Wheel
         uses: pypa/cibuildwheel@v2.19.1
         env:
-          # 从上一步 'vars' 的输出中获取 Python 版本
           CIBW_BUILD: ${{ steps.vars.outputs.cibw_build_version }}
-          # 设置输出目录
           CIBW_OUTPUT_DIR: wheels
-          # 排除不需要的平台架构组合
           CIBW_SKIP: "*-win_ia64 *-win32 *-manylinux_armv7l *-manylinux_ppc64le *-manylinux_s390x *-macosx_i686 *-macosx_ppc64"
-          # 从上一步 'vars' 的输出中获取目标架构
           CIBW_ARCHS: ${{ steps.vars.outputs.cibw_arch }}
         with:
-          # 指定源码包解压后的目录
           package-dir: ${{ needs.get_source_info.outputs.source_dir }}
 
       # 步骤6：将构建好的 wheel 文件作为产物上传
@@ -151,7 +141,7 @@ jobs:
           name: wheel-${{ matrix.target }}
           path: ./wheels/*.whl
 
-  # 第三个任务：提交 wheel 文件到仓库
+  # 任务3：提交 wheel 文件到仓库
   commit_wheels:
     # 任务名称
     name: 3. 提交 Wheels 到仓库
