@@ -31,3 +31,28 @@ class ShareApiData(BaseModel):
     msg: str = "success"
     data: Optional[ShareResponseData] = None
     timestamp: Optional[datetime] = None
+
+
+class ShareStrmConfig(BaseModel):
+    """
+    分享 STRM 生成配置
+    """
+
+    # 分享链接
+    share_link: Optional[str] = None
+    # 分享码
+    share_code: Optional[str] = None
+    # 分享密码
+    share_receive: Optional[str] = None
+    # 分享路径
+    share_path: Optional[str] = None
+    # 本地路径
+    local_path: Optional[str] = None
+    # 交由 MoviePilot 整理
+    moviepilot_transfer: bool = False
+    # 自动下载网盘元数据
+    auto_download_mediainfo: bool = False
+    # 刷新媒体服务器
+    media_server_refresh: bool = False
+    # 是否刮削元数据
+    scrape_metadata: bool = False

@@ -22,6 +22,7 @@ from app.db.plugindata_oper import PluginDataOper
 from ..version import VERSION
 from ..core.aliyunpan import AliyunPanLogin
 from ..schemas.cookie import U115Cookie
+from ..schemas.share import ShareStrmConfig
 from ..utils.machineid import MachineID
 from ..utils.cron import CronUtils
 
@@ -253,20 +254,14 @@ class ConfigManager(BaseModel):
     # 生活事件事件等待时间
     monitor_life_event_wait_time: int = 0
 
-    # 分享生成 STRM 运行开关
-    share_strm_auto_download_mediainfo_enabled: bool = False
-    # 分享码
-    user_share_code: Optional[str] = None
-    # 分享密码
-    user_receive_code: Optional[str] = None
-    # 分享链接
-    user_share_link: Optional[str] = None
-    # 分享目录
-    user_share_pan_path: Optional[str] = None
-    # 本地 STRM 目录
-    user_share_local_path: Optional[str] = None
+    # 分享 STRM 生成配置
+    share_strm_config: List[ShareStrmConfig] = []
     # 分享生成最小文件大小
     share_strm_min_file_size: Optional[int] = None
+    # 刷新媒体服务器
+    share_strm_mediaservers: Optional[List[str]] = None
+    # MP-媒体库 目录转换
+    share_strm_mp_mediaserver_paths: Optional[str] = None
 
     # 清理回收站开关
     clear_recyclebin_enabled: bool = False

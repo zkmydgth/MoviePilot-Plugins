@@ -1523,7 +1523,6 @@ const PLUGIN_ID = "P115StrmHelper";
 const loading = ref(true);
 const saveLoading = ref(false);
 const syncLoading = ref(false);
-const shareSyncLoading = ref(false);
 const clearIdPathCacheLoading = ref(false);
 const clearIncrementSkipCacheLoading = ref(false);
 const activeTab = ref('tab-transfer');
@@ -1587,12 +1586,10 @@ const config = reactive({
   monitor_life_remove_mp_source: false,
   monitor_life_min_file_size: 0,
   monitor_life_event_wait_time: 0,
-  share_strm_auto_download_mediainfo_enabled: false,
-  user_share_code: '',
-  user_receive_code: '',
-  user_share_link: '',
-  user_share_pan_path: '/',
-  user_share_local_path: '',
+  share_strm_config: [],
+  share_strm_min_file_size: null,
+  share_strm_mediaservers: [],
+  share_strm_mp_mediaserver_paths: '',
   clear_recyclebin_enabled: false,
   clear_receive_path_enabled: false,
   cron_clear: '0 */7 * * *',
@@ -2281,31 +2278,6 @@ const triggerFullSync = async () => {
   }
 };
 
-const triggerShareSync = async () => {
-  shareSyncLoading.value = true;
-  message.text = '';
-  try {
-    if (!config.enabled) throw new Error('插件未启用，请先启用插件');
-    if (!config.cookies || config.cookies.trim() === '') throw new Error('请先设置115 Cookie');
-    if (!config.share_target_path || config.share_target_path.trim() === '') throw new Error('请先配置分享目标路径');
-    if (!config.share_strm_path || config.share_strm_path.trim() === '') throw new Error('请先配置分享STRM路径');
-
-    const result = await props.api.post(`plugin/${PLUGIN_ID}/share_sync`);
-    if (result && result.code === 0) {
-      message.text = result.msg || '分享同步任务已启动';
-      message.type = 'success';
-    } else {
-      throw new Error(result?.msg || '启动分享同步失败');
-    }
-  } catch (err) {
-    message.text = `启动分享同步失败: ${err.message || '未知错误'}`;
-    message.type = 'error';
-    console.error('启动分享同步失败:', err);
-  } finally {
-    shareSyncLoading.value = false;
-  }
-};
-
 // 清理文件路径ID缓存
 const clearIdPathCache = async () => {
   clearIdPathCacheLoading.value = true;
@@ -2595,7 +2567,6 @@ const confirmDirSelection = () => {
     }
   }
   else if (dirDialog.type === 'panTransferUnrecognized') config.pan_transfer_unrecognized_path = processedPath;
-  else if (dirDialog.type === 'sharePath') dirDialog.isLocal ? config.user_share_local_path = processedPath : config.user_share_pan_path = processedPath;
   closeDirDialog();
 };
 const closeDirDialog = () => {

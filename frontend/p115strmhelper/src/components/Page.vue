@@ -632,11 +632,13 @@
   </div>
 
   <!-- 分享同步对话框 -->
-  <v-dialog v-model="shareDialog.show" max-width="600">
+  <v-dialog v-model="shareDialog.show" max-width="900" scrollable>
     <v-card>
       <v-card-title class="text-subtitle-1 d-flex align-center px-3 py-1 bg-primary-lighten-5">
         <v-icon icon="mdi-share-variant" class="mr-2" color="primary" size="small" />
         <span>115网盘分享同步</span>
+        <v-spacer></v-spacer>
+        <v-btn icon="mdi-close" variant="text" size="small" @click="closeShareDialog"></v-btn>
       </v-card-title>
 
       <v-card-text class="px-3 py-2">
@@ -644,52 +646,85 @@
           {{ shareDialog.error }}
         </v-alert>
 
-        <v-row>
-          <v-col cols="12">
-            <v-text-field v-model="shareDialog.shareLink" label="分享链接" hint="115网盘分享链接" persistent-hint
-              variant="outlined" density="compact"></v-text-field>
-          </v-col>
-        </v-row>
+        <!-- 全局配置 -->
+        <v-card variant="outlined" class="mb-4">
+          <v-card-title class="text-subtitle-2 px-3 py-2 bg-grey-lighten-4">
+            <v-icon icon="mdi-cog" size="small" class="mr-2"></v-icon>
+            全局配置
+          </v-card-title>
+          <v-card-text class="pa-3">
+            <v-row>
+              <v-col cols="12" md="6">
+                <v-text-field v-model="shareDialog.globalMinFileSizeFormatted" label="STRM最小文件大小" 
+                  hint="小于此值不生成STRM(K,M,G)" persistent-hint variant="outlined" density="compact" 
+                  placeholder="例如: 100M" clearable></v-text-field>
+              </v-col>
+              <v-col cols="12" md="6">
+                <v-select v-model="shareDialog.globalMediaservers" label="刷新媒体服务器" 
+                  :items="mediaservers" multiple chips closable-chips variant="outlined" density="compact"></v-select>
+              </v-col>
+            </v-row>
+            <v-row>
+              <v-col cols="12">
+                <v-textarea v-model="shareDialog.globalMpMediaserverPaths" label="MP-媒体库 目录转换" 
+                  hint="格式：媒体库路径#MP路径，多个用换行分隔。例如：/media#/mp" persistent-hint 
+                  variant="outlined" density="compact" rows="3" auto-grow placeholder="例如:&#10;/media#/mp&#10;/nas#/movie"></v-textarea>
+              </v-col>
+            </v-row>
+          </v-card-text>
+        </v-card>
 
-        <v-row>
-          <v-col cols="12" md="6">
-            <v-text-field v-model="shareDialog.shareCode" label="分享码" hint="分享码，和分享链接选填一项" persistent-hint
-              variant="outlined" density="compact"></v-text-field>
-          </v-col>
-          <v-col cols="12" md="6">
-            <v-text-field v-model="shareDialog.receiveCode" label="分享密码" hint="分享密码，如有则必填" persistent-hint
-              variant="outlined" density="compact"></v-text-field>
-          </v-col>
-        </v-row>
-
-        <v-row>
-          <v-col cols="12" md="6">
-            <v-text-field v-model="shareDialog.panPath" label="分享文件夹路径"
-              hint="分享内容列表中的相对路径，默认为根目录 /。例如，若分享链接指向一个文件夹，此路径为该文件夹内的子路径。" persistent-hint variant="outlined"
-              density="compact"></v-text-field>
-          </v-col>
-          <v-col cols="12" md="6">
-            <v-text-field v-model="shareDialog.localPath" label="本地生成STRM路径" hint="本地生成STRM文件的路径" persistent-hint
-              variant="outlined" density="compact" append-icon="mdi-folder"
-              @click:append="openShareDirSelector('local')"></v-text-field>
-          </v-col>
-        </v-row>
-
-        <v-row>
-          <v-col cols="12" md="6">
-            <v-switch v-model="shareDialog.downloadMediaInfo" label="下载媒体数据文件" color="primary"
-              density="compact"></v-switch>
-          </v-col>
-          <v-col cols="12" md="6">
-            <v-text-field v-model="shareDialog.shareMinFileSizeFormatted" label="STRM最小文件大小" hint="小于此值不生成STRM(K,M,G)"
-              persistent-hint variant="outlined" density="compact" placeholder="例如: 100M" clearable></v-text-field>
-          </v-col>
-        </v-row>
-
-        <v-alert type="info" variant="tonal" density="compact" class="mt-1">
-          分享链接/分享码和分享密码 只需要二选一配置即可。<br>
-          同时填写分享链接，分享码和分享密码时，优先读取分享链接。
-        </v-alert>
+        <!-- 分享配置列表 -->
+        <v-card variant="outlined">
+          <v-card-title class="text-subtitle-2 px-3 py-2 bg-grey-lighten-4 d-flex align-center">
+            <v-icon icon="mdi-share-variant" size="small" class="mr-2"></v-icon>
+            <span class="flex-grow-1">分享配置列表</span>
+            <v-btn size="small" prepend-icon="mdi-plus" variant="tonal" color="primary" @click="addShareConfig">
+              添加分享
+            </v-btn>
+          </v-card-title>
+          <v-card-text class="pa-0">
+            <v-list v-if="shareDialog.configs.length > 0" class="pa-0">
+              <template v-for="(config, index) in shareDialog.configs" :key="index">
+                <v-list-item class="px-3 py-2">
+                  <template v-slot:prepend>
+                    <v-icon icon="mdi-share-variant" color="primary" size="small" class="mr-2"></v-icon>
+                  </template>
+                  <v-list-item-title class="text-body-2 font-weight-medium">
+                    {{ config.share_link || config.share_code || `分享配置 ${index + 1}` }}
+                  </v-list-item-title>
+                  <v-list-item-subtitle class="text-caption mt-1">
+                    <div class="d-flex flex-column">
+                      <span v-if="config.local_path" class="mb-1">
+                        <v-icon icon="mdi-folder" size="x-small" class="mr-1"></v-icon>
+                        本地路径: {{ config.local_path }}
+                      </span>
+                      <span v-else class="text-grey">未配置本地路径</span>
+                      <span v-if="config.share_path && config.share_path !== '/'" class="mt-1">
+                        <v-icon icon="mdi-folder-network" size="x-small" class="mr-1"></v-icon>
+                        分享路径: {{ config.share_path }}
+                      </span>
+                    </div>
+                  </v-list-item-subtitle>
+                  <template v-slot:append>
+                    <div class="d-flex align-center">
+                      <v-btn icon="mdi-pencil" size="small" variant="text" color="primary" 
+                        @click="editShareConfig(index)" title="编辑"></v-btn>
+                      <v-btn icon="mdi-delete" size="small" variant="text" color="error" 
+                        @click="removeShareConfig(index)" title="删除"></v-btn>
+                    </div>
+                  </template>
+                </v-list-item>
+                <v-divider v-if="index < shareDialog.configs.length - 1" class="my-0"></v-divider>
+              </template>
+            </v-list>
+            <v-alert v-else type="info" density="compact" variant="tonal" class="ma-3">
+              <div class="d-flex align-center">
+                <span>暂无分享配置，请点击"添加分享"按钮添加</span>
+              </div>
+            </v-alert>
+          </v-card-text>
+        </v-card>
       </v-card-text>
 
       <v-divider></v-divider>
@@ -699,6 +734,131 @@
         <v-btn color="primary" variant="text" @click="executeShareSync" :loading="shareSyncLoading"
           :disabled="!isShareDialogValid" size="small">
           开始同步
+        </v-btn>
+      </v-card-actions>
+    </v-card>
+  </v-dialog>
+
+  <!-- 分享配置编辑对话框 -->
+  <v-dialog v-model="shareConfigDialog.show" max-width="700" scrollable>
+    <v-card>
+      <v-card-title class="text-subtitle-1 d-flex align-center px-3 py-1 bg-primary-lighten-5">
+        <v-icon icon="mdi-share-variant" class="mr-2" color="primary" size="small" />
+        <span>{{ shareConfigDialog.editingIndex >= 0 ? '编辑分享配置' : '添加分享配置' }}</span>
+        <v-spacer></v-spacer>
+        <v-btn icon="mdi-close" variant="text" size="small" @click="closeShareConfigDialog"></v-btn>
+      </v-card-title>
+
+      <v-card-text class="px-3 py-3">
+        <v-alert v-if="shareConfigDialog.error" type="error" density="compact" class="mb-3" variant="tonal" closable>
+          {{ shareConfigDialog.error }}
+        </v-alert>
+
+        <v-row class="mb-2">
+          <v-col cols="12">
+            <v-text-field v-model="shareConfigDialog.shareLink" label="分享链接" hint="115网盘分享链接" persistent-hint
+              variant="outlined" density="compact" prepend-inner-icon="mdi-link"></v-text-field>
+          </v-col>
+        </v-row>
+
+        <v-row class="mb-2">
+          <v-col cols="12" md="6">
+            <v-text-field v-model="shareConfigDialog.shareCode" label="分享码" hint="分享码，和分享链接选填一项" persistent-hint
+              variant="outlined" density="compact" prepend-inner-icon="mdi-key"></v-text-field>
+          </v-col>
+          <v-col cols="12" md="6">
+            <v-text-field v-model="shareConfigDialog.shareReceive" label="分享密码" hint="分享密码，和分享链接选填一项" persistent-hint
+              variant="outlined" density="compact" prepend-inner-icon="mdi-lock" type="password"></v-text-field>
+          </v-col>
+        </v-row>
+
+        <v-row class="mb-2">
+          <v-col cols="12" md="6">
+            <v-text-field v-model="shareConfigDialog.sharePath" label="分享路径"
+              hint="分享内容列表中的相对路径，默认为根目录 /" persistent-hint variant="outlined"
+              density="compact" prepend-inner-icon="mdi-folder-network"></v-text-field>
+          </v-col>
+          <v-col cols="12" md="6">
+            <v-text-field v-model="shareConfigDialog.localPath" label="本地路径" hint="本地生成STRM文件的路径" persistent-hint
+              variant="outlined" density="compact" prepend-inner-icon="mdi-folder" append-icon="mdi-folder-search"
+              @click:append="openShareConfigDirSelector('local')"></v-text-field>
+          </v-col>
+        </v-row>
+
+        <v-divider class="my-3"></v-divider>
+
+        <v-row class="mb-2">
+          <v-col cols="12">
+            <v-switch v-model="shareConfigDialog.moviepilotTransfer" label="STRM 交由 MoviePilot 整理" color="primary"
+              density="compact" hide-details>
+              <template v-slot:label>
+                <div class="d-flex align-center">
+                  <v-icon icon="mdi-transfer" size="small" class="mr-2"></v-icon>
+                  <span>STRM 交由 MoviePilot 整理</span>
+                </div>
+              </template>
+            </v-switch>
+          </v-col>
+        </v-row>
+
+        <v-expand-transition>
+          <div v-if="!shareConfigDialog.moviepilotTransfer">
+            <v-row class="mb-2">
+              <v-col cols="12" md="4" class="d-flex align-center">
+                <v-switch v-model="shareConfigDialog.autoDownloadMediainfo" color="primary"
+                  density="compact" hide-details class="flex-grow-1">
+                  <template v-slot:label>
+                    <div class="d-flex align-center">
+                      <v-icon icon="mdi-download" size="small" class="mr-2"></v-icon>
+                      <span>自动下载网盘元数据</span>
+                    </div>
+                  </template>
+                </v-switch>
+              </v-col>
+              <v-col cols="12" md="4" class="d-flex align-center">
+                <v-switch v-model="shareConfigDialog.mediaServerRefresh" color="primary"
+                  density="compact" hide-details class="flex-grow-1">
+                  <template v-slot:label>
+                    <div class="d-flex align-center">
+                      <v-icon icon="mdi-refresh" size="small" class="mr-2"></v-icon>
+                      <span>刷新媒体服务器</span>
+                    </div>
+                  </template>
+                </v-switch>
+              </v-col>
+              <v-col cols="12" md="4" class="d-flex align-center">
+                <v-switch v-model="shareConfigDialog.scrapeMetadata" color="primary"
+                  density="compact" hide-details class="flex-grow-1">
+                  <template v-slot:label>
+                    <div class="d-flex align-center">
+                      <v-icon icon="mdi-file-search" size="small" class="mr-2"></v-icon>
+                      <span>是否刮削元数据</span>
+                    </div>
+                  </template>
+                </v-switch>
+              </v-col>
+            </v-row>
+          </div>
+        </v-expand-transition>
+
+        <v-alert type="info" variant="tonal" density="compact" class="mt-3">
+          <div class="text-caption">
+            <div class="mb-1"><strong>提示：</strong></div>
+            <ul class="ma-0 pl-4">
+              <li>分享链接/分享码和分享密码只需要二选一配置即可</li>
+              <li>同时填写分享链接、分享码和分享密码时，优先读取分享链接</li>
+              <li>当 STRM交由MoviePilot整理 关闭时，才能配置自动下载网盘元数据、刷新媒体服务器和是否刮削元数据</li>
+            </ul>
+          </div>
+        </v-alert>
+      </v-card-text>
+
+      <v-divider></v-divider>
+      <v-card-actions class="px-3 py-1">
+        <v-btn color="grey" variant="text" @click="closeShareConfigDialog" size="small">取消</v-btn>
+        <v-spacer></v-spacer>
+        <v-btn color="primary" variant="text" @click="saveShareConfig" :disabled="!isShareConfigDialogValid" size="small">
+          保存
         </v-btn>
       </v-card-actions>
     </v-card>
@@ -1020,7 +1180,7 @@ const isProperlyCongifured = computed(() => {
   const hasFullSyncPaths = getPathsCount(props.initialConfig.full_sync_strm_paths) > 0 && (props.initialConfig.timing_full_sync_strm);
   const hasIncrementSyncPaths = getPathsCount(props.initialConfig.increment_sync_strm_paths) > 0 && (props.initialConfig.increment_sync_strm_enabled);
   const hasLifePaths = getPathsCount(props.initialConfig.monitor_life_paths) > 0 && props.initialConfig.monitor_life_enabled;
-  const hasSharePaths = props.initialConfig.user_share_local_path && props.initialConfig.user_share_pan_path;
+  const hasSharePaths = Array.isArray(props.initialConfig.share_strm_config) && props.initialConfig.share_strm_config.length > 0;
   return hasTransferPaths || hasFullSyncPaths || hasIncrementSyncPaths || hasLifePaths || hasSharePaths;
 });
 
@@ -1187,19 +1347,42 @@ const triggerFullSyncDb = async () => {
 const shareDialog = reactive({
   show: false,
   error: null,
-  shareLink: '',
-  shareCode: '',
-  receiveCode: '',
-  panPath: '/',
-  localPath: '',
-  downloadMediaInfo: false,
-  shareMinFileSizeFormatted: '',
+  configs: [],
+  globalMinFileSizeFormatted: '',
+  globalMediaservers: [],
+  globalMpMediaserverPaths: '',
 });
 
+const shareConfigDialog = reactive({
+  show: false,
+  error: null,
+  editingIndex: -1,
+  shareLink: '',
+  shareCode: '',
+  shareReceive: '',
+  sharePath: '/',
+  localPath: '',
+  moviepilotTransfer: false,
+  autoDownloadMediainfo: false,
+  mediaServerRefresh: false,
+  scrapeMetadata: false,
+});
+
+const mediaservers = ref([]);
+
 const isShareDialogValid = computed(() => {
-  if (!shareDialog.localPath) return false;
-  if (!shareDialog.shareLink && !shareDialog.shareCode) return false;
-  if (shareDialog.shareCode && !shareDialog.receiveCode) return false;
+  return shareDialog.configs.length > 0 && shareDialog.configs.every(config => {
+    if (!config.local_path) return false;
+    if (!config.share_link && !config.share_code) return false;
+    if (config.share_code && !config.share_receive) return false;
+    return true;
+  });
+});
+
+const isShareConfigDialogValid = computed(() => {
+  if (!shareConfigDialog.localPath) return false;
+  if (!shareConfigDialog.shareLink && !shareConfigDialog.shareCode) return false;
+  if (shareConfigDialog.shareCode && !shareConfigDialog.shareReceive) return false;
   return true;
 });
 
@@ -1218,28 +1401,107 @@ const openShareDialog = () => {
   shareDialog.show = true;
   shareDialog.error = null;
   if (props.initialConfig) {
-    shareDialog.shareLink = props.initialConfig.user_share_link || '';
-    shareDialog.shareCode = props.initialConfig.user_share_code || '';
-    shareDialog.receiveCode = props.initialConfig.user_receive_code || '';
-    shareDialog.panPath = props.initialConfig.user_share_pan_path || '/';
-    shareDialog.localPath = props.initialConfig.user_share_local_path || '';
-    shareDialog.downloadMediaInfo = props.initialConfig.share_strm_auto_download_mediainfo_enabled || false;
-    shareDialog.shareMinFileSizeFormatted = formatBytes(props.initialConfig.share_strm_min_file_size || 0);
+    // 加载分享配置列表
+    shareDialog.configs = Array.isArray(props.initialConfig.share_strm_config) 
+      ? JSON.parse(JSON.stringify(props.initialConfig.share_strm_config))
+      : [];
+    
+    // 加载全局配置
+    shareDialog.globalMinFileSizeFormatted = formatBytes(props.initialConfig.share_strm_min_file_size || 0);
+    shareDialog.globalMediaservers = Array.isArray(props.initialConfig.share_strm_mediaservers)
+      ? [...props.initialConfig.share_strm_mediaservers]
+      : [];
+    shareDialog.globalMpMediaserverPaths = props.initialConfig.share_strm_mp_mediaserver_paths || '';
   }
 };
 
-const closeShareDialog = () => { shareDialog.show = false; };
+const closeShareDialog = () => { 
+  shareDialog.show = false;
+  shareDialog.configs = [];
+  shareDialog.error = null;
+};
 
-const openShareDirSelector = (type) => {
+const addShareConfig = () => {
+  shareConfigDialog.editingIndex = -1;
+  shareConfigDialog.shareLink = '';
+  shareConfigDialog.shareCode = '';
+  shareConfigDialog.shareReceive = '';
+  shareConfigDialog.sharePath = '/';
+  shareConfigDialog.localPath = '';
+  shareConfigDialog.moviepilotTransfer = false;
+  shareConfigDialog.autoDownloadMediainfo = false;
+  shareConfigDialog.mediaServerRefresh = false;
+  shareConfigDialog.scrapeMetadata = false;
+  shareConfigDialog.error = null;
+  shareConfigDialog.show = true;
+};
+
+const editShareConfig = (index) => {
+  if (index < 0 || index >= shareDialog.configs.length) return;
+  const config = shareDialog.configs[index];
+  shareConfigDialog.editingIndex = index;
+  shareConfigDialog.shareLink = config.share_link || '';
+  shareConfigDialog.shareCode = config.share_code || '';
+  shareConfigDialog.shareReceive = config.share_receive || '';
+  shareConfigDialog.sharePath = config.share_path || '/';
+  shareConfigDialog.localPath = config.local_path || '';
+  shareConfigDialog.moviepilotTransfer = config.moviepilot_transfer || false;
+  shareConfigDialog.autoDownloadMediainfo = config.auto_download_mediainfo || false;
+  shareConfigDialog.mediaServerRefresh = config.media_server_refresh || false;
+  shareConfigDialog.scrapeMetadata = config.scrape_metadata || false;
+  shareConfigDialog.error = null;
+  shareConfigDialog.show = true;
+};
+
+const removeShareConfig = (index) => {
+  if (index >= 0 && index < shareDialog.configs.length) {
+    shareDialog.configs.splice(index, 1);
+  }
+};
+
+const closeShareConfigDialog = () => {
+  shareConfigDialog.show = false;
+  shareConfigDialog.editingIndex = -1;
+  shareConfigDialog.error = null;
+};
+
+const saveShareConfig = () => {
+  shareConfigDialog.error = null;
+  if (!isShareConfigDialogValid.value) {
+    shareConfigDialog.error = '请填写必填项';
+    return;
+  }
+  
+  const config = {
+    share_link: shareConfigDialog.shareLink || null,
+    share_code: shareConfigDialog.shareCode || null,
+    share_receive: shareConfigDialog.shareReceive || null,
+    share_path: shareConfigDialog.sharePath || null,
+    local_path: shareConfigDialog.localPath,
+    moviepilot_transfer: shareConfigDialog.moviepilotTransfer,
+    auto_download_mediainfo: shareConfigDialog.moviepilotTransfer ? false : shareConfigDialog.autoDownloadMediainfo,
+    media_server_refresh: shareConfigDialog.moviepilotTransfer ? false : shareConfigDialog.mediaServerRefresh,
+    scrape_metadata: shareConfigDialog.moviepilotTransfer ? false : shareConfigDialog.scrapeMetadata,
+  };
+  
+  if (shareConfigDialog.editingIndex >= 0) {
+    shareDialog.configs[shareConfigDialog.editingIndex] = config;
+  } else {
+    shareDialog.configs.push(config);
+  }
+  
+  closeShareConfigDialog();
+};
+
+const openShareConfigDirSelector = (type) => {
   dirDialog.show = true;
   dirDialog.isLocal = type === 'local';
   dirDialog.loading = false;
   dirDialog.error = null;
   dirDialog.items = [];
-  dirDialog.currentPath = dirDialog.isLocal ? (shareDialog.localPath || '/') : (shareDialog.panPath || '/');
+  dirDialog.currentPath = dirDialog.isLocal ? (shareConfigDialog.localPath || '/') : '/';
   dirDialog.callback = (path) => {
-    if (dirDialog.isLocal) shareDialog.localPath = path;
-    else shareDialog.panPath = path;
+    if (dirDialog.isLocal) shareConfigDialog.localPath = path;
   };
   loadDirContent();
 };
@@ -1345,20 +1607,23 @@ const executeShareSync = async () => {
   shareSyncLoading.value = true;
   shareDialog.error = null;
   try {
-    if (!shareDialog.localPath) throw new Error('请先设置本地生成STRM路径');
-    if (!shareDialog.shareLink && !shareDialog.shareCode) throw new Error('请输入115网盘分享链接或分享码');
-    if (shareDialog.shareCode && !shareDialog.receiveCode) throw new Error('使用分享码时必须输入分享密码');
+    if (shareDialog.configs.length === 0) {
+      throw new Error('请至少添加一个分享配置');
+    }
+    
     const pluginId = "P115StrmHelper";
     if (props.initialConfig) {
-      props.initialConfig.user_share_link = shareDialog.shareLink;
-      props.initialConfig.user_share_code = shareDialog.shareCode;
-      props.initialConfig.user_receive_code = shareDialog.receiveCode;
-      props.initialConfig.user_share_pan_path = shareDialog.panPath;
-      props.initialConfig.user_share_local_path = shareDialog.localPath;
-      props.initialConfig.share_strm_auto_download_mediainfo_enabled = shareDialog.downloadMediaInfo;
-      props.initialConfig.share_strm_min_file_size = parseSize(shareDialog.shareMinFileSizeFormatted);
+      // 更新配置
+      props.initialConfig.share_strm_config = shareDialog.configs;
+      props.initialConfig.share_strm_min_file_size = parseSize(shareDialog.globalMinFileSizeFormatted) || null;
+      props.initialConfig.share_strm_mediaservers = shareDialog.globalMediaservers.length > 0 
+        ? [...shareDialog.globalMediaservers] 
+        : null;
+      props.initialConfig.share_strm_mp_mediaserver_paths = shareDialog.globalMpMediaserverPaths || null;
+      
       await props.api.post(`plugin/${pluginId}/save_config`, props.initialConfig);
     }
+    
     const result = await props.api.post(`plugin/${pluginId}/share_sync`);
     if (result && result.code === 0) {
       actionMessage.value = result.msg || '分享同步任务已启动';
@@ -1517,6 +1782,15 @@ onMounted(async () => {
       userInfo.error = "115客户端未连接或Cookie无效。";
       storageInfo.error = "115客户端未连接或Cookie无效。";
     }
+  }
+  try {
+    const pluginId = "P115StrmHelper";
+    const data = await props.api.get(`plugin/${pluginId}/get_config`);
+    if (data && data.mediaservers) {
+      mediaservers.value = data.mediaservers;
+    }
+  } catch (err) {
+    console.error('加载媒体服务器列表失败:', err);
   }
 });
 
