@@ -1,4 +1,5 @@
 from functools import wraps
+from inspect import Parameter, signature
 from pathlib import Path
 from threading import Lock
 from typing import Optional, Tuple, Callable, TYPE_CHECKING
@@ -420,12 +421,23 @@ class TransferChainPatcher:
             )
 
             # 计算重命名路径
-            rename_path = handler.get_rename_path(
-                template_string=rename_format,
-                rename_dict=naming_dict,
-                path=target_dir,
-                source_path=task.fileitem.path,
-            )
+            rename_kwargs = {
+                "template_string": rename_format,
+                "rename_dict": naming_dict,
+                "path": target_dir,
+            }
+            try:
+                sig = signature(handler.get_rename_path)
+                has_varkw = any(
+                    p.kind == Parameter.VAR_KEYWORD for p in sig.parameters.values()
+                )
+                if "source_path" in sig.parameters or has_varkw:
+                    rename_kwargs["source_path"] = task.fileitem.path
+                if "source_item" in sig.parameters or has_varkw:
+                    rename_kwargs["source_item"] = task.fileitem
+            except (TypeError, ValueError):
+                pass
+            rename_path = handler.get_rename_path(**rename_kwargs)
 
             # 确保返回 Path 对象
             if rename_path:
