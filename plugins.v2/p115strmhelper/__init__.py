@@ -1033,7 +1033,7 @@ class P115StrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png"
     # 插件版本
-    plugin_version = "1.8.1"
+    plugin_version = "1.8.2"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -2160,14 +2160,20 @@ class P115StrmHelper(_PluginBase):
             return
 
         remove_id = ""
+        # 遍历删除字典
         for key, item_list in self.cache_top_delete_pan_transfer_list.items():
-            self.cache_top_delete_pan_transfer_list[key] = [
-                item for item in item_list if item != str(dest_fileitem.fileid)
-            ]
-            remove_id = key
-            break
+            # 只有目前处理完成的这个文件ID在处理列表中，才表明匹配到了该删除的顶层目录
+            if str(dest_fileitem.fileid) in item_list:
+                # 从列表中删除这个ID
+                self.cache_top_delete_pan_transfer_list[key] = [
+                    item for item in item_list if item != str(dest_fileitem.fileid)
+                ]
+                # 记录需删除的顶层目录
+                remove_id = key
+                break
 
         if remove_id:
+            # 只有需删除的顶层目录下面的文件全部整理完成才进行删除操作
             if not self.cache_top_delete_pan_transfer_list.get(remove_id):
                 del self.cache_top_delete_pan_transfer_list[remove_id]
                 resp = self._client.fs_delete(int(remove_id))
