@@ -2,10 +2,12 @@ __all__ = ["DirectoryTree"]
 
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Iterable, Generator, Union, List
+from typing import Iterable, Generator, List, Union
 
 from app.core.config import settings
 from app.helper.redis import RedisHelper
+
+import txt_tree_storage
 
 
 class DirectoryTreeStorage(ABC):
@@ -66,14 +68,14 @@ class TxtFileStorage(DirectoryTreeStorage):
     """
 
     def __init__(self, file_path: Union[str, Path]):
+        self._rust = txt_tree_storage
         self.file_path = Path(file_path)
         self.file_path.parent.mkdir(parents=True, exist_ok=True)
 
     def add_paths(self, paths: Iterable[str], append: bool = False):
-        mode = "a" if append else "w"
-        buffer_size = 1048576
-        with open(self.file_path, mode, encoding="utf-8", buffering=buffer_size) as f:
-            f.writelines(f"{path}\n" for path in paths)
+        return self._rust.add_paths(
+            self.file_path, (p if isinstance(p, str) else str(p) for p in paths), append
+        )
 
     def compare_trees(
         self, other_storage: "DirectoryTreeStorage"
@@ -81,17 +83,8 @@ class TxtFileStorage(DirectoryTreeStorage):
         if not isinstance(other_storage, TxtFileStorage):
             raise TypeError("TxtFileStorage 只能与同类型的树进行比较")
 
-        try:
-            with open(other_storage.file_path, "r", encoding="utf-8") as f2:
-                tree2_set = set(line.strip() for line in f2)
-        except FileNotFoundError:
-            tree2_set = set()
-
-        with open(self.file_path, "r", encoding="utf-8") as f1:
-            for line in f1:
-                file_path = line.strip()
-                if file_path not in tree2_set:
-                    yield file_path
+        diff = self._rust.compare_trees(self.file_path, other_storage.file_path)
+        yield from diff
 
     def compare_trees_lines(
         self, other_storage: "DirectoryTreeStorage"
@@ -99,44 +92,17 @@ class TxtFileStorage(DirectoryTreeStorage):
         if not isinstance(other_storage, TxtFileStorage):
             raise TypeError("TxtFileStorage 只能与同类型的树进行比较")
 
-        try:
-            with open(other_storage.file_path, "r", encoding="utf-8") as f2:
-                tree2_set = set(line.strip() for line in f2)
-        except FileNotFoundError:
-            tree2_set = set()
-
-        with open(self.file_path, "r", encoding="utf-8") as f1:
-            for line_num, line in enumerate(f1, start=1):
-                file_path = line.strip()
-                if file_path not in tree2_set:
-                    yield line_num
+        lines = self._rust.compare_trees_lines(self.file_path, other_storage.file_path)
+        yield from lines
 
     def get_path_by_line_number(self, line_number: int) -> Union[str, None]:
-        if line_number <= 0:
-            return None
-        try:
-            with open(self.file_path, "r", encoding="utf-8") as f:
-                for i, line in enumerate(f, 1):
-                    if i == line_number:
-                        return line.strip()
-        except FileNotFoundError:
-            return None
-        return None
+        return self._rust.get_path_by_line_number(self.file_path, line_number)
 
     def count(self) -> int:
-        count = 0
-        try:
-            with open(self.file_path, "r", encoding="utf-8") as f:
-                for line in f:
-                    if line.strip():
-                        count += 1
-        except FileNotFoundError:
-            return 0
-        return count
+        return int(self._rust.count(self.file_path))
 
     def clear(self):
-        if self.file_path.exists():
-            self.file_path.unlink()
+        return self._rust.clear(self.file_path)
 
 
 class RedisStorage(DirectoryTreeStorage):
