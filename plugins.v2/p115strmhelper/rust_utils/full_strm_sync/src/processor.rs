@@ -1,6 +1,7 @@
 use crate::types::*;
 use aho_corasick::{AhoCorasick, AhoCorasickBuilder};
 use std::path::Path;
+use rayon::prelude::*;
 
 pub struct Processor {
     config: Config,
@@ -30,6 +31,29 @@ impl Processor {
             mediainfo_whitelist_automaton,
             mediainfo_blacklist_automaton,
         }
+    }
+
+    pub fn process_batch_rust(&self, batch: Vec<FileInput>) -> PackedResult {
+        let results: Vec<ProcessingResult> = batch
+            .par_iter()
+            .map(|item| self.process_item(item))
+            .collect();
+
+        let mut strm_results = Vec::new();
+        let mut download_results = Vec::new();
+        let mut skip_results = Vec::new();
+        let mut fail_results = Vec::new();
+
+        for res in results {
+            match res {
+                ProcessingResult::Strm(info) => strm_results.push(info),
+                ProcessingResult::Download(info) => download_results.push(info),
+                ProcessingResult::Skip(info) => skip_results.push(info),
+                ProcessingResult::Fail(info) => fail_results.push(info),
+            }
+        }
+
+        PackedResult { strm_results, download_results, skip_results, fail_results }
     }
 
     pub fn process_item(&self, item: &FileInput) -> ProcessingResult {

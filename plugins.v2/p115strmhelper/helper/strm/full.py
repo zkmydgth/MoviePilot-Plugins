@@ -17,7 +17,7 @@ from p115client.tool.iterdir import (
 from app.core.config import settings
 from app.log import logger
 
-from full_strm_sync import process_batch, PackedResult
+from full_strm_sync import Processor, PackedResult
 
 from ...core.config import configer
 from ...core.p115 import get_pid_by_path
@@ -665,6 +665,12 @@ class FullSyncStrmHelper:
                 config_json = dumps(config_for_rust).decode("utf-8")
 
                 try:
+                    processor = Processor(config_json)
+                except Exception as e:
+                    logger.error(f"【全量STRM生成】初始化 Rust 核心失败: {e}")
+                    return False
+
+                try:
                     parent_id = get_pid_by_path(
                         self.client, pan_media_dir, True, False, False
                     )
@@ -729,9 +735,7 @@ class FullSyncStrmHelper:
 
                             self.total_count += len(input_batch)
 
-                            results: PackedResult = process_batch(
-                                config_json, input_batch
-                            )
+                            results: PackedResult = processor.process_batch(input_batch)
 
                             for fail_info in results.fail_results:
                                 self.strm_fail_count += 1
