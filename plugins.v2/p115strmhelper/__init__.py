@@ -401,6 +401,9 @@ class P115StrmHelper(_PluginBase):
         if not item_dest_pickcode:
             logger.error(f"{item_dest_name} 不存在 pickcode 值，无法生成 STRM 文件")
             return
+        if not (len(item_dest_pickcode) == 17 and str(item_dest_pickcode).isalnum()):
+            logger.error(f"错误的 pickcode 值 {item_dest_name}，无法生成 STRM 文件")
+            return
         strm_url = f"{self.moviepilot_address.rstrip('/')}/api/v1/plugin/P115StrmHelper/redirect_url?apikey={settings.API_TOKEN}&pickcode={item_dest_pickcode}"
 
         if not generate_strm_files(
