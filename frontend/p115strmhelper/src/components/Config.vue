@@ -125,1901 +125,1926 @@
 
           <!-- 标签页 -->
           <v-card flat class="rounded mb-3 border config-card">
-            <v-tabs v-model="activeTab" color="primary" class="rounded-t" grow>
-              <v-tab value="tab-transfer" class="text-caption">
-                <v-icon size="small" start>mdi-file-move-outline</v-icon>监控MP整理
+            <!-- 主分类标签 -->
+            <v-tabs v-model="mainCategory" color="primary" class="main-category-tabs" grow>
+              <v-tab value="category-strm" class="main-tab">
+                <v-icon size="small" start>mdi-file-link</v-icon>STRM同步
               </v-tab>
-              <v-tab value="tab-sync" class="text-caption">
-                <v-icon size="small" start>mdi-sync</v-icon>全量同步
+              <v-tab value="category-pan" class="main-tab">
+                <v-icon size="small" start>mdi-cloud</v-icon>网盘管理
               </v-tab>
-              <v-tab value="tab-increment-sync" class="text-caption">
-                <v-icon size="small" start>mdi-book-sync</v-icon>增量同步
+              <v-tab value="category-other" class="main-tab">
+                <v-icon size="small" start>mdi-puzzle</v-icon>其他功能
               </v-tab>
-              <v-tab value="tab-life" class="text-caption">
-                <v-icon size="small" start>mdi-calendar-heart</v-icon>监控115生活事件
-              </v-tab>
-              <v-tab value="tab-api-strm" class="text-caption">
-                <v-icon size="small" start>mdi-api</v-icon>API STRM生成
-              </v-tab>
-              <v-tab value="tab-sync-del" class="text-caption">
-                <v-icon size="small" start>mdi-delete-sweep</v-icon>同步删除
-              </v-tab>
-              <v-tab value="tab-pan-transfer" class="text-caption">
-                <v-icon size="small" start>mdi-transfer</v-icon>网盘整理
-              </v-tab>
-              <v-tab value="tab-pan-mount" class="text-caption">
-                <v-icon size="small" start>mdi-folder-network</v-icon>网盘挂载
-              </v-tab>
-              <v-tab value="tab-directory-upload" class="text-caption">
-                <v-icon size="small" start>mdi-upload</v-icon>目录上传
-              </v-tab>
-              <v-tab value="tab-tg-search" class="text-caption">
-                <v-icon size="small" start>mdi-tab-search</v-icon>频道搜索
-              </v-tab>
-              <v-tab value="tab-cleanup" class="text-caption">
-                <v-icon size="small" start>mdi-broom</v-icon>定期清理
-              </v-tab>
-              <v-tab value="tab-same-playback" class="text-caption">
-                <v-icon size="small" start>mdi:code-block-parentheses</v-icon>多端播放
-              </v-tab>
-              <v-tab value="tab-cache-config" class="text-caption">
-                <v-icon size="small" start>mdi-cached</v-icon>缓存配置
-              </v-tab>
-              <v-tab value="tab-data-enhancement" class="text-caption">
-                <v-icon size="small" start>mdi-database-eye-outline</v-icon>数据增强
-              </v-tab>
-              <v-tab value="tab-advanced-configuration" class="text-caption">
-                <v-icon size="small" start>mdi-tune</v-icon>高级配置
+              <v-tab value="category-system" class="main-tab">
+                <v-icon size="small" start>mdi-cog</v-icon>系统配置
               </v-tab>
             </v-tabs>
             <v-divider></v-divider>
 
-            <v-window v-model="activeTab">
-              <!-- 监控MP整理 -->
-              <v-window-item value="tab-transfer">
-                <v-card-text>
-                  <v-row>
-                    <v-col cols="12" md="3">
-                      <v-switch v-model="config.transfer_monitor_enabled" label="启用" color="info"></v-switch>
-                    </v-col>
-                    <v-col cols="12" md="3">
-                      <v-switch v-model="config.transfer_monitor_scrape_metadata_enabled" label="STRM自动刮削"
-                        color="primary"></v-switch>
-                    </v-col>
-                    <v-col cols="12" md="3">
-                      <v-switch v-model="config.transfer_monitor_media_server_refresh_enabled" label="媒体服务器刷新"
-                        color="warning"></v-switch>
-                    </v-col>
-                    <v-col cols="12" md="3">
-                      <v-select v-model="config.transfer_monitor_mediaservers" label="媒体服务器" :items="mediaservers"
-                        multiple chips closable-chips></v-select>
-                    </v-col>
-                  </v-row>
-
-                  <!-- Transfer Monitor Exclude Paths -->
-                  <v-row v-if="config.transfer_monitor_scrape_metadata_enabled" class="mt-2 mb-2">
-                    <v-col cols="12">
-                      <div class="d-flex flex-column">
-                        <div v-for="(item, index) in transferExcludePaths" :key="`transfer-exclude-${index}`"
-                          class="mb-2 d-flex align-center">
-                          <v-text-field v-model="item.path" label="刮削排除目录" density="compact" variant="outlined" readonly
-                            hide-details class="flex-grow-1 mr-2">
-                          </v-text-field>
-                          <v-btn icon size="small" color="error" class="ml-2"
-                            @click="removeExcludePathEntry(index, 'transfer_exclude')" :disabled="!item.path">
-                            <v-icon>mdi-delete</v-icon>
-                          </v-btn>
-                        </div>
-                        <v-btn size="small" prepend-icon="mdi-folder-plus-outline" variant="tonal"
-                          class="mt-1 align-self-start"
-                          @click="openExcludeDirSelector('transfer_monitor_scrape_metadata_exclude_paths')">
-                          添加刮削排除目录
-                        </v-btn>
-                      </div>
-                      <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
-                        <div class="text-caption">此处添加的本地目录，在STRM文件生成后将不会自动触发刮削。</div>
-                      </v-alert>
-                    </v-col>
-                  </v-row>
-
-                  <v-row>
-                    <v-col cols="12">
-                      <div class="d-flex flex-column">
-                        <div v-for="(pair, index) in transferPaths" :key="`transfer-${index}`"
-                          class="mb-2 d-flex align-center">
-                          <div class="path-selector flex-grow-1 mr-2">
-                            <v-text-field v-model="pair.local" label="本地STRM目录" density="compact"
-                              append-icon="mdi-folder"
-                              @click:append="openDirSelector(index, 'local', 'transfer')"></v-text-field>
-                          </div>
-                          <v-icon>mdi-pound</v-icon>
-                          <div class="path-selector flex-grow-1 ml-2">
-                            <v-text-field v-model="pair.remote" label="网盘媒体库目录" density="compact"
-                              append-icon="mdi-folder-network"
-                              @click:append="openDirSelector(index, 'remote', 'transfer')"></v-text-field>
-                          </div>
-                          <v-btn icon size="small" color="error" class="ml-2" @click="removePath(index, 'transfer')">
-                            <v-icon>mdi-delete</v-icon>
-                          </v-btn>
-                        </div>
-                        <v-btn size="small" prepend-icon="mdi-plus" variant="outlined" class="mt-2 align-self-start"
-                          @click="addPath('transfer')">
-                          添加路径
-                        </v-btn>
-                      </div>
-
-                      <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
-                        <div class="text-body-2 mb-1"><strong>功能说明：</strong></div>
-                        <div class="text-caption">监控MoviePilot整理入库事件，自动在本地对应目录生成STRM文件。</div>
-                        <div class="text-body-2 mt-2 mb-1"><strong>配置说明：</strong></div>
-                        <div class="text-caption">
-                          <div class="mb-1">• <strong>本地STRM目录：</strong>本地STRM文件生成路径</div>
-                          <div>• <strong>网盘媒体库目录：</strong>需要生成本地STRM文件的网盘媒体库路径</div>
-                        </div>
-                      </v-alert>
-                    </v-col>
-                  </v-row>
-
-                  <v-row>
-                    <v-col cols="12">
-                      <div class="d-flex flex-column">
-                        <div v-for="(pair, index) in transferMpPaths" :key="`mp-${index}`"
-                          class="mb-2 d-flex align-center">
-                          <div class="path-selector flex-grow-1 mr-2">
-                            <v-text-field v-model="pair.local" label="媒体库服务器映射目录" density="compact"></v-text-field>
-                          </div>
-                          <v-icon>mdi-pound</v-icon>
-                          <div class="path-selector flex-grow-1 ml-2">
-                            <v-text-field v-model="pair.remote" label="MP映射目录" density="compact"></v-text-field>
-                          </div>
-                          <v-btn icon size="small" color="error" class="ml-2" @click="removePath(index, 'mp')">
-                            <v-icon>mdi-delete</v-icon>
-                          </v-btn>
-                        </div>
-                        <v-btn size="small" prepend-icon="mdi-plus" variant="outlined" class="mt-2 align-self-start"
-                          @click="addPath('mp')">
-                          添加路径
-                        </v-btn>
-                      </div>
-
-                      <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
-                        <div class="text-body-2 mb-1"><strong>配置说明：</strong></div>
-                        <div class="text-caption">
-                          <div class="mb-1">• 媒体服务器映射路径和MP映射路径不一样时请配置此项，如果不配置则无法正常刷新。</div>
-                          <div>• 当映射路径一样时可省略此配置。</div>
-                        </div>
-                      </v-alert>
-                    </v-col>
-                  </v-row>
-                </v-card-text>
-              </v-window-item>
-
-              <!-- 全量同步 -->
-              <v-window-item value="tab-sync">
-                <v-card-text>
-                  <!-- 基础配置 -->
-                  <div class="basic-config">
-                    <v-row>
-                      <v-col cols="12" md="3">
-                        <v-select v-model="config.full_sync_overwrite_mode" label="覆盖模式" :items="[
-                          { title: '总是', value: 'always' },
-                          { title: '从不', value: 'never' }
-                        ]" chips closable-chips></v-select>
-                      </v-col>
-                      <v-col cols="12" md="3">
-                        <v-switch v-model="config.full_sync_remove_unless_strm" label="清理失效STRM文件"
-                          color="warning"></v-switch>
-                      </v-col>
-                      <v-col cols="12" md="3">
-                        <v-switch v-model="config.full_sync_remove_unless_dir" label="清理无效STRM目录" color="warning"
-                          :disabled="!config.full_sync_remove_unless_strm"></v-switch>
-                      </v-col>
-                      <v-col cols="12" md="3">
-                        <v-switch v-model="config.full_sync_remove_unless_file" label="清理无效STRM文件关联的媒体信息文件"
-                          color="warning" :disabled="!config.full_sync_remove_unless_strm"></v-switch>
-                      </v-col>
-                    </v-row>
-
-                    <v-row>
-                      <v-col cols="12" md="3">
-                        <v-switch v-model="config.timing_full_sync_strm" label="定期全量同步" color="info"></v-switch>
-                      </v-col>
-                      <v-col cols="12" md="3">
-                        <VCronField v-model="config.cron_full_sync_strm" label="运行全量同步周期" hint="设置全量同步的执行周期"
-                          persistent-hint density="compact"></VCronField>
-                      </v-col>
-                      <v-col cols="12" md="3">
-                        <v-switch v-model="config.full_sync_auto_download_mediainfo_enabled" label="下载媒体数据文件"
-                          color="warning"></v-switch>
-                      </v-col>
-                      <v-col cols="12" md="3">
-                        <v-text-field v-model="fullSyncMinFileSizeFormatted" label="STRM最小文件大小"
-                          hint="小于此值的文件将不生成STRM(单位K,M,G)" persistent-hint density="compact" placeholder="例如: 100M (可为空)"
-                          clearable></v-text-field>
-                      </v-col>
-                    </v-row>
-
-                    <v-row>
-                      <v-col cols="12" md="4">
-                        <v-switch v-model="config.full_sync_media_server_refresh_enabled" label="全量同步后刷新媒体库"
-                          color="error" density="compact"></v-switch>
-                      </v-col>
-                      <v-col cols="12" md="8">
-                        <v-select v-model="config.full_sync_mediaservers" label="媒体服务器" :items="mediaservers" multiple
-                          chips closable-chips :disabled="!config.full_sync_media_server_refresh_enabled"
-                          hint="全量同步完成后将刷新整个媒体库，请谨慎使用" persistent-hint></v-select>
-                      </v-col>
-                      <v-col v-if="config.full_sync_media_server_refresh_enabled" cols="12">
-                        <v-alert type="warning" variant="tonal" density="compact" class="mt-3" icon="mdi-alert">
-                          <div class="text-body-2 mb-1"><strong>重要警告</strong></div>
-                          <div class="text-caption">
-                            启用此功能后，全量同步完成后将自动刷新整个媒体库。此操作会扫描所有媒体文件，可能导致媒体服务器负载增加，请确保您已了解此风险并自行承担相应责任。
-                          </div>
-                        </v-alert>
-                      </v-col>
-                    </v-row>
-
-                    <v-row>
-                      <v-col cols="12">
-                        <div class="d-flex flex-column">
-                          <div v-for="(pair, index) in fullSyncPaths" :key="`full-${index}`"
-                            class="mb-2 d-flex align-center">
-                            <div class="path-selector flex-grow-1 mr-2">
-                              <v-text-field v-model="pair.local" label="本地STRM目录" density="compact"
-                                append-icon="mdi-folder"
-                                @click:append="openDirSelector(index, 'local', 'fullSync')"></v-text-field>
-                            </div>
-                            <v-icon>mdi-pound</v-icon>
-                            <div class="path-selector flex-grow-1 ml-2">
-                              <v-text-field v-model="pair.remote" label="网盘媒体库目录" density="compact"
-                                append-icon="mdi-folder-network"
-                                @click:append="openDirSelector(index, 'remote', 'fullSync')"></v-text-field>
-                            </div>
-                            <v-btn icon size="small" color="error" class="ml-2" @click="removePath(index, 'fullSync')">
-                              <v-icon>mdi-delete</v-icon>
-                            </v-btn>
-                          </div>
-                          <v-btn size="small" prepend-icon="mdi-plus" variant="outlined" class="mt-2 align-self-start"
-                            @click="addPath('fullSync')">
-                            添加路径
-                          </v-btn>
-                        </div>
-
-                        <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
-                          <div class="text-body-2 mb-1"><strong>功能说明：</strong></div>
-                          <div class="text-caption">全量扫描配置的网盘目录，并在对应的本地目录生成STRM文件。</div>
-                          <div class="text-body-2 mt-2 mb-1"><strong>配置说明：</strong></div>
-                          <div class="text-caption">
-                            <div class="mb-1">• <strong>本地STRM目录：</strong>本地STRM文件生成路径</div>
-                            <div>• <strong>网盘媒体库目录：</strong>需要生成本地STRM文件的网盘媒体库路径</div>
-                          </div>
-                        </v-alert>
-                      </v-col>
-                    </v-row>
-                  </div>
-
-                  <!-- 高级配置 -->
-                  <v-expansion-panels variant="tonal" class="mt-6">
-                    <v-expansion-panel>
-                      <v-expansion-panel-title>
-                        <v-icon icon="mdi-tune-variant" class="mr-2"></v-icon>
-                        高级配置
-                      </v-expansion-panel-title>
-                      <v-expansion-panel-text class="pa-4">
+            <!-- 主分类内容区域 -->
+            <v-window v-model="mainCategory">
+              <!-- STRM同步分类 -->
+              <v-window-item value="category-strm">
+                <v-card-text class="pa-0">
+                  <!-- 子标签页 -->
+                  <v-tabs v-model="strmSubTab" color="primary" class="sub-category-tabs" slider-color="primary">
+                    <v-tab value="tab-transfer" class="sub-tab">
+                      <v-icon size="small" start>mdi-file-move-outline</v-icon>监控MP整理
+                    </v-tab>
+                    <v-tab value="tab-sync" class="sub-tab">
+                      <v-icon size="small" start>mdi-sync</v-icon>全量同步
+                    </v-tab>
+                    <v-tab value="tab-increment-sync" class="sub-tab">
+                      <v-icon size="small" start>mdi-book-sync</v-icon>增量同步
+                    </v-tab>
+                    <v-tab value="tab-life" class="sub-tab">
+                      <v-icon size="small" start>mdi-calendar-heart</v-icon>监控115生活事件
+                    </v-tab>
+                    <v-tab value="tab-api-strm" class="sub-tab">
+                      <v-icon size="small" start>mdi-api</v-icon>API STRM生成
+                    </v-tab>
+                  </v-tabs>
+                  <v-divider></v-divider>
+                  <v-window v-model="strmSubTab">
+                    <v-window-item value="tab-transfer">
+                      <v-card-text>
                         <v-row>
                           <v-col cols="12" md="3">
-                            <v-switch v-model="config.full_sync_strm_log" label="输出STRM同步日志" color="primary"></v-switch>
+                            <v-switch v-model="config.transfer_monitor_enabled" label="启用" color="info"></v-switch>
                           </v-col>
                           <v-col cols="12" md="3">
-                            <v-switch v-model="config.full_sync_process_rust" label="Rust模式处理数据"
+                            <v-switch v-model="config.transfer_monitor_scrape_metadata_enabled" label="STRM自动刮削"
                               color="primary"></v-switch>
                           </v-col>
-                          <v-col cols="12" md="6">
-                            <v-select v-model="config.full_sync_iter_function" label="迭代函数" :items="[
-                              { title: 'iter_files_with_path_skim', value: 'iter_files_with_path_skim' },
-                              { title: 'iter_files_with_path', value: 'iter_files_with_path' }
-                            ]" chips closable-chips></v-select>
+                          <v-col cols="12" md="3">
+                            <v-switch v-model="config.transfer_monitor_media_server_refresh_enabled" label="媒体服务器刷新"
+                              color="warning"></v-switch>
+                          </v-col>
+                          <v-col cols="12" md="3">
+                            <v-select v-model="config.transfer_monitor_mediaservers" label="媒体服务器" :items="mediaservers"
+                              multiple chips closable-chips></v-select>
                           </v-col>
                         </v-row>
+
+                        <!-- Transfer Monitor Exclude Paths -->
+                        <v-row v-if="config.transfer_monitor_scrape_metadata_enabled" class="mt-2 mb-2">
+                          <v-col cols="12">
+                            <div class="d-flex flex-column">
+                              <div v-for="(item, index) in transferExcludePaths" :key="`transfer-exclude-${index}`"
+                                class="mb-2 d-flex align-center">
+                                <v-text-field v-model="item.path" label="刮削排除目录" density="compact" variant="outlined"
+                                  readonly hide-details class="flex-grow-1 mr-2">
+                                </v-text-field>
+                                <v-btn icon size="small" color="error" class="ml-2"
+                                  @click="removeExcludePathEntry(index, 'transfer_exclude')" :disabled="!item.path">
+                                  <v-icon>mdi-delete</v-icon>
+                                </v-btn>
+                              </div>
+                              <v-btn size="small" prepend-icon="mdi-folder-plus-outline" variant="tonal"
+                                class="mt-1 align-self-start"
+                                @click="openExcludeDirSelector('transfer_monitor_scrape_metadata_exclude_paths')">
+                                添加刮削排除目录
+                              </v-btn>
+                            </div>
+                            <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
+                              <div class="text-caption">此处添加的本地目录，在STRM文件生成后将不会自动触发刮削。</div>
+                            </v-alert>
+                          </v-col>
+                        </v-row>
+
                         <v-row>
-                          <v-col cols="12" md="6">
-                            <v-text-field v-model.number="config.full_sync_batch_num" label="全量同步批处理数量" type="number"
-                              hint="每次批量处理的文件/目录数量" persistent-hint density="compact"></v-text-field>
-                          </v-col>
-                          <v-col cols="12" md="6">
-                            <v-text-field v-model.number="config.full_sync_process_num" label="全量同步生成进程数" type="number"
-                              hint="同时执行同步任务的进程数量" persistent-hint density="compact"></v-text-field>
+                          <v-col cols="12">
+                            <div class="d-flex flex-column">
+                              <div v-for="(pair, index) in transferPaths" :key="`transfer-${index}`"
+                                class="mb-2 d-flex align-center">
+                                <div class="path-selector flex-grow-1 mr-2">
+                                  <v-text-field v-model="pair.local" label="本地STRM目录" density="compact"
+                                    append-icon="mdi-folder"
+                                    @click:append="openDirSelector(index, 'local', 'transfer')"></v-text-field>
+                                </div>
+                                <v-icon>mdi-pound</v-icon>
+                                <div class="path-selector flex-grow-1 ml-2">
+                                  <v-text-field v-model="pair.remote" label="网盘媒体库目录" density="compact"
+                                    append-icon="mdi-folder-network"
+                                    @click:append="openDirSelector(index, 'remote', 'transfer')"></v-text-field>
+                                </div>
+                                <v-btn icon size="small" color="error" class="ml-2"
+                                  @click="removePath(index, 'transfer')">
+                                  <v-icon>mdi-delete</v-icon>
+                                </v-btn>
+                              </div>
+                              <v-btn size="small" prepend-icon="mdi-plus" variant="outlined"
+                                class="mt-2 align-self-start" @click="addPath('transfer')">
+                                添加路径
+                              </v-btn>
+                            </div>
+
+                            <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
+                              <div class="text-body-2 mb-1"><strong>功能说明：</strong></div>
+                              <div class="text-caption">监控MoviePilot整理入库事件，自动在本地对应目录生成STRM文件。</div>
+                              <div class="text-body-2 mt-2 mb-1"><strong>配置说明：</strong></div>
+                              <div class="text-caption">
+                                <div class="mb-1">• <strong>本地STRM目录：</strong>本地STRM文件生成路径</div>
+                                <div>• <strong>网盘媒体库目录：</strong>需要生成本地STRM文件的网盘媒体库路径</div>
+                              </div>
+                            </v-alert>
                           </v-col>
                         </v-row>
-                      </v-expansion-panel-text>
-                    </v-expansion-panel>
-                  </v-expansion-panels>
 
-                </v-card-text>
-              </v-window-item>
+                        <v-row>
+                          <v-col cols="12">
+                            <div class="d-flex flex-column">
+                              <div v-for="(pair, index) in transferMpPaths" :key="`mp-${index}`"
+                                class="mb-2 d-flex align-center">
+                                <div class="path-selector flex-grow-1 mr-2">
+                                  <v-text-field v-model="pair.local" label="媒体库服务器映射目录"
+                                    density="compact"></v-text-field>
+                                </div>
+                                <v-icon>mdi-pound</v-icon>
+                                <div class="path-selector flex-grow-1 ml-2">
+                                  <v-text-field v-model="pair.remote" label="MP映射目录" density="compact"></v-text-field>
+                                </div>
+                                <v-btn icon size="small" color="error" class="ml-2" @click="removePath(index, 'mp')">
+                                  <v-icon>mdi-delete</v-icon>
+                                </v-btn>
+                              </div>
+                              <v-btn size="small" prepend-icon="mdi-plus" variant="outlined"
+                                class="mt-2 align-self-start" @click="addPath('mp')">
+                                添加路径
+                              </v-btn>
+                            </div>
 
-              <!-- 增量 -->
-              <v-window-item value="tab-increment-sync">
-                <v-card-text>
-
-                  <v-row>
-                    <v-col cols="12" md="3">
-                      <v-switch v-model="config.increment_sync_strm_enabled" label="启用" color="warning"></v-switch>
-                    </v-col>
-                    <v-col cols="12" md="6">
-                      <VCronField v-model="config.increment_sync_cron" label="运行增量同步周期" hint="设置增量同步的执行周期"
-                        persistent-hint density="compact"></VCronField>
-                    </v-col>
-                    <v-col cols="12" md="3">
-                      <v-text-field v-model="incrementSyncMinFileSizeFormatted" label="STRM最小文件大小"
-                        hint="小于此值的文件将不生成STRM(单位K,M,G)" persistent-hint density="compact" placeholder="例如: 100M (可为空)"
-                        clearable></v-text-field>
-                    </v-col>
-                  </v-row>
-                  <v-row>
-                    <v-col cols="12" md="3">
-                      <v-switch v-model="config.increment_sync_auto_download_mediainfo_enabled" label="下载媒体数据文件"
-                        color="warning"></v-switch>
-                    </v-col>
-                    <v-col cols="12" md="3">
-                      <v-switch v-model="config.increment_sync_scrape_metadata_enabled" label="STRM自动刮削"
-                        color="primary"></v-switch>
-                    </v-col>
-                    <v-col cols="12" md="3">
-                      <v-switch v-model="config.increment_sync_media_server_refresh_enabled" label="媒体服务器刷新"
-                        color="warning"></v-switch>
-                    </v-col>
-                    <v-col cols="12" md="3">
-                      <v-select v-model="config.increment_sync_mediaservers" label="媒体服务器" :items="mediaservers"
-                        multiple chips closable-chips></v-select>
-                    </v-col>
-                  </v-row>
-
-                  <v-row v-if="config.increment_sync_scrape_metadata_enabled" class="mt-2 mb-2">
-                    <v-col cols="12">
-                      <div class="d-flex flex-column">
-                        <div v-for="(item, index) in incrementSyncExcludePaths" :key="`increment-exclude-${index}`"
-                          class="mb-2 d-flex align-center">
-                          <v-text-field v-model="item.path" label="刮削排除目录" density="compact" variant="outlined" readonly
-                            hide-details class="flex-grow-1 mr-2">
-                          </v-text-field>
-                          <v-btn icon size="small" color="error" class="ml-2"
-                            @click="removeExcludePathEntry(index, 'increment_exclude')" :disabled="!item.path">
-                            <v-icon>mdi-delete</v-icon>
-                          </v-btn>
-                        </div>
-                        <v-btn size="small" prepend-icon="mdi-folder-plus-outline" variant="tonal"
-                          class="mt-1 align-self-start"
-                          @click="openExcludeDirSelector('increment_sync_scrape_metadata_exclude_paths')">
-                          添加刮削排除目录
-                        </v-btn>
-                      </div>
-                      <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
-                        <div class="text-caption">此处添加的本地目录，在STRM文件生成后将不会自动触发刮削。</div>
-                      </v-alert>
-                    </v-col>
-                  </v-row>
-
-                  <v-row>
-                    <v-col cols="12">
-                      <div class="d-flex flex-column">
-                        <div v-for="(pair, index) in incrementSyncPaths" :key="`increment-${index}`"
-                          class="mb-2 d-flex align-center">
-                          <div class="path-selector flex-grow-1 mr-2">
-                            <v-text-field v-model="pair.local" label="本地STRM目录" density="compact"
-                              append-icon="mdi-folder"
-                              @click:append="openDirSelector(index, 'local', 'incrementSync')"></v-text-field>
-                          </div>
-                          <v-icon>mdi-pound</v-icon>
-                          <div class="path-selector flex-grow-1 ml-2">
-                            <v-text-field v-model="pair.remote" label="网盘媒体库目录" density="compact"
-                              append-icon="mdi-folder-network"
-                              @click:append="openDirSelector(index, 'remote', 'incrementSync')"></v-text-field>
-                          </div>
-                          <v-btn icon size="small" color="error" class="ml-2"
-                            @click="removePath(index, 'incrementSync')">
-                            <v-icon>mdi-delete</v-icon>
-                          </v-btn>
-                        </div>
-                        <v-btn size="small" prepend-icon="mdi-plus" variant="outlined" class="mt-2 align-self-start"
-                          @click="addPath('incrementSync')">
-                          添加路径
-                        </v-btn>
-                      </div>
-
-                      <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
-                        <div class="text-body-2 mb-1"><strong>功能说明：</strong></div>
-                        <div class="text-caption">增量扫描配置的网盘目录，并在对应的本地目录生成STRM文件。</div>
-                        <div class="text-body-2 mt-2 mb-1"><strong>配置说明：</strong></div>
-                        <div class="text-caption">
-                          <div class="mb-1">• <strong>本地STRM目录：</strong>本地STRM文件生成路径</div>
-                          <div>• <strong>网盘媒体库目录：</strong>需要生成本地STRM文件的网盘媒体库路径</div>
-                        </div>
-                      </v-alert>
-                    </v-col>
-                  </v-row>
-
-                  <v-row>
-                    <v-col cols="12">
-                      <div class="d-flex flex-column">
-                        <div v-for="(pair, index) in incrementSyncMPPaths" :key="`increment-mp-${index}`"
-                          class="mb-2 d-flex align-center">
-                          <div class="path-selector flex-grow-1 mr-2">
-                            <v-text-field v-model="pair.local" label="媒体库服务器映射目录" density="compact"></v-text-field>
-                          </div>
-                          <v-icon>mdi-pound</v-icon>
-                          <div class="path-selector flex-grow-1 ml-2">
-                            <v-text-field v-model="pair.remote" label="MP映射目录" density="compact"></v-text-field>
-                          </div>
-                          <v-btn icon size="small" color="error" class="ml-2"
-                            @click="removePath(index, 'increment-mp')">
-                            <v-icon>mdi-delete</v-icon>
-                          </v-btn>
-                        </div>
-                        <v-btn size="small" prepend-icon="mdi-plus" variant="outlined" class="mt-2 align-self-start"
-                          @click="addPath('increment-mp')">
-                          添加路径
-                        </v-btn>
-                      </div>
-
-                      <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
-                        <div class="text-body-2 mb-1"><strong>配置说明：</strong></div>
-                        <div class="text-caption">
-                          <div class="mb-1">• 媒体服务器映射路径和MP映射路径不一样时请配置此项，如果不配置则无法正常刷新。</div>
-                          <div>• 当映射路径一样时可省略此配置。</div>
-                        </div>
-                      </v-alert>
-                    </v-col>
-                  </v-row>
-
-                </v-card-text>
-              </v-window-item>
-
-              <!-- 监控115生活事件 -->
-              <v-window-item value="tab-life">
-                <v-card-text>
-                  <v-row>
-                    <v-col cols="12" md="3">
-                      <v-switch v-model="config.monitor_life_enabled" label="启用" color="info"></v-switch>
-                    </v-col>
-                    <v-col cols="12" md="3">
-                      <v-select v-model="config.monitor_life_event_modes" label="处理事件类型" :items="[
-                        { title: '新增事件', value: 'creata' },
-                        { title: '删除事件', value: 'remove' },
-                        { title: '网盘整理', value: 'transfer' }
-                      ]" multiple chips closable-chips></v-select>
-                    </v-col>
-                    <v-col cols="12" md="3">
-                      <v-switch v-model="config.monitor_life_remove_mp_history" label="同步删除历史记录" color="warning"
-                        :disabled="config.monitor_life_remove_mp_source"></v-switch>
-                    </v-col>
-                    <v-col cols="12" md="3">
-                      <v-switch v-model="config.monitor_life_remove_mp_source" label="同步删除源文件" color="warning"
-                        @change="value => { if (value) config.monitor_life_remove_mp_history = true }"></v-switch>
-                    </v-col>
-                  </v-row>
-
-                  <v-row>
-                    <v-col cols="12" md="4">
-                      <v-switch v-model="config.monitor_life_media_server_refresh_enabled" label="媒体服务器刷新"
-                        color="warning"></v-switch>
-                    </v-col>
-                    <v-col cols="12" md="8">
-                      <v-select v-model="config.monitor_life_mediaservers" label="媒体服务器" :items="mediaservers" multiple
-                        chips closable-chips></v-select>
-                    </v-col>
-                  </v-row>
-
-                  <v-row>
-                    <v-col cols="12" md="3">
-                      <v-switch v-model="config.monitor_life_auto_download_mediainfo_enabled" label="下载媒体数据文件"
-                        color="warning"></v-switch>
-                    </v-col>
-                    <v-col cols="12" md="3">
-                      <v-switch v-model="config.monitor_life_scrape_metadata_enabled" label="STRM自动刮削"
-                        color="primary"></v-switch>
-                    </v-col>
-                    <v-col cols="12" md="3">
-                      <v-text-field v-model="monitorLifeMinFileSizeFormatted" label="STRM最小文件大小"
-                        hint="小于此值的文件将不生成STRM(单位K,M,G)" persistent-hint density="compact" placeholder="例如: 100M (可为空)"
-                        clearable></v-text-field>
-                    </v-col>
-                    <v-col cols="12" md="3">
-                      <v-text-field v-model.number="config.monitor_life_event_wait_time" label="事件处理延迟时间" type="number"
-                        hint="接收到事件后等待的时间，0 则代表不等待 (单位秒)" persistent-hint density="compact"></v-text-field>
-                    </v-col>
-                  </v-row>
-
-                  <!-- Monitor Life Exclude Paths -->
-                  <v-row v-if="config.monitor_life_scrape_metadata_enabled" class="mt-2 mb-2">
-                    <v-col cols="12">
-                      <div class="d-flex flex-column">
-                        <div v-for="(item, index) in monitorLifeExcludePaths" :key="`life-exclude-${index}`"
-                          class="mb-2 d-flex align-center">
-                          <v-text-field v-model="item.path" label="刮削排除目录" density="compact" variant="outlined" readonly
-                            hide-details class="flex-grow-1 mr-2">
-                          </v-text-field>
-                          <v-btn icon size="small" color="error" class="ml-2"
-                            @click="removeExcludePathEntry(index, 'life_exclude')" :disabled="!item.path">
-                            <v-icon>mdi-delete</v-icon>
-                          </v-btn>
-                        </div>
-                        <v-btn size="small" prepend-icon="mdi-folder-plus-outline" variant="tonal"
-                          class="mt-1 align-self-start"
-                          @click="openExcludeDirSelector('monitor_life_scrape_metadata_exclude_paths')">
-                          添加刮削排除目录
-                        </v-btn>
-                      </div>
-                      <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
-                        <div class="text-caption">此处添加的本地目录，在115生活事件监控生成STRM后将不会自动触发刮削。</div>
-                      </v-alert>
-                    </v-col>
-                  </v-row>
-
-                  <v-row>
-                    <v-col cols="12">
-                      <div class="d-flex flex-column">
-                        <div v-for="(pair, index) in monitorLifePaths" :key="`life-${index}`"
-                          class="mb-2 d-flex align-center">
-                          <div class="path-selector flex-grow-1 mr-2">
-                            <v-text-field v-model="pair.local" label="本地STRM目录" density="compact"
-                              append-icon="mdi-folder"
-                              @click:append="openDirSelector(index, 'local', 'monitorLife')"></v-text-field>
-                          </div>
-                          <v-icon>mdi-pound</v-icon>
-                          <div class="path-selector flex-grow-1 ml-2">
-                            <v-text-field v-model="pair.remote" label="网盘媒体库目录" density="compact"
-                              append-icon="mdi-folder-network"
-                              @click:append="openDirSelector(index, 'remote', 'monitorLife')"></v-text-field>
-                          </div>
-                          <v-btn icon size="small" color="error" class="ml-2" @click="removePath(index, 'monitorLife')">
-                            <v-icon>mdi-delete</v-icon>
-                          </v-btn>
-                        </div>
-                        <v-btn size="small" prepend-icon="mdi-plus" variant="outlined" class="mt-2 align-self-start"
-                          @click="addPath('monitorLife')">
-                          添加路径
-                        </v-btn>
-                      </div>
-
-                      <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
-                        <div class="text-body-2 mb-1"><strong>功能说明：</strong></div>
-                        <div class="text-caption">监控115生活（上传、移动、接收文件、删除、复制）事件，自动在本地对应目录生成STRM文件或者删除STRM文件。</div>
-                        <div class="text-body-2 mt-2 mb-1"><strong>配置说明：</strong></div>
-                        <div class="text-caption">
-                          <div class="mb-1">• <strong>本地STRM目录：</strong>本地STRM文件生成路径</div>
-                          <div>• <strong>网盘媒体库目录：</strong>需要生成本地STRM文件的网盘媒体库路径</div>
-                        </div>
-                      </v-alert>
-                    </v-col>
-                  </v-row>
-
-                  <v-row>
-                    <v-col cols="12">
-                      <div class="d-flex flex-column">
-                        <div v-for="(pair, index) in monitorLifeMpPaths" :key="`life-mp-${index}`"
-                          class="mb-2 d-flex align-center">
-                          <div class="path-selector flex-grow-1 mr-2">
-                            <v-text-field v-model="pair.local" label="媒体库服务器映射目录" density="compact"></v-text-field>
-                          </div>
-                          <v-icon>mdi-pound</v-icon>
-                          <div class="path-selector flex-grow-1 ml-2">
-                            <v-text-field v-model="pair.remote" label="MP映射目录" density="compact"></v-text-field>
-                          </div>
-                          <v-btn icon size="small" color="error" class="ml-2"
-                            @click="removePath(index, 'monitorLifeMp')">
-                            <v-icon>mdi-delete</v-icon>
-                          </v-btn>
-                        </div>
-                        <v-btn size="small" prepend-icon="mdi-plus" variant="outlined" class="mt-2 align-self-start"
-                          @click="addPath('monitorLifeMp')">
-                          添加路径
-                        </v-btn>
-                      </div>
-
-                      <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
-                        <div class="text-body-2 mb-1"><strong>配置说明：</strong></div>
-                        <div class="text-caption">
-                          <div class="mb-1">• 媒体服务器映射路径和MP映射路径不一样时请配置此项，如果不配置则无法正常刷新。</div>
-                          <div>• 当映射路径一样时可省略此配置。</div>
-                        </div>
-                      </v-alert>
-                    </v-col>
-                  </v-row>
-
-                  <v-alert type="warning" variant="tonal" density="compact" class="mt-3" icon="mdi-alert">
-                    <div class="text-caption">注意：当 MoviePilot 主程序运行整理任务时 115生活事件 监控会自动暂停，整理运行完成后会继续监控。</div>
-                  </v-alert>
-
-                  <v-row class="mt-4">
-                    <v-col cols="12">
-                      <v-btn color="info" variant="outlined" prepend-icon="mdi-bug-check" @click="checkLifeEventStatus">
-                        故障检查
-                      </v-btn>
-                      <div class="text-caption text-grey mt-2">
-                        检查115生活事件进程状态，测试数据拉取功能，并提供详细的调试信息
-                      </div>
-                    </v-col>
-                  </v-row>
-                </v-card-text>
-              </v-window-item>
-
-              <!-- API STRM生成 -->
-              <v-window-item value="tab-api-strm">
-                <v-card-text>
-                  <v-alert type="info" variant="tonal" density="compact" class="mb-4" icon="mdi-information">
-                    <div class="text-body-2 mb-1"><strong>功能说明：</strong></div>
-                    <div class="text-caption mb-2">API STRM 生成功能允许第三方开发者通过 HTTP API 调用，批量生成 STRM 文件。</div>
-                    <div class="text-caption">
-                      详细 API 文档请参考：
-                      <a href="https://github.com/DDSRem-Dev/MoviePilot-Plugins/blob/main/docs/p115strmhelper/API_STRM生成功能文档.md"
-                        target="_blank" rel="noopener noreferrer" style="color: inherit; text-decoration: underline;">
-                        GitHub 文档链接
-                      </a>
-                    </div>
-                  </v-alert>
-
-                  <v-row>
-                    <v-col cols="12" md="3">
-                      <v-switch v-model="config.api_strm_scrape_metadata_enabled" label="STRM自动刮削" color="primary"
-                        density="compact"></v-switch>
-                    </v-col>
-                    <v-col cols="12" md="3">
-                      <v-switch v-model="config.api_strm_media_server_refresh_enabled" label="媒体服务器刷新" color="warning"
-                        density="compact"></v-switch>
-                    </v-col>
-                    <v-col cols="12" md="6">
-                      <v-select v-model="config.api_strm_mediaservers" label="媒体服务器" :items="mediaservers" multiple
-                        chips closable-chips density="compact"></v-select>
-                    </v-col>
-                  </v-row>
-
-                  <v-divider class="my-4"></v-divider>
-
-                  <div class="text-subtitle-2 mb-2">路径映射配置:</div>
-                  <v-alert type="info" variant="tonal" density="compact" class="mb-3" icon="mdi-information">
-                    <div class="text-caption">配置网盘路径到本地路径的映射关系。当 API 请求中未指定 local_path 时，系统会根据此配置自动匹配路径。</div>
-                  </v-alert>
-
-                  <v-row>
-                    <v-col cols="12">
-                      <div class="d-flex flex-column">
-                        <div v-for="(pair, index) in apiStrmPaths" :key="`api-strm-${index}`"
-                          class="mb-2 d-flex align-center">
-                          <div class="path-selector flex-grow-1 mr-2">
-                            <v-text-field v-model="pair.local" label="本地STRM目录" density="compact"
-                              append-icon="mdi-folder"
-                              @click:append="openDirSelector(index, 'local', 'apiStrm')"></v-text-field>
-                          </div>
-                          <v-icon>mdi-pound</v-icon>
-                          <div class="path-selector flex-grow-1 ml-2">
-                            <v-text-field v-model="pair.remote" label="网盘媒体库目录" density="compact"
-                              append-icon="mdi-folder-network"
-                              @click:append="openDirSelector(index, 'remote', 'apiStrm')"></v-text-field>
-                          </div>
-                          <v-btn icon size="small" color="error" class="ml-2" @click="removePath(index, 'apiStrm')">
-                            <v-icon>mdi-delete</v-icon>
-                          </v-btn>
-                        </div>
-                        <v-btn size="small" prepend-icon="mdi-plus" variant="outlined" class="mt-2 align-self-start"
-                          @click="addPath('apiStrm')">
-                          添加路径映射
-                        </v-btn>
-                      </div>
-
-                      <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
-                        <div class="text-body-2 mb-1"><strong>配置说明：</strong></div>
-                        <div class="text-caption">
-                          <div class="mb-1">• <strong>本地STRM目录：</strong>本地STRM文件生成路径</div>
-                          <div>• <strong>网盘媒体库目录：</strong>需要生成本地STRM文件的网盘媒体库路径</div>
-                        </div>
-                      </v-alert>
-                    </v-col>
-                  </v-row>
-
-                  <v-row>
-                    <v-col cols="12">
-                      <div class="d-flex flex-column">
-                        <div v-for="(pair, index) in apiStrmMPPaths" :key="`api-strm-mp-${index}`"
-                          class="mb-2 d-flex align-center">
-                          <div class="path-selector flex-grow-1 mr-2">
-                            <v-text-field v-model="pair.local" label="媒体库服务器映射目录" density="compact"></v-text-field>
-                          </div>
-                          <v-icon>mdi-pound</v-icon>
-                          <div class="path-selector flex-grow-1 ml-2">
-                            <v-text-field v-model="pair.remote" label="MP映射目录" density="compact"></v-text-field>
-                          </div>
-                          <v-btn icon size="small" color="error" class="ml-2" @click="removePath(index, 'apiStrm-mp')">
-                            <v-icon>mdi-delete</v-icon>
-                          </v-btn>
-                        </div>
-                        <v-btn size="small" prepend-icon="mdi-plus" variant="outlined" class="mt-2 align-self-start"
-                          @click="addPath('apiStrm-mp')">
-                          添加路径
-                        </v-btn>
-                      </div>
-
-                      <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
-                        <div class="text-body-2 mb-1"><strong>配置说明：</strong></div>
-                        <div class="text-caption">
-                          <div class="mb-1">• 媒体服务器映射路径和MP映射路径不一样时请配置此项，如果不配置则无法正常刷新。</div>
-                          <div>• 当映射路径一样时可省略此配置。</div>
-                        </div>
-                      </v-alert>
-                    </v-col>
-                  </v-row>
-
-                </v-card-text>
-              </v-window-item>
-
-              <!-- 定期清理 -->
-              <v-window-item value="tab-cleanup">
-                <v-card-text>
-                  <v-alert type="warning" variant="tonal" density="compact" class="mb-4" icon="mdi-alert">
-                    <div class="text-caption">注意，清空 回收站/最近接收 后文件不可恢复，如果产生重要数据丢失本程序不负责！</div>
-                  </v-alert>
-
-                  <v-row>
-                    <v-col cols="12" md="3">
-                      <v-switch v-model="config.clear_recyclebin_enabled" label="清空回收站" color="error"></v-switch>
-                    </v-col>
-                    <v-col cols="12" md="3">
-                      <v-switch v-model="config.clear_receive_path_enabled" label="清空最近接收目录" color="error"></v-switch>
-                    </v-col>
-                    <v-col cols="12" md="3">
-                      <v-text-field v-model="config.password" label="115访问密码" hint="115网盘安全密码" persistent-hint
-                        type="password" density="compact" variant="outlined" hide-details="auto"></v-text-field>
-                    </v-col>
-                    <v-col cols="12" md="3">
-                      <VCronField v-model="config.cron_clear" label="清理周期" hint="设置清理任务的执行周期" persistent-hint
-                        density="compact">
-                      </VCronField>
-                    </v-col>
-                  </v-row>
-                </v-card-text>
-              </v-window-item>
-
-              <!-- 同步删除 -->
-              <v-window-item value="tab-sync-del">
-                <v-card-text>
-                  <v-row>
-                    <v-col cols="12" md="3">
-                      <v-switch v-model="config.sync_del_enabled" label="启用同步删除" color="warning"
-                        density="compact"></v-switch>
-                    </v-col>
-                    <v-col cols="12" md="3">
-                      <v-switch v-model="config.sync_del_notify" label="发送通知" color="success"
-                        density="compact"></v-switch>
-                    </v-col>
-                    <v-col cols="12" md="3">
-                      <v-switch v-model="config.sync_del_source" label="删除源文件" color="error"
-                        density="compact"></v-switch>
-                    </v-col>
-                    <v-col cols="12" md="3">
-                      <v-switch v-model="config.sync_del_p115_force_delete_files" label="强制删除文件" color="warning"
-                        density="compact"></v-switch>
-                    </v-col>
-                  </v-row>
-
-                  <v-row>
-                    <v-col cols="12" md="6">
-                      <v-switch v-model="config.sync_del_remove_versions" label="开启多版本删除" color="info" density="compact"
-                        chips closable-chips hint="请查看下方警告提示了解详细说明" persistent-hint></v-switch>
-                    </v-col>
-                    <v-col cols="12" md="6">
-                      <v-select v-model="config.sync_del_mediaservers" label="媒体服务器" :items="embyMediaservers" multiple
-                        density="compact" chips closable-chips hint="用于获取TMDB ID，仅支持Emby" persistent-hint></v-select>
-                    </v-col>
-                  </v-row>
-
-                  <v-row>
-                    <v-col cols="12">
-                      <div class="d-flex flex-column">
-                        <div v-for="(path, index) in syncDelLibraryPaths" :key="`sync-del-${index}`"
-                          class="mb-3 pa-3 border rounded">
-                          <v-row dense>
-                            <v-col cols="12" md="4">
-                              <v-text-field v-model="path.mediaserver" label="媒体服务器STRM路径" density="compact"
-                                variant="outlined" hint="例如：/media/strm" persistent-hint></v-text-field>
+                            <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
+                              <div class="text-body-2 mb-1"><strong>配置说明：</strong></div>
+                              <div class="text-caption">
+                                <div class="mb-1">• 媒体服务器映射路径和MP映射路径不一样时请配置此项，如果不配置则无法正常刷新。</div>
+                                <div>• 当映射路径一样时可省略此配置。</div>
+                              </div>
+                            </v-alert>
+                          </v-col>
+                        </v-row>
+                      </v-card-text>
+                    </v-window-item>
+                    <v-window-item value="tab-sync">
+                      <v-card-text>
+                        <!-- 基础配置 -->
+                        <div class="basic-config">
+                          <v-row>
+                            <v-col cols="12" md="3">
+                              <v-select v-model="config.full_sync_overwrite_mode" label="覆盖模式" :items="[
+                                { title: '总是', value: 'always' },
+                                { title: '从不', value: 'never' }
+                              ]" chips closable-chips></v-select>
                             </v-col>
-                            <v-col cols="12" md="4">
-                              <v-text-field v-model="path.moviepilot" label="MoviePilot路径" density="compact"
-                                variant="outlined" hint="例如：/mnt/strm" persistent-hint append-icon="mdi-folder-home"
-                                @click:append="openDirSelector(index, 'local', 'syncDelLibrary', 'moviepilot')"></v-text-field>
+                            <v-col cols="12" md="3">
+                              <v-switch v-model="config.full_sync_remove_unless_strm" label="清理失效STRM文件"
+                                color="warning"></v-switch>
                             </v-col>
-                            <v-col cols="12" md="4">
-                              <v-text-field v-model="path.p115" label="115网盘媒体库路径" density="compact" variant="outlined"
-                                hint="例如：/影视" persistent-hint append-icon="mdi-cloud"
-                                @click:append="openDirSelector(index, 'remote', 'syncDelLibrary', 'p115')"></v-text-field>
+                            <v-col cols="12" md="3">
+                              <v-switch v-model="config.full_sync_remove_unless_dir" label="清理无效STRM目录" color="warning"
+                                :disabled="!config.full_sync_remove_unless_strm"></v-switch>
+                            </v-col>
+                            <v-col cols="12" md="3">
+                              <v-switch v-model="config.full_sync_remove_unless_file" label="清理无效STRM文件关联的媒体信息文件"
+                                color="warning" :disabled="!config.full_sync_remove_unless_strm"></v-switch>
                             </v-col>
                           </v-row>
-                          <v-row dense>
-                            <v-col cols="12" class="d-flex justify-end">
-                              <v-btn icon size="small" color="error" @click="removePath(index, 'syncDelLibrary')">
-                                <v-icon>mdi-delete</v-icon>
-                              </v-btn>
+
+                          <v-row>
+                            <v-col cols="12" md="3">
+                              <v-switch v-model="config.timing_full_sync_strm" label="定期全量同步" color="info"></v-switch>
+                            </v-col>
+                            <v-col cols="12" md="3">
+                              <VCronField v-model="config.cron_full_sync_strm" label="运行全量同步周期" hint="设置全量同步的执行周期"
+                                persistent-hint density="compact"></VCronField>
+                            </v-col>
+                            <v-col cols="12" md="3">
+                              <v-switch v-model="config.full_sync_auto_download_mediainfo_enabled" label="下载媒体数据文件"
+                                color="warning"></v-switch>
+                            </v-col>
+                            <v-col cols="12" md="3">
+                              <v-text-field v-model="fullSyncMinFileSizeFormatted" label="STRM最小文件大小"
+                                hint="小于此值的文件将不生成STRM(单位K,M,G)" persistent-hint density="compact"
+                                placeholder="例如: 100M (可为空)" clearable></v-text-field>
                             </v-col>
                           </v-row>
-                        </div>
-                        <v-btn size="small" prepend-icon="mdi-plus" variant="outlined" class="mt-2 align-self-start"
-                          @click="addPath('syncDelLibrary')">
-                          添加路径映射
-                        </v-btn>
-                      </div>
-                    </v-col>
-                  </v-row>
 
-                  <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
-                    <div class="text-body-2 mb-1"><strong>关于路径映射：</strong></div>
-                    <div class="text-caption">
-                      <div class="mb-1">• <strong>媒体服务器STRM路径：</strong>媒体服务器中STRM文件的实际路径</div>
-                      <div class="mb-1">• <strong>MoviePilot路径：</strong>MoviePilot中对应的路径</div>
-                      <div>• <strong>115网盘媒体库路径：</strong>115网盘中媒体库的路径</div>
-                    </div>
-                  </v-alert>
+                          <v-row>
+                            <v-col cols="12" md="4">
+                              <v-switch v-model="config.full_sync_media_server_refresh_enabled" label="全量同步后刷新媒体库"
+                                color="error" density="compact"></v-switch>
+                            </v-col>
+                            <v-col cols="12" md="8">
+                              <v-select v-model="config.full_sync_mediaservers" label="媒体服务器" :items="mediaservers"
+                                multiple chips closable-chips :disabled="!config.full_sync_media_server_refresh_enabled"
+                                hint="全量同步完成后将刷新整个媒体库，请谨慎使用" persistent-hint></v-select>
+                            </v-col>
+                            <v-col v-if="config.full_sync_media_server_refresh_enabled" cols="12">
+                              <v-alert type="warning" variant="tonal" density="compact" class="mt-3" icon="mdi-alert">
+                                <div class="text-body-2 mb-1"><strong>重要警告</strong></div>
+                                <div class="text-caption">
+                                  启用此功能后，全量同步完成后将自动刷新整个媒体库。此操作会扫描所有媒体文件，可能导致媒体服务器负载增加，请确保您已了解此风险并自行承担相应责任。
+                                </div>
+                              </v-alert>
+                            </v-col>
+                          </v-row>
 
-                  <v-alert type="warning" variant="tonal" density="compact" class="mt-3" icon="mdi-alert">
-                    <div class="text-caption">
-                      <div class="mb-1">• 不正确配置会导致查询不到转移记录！</div>
-                      <div class="mb-1">• 需要使用神医助手PRO且版本在v3.0.0.3及以上或神医助手社区版且版本在v2.0.0.27及以上！</div>
-                      <div class="mb-1">• 同步删除多版本功能需要使用助手Pro v3.0.0.22才支持！</div>
-                      <div>•
-                        <strong>开启多版本删除：</strong>开启后会将电影和电视剧季删除通过神医返回的路径改为电影单部/电视剧单集删除，从而防止误删其它版本，如果无多版本电影和电视剧季删除的需求，推荐关闭此按钮，提升删除效率
-                      </div>
-                    </div>
-                  </v-alert>
-                </v-card-text>
-              </v-window-item>
-
-              <!-- 网盘整理 -->
-              <v-window-item value="tab-pan-transfer">
-                <v-card-text>
-                  <v-row>
-                    <v-col cols="12" md="4">
-                      <v-switch v-model="config.pan_transfer_enabled" label="启用" color="info"></v-switch>
-                    </v-col>
-                  </v-row>
-
-                  <!-- 待整理和未识别目录 -->
-                  <v-card variant="outlined" class="mt-4">
-                    <v-card-title class="text-subtitle-1">
-                      <v-icon start>mdi-folder-move</v-icon>
-                      待整理和未识别目录
-                    </v-card-title>
-                    <v-card-text>
-                      <v-row>
-                        <v-col cols="12">
-                          <div class="d-flex flex-column">
-                            <div v-for="(path, index) in panTransferPaths" :key="`pan-${index}`"
-                              class="mb-2 d-flex align-center">
-                              <v-text-field v-model="path.path" label="网盘待整理目录" density="compact"
-                                append-icon="mdi-folder-network"
-                                @click:append="openDirSelector(index, 'remote', 'panTransfer')"
-                                class="flex-grow-1"></v-text-field>
-                              <v-btn icon size="small" color="primary" class="ml-2" @click="manualTransfer(index)"
-                                :disabled="!path.path" title="手动整理此目录">
-                                <v-icon>mdi-play</v-icon>
-                              </v-btn>
-                              <v-btn icon size="small" color="error" class="ml-2" @click="removePanTransferPath(index)">
-                                <v-icon>mdi-delete</v-icon>
-                              </v-btn>
-                            </div>
-                            <v-btn size="small" prepend-icon="mdi-plus" variant="outlined" class="mt-2 align-self-start"
-                              @click="addPanTransferPath">
-                              添加路径
-                            </v-btn>
-                          </div>
-                        </v-col>
-                      </v-row>
-
-                      <v-row class="mt-4">
-                        <v-col cols="12">
-                          <v-text-field v-model="config.pan_transfer_unrecognized_path" label="网盘整理未识别目录"
-                            density="compact" append-icon="mdi-folder-network"
-                            @click:append="openDirSelector('unrecognized', 'remote', 'panTransferUnrecognized')"></v-text-field>
-                          <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
-                            <div class="text-caption">提示：此目录用于存放整理过程中未能识别的媒体文件。</div>
-                          </v-alert>
-                          <v-alert type="warning" variant="tonal" density="compact" class="mt-3" icon="mdi-alert">
-                            <div class="text-caption">注意：未识别目录不能设置在任何媒体库目录或待整理目录的内部。</div>
-                          </v-alert>
-                        </v-col>
-                      </v-row>
-                    </v-card-text>
-                  </v-card>
-
-                  <!-- 分享转存目录 -->
-                  <v-card variant="outlined" class="mt-4">
-                    <v-card-title class="text-subtitle-1">
-                      <v-icon start>mdi-share-variant</v-icon>
-                      分享转存目录
-                    </v-card-title>
-                    <v-card-text>
-                      <v-row>
-                        <v-col cols="12">
-                          <div class="d-flex flex-column">
-                            <div v-for="(path, index) in shareReceivePaths" :key="`share-${index}`"
-                              class="mb-2 d-flex align-center">
-                              <v-text-field v-model="path.path" label="分享转存目录" density="compact"
-                                append-icon="mdi-folder-network"
-                                @click:append="openDirSelector(index, 'remote', 'shareReceive')"
-                                class="flex-grow-1"></v-text-field>
-                              <v-btn icon size="small" color="error" class="ml-2"
-                                @click="removeShareReceivePath(index)">
-                                <v-icon>mdi-delete</v-icon>
-                              </v-btn>
-                            </div>
-                            <v-btn size="small" prepend-icon="mdi-plus" variant="outlined" class="mt-2 align-self-start"
-                              @click="addShareReceivePath">
-                              添加路径
-                            </v-btn>
-                          </div>
-                        </v-col>
-                      </v-row>
-                      <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
-                        <div class="text-caption">提示：此目录用于存放通过分享链接转存的资源。</div>
-                      </v-alert>
-                    </v-card-text>
-                  </v-card>
-
-                  <!-- 离线下载目录 -->
-                  <v-card variant="outlined" class="mt-4">
-                    <v-card-title class="text-subtitle-1">
-                      <v-icon start>mdi-download</v-icon>
-                      离线下载目录
-                    </v-card-title>
-                    <v-card-text>
-                      <v-row>
-                        <v-col cols="12">
-                          <div class="d-flex flex-column">
-                            <div v-for="(path, index) in offlineDownloadPaths" :key="`offline-${index}`"
-                              class="mb-2 d-flex align-center">
-                              <v-text-field v-model="path.path" label="离线下载目录" density="compact"
-                                append-icon="mdi-folder-network"
-                                @click:append="openDirSelector(index, 'remote', 'offlineDownload')"
-                                class="flex-grow-1"></v-text-field>
-                              <v-btn icon size="small" color="error" class="ml-2"
-                                @click="removeOfflineDownloadPath(index)">
-                                <v-icon>mdi-delete</v-icon>
-                              </v-btn>
-                            </div>
-                            <v-btn size="small" prepend-icon="mdi-plus" variant="outlined" class="mt-2 align-self-start"
-                              @click="addOfflineDownloadPath">
-                              添加路径
-                            </v-btn>
-                          </div>
-                        </v-col>
-                      </v-row>
-                      <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
-                        <div class="text-caption">提示：此目录用于存放通过离线下载功能下载的资源。</div>
-                      </v-alert>
-                    </v-card-text>
-                  </v-card>
-
-                  <v-divider class="my-4"></v-divider>
-
-                  <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
-                    <div class="text-body-2 mb-1"><strong>配置说明：</strong></div>
-                    <div class="text-caption">
-                      <div class="mb-1">使用本功能需要先进入 设定-目录 进行配置：</div>
-                      <div class="mb-1">1. 添加目录配置卡，按需配置媒体类型和媒体类别，资源存储选择115网盘，资源目录输入网盘待整理文件夹</div>
-                      <div class="mb-1">2. 自动整理模式选择手动整理，媒体库存储依旧选择115网盘，并配置好媒体库路径，整理方式选择移动，按需配置分类、重命名、通知</div>
-                      <div>3. 配置完成目录设置后只需要在上方 网盘待整理目录 填入 网盘待整理文件夹 即可</div>
-                    </div>
-                  </v-alert>
-
-                  <v-alert type="warning" variant="tonal" density="compact" class="mt-3" icon="mdi-alert">
-                    <div class="text-caption">注意：配置目录时不能选择刮削元数据，否则可能导致风控！</div>
-                  </v-alert>
-
-                  <v-alert type="warning" variant="tonal" density="compact" class="mt-3" icon="mdi-alert">
-                    <div class="text-body-2 mb-1"><strong>注意事项：</strong></div>
-                    <div class="text-caption">
-                      <div class="mb-1">• 阿里云盘，115网盘分享链接秒传或转存都依赖于网盘整理</div>
-                      <div class="mb-1">• TG/Slack资源搜索转存也依赖于网盘整理</div>
-                      <div>• 当阿里云盘分享秒传未能识别分享媒体信息时，会自动将资源转存到网盘整理未识别目录，后续需要用户手动重命名整理</div>
-                    </div>
-                  </v-alert>
-
-                  <v-alert type="warning" variant="tonal" density="compact" class="mt-3" icon="mdi-alert">
-                    <div class="text-caption">注意：115生活事件监控默认会忽略网盘整理触发的移动事件，所以推荐使用MP整理事件监控生成STRM</div>
-                  </v-alert>
-
-                  <v-row class="mt-4">
-                    <v-col cols="12">
-                      <v-btn color="info" variant="outlined" prepend-icon="mdi-bug-check" @click="checkLifeEventStatus">
-                        故障检查
-                      </v-btn>
-                      <div class="text-caption text-grey mt-2">
-                        检查115生活事件进程状态，测试数据拉取功能，并提供详细的调试信息
-                      </div>
-                    </v-col>
-                  </v-row>
-                </v-card-text>
-              </v-window-item>
-
-              <!-- 目录上传 -->
-              <v-window-item value="tab-directory-upload">
-                <v-card-text>
-                  <v-row>
-                    <v-col cols="12" md="4">
-                      <v-switch v-model="config.directory_upload_enabled" label="启用" color="info" density="compact"
-                        hide-details></v-switch>
-                    </v-col>
-                    <v-col cols="12" md="8">
-                      <v-select v-model="config.directory_upload_mode" label="监控模式" :items="[
-                        { title: '兼容模式', value: 'compatibility' },
-                        { title: '性能模式', value: 'fast' }
-                      ]" chips closable-chips density="compact" hide-details></v-select>
-                    </v-col>
-                  </v-row>
-                  <v-row>
-                    <v-col cols="12" md="6">
-                      <v-text-field v-model="config.directory_upload_uploadext" label="上传文件扩展名"
-                        hint="指定哪些扩展名的文件会被上传到115网盘，多个用逗号分隔" persistent-hint density="compact" variant="outlined"
-                        hide-details="auto"></v-text-field>
-                    </v-col>
-                    <v-col cols="12" md="6">
-                      <v-text-field v-model="config.directory_upload_copyext" label="复制文件扩展名"
-                        hint="指定哪些扩展名的文件会被复制到本地目标目录，多个用逗号分隔" persistent-hint density="compact" variant="outlined"
-                        hide-details="auto"></v-text-field>
-                    </v-col>
-                  </v-row>
-
-                  <v-divider class="my-3"></v-divider>
-                  <div class="text-subtitle-2 mb-2">路径配置:</div>
-
-                  <div v-for="(pair, index) in directoryUploadPaths" :key="`upload-${index}`"
-                    class="path-group mb-3 pa-2 border rounded">
-                    <v-row dense>
-                      <!-- 本地监控目录 -->
-                      <v-col cols="12" md="6">
-                        <v-text-field v-model="pair.src" label="本地监控目录" density="compact" variant="outlined"
-                          hide-details append-icon="mdi-folder-search-outline"
-                          @click:append="openDirSelector(index, 'local', 'directoryUpload', 'src')">
-                          <template v-slot:prepend-inner>
-                            <v-icon color="blue">mdi-folder-table</v-icon>
-                          </template>
-                        </v-text-field>
-                      </v-col>
-                      <!-- 网盘上传目录 -->
-                      <v-col cols="12" md="6">
-                        <v-text-field v-model="pair.dest_remote" label="网盘上传目标目录" density="compact" variant="outlined"
-                          hide-details append-icon="mdi-folder-network-outline"
-                          @click:append="openDirSelector(index, 'remote', 'directoryUpload', 'dest_remote')">
-                          <template v-slot:prepend-inner>
-                            <v-icon color="green">mdi-cloud-upload</v-icon>
-                          </template>
-                        </v-text-field>
-                      </v-col>
-                    </v-row>
-                    <v-row dense class="mt-1">
-                      <!-- 非上传文件目标目录 -->
-                      <v-col cols="12" md="6">
-                        <v-text-field v-model="pair.dest_local" label="本地复制目标目录 (可选)" density="compact"
-                          variant="outlined" hide-details append-icon="mdi-folder-plus-outline"
-                          @click:append="openDirSelector(index, 'local', 'directoryUpload', 'dest_local')">
-                          <template v-slot:prepend-inner>
-                            <v-icon color="orange">mdi-content-copy</v-icon>
-                          </template>
-                        </v-text-field>
-                      </v-col>
-                      <!-- STRM 输出目录 -->
-                      <v-col cols="12" md="6">
-                        <v-text-field v-model="pair.dest_strm" label="STRM 输出目录 (可选)" density="compact"
-                          variant="outlined" append-icon="mdi-file-document-outline" hide-details="auto"
-                          @click:append="openDirSelector(index, 'local', 'directoryUpload', 'dest_strm')">
-                          <template v-slot:prepend-inner>
-                            <v-icon color="purple">mdi-file-star</v-icon>
-                          </template>
-                        </v-text-field>
-                      </v-col>
-                    </v-row>
-                    <v-row dense class="mt-1">
-                      <!-- 删除源文件开关 -->
-                      <v-col cols="12" md="10" class="d-flex align-center">
-                        <v-switch v-model="pair.delete" label="处理后删除源文件" color="error" density="compact"
-                          hide-details></v-switch>
-                      </v-col>
-                      <!-- 删除按钮 -->
-                      <v-col cols="12" md="2" class="d-flex align-center justify-end">
-                        <v-btn icon="mdi-delete-outline" size="small" color="error" variant="text" title="删除此路径配置"
-                          @click="removePath(index, 'directoryUpload')">
-                        </v-btn>
-                      </v-col>
-                    </v-row>
-                  </div>
-
-                  <v-btn size="small" prepend-icon="mdi-plus-box-multiple-outline" variant="tonal" class="mt-2"
-                    color="primary" @click="addPath('directoryUpload')">
-                    添加监控路径组
-                  </v-btn>
-
-                  <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
-                    <div class="text-body-2 mb-1"><strong>功能说明：</strong></div>
-                    <div class="text-caption">
-                      <div class="mb-1">• 监控指定的"本地监控目录"</div>
-                      <div class="mb-1">• 当目录中出现新文件时：</div>
-                      <div class="ml-4 mb-1">- 如果文件扩展名匹配"上传文件扩展名"，则将其上传到对应的"网盘上传目标目录"；若配置了"STRM 输出目录"，上传成功后会立即在该目录生成对应
-                        .strm 文件
-                      </div>
-                      <div class="ml-4 mb-1">- 如果文件扩展名匹配"复制文件扩展名"，则将其复制到对应的"本地复制目标目录"</div>
-                      <div class="mb-1">• 处理完成后，如果"删除源文件"开关打开，则会删除原始文件</div>
-                      <div class="mb-1">• 扩展名不匹配的文件将被忽略</div>
-                      <div class="mb-1">• "STRM 输出目录"：上传成功后立即在此目录生成对应 .strm 文件，目录结构同监控目录相对路径</div>
-                    </div>
-                    <strong>注意:</strong><br>
-                    - 请确保MoviePilot对本地目录有读写权限，对网盘目录有写入权限。<br>
-                    - "本地复制目标目录"和"STRM 输出目录"是可选的，如果不填，则仅执行上传操作（如果匹配）。<br>
-                    - 监控模式："性能模式"使用系统原生文件系统事件，适用于物理路径，性能高且更稳定；"兼容模式"使用轮询方式，适用于网络共享目录（如SMB/NFS），性能较低但兼容性好。
-                  </v-alert>
-                </v-card-text>
-              </v-window-item>
-
-              <!-- 频道搜索 -->
-              <v-window-item value="tab-tg-search">
-                <v-card-text>
-
-                  <!-- Nullbr 配置 -->
-                  <v-card variant="outlined" class="mb-6">
-                    <v-card-item>
-                      <v-card-title class="d-flex align-center">
-                        <v-icon start>mdi-cog-outline</v-icon>
-                        <span class="text-h6">Nullbr 搜索配置</span>
-                      </v-card-title>
-                    </v-card-item>
-                    <v-card-text>
-                      <v-row>
-                        <v-col cols="12" md="6">
-                          <v-text-field v-model="config.nullbr_app_id" label="Nullbr APP ID" hint="从 Nullbr 官网申请"
-                            persistent-hint density="compact" variant="outlined"></v-text-field>
-                        </v-col>
-                        <v-col cols="12" md="6">
-                          <v-text-field v-model="config.nullbr_api_key" label="Nullbr API KEY" hint="从 Nullbr 官网申请"
-                            persistent-hint density="compact" variant="outlined"></v-text-field>
-                        </v-col>
-                      </v-row>
-                    </v-card-text>
-                  </v-card>
-
-                  <!-- 自定义频道搜索配置 -->
-                  <v-card variant="outlined">
-                    <v-card-item>
-                      <v-card-title class="d-flex align-center">
-                        <v-icon start>mdi-telegram</v-icon>
-                        <span class="text-h6">自定义Telegram频道</span>
-                      </v-card-title>
-                    </v-card-item>
-                    <v-card-text>
-                      <div v-for="(channel, index) in tgChannels" :key="index" class="d-flex align-center mb-4">
-                        <v-text-field v-model="channel.name" label="频道名称" placeholder="例如：爱影115资源分享频道" density="compact"
-                          variant="outlined" hide-details class="mr-3"></v-text-field>
-                        <v-text-field v-model="channel.id" label="频道ID" placeholder="例如：ayzgzf" density="compact"
-                          variant="outlined" hide-details class="mr-3"></v-text-field>
-                        <v-btn icon size="small" color="error" variant="tonal" @click="removeTgChannel(index)"
-                          title="删除此频道">
-                          <v-icon>mdi-delete-outline</v-icon>
-                        </v-btn>
-                      </div>
-
-                      <!-- 操作按钮组 -->
-                      <div class="d-flex ga-2">
-                        <v-btn size="small" prepend-icon="mdi-plus-circle-outline" variant="tonal" color="primary"
-                          @click="addTgChannel">
-                          添加频道
-                        </v-btn>
-                        <v-btn size="small" prepend-icon="mdi-import" variant="tonal" @click="openImportDialog">
-                          一键导入
-                        </v-btn>
-                      </div>
-                    </v-card-text>
-                  </v-card>
-
-                  <v-alert type="info" variant="tonal" density="compact" class="mt-6" icon="mdi-information">
-                    <div class="text-body-2 mb-1"><strong>Telegram频道搜索功能说明</strong></div>
-                    <div class="text-caption">
-                      <div class="mb-1">• 您可以同时配置 Nullbr 和下方的自定义频道列表</div>
-                      <div>• 系统会整合两者的搜索结果，为您提供更广泛的资源范围</div>
-                    </div>
-                  </v-alert>
-
-                </v-card-text>
-              </v-window-item>
-
-              <!-- 多端播放 -->
-              <v-window-item value="tab-same-playback">
-                <v-card-text>
-
-                  <v-row>
-                    <v-col cols="12" md="4">
-                      <v-switch v-model="config.same_playback" label="启用" color="info" density="compact"
-                        hide-details></v-switch>
-                    </v-col>
-                  </v-row>
-
-                  <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
-                    <div class="text-body-2 mb-1"><strong>多设备同步播放</strong></div>
-                    <div class="text-caption">支持多个设备同时播放同一影片</div>
-                  </v-alert>
-                  <v-alert type="warning" variant="tonal" density="compact" class="mt-3" icon="mdi-alert">
-                    <div class="text-body-2 mb-1"><strong>使用限制</strong></div>
-                    <div class="text-caption">
-                      <div class="mb-1">• 最多支持双IP同时播放</div>
-                      <div class="mb-1">• 禁止多IP滥用</div>
-                      <div>• 违规操作可能导致账号封禁</div>
-                    </div>
-                  </v-alert>
-                </v-card-text>
-              </v-window-item>
-
-              <!-- 数据增强 -->
-              <v-window-item value="tab-data-enhancement">
-                <v-card-text>
-                  <v-row>
-                    <v-col cols="12" md="3">
-                      <v-switch v-model="config.error_info_upload" label="错误信息上传" color="info"
-                        density="compact"></v-switch>
-                    </v-col>
-                    <v-col cols="12" md="3">
-                      <v-switch v-model="config.upload_module_enhancement" label="上传模块增强" color="info"
-                        density="compact"></v-switch>
-                    </v-col>
-                    <v-col cols="12" md="3">
-                      <v-switch v-model="config.transfer_module_enhancement" label="整理模块增强" color="info"
-                        density="compact" :disabled="isTransferModuleEnhancementLocked" hint="此功能需要授权才能开启"
-                        persistent-hint></v-switch>
-                    </v-col>
-                    <v-col cols="12" md="3">
-                      <v-switch v-model="config.pan_transfer_takeover" label="接管网盘整理" color="info" density="compact"
-                        hint="接管 115 → 115 整理任务进行批量处理，需要存储模块为 115网盘Plus" persistent-hint></v-switch>
-                    </v-col>
-                  </v-row>
-                  <v-row>
-                    <v-col cols="12" md="4">
-                      <v-switch v-model="config.upload_share_info" label="上传分享链接" color="info"
-                        density="compact"></v-switch>
-                    </v-col>
-                    <v-col cols="12" md="4">
-                      <v-switch v-model="config.upload_offline_info" label="上传离线下载链接" color="info"
-                        density="compact"></v-switch>
-                    </v-col>
-                    <v-col cols="12" md="4">
-                      <v-select v-model="config.storage_module" label="存储模块选择" :items="[
-                        { title: '115网盘', value: 'u115' },
-                        { title: '115网盘Plus', value: '115网盘Plus' }
-                      ]" chips closable-chips
-                        :hint="config.pan_transfer_takeover ? '接管网盘整理功能必须使用 115网盘Plus' : '选择使用的存储模块'"
-                        persistent-hint></v-select>
-                    </v-col>
-                  </v-row>
-                  <v-row v-if="config.pan_transfer_takeover">
-                    <v-col cols="12">
-                      <v-alert type="warning" variant="tonal" density="compact" icon="mdi-alert"
-                        v-if="config.storage_module !== '115网盘Plus'">
-                        <div class="text-body-2 mb-1"><strong>提示：</strong></div>
-                        <div class="text-caption">
-                          接管网盘整理功能已启用，但当前存储模块为 <strong>{{ config.storage_module === 'u115' ? '115网盘' :
-                            config.storage_module
-                          }}</strong>。
-                          请将存储模块切换为 <strong>115网盘Plus</strong>，否则接管功能将无法生效。
-                        </div>
-                      </v-alert>
-                      <v-alert type="info" variant="tonal" density="compact" icon="mdi-information" v-else>
-                        <div class="text-body-2 mb-1"><strong>功能说明：</strong></div>
-                        <div class="text-caption">
-                          <div class="mb-1">• <strong>接管网盘整理：</strong>启用后将接管 MoviePilot 的 115 → 115 整理任务，使用批量处理提升整理效率
-                          </div>
-                          <div class="mb-1">• <strong>与整理模块接口增强的区别：</strong>此功能是接管整理流程，而整理模块接口增强是对存储接口的优化</div>
-                          <div>• 当前存储模块为 <strong>115网盘Plus</strong>，功能可以正常使用</div>
-                        </div>
-                      </v-alert>
-                    </v-col>
-                  </v-row>
-                  <v-row>
-                    <v-col cols="12" md="4" class="d-flex align-center">
-                      <v-btn @click="getMachineId" size="small" prepend-icon="mdi-identifier">显示设备ID</v-btn>
-                    </v-col>
-                  </v-row>
-
-                  <v-row v-if="machineId">
-                    <v-col cols="12">
-                      <v-text-field v-model="machineId" label="Machine ID" readonly density="compact" variant="outlined"
-                        hide-details="auto"></v-text-field>
-                    </v-col>
-                  </v-row>
-
-                  <!-- 上传模块增强配置 -->
-                  <v-expansion-panels variant="tonal" class="mt-6">
-                    <v-expansion-panel>
-                      <v-expansion-panel-title>
-                        <v-icon icon="mdi-tune-variant" class="mr-2"></v-icon>
-                        上传模块增强配置
-                      </v-expansion-panel-title>
-                      <v-expansion-panel-text class="pa-4">
-                        <v-row>
-                          <v-col cols="12" md="4">
-                            <v-switch v-model="config.upload_module_skip_slow_upload" label="秒传失败直接退出" color="info"
-                              density="compact"></v-switch>
-                          </v-col>
-                          <v-col cols="12" md="4">
-                            <v-switch v-model="config.upload_module_notify" label="秒传等待发送通知" color="info"
-                              density="compact"></v-switch>
-                          </v-col>
-                          <v-col cols="12" md="4">
-                            <v-switch v-model="config.upload_open_result_notify" label="上传结果通知" color="info"
-                              density="compact"></v-switch>
-                          </v-col>
-                        </v-row>
-                        <v-row>
-                          <v-col cols="12" md="6">
-                            <v-text-field v-model.number="config.upload_module_wait_time" label="秒传休眠等待时间（单位秒）"
-                              type="number" hint="秒传休眠等待时间（单位秒）" persistent-hint density="compact"></v-text-field>
-                          </v-col>
-                          <v-col cols="12" md="6">
-                            <v-text-field v-model.number="config.upload_module_wait_timeout" label="秒传最长等待时间（单位秒）"
-                              type="number" hint="秒传最长等待时间（单位秒）" persistent-hint density="compact"></v-text-field>
-                          </v-col>
-                        </v-row>
-                        <v-row>
-                          <v-col cols="12" md="6">
-                            <v-text-field v-model="skipUploadWaitSizeFormatted" label="跳过等待秒传的文件大小阈值"
-                              hint="文件小于此值将跳过等待秒传（单位支持K，M，G）" persistent-hint density="compact"
-                              placeholder="例如: 5M, 1.5G (可为空)" clearable></v-text-field>
-                          </v-col>
-                          <v-col cols="12" md="6">
-                            <v-text-field v-model="forceUploadWaitSizeFormatted" label="强制等待秒传的文件大小阈值"
-                              hint="文件大于此值将强制等待秒传（单位支持K，M，G）" persistent-hint density="compact"
-                              placeholder="例如: 5M, 1.5G (可为空)" clearable></v-text-field>
-                          </v-col>
-                        </v-row>
-                        <v-row v-if="config.upload_module_skip_slow_upload">
-                          <v-col cols="12" md="6">
-                            <v-text-field v-model="skipSlowUploadSizeFormatted" label="秒传失败后跳过上传的文件大小阈值"
-                              hint="秒传失败后，大于等于此值的文件将跳过上传，小于此值的文件将继续上传（单位支持K，M，G）" persistent-hint density="compact"
-                              placeholder="例如: 100M, 1G (可为空)" clearable></v-text-field>
-                          </v-col>
-                        </v-row>
-                        <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
-                          <div class="text-body-2 mb-1"><strong>秒传失败直接退出：</strong></div>
-                          <div class="text-caption">此功能开启后，对于无法秒传或者秒传等待超时的文件将直接跳过上传步骤，整理返回失败。</div>
-                          <div class="text-caption mt-1">如果设置了"秒传失败后跳过上传的文件大小阈值"，则只有大于等于该阈值的文件才会跳过上传，小于该阈值的文件将继续执行上传。
-                          </div>
-                        </v-alert>
-                      </v-expansion-panel-text>
-                    </v-expansion-panel>
-                  </v-expansion-panels>
-
-                  <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
-                    <div class="text-body-2 mb-1"><strong>115上传增强有效范围：</strong></div>
-                    <div class="text-caption">此功能开启后，将对整个MoviePilot系统内所有调用115网盘上传的功能生效。</div>
-                  </v-alert>
-
-                  <v-alert type="warning" variant="tonal" density="compact" class="mt-3" icon="mdi-alert">
-                    <div class="text-body-2 mb-1"><strong>风险与免责声明</strong></div>
-                    <div class="text-caption">
-                      <div class="mb-1">• 插件程序内包含可选的Sentry分析组件，详见<a href="https://sentry.io/privacy/" target="_blank"
-                          style="color: inherit; text-decoration: underline;">Sentry Privacy Policy</a></div>
-                      <div class="mb-1">• 插件程序将在必要时上传错误信息及运行环境信息</div>
-                      <div>• 插件程序将记录程序运行重要节点并保存追踪数据至少72小时</div>
-                    </div>
-                  </v-alert>
-
-                </v-card-text>
-              </v-window-item>
-
-              <!-- 网盘挂载 -->
-              <v-window-item value="tab-pan-mount">
-                <v-card-text>
-                  <v-row>
-                    <v-col cols="12" md="6">
-                      <v-switch v-model="config.fuse_enabled" label="启用" color="success" density="compact"
-                        hint="将115网盘挂载为本地文件系统" persistent-hint></v-switch>
-                    </v-col>
-                    <v-col cols="12" md="6">
-                      <v-text-field v-model="config.fuse_mountpoint" label="挂载点路径" hint="文件系统挂载的本地路径" persistent-hint
-                        density="compact" variant="outlined" hide-details="auto" placeholder="/mnt/115"></v-text-field>
-                    </v-col>
-                  </v-row>
-                  <v-row>
-                    <v-col cols="12" md="4">
-                      <v-text-field v-model.number="config.fuse_readdir_ttl" label="目录读取缓存 TTL（秒）" type="number"
-                        hint="目录列表缓存时间，默认60秒" persistent-hint density="compact" variant="outlined" hide-details="auto"
-                        min="0"></v-text-field>
-                    </v-col>
-                    <v-col cols="12" md="4">
-                      <v-text-field v-model.number="config.fuse_uid" label="文件所有者 UID" type="number"
-                        hint="挂载文件的用户ID，留空则使用当前运行用户" persistent-hint density="compact" variant="outlined"
-                        hide-details="auto" min="0" clearable></v-text-field>
-                    </v-col>
-                    <v-col cols="12" md="4">
-                      <v-text-field v-model.number="config.fuse_gid" label="文件所有者 GID" type="number"
-                        hint="挂载文件的组ID，留空则使用当前运行用户" persistent-hint density="compact" variant="outlined"
-                        hide-details="auto" min="0" clearable></v-text-field>
-                    </v-col>
-                  </v-row>
-
-                  <!-- STRM 文件生成内容接管 -->
-                  <v-divider class="my-4"></v-divider>
-                  <v-row>
-                    <v-col cols="12">
-                      <v-switch v-model="config.fuse_strm_takeover_enabled" label="接管 STRM 文件生成内容" color="primary"
-                        density="compact" hint="启用后，匹配规则的文件将生成指向挂载路径的 STRM 内容" persistent-hint></v-switch>
-                    </v-col>
-                  </v-row>
-                  <v-expand-transition>
-                    <div v-if="config.fuse_strm_takeover_enabled">
-                      <v-divider class="my-4"></v-divider>
-                      <v-alert type="info" variant="tonal" density="compact" class="mb-4" icon="mdi-information">
-                        <div class="text-body-2 mb-1"><strong>STRM URL 生成优先级：</strong></div>
-                        <div class="text-caption">
-                          <div class="mb-1">1. <strong>URL 自定义模板</strong>（如果启用）：优先使用 Jinja2 模板渲染</div>
-                          <div class="mb-1">2. <strong>FUSE STRM 接管</strong>（如果启用且匹配规则）：生成指向挂载路径的 STRM 内容</div>
-                          <div>3. <strong>默认格式</strong>：使用基础设置中的「STRM文件URL格式」和「STRM URL 文件名称编码」</div>
-                        </div>
-                      </v-alert>
-                      <v-divider class="mb-4"></v-divider>
-                      <v-row>
-                        <v-col cols="12" md="6">
-                          <v-text-field v-model="config.fuse_strm_mount_dir" label="媒体服务器网盘挂载目录"
-                            hint="媒体服务器中配置的 115 网盘挂载路径" persistent-hint density="compact" variant="outlined"
-                            hide-details="auto" placeholder="/media/115"></v-text-field>
-                        </v-col>
-                      </v-row>
-                      <v-row>
-                        <v-col cols="12">
-                          <v-btn color="primary" variant="outlined" prepend-icon="mdi-code-tags" size="small"
-                            @click="openConfigGeneratorDialog">
-                            生成 emby2Alist 配置
-                          </v-btn>
-                        </v-col>
-                      </v-row>
-                      <v-row>
-                        <v-col cols="12">
-                          <div class="text-body-2 mb-2"><strong>接管规则：</strong></div>
-                          <div class="d-flex flex-column">
-                            <v-card v-for="(rule, index) in fuseStrmTakeoverRules" :key="`fuse-strm-takeover-${index}`"
-                              variant="outlined" class="mb-3">
-                              <v-card-text>
-                                <div class="d-flex align-center mb-2">
-                                  <span class="text-caption text-medium-emphasis">规则 #{{ index + 1 }}</span>
-                                  <v-spacer></v-spacer>
-                                  <v-btn icon size="small" color="error" @click="removePath(index, 'fuseStrmTakeover')">
+                          <v-row>
+                            <v-col cols="12">
+                              <div class="d-flex flex-column">
+                                <div v-for="(pair, index) in fullSyncPaths" :key="`full-${index}`"
+                                  class="mb-2 d-flex align-center">
+                                  <div class="path-selector flex-grow-1 mr-2">
+                                    <v-text-field v-model="pair.local" label="本地STRM目录" density="compact"
+                                      append-icon="mdi-folder"
+                                      @click:append="openDirSelector(index, 'local', 'fullSync')"></v-text-field>
+                                  </div>
+                                  <v-icon>mdi-pound</v-icon>
+                                  <div class="path-selector flex-grow-1 ml-2">
+                                    <v-text-field v-model="pair.remote" label="网盘媒体库目录" density="compact"
+                                      append-icon="mdi-folder-network"
+                                      @click:append="openDirSelector(index, 'remote', 'fullSync')"></v-text-field>
+                                  </div>
+                                  <v-btn icon size="small" color="error" class="ml-2"
+                                    @click="removePath(index, 'fullSync')">
                                     <v-icon>mdi-delete</v-icon>
                                   </v-btn>
                                 </div>
-
-                                <!-- 匹配方式选择 -->
-                                <div class="mb-3">
-                                  <div class="text-caption text-medium-emphasis mb-2">选择匹配方式（可多选）：</div>
-                                  <div class="d-flex flex-wrap gap-3">
-                                    <v-switch v-model="rule._use_extensions" label="文件后缀" density="compact"
-                                      color="primary" hide-details class="ma-0"></v-switch>
-                                    <v-switch v-model="rule._use_names" label="文件名称" density="compact" color="primary"
-                                      hide-details class="ma-0"></v-switch>
-                                    <v-switch v-model="rule._use_paths" label="网盘路径" density="compact" color="primary"
-                                      hide-details class="ma-0"></v-switch>
-                                  </div>
-                                </div>
-
-                                <!-- 文件后缀 -->
-                                <v-expand-transition>
-                                  <div v-if="rule._use_extensions">
-                                    <v-textarea v-model="rule.extensions" label="文件后缀（每行一个，例如：mkv、mp4）"
-                                      hint="匹配的文件后缀，不包含点号，每行一个" persistent-hint density="compact" variant="outlined"
-                                      rows="2" class="mb-2" placeholder="mkv&#10;mp4&#10;avi"></v-textarea>
-                                  </div>
-                                </v-expand-transition>
-
-                                <!-- 文件名称白名单 -->
-                                <v-expand-transition>
-                                  <div v-if="rule._use_names">
-                                    <v-textarea v-model="rule.names" label="文件名称白名单（每行一个，支持部分匹配）"
-                                      hint="文件名包含这些关键词时匹配，每行一个" persistent-hint density="compact" variant="outlined"
-                                      rows="2" class="mb-2" placeholder="蓝光&#10;BluRay"></v-textarea>
-                                  </div>
-                                </v-expand-transition>
-
-                                <!-- 网盘文件夹路径 -->
-                                <v-expand-transition>
-                                  <div v-if="rule._use_paths">
-                                    <v-textarea v-model="rule.paths" label="网盘文件夹路径（每行一个，支持部分匹配）"
-                                      hint="文件路径包含这些路径时匹配，每行一个" persistent-hint density="compact" variant="outlined"
-                                      rows="2" placeholder="/电影/4K&#10;/电视剧"></v-textarea>
-                                  </div>
-                                </v-expand-transition>
-                              </v-card-text>
-                            </v-card>
-                            <v-btn size="small" prepend-icon="mdi-plus" variant="outlined" class="align-self-start"
-                              @click="addPath('fuseStrmTakeover')">
-                              添加接管规则
-                            </v-btn>
-                          </div>
-                          <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
-                            <div class="text-caption">
-                              <div class="mb-1">• 三种匹配方式可以组合使用，<strong>同时满足</strong>（与关系）才会匹配</div>
-                              <div class="mb-1">• 如果某个匹配条件为空，则<strong>不检查</strong>该条件</div>
-                              <div class="mb-1">• <strong>匹配成功后生成的 STRM 内容：</strong></div>
-                              <div class="mb-1">
-                                格式：<code>{{ config.fuse_strm_mount_dir || '媒体服务器挂载目录' }}/文件网盘路径</code></div>
-                              <div> 示例：如果挂载目录为 <code>/media/115</code>，文件网盘路径为 <code>/电影/示例.mkv</code>，则生成的 STRM
-                                内容为
-                                <code>/media/115/电影/示例.mkv</code>
-                              </div>
-                            </div>
-                          </v-alert>
-                        </v-col>
-                      </v-row>
-                    </div>
-                  </v-expand-transition>
-
-                  <v-alert type="warning" variant="tonal" density="compact" class="mt-3" icon="mdi-alert">
-                    <div class="text-body-2 mb-1"><strong>平台限制说明：</strong></div>
-                    <div class="text-caption">
-                      <div class="mb-1">• <strong>Windows 系统不支持：</strong>FUSE 功能基于 Linux 文件系统，无法在 Windows 环境下运行</div>
-                      <div class="mb-1">• <strong>Linux 裸机：</strong>理论上支持，需要安装 libfuse（libfuse2 或 libfuse3）</div>
-                      <div class="mb-1">• <strong>macOS 裸机：</strong>理论上支持，需要安装 macFUSE</div>
-                      <div>• <strong>推荐使用 Docker 容器：</strong>目前仅对 Docker 容器环境有较好的支持和测试，建议在 Docker 容器中使用此功能</div>
-                    </div>
-                  </v-alert>
-                  <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
-                    <div class="text-body-2 mb-1"><strong>功能说明：</strong></div>
-                    <div class="text-caption mb-2">启用后，115网盘将挂载为容器内的文件系统，可通过文件管理器直接访问。配合上方的"STRM 文件生成内容接管"功能，可以让生成的 STRM
-                      文件直接指向挂载路径，实现本地文件系统访问。</div>
-                    <div class="text-body-2 mt-2 mb-1"><strong>配置说明：</strong></div>
-                    <div class="text-caption">
-                      <div class="mb-1">• <strong>挂载点路径：</strong>容器内的挂载路径，必须是已存在的目录（例如：<code>/media/115</code> 或
-                        <code>/data/115</code>）
-                      </div>
-                      <div class="mb-1">• <strong>目录读取缓存 TTL：</strong>目录列表缓存时间，默认60秒</div>
-                      <div class="mb-1">• <strong>文件所有者 UID/GID：</strong>设置挂载文件的用户和组ID，留空则自动使用当前运行用户（Docker 容器中建议设置为非
-                        root 用户）
-                      </div>
-                      <div class="mb-1">• <strong>容器权限：</strong>需要容器以 <code>--privileged</code> 或
-                        <code>--cap-add SYS_ADMIN</code>
-                        权限运行
-                      </div>
-                      <div>• <strong>STRM 接管：</strong>启用上方的"接管 STRM 文件生成内容"后，匹配规则的文件将生成指向挂载路径的 STRM
-                        内容，媒体服务器可直接通过挂载路径访问文件</div>
-                    </div>
-                  </v-alert>
-                  <v-alert type="warning" variant="tonal" density="compact" class="mt-3" icon="mdi-alert">
-                    <div class="text-body-2 mb-1"><strong>重要提示：</strong></div>
-                    <div class="text-caption">
-                      <div class="mb-1">• <strong>切勿直接使用媒体服务器刮削挂载路径</strong>，这会导致网盘风控</div>
-                      <div>• <strong>正确方法：</strong>使用本插件的 STRM 文件生成功能，在本地生成 STRM 文件后，再让媒体服务器对 STRM 文件进行刮削</div>
-                    </div>
-                  </v-alert>
-                  <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-book-open-page-variant">
-                    <div class="text-body-2 mb-1"><strong>配置教程：</strong></div>
-                    <div class="text-caption">
-                      详细的 FUSE 挂载配置指南请参考：
-                      <a href="https://blog.ddsrem.com/archives/115strmhelper-fuse-use" target="_blank"
-                        rel="noopener noreferrer" style="color: inherit; text-decoration: underline;">FUSE 挂载详细配置指南</a>
-                    </div>
-                  </v-alert>
-                </v-card-text>
-              </v-window-item>
-
-              <v-window-item value="tab-advanced-configuration">
-                <v-card-text>
-
-                  <!-- STRM URL 自定义模板 -->
-                  <v-row>
-                    <v-col cols="12">
-                      <v-switch v-model="config.strm_url_template_enabled" label="启用 STRM URL 自定义模板 (Jinja2)"
-                        color="primary" density="compact" hint="启用后可以使用 Jinja2 模板语法自定义 STRM 文件的 URL 格式"
-                        persistent-hint></v-switch>
-                    </v-col>
-                  </v-row>
-
-                  <v-expand-transition>
-                    <div v-if="config.strm_url_template_enabled">
-                      <v-alert type="info" variant="tonal" density="compact" class="mt-2 mb-3" icon="mdi-information">
-                        <div class="text-body-2 mb-1"><strong>STRM URL 生成优先级：</strong></div>
-                        <div class="text-caption">
-                          <div class="mb-1">1. <strong>URL 自定义模板</strong>（如果启用）：优先使用 Jinja2 模板渲染</div>
-                          <div class="mb-1">2. <strong>FUSE STRM 接管</strong>（如果启用且匹配规则）：生成指向挂载路径的 STRM 内容</div>
-                          <div>3. <strong>默认格式</strong>：使用基础设置中的「STRM文件URL格式」和「STRM URL 文件名称编码」</div>
-                        </div>
-                      </v-alert>
-                      <v-row class="mt-2">
-                        <v-col cols="12">
-                          <v-textarea v-model="config.strm_url_template" label="STRM URL 基础模板 (Jinja2)"
-                            hint="支持 Jinja2 语法，可用变量和过滤器见下方说明" persistent-hint rows="4" variant="outlined"
-                            density="compact"
-                            placeholder="{{ base_url }}?pickcode={{ pickcode }}{% if file_name %}&file_name={{ file_name | urlencode }}{% endif %}"
-                            clearable></v-textarea>
-                        </v-col>
-                      </v-row>
-
-                      <v-row class="mt-2">
-                        <v-col cols="12">
-                          <v-textarea v-model="config.strm_url_template_custom" label="STRM URL 扩展名特定模板 (Jinja2)"
-                            hint="为特定文件扩展名指定 URL 模板，优先级高于基础模板。格式：ext1,ext2 => template（每行一个）" persistent-hint rows="5"
-                            variant="outlined" density="compact"
-                            placeholder="例如：&#10;mkv,mp4 => {{ base_url }}?pickcode={{ pickcode }}&file_name={{ file_name | urlencode }}&file_path={{ file_path | path_encode }}&#10;iso => {{ base_url }}?pickcode={{ pickcode }}&file_name={{ file_name | urlencode }}"
-                            clearable></v-textarea>
-                        </v-col>
-                      </v-row>
-
-                      <v-card variant="outlined" class="mt-3" color="info" v-pre>
-                        <v-card-text class="pa-3">
-                          <div class="mb-3">
-                            <div class="d-flex align-center mb-2">
-                              <v-icon icon="mdi-information" size="small" class="mr-2" color="info"></v-icon>
-                              <strong class="text-body-2">可用变量</strong>
-                            </div>
-                            <div class="ml-6">
-                              <div class="mb-1"><code class="text-caption">base_url</code> - 基础 URL</div>
-                              <div class="mb-1"><code class="text-caption">pickcode</code> - 文件 pickcode（仅普通 STRM）</div>
-                              <div class="mb-1"><code class="text-caption">share_code</code> - 分享码（仅分享 STRM）</div>
-                              <div class="mb-1"><code class="text-caption">receive_code</code> - 提取码（仅分享 STRM）</div>
-                              <div class="mb-1"><code class="text-caption">file_id</code> - 文件 ID</div>
-                              <div class="mb-1"><code class="text-caption">file_name</code> - 文件名称</div>
-                              <div class="mb-1"><code class="text-caption">file_path</code> - 文件网盘路径</div>
-                            </div>
-                          </div>
-
-                          <v-divider class="my-3"></v-divider>
-
-                          <div class="mb-3">
-                            <div class="d-flex align-center mb-2">
-                              <v-icon icon="mdi-filter" size="small" class="mr-2" color="info"></v-icon>
-                              <strong class="text-body-2">可用过滤器</strong>
-                            </div>
-                            <div class="ml-6">
-                              <div class="mb-1"><code class="text-caption">urlencode</code> - URL 编码（如：<code
-                                  class="text-caption">{{ file_name | urlencode }}</code>）</div>
-                              <div class="mb-1"><code class="text-caption">path_encode</code> - 路径编码，保留斜杠（如：<code
-                                  class="text-caption">{{ file_path | path_encode }}</code>）</div>
-                              <div class="mb-1"><code class="text-caption">upper</code> - 转大写</div>
-                              <div class="mb-1"><code class="text-caption">lower</code> - 转小写</div>
-                              <div class="mb-1"><code class="text-caption">default</code> - 默认值（如：<code
-                                  class="text-caption">{{
-                        file_name | default('unknown') }}</code>）</div>
-                            </div>
-                          </div>
-
-                          <v-divider class="my-3"></v-divider>
-
-                          <div>
-                            <div class="d-flex align-center mb-2">
-                              <v-icon icon="mdi-code-tags" size="small" class="mr-2" color="info"></v-icon>
-                              <strong class="text-body-2">模板示例</strong>
-                            </div>
-                            <div class="ml-6">
-                              <div class="mb-2">
-                                <div class="text-caption text-medium-emphasis mb-1">普通 STRM:</div>
-                                <code class="text-caption pa-2 d-block"
-                                  style="background-color: rgba(var(--v-theme-on-surface), 0.05); border-radius: 8px; font-family: 'Courier New', monospace; word-break: break-all; display: block; white-space: pre-wrap; border: 1px solid rgba(var(--v-theme-on-surface), 0.12); padding: 10px;">{{
-                        base_url }}?pickcode={{ pickcode }}{% if file_name %}&file_name={{ file_name
-                        | urlencode }}{% endif %}</code>
-                              </div>
-                              <div>
-                                <div class="text-caption text-medium-emphasis mb-1">分享 STRM:</div>
-                                <code class="text-caption pa-2 d-block"
-                                  style="background-color: rgba(var(--v-theme-on-surface), 0.05); border-radius: 8px; font-family: 'Courier New', monospace; word-break: break-all; display: block; white-space: pre-wrap; border: 1px solid rgba(var(--v-theme-on-surface), 0.12); padding: 10px;">{{
-                        base_url }}?share_code={{ share_code }}&receive_code={{ receive_code
-                        }}&id={{ file_id }}{% if file_name %}&file_name={{ file_name | urlencode }}{% endif %}</code>
-                              </div>
-                            </div>
-                          </div>
-                        </v-card-text>
-                      </v-card>
-                    </div>
-                  </v-expand-transition>
-
-                  <!-- STRM 文件名自定义模板 -->
-                  <v-divider class="my-6"></v-divider>
-
-                  <v-row class="mt-4">
-                    <v-col cols="12">
-                      <v-switch v-model="config.strm_filename_template_enabled" label="启用 STRM 文件名自定义模板 (Jinja2)"
-                        color="primary" density="compact" hint="启用后可以使用 Jinja2 模板语法自定义 STRM 文件的文件名格式"
-                        persistent-hint></v-switch>
-                    </v-col>
-                  </v-row>
-
-                  <v-expand-transition>
-                    <div v-if="config.strm_filename_template_enabled">
-                      <v-row class="mt-2">
-                        <v-col cols="12">
-                          <v-textarea v-model="config.strm_filename_template" label="STRM 文件名基础模板 (Jinja2)"
-                            hint="支持 Jinja2 语法，可用变量和过滤器见下方说明" persistent-hint rows="3" variant="outlined"
-                            density="compact" placeholder="{{ file_stem }}.strm" clearable></v-textarea>
-                        </v-col>
-                      </v-row>
-
-                      <v-row class="mt-2">
-                        <v-col cols="12">
-                          <v-textarea v-model="config.strm_filename_template_custom" label="STRM 文件名扩展名特定模板 (Jinja2)"
-                            hint="为特定文件扩展名指定文件名模板，优先级高于基础模板。格式：ext1,ext2 => template（每行一个）" persistent-hint rows="4"
-                            variant="outlined" density="compact"
-                            placeholder="例如：&#10;iso => {{ file_stem }}.iso.strm&#10;mkv,mp4 => {{ file_stem | upper }}.strm"
-                            clearable></v-textarea>
-                        </v-col>
-                      </v-row>
-
-                      <v-card variant="outlined" class="mt-3" color="info" v-pre>
-                        <v-card-text class="pa-3">
-                          <div class="mb-3">
-                            <div class="d-flex align-center mb-2">
-                              <v-icon icon="mdi-information" size="small" class="mr-2" color="info"></v-icon>
-                              <strong class="text-body-2">可用变量</strong>
-                            </div>
-                            <div class="ml-6">
-                              <div class="mb-1"><code class="text-caption">file_name</code> - 完整文件名（包含扩展名）</div>
-                              <div class="mb-1"><code class="text-caption">file_stem</code> - 文件名（不含扩展名）</div>
-                              <div class="mb-1"><code class="text-caption">file_suffix</code> - 文件扩展名（包含点号，如 .mkv）</div>
-                            </div>
-                          </div>
-
-                          <v-divider class="my-3"></v-divider>
-
-                          <div class="mb-3">
-                            <div class="d-flex align-center mb-2">
-                              <v-icon icon="mdi-filter" size="small" class="mr-2" color="info"></v-icon>
-                              <strong class="text-body-2">可用过滤器</strong>
-                            </div>
-                            <div class="ml-6">
-                              <div class="mb-1"><code class="text-caption">upper</code> - 转大写（如：<code
-                                  class="text-caption">{{
-                        file_stem | upper }}</code>）</div>
-                              <div class="mb-1"><code class="text-caption">lower</code> - 转小写（如：<code
-                                  class="text-caption">{{
-                        file_stem | lower }}</code>）</div>
-                              <div class="mb-1"><code class="text-caption">sanitize</code> - 清理文件名中的非法字符（如：<code
-                                  class="text-caption">{{ file_name | sanitize }}</code>）</div>
-                              <div class="mb-1"><code class="text-caption">default</code> - 默认值（如：<code
-                                  class="text-caption">{{
-                        file_stem | default('unknown') }}</code>）</div>
-                            </div>
-                          </div>
-
-                          <v-divider class="my-3"></v-divider>
-
-                          <div class="mb-3">
-                            <div class="d-flex align-center mb-2">
-                              <v-icon icon="mdi-code-tags" size="small" class="mr-2" color="info"></v-icon>
-                              <strong class="text-body-2">模板示例</strong>
-                            </div>
-                            <div class="ml-6">
-                              <div class="mb-2">
-                                <div class="text-caption text-medium-emphasis mb-1">默认格式:</div>
-                                <code class="text-caption pa-2 d-block"
-                                  style="background-color: rgba(var(--v-theme-on-surface), 0.05); border-radius: 8px; font-family: 'Courier New', monospace; display: block; border: 1px solid rgba(var(--v-theme-on-surface), 0.12); padding: 10px;">{{
-                        file_stem }}.strm</code>
-                              </div>
-                              <div class="mb-2">
-                                <div class="text-caption text-medium-emphasis mb-1">ISO 格式:</div>
-                                <code class="text-caption pa-2 d-block"
-                                  style="background-color: rgba(var(--v-theme-on-surface), 0.05); border-radius: 8px; font-family: 'Courier New', monospace; display: block; border: 1px solid rgba(var(--v-theme-on-surface), 0.12); padding: 10px;">{{
-                        file_stem }}.iso.strm</code>
-                              </div>
-                              <div>
-                                <div class="text-caption text-medium-emphasis mb-1">大写文件名:</div>
-                                <code class="text-caption pa-2 d-block"
-                                  style="background-color: rgba(var(--v-theme-on-surface), 0.05); border-radius: 8px; font-family: 'Courier New', monospace; display: block; border: 1px solid rgba(var(--v-theme-on-surface), 0.12); padding: 10px;">{{
-                        file_stem | upper }}.strm</code>
-                              </div>
-                            </div>
-                          </div>
-
-                          <v-divider class="my-3"></v-divider>
-
-                          <div>
-                            <div class="d-flex align-center mb-2">
-                              <v-icon icon="mdi-alert-circle-outline" size="small" class="mr-2"
-                                color="warning"></v-icon>
-                              <strong class="text-body-2">注意事项</strong>
-                            </div>
-                            <div class="ml-6">
-                              <div class="mb-1 text-caption">• 模板渲染后的文件名会自动清理非法字符（&lt;&gt;:&quot;/\\|?*）</div>
-                              <div class="mb-1 text-caption">• 建议模板以 .strm 结尾，确保生成的文件具有正确的扩展名</div>
-                              <div class="text-caption">• 如果模板未指定扩展名，系统会自动添加 .strm</div>
-                            </div>
-                          </div>
-                        </v-card-text>
-                      </v-card>
-                    </div>
-                  </v-expand-transition>
-
-                  <v-divider class="my-6"></v-divider>
-
-                  <v-row class="mt-4">
-                    <v-col cols="12">
-                      <v-combobox v-model="config.strm_generate_blacklist" label="STRM文件关键词过滤黑名单"
-                        hint="输入关键词后按回车确认，可添加多个。包含这些词的视频文件将不会生成STRM文件。" persistent-hint multiple chips closable-chips
-                        variant="outlined" density="compact"></v-combobox>
-                    </v-col>
-                  </v-row>
-
-                  <v-row class="mt-4">
-                    <v-col cols="12">
-                      <v-combobox v-model="config.mediainfo_download_whitelist" label="媒体信息文件下载关键词过滤白名单"
-                        hint="输入关键词后按回车确认，可添加多个。不包含这些词的媒体信息文件将不会下载。" persistent-hint multiple chips closable-chips
-                        variant="outlined" density="compact"></v-combobox>
-                    </v-col>
-                  </v-row>
-
-                  <v-row class="mt-4">
-                    <v-col cols="12">
-                      <v-combobox v-model="config.mediainfo_download_blacklist" label="媒体信息文件下载关键词过滤黑名单"
-                        hint="输入关键词后按回车确认，可添加多个。包含这些词的媒体信息文件将不会下载。" persistent-hint multiple chips closable-chips
-                        variant="outlined" density="compact"></v-combobox>
-                    </v-col>
-                  </v-row>
-
-                  <v-divider class="my-6"></v-divider>
-
-                  <v-row class="mt-4">
-                    <v-col cols="12" md="4">
-                      <v-switch v-model="config.strm_url_encode" label="STRM URL 文件名称编码" color="info" density="compact"
-                        :hint="config.strm_url_template_enabled ? '已启用自定义模板时优先使用模板，模板渲染失败时将使用此设置作为后备方案。在模板中可使用 urlencode 过滤器进行编码。' : '启用后，STRM文件中的URL会对文件名进行编码处理'"
-                        persistent-hint></v-switch>
-                    </v-col>
-                  </v-row>
-
-                </v-card-text>
-              </v-window-item>
-
-              <!-- 缓存配置 -->
-              <v-window-item value="tab-cache-config">
-                <v-card-text>
-                  <v-row>
-                    <v-col cols="12">
-                      <v-card variant="outlined" class="mb-4">
-                        <v-card-item>
-                          <v-card-title class="d-flex align-center">
-                            <v-icon start>mdi-cached</v-icon>
-                            <span class="text-h6">缓存管理</span>
-                          </v-card-title>
-                        </v-card-item>
-                        <v-card-text>
-                          <v-alert type="info" variant="tonal" density="compact" class="mb-4" icon="mdi-information">
-                            <div class="text-caption">缓存清理功能可以帮助您清理插件运行过程中产生的缓存数据，解决部分因缓存导致的问题。</div>
-                          </v-alert>
-
-                          <v-row>
-                            <v-col cols="12" md="6">
-                              <v-card variant="outlined" class="pa-4 d-flex flex-column cache-card">
-                                <div class="d-flex align-center mb-3">
-                                  <v-icon color="primary" class="mr-2">mdi-folder-cog</v-icon>
-                                  <span class="text-subtitle-1 font-weight-medium">清理文件路径ID缓存</span>
-                                </div>
-                                <p class="text-body-2 text-grey-darken-1 mb-3 flex-grow-1">
-                                  清理文件路径ID缓存，包括目录ID到路径的映射缓存。
-                                </p>
-                                <v-btn color="primary" variant="outlined" :loading="clearIdPathCacheLoading"
-                                  @click="clearIdPathCache" prepend-icon="mdi-folder-cog" block>
-                                  清理文件路径ID缓存
+                                <v-btn size="small" prepend-icon="mdi-plus" variant="outlined"
+                                  class="mt-2 align-self-start" @click="addPath('fullSync')">
+                                  添加路径
                                 </v-btn>
-                              </v-card>
-                            </v-col>
+                              </div>
 
-                            <v-col cols="12" md="6">
-                              <v-card variant="outlined" class="pa-4 d-flex flex-column cache-card">
-                                <div class="d-flex align-center mb-3">
-                                  <v-icon color="warning" class="mr-2">mdi-skip-next</v-icon>
-                                  <span class="text-subtitle-1 font-weight-medium">清理增量同步跳过路径缓存</span>
+                              <v-alert type="info" variant="tonal" density="compact" class="mt-3"
+                                icon="mdi-information">
+                                <div class="text-body-2 mb-1"><strong>功能说明：</strong></div>
+                                <div class="text-caption">全量扫描配置的网盘目录，并在对应的本地目录生成STRM文件。</div>
+                                <div class="text-body-2 mt-2 mb-1"><strong>配置说明：</strong></div>
+                                <div class="text-caption">
+                                  <div class="mb-1">• <strong>本地STRM目录：</strong>本地STRM文件生成路径</div>
+                                  <div>• <strong>网盘媒体库目录：</strong>需要生成本地STRM文件的网盘媒体库路径</div>
                                 </div>
-                                <p class="text-body-2 text-grey-darken-1 mb-3 flex-grow-1">
-                                  清理增量同步跳过路径缓存，重置增量同步的跳过路径记录，用于重新处理之前跳过的文件。
-                                </p>
-                                <v-btn color="warning" variant="outlined" :loading="clearIncrementSkipCacheLoading"
-                                  @click="clearIncrementSkipCache" prepend-icon="mdi-skip-next" block>
-                                  清理增量同步跳过路径缓存
-                                </v-btn>
-                              </v-card>
+                              </v-alert>
                             </v-col>
                           </v-row>
-                        </v-card-text>
-                      </v-card>
-                    </v-col>
-                  </v-row>
+                        </div>
+
+                        <!-- 高级配置 -->
+                        <v-expansion-panels variant="tonal" class="mt-6">
+                          <v-expansion-panel>
+                            <v-expansion-panel-title>
+                              <v-icon icon="mdi-tune-variant" class="mr-2"></v-icon>
+                              高级配置
+                            </v-expansion-panel-title>
+                            <v-expansion-panel-text class="pa-4">
+                              <v-row>
+                                <v-col cols="12" md="3">
+                                  <v-switch v-model="config.full_sync_strm_log" label="输出STRM同步日志"
+                                    color="primary"></v-switch>
+                                </v-col>
+                                <v-col cols="12" md="3">
+                                  <v-switch v-model="config.full_sync_process_rust" label="Rust模式处理数据"
+                                    color="primary"></v-switch>
+                                </v-col>
+                                <v-col cols="12" md="6">
+                                  <v-select v-model="config.full_sync_iter_function" label="迭代函数" :items="[
+                                    { title: 'iter_files_with_path_skim', value: 'iter_files_with_path_skim' },
+                                    { title: 'iter_files_with_path', value: 'iter_files_with_path' }
+                                  ]" chips closable-chips></v-select>
+                                </v-col>
+                              </v-row>
+                              <v-row>
+                                <v-col cols="12" md="6">
+                                  <v-text-field v-model.number="config.full_sync_batch_num" label="全量同步批处理数量"
+                                    type="number" hint="每次批量处理的文件/目录数量" persistent-hint
+                                    density="compact"></v-text-field>
+                                </v-col>
+                                <v-col cols="12" md="6">
+                                  <v-text-field v-model.number="config.full_sync_process_num" label="全量同步生成进程数"
+                                    type="number" hint="同时执行同步任务的进程数量" persistent-hint density="compact"></v-text-field>
+                                </v-col>
+                              </v-row>
+                            </v-expansion-panel-text>
+                          </v-expansion-panel>
+                        </v-expansion-panels>
+                      </v-card-text>
+                    </v-window-item>
+                    <v-window-item value="tab-increment-sync">
+                      <v-card-text>
+                        <v-row>
+                          <v-col cols="12" md="3">
+                            <v-switch v-model="config.increment_sync_strm_enabled" label="启用"
+                              color="warning"></v-switch>
+                          </v-col>
+                          <v-col cols="12" md="6">
+                            <VCronField v-model="config.increment_sync_cron" label="运行增量同步周期" hint="设置增量同步的执行周期"
+                              persistent-hint density="compact"></VCronField>
+                          </v-col>
+                          <v-col cols="12" md="3">
+                            <v-text-field v-model="incrementSyncMinFileSizeFormatted" label="STRM最小文件大小"
+                              hint="小于此值的文件将不生成STRM(单位K,M,G)" persistent-hint density="compact"
+                              placeholder="例如: 100M (可为空)" clearable></v-text-field>
+                          </v-col>
+                        </v-row>
+                        <v-row>
+                          <v-col cols="12" md="3">
+                            <v-switch v-model="config.increment_sync_auto_download_mediainfo_enabled" label="下载媒体数据文件"
+                              color="warning"></v-switch>
+                          </v-col>
+                          <v-col cols="12" md="3">
+                            <v-switch v-model="config.increment_sync_scrape_metadata_enabled" label="STRM自动刮削"
+                              color="primary"></v-switch>
+                          </v-col>
+                          <v-col cols="12" md="3">
+                            <v-switch v-model="config.increment_sync_media_server_refresh_enabled" label="媒体服务器刷新"
+                              color="warning"></v-switch>
+                          </v-col>
+                          <v-col cols="12" md="3">
+                            <v-select v-model="config.increment_sync_mediaservers" label="媒体服务器" :items="mediaservers"
+                              multiple chips closable-chips></v-select>
+                          </v-col>
+                        </v-row>
+
+                        <v-row v-if="config.increment_sync_scrape_metadata_enabled" class="mt-2 mb-2">
+                          <v-col cols="12">
+                            <div class="d-flex flex-column">
+                              <div v-for="(item, index) in incrementSyncExcludePaths"
+                                :key="`increment-exclude-${index}`" class="mb-2 d-flex align-center">
+                                <v-text-field v-model="item.path" label="刮削排除目录" density="compact" variant="outlined"
+                                  readonly hide-details class="flex-grow-1 mr-2">
+                                </v-text-field>
+                                <v-btn icon size="small" color="error" class="ml-2"
+                                  @click="removeExcludePathEntry(index, 'increment_exclude')" :disabled="!item.path">
+                                  <v-icon>mdi-delete</v-icon>
+                                </v-btn>
+                              </div>
+                              <v-btn size="small" prepend-icon="mdi-folder-plus-outline" variant="tonal"
+                                class="mt-1 align-self-start"
+                                @click="openExcludeDirSelector('increment_sync_scrape_metadata_exclude_paths')">
+                                添加刮削排除目录
+                              </v-btn>
+                            </div>
+                            <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
+                              <div class="text-caption">此处添加的本地目录，在STRM文件生成后将不会自动触发刮削。</div>
+                            </v-alert>
+                          </v-col>
+                        </v-row>
+
+                        <v-row>
+                          <v-col cols="12">
+                            <div class="d-flex flex-column">
+                              <div v-for="(pair, index) in incrementSyncPaths" :key="`increment-${index}`"
+                                class="mb-2 d-flex align-center">
+                                <div class="path-selector flex-grow-1 mr-2">
+                                  <v-text-field v-model="pair.local" label="本地STRM目录" density="compact"
+                                    append-icon="mdi-folder"
+                                    @click:append="openDirSelector(index, 'local', 'incrementSync')"></v-text-field>
+                                </div>
+                                <v-icon>mdi-pound</v-icon>
+                                <div class="path-selector flex-grow-1 ml-2">
+                                  <v-text-field v-model="pair.remote" label="网盘媒体库目录" density="compact"
+                                    append-icon="mdi-folder-network"
+                                    @click:append="openDirSelector(index, 'remote', 'incrementSync')"></v-text-field>
+                                </div>
+                                <v-btn icon size="small" color="error" class="ml-2"
+                                  @click="removePath(index, 'incrementSync')">
+                                  <v-icon>mdi-delete</v-icon>
+                                </v-btn>
+                              </div>
+                              <v-btn size="small" prepend-icon="mdi-plus" variant="outlined"
+                                class="mt-2 align-self-start" @click="addPath('incrementSync')">
+                                添加路径
+                              </v-btn>
+                            </div>
+
+                            <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
+                              <div class="text-body-2 mb-1"><strong>功能说明：</strong></div>
+                              <div class="text-caption">增量扫描配置的网盘目录，并在对应的本地目录生成STRM文件。</div>
+                              <div class="text-body-2 mt-2 mb-1"><strong>配置说明：</strong></div>
+                              <div class="text-caption">
+                                <div class="mb-1">• <strong>本地STRM目录：</strong>本地STRM文件生成路径</div>
+                                <div>• <strong>网盘媒体库目录：</strong>需要生成本地STRM文件的网盘媒体库路径</div>
+                              </div>
+                            </v-alert>
+                          </v-col>
+                        </v-row>
+
+                        <v-row>
+                          <v-col cols="12">
+                            <div class="d-flex flex-column">
+                              <div v-for="(pair, index) in incrementSyncMPPaths" :key="`increment-mp-${index}`"
+                                class="mb-2 d-flex align-center">
+                                <div class="path-selector flex-grow-1 mr-2">
+                                  <v-text-field v-model="pair.local" label="媒体库服务器映射目录"
+                                    density="compact"></v-text-field>
+                                </div>
+                                <v-icon>mdi-pound</v-icon>
+                                <div class="path-selector flex-grow-1 ml-2">
+                                  <v-text-field v-model="pair.remote" label="MP映射目录" density="compact"></v-text-field>
+                                </div>
+                                <v-btn icon size="small" color="error" class="ml-2"
+                                  @click="removePath(index, 'increment-mp')">
+                                  <v-icon>mdi-delete</v-icon>
+                                </v-btn>
+                              </div>
+                              <v-btn size="small" prepend-icon="mdi-plus" variant="outlined"
+                                class="mt-2 align-self-start" @click="addPath('increment-mp')">
+                                添加路径
+                              </v-btn>
+                            </div>
+
+                            <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
+                              <div class="text-body-2 mb-1"><strong>配置说明：</strong></div>
+                              <div class="text-caption">
+                                <div class="mb-1">• 媒体服务器映射路径和MP映射路径不一样时请配置此项，如果不配置则无法正常刷新。</div>
+                                <div>• 当映射路径一样时可省略此配置。</div>
+                              </div>
+                            </v-alert>
+                          </v-col>
+                        </v-row>
+                      </v-card-text>
+                    </v-window-item>
+                    <v-window-item value="tab-life">
+                      <v-card-text>
+                        <v-row>
+                          <v-col cols="12" md="3">
+                            <v-switch v-model="config.monitor_life_enabled" label="启用" color="info"></v-switch>
+                          </v-col>
+                          <v-col cols="12" md="3">
+                            <v-select v-model="config.monitor_life_event_modes" label="处理事件类型" :items="[
+                              { title: '新增事件', value: 'creata' },
+                              { title: '删除事件', value: 'remove' },
+                              { title: '网盘整理', value: 'transfer' }
+                            ]" multiple chips closable-chips></v-select>
+                          </v-col>
+                          <v-col cols="12" md="3">
+                            <v-switch v-model="config.monitor_life_remove_mp_history" label="同步删除历史记录" color="warning"
+                              :disabled="config.monitor_life_remove_mp_source"></v-switch>
+                          </v-col>
+                          <v-col cols="12" md="3">
+                            <v-switch v-model="config.monitor_life_remove_mp_source" label="同步删除源文件" color="warning"
+                              @change="value => { if (value) config.monitor_life_remove_mp_history = true }"></v-switch>
+                          </v-col>
+                        </v-row>
+
+                        <v-row>
+                          <v-col cols="12" md="4">
+                            <v-switch v-model="config.monitor_life_media_server_refresh_enabled" label="媒体服务器刷新"
+                              color="warning"></v-switch>
+                          </v-col>
+                          <v-col cols="12" md="8">
+                            <v-select v-model="config.monitor_life_mediaservers" label="媒体服务器" :items="mediaservers"
+                              multiple chips closable-chips></v-select>
+                          </v-col>
+                        </v-row>
+
+                        <v-row>
+                          <v-col cols="12" md="3">
+                            <v-switch v-model="config.monitor_life_auto_download_mediainfo_enabled" label="下载媒体数据文件"
+                              color="warning"></v-switch>
+                          </v-col>
+                          <v-col cols="12" md="3">
+                            <v-switch v-model="config.monitor_life_scrape_metadata_enabled" label="STRM自动刮削"
+                              color="primary"></v-switch>
+                          </v-col>
+                          <v-col cols="12" md="3">
+                            <v-text-field v-model="monitorLifeMinFileSizeFormatted" label="STRM最小文件大小"
+                              hint="小于此值的文件将不生成STRM(单位K,M,G)" persistent-hint density="compact"
+                              placeholder="例如: 100M (可为空)" clearable></v-text-field>
+                          </v-col>
+                          <v-col cols="12" md="3">
+                            <v-text-field v-model.number="config.monitor_life_event_wait_time" label="事件处理延迟时间"
+                              type="number" hint="接收到事件后等待的时间，0 则代表不等待 (单位秒)" persistent-hint
+                              density="compact"></v-text-field>
+                          </v-col>
+                        </v-row>
+
+                        <!-- Monitor Life Exclude Paths -->
+                        <v-row v-if="config.monitor_life_scrape_metadata_enabled" class="mt-2 mb-2">
+                          <v-col cols="12">
+                            <div class="d-flex flex-column">
+                              <div v-for="(item, index) in monitorLifeExcludePaths" :key="`life-exclude-${index}`"
+                                class="mb-2 d-flex align-center">
+                                <v-text-field v-model="item.path" label="刮削排除目录" density="compact" variant="outlined"
+                                  readonly hide-details class="flex-grow-1 mr-2">
+                                </v-text-field>
+                                <v-btn icon size="small" color="error" class="ml-2"
+                                  @click="removeExcludePathEntry(index, 'life_exclude')" :disabled="!item.path">
+                                  <v-icon>mdi-delete</v-icon>
+                                </v-btn>
+                              </div>
+                              <v-btn size="small" prepend-icon="mdi-folder-plus-outline" variant="tonal"
+                                class="mt-1 align-self-start"
+                                @click="openExcludeDirSelector('monitor_life_scrape_metadata_exclude_paths')">
+                                添加刮削排除目录
+                              </v-btn>
+                            </div>
+                            <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
+                              <div class="text-caption">此处添加的本地目录，在115生活事件监控生成STRM后将不会自动触发刮削。</div>
+                            </v-alert>
+                          </v-col>
+                        </v-row>
+
+                        <v-row>
+                          <v-col cols="12">
+                            <div class="d-flex flex-column">
+                              <div v-for="(pair, index) in monitorLifePaths" :key="`life-${index}`"
+                                class="mb-2 d-flex align-center">
+                                <div class="path-selector flex-grow-1 mr-2">
+                                  <v-text-field v-model="pair.local" label="本地STRM目录" density="compact"
+                                    append-icon="mdi-folder"
+                                    @click:append="openDirSelector(index, 'local', 'monitorLife')"></v-text-field>
+                                </div>
+                                <v-icon>mdi-pound</v-icon>
+                                <div class="path-selector flex-grow-1 ml-2">
+                                  <v-text-field v-model="pair.remote" label="网盘媒体库目录" density="compact"
+                                    append-icon="mdi-folder-network"
+                                    @click:append="openDirSelector(index, 'remote', 'monitorLife')"></v-text-field>
+                                </div>
+                                <v-btn icon size="small" color="error" class="ml-2"
+                                  @click="removePath(index, 'monitorLife')">
+                                  <v-icon>mdi-delete</v-icon>
+                                </v-btn>
+                              </div>
+                              <v-btn size="small" prepend-icon="mdi-plus" variant="outlined"
+                                class="mt-2 align-self-start" @click="addPath('monitorLife')">
+                                添加路径
+                              </v-btn>
+                            </div>
+
+                            <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
+                              <div class="text-body-2 mb-1"><strong>功能说明：</strong></div>
+                              <div class="text-caption">监控115生活（上传、移动、接收文件、删除、复制）事件，自动在本地对应目录生成STRM文件或者删除STRM文件。</div>
+                              <div class="text-body-2 mt-2 mb-1"><strong>配置说明：</strong></div>
+                              <div class="text-caption">
+                                <div class="mb-1">• <strong>本地STRM目录：</strong>本地STRM文件生成路径</div>
+                                <div>• <strong>网盘媒体库目录：</strong>需要生成本地STRM文件的网盘媒体库路径</div>
+                              </div>
+                            </v-alert>
+                          </v-col>
+                        </v-row>
+
+                        <v-row>
+                          <v-col cols="12">
+                            <div class="d-flex flex-column">
+                              <div v-for="(pair, index) in monitorLifeMpPaths" :key="`life-mp-${index}`"
+                                class="mb-2 d-flex align-center">
+                                <div class="path-selector flex-grow-1 mr-2">
+                                  <v-text-field v-model="pair.local" label="媒体库服务器映射目录"
+                                    density="compact"></v-text-field>
+                                </div>
+                                <v-icon>mdi-pound</v-icon>
+                                <div class="path-selector flex-grow-1 ml-2">
+                                  <v-text-field v-model="pair.remote" label="MP映射目录" density="compact"></v-text-field>
+                                </div>
+                                <v-btn icon size="small" color="error" class="ml-2"
+                                  @click="removePath(index, 'monitorLifeMp')">
+                                  <v-icon>mdi-delete</v-icon>
+                                </v-btn>
+                              </div>
+                              <v-btn size="small" prepend-icon="mdi-plus" variant="outlined"
+                                class="mt-2 align-self-start" @click="addPath('monitorLifeMp')">
+                                添加路径
+                              </v-btn>
+                            </div>
+
+                            <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
+                              <div class="text-body-2 mb-1"><strong>配置说明：</strong></div>
+                              <div class="text-caption">
+                                <div class="mb-1">• 媒体服务器映射路径和MP映射路径不一样时请配置此项，如果不配置则无法正常刷新。</div>
+                                <div>• 当映射路径一样时可省略此配置。</div>
+                              </div>
+                            </v-alert>
+                          </v-col>
+                        </v-row>
+
+                        <v-alert type="warning" variant="tonal" density="compact" class="mt-3" icon="mdi-alert">
+                          <div class="text-caption">注意：当 MoviePilot 主程序运行整理任务时 115生活事件 监控会自动暂停，整理运行完成后会继续监控。</div>
+                        </v-alert>
+
+                        <v-row class="mt-4">
+                          <v-col cols="12">
+                            <v-btn color="info" variant="outlined" prepend-icon="mdi-bug-check"
+                              @click="checkLifeEventStatus">
+                              故障检查
+                            </v-btn>
+                            <div class="text-caption text-grey mt-2">
+                              检查115生活事件进程状态，测试数据拉取功能，并提供详细的调试信息
+                            </div>
+                          </v-col>
+                        </v-row>
+                      </v-card-text>
+                    </v-window-item>
+                    <v-window-item value="tab-api-strm">
+                      <v-card-text>
+                        <v-alert type="info" variant="tonal" density="compact" class="mb-4" icon="mdi-information">
+                          <div class="text-body-2 mb-1"><strong>功能说明：</strong></div>
+                          <div class="text-caption mb-2">API STRM 生成功能允许第三方开发者通过 HTTP API 调用，批量生成 STRM 文件。</div>
+                          <div class="text-caption">
+                            详细 API 文档请参考：
+                            <a href="https://github.com/DDSRem-Dev/MoviePilot-Plugins/blob/main/docs/p115strmhelper/API_STRM生成功能文档.md"
+                              target="_blank" rel="noopener noreferrer"
+                              style="color: inherit; text-decoration: underline;">
+                              GitHub 文档链接
+                            </a>
+                          </div>
+                        </v-alert>
+
+                        <v-row>
+                          <v-col cols="12" md="3">
+                            <v-switch v-model="config.api_strm_scrape_metadata_enabled" label="STRM自动刮削" color="primary"
+                              density="compact"></v-switch>
+                          </v-col>
+                          <v-col cols="12" md="3">
+                            <v-switch v-model="config.api_strm_media_server_refresh_enabled" label="媒体服务器刷新"
+                              color="warning" density="compact"></v-switch>
+                          </v-col>
+                          <v-col cols="12" md="6">
+                            <v-select v-model="config.api_strm_mediaservers" label="媒体服务器" :items="mediaservers"
+                              multiple chips closable-chips density="compact"></v-select>
+                          </v-col>
+                        </v-row>
+
+                        <v-divider class="my-4"></v-divider>
+
+                        <div class="text-subtitle-2 mb-2">路径映射配置:</div>
+                        <v-alert type="info" variant="tonal" density="compact" class="mb-3" icon="mdi-information">
+                          <div class="text-caption">配置网盘路径到本地路径的映射关系。当 API 请求中未指定 local_path 时，系统会根据此配置自动匹配路径。</div>
+                        </v-alert>
+
+                        <v-row>
+                          <v-col cols="12">
+                            <div class="d-flex flex-column">
+                              <div v-for="(pair, index) in apiStrmPaths" :key="`api-strm-${index}`"
+                                class="mb-2 d-flex align-center">
+                                <div class="path-selector flex-grow-1 mr-2">
+                                  <v-text-field v-model="pair.local" label="本地STRM目录" density="compact"
+                                    append-icon="mdi-folder"
+                                    @click:append="openDirSelector(index, 'local', 'apiStrm')"></v-text-field>
+                                </div>
+                                <v-icon>mdi-pound</v-icon>
+                                <div class="path-selector flex-grow-1 ml-2">
+                                  <v-text-field v-model="pair.remote" label="网盘媒体库目录" density="compact"
+                                    append-icon="mdi-folder-network"
+                                    @click:append="openDirSelector(index, 'remote', 'apiStrm')"></v-text-field>
+                                </div>
+                                <v-btn icon size="small" color="error" class="ml-2"
+                                  @click="removePath(index, 'apiStrm')">
+                                  <v-icon>mdi-delete</v-icon>
+                                </v-btn>
+                              </div>
+                              <v-btn size="small" prepend-icon="mdi-plus" variant="outlined"
+                                class="mt-2 align-self-start" @click="addPath('apiStrm')">
+                                添加路径
+                              </v-btn>
+                            </div>
+                          </v-col>
+                        </v-row>
+                      </v-card-text>
+                    </v-window-item>
+                  </v-window>
                 </v-card-text>
               </v-window-item>
 
+              <!-- 网盘管理分类 -->
+              <v-window-item value="category-pan">
+                <v-card-text class="pa-0">
+                  <v-tabs v-model="panSubTab" color="primary" class="sub-category-tabs" slider-color="primary">
+                    <v-tab value="tab-pan-transfer" class="sub-tab">
+                      <v-icon size="small" start>mdi-transfer</v-icon>网盘整理
+                    </v-tab>
+                    <v-tab value="tab-pan-mount" class="sub-tab">
+                      <v-icon size="small" start>mdi-folder-network</v-icon>网盘挂载
+                    </v-tab>
+                    <v-tab value="tab-directory-upload" class="sub-tab">
+                      <v-icon size="small" start>mdi-upload</v-icon>目录上传
+                    </v-tab>
+                  </v-tabs>
+                  <v-divider></v-divider>
+                  <v-window v-model="panSubTab">
+                    <v-window-item value="tab-pan-transfer">
+                      <v-card-text>
+                        <v-row>
+                          <v-col cols="12" md="4">
+                            <v-switch v-model="config.pan_transfer_enabled" label="启用" color="info"></v-switch>
+                          </v-col>
+                        </v-row>
+
+                        <!-- 待整理和未识别目录 -->
+                        <v-card variant="outlined" class="mt-4">
+                          <v-card-title class="text-subtitle-1">
+                            <v-icon start>mdi-folder-move</v-icon>
+                            待整理和未识别目录
+                          </v-card-title>
+                          <v-card-text>
+                            <v-row>
+                              <v-col cols="12">
+                                <div class="d-flex flex-column">
+                                  <div v-for="(path, index) in panTransferPaths" :key="`pan-${index}`"
+                                    class="mb-2 d-flex align-center">
+                                    <v-text-field v-model="path.path" label="网盘待整理目录" density="compact"
+                                      append-icon="mdi-folder-network"
+                                      @click:append="openDirSelector(index, 'remote', 'panTransfer')"
+                                      class="flex-grow-1"></v-text-field>
+                                    <v-btn icon size="small" color="primary" class="ml-2" @click="manualTransfer(index)"
+                                      :disabled="!path.path" title="手动整理此目录">
+                                      <v-icon>mdi-play</v-icon>
+                                    </v-btn>
+                                    <v-btn icon size="small" color="error" class="ml-2"
+                                      @click="removePanTransferPath(index)">
+                                      <v-icon>mdi-delete</v-icon>
+                                    </v-btn>
+                                  </div>
+                                  <v-btn size="small" prepend-icon="mdi-plus" variant="outlined"
+                                    class="mt-2 align-self-start" @click="addPanTransferPath">
+                                    添加路径
+                                  </v-btn>
+                                </div>
+                              </v-col>
+                            </v-row>
+
+                            <v-row class="mt-4">
+                              <v-col cols="12">
+                                <v-text-field v-model="config.pan_transfer_unrecognized_path" label="网盘整理未识别目录"
+                                  density="compact" append-icon="mdi-folder-network"
+                                  @click:append="openDirSelector('unrecognized', 'remote', 'panTransferUnrecognized')"></v-text-field>
+                                <v-alert type="info" variant="tonal" density="compact" class="mt-3"
+                                  icon="mdi-information">
+                                  <div class="text-caption">提示：此目录用于存放整理过程中未能识别的媒体文件。</div>
+                                </v-alert>
+                                <v-alert type="warning" variant="tonal" density="compact" class="mt-3" icon="mdi-alert">
+                                  <div class="text-caption">注意：未识别目录不能设置在任何媒体库目录或待整理目录的内部。</div>
+                                </v-alert>
+                              </v-col>
+                            </v-row>
+                          </v-card-text>
+                        </v-card>
+
+                        <!-- 分享转存目录 -->
+                        <v-card variant="outlined" class="mt-4">
+                          <v-card-title class="text-subtitle-1">
+                            <v-icon start>mdi-share-variant</v-icon>
+                            分享转存目录
+                          </v-card-title>
+                          <v-card-text>
+                            <v-row>
+                              <v-col cols="12">
+                                <div class="d-flex flex-column">
+                                  <div v-for="(path, index) in shareReceivePaths" :key="`share-${index}`"
+                                    class="mb-2 d-flex align-center">
+                                    <v-text-field v-model="path.path" label="分享转存目录" density="compact"
+                                      append-icon="mdi-folder-network"
+                                      @click:append="openDirSelector(index, 'remote', 'shareReceive')"
+                                      class="flex-grow-1"></v-text-field>
+                                    <v-btn icon size="small" color="error" class="ml-2"
+                                      @click="removeShareReceivePath(index)">
+                                      <v-icon>mdi-delete</v-icon>
+                                    </v-btn>
+                                  </div>
+                                  <v-btn size="small" prepend-icon="mdi-plus" variant="outlined"
+                                    class="mt-2 align-self-start" @click="addShareReceivePath">
+                                    添加路径
+                                  </v-btn>
+                                </div>
+                              </v-col>
+                            </v-row>
+                            <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
+                              <div class="text-caption">提示：此目录用于存放通过分享链接转存的资源。</div>
+                            </v-alert>
+                          </v-card-text>
+                        </v-card>
+
+                        <!-- 离线下载目录 -->
+                        <v-card variant="outlined" class="mt-4">
+                          <v-card-title class="text-subtitle-1">
+                            <v-icon start>mdi-download</v-icon>
+                            离线下载目录
+                          </v-card-title>
+                          <v-card-text>
+                            <v-row>
+                              <v-col cols="12">
+                                <div class="d-flex flex-column">
+                                  <div v-for="(path, index) in offlineDownloadPaths" :key="`offline-${index}`"
+                                    class="mb-2 d-flex align-center">
+                                    <v-text-field v-model="path.path" label="离线下载目录" density="compact"
+                                      append-icon="mdi-folder-network"
+                                      @click:append="openDirSelector(index, 'remote', 'offlineDownload')"
+                                      class="flex-grow-1"></v-text-field>
+                                    <v-btn icon size="small" color="error" class="ml-2"
+                                      @click="removeOfflineDownloadPath(index)">
+                                      <v-icon>mdi-delete</v-icon>
+                                    </v-btn>
+                                  </div>
+                                  <v-btn size="small" prepend-icon="mdi-plus" variant="outlined"
+                                    class="mt-2 align-self-start" @click="addOfflineDownloadPath">
+                                    添加路径
+                                  </v-btn>
+                                </div>
+                              </v-col>
+                            </v-row>
+                            <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
+                              <div class="text-caption">提示：此目录用于存放通过离线下载功能下载的资源。</div>
+                            </v-alert>
+                          </v-card-text>
+                        </v-card>
+
+                        <v-divider class="my-4"></v-divider>
+
+                        <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
+                          <div class="text-body-2 mb-1"><strong>配置说明：</strong></div>
+                          <div class="text-caption">
+                            <div class="mb-1">使用本功能需要先进入 设定-目录 进行配置：</div>
+                            <div class="mb-1">1. 添加目录配置卡，按需配置媒体类型和媒体类别，资源存储选择115网盘，资源目录输入网盘待整理文件夹</div>
+                            <div class="mb-1">2. 自动整理模式选择手动整理，媒体库存储依旧选择115网盘，并配置好媒体库路径，整理方式选择移动，按需配置分类、重命名、通知</div>
+                            <div>3. 配置完成目录设置后只需要在上方 网盘待整理目录 填入 网盘待整理文件夹 即可</div>
+                          </div>
+                        </v-alert>
+
+                        <v-alert type="warning" variant="tonal" density="compact" class="mt-3" icon="mdi-alert">
+                          <div class="text-caption">注意：配置目录时不能选择刮削元数据，否则可能导致风控！</div>
+                        </v-alert>
+
+                        <v-alert type="warning" variant="tonal" density="compact" class="mt-3" icon="mdi-alert">
+                          <div class="text-body-2 mb-1"><strong>注意事项：</strong></div>
+                          <div class="text-caption">
+                            <div class="mb-1">• 阿里云盘，115网盘分享链接秒传或转存都依赖于网盘整理</div>
+                            <div class="mb-1">• TG/Slack资源搜索转存也依赖于网盘整理</div>
+                            <div>• 当阿里云盘分享秒传未能识别分享媒体信息时，会自动将资源转存到网盘整理未识别目录，后续需要用户手动重命名整理</div>
+                          </div>
+                        </v-alert>
+
+                        <v-alert type="warning" variant="tonal" density="compact" class="mt-3" icon="mdi-alert">
+                          <div class="text-caption">注意：115生活事件监控默认会忽略网盘整理触发的移动事件，所以推荐使用MP整理事件监控生成STRM</div>
+                        </v-alert>
+
+                        <v-row class="mt-4">
+                          <v-col cols="12">
+                            <v-btn color="info" variant="outlined" prepend-icon="mdi-bug-check"
+                              @click="checkLifeEventStatus">
+                              故障检查
+                            </v-btn>
+                            <div class="text-caption text-grey mt-2">
+                              检查115生活事件进程状态，测试数据拉取功能，并提供详细的调试信息
+                            </div>
+                          </v-col>
+                        </v-row>
+                      </v-card-text>
+                    </v-window-item>
+                    <v-window-item value="tab-pan-mount">
+                      <v-card-text>
+                        <v-row>
+                          <v-col cols="12" md="6">
+                            <v-switch v-model="config.fuse_enabled" label="启用" color="success" density="compact"
+                              hint="将115网盘挂载为本地文件系统" persistent-hint></v-switch>
+                          </v-col>
+                          <v-col cols="12" md="6">
+                            <v-text-field v-model="config.fuse_mountpoint" label="挂载点路径" hint="文件系统挂载的本地路径"
+                              persistent-hint density="compact" variant="outlined" hide-details="auto"
+                              placeholder="/mnt/115"></v-text-field>
+                          </v-col>
+                        </v-row>
+                        <v-row>
+                          <v-col cols="12" md="4">
+                            <v-text-field v-model.number="config.fuse_readdir_ttl" label="目录读取缓存 TTL（秒）" type="number"
+                              hint="目录列表缓存时间，默认60秒" persistent-hint density="compact" variant="outlined"
+                              hide-details="auto" min="0"></v-text-field>
+                          </v-col>
+                          <v-col cols="12" md="4">
+                            <v-text-field v-model.number="config.fuse_uid" label="文件所有者 UID" type="number"
+                              hint="挂载文件的用户ID，留空则使用当前运行用户" persistent-hint density="compact" variant="outlined"
+                              hide-details="auto" min="0" clearable></v-text-field>
+                          </v-col>
+                          <v-col cols="12" md="4">
+                            <v-text-field v-model.number="config.fuse_gid" label="文件所有者 GID" type="number"
+                              hint="挂载文件的组ID，留空则使用当前运行用户" persistent-hint density="compact" variant="outlined"
+                              hide-details="auto" min="0" clearable></v-text-field>
+                          </v-col>
+                        </v-row>
+
+                        <!-- STRM 文件生成内容接管 -->
+                        <v-divider class="my-4"></v-divider>
+                        <v-row>
+                          <v-col cols="12">
+                            <v-switch v-model="config.fuse_strm_takeover_enabled" label="接管 STRM 文件生成内容" color="primary"
+                              density="compact" hint="启用后，匹配规则的文件将生成指向挂载路径的 STRM 内容" persistent-hint></v-switch>
+                          </v-col>
+                        </v-row>
+                        <v-expand-transition>
+                          <div v-if="config.fuse_strm_takeover_enabled">
+                            <v-divider class="my-4"></v-divider>
+                            <v-alert type="info" variant="tonal" density="compact" class="mb-4" icon="mdi-information">
+                              <div class="text-body-2 mb-1"><strong>STRM URL 生成优先级：</strong></div>
+                              <div class="text-caption">
+                                <div class="mb-1">1. <strong>URL 自定义模板</strong>（如果启用）：优先使用 Jinja2 模板渲染</div>
+                                <div class="mb-1">2. <strong>FUSE STRM 接管</strong>（如果启用且匹配规则）：生成指向挂载路径的 STRM 内容</div>
+                                <div>3. <strong>默认格式</strong>：使用基础设置中的「STRM文件URL格式」和「STRM URL 文件名称编码」</div>
+                              </div>
+                            </v-alert>
+                            <v-divider class="mb-4"></v-divider>
+                            <v-row>
+                              <v-col cols="12" md="6">
+                                <v-text-field v-model="config.fuse_strm_mount_dir" label="媒体服务器网盘挂载目录"
+                                  hint="媒体服务器中配置的 115 网盘挂载路径" persistent-hint density="compact" variant="outlined"
+                                  hide-details="auto" placeholder="/media/115"></v-text-field>
+                              </v-col>
+                            </v-row>
+                            <v-row>
+                              <v-col cols="12">
+                                <v-btn color="primary" variant="outlined" prepend-icon="mdi-code-tags" size="small"
+                                  @click="openConfigGeneratorDialog">
+                                  生成 emby2Alist 配置
+                                </v-btn>
+                              </v-col>
+                            </v-row>
+                            <v-row>
+                              <v-col cols="12">
+                                <div class="text-body-2 mb-2"><strong>接管规则：</strong></div>
+                                <div class="d-flex flex-column">
+                                  <v-card v-for="(rule, index) in fuseStrmTakeoverRules"
+                                    :key="`fuse-strm-takeover-${index}`" variant="outlined" class="mb-3">
+                                    <v-card-text>
+                                      <div class="d-flex align-center mb-2">
+                                        <span class="text-caption text-medium-emphasis">规则 #{{ index + 1 }}</span>
+                                        <v-spacer></v-spacer>
+                                        <v-btn icon size="small" color="error"
+                                          @click="removePath(index, 'fuseStrmTakeover')">
+                                          <v-icon>mdi-delete</v-icon>
+                                        </v-btn>
+                                      </div>
+
+                                      <!-- 匹配方式选择 -->
+                                      <div class="mb-3">
+                                        <div class="text-caption text-medium-emphasis mb-2">选择匹配方式（可多选）：</div>
+                                        <div class="d-flex flex-wrap gap-3">
+                                          <v-switch v-model="rule._use_extensions" label="文件后缀" density="compact"
+                                            color="primary" hide-details class="ma-0"></v-switch>
+                                          <v-switch v-model="rule._use_names" label="文件名称" density="compact"
+                                            color="primary" hide-details class="ma-0"></v-switch>
+                                          <v-switch v-model="rule._use_paths" label="网盘路径" density="compact"
+                                            color="primary" hide-details class="ma-0"></v-switch>
+                                        </div>
+                                      </div>
+
+                                      <!-- 文件后缀 -->
+                                      <v-expand-transition>
+                                        <div v-if="rule._use_extensions">
+                                          <v-textarea v-model="rule.extensions" label="文件后缀（每行一个，例如：mkv、mp4）"
+                                            hint="匹配的文件后缀，不包含点号，每行一个" persistent-hint density="compact"
+                                            variant="outlined" rows="2" class="mb-2"
+                                            placeholder="mkv&#10;mp4&#10;avi"></v-textarea>
+                                        </div>
+                                      </v-expand-transition>
+
+                                      <!-- 文件名称白名单 -->
+                                      <v-expand-transition>
+                                        <div v-if="rule._use_names">
+                                          <v-textarea v-model="rule.names" label="文件名称白名单（每行一个，支持部分匹配）"
+                                            hint="文件名包含这些关键词时匹配，每行一个" persistent-hint density="compact"
+                                            variant="outlined" rows="2" class="mb-2"
+                                            placeholder="蓝光&#10;BluRay"></v-textarea>
+                                        </div>
+                                      </v-expand-transition>
+
+                                      <!-- 网盘文件夹路径 -->
+                                      <v-expand-transition>
+                                        <div v-if="rule._use_paths">
+                                          <v-textarea v-model="rule.paths" label="网盘文件夹路径（每行一个，支持部分匹配）"
+                                            hint="文件路径包含这些路径时匹配，每行一个" persistent-hint density="compact"
+                                            variant="outlined" rows="2" placeholder="/电影/4K&#10;/电视剧"></v-textarea>
+                                        </div>
+                                      </v-expand-transition>
+                                    </v-card-text>
+                                  </v-card>
+                                  <v-btn size="small" prepend-icon="mdi-plus" variant="outlined"
+                                    class="align-self-start" @click="addPath('fuseStrmTakeover')">
+                                    添加接管规则
+                                  </v-btn>
+                                </div>
+                                <v-alert type="info" variant="tonal" density="compact" class="mt-3"
+                                  icon="mdi-information">
+                                  <div class="text-caption">
+                                    <div class="mb-1">• 三种匹配方式可以组合使用，<strong>同时满足</strong>（与关系）才会匹配</div>
+                                    <div class="mb-1">• 如果某个匹配条件为空，则<strong>不检查</strong>该条件</div>
+                                    <div class="mb-1">• <strong>匹配成功后生成的 STRM 内容：</strong></div>
+                                    <div class="mb-1">
+                                      格式：<code>{{ config.fuse_strm_mount_dir || '媒体服务器挂载目录' }}/文件网盘路径</code></div>
+                                    <div> 示例：如果挂载目录为 <code>/media/115</code>，文件网盘路径为 <code>/电影/示例.mkv</code>，则生成的 STRM
+                                      内容为
+                                      <code>/media/115/电影/示例.mkv</code>
+                                    </div>
+                                  </div>
+                                </v-alert>
+                              </v-col>
+                            </v-row>
+                          </div>
+                        </v-expand-transition>
+
+                        <v-alert type="warning" variant="tonal" density="compact" class="mt-3" icon="mdi-alert">
+                          <div class="text-body-2 mb-1"><strong>平台限制说明：</strong></div>
+                          <div class="text-caption">
+                            <div class="mb-1">• <strong>Windows 系统不支持：</strong>FUSE 功能基于 Linux 文件系统，无法在 Windows 环境下运行
+                            </div>
+                            <div class="mb-1">• <strong>Linux 裸机：</strong>理论上支持，需要安装 libfuse（libfuse2 或 libfuse3）</div>
+                            <div class="mb-1">• <strong>macOS 裸机：</strong>理论上支持，需要安装 macFUSE</div>
+                            <div>• <strong>推荐使用 Docker 容器：</strong>目前仅对 Docker 容器环境有较好的支持和测试，建议在 Docker 容器中使用此功能</div>
+                          </div>
+                        </v-alert>
+                        <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
+                          <div class="text-body-2 mb-1"><strong>功能说明：</strong></div>
+                          <div class="text-caption mb-2">启用后，115网盘将挂载为容器内的文件系统，可通过文件管理器直接访问。配合上方的"STRM
+                            文件生成内容接管"功能，可以让生成的 STRM
+                            文件直接指向挂载路径，实现本地文件系统访问。</div>
+                          <div class="text-body-2 mt-2 mb-1"><strong>配置说明：</strong></div>
+                          <div class="text-caption">
+                            <div class="mb-1">• <strong>挂载点路径：</strong>容器内的挂载路径，必须是已存在的目录（例如：<code>/media/115</code> 或
+                              <code>/data/115</code>）
+                            </div>
+                            <div class="mb-1">• <strong>目录读取缓存 TTL：</strong>目录列表缓存时间，默认60秒</div>
+                            <div class="mb-1">• <strong>文件所有者 UID/GID：</strong>设置挂载文件的用户和组ID，留空则自动使用当前运行用户（Docker
+                              容器中建议设置为非
+                              root 用户）
+                            </div>
+                            <div class="mb-1">• <strong>容器权限：</strong>需要容器以 <code>--privileged</code> 或
+                              <code>--cap-add SYS_ADMIN</code>
+                              权限运行
+                            </div>
+                            <div>• <strong>STRM 接管：</strong>启用上方的"接管 STRM 文件生成内容"后，匹配规则的文件将生成指向挂载路径的 STRM
+                              内容，媒体服务器可直接通过挂载路径访问文件</div>
+                          </div>
+                        </v-alert>
+                        <v-alert type="warning" variant="tonal" density="compact" class="mt-3" icon="mdi-alert">
+                          <div class="text-body-2 mb-1"><strong>重要提示：</strong></div>
+                          <div class="text-caption">
+                            <div class="mb-1">• <strong>切勿直接使用媒体服务器刮削挂载路径</strong>，这会导致网盘风控</div>
+                            <div>• <strong>正确方法：</strong>使用本插件的 STRM 文件生成功能，在本地生成 STRM 文件后，再让媒体服务器对 STRM 文件进行刮削</div>
+                          </div>
+                        </v-alert>
+                        <v-alert type="info" variant="tonal" density="compact" class="mt-3"
+                          icon="mdi-book-open-page-variant">
+                          <div class="text-body-2 mb-1"><strong>配置教程：</strong></div>
+                          <div class="text-caption">
+                            详细的 FUSE 挂载配置指南请参考：
+                            <a href="https://blog.ddsrem.com/archives/115strmhelper-fuse-use" target="_blank"
+                              rel="noopener noreferrer" style="color: inherit; text-decoration: underline;">FUSE
+                              挂载详细配置指南</a>
+                          </div>
+                        </v-alert>
+                      </v-card-text>
+                    </v-window-item>
+                    <v-window-item value="tab-directory-upload">
+                      <v-card-text>
+                        <v-row>
+                          <v-col cols="12" md="4">
+                            <v-switch v-model="config.directory_upload_enabled" label="启用" color="info"
+                              density="compact" hide-details></v-switch>
+                          </v-col>
+                          <v-col cols="12" md="8">
+                            <v-select v-model="config.directory_upload_mode" label="监控模式" :items="[
+                              { title: '兼容模式', value: 'compatibility' },
+                              { title: '性能模式', value: 'fast' }
+                            ]" chips closable-chips density="compact" hide-details></v-select>
+                          </v-col>
+                        </v-row>
+                        <v-row>
+                          <v-col cols="12" md="6">
+                            <v-text-field v-model="config.directory_upload_uploadext" label="上传文件扩展名"
+                              hint="指定哪些扩展名的文件会被上传到115网盘，多个用逗号分隔" persistent-hint density="compact" variant="outlined"
+                              hide-details="auto"></v-text-field>
+                          </v-col>
+                          <v-col cols="12" md="6">
+                            <v-text-field v-model="config.directory_upload_copyext" label="复制文件扩展名"
+                              hint="指定哪些扩展名的文件会被复制到本地目标目录，多个用逗号分隔" persistent-hint density="compact" variant="outlined"
+                              hide-details="auto"></v-text-field>
+                          </v-col>
+                        </v-row>
+
+                        <v-divider class="my-3"></v-divider>
+                        <div class="text-subtitle-2 mb-2">路径配置:</div>
+
+                        <div v-for="(pair, index) in directoryUploadPaths" :key="`upload-${index}`"
+                          class="path-group mb-3 pa-2 border rounded">
+                          <v-row dense>
+                            <!-- 本地监控目录 -->
+                            <v-col cols="12" md="6">
+                              <v-text-field v-model="pair.src" label="本地监控目录" density="compact" variant="outlined"
+                                hide-details append-icon="mdi-folder-search-outline"
+                                @click:append="openDirSelector(index, 'local', 'directoryUpload', 'src')">
+                                <template v-slot:prepend-inner>
+                                  <v-icon color="blue">mdi-folder-table</v-icon>
+                                </template>
+                              </v-text-field>
+                            </v-col>
+                            <!-- 网盘上传目录 -->
+                            <v-col cols="12" md="6">
+                              <v-text-field v-model="pair.dest_remote" label="网盘上传目标目录" density="compact"
+                                variant="outlined" hide-details append-icon="mdi-folder-network-outline"
+                                @click:append="openDirSelector(index, 'remote', 'directoryUpload', 'dest_remote')">
+                                <template v-slot:prepend-inner>
+                                  <v-icon color="green">mdi-cloud-upload</v-icon>
+                                </template>
+                              </v-text-field>
+                            </v-col>
+                          </v-row>
+                          <v-row dense class="mt-1">
+                            <!-- 非上传文件目标目录 -->
+                            <v-col cols="12" md="6">
+                              <v-text-field v-model="pair.dest_local" label="本地复制目标目录 (可选)" density="compact"
+                                variant="outlined" hide-details append-icon="mdi-folder-plus-outline"
+                                @click:append="openDirSelector(index, 'local', 'directoryUpload', 'dest_local')">
+                                <template v-slot:prepend-inner>
+                                  <v-icon color="orange">mdi-content-copy</v-icon>
+                                </template>
+                              </v-text-field>
+                            </v-col>
+                            <!-- STRM 输出目录 -->
+                            <v-col cols="12" md="6">
+                              <v-text-field v-model="pair.dest_strm" label="STRM 输出目录 (可选)" density="compact"
+                                variant="outlined" append-icon="mdi-file-document-outline" hide-details="auto"
+                                @click:append="openDirSelector(index, 'local', 'directoryUpload', 'dest_strm')">
+                                <template v-slot:prepend-inner>
+                                  <v-icon color="purple">mdi-file-star</v-icon>
+                                </template>
+                              </v-text-field>
+                            </v-col>
+                          </v-row>
+                          <v-row dense class="mt-1">
+                            <!-- 删除源文件开关 -->
+                            <v-col cols="12" md="10" class="d-flex align-center">
+                              <v-switch v-model="pair.delete" label="处理后删除源文件" color="error" density="compact"
+                                hide-details></v-switch>
+                            </v-col>
+                            <!-- 删除按钮 -->
+                            <v-col cols="12" md="2" class="d-flex align-center justify-end">
+                              <v-btn icon="mdi-delete-outline" size="small" color="error" variant="text" title="删除此路径配置"
+                                @click="removePath(index, 'directoryUpload')">
+                              </v-btn>
+                            </v-col>
+                          </v-row>
+                        </div>
+
+                        <v-btn size="small" prepend-icon="mdi-plus-box-multiple-outline" variant="tonal" class="mt-2"
+                          color="primary" @click="addPath('directoryUpload')">
+                          添加监控路径组
+                        </v-btn>
+
+                        <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
+                          <div class="text-body-2 mb-1"><strong>功能说明：</strong></div>
+                          <div class="text-caption">
+                            <div class="mb-1">• 监控指定的"本地监控目录"</div>
+                            <div class="mb-1">• 当目录中出现新文件时：</div>
+                            <div class="ml-4 mb-1">- 如果文件扩展名匹配"上传文件扩展名"，则将其上传到对应的"网盘上传目标目录"；若配置了"STRM
+                              输出目录"，上传成功后会立即在该目录生成对应
+                              .strm 文件
+                            </div>
+                            <div class="ml-4 mb-1">- 如果文件扩展名匹配"复制文件扩展名"，则将其复制到对应的"本地复制目标目录"</div>
+                            <div class="mb-1">• 处理完成后，如果"删除源文件"开关打开，则会删除原始文件</div>
+                            <div class="mb-1">• 扩展名不匹配的文件将被忽略</div>
+                            <div class="mb-1">• "STRM 输出目录"：上传成功后立即在此目录生成对应 .strm 文件，目录结构同监控目录相对路径</div>
+                          </div>
+                          <strong>注意:</strong><br>
+                          - 请确保MoviePilot对本地目录有读写权限，对网盘目录有写入权限。<br>
+                          - "本地复制目标目录"和"STRM 输出目录"是可选的，如果不填，则仅执行上传操作（如果匹配）。<br>
+                          - 监控模式："性能模式"使用系统原生文件系统事件，适用于物理路径，性能高且更稳定；"兼容模式"使用轮询方式，适用于网络共享目录（如SMB/NFS），性能较低但兼容性好。
+                        </v-alert>
+                      </v-card-text>
+                    </v-window-item>
+                  </v-window>
+                </v-card-text>
+              </v-window-item>
+
+              <!-- 其他功能分类 -->
+              <v-window-item value="category-other">
+                <v-card-text class="pa-0">
+                  <v-tabs v-model="otherSubTab" color="primary" class="sub-category-tabs" slider-color="primary">
+                    <v-tab value="tab-sync-del" class="sub-tab">
+                      <v-icon size="small" start>mdi-delete-sweep</v-icon>同步删除
+                    </v-tab>
+                    <v-tab value="tab-tg-search" class="sub-tab">
+                      <v-icon size="small" start>mdi-tab-search</v-icon>频道搜索
+                    </v-tab>
+                    <v-tab value="tab-cleanup" class="sub-tab">
+                      <v-icon size="small" start>mdi-broom</v-icon>定期清理
+                    </v-tab>
+                    <v-tab value="tab-same-playback" class="sub-tab">
+                      <v-icon size="small" start>mdi:code-block-parentheses</v-icon>多端播放
+                    </v-tab>
+                  </v-tabs>
+                  <v-divider></v-divider>
+                  <v-window v-model="otherSubTab">
+                    <v-window-item value="tab-sync-del">
+                      <v-card-text>
+                        <v-row>
+                          <v-col cols="12" md="3">
+                            <v-switch v-model="config.sync_del_enabled" label="启用同步删除" color="warning"
+                              density="compact"></v-switch>
+                          </v-col>
+                          <v-col cols="12" md="3">
+                            <v-switch v-model="config.sync_del_notify" label="发送通知" color="success"
+                              density="compact"></v-switch>
+                          </v-col>
+                          <v-col cols="12" md="3">
+                            <v-switch v-model="config.sync_del_source" label="删除源文件" color="error"
+                              density="compact"></v-switch>
+                          </v-col>
+                          <v-col cols="12" md="3">
+                            <v-switch v-model="config.sync_del_p115_force_delete_files" label="强制删除文件" color="warning"
+                              density="compact"></v-switch>
+                          </v-col>
+                        </v-row>
+
+                        <v-row>
+                          <v-col cols="12" md="6">
+                            <v-switch v-model="config.sync_del_remove_versions" label="开启多版本删除" color="info"
+                              density="compact" chips closable-chips hint="请查看下方警告提示了解详细说明" persistent-hint></v-switch>
+                          </v-col>
+                          <v-col cols="12" md="6">
+                            <v-select v-model="config.sync_del_mediaservers" label="媒体服务器" :items="embyMediaservers"
+                              multiple density="compact" chips closable-chips hint="用于获取TMDB ID，仅支持Emby"
+                              persistent-hint></v-select>
+                          </v-col>
+                        </v-row>
+
+                        <v-row>
+                          <v-col cols="12">
+                            <div class="d-flex flex-column">
+                              <div v-for="(path, index) in syncDelLibraryPaths" :key="`sync-del-${index}`"
+                                class="mb-3 pa-3 border rounded">
+                                <v-row dense>
+                                  <v-col cols="12" md="4">
+                                    <v-text-field v-model="path.mediaserver" label="媒体服务器STRM路径" density="compact"
+                                      variant="outlined" hint="例如：/media/strm" persistent-hint></v-text-field>
+                                  </v-col>
+                                  <v-col cols="12" md="4">
+                                    <v-text-field v-model="path.moviepilot" label="MoviePilot路径" density="compact"
+                                      variant="outlined" hint="例如：/mnt/strm" persistent-hint
+                                      append-icon="mdi-folder-home"
+                                      @click:append="openDirSelector(index, 'local', 'syncDelLibrary', 'moviepilot')"></v-text-field>
+                                  </v-col>
+                                  <v-col cols="12" md="4">
+                                    <v-text-field v-model="path.p115" label="115网盘媒体库路径" density="compact"
+                                      variant="outlined" hint="例如：/影视" persistent-hint append-icon="mdi-cloud"
+                                      @click:append="openDirSelector(index, 'remote', 'syncDelLibrary', 'p115')"></v-text-field>
+                                  </v-col>
+                                </v-row>
+                                <v-row dense>
+                                  <v-col cols="12" class="d-flex justify-end">
+                                    <v-btn icon size="small" color="error" @click="removePath(index, 'syncDelLibrary')">
+                                      <v-icon>mdi-delete</v-icon>
+                                    </v-btn>
+                                  </v-col>
+                                </v-row>
+                              </div>
+                              <v-btn size="small" prepend-icon="mdi-plus" variant="outlined"
+                                class="mt-2 align-self-start" @click="addPath('syncDelLibrary')">
+                                添加路径映射
+                              </v-btn>
+                            </div>
+                          </v-col>
+                        </v-row>
+
+                        <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
+                          <div class="text-body-2 mb-1"><strong>关于路径映射：</strong></div>
+                          <div class="text-caption">
+                            <div class="mb-1">• <strong>媒体服务器STRM路径：</strong>媒体服务器中STRM文件的实际路径</div>
+                            <div class="mb-1">• <strong>MoviePilot路径：</strong>MoviePilot中对应的路径</div>
+                            <div>• <strong>115网盘媒体库路径：</strong>115网盘中媒体库的路径</div>
+                          </div>
+                        </v-alert>
+
+                        <v-alert type="warning" variant="tonal" density="compact" class="mt-3" icon="mdi-alert">
+                          <div class="text-caption">
+                            <div class="mb-1">• 不正确配置会导致查询不到转移记录！</div>
+                            <div class="mb-1">• 需要使用神医助手PRO且版本在v3.0.0.3及以上或神医助手社区版且版本在v2.0.0.27及以上！</div>
+                            <div class="mb-1">• 同步删除多版本功能需要使用助手Pro v3.0.0.22才支持！</div>
+                            <div>•
+                              <strong>开启多版本删除：</strong>开启后会将电影和电视剧季删除通过神医返回的路径改为电影单部/电视剧单集删除，从而防止误删其它版本，如果无多版本电影和电视剧季删除的需求，推荐关闭此按钮，提升删除效率
+                            </div>
+                          </div>
+                        </v-alert>
+                      </v-card-text>
+                    </v-window-item>
+                    <v-window-item value="tab-tg-search">
+                      <v-card-text>
+                        <!-- Nullbr 配置 -->
+                        <v-card variant="outlined" class="mb-6">
+                          <v-card-item>
+                            <v-card-title class="d-flex align-center">
+                              <v-icon start>mdi-cog-outline</v-icon>
+                              <span class="text-h6">Nullbr 搜索配置</span>
+                            </v-card-title>
+                          </v-card-item>
+                          <v-card-text>
+                            <v-row>
+                              <v-col cols="12" md="6">
+                                <v-text-field v-model="config.nullbr_app_id" label="Nullbr APP ID" hint="从 Nullbr 官网申请"
+                                  persistent-hint density="compact" variant="outlined"></v-text-field>
+                              </v-col>
+                              <v-col cols="12" md="6">
+                                <v-text-field v-model="config.nullbr_api_key" label="Nullbr API KEY"
+                                  hint="从 Nullbr 官网申请" persistent-hint density="compact"
+                                  variant="outlined"></v-text-field>
+                              </v-col>
+                            </v-row>
+                          </v-card-text>
+                        </v-card>
+
+                        <!-- 自定义频道搜索配置 -->
+                        <v-card variant="outlined">
+                          <v-card-item>
+                            <v-card-title class="d-flex align-center">
+                              <v-icon start>mdi-telegram</v-icon>
+                              <span class="text-h6">自定义Telegram频道</span>
+                            </v-card-title>
+                          </v-card-item>
+                          <v-card-text>
+                            <div v-for="(channel, index) in tgChannels" :key="index" class="d-flex align-center mb-4">
+                              <v-text-field v-model="channel.name" label="频道名称" placeholder="例如：爱影115资源分享频道"
+                                density="compact" variant="outlined" hide-details class="mr-3"></v-text-field>
+                              <v-text-field v-model="channel.id" label="频道ID" placeholder="例如：ayzgzf" density="compact"
+                                variant="outlined" hide-details class="mr-3"></v-text-field>
+                              <v-btn icon size="small" color="error" variant="tonal" @click="removeTgChannel(index)"
+                                title="删除此频道">
+                                <v-icon>mdi-delete-outline</v-icon>
+                              </v-btn>
+                            </div>
+
+                            <!-- 操作按钮组 -->
+                            <div class="d-flex ga-2">
+                              <v-btn size="small" prepend-icon="mdi-plus-circle-outline" variant="tonal" color="primary"
+                                @click="addTgChannel">
+                                添加频道
+                              </v-btn>
+                              <v-btn size="small" prepend-icon="mdi-import" variant="tonal" @click="openImportDialog">
+                                一键导入
+                              </v-btn>
+                            </div>
+                          </v-card-text>
+                        </v-card>
+
+                        <v-alert type="info" variant="tonal" density="compact" class="mt-6" icon="mdi-information">
+                          <div class="text-body-2 mb-1"><strong>Telegram频道搜索功能说明</strong></div>
+                          <div class="text-caption">
+                            <div class="mb-1">• 您可以同时配置 Nullbr 和下方的自定义频道列表</div>
+                            <div>• 系统会整合两者的搜索结果，为您提供更广泛的资源范围</div>
+                          </div>
+                        </v-alert>
+                      </v-card-text>
+                    </v-window-item>
+                    <v-window-item value="tab-cleanup">
+                      <v-card-text>
+                        <v-alert type="warning" variant="tonal" density="compact" class="mb-4" icon="mdi-alert">
+                          <div class="text-caption">注意，清空 回收站/最近接收 后文件不可恢复，如果产生重要数据丢失本程序不负责！</div>
+                        </v-alert>
+
+                        <v-row>
+                          <v-col cols="12" md="3">
+                            <v-switch v-model="config.clear_recyclebin_enabled" label="清空回收站" color="error"></v-switch>
+                          </v-col>
+                          <v-col cols="12" md="3">
+                            <v-switch v-model="config.clear_receive_path_enabled" label="清空最近接收目录"
+                              color="error"></v-switch>
+                          </v-col>
+                          <v-col cols="12" md="3">
+                            <v-text-field v-model="config.password" label="115访问密码" hint="115网盘安全密码" persistent-hint
+                              type="password" density="compact" variant="outlined" hide-details="auto"></v-text-field>
+                          </v-col>
+                          <v-col cols="12" md="3">
+                            <VCronField v-model="config.cron_clear" label="清理周期" hint="设置清理任务的执行周期" persistent-hint
+                              density="compact">
+                            </VCronField>
+                          </v-col>
+                        </v-row>
+                      </v-card-text>
+                    </v-window-item>
+                    <v-window-item value="tab-same-playback">
+                      <v-card-text>
+                        <v-row>
+                          <v-col cols="12" md="4">
+                            <v-switch v-model="config.same_playback" label="启用" color="info" density="compact"
+                              hide-details></v-switch>
+                          </v-col>
+                        </v-row>
+
+                        <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
+                          <div class="text-body-2 mb-1"><strong>多设备同步播放</strong></div>
+                          <div class="text-caption">支持多个设备同时播放同一影片</div>
+                        </v-alert>
+                        <v-alert type="warning" variant="tonal" density="compact" class="mt-3" icon="mdi-alert">
+                          <div class="text-body-2 mb-1"><strong>使用限制</strong></div>
+                          <div class="text-caption">
+                            <div class="mb-1">• 最多支持双IP同时播放</div>
+                            <div class="mb-1">• 禁止多IP滥用</div>
+                            <div>• 违规操作可能导致账号封禁</div>
+                          </div>
+                        </v-alert>
+                      </v-card-text>
+                    </v-window-item>
+                  </v-window>
+                </v-card-text>
+              </v-window-item>
+
+              <!-- 系统配置分类 -->
+              <v-window-item value="category-system">
+                <v-card-text class="pa-0">
+                  <v-tabs v-model="systemSubTab" color="primary" class="sub-category-tabs" slider-color="primary">
+                    <v-tab value="tab-cache-config" class="sub-tab">
+                      <v-icon size="small" start>mdi-cached</v-icon>缓存配置
+                    </v-tab>
+                    <v-tab value="tab-data-enhancement" class="sub-tab">
+                      <v-icon size="small" start>mdi-database-eye-outline</v-icon>数据增强
+                    </v-tab>
+                    <v-tab value="tab-advanced-configuration" class="sub-tab">
+                      <v-icon size="small" start>mdi-tune</v-icon>高级配置
+                    </v-tab>
+                  </v-tabs>
+                  <v-divider></v-divider>
+                  <v-window v-model="systemSubTab">
+                    <v-window-item value="tab-cache-config">
+                      <v-card-text>
+                        <v-row>
+                          <v-col cols="12">
+                            <v-card variant="outlined" class="mb-4">
+                              <v-card-item>
+                                <v-card-title class="d-flex align-center">
+                                  <v-icon start>mdi-cached</v-icon>
+                                  <span class="text-h6">缓存管理</span>
+                                </v-card-title>
+                              </v-card-item>
+                              <v-card-text>
+                                <v-alert type="info" variant="tonal" density="compact" class="mb-4"
+                                  icon="mdi-information">
+                                  <div class="text-caption">缓存清理功能可以帮助您清理插件运行过程中产生的缓存数据，解决部分因缓存导致的问题。</div>
+                                </v-alert>
+
+                                <v-row>
+                                  <v-col cols="12" md="6">
+                                    <v-card variant="outlined" class="pa-4 d-flex flex-column cache-card">
+                                      <div class="d-flex align-center mb-3">
+                                        <v-icon color="primary" class="mr-2">mdi-folder-cog</v-icon>
+                                        <span class="text-subtitle-1 font-weight-medium">清理文件路径ID缓存</span>
+                                      </div>
+                                      <p class="text-body-2 text-grey-darken-1 mb-3 flex-grow-1">
+                                        清理文件路径ID缓存，包括目录ID到路径的映射缓存。
+                                      </p>
+                                      <v-btn color="primary" variant="outlined" :loading="clearIdPathCacheLoading"
+                                        @click="clearIdPathCache" prepend-icon="mdi-folder-cog" block>
+                                        清理文件路径ID缓存
+                                      </v-btn>
+                                    </v-card>
+                                  </v-col>
+
+                                  <v-col cols="12" md="6">
+                                    <v-card variant="outlined" class="pa-4 d-flex flex-column cache-card">
+                                      <div class="d-flex align-center mb-3">
+                                        <v-icon color="warning" class="mr-2">mdi-skip-next</v-icon>
+                                        <span class="text-subtitle-1 font-weight-medium">清理增量同步跳过路径缓存</span>
+                                      </div>
+                                      <p class="text-body-2 text-grey-darken-1 mb-3 flex-grow-1">
+                                        清理增量同步跳过路径缓存，重置增量同步的跳过路径记录，用于重新处理之前跳过的文件。
+                                      </p>
+                                      <v-btn color="warning" variant="outlined"
+                                        :loading="clearIncrementSkipCacheLoading" @click="clearIncrementSkipCache"
+                                        prepend-icon="mdi-skip-next" block>
+                                        清理增量同步跳过路径缓存
+                                      </v-btn>
+                                    </v-card>
+                                  </v-col>
+                                </v-row>
+                              </v-card-text>
+                            </v-card>
+                          </v-col>
+                        </v-row>
+                      </v-card-text>
+                    </v-window-item>
+                    <v-window-item value="tab-data-enhancement">
+                      <v-card-text>
+                        <v-row>
+                          <v-col cols="12" md="3">
+                            <v-switch v-model="config.error_info_upload" label="错误信息上传" color="info"
+                              density="compact"></v-switch>
+                          </v-col>
+                          <v-col cols="12" md="3">
+                            <v-switch v-model="config.upload_module_enhancement" label="上传模块增强" color="info"
+                              density="compact"></v-switch>
+                          </v-col>
+                          <v-col cols="12" md="3">
+                            <v-switch v-model="config.transfer_module_enhancement" label="整理模块增强" color="info"
+                              density="compact" :disabled="isTransferModuleEnhancementLocked" hint="此功能需要授权才能开启"
+                              persistent-hint></v-switch>
+                          </v-col>
+                          <v-col cols="12" md="3">
+                            <v-switch v-model="config.pan_transfer_takeover" label="接管网盘整理" color="info"
+                              density="compact" hint="接管 115 → 115 整理任务进行批量处理，需要存储模块为 115网盘Plus"
+                              persistent-hint></v-switch>
+                          </v-col>
+                        </v-row>
+                        <v-row>
+                          <v-col cols="12" md="4">
+                            <v-switch v-model="config.upload_share_info" label="上传分享链接" color="info"
+                              density="compact"></v-switch>
+                          </v-col>
+                          <v-col cols="12" md="4">
+                            <v-switch v-model="config.upload_offline_info" label="上传离线下载链接" color="info"
+                              density="compact"></v-switch>
+                          </v-col>
+                          <v-col cols="12" md="4">
+                            <v-select v-model="config.storage_module" label="存储模块选择" :items="[
+                              { title: '115网盘', value: 'u115' },
+                              { title: '115网盘Plus', value: '115网盘Plus' }
+                            ]" chips closable-chips
+                              :hint="config.pan_transfer_takeover ? '接管网盘整理功能必须使用 115网盘Plus' : '选择使用的存储模块'"
+                              persistent-hint></v-select>
+                          </v-col>
+                        </v-row>
+                        <v-row v-if="config.pan_transfer_takeover">
+                          <v-col cols="12">
+                            <v-alert type="warning" variant="tonal" density="compact" icon="mdi-alert"
+                              v-if="config.storage_module !== '115网盘Plus'">
+                              <div class="text-body-2 mb-1"><strong>提示：</strong></div>
+                              <div class="text-caption">
+                                接管网盘整理功能已启用，但当前存储模块为 <strong>{{ config.storage_module === 'u115' ? '115网盘' :
+                                  config.storage_module
+                                }}</strong>。
+                                请将存储模块切换为 <strong>115网盘Plus</strong>，否则接管功能将无法生效。
+                              </div>
+                            </v-alert>
+                            <v-alert type="info" variant="tonal" density="compact" icon="mdi-information" v-else>
+                              <div class="text-body-2 mb-1"><strong>功能说明：</strong></div>
+                              <div class="text-caption">
+                                <div class="mb-1">• <strong>接管网盘整理：</strong>启用后将接管 MoviePilot 的 115 → 115
+                                  整理任务，使用批量处理提升整理效率
+                                </div>
+                                <div class="mb-1">• <strong>与整理模块接口增强的区别：</strong>此功能是接管整理流程，而整理模块接口增强是对存储接口的优化</div>
+                                <div>• 当前存储模块为 <strong>115网盘Plus</strong>，功能可以正常使用</div>
+                              </div>
+                            </v-alert>
+                          </v-col>
+                        </v-row>
+                        <v-row>
+                          <v-col cols="12" md="4" class="d-flex align-center">
+                            <v-btn @click="getMachineId" size="small" prepend-icon="mdi-identifier">显示设备ID</v-btn>
+                          </v-col>
+                        </v-row>
+
+                        <v-row v-if="machineId">
+                          <v-col cols="12">
+                            <v-text-field v-model="machineId" label="Machine ID" readonly density="compact"
+                              variant="outlined" hide-details="auto"></v-text-field>
+                          </v-col>
+                        </v-row>
+
+                        <!-- 上传模块增强配置 -->
+                        <v-expansion-panels variant="tonal" class="mt-6">
+                          <v-expansion-panel>
+                            <v-expansion-panel-title>
+                              <v-icon icon="mdi-tune-variant" class="mr-2"></v-icon>
+                              上传模块增强配置
+                            </v-expansion-panel-title>
+                            <v-expansion-panel-text class="pa-4">
+                              <v-row>
+                                <v-col cols="12" md="4">
+                                  <v-switch v-model="config.upload_module_skip_slow_upload" label="秒传失败直接退出"
+                                    color="info" density="compact"></v-switch>
+                                </v-col>
+                                <v-col cols="12" md="4">
+                                  <v-switch v-model="config.upload_module_notify" label="秒传等待发送通知" color="info"
+                                    density="compact"></v-switch>
+                                </v-col>
+                                <v-col cols="12" md="4">
+                                  <v-switch v-model="config.upload_open_result_notify" label="上传结果通知" color="info"
+                                    density="compact"></v-switch>
+                                </v-col>
+                              </v-row>
+                              <v-row>
+                                <v-col cols="12" md="6">
+                                  <v-text-field v-model.number="config.upload_module_wait_time" label="秒传休眠等待时间（单位秒）"
+                                    type="number" hint="秒传休眠等待时间（单位秒）" persistent-hint density="compact"></v-text-field>
+                                </v-col>
+                                <v-col cols="12" md="6">
+                                  <v-text-field v-model.number="config.upload_module_wait_timeout" label="秒传最长等待时间（单位秒）"
+                                    type="number" hint="秒传最长等待时间（单位秒）" persistent-hint density="compact"></v-text-field>
+                                </v-col>
+                              </v-row>
+                              <v-row>
+                                <v-col cols="12" md="6">
+                                  <v-text-field v-model="skipUploadWaitSizeFormatted" label="跳过等待秒传的文件大小阈值"
+                                    hint="文件小于此值将跳过等待秒传（单位支持K，M，G）" persistent-hint density="compact"
+                                    placeholder="例如: 5M, 1.5G (可为空)" clearable></v-text-field>
+                                </v-col>
+                                <v-col cols="12" md="6">
+                                  <v-text-field v-model="forceUploadWaitSizeFormatted" label="强制等待秒传的文件大小阈值"
+                                    hint="文件大于此值将强制等待秒传（单位支持K，M，G）" persistent-hint density="compact"
+                                    placeholder="例如: 5M, 1.5G (可为空)" clearable></v-text-field>
+                                </v-col>
+                              </v-row>
+                              <v-row v-if="config.upload_module_skip_slow_upload">
+                                <v-col cols="12" md="6">
+                                  <v-text-field v-model="skipSlowUploadSizeFormatted" label="秒传失败后跳过上传的文件大小阈值"
+                                    hint="秒传失败后，大于等于此值的文件将跳过上传，小于此值的文件将继续上传（单位支持K，M，G）" persistent-hint
+                                    density="compact" placeholder="例如: 100M, 1G (可为空)" clearable></v-text-field>
+                                </v-col>
+                              </v-row>
+                              <v-alert type="info" variant="tonal" density="compact" class="mt-3"
+                                icon="mdi-information">
+                                <div class="text-body-2 mb-1"><strong>秒传失败直接退出：</strong></div>
+                                <div class="text-caption">此功能开启后，对于无法秒传或者秒传等待超时的文件将直接跳过上传步骤，整理返回失败。</div>
+                                <div class="text-caption mt-1">
+                                  如果设置了"秒传失败后跳过上传的文件大小阈值"，则只有大于等于该阈值的文件才会跳过上传，小于该阈值的文件将继续执行上传。
+                                </div>
+                              </v-alert>
+                            </v-expansion-panel-text>
+                          </v-expansion-panel>
+                        </v-expansion-panels>
+
+                        <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
+                          <div class="text-body-2 mb-1"><strong>115上传增强有效范围：</strong></div>
+                          <div class="text-caption">此功能开启后，将对整个MoviePilot系统内所有调用115网盘上传的功能生效。</div>
+                        </v-alert>
+
+                        <v-alert type="warning" variant="tonal" density="compact" class="mt-3" icon="mdi-alert">
+                          <div class="text-body-2 mb-1"><strong>风险与免责声明</strong></div>
+                          <div class="text-caption">
+                            <div class="mb-1">• 插件程序内包含可选的Sentry分析组件，详见<a href="https://sentry.io/privacy/"
+                                target="_blank" style="color: inherit; text-decoration: underline;">Sentry Privacy
+                                Policy</a></div>
+                            <div class="mb-1">• 插件程序将在必要时上传错误信息及运行环境信息</div>
+                            <div>• 插件程序将记录程序运行重要节点并保存追踪数据至少72小时</div>
+                          </div>
+                        </v-alert>
+                      </v-card-text>
+                    </v-window-item>
+                    <v-window-item value="tab-advanced-configuration">
+                      <v-card-text>
+                        <!-- STRM URL 自定义模板 -->
+                        <v-row>
+                          <v-col cols="12">
+                            <v-switch v-model="config.strm_url_template_enabled" label="启用 STRM URL 自定义模板 (Jinja2)"
+                              color="primary" density="compact" hint="启用后可以使用 Jinja2 模板语法自定义 STRM 文件的 URL 格式"
+                              persistent-hint></v-switch>
+                          </v-col>
+                        </v-row>
+
+                        <v-expand-transition>
+                          <div v-if="config.strm_url_template_enabled">
+                            <v-alert type="info" variant="tonal" density="compact" class="mt-2 mb-3"
+                              icon="mdi-information">
+                              <div class="text-body-2 mb-1"><strong>STRM URL 生成优先级：</strong></div>
+                              <div class="text-caption">
+                                <div class="mb-1">1. <strong>URL 自定义模板</strong>（如果启用）：优先使用 Jinja2 模板渲染</div>
+                                <div class="mb-1">2. <strong>FUSE STRM 接管</strong>（如果启用且匹配规则）：生成指向挂载路径的 STRM 内容</div>
+                                <div>3. <strong>默认格式</strong>：使用基础设置中的「STRM文件URL格式」和「STRM URL 文件名称编码」</div>
+                              </div>
+                            </v-alert>
+                            <v-row class="mt-2">
+                              <v-col cols="12">
+                                <v-textarea v-model="config.strm_url_template" label="STRM URL 基础模板 (Jinja2)"
+                                  hint="支持 Jinja2 语法，可用变量和过滤器见下方说明" persistent-hint rows="4" variant="outlined"
+                                  density="compact"
+                                  placeholder="{{ base_url }}?pickcode={{ pickcode }}{% if file_name %}&file_name={{ file_name | urlencode }}{% endif %}"
+                                  clearable></v-textarea>
+                              </v-col>
+                            </v-row>
+
+                            <v-row class="mt-2">
+                              <v-col cols="12">
+                                <v-textarea v-model="config.strm_url_template_custom" label="STRM URL 扩展名特定模板 (Jinja2)"
+                                  hint="为特定文件扩展名指定 URL 模板，优先级高于基础模板。格式：ext1,ext2 => template（每行一个）" persistent-hint
+                                  rows="5" variant="outlined" density="compact"
+                                  placeholder="例如：&#10;mkv,mp4 => {{ base_url }}?pickcode={{ pickcode }}&file_name={{ file_name | urlencode }}&file_path={{ file_path | path_encode }}&#10;iso => {{ base_url }}?pickcode={{ pickcode }}&file_name={{ file_name | urlencode }}"
+                                  clearable></v-textarea>
+                              </v-col>
+                            </v-row>
+
+                            <v-card variant="outlined" class="mt-3" color="info" v-pre>
+                              <v-card-text class="pa-3">
+                                <div class="mb-3">
+                                  <div class="d-flex align-center mb-2">
+                                    <v-icon icon="mdi-information" size="small" class="mr-2" color="info"></v-icon>
+                                    <strong class="text-body-2">可用变量</strong>
+                                  </div>
+                                  <div class="ml-6">
+                                    <div class="mb-1"><code class="text-caption">base_url</code> - 基础 URL</div>
+                                    <div class="mb-1"><code class="text-caption">pickcode</code> - 文件 pickcode（仅普通 STRM）
+                                    </div>
+                                    <div class="mb-1"><code class="text-caption">share_code</code> - 分享码（仅分享 STRM）</div>
+                                    <div class="mb-1"><code class="text-caption">receive_code</code> - 提取码（仅分享 STRM）
+                                    </div>
+                                    <div class="mb-1"><code class="text-caption">file_id</code> - 文件 ID</div>
+                                    <div class="mb-1"><code class="text-caption">file_name</code> - 文件名称</div>
+                                    <div class="mb-1"><code class="text-caption">file_path</code> - 文件网盘路径</div>
+                                  </div>
+                                </div>
+
+                                <v-divider class="my-3"></v-divider>
+
+                                <div class="mb-3">
+                                  <div class="d-flex align-center mb-2">
+                                    <v-icon icon="mdi-filter" size="small" class="mr-2" color="info"></v-icon>
+                                    <strong class="text-body-2">可用过滤器</strong>
+                                  </div>
+                                  <div class="ml-6">
+                                    <div class="mb-1"><code class="text-caption">urlencode</code> - URL 编码（如：<code
+                                        class="text-caption">{{ file_name | urlencode }}</code>）</div>
+                                    <div class="mb-1"><code class="text-caption">path_encode</code> - 路径编码，保留斜杠（如：<code
+                                        class="text-caption">{{ file_path | path_encode }}</code>）</div>
+                                    <div class="mb-1"><code class="text-caption">upper</code> - 转大写</div>
+                                    <div class="mb-1"><code class="text-caption">lower</code> - 转小写</div>
+                                    <div class="mb-1"><code class="text-caption">default</code> - 默认值（如：<code
+                                        class="text-caption">{{
+                              file_name | default('unknown') }}</code>）</div>
+                                  </div>
+                                </div>
+
+                                <v-divider class="my-3"></v-divider>
+
+                                <div>
+                                  <div class="d-flex align-center mb-2">
+                                    <v-icon icon="mdi-code-tags" size="small" class="mr-2" color="info"></v-icon>
+                                    <strong class="text-body-2">模板示例</strong>
+                                  </div>
+                                  <div class="ml-6">
+                                    <div class="mb-2">
+                                      <div class="text-caption text-medium-emphasis mb-1">普通 STRM:</div>
+                                      <code class="text-caption pa-2 d-block"
+                                        style="background-color: rgba(var(--v-theme-on-surface), 0.05); border-radius: 8px; font-family: 'Courier New', monospace; word-break: break-all; display: block; white-space: pre-wrap; border: 1px solid rgba(var(--v-theme-on-surface), 0.12); padding: 10px;">{{
+                              base_url }}?pickcode={{ pickcode }}{% if file_name %}&file_name={{ file_name
+                              | urlencode }}{% endif %}</code>
+                                    </div>
+                                    <div>
+                                      <div class="text-caption text-medium-emphasis mb-1">分享 STRM:</div>
+                                      <code class="text-caption pa-2 d-block"
+                                        style="background-color: rgba(var(--v-theme-on-surface), 0.05); border-radius: 8px; font-family: 'Courier New', monospace; word-break: break-all; display: block; white-space: pre-wrap; border: 1px solid rgba(var(--v-theme-on-surface), 0.12); padding: 10px;">{{
+                              base_url }}?share_code={{ share_code }}&receive_code={{ receive_code
+                              }}&id={{ file_id }}{% if file_name %}&file_name={{ file_name | urlencode }}{% endif
+                              %}</code>
+                                    </div>
+                                  </div>
+                                </div>
+                              </v-card-text>
+                            </v-card>
+                          </div>
+                        </v-expand-transition>
+
+                        <!-- STRM 文件名自定义模板 -->
+                        <v-divider class="my-6"></v-divider>
+
+                        <v-row class="mt-4">
+                          <v-col cols="12">
+                            <v-switch v-model="config.strm_filename_template_enabled" label="启用 STRM 文件名自定义模板 (Jinja2)"
+                              color="primary" density="compact" hint="启用后可以使用 Jinja2 模板语法自定义 STRM 文件的文件名格式"
+                              persistent-hint></v-switch>
+                          </v-col>
+                        </v-row>
+
+                        <v-expand-transition>
+                          <div v-if="config.strm_filename_template_enabled">
+                            <v-row class="mt-2">
+                              <v-col cols="12">
+                                <v-textarea v-model="config.strm_filename_template" label="STRM 文件名基础模板 (Jinja2)"
+                                  hint="支持 Jinja2 语法，可用变量和过滤器见下方说明" persistent-hint rows="3" variant="outlined"
+                                  density="compact" placeholder="{{ file_stem }}.strm" clearable></v-textarea>
+                              </v-col>
+                            </v-row>
+
+                            <v-row class="mt-2">
+                              <v-col cols="12">
+                                <v-textarea v-model="config.strm_filename_template_custom"
+                                  label="STRM 文件名扩展名特定模板 (Jinja2)"
+                                  hint="为特定文件扩展名指定文件名模板，优先级高于基础模板。格式：ext1,ext2 => template（每行一个）" persistent-hint
+                                  rows="4" variant="outlined" density="compact"
+                                  placeholder="例如：&#10;iso => {{ file_stem }}.iso.strm&#10;mkv,mp4 => {{ file_stem | upper }}.strm"
+                                  clearable></v-textarea>
+                              </v-col>
+                            </v-row>
+
+                            <v-card variant="outlined" class="mt-3" color="info" v-pre>
+                              <v-card-text class="pa-3">
+                                <div class="mb-3">
+                                  <div class="d-flex align-center mb-2">
+                                    <v-icon icon="mdi-information" size="small" class="mr-2" color="info"></v-icon>
+                                    <strong class="text-body-2">可用变量</strong>
+                                  </div>
+                                  <div class="ml-6">
+                                    <div class="mb-1"><code class="text-caption">file_name</code> - 完整文件名（包含扩展名）</div>
+                                    <div class="mb-1"><code class="text-caption">file_stem</code> - 文件名（不含扩展名）</div>
+                                    <div class="mb-1"><code class="text-caption">file_suffix</code> - 文件扩展名（包含点号，如 .mkv）
+                                    </div>
+                                  </div>
+                                </div>
+
+                                <v-divider class="my-3"></v-divider>
+
+                                <div class="mb-3">
+                                  <div class="d-flex align-center mb-2">
+                                    <v-icon icon="mdi-filter" size="small" class="mr-2" color="info"></v-icon>
+                                    <strong class="text-body-2">可用过滤器</strong>
+                                  </div>
+                                  <div class="ml-6">
+                                    <div class="mb-1"><code class="text-caption">upper</code> - 转大写（如：<code
+                                        class="text-caption">{{
+                              file_stem | upper }}</code>）</div>
+                                    <div class="mb-1"><code class="text-caption">lower</code> - 转小写（如：<code
+                                        class="text-caption">{{
+                              file_stem | lower }}</code>）</div>
+                                    <div class="mb-1"><code class="text-caption">sanitize</code> - 清理文件名中的非法字符（如：<code
+                                        class="text-caption">{{ file_name | sanitize }}</code>）</div>
+                                    <div class="mb-1"><code class="text-caption">default</code> - 默认值（如：<code
+                                        class="text-caption">{{
+                              file_stem | default('unknown') }}</code>）</div>
+                                  </div>
+                                </div>
+
+                                <v-divider class="my-3"></v-divider>
+
+                                <div class="mb-3">
+                                  <div class="d-flex align-center mb-2">
+                                    <v-icon icon="mdi-code-tags" size="small" class="mr-2" color="info"></v-icon>
+                                    <strong class="text-body-2">模板示例</strong>
+                                  </div>
+                                  <div class="ml-6">
+                                    <div class="mb-2">
+                                      <div class="text-caption text-medium-emphasis mb-1">默认格式:</div>
+                                      <code class="text-caption pa-2 d-block"
+                                        style="background-color: rgba(var(--v-theme-on-surface), 0.05); border-radius: 8px; font-family: 'Courier New', monospace; display: block; border: 1px solid rgba(var(--v-theme-on-surface), 0.12); padding: 10px;">{{
+                              file_stem }}.strm</code>
+                                    </div>
+                                    <div class="mb-2">
+                                      <div class="text-caption text-medium-emphasis mb-1">ISO 格式:</div>
+                                      <code class="text-caption pa-2 d-block"
+                                        style="background-color: rgba(var(--v-theme-on-surface), 0.05); border-radius: 8px; font-family: 'Courier New', monospace; display: block; border: 1px solid rgba(var(--v-theme-on-surface), 0.12); padding: 10px;">{{
+                              file_stem }}.iso.strm</code>
+                                    </div>
+                                    <div>
+                                      <div class="text-caption text-medium-emphasis mb-1">大写文件名:</div>
+                                      <code class="text-caption pa-2 d-block"
+                                        style="background-color: rgba(var(--v-theme-on-surface), 0.05); border-radius: 8px; font-family: 'Courier New', monospace; display: block; border: 1px solid rgba(var(--v-theme-on-surface), 0.12); padding: 10px;">{{
+                              file_stem | upper }}.strm</code>
+                                    </div>
+                                  </div>
+                                </div>
+
+                                <v-divider class="my-3"></v-divider>
+
+                                <div>
+                                  <div class="d-flex align-center mb-2">
+                                    <v-icon icon="mdi-alert-circle-outline" size="small" class="mr-2"
+                                      color="warning"></v-icon>
+                                    <strong class="text-body-2">注意事项</strong>
+                                  </div>
+                                  <div class="ml-6">
+                                    <div class="mb-1 text-caption">• 模板渲染后的文件名会自动清理非法字符（&lt;&gt;:&quot;/\\|?*）</div>
+                                    <div class="mb-1 text-caption">• 建议模板以 .strm 结尾，确保生成的文件具有正确的扩展名</div>
+                                    <div class="text-caption">• 如果模板未指定扩展名，系统会自动添加 .strm</div>
+                                  </div>
+                                </div>
+                              </v-card-text>
+                            </v-card>
+                          </div>
+                        </v-expand-transition>
+
+                        <v-divider class="my-6"></v-divider>
+
+                        <v-row class="mt-4">
+                          <v-col cols="12">
+                            <v-combobox v-model="config.strm_generate_blacklist" label="STRM文件关键词过滤黑名单"
+                              hint="输入关键词后按回车确认，可添加多个。包含这些词的视频文件将不会生成STRM文件。" persistent-hint multiple chips
+                              closable-chips variant="outlined" density="compact"></v-combobox>
+                          </v-col>
+                        </v-row>
+
+                        <v-row class="mt-4">
+                          <v-col cols="12">
+                            <v-combobox v-model="config.mediainfo_download_whitelist" label="媒体信息文件下载关键词过滤白名单"
+                              hint="输入关键词后按回车确认，可添加多个。不包含这些词的媒体信息文件将不会下载。" persistent-hint multiple chips closable-chips
+                              variant="outlined" density="compact"></v-combobox>
+                          </v-col>
+                        </v-row>
+
+                        <v-row class="mt-4">
+                          <v-col cols="12">
+                            <v-combobox v-model="config.mediainfo_download_blacklist" label="媒体信息文件下载关键词过滤黑名单"
+                              hint="输入关键词后按回车确认，可添加多个。包含这些词的媒体信息文件将不会下载。" persistent-hint multiple chips closable-chips
+                              variant="outlined" density="compact"></v-combobox>
+                          </v-col>
+                        </v-row>
+
+                        <v-divider class="my-6"></v-divider>
+
+                        <v-row class="mt-4">
+                          <v-col cols="12" md="4">
+                            <v-switch v-model="config.strm_url_encode" label="STRM URL 文件名称编码" color="info"
+                              density="compact"
+                              :hint="config.strm_url_template_enabled ? '已启用自定义模板时优先使用模板，模板渲染失败时将使用此设置作为后备方案。在模板中可使用 urlencode 过滤器进行编码。' : '启用后，STRM文件中的URL会对文件名进行编码处理'"
+                              persistent-hint></v-switch>
+                          </v-col>
+                        </v-row>
+                      </v-card-text>
+                    </v-window-item>
+                  </v-window>
+                </v-card-text>
+              </v-window-item>
             </v-window>
           </v-card>
 
@@ -2550,7 +2575,13 @@ const saveLoading = ref(false);
 const syncLoading = ref(false);
 const clearIdPathCacheLoading = ref(false);
 const clearIncrementSkipCacheLoading = ref(false);
-const activeTab = ref('tab-transfer');
+// 主分类标签
+const mainCategory = ref('category-strm');
+// 子标签页
+const strmSubTab = ref('tab-transfer');
+const panSubTab = ref('tab-pan-transfer');
+const otherSubTab = ref('tab-sync-del');
+const systemSubTab = ref('tab-cache-config');
 const mediaservers = ref([]);
 // 过滤出 Emby 类型的媒体服务器（用于同步删除功能）
 const embyMediaservers = computed(() => {
@@ -4412,6 +4443,238 @@ const removeExcludePathEntry = (index, type) => {
     inset 0 1px 0 rgba(255, 255, 255, 0.15) !important;
 }
 
+/* ============================================
+   主分类标签样式优化
+   ============================================ */
+.main-category-tabs {
+  background: linear-gradient(135deg,
+      rgba(91, 207, 250, 0.08) 0%,
+      rgba(245, 171, 185, 0.06) 50%,
+      rgba(255, 184, 201, 0.04) 100%) !important;
+  border-radius: 16px 16px 0 0 !important;
+  padding: 4px 8px !important;
+  display: flex;
+  align-items: center;
+}
+
+:deep(.main-category-tabs .v-tab) {
+  border-radius: 12px !important;
+  margin: 4px 2px !important;
+  padding: 10px 20px !important;
+  font-size: 0.875rem !important;
+  font-weight: 500 !important;
+  text-transform: none !important;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  min-height: 44px !important;
+  color: rgba(var(--v-theme-on-surface), 0.7) !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+:deep(.main-category-tabs .v-tab:hover) {
+  background: linear-gradient(135deg,
+      rgba(91, 207, 250, 0.15) 0%,
+      rgba(245, 171, 185, 0.12) 100%) !important;
+  color: rgba(var(--v-theme-primary), 0.95) !important;
+  transform: translateY(-2px);
+  box-shadow: 0 2px 8px rgba(91, 207, 250, 0.2),
+    0 1px 3px rgba(245, 171, 185, 0.15) !important;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+:deep(.main-category-tabs .v-tab--selected) {
+  background: linear-gradient(135deg,
+      rgba(91, 207, 250, 0.25) 0%,
+      rgba(245, 171, 185, 0.2) 100%) !important;
+  color: rgb(var(--v-theme-primary)) !important;
+  font-weight: 600 !important;
+  box-shadow: 0 3px 12px rgba(91, 207, 250, 0.35),
+    0 2px 6px rgba(245, 171, 185, 0.25),
+    inset 0 1px 0 rgba(255, 255, 255, 0.15) !important;
+  position: relative;
+  backdrop-filter: blur(12px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(12px) saturate(180%) !important;
+}
+
+/* 隐藏Vuetify默认滑块 */
+:deep(.main-category-tabs .v-tab__slider) {
+  display: none !important;
+}
+
+
+:deep(.main-category-tabs .v-tab .v-icon) {
+  margin-right: 8px;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  color: rgba(var(--v-theme-on-surface), 0.6);
+}
+
+:deep(.main-category-tabs .v-tab:hover .v-icon) {
+  color: rgba(var(--v-theme-primary), 0.8);
+  transform: scale(1.05);
+}
+
+:deep(.main-category-tabs .v-tab--selected .v-icon) {
+  transform: scale(1.15);
+  color: rgb(var(--v-theme-primary));
+}
+
+:deep(.main-category-tabs .v-slider) {
+  display: none !important;
+}
+
+/* ============================================
+   子标签页样式优化
+   ============================================ */
+.sub-category-tabs {
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  padding: 8px 12px !important;
+  background: linear-gradient(135deg,
+      rgba(91, 207, 250, 0.05) 0%,
+      rgba(245, 171, 185, 0.03) 50%,
+      rgba(255, 184, 201, 0.02) 100%) !important;
+  border-radius: 0 !important;
+  display: flex;
+  align-items: center;
+  backdrop-filter: blur(8px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(8px) saturate(180%) !important;
+}
+
+:deep(.sub-category-tabs .v-tab) {
+  min-width: auto !important;
+  padding: 10px 18px !important;
+  white-space: nowrap;
+  flex-shrink: 0;
+  font-size: 0.875rem !important;
+  line-height: 1.5 !important;
+  border-radius: 10px 10px 0 0 !important;
+  margin: 0 4px !important;
+  text-transform: none !important;
+  font-weight: 500 !important;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  color: rgba(var(--v-theme-on-surface), 0.65) !important;
+  position: relative;
+  overflow: visible !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+
+:deep(.sub-category-tabs .v-tab:hover) {
+  background: linear-gradient(135deg,
+      rgba(91, 207, 250, 0.12) 0%,
+      rgba(245, 171, 185, 0.1) 100%) !important;
+  color: rgba(var(--v-theme-primary), 0.9) !important;
+  transform: translateY(-1px);
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+:deep(.sub-category-tabs .v-tab--selected) {
+  background: linear-gradient(135deg,
+      rgba(91, 207, 250, 0.15) 0%,
+      rgba(245, 171, 185, 0.12) 100%) !important;
+  color: rgb(var(--v-theme-primary)) !important;
+  font-weight: 600 !important;
+  box-shadow: 0 -2px 12px rgba(91, 207, 250, 0.2),
+    0 -1px 4px rgba(245, 171, 185, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1) !important;
+  position: relative;
+  backdrop-filter: blur(10px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(10px) saturate(180%) !important;
+}
+
+/* 隐藏Vuetify默认滑块 */
+:deep(.sub-category-tabs .v-tab__slider) {
+  display: none !important;
+}
+
+
+:deep(.sub-category-tabs .v-tab .v-icon) {
+  margin-right: 6px;
+  flex-shrink: 0;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  color: rgba(var(--v-theme-on-surface), 0.55);
+}
+
+:deep(.sub-category-tabs .v-tab:hover .v-icon) {
+  color: rgba(var(--v-theme-primary), 0.75);
+  transform: scale(1.05);
+}
+
+:deep(.sub-category-tabs .v-tab--selected .v-icon) {
+  transform: scale(1.12);
+  color: rgb(var(--v-theme-primary));
+}
+
+:deep(.sub-category-tabs .v-tab__content) {
+  display: flex;
+  align-items: center;
+  white-space: nowrap;
+}
+
+:deep(.sub-category-tabs .v-slider) {
+  display: none !important;
+}
+
+/* 确保子标签页容器有足够空间 */
+:deep(.v-window-item[value^="category-"] .v-card-text) {
+  min-height: 0;
+}
+
+/* 优化分隔线样式 - 符合主题色 */
+:deep(.config-card .v-divider) {
+  border-color: rgba(91, 207, 250, 0.2) !important;
+  background: linear-gradient(90deg,
+      transparent 0%,
+      rgba(91, 207, 250, 0.3) 20%,
+      rgba(245, 171, 185, 0.3) 80%,
+      transparent 100%) !important;
+  height: 2px !important;
+  opacity: 1 !important;
+}
+
+:deep(.v-theme--dark) .config-card .v-divider,
+:deep([data-theme="dark"]) .config-card .v-divider {
+  border-color: rgba(91, 207, 250, 0.3) !important;
+  background: linear-gradient(90deg,
+      transparent 0%,
+      rgba(91, 207, 250, 0.4) 20%,
+      rgba(245, 171, 185, 0.4) 80%,
+      transparent 100%) !important;
+}
+
+/* 暗色模式下的标签页优化 */
+:deep(.v-theme--dark) .main-category-tabs,
+:deep([data-theme="dark"]) .main-category-tabs {
+  background: linear-gradient(135deg,
+      rgba(91, 207, 250, 0.12) 0%,
+      rgba(245, 171, 185, 0.1) 50%,
+      rgba(255, 184, 201, 0.08) 100%) !important;
+}
+
+:deep(.v-theme--dark) .sub-category-tabs,
+:deep([data-theme="dark"]) .sub-category-tabs {
+  background: linear-gradient(135deg,
+      rgba(91, 207, 250, 0.08) 0%,
+      rgba(245, 171, 185, 0.06) 50%,
+      rgba(255, 184, 201, 0.04) 100%) !important;
+}
+
+:deep(.v-theme--dark) .sub-category-tabs .v-tab--selected,
+:deep([data-theme="dark"]) .sub-category-tabs .v-tab--selected {
+  background: linear-gradient(135deg,
+      rgba(91, 207, 250, 0.2) 0%,
+      rgba(245, 171, 185, 0.15) 100%) !important;
+  box-shadow: 0 -2px 12px rgba(91, 207, 250, 0.25),
+    0 -1px 4px rgba(245, 171, 185, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.15) !important;
+}
+
+
+
 .bg-primary-gradient,
 .bg-primary-lighten-5 {
   background: linear-gradient(135deg,
@@ -4884,54 +5147,54 @@ const removeExcludePathEntry = (index, type) => {
 }
 
 /* Primary Color Switch - 动态适配主题 */
-:deep(v-switch[color="primary"] .v-selection-control--dirty .v-track),
-:deep(v-switch[color="primary"] .v-selection-control--dirty .v-switch__track) {
+:deep(.v-switch[color="primary"] .v-selection-control--dirty .v-track),
+:deep(.v-switch[color="primary"] .v-selection-control--dirty .v-switch__track) {
   background-color: rgb(var(--v-theme-primary)) !important;
   border-color: rgb(var(--v-theme-primary)) !important;
 }
 
 /* 暗色模式下的 Primary Switch */
-:deep(.v-theme--dark) v-switch[color="primary"] .v-selection-control--dirty .v-track,
-:deep(.v-theme--dark) v-switch[color="primary"] .v-selection-control--dirty .v-switch__track,
-:deep([data-theme="dark"]) v-switch[color="primary"] .v-selection-control--dirty .v-track,
-:deep([data-theme="dark"]) v-switch[color="primary"] .v-selection-control--dirty .v-switch__track {
+:deep(.v-theme--dark .v-switch[color="primary"] .v-selection-control--dirty .v-track),
+:deep(.v-theme--dark .v-switch[color="primary"] .v-selection-control--dirty .v-switch__track),
+:deep([data-theme="dark"] .v-switch[color="primary"] .v-selection-control--dirty .v-track),
+:deep([data-theme="dark"] .v-switch[color="primary"] .v-selection-control--dirty .v-switch__track) {
   background-color: #5bcffa !important;
   border-color: #5bcffa !important;
   box-shadow: 0 0 8px rgba(91, 207, 250, 0.4) !important;
 }
 
 /* Success Color Switch - 动态适配主题 */
-:deep(v-switch[color="success"] .v-selection-control--dirty .v-track),
-:deep(v-switch[color="success"] .v-selection-control--dirty .v-switch__track) {
+:deep(.v-switch[color="success"] .v-selection-control--dirty .v-track),
+:deep(.v-switch[color="success"] .v-selection-control--dirty .v-switch__track) {
   background-color: rgb(var(--v-theme-success)) !important;
   border-color: rgb(var(--v-theme-success)) !important;
 }
 
 /* 暗色模式下的 Success Switch */
-:deep(.v-theme--dark) v-switch[color="success"] .v-selection-control--dirty .v-track,
-:deep(.v-theme--dark) v-switch[color="success"] .v-selection-control--dirty .v-switch__track,
-:deep([data-theme="dark"]) v-switch[color="success"] .v-selection-control--dirty .v-track,
-:deep([data-theme="dark"]) v-switch[color="success"] .v-selection-control--dirty .v-switch__track {
+:deep(.v-theme--dark .v-switch[color="success"] .v-selection-control--dirty .v-track),
+:deep(.v-theme--dark .v-switch[color="success"] .v-selection-control--dirty .v-switch__track),
+:deep([data-theme="dark"] .v-switch[color="success"] .v-selection-control--dirty .v-track),
+:deep([data-theme="dark"] .v-switch[color="success"] .v-selection-control--dirty .v-switch__track) {
   box-shadow: 0 0 8px rgba(76, 175, 80, 0.4) !important;
 }
 
 /* Info Color Switch */
-:deep(v-switch[color="info"] .v-selection-control--dirty .v-track),
-:deep(v-switch[color="info"] .v-selection-control--dirty .v-switch__track) {
+:deep(.v-switch[color="info"] .v-selection-control--dirty .v-track),
+:deep(.v-switch[color="info"] .v-selection-control--dirty .v-switch__track) {
   background-color: rgb(var(--v-theme-info)) !important;
   border-color: rgb(var(--v-theme-info)) !important;
 }
 
 /* Warning Color Switch */
-:deep(v-switch[color="warning"] .v-selection-control--dirty .v-track),
-:deep(v-switch[color="warning"] .v-selection-control--dirty .v-switch__track) {
+:deep(.v-switch[color="warning"] .v-selection-control--dirty .v-track),
+:deep(.v-switch[color="warning"] .v-selection-control--dirty .v-switch__track) {
   background-color: rgb(var(--v-theme-warning)) !important;
   border-color: rgb(var(--v-theme-warning)) !important;
 }
 
 /* Error Color Switch */
-:deep(v-switch[color="error"] .v-selection-control--dirty .v-track),
-:deep(v-switch[color="error"] .v-selection-control--dirty .v-switch__track) {
+:deep(.v-switch[color="error"] .v-selection-control--dirty .v-track),
+:deep(.v-switch[color="error"] .v-selection-control--dirty .v-switch__track) {
   background-color: rgb(var(--v-theme-error)) !important;
   border-color: rgb(var(--v-theme-error)) !important;
 }
@@ -5008,6 +5271,28 @@ const removeExcludePathEntry = (index, type) => {
     min-height: 44px !important;
     padding: 0 16px !important;
     font-size: 0.875rem !important;
+  }
+
+  /* 主分类标签在移动端优化 */
+  :deep(.main-category-tabs .v-tab) {
+    min-height: 44px !important;
+    padding: 8px 12px !important;
+    font-size: 0.8rem !important;
+    margin: 2px 1px !important;
+  }
+
+  /* 子标签页在移动端优化 */
+  :deep(.sub-category-tabs .v-tab) {
+    min-height: 44px !important;
+    padding: 8px 14px !important;
+    font-size: 0.8rem !important;
+    margin: 0 3px !important;
+  }
+
+  :deep(.sub-category-tabs) {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: 6px 8px 0 8px !important;
   }
 
   /* 优化对话框在移动端 - 镜面效果 */
@@ -5091,6 +5376,17 @@ const removeExcludePathEntry = (index, type) => {
   .config-card {
     border-radius: 8px !important;
     margin-bottom: 10px !important;
+  }
+
+  /* 移动端标签页优化 */
+  :deep(.main-category-tabs .v-tab) {
+    padding: 8px 10px !important;
+    font-size: 0.75rem !important;
+  }
+
+  :deep(.sub-category-tabs .v-tab) {
+    padding: 8px 12px !important;
+    font-size: 0.75rem !important;
   }
 
   /* 对话框在小屏幕上全屏 - 保持镜面效果 */
