@@ -134,15 +134,26 @@ class IncrementSyncStrmHelper:
         self.pan_to_local_tree_path = (
             configer.get_config("PLUGIN_TEMP_PATH") / "increment_pan_to_local_tree.txt"
         )
+        self.local_strm_tree_path = (
+            configer.get_config("PLUGIN_TEMP_PATH") / "increment_local_strm_tree.txt"
+        )
+        self.pan_to_local_strm_tree_path = (
+            configer.get_config("PLUGIN_TEMP_PATH")
+            / "increment_pan_to_local_strm_tree.txt"
+        )
         self.local_tree = DirectoryTree(self.local_tree_path)
         self.pan_tree = DirectoryTree(self.pan_tree_path)
         self.pan_to_local_tree = DirectoryTree(self.pan_to_local_tree_path)
+        self.local_strm_tree = DirectoryTree(self.local_strm_tree_path)
+        self.pan_to_local_strm_tree = DirectoryTree(self.pan_to_local_strm_tree_path)
 
     def __del__(self):
         self.directory_cache.close()
         self.local_tree.clear()
         self.pan_tree.clear()
         self.pan_to_local_tree.clear()
+        self.local_strm_tree.clear()
+        self.pan_to_local_strm_tree.clear()
 
     @staticmethod
     def _make_throttled_export_dir_wait_logger(
@@ -340,6 +351,7 @@ class IncrementSyncStrmHelper:
         :param target_dir: 本地目录
         """
         self.local_tree.clear()
+        self.local_strm_tree.clear()
 
         def background_task(_target_dir):
             """
@@ -355,6 +367,13 @@ class IncrementSyncStrmHelper:
                     if not self.auto_download_mediainfo
                     else [".strm"] + self.download_mediaext,
                 )
+                if self.auto_download_mediainfo:
+                    self.local_strm_tree.scan_directory_to_tree(
+                        root_path=_target_dir,
+                        append=False,
+                        use_posix=True,
+                        extensions=[".strm"],
+                    )
                 logger.info(f"【增量STRM生成】扫描本地媒体库文件完成: {_target_dir}")
             except Exception as e:
                 sentry_manager.sentry_hub.capture_exception(e)
@@ -394,6 +413,7 @@ class IncrementSyncStrmHelper:
         for i in range(1, 4):
             self.pan_tree.clear()
             self.pan_to_local_tree.clear()
+            self.pan_to_local_strm_tree.clear()
 
             logger.info(f"【增量STRM生成】开始生成网盘目录树: {pan_media_dir}")
 
@@ -403,6 +423,10 @@ class IncrementSyncStrmHelper:
                 ):
                     self.pan_to_local_tree.generate_tree_from_list([path1], append=True)
                     self.pan_tree.generate_tree_from_list([path2], append=True)
+                    if Path(path1).suffix.lower() == ".strm":
+                        self.pan_to_local_strm_tree.generate_tree_from_list(
+                            [path1], append=True
+                        )
 
                 logger.info(f"【增量STRM生成】网盘目录树生成完成: {pan_media_dir}")
                 return
@@ -755,14 +779,29 @@ class IncrementSyncStrmHelper:
 
                         # 清理无效 STRM 文件
                         if self.remove_unless_strm:
+                            _cleanup_local = (
+                                self.local_strm_tree
+                                if self.auto_download_mediainfo
+                                else self.local_tree
+                            )
+                            _cleanup_pan = (
+                                self.pan_to_local_strm_tree
+                                if self.auto_download_mediainfo
+                                else self.pan_to_local_tree
+                            )
+                            _cleanup_tree_path = (
+                                self.local_strm_tree_path
+                                if self.auto_download_mediainfo
+                                else self.local_tree_path
+                            )
                             if (
                                 not self.strm_fail_dict
                                 and (
                                     settings.CACHE_BACKEND_TYPE == "redis"
-                                    or self.local_tree_path.exists()
+                                    or _cleanup_tree_path.exists()
                                 )
-                                and self.local_tree.count() != 0
-                                and self.pan_to_local_tree.count() != 0
+                                and _cleanup_local.count() != 0
+                                and _cleanup_pan.count() != 0
                             ):
                                 try:
                                     path_base64 = CBase64.encode(
@@ -771,9 +810,9 @@ class IncrementSyncStrmHelper:
                                     counts = self.__get_remove_unless_strm(
                                         path_base64
                                     ).get("counts", [])
-                                    local_tree_count = self.local_tree.count()
-                                    remove_count = self.local_tree.compare_entry_counts(
-                                        self.pan_to_local_tree
+                                    local_tree_count = _cleanup_local.count()
+                                    remove_count = _cleanup_local.compare_entry_counts(
+                                        _cleanup_pan
                                     )
                                     rp = (remove_count / local_tree_count) * 100
                                     should_delete = True
@@ -818,18 +857,10 @@ class IncrementSyncStrmHelper:
                                                 path_base64, {"counts": []}
                                             )
                                     if should_delete:
-                                        for (
-                                            remove_path
-                                        ) in self.local_tree.compare_trees(
-                                            self.pan_to_local_tree
+                                        for remove_path in _cleanup_local.compare_trees(
+                                            _cleanup_pan
                                         ):
-                                            if (
-                                                Path(remove_path).suffix.lower()
-                                                == ".strm"
-                                            ):
-                                                self.__remove_unless_strm_path(
-                                                    remove_path
-                                                )
+                                            self.__remove_unless_strm_path(remove_path)
                                 except Exception as e:
                                     sentry_manager.sentry_hub.capture_exception(e)
                                     logger.error(
