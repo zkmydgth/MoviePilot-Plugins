@@ -4,6 +4,7 @@ import subprocess
 import zipfile
 from github import Github
 
+
 PACKAGE_V1_FILE = "package.json"
 PACKAGE_V2_FILE = "package.v2.json"
 PLUGINS_V1_DIR = "plugins"
@@ -104,7 +105,7 @@ def process_package_file(filepath, plugins_base_dir):
                 continue
 
             # 准备 Release 信息
-            tag_name = f"{plugin_id.lower()}.v{new_version}"
+            tag_name = f"{plugin_id}_v{new_version}"
             release_name = f"{new_plugin_info.get('name', plugin_id)} v{new_version}"
             release_notes = new_plugin_info.get("history", {}).get(
                 f"v{new_version}", "没有提供更新日志。"
@@ -119,7 +120,7 @@ def process_package_file(filepath, plugins_base_dir):
                 pass
 
             # 打包插件
-            zip_filename = f"{plugin_id.lower()}.v{new_version}.zip"
+            zip_filename = f"{plugin_id.lower()}_v{new_version}.zip"
             zip_plugin_directory(plugin_dir, zip_filename)
 
             # 创建 GitHub Release

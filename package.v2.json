@@ -333,12 +333,13 @@
     "TestPlugin": {
         "name": "TestPlugin",
         "description": "Test 插件",
-        "version": "0.0.2",
+        "version": "0.0.3",
         "icon": "cloud.png",
         "author": "DDSRem",
         "level": 1,
         "release": true,
         "history": {
+            "v0.0.3": "再次测试",
             "v0.0.2": "修改发布文件标签",
             "v0.0.1": "Github Action测试"
         }
