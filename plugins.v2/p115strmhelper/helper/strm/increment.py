@@ -207,12 +207,12 @@ class IncrementSyncStrmHelper:
         relative_path = None
 
         cid = get_pid_by_path(
-            self.client,
-            pan_path,
-            True,
-            False,
-            False,
-            request_timeout=configer.increment_sync_itertree_timeout_seconds or None,
+            client=self.client,
+            path=pan_path,
+            mkdir=True,
+            update_cache=False,
+            by_cache=False,
+            request_timeout=10,
         )
         if cid == -1:
             raise PanPathNotFound(f"网盘路径不存在: {pan_path}")
@@ -703,12 +703,12 @@ class IncrementSyncStrmHelper:
         self.api_count += 2
         name_list: List[str] = []
         cid = get_pid_by_path(
-            self.client,
-            path,
-            True,
-            False,
-            False,
-            request_timeout=configer.increment_sync_itertree_timeout_seconds or None,
+            client=self.client,
+            path=path,
+            mkdir=True,
+            update_cache=False,
+            by_cache=False,
+            request_timeout=10,
         )
         if cid == -1:
             raise PanPathNotFound(f"网盘路径不存在: {path}")
