@@ -1038,7 +1038,9 @@ class HDHivePlaywrightClient:
                         debug.save_html(page, "cf_token_timeout")
 
                 else:
-                    debug.log("【CF挑战】15s 内既无 iframe 也无重新验证按钮，CF 状态异常")
+                    debug.log(
+                        "【CF挑战】15s 内既无 iframe 也无重新验证按钮，CF 状态异常"
+                    )
                     debug.screenshot(page, "cf_unknown_state", "CF状态未知")
                     debug.log_page_state(page, "CF未知状态")
                     debug.save_html(page, "cf_unknown_state")
