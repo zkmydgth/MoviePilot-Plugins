@@ -5,15 +5,6 @@
       <span class="text-h6 font-weight-medium text-high-emphasis">115 助手仪表盘</span>
     </div>
 
-    <v-alert v-if="error" type="error" variant="tonal" density="comfortable" closable class="mb-3"
-      @click:close="error = null">
-      {{ error }}
-    </v-alert>
-    <v-alert v-if="actionMessage" :type="actionMessageType" variant="tonal" density="comfortable" closable class="mb-3"
-      @click:close="actionMessage = null">
-      {{ actionMessage }}
-    </v-alert>
-
     <!-- 分享 STRM 清理（对齐媒体整理：单卡 + 顶栏 + 表格区） -->
     <v-card class="app-start-card mb-4" variant="flat" rounded="0">
       <v-card-item class="py-3">
@@ -233,13 +224,85 @@
       </template>
     </v-card>
 
+    <Teleport to="body">
+      <div
+        class="Vue-Toastification__container bottom-right app-page-start-toast-host"
+        aria-live="polite"
+      >
+        <Transition name="Vue-Toastification__bounce">
+          <div
+            v-if="toast.visible"
+            :class="['Vue-Toastification__toast', toastVariantClass, 'bottom-right']"
+          >
+            <svg
+              v-if="toast.variant === 'success'"
+              class="Vue-Toastification__icon"
+              aria-hidden="true"
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 512 512"
+            >
+              <path
+                fill="currentColor"
+                d="M504 256c0 136.967-111.033 248-248 248S8 392.967 8 256 119.033 8 256 8s248 111.033 248 248zM227.314 387.314l184-184c6.248-6.248 6.248-16.379 0-22.627l-22.627-22.627c-6.248-6.249-16.379-6.249-22.628 0L216 308.118l-70.059-70.059c-6.248-6.248-16.379-6.248-22.628 0l-22.627 22.627c-6.248 6.248-6.248 16.379 0 22.627l104 104c6.249 6.249 16.379 6.249 22.628.001z"
+              />
+            </svg>
+            <svg
+              v-else-if="toast.variant === 'error'"
+              class="Vue-Toastification__icon"
+              aria-hidden="true"
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 576 512"
+            >
+              <path
+                fill="currentColor"
+                d="M569.517 440.013C587.975 472.007 564.806 512 527.94 512H48.054c-36.937 0-59.999-40.055-41.577-71.987L246.423 23.985c18.467-32.009 64.72-31.951 83.154 0l239.94 416.028zM288 354c-25.405 0-46 20.595-46 46s20.595 46 46 46 46-20.595 46-46-20.595-46-46-46zm-43.673-165.346l7.418 136c.347 6.364 5.609 11.346 11.982 11.346h48.546c6.373 0 11.635-4.982 11.982-11.346l7.418-136c.375-6.874-5.098-12.654-11.982-12.654h-63.383c-6.884 0-12.356 5.78-11.981 12.654z"
+              />
+            </svg>
+            <svg
+              v-else-if="toast.variant === 'warning'"
+              class="Vue-Toastification__icon"
+              aria-hidden="true"
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 512 512"
+            >
+              <path
+                fill="currentColor"
+                d="M504 256c0 136.997-111.043 248-248 248S8 392.997 8 256C8 119.083 119.043 8 256 8s248 111.083 248 248zm-248 50c-25.405 0-46 20.595-46 46s20.595 46 46 46 46-20.595 46-46-20.595-46-46-46zm-43.673-165.346l7.418 136c.347 6.364 5.609 11.346 11.982 11.346h48.546c6.373 0 11.635-4.982 11.982-11.346l7.418-136c.375-6.874-5.098-12.654-11.982-12.654h-63.383c-6.884 0-12.356 5.78-11.981 12.654z"
+              />
+            </svg>
+            <svg
+              v-else
+              class="Vue-Toastification__icon"
+              aria-hidden="true"
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 512 512"
+            >
+              <path
+                fill="currentColor"
+                d="M256 8C119.043 8 8 119.083 8 256c0 136.997 111.043 248 248 248s248-111.003 248-248C504 119.083 392.957 8 256 8zm0 110c23.196 0 42 18.804 42 42s-18.804 42-42 42-42-18.804-42-42 18.804-42 42-42zm56 254c0 6.627-5.373 12-12 12h-88c-6.627 0-12-5.373-12-12v-24c0-6.627 5.373-12 12-12h12v-64h-12c-6.627 0-12-5.373-12-12v-24c0-6.627 5.373-12 12-12h64c6.627 0 12 5.373 12 12v100h12c6.627 0 12 5.373 12 12v24z"
+              />
+            </svg>
+            <div role="alert" class="Vue-Toastification__toast-body">{{ toast.text }}</div>
+            <button
+              type="button"
+              class="Vue-Toastification__close-button"
+              aria-label="关闭"
+              @click="dismissToast"
+            >
+              &times;
+            </button>
+          </div>
+        </Transition>
+      </div>
+    </Teleport>
   </v-container>
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue';
+import { ref, reactive, computed, onMounted, onBeforeUnmount } from 'vue';
 import { useDisplay } from 'vuetify';
 import { P115_STRM_HELPER_PLUGIN_ID } from '../utils/pluginId.js';
+import '../styles/moviepilot-toast.css';
 
 const props = defineProps({
   api: {
@@ -266,9 +329,51 @@ const paginationShowFirstLast = computed(() => display.smAndUp.value);
 const paginationDensity = computed(() => (display.xs.value ? 'compact' : 'comfortable'));
 
 const refreshing = ref(false);
-const error = ref(null);
-const actionMessage = ref(null);
-const actionMessageType = ref('info');
+
+const toast = reactive({
+  visible: false,
+  text: '',
+  variant: 'success',
+});
+
+let toastHideTimer = null;
+
+const toastVariantClass = computed(() => {
+  const map = {
+    success: 'Vue-Toastification__toast--success',
+    error: 'Vue-Toastification__toast--error',
+    warning: 'Vue-Toastification__toast--warning',
+    info: 'Vue-Toastification__toast--info',
+  };
+  return map[toast.variant] || map.success;
+});
+
+const showSnack = (text, color = 'success', timeout) => {
+  const ms = timeout ?? (color === 'error' ? 5000 : 3200);
+  toast.text = text;
+  toast.variant = color;
+  if (toastHideTimer) {
+    clearTimeout(toastHideTimer);
+    toastHideTimer = null;
+  }
+  toast.visible = true;
+  toastHideTimer = setTimeout(() => {
+    toast.visible = false;
+    toastHideTimer = null;
+  }, ms);
+};
+
+const dismissToast = () => {
+  if (toastHideTimer) {
+    clearTimeout(toastHideTimer);
+    toastHideTimer = null;
+  }
+  toast.visible = false;
+};
+
+onBeforeUnmount(() => {
+  dismissToast();
+});
 
 const initialConfig = reactive({});
 const deleteMode = computed(() =>
@@ -419,12 +524,12 @@ const loadPendingPathsPage = async () => {
     } else {
       pendingPaths.paths = [];
       if (res?.msg) {
-        error.value = res.msg;
+        showSnack(res.msg, 'error');
       }
     }
   } catch (e) {
     pendingPaths.paths = [];
-    error.value = e.message || '加载路径失败';
+    showSnack(e.message || '加载路径失败', 'error');
   } finally {
     pendingPaths.loading = false;
   }
@@ -513,17 +618,12 @@ const onMissingLimitChange = () => {
 
 const refreshAll = async () => {
   refreshing.value = true;
-  error.value = null;
   try {
     await loadConfig();
     await Promise.all([loadPending(), loadSummary(), loadMissing()]);
-    actionMessage.value = '已刷新';
-    actionMessageType.value = 'success';
-    setTimeout(() => {
-      actionMessage.value = null;
-    }, 2000);
+    showSnack('已刷新', 'success');
   } catch (e) {
-    error.value = e.message || '刷新失败';
+    showSnack(e.message || '刷新失败', 'error');
   } finally {
     refreshing.value = false;
   }
@@ -534,8 +634,7 @@ const runScan = async () => {
   try {
     const res = await props.api.post(`plugin/${props.pluginId}/share_strm_cleanup_scan`);
     if (res && res.code === 0) {
-      actionMessage.value = res.msg || '扫描已启动';
-      actionMessageType.value = 'success';
+      showSnack(res.msg || '扫描已启动', 'success');
       setTimeout(() => {
         loadSummary();
         loadPending();
@@ -544,7 +643,7 @@ const runScan = async () => {
       throw new Error(res?.msg || '启动失败');
     }
   } catch (e) {
-    error.value = e.message || '启动扫描失败';
+    showSnack(e.message || '启动扫描失败', 'error');
   } finally {
     scanLoading.value = false;
   }
@@ -557,14 +656,13 @@ const executeBatch = async (requestId) => {
       request_id: requestId,
     });
     if (res && res.code === 0) {
-      actionMessage.value = res.msg || '已执行';
-      actionMessageType.value = 'success';
+      showSnack(res.msg || '已执行', 'success');
       await loadPending();
     } else {
       throw new Error(res?.msg || '执行失败');
     }
   } catch (e) {
-    error.value = e.message || '执行失败';
+    showSnack(e.message || '执行失败', 'error');
   } finally {
     execId.value = null;
   }
@@ -577,14 +675,13 @@ const cancelBatch = async (requestId) => {
       request_id: requestId,
     });
     if (res && res.code === 0) {
-      actionMessage.value = res.msg || '已取消';
-      actionMessageType.value = 'success';
+      showSnack(res.msg || '已取消', 'success');
       await loadPending();
     } else {
       throw new Error(res?.msg || '取消失败');
     }
   } catch (e) {
-    error.value = e.message || '取消失败';
+    showSnack(e.message || '取消失败', 'error');
   } finally {
     cancelId.value = null;
   }
@@ -603,7 +700,7 @@ const deleteOneMissing = async (uid) => {
       throw new Error(res?.msg || '删除失败');
     }
   } catch (e) {
-    error.value = e.message || '删除失败';
+    showSnack(e.message || '删除失败', 'error');
   } finally {
     deletingUid.value = null;
   }
@@ -619,13 +716,12 @@ const clearAllMissing = async () => {
     if (res && res.code === 0) {
       missingPage.value = 1;
       await loadMissing();
-      actionMessage.value = res.msg || '已清空';
-      actionMessageType.value = 'success';
+      showSnack(res.msg || '已清空', 'success');
     } else {
       throw new Error(res?.msg || '清空失败');
     }
   } catch (e) {
-    error.value = e.message || '清空失败';
+    showSnack(e.message || '清空失败', 'error');
   } finally {
     clearAllLoading.value = false;
   }
