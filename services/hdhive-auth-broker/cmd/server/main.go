@@ -46,6 +46,7 @@ func main() {
 	oauth := r.Group("/oauth/hdhive")
 	{
 		oauth.GET("/start", h.OAuthStart)
+		oauth.GET("/callback", h.OAuthCallback)
 		oauth.POST("/exchange", h.OAuthExchange)
 		oauth.POST("/refresh", h.OAuthRefresh)
 		oauth.POST("/revoke", h.OAuthRevoke)

@@ -113,7 +113,9 @@ export function useHdhiveOAuth(api, message, pluginId) {
   };
 
   const onOAuthMessage = (event) => {
-    if (event.origin !== HDHIVE_ORIGIN) return;
+    // HDHive 的 postmessage 可能来自 hdhive.com，也可能来自 redirect_uri 所在域名（broker callback 页）
+    const redirectOrigin = oauth.redirectUri ? new URL(oauth.redirectUri).origin : '';
+    if (event.origin !== HDHIVE_ORIGIN && event.origin !== redirectOrigin) return;
     if (!oauth.pending) return;
     const parsed = parseMessagePayload(event.data);
     if (!parsed) return;

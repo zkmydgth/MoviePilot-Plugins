@@ -3,6 +3,7 @@ package handler
 import (
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -68,6 +69,55 @@ func (h *Handler) OAuthStart(c *gin.Context) {
 		"redirect_uri":  h.cfg.RedirectURI,
 		"instance_key":  instanceKey,
 	})
+}
+
+// OAuthCallback GET /oauth/hdhive/callback
+//
+// HDHive 在用户完成授权后会跳转到 redirect_uri（本服务），并携带 code/state
+// 本页面会将 code/state 通过 postMessage 发回 opener（MoviePilot 插件页），随后尝试关闭窗口
+func (h *Handler) OAuthCallback(c *gin.Context) {
+	code := strings.TrimSpace(c.Query("code"))
+	state := strings.TrimSpace(c.Query("state"))
+	if code == "" || state == "" {
+		c.Header("Content-Type", "text/html; charset=utf-8")
+		c.String(http.StatusBadRequest, `<!doctype html><html><body><h3>缺少 code/state</h3></body></html>`)
+		return
+	}
+
+	payload, _ := json.Marshal(map[string]string{
+		"code":  code,
+		"state": state,
+	})
+
+	c.Header("Content-Type", "text/html; charset=utf-8")
+	c.String(http.StatusOK, fmt.Sprintf(`<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>HDHive OAuth</title>
+  </head>
+  <body>
+    <h3>授权成功</h3>
+    <p>正在返回 MoviePilot…</p>
+    <script>
+      (function () {
+        const payload = %s;
+        try {
+          if (window.opener && window.opener.postMessage) {
+            window.opener.postMessage(payload, "*");
+          }
+          if (window.parent && window.parent !== window && window.parent.postMessage) {
+            window.parent.postMessage(payload, "*");
+          }
+        } catch (e) {}
+        setTimeout(function () {
+          try { window.close(); } catch (e) {}
+        }, 50);
+      })();
+    </script>
+  </body>
+</html>`, payload))
 }
 
 type exchangeRequest struct {
