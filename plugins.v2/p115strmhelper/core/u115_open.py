@@ -69,6 +69,8 @@ class U115OpenHelper:
 
     retry_delay = 70
 
+    _get_download_url_limiter = RateLimiter(qps=1.0)
+
     def __init__(self):
         super().__init__()
         self.session = Client(follow_redirects=True, timeout=20.0)
@@ -266,6 +268,7 @@ class U115OpenHelper:
         :param pickcode: 提取码
         :param user_agent: 请求 UA 头
         """
+        self._get_download_url_limiter.acquire()
         download_info = self._request_api(
             "POST",
             "/open/ufile/downurl",
