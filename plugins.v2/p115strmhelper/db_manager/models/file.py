@@ -133,14 +133,6 @@ class File(P115StrmHelperBase):
         return True
 
     @staticmethod
-    @db_query
-    def get_by_sha1(db: Session, sha1: str):
-        """
-        通过 sha1 获取所有匹配记录
-        """
-        return db.execute(select(File).where(File.sha1 == sha1)).scalars().all()
-
-    @staticmethod
     @db_update
     def remove_by_path_prefix_not_in_ids(
         db: Session, path_prefix: str, ids: Set[int]

@@ -359,22 +359,6 @@ class FileDbHelper(DbOper):
             Folder.update_path_prefix(self._db, old_prefix, new_prefix)
         return True
 
-    def get_files_by_sha1(self, sha1: str) -> List[Dict]:
-        """
-        通过 sha1 获取所有匹配的文件记录
-
-        :param sha1: 文件 sha1
-        :return: 文件信息列表
-        """
-        files = File.get_by_sha1(self._db, sha1)
-        return [
-            {
-                **{k: v for k, v in f.__dict__.items() if k != "_sa_instance_state"},
-                "type": "file",
-            }
-            for f in (files or [])
-        ]
-
     def remove_ghost_records(
         self, path_prefix: str, seen_file_ids: Set[int], seen_folder_ids: Set[int]
     ) -> int:
