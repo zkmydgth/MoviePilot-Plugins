@@ -183,6 +183,24 @@ def _setup_mock_env() -> None:
     """
     注册全部假依赖模块
     """
+    # ⚠️ 必须先把「桩里的 transfer 子包」放进 sys.modules：下面的
+    # _make_pkg("app.application") 会把它替换成没有 __path__ 的假包，之后
+    # helper/transfer/handler.py 的
+    # `from app.application.transfer.models import TransferTask` 就再也找不到
+    # 子模块 —— 单独运行本文件必然 ModuleNotFoundError。此前只有
+    # test_jobview_adapter 先跑过（字母序 j < t）把真实桩子包带进 sys.modules
+    # 才通过，属加载顺序依赖。桩不可用时退回最小假模块。
+    try:
+        import app.application.transfer.models  # noqa: F401
+    except Exception:  # pragma: no cover - 仅在无桩环境触发
+        _make_module("app.application.transfer", TransferTask=object)
+        _make_module("app.application.transfer.models", TransferTask=object)
+        _make_module(
+            "app.application.transfer.workflow",
+            JobManager=object,
+            job_lock=SimpleNamespace(),
+        )
+
     for pkg in [
         "app",
         # --- V3 新路径 ---
