@@ -992,6 +992,12 @@
                       </v-expansion-panel-title>
                       <v-expansion-panel-text class="pa-4">
                         <v-row>
+                          <v-col cols="12" md="4">
+                            <v-switch v-model="config.upload_module_skip_slow_upload" label="秒传失败直接退出" color="info"
+                              density="compact"></v-switch>
+                          </v-col>
+                        </v-row>
+                        <v-row>
                           <v-col cols="12" md="6">
                             <v-text-field v-model.number="config.upload_module_wait_time" label="秒传休眠等待时间（单位秒）"
                               type="number" hint="秒传休眠等待时间（单位秒）" persistent-hint density="compact"></v-text-field>
@@ -1428,6 +1434,7 @@ const config = reactive({
   same_playback: false,
   error_info_upload: false,
   upload_module_enhancement: false,
+  upload_module_skip_slow_upload: false,
   upload_module_wait_time: 300,
   upload_module_wait_timeout: 3600,
   upload_module_skip_upload_wait_size: 0,
