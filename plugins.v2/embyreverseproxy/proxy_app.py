@@ -75,6 +75,19 @@ MEDIA_ROUTES = [
     "/emby/sync/jobitems/{item_id}/file",
 ]
 
+NON_MEDIA_NAMES = frozenset(
+    {
+        "additionalparts",
+        "subtitles",
+        "similar",
+        "thememedia",
+        "themevideos",
+        "themesongs",
+        "specialfeatures",
+        "linkeditems",
+    }
+)
+
 CROSS_ORIGIN_PATTERN = r"&&\s*\(elem\.crossOrigin\s*=\s*initialSubtitleStream\)"
 
 PLUGIN_CROSS_ORIGIN_RE = re_compile(r"&&\(\w+\.crossOrigin=\w+\)")
@@ -396,6 +409,8 @@ def create_app(
         :param name: 路径中的名称（未使用，由路由匹配）
         :return: 重定向、流式响应或错误 JSON
         """
+        if name.lower() in NON_MEDIA_NAMES:
+            return await _reverse_proxy(request)
         api_key = extract_api_key(request)
         resp = await _try_media_response(item_id, api_key, request)
         if resp:
