@@ -1,6 +1,9 @@
 import threading
 import time
 from queue import Queue, Empty
+from enum import Enum
+from datetime import datetime, timezone
+from typing import Optional
 
 from p115client import P115Client
 from p115client.tool.iterdir import share_iterdir
@@ -8,6 +11,7 @@ from p115client.tool.util import share_extract_payload
 
 from app.log import logger
 from app.core.metainfo import MetaInfo
+from app.core.context import MediaInfo
 from app.chain.media import MediaChain
 
 from ..core.config import configer
@@ -15,6 +19,7 @@ from ..core.message import post_message
 from ..core.cache import idpathcacher
 from ..core.i18n import i18n
 from ..utils.sentry import sentry_manager
+from ..utils.oopserver import OOPServerRequest
 
 
 @sentry_manager.capture_all_class_exceptions
@@ -174,6 +179,7 @@ class ShareTransferHelper:
                         image=file_mediainfo.poster_path,
                         userid=userid,
                     )
+                self.post_share_info(share_code, receive_code, file_mediainfo)
             else:
                 logger.info(f"【分享转存】转存 {share_code} 失败：{resp['error']}")
                 post_message(
@@ -205,3 +211,65 @@ class ShareTransferHelper:
             f"【分享转存】{url} 任务已加入分享转存队列，当前队列大小：{self._add_share_queue.qsize()}"
         )
         self._ensure_add_share_worker_running()
+
+    @staticmethod
+    def post_share_info(
+        share_code: str, receive_code: str, file_mediainfo: Optional[MediaInfo] = None
+    ):
+        """
+        上传分享信息
+        """
+        if not configer.get_config("upload_share_info"):
+            return
+
+        oopserver_request = OOPServerRequest(max_retries=3, backoff_factor=1.0)
+
+        desired_keys = [
+            "source",
+            "type",
+            "title",
+            "en_title",
+            "hk_title",
+            "tw_title",
+            "sg_title",
+            "year",
+            "season",
+            "tmdb_id",
+            "imdb_id",
+            "tvdb_id",
+            "douban_id",
+            "bangumi_id",
+            "collection_id",
+        ]
+        json_data = {}
+        if file_mediainfo:
+            for key in desired_keys:
+                value = getattr(file_mediainfo, key)
+                if isinstance(value, Enum):
+                    json_data[key] = value.value
+                else:
+                    json_data[key] = value
+
+        json_data["url"] = f"https://115cdn.com/s/{share_code}?password={receive_code}"
+        json_data["postime"] = (
+            datetime.now(timezone.utc)
+            .isoformat(timespec="milliseconds")
+            .replace("+00:00", "Z")
+        )
+        try:
+            response = oopserver_request.make_request(
+                path="/share/info",
+                method="POST",
+                headers={"x-machine-id": configer.get_config("MACHINE_ID")},
+                json_data=json_data,
+                timeout=10.0,
+            )
+
+            if response is not None and response.status_code == 201:
+                logger.info(
+                    f"【分享转存】分享转存信息报告服务器成功: {response.json()}"
+                )
+            else:
+                logger.debug("【分享转存】分享转存报告服务器失败，网络问题")
+        except Exception as e:
+            logger.debug(f"【分享转存】分享转存报告服务器失败: {e}")

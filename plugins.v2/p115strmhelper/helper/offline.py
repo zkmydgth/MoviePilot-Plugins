@@ -1,6 +1,7 @@
 import time
 from typing import List
 from pathlib import Path
+from datetime import datetime, timezone
 
 from p115client import P115Client
 from p115client.tool.offline import offline_iter
@@ -13,6 +14,7 @@ from ..core.cache import idpathcacher
 from ..helper.life import MonitorLife
 from ..utils.string import StringUtils
 from ..utils.sentry import sentry_manager
+from ..utils.oopserver import OOPServerRequest
 
 
 @sentry_manager.capture_all_class_exceptions
@@ -159,6 +161,9 @@ class OfflineDownloadHelper:
                 self.transfer_list.append(
                     {"hash": str(item.get("info_hash")), "path": str(parent_path)}
                 )
+
+            for url in url_list:
+                self.post_offline_info(url)
             logger.debug(f"【离线下载】下载任务添加完成: {url_list}")
             return True
         except Exception as e:
@@ -181,6 +186,8 @@ class OfflineDownloadHelper:
                 logger.error(f"【离线下载】下载任务添加失败: {url_list} {resp}")
                 return False
 
+            for url in url_list:
+                self.post_offline_info(url)
             logger.debug(f"【离线下载】下载任务添加完成: {url_list}")
             return True
         except Exception as e:
@@ -237,3 +244,37 @@ class OfflineDownloadHelper:
             self.offline_list_cache = {"data": formatted_tasks, "timestamp": now}
 
         return self.offline_list_cache["data"]
+
+    @staticmethod
+    def post_offline_info(url: str):
+        """
+        上传离线下载信息
+        """
+        if not configer.get_config("upload_offline_info"):
+            return
+
+        oopserver_request = OOPServerRequest(max_retries=3, backoff_factor=1.0)
+        json_data = {
+            "url": url,
+            "postime": datetime.now(timezone.utc)
+            .isoformat(timespec="milliseconds")
+            .replace("+00:00", "Z"),
+        }
+
+        try:
+            response = oopserver_request.make_request(
+                path="/offline/info",
+                method="POST",
+                headers={"x-machine-id": configer.get_config("MACHINE_ID")},
+                json_data=json_data,
+                timeout=10.0,
+            )
+
+            if response is not None and response.status_code == 201:
+                logger.info(
+                    f"【离线下载】离线下载信息报告服务器成功: {response.json()}"
+                )
+            else:
+                logger.debug("【离线下载】离线下载报告服务器失败，网络问题")
+        except Exception as e:
+            logger.debug(f"【离线下载】离线下载报告服务器失败: {e}")

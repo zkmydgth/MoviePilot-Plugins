@@ -198,6 +198,10 @@ class BaseConfig(BaseModel):
     upload_module_skip_upload_wait_size: Optional[int] = None
     # 115 上传增强强制等待秒传的文件大小阈值
     upload_module_force_upload_wait_size: Optional[int] = None
+    # 上传分享链接
+    upload_share_info: bool = True
+    # 上传离线下载链接
+    upload_offline_info: bool = True
 
 
 class ConfigManager:
