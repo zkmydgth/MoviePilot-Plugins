@@ -341,7 +341,7 @@ class U115OpenHelper:
             """
             发送上传等待
             """
-            if configer.notify:
+            if configer.notify and configer.upload_module_notify:
                 post_message(
                     mtype=NotificationType.Plugin,
                     title="【115网盘】上传模块增强",

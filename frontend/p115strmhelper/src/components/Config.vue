@@ -1439,6 +1439,7 @@ const config = reactive({
   error_info_upload: false,
   upload_module_enhancement: false,
   upload_module_skip_slow_upload: false,
+  upload_module_notify: true,
   upload_module_wait_time: 300,
   upload_module_wait_timeout: 3600,
   upload_module_skip_upload_wait_size: 0,

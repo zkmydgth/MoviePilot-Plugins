@@ -247,6 +247,8 @@ class ConfigManager(BaseModel):
     upload_module_enhancement: bool = False
     # 115 上传秒传失败时跳过上传返回失败
     upload_module_skip_slow_upload: bool = False
+    # 115 上传增强开启通知
+    upload_module_notify: bool = True
     # 115 上传增强休眠等待时间
     upload_module_wait_time: int = 5 * 60
     # 115 上传增强最长等待时间
