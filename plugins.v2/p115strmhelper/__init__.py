@@ -116,7 +116,7 @@ class P115StrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png"
     # 插件版本
-    plugin_version = "1.8.23"
+    plugin_version = "1.8.24"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -2396,6 +2396,18 @@ class P115StrmHelper(_PluginBase):
             if not status:
                 return
             logger.debug("【监控生活事件】匹配到网盘文件夹路径: %s", str(pan_media_dir))
+
+            storagechain = StorageChain()
+            fileitem = storagechain.get_file_item(storage="u115", path=Path(file_path))
+            if fileitem:
+                logger.warn(
+                    f"【监控生活事件】网盘 {file_path} 目录存在，跳过本地删除: {fileitem}"
+                )
+                # 这里如果路径存在则更新数据库信息
+                _databasehelper.upsert_batch(
+                    _databasehelper.process_fileitem(fileitem=fileitem)
+                )
+                return
 
             file_path = Path(target_dir) / Path(file_path).relative_to(pan_media_dir)
             if file_path.suffix in rmt_mediaext:

@@ -91,11 +91,12 @@
         "name": "115网盘STRM助手",
         "description": "115网盘STRM生成一条龙服务",
         "labels": "云盘",
-        "version": "1.8.23",
+        "version": "1.8.24",
         "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png",
         "author": "DDSRem",
         "level": 1,
         "history": {
+            "v1.8.24": "修复生活事件监控误删除",
             "v1.8.23": "更新依赖库版本",
             "v1.8.22": "302直链支持通过MP OpenAPI接口获取",
             "v1.8.21": "去除不必要的警告日志",
