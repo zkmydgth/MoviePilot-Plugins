@@ -1,33 +1,44 @@
-name: PR Agent
+name: PR Review
 
 on:
-  pull_request:
-    types: [opened, reopened, ready_for_review]
+  pull_request_target:
+    types: [opened, reopened, ready_for_review, review_requested, synchronize]
   issue_comment:
     types: [created, edited]
 
 permissions:
-  issues: write
+  contents: read
   pull-requests: write
-  contents: write
+  issues: write
 
 jobs:
-  pr_agent_job:
-    if: ${{ github.event.sender.type != 'Bot' }}
+  review:
+    if: >-
+      github.event.sender.type != 'Bot' &&
+      (
+        github.event_name == 'pull_request_target' ||
+        github.event.issue.pull_request != null
+      )
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.event.issue.number }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request_target' }}
     runs-on: ubuntu-latest
-    name: Code Review
+    timeout-minutes: 20
     steps:
-      - name: PR Code Review
-        id: pragent
-        uses: the-pr-agent/pr-agent@v0.42.0
+      - name: Run PR Review
+        uses: docker://ghcr.io/infinitypacer/pr-review-runner:latest
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
           DEEPSEEK.KEY: ${{ secrets.DEEPSEEK_API_KEY }}
-          CONFIG.MODEL: "deepseek/deepseek-chat"
-          CONFIG.FALLBACK_MODELS: '["deepseek/deepseek-chat"]'
-          github_action_config.auto_review: "true"
-          github_action_config.auto_describe: "true"
-          github_action_config.auto_improve: "true"
-          PR_REVIEWER.EXTRA_INSTRUCTIONS: "请使用中文进行代码审查，重点关注代码质量、潜在安全漏洞和性能问题。"
-          PR_DESCRIPTION.EXTRA_INSTRUCTIONS: "请使用中文生成 PR 描述。"
-          PR_CODE_SUGGESTIONS.EXTRA_INSTRUCTIONS: "请使用中文提供代码改进建议，重点关注可读性和可维护性。"
+          PRR_DESCRIBE_MODEL: deepseek/deepseek-v4-flash
+          PRR_DESCRIBE_REASONING_EFFORT: high
+          PRR_AUTO_REVIEW_MODEL: deepseek/deepseek-v4-flash
+          PRR_AUTO_REVIEW_REASONING_EFFORT: high
+          PRR_MANUAL_REVIEW_MODEL: deepseek/deepseek-v4-flash
+          PRR_MANUAL_REVIEW_REASONING_EFFORT: high
+          PRR_ASK_MODEL: deepseek/deepseek-v4-flash
+          PRR_ASK_REASONING_EFFORT: high
+          PRR_PASSTHROUGH_MODEL: deepseek/deepseek-v4-flash
+          PRR_PASSTHROUGH_REASONING_EFFORT: high
+          PRR_FALLBACK_MODELS: '["deepseek/deepseek-v4-flash"]'
+          config.response_language: zh-CN
