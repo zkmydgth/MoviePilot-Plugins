@@ -1,0 +1,12 @@
+{
+  "top_level_packages": [
+    "p115client",
+    "p115rsacipher"
+  ],
+  "rules": [
+    {
+      "strategy": "author_match",
+      "value": "ChenyangGao"
+    }
+  ]
+}

@@ -9,6 +9,7 @@ from app.log import logger
 from app.core.config import settings
 from app.utils.system import SystemUtils
 from app.db.systemconfig_oper import SystemConfigOper
+from app.db.plugindata_oper import PluginDataOper
 
 from ..version import VERSION
 from ..core.aliyunpan import AliyunPanLogin
@@ -184,6 +185,8 @@ class ConfigManager(BaseModel):
     monitor_life_remove_mp_source: bool = False
     # 生活事件生成最小文件大小
     monitor_life_min_file_size: Optional[int] = None
+    # 生活事件启动拉取模式
+    monitor_life_first_pull_mode: str = Field("latest", min_length=1)
 
     # 分享生成 STRM 运行开关
     share_strm_auto_download_mediainfo_enabled: bool = False
@@ -382,6 +385,31 @@ class ConfigManager(BaseModel):
             f"({system()} {release()}; "
             f"{SystemUtils.cpu_arch() if hasattr(SystemUtils, 'cpu_arch') and callable(SystemUtils.cpu_arch) else 'UnknownArch'})"
         )
+
+    def save_plugin_data(self, key: str, value: Any):
+        """
+        保存插件数据
+        :param key: 数据key
+        :param value: 数据值
+        """
+        plugindata = PluginDataOper()
+        plugindata.save(self.PLUSIN_NAME, key, value)
+
+    def get_plugin_data(self, key: Optional[str] = None) -> Any:
+        """
+        获取插件数据
+        :param key: 数据key
+        """
+        plugindata = PluginDataOper()
+        return plugindata.get_data(self.PLUSIN_NAME, key)
+
+    def del_plugin_data(self, key: str) -> Any:
+        """
+        删除插件数据
+        :param key: 数据key
+        """
+        plugindata = PluginDataOper()
+        return plugindata.del_data(self.PLUSIN_NAME, key)
 
 
 configer = ConfigManager()

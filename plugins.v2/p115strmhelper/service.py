@@ -131,11 +131,27 @@ class ServiceHelper:
             return
         logger.info("【监控生活事件】生活事件监控启动中...")
         try:
-            from_time = time()
-            from_id = 0
+            if configer.monitor_life_first_pull_mode == "all":
+                from_time = 0
+                from_id = 0
+            elif configer.monitor_life_first_pull_mode == "last":
+                data = configer.get_plugin_data("monitor_life_strm_files")
+                if data:
+                    from_time = data.get("from_time")
+                    from_id = data.get("from_id")
+                else:
+                    from_time = time()
+                    from_id = 0
+            else:
+                from_time = time()
+                from_id = 0
             while True:
                 if self.monitor_stop_event.is_set():
                     logger.info("【监控生活事件】收到停止信号，退出上传事件监控")
+                    configer.save_plugin_data(
+                        "monitor_life_strm_files",
+                        {"from_time": from_time, "from_id": from_id},
+                    )
                     break
                 from_time, from_id = self.monitorlife.once_pull(
                     from_time=from_time, from_id=from_id

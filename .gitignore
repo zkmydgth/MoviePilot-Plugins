@@ -20,6 +20,7 @@ parts/
 sdist/
 var/
 wheels/
+!plugins.v2/p115strmhelper/wheels/
 share/python-wheels/
 *.egg-info/
 .installed.cfg
