@@ -517,7 +517,7 @@ class Api:
         )
 
     @staticmethod
-    def redirect_url(
+    def _redirect_url_impl(
         request: Request,
         pickcode: str = "",
         file_name: str = "",
@@ -526,7 +526,7 @@ class Api:
         receive_code: str = "",
     ) -> Response:
         """
-        115 网盘 302 跳转
+        115 网盘 302 跳转实现
         """
         user_agent = request.headers.get("User-Agent") or b""
         logger.debug(f"【302跳转服务】获取到客户端UA: {user_agent}")
@@ -606,6 +606,54 @@ class Api:
             },
             media_type="application/json; charset=utf-8",
             content=dumps({"status": "redirecting", "url": url}),
+        )
+
+    @staticmethod
+    def redirect_url_get(
+        request: Request,
+        pickcode: str = "",
+        file_name: str = "",
+        id: int = 0,
+        share_code: str = "",
+        receive_code: str = "",
+    ) -> Response:
+        """
+        115 网盘 302 跳转 (GET)
+        """
+        return Api._redirect_url_impl(
+            request, pickcode, file_name, id, share_code, receive_code
+        )
+
+    @staticmethod
+    def redirect_url_post(
+        request: Request,
+        pickcode: str = "",
+        file_name: str = "",
+        id: int = 0,
+        share_code: str = "",
+        receive_code: str = "",
+    ) -> Response:
+        """
+        115 网盘 302 跳转 (POST)
+        """
+        return Api._redirect_url_impl(
+            request, pickcode, file_name, id, share_code, receive_code
+        )
+
+    @staticmethod
+    def redirect_url_head(
+        request: Request,
+        pickcode: str = "",
+        file_name: str = "",
+        id: int = 0,
+        share_code: str = "",
+        receive_code: str = "",
+    ) -> Response:
+        """
+        115 网盘 302 跳转 (HEAD)
+        """
+        return Api._redirect_url_impl(
+            request, pickcode, file_name, id, share_code, receive_code
         )
 
     @staticmethod

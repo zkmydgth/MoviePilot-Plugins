@@ -242,8 +242,22 @@ class P115StrmHelper(_PluginBase):
         return [
             {
                 "path": "/redirect_url",
-                "endpoint": self.api.redirect_url,
-                "methods": ["GET", "POST", "HEAD"],
+                "endpoint": self.api.redirect_url_get,
+                "methods": ["GET"],
+                "summary": "302跳转",
+                "description": "115网盘302跳转",
+            },
+            {
+                "path": "/redirect_url",
+                "endpoint": self.api.redirect_url_post,
+                "methods": ["POST"],
+                "summary": "302跳转",
+                "description": "115网盘302跳转",
+            },
+            {
+                "path": "/redirect_url",
+                "endpoint": self.api.redirect_url_head,
+                "methods": ["HEAD"],
                 "summary": "302跳转",
                 "description": "115网盘302跳转",
             },
