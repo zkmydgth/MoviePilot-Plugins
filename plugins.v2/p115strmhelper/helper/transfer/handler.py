@@ -13,13 +13,12 @@ from app.core.config import settings
 from app.core.event import eventmanager
 from app.core.meta import MetaBase
 from app.core.metainfo import MetaInfoPath
-from app.db.systemconfig_oper import SystemConfigOper
 from app.db.transferhistory_oper import TransferHistoryOper
 from app.helper.directory import DirectoryHelper
 from app.log import logger
 from app.schemas import FileItem, Notification, TransferInfo
 from app.schemas import TransferTask as MPTransferTask
-from app.schemas.types import EventType, MediaType, NotificationType, SystemConfigKey
+from app.schemas.types import EventType, MediaType, NotificationType
 from app.utils.string import StringUtils
 
 from ...schemas.transfer import TransferTask, RelatedFile
@@ -1894,9 +1893,9 @@ class TransferHandler:
                 )
                 self._record_fail(task, f"记录历史失败: {e}")
 
-        # 所有任务处理完成后，统一批量删除空目录和种子
+        # 所有任务处理完成后，统一批量删除空目录
         if successfully_recorded_tasks:
-            self._batch_delete_empty_dirs_and_torrents(successfully_recorded_tasks)
+            self._batch_delete_empty_dirs(successfully_recorded_tasks)
 
         try:
             # 按媒体分组，每个媒体组只需要移除一次
@@ -1912,9 +1911,9 @@ class TransferHandler:
 
         logger.info("【整理接管】历史记录完成")
 
-    def _batch_delete_empty_dirs_and_torrents(self, tasks: List[TransferTask]) -> None:
+    def _batch_delete_empty_dirs(self, tasks: List[TransferTask]) -> None:
         """
-        批量删除空目录和种子
+        批量删除空目录
 
         :param tasks: 任务列表
         """
@@ -1934,15 +1933,10 @@ class TransferHandler:
                 return
 
             logger.info(
-                f"【整理接管】开始批量删除空目录和种子，共 {len(tasks_by_media)} 个媒体组"
+                f"【整理接管】开始批量删除空目录，共 {len(tasks_by_media)} 个媒体组"
             )
 
-            # 获取整理屏蔽词
-            transfer_exclude_words = SystemConfigOper().get(
-                SystemConfigKey.TransferExcludeWords
-            )
-
-            # 收集所有需要删除的目录和种子
+            # 收集所有需要删除的目录
             all_dir_items_to_delete: List[FileItem] = []
             checked_parent_dirs: Dict[str, List[FileItem]] = {}
 
@@ -2027,20 +2021,6 @@ class TransferHandler:
                 )
 
                 for t in success_tasks:
-                    # 删除种子（如果满足条件）
-                    if t.download_hash:
-                        if chain._can_delete_torrent(
-                            t.download_hash,
-                            t.downloader,
-                            transfer_exclude_words,
-                        ):
-                            if chain.remove_torrents(
-                                t.download_hash, downloader=t.downloader
-                            ):
-                                logger.info(
-                                    f"【整理接管】移动模式删除种子成功：{t.download_hash}"
-                                )
-
                     # 收集需要删除的空目录（避免重复检查）
                     if t.fileitem:
                         logger.debug(
@@ -2095,7 +2075,7 @@ class TransferHandler:
 
             # 批量删除空目录
             if unique_dir_items:
-                # 按路径深度排序（深度大的先删除）
+                # 按路径深度排序
                 sorted_dir_items = sorted(
                     unique_dir_items.items(),
                     key=lambda x: len(Path(x[1].path).parts),
@@ -2105,67 +2085,109 @@ class TransferHandler:
                     unique_dir_items[dir_id].path for dir_id, _ in sorted_dir_items
                 ]
                 logger.info(
-                    f"【整理接管】准备删除 {len(sorted_dir_items)} 个空目录（按深度排序）: {dir_paths[:5]}..."
+                    f"【整理接管】准备删除 {len(sorted_dir_items)} 个空目录: {dir_paths[:5]}..."
                 )
 
-                # 按深度分批删除
+                # 批量删除所有空目录
                 deleted_count = 0
-                remaining_dirs = sorted_dir_items.copy()
+                # 按目录树分组
+                dir_trees: Dict[Path, List[Tuple[int, FileItem]]] = defaultdict(list)
+                for dir_id, dir_item in sorted_dir_items:
+                    dir_path = Path(dir_item.path)
+                    tree_root = None
+                    parent_dirs = []
+                    for other_id, other_item in sorted_dir_items:
+                        other_path = Path(other_item.path)
+                        if (
+                            dir_path.is_relative_to(other_path)
+                            and dir_path != other_path
+                        ):
+                            parent_dirs.append((other_id, other_item, other_path))
+                    for parent_id, parent_item, parent_path in parent_dirs:
+                        is_subdir = False
+                        for (
+                            other_parent_id,
+                            other_parent_item,
+                            other_parent_path,
+                        ) in parent_dirs:
+                            if parent_id == other_parent_id:
+                                continue
+                            if (
+                                parent_path.is_relative_to(other_parent_path)
+                                and parent_path != other_parent_path
+                            ):
+                                is_subdir = True
+                                break
+                        if not is_subdir:
+                            if tree_root is None or len(parent_path.parts) < len(
+                                tree_root.parts
+                            ):
+                                tree_root = parent_path
+                    if tree_root is None:
+                        tree_root = dir_path
+                    dir_trees[tree_root].append((dir_id, dir_item))
 
-                while remaining_dirs:
-                    # 收集当前可以删除的目录
-                    dirs_to_delete_this_round = []
-                    dirs_to_skip = []
-
-                    for dir_id, dir_item in remaining_dirs:
+                dir_ids_to_delete = []
+                for tree_root, dirs_in_tree in dir_trees.items():
+                    max_depth_in_tree = max(
+                        len(Path(dir_item.path).parts) for _, dir_item in dirs_in_tree
+                    )
+                    min_depth_dirs_in_tree = [
+                        (dir_id, dir_item)
+                        for dir_id, dir_item in dirs_in_tree
+                        if len(Path(dir_item.path).parts) == max_depth_in_tree
+                    ]
+                    tree_exists = True
+                    for dir_id, dir_item in min_depth_dirs_in_tree:
                         try:
-                            # 获取当前目录状态
                             current_dir = self.storage_chain.get_file_item(
                                 storage=self.storage_name,
                                 path=Path(dir_item.path),
                             )
                             if not current_dir:
-                                # 目录已被删除，跳过
-                                dirs_to_skip.append((dir_id, dir_item))
-                                continue
-
-                            # 检查目录是否为空
-                            dir_files = self.storage_chain.list_files(
-                                current_dir, recursion=False
-                            )
-                            if not dir_files:
-                                # 目录为空，可以删除
-                                dirs_to_delete_this_round.append((dir_id, dir_item))
-                            else:
-                                pass
+                                # 该目录树的最小深度目录已被删除，说明整个目录树都被删除了
+                                tree_exists = False
+                                logger.debug(
+                                    f"【整理接管】目录树 {tree_root} 的最小深度目录已被删除 ({dir_item.path})，跳过该目录树"
+                                )
+                                break
                         except Exception as e:
                             logger.debug(
-                                f"【整理接管】检查目录状态失败 ({dir_item.path}): {e}"
+                                f"【整理接管】检查目录树 {tree_root} 的最小深度目录状态失败 ({dir_item.path}): {e}"
                             )
-                            dirs_to_delete_this_round.append((dir_id, dir_item))
+                            tree_exists = False
+                            break
 
-                    if not dirs_to_delete_this_round:
-                        break
+                    if tree_exists:
+                        # 该目录树存在，收集该目录树的所有目录 ID
+                        dir_ids_to_delete.extend([dir_id for dir_id, _ in dirs_in_tree])
+                    else:
+                        logger.debug(
+                            f"【整理接管】目录树 {tree_root} 已被删除，跳过 {len(dirs_in_tree)} 个目录"
+                        )
 
-                    # 批量删除当前轮次的目录
-                    dir_ids_this_round = [
-                        dir_id for dir_id, _ in dirs_to_delete_this_round
-                    ]
+                if not dir_ids_to_delete:
+                    logger.debug("【整理接管】所有目录树都已删除，无需删除")
+                else:
+                    # 一次性批量删除所有空目录
                     try:
-                        resp = self.client.fs_delete(dir_ids_this_round)
+                        resp = self.client.fs_delete(dir_ids_to_delete)
                         check_response(resp)
-                        for dir_id in dir_ids_this_round:
+                        for dir_id in dir_ids_to_delete:
                             self.cache_updater.remove_cache(dir_id)
-                        deleted_count += len(dir_ids_this_round)
+                        deleted_count = len(dir_ids_to_delete)
                         logger.info(
-                            f"【整理接管】批量删除空目录成功: {len(dir_ids_this_round)} 个目录"
+                            f"【整理接管】批量删除空目录成功: {deleted_count} 个目录"
                         )
                     except Exception as batch_delete_error:
                         logger.warn(
                             f"【整理接管】批量删除失败，尝试逐个删除: {batch_delete_error}",
                             exc_info=True,
                         )
-                        for dir_id, dir_item in dirs_to_delete_this_round:
+                        # 批量删除失败，尝试逐个删除
+                        for dir_id, dir_item in sorted_dir_items:
+                            if dir_id not in dir_ids_to_delete:
+                                continue
                             try:
                                 resp = self.client.fs_delete(dir_id)
                                 check_response(resp)
@@ -2180,14 +2202,6 @@ class TransferHandler:
                                     exc_info=True,
                                 )
 
-                    deleted_ids = {dir_id for dir_id, _ in dirs_to_delete_this_round}
-                    deleted_ids.update({dir_id for dir_id, _ in dirs_to_skip})
-                    remaining_dirs = [
-                        (dir_id, dir_item)
-                        for dir_id, dir_item in remaining_dirs
-                        if dir_id not in deleted_ids
-                    ]
-
                 logger.info(
                     f"【整理接管】删除空目录完成: {deleted_count}/{len(sorted_dir_items)} 个目录"
                 )
@@ -2195,7 +2209,7 @@ class TransferHandler:
                 logger.debug("【整理接管】没有需要删除的空目录")
 
         except Exception as e:
-            logger.debug(f"【整理接管】批量删除空目录和种子失败: {e}", exc_info=True)
+            logger.debug(f"【整理接管】批量删除空目录失败: {e}", exc_info=True)
 
     def _collect_dirs_to_delete(self, fileitem: FileItem) -> List[FileItem]:
         """
@@ -2253,23 +2267,15 @@ class TransferHandler:
                 )
                 break
 
-            if not associated_dir:
+            # 如果不在资源/媒体库目录结构中，检查是否有任何文件（包括子目录、nfo、jpg等）
+            elif not associated_dir:
                 try:
                     dir_files = self.storage_chain.list_files(dir_item, recursion=False)
                     if dir_files:
-                        # 检查这些文件是否都是目录（子目录）
-                        all_are_dirs = all(f.type == "dir" for f in dir_files)
-                        if all_are_dirs:
-                            logger.debug(
-                                f"【整理接管】{dir_item.path} 只包含子目录（{len(dir_files)} 个），继续检查父目录"
-                            )
-                            dir_item = self.storage_chain.get_parent_item(dir_item)
-                            continue
-                        else:
-                            logger.debug(
-                                f"【整理接管】{dir_item.path} 不是空目录（有 {len(dir_files)} 个文件，包含非目录文件），不删除"
-                            )
-                            break
+                        logger.debug(
+                            f"【整理接管】{dir_item.path} 不是空目录（有 {len(dir_files)} 个文件），不删除"
+                        )
+                        break
                 except Exception as e:
                     logger.debug(
                         f"【整理接管】检查目录文件列表失败 ({dir_item.path}): {e}",
