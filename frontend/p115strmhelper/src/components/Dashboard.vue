@@ -1,14 +1,19 @@
 <template>
-  <DashboardStrmPanel v-if="panelKey === 'strm'" :api="api" :config="config" :allow-refresh="allowRefresh"
-    :refresh-interval="refreshInterval" />
-  <DashboardStatusPanel v-else-if="panelKey === 'status'" :api="api" :config="config" :allow-refresh="allowRefresh"
-    :refresh-interval="refreshInterval" />
-  <DashboardSyncDelPanel v-else-if="panelKey === 'sync_del'" :api="api" :config="config" :allow-refresh="allowRefresh"
-    :refresh-interval="refreshInterval" />
-  <DashboardManualTransferPanel v-else-if="panelKey === 'manual_transfer'" :api="api" :config="config"
-    :allow-refresh="allowRefresh" />
-  <DashboardFullSyncPanel v-else-if="panelKey === 'full_sync_actions'" :api="api" :config="config"
-    :allow-refresh="allowRefresh" />
+  <div class="p115-dashboard-widget">
+    <div class="p115-dashboard-widget__drag" aria-hidden="true" title="拖动排序">
+      <v-icon icon="mdi-drag" size="small" class="cursor-move" color="medium-emphasis" />
+    </div>
+    <DashboardStrmPanel v-if="panelKey === 'strm'" :api="api" :config="config" :allow-refresh="allowRefresh"
+      :refresh-interval="refreshInterval" />
+    <DashboardStatusPanel v-else-if="panelKey === 'status'" :api="api" :config="config" :allow-refresh="allowRefresh"
+      :refresh-interval="refreshInterval" />
+    <DashboardSyncDelPanel v-else-if="panelKey === 'sync_del'" :api="api" :config="config" :allow-refresh="allowRefresh"
+      :refresh-interval="refreshInterval" />
+    <DashboardManualTransferPanel v-else-if="panelKey === 'manual_transfer'" :api="api" :config="config"
+      :allow-refresh="allowRefresh" />
+    <DashboardFullSyncPanel v-else-if="panelKey === 'full_sync_actions'" :api="api" :config="config"
+      :allow-refresh="allowRefresh" />
+  </div>
 </template>
 
 <script setup>

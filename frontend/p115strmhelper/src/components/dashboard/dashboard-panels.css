@@ -1,5 +1,28 @@
 /* 仪表盘卡片：与 plugin-page / config-card 一致，用 --v-theme-* 适配浅色与深色 */
 
+/* 与 MoviePilot DashboardElement（Vuetify 模式）一致：absolute right-5 top-5 */
+.p115-dashboard-widget {
+  position: relative;
+  height: 100%;
+  width: 100%;
+}
+
+.p115-dashboard-widget__drag {
+  position: absolute;
+  z-index: 24;
+  top: 1.25rem;
+  right: 1.25rem;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+  line-height: 1;
+}
+
+.p115-dashboard-widget:hover .p115-dashboard-widget__drag {
+  opacity: 1;
+  pointer-events: auto;
+}
+
 .dashboard-widget--strm {
   height: 100%;
   width: 100%;
@@ -85,6 +108,59 @@
     0 8px 28px rgba(91, 207, 250, 0.22),
     0 2px 8px rgba(245, 171, 185, 0.16),
     inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
+}
+
+/*
+ * 透明主题（MoviePilot transparent.scss）：须用 --transparent-opacity / --transparent-blur，
+ * 否则插件内 0.78 不透明 + 固定 blur 会盖住主站 .v-card 的毛玻璃
+ */
+html[data-theme="transparent"] .strm-dash-card,
+html[data-theme="transparent"] .status-dash-card {
+  background-color: rgba(var(--v-theme-surface), var(--transparent-opacity, 0.3)) !important;
+  backdrop-filter: blur(var(--transparent-blur, 10px)) saturate(160%) !important;
+  -webkit-backdrop-filter: blur(var(--transparent-blur, 10px)) saturate(160%) !important;
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.08) !important;
+  box-shadow:
+    0 4px 20px rgba(91, 207, 250, 0.1),
+    0 2px 6px rgba(245, 171, 185, 0.06),
+    inset 0 1px 0 rgba(var(--v-theme-on-surface), 0.04) !important;
+}
+
+html[data-theme="transparent"] .v-theme--dark .strm-dash-card,
+html[data-theme="transparent"] .v-theme--dark .status-dash-card {
+  background-color: rgba(var(--v-theme-surface), var(--transparent-opacity, 0.3)) !important;
+  backdrop-filter: blur(var(--transparent-blur, 10px)) saturate(160%) !important;
+  -webkit-backdrop-filter: blur(var(--transparent-blur, 10px)) saturate(160%) !important;
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.12) !important;
+  box-shadow:
+    0 4px 20px rgba(0, 0, 0, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05) !important;
+}
+
+html[data-theme="transparent"] .strm-dash-item,
+html[data-theme="transparent"] .strm-history-item {
+  background-color: rgba(var(--v-theme-surface), var(--transparent-opacity-light, 0.2)) !important;
+  backdrop-filter: blur(var(--transparent-blur-light, 6px)) !important;
+  -webkit-backdrop-filter: blur(var(--transparent-blur-light, 6px)) !important;
+}
+
+html[data-theme="transparent"] .status-inner-card {
+  background-color: rgba(var(--v-theme-surface), var(--transparent-opacity-light, 0.2)) !important;
+  backdrop-filter: blur(var(--transparent-blur-light, 6px)) !important;
+  -webkit-backdrop-filter: blur(var(--transparent-blur-light, 6px)) !important;
+}
+
+html[data-theme="transparent"] .refresh-actions {
+  backdrop-filter: blur(var(--transparent-blur, 10px)) !important;
+  background: rgba(var(--v-theme-surface), var(--transparent-opacity-heavy, 0.5)) !important;
+  border-top: 1px solid rgba(var(--v-theme-on-surface), 0.1) !important;
+  box-shadow: inset 0 1px 0 rgba(var(--v-theme-on-surface), 0.04);
+}
+
+html[data-theme="transparent"] .v-theme--dark .refresh-actions {
+  background: rgba(var(--v-theme-surface), var(--transparent-opacity-heavy, 0.5)) !important;
+  border-top: 1px solid rgba(var(--v-theme-on-surface), 0.15) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 
 .status-dash-row .v-col.d-flex {
