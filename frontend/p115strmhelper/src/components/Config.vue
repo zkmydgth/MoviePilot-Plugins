@@ -283,16 +283,18 @@
                       <v-switch v-model="config.monitor_life_enabled" label="监控115生活事件" color="info"></v-switch>
                     </v-col>
                     <v-col cols="12" md="3">
+                      <v-select v-model="config.monitor_life_event_modes" label="处理事件类型" :items="[
+                        { title: '新增事件', value: 'creata' },
+                        { title: '删除事件', value: 'remove' }
+                      ]" multiple chips closable-chips></v-select>
+                    </v-col>
+                    <v-col cols="12" md="3">
                       <v-switch v-model="config.monitor_life_auto_download_mediainfo_enabled" label="下载媒体数据文件"
                         color="warning"></v-switch>
                     </v-col>
                     <v-col cols="12" md="3">
                       <v-switch v-model="config.monitor_life_scrape_metadata_enabled" label="STRM自动刮削"
                         color="primary"></v-switch>
-                    </v-col>
-                    <v-col cols="12" md="3">
-                      <v-switch v-model="config.monitor_life_auto_remove_local_enabled" label="网盘删除本地同步删除"
-                        color="error"></v-switch>
                     </v-col>
                   </v-row>
 
@@ -775,7 +777,7 @@ const config = reactive({
   monitor_life_mp_mediaserver_paths: '',
   monitor_life_media_server_refresh_enabled: false,
   monitor_life_mediaservers: [],
-  monitor_life_auto_remove_local_enabled: false,
+  monitor_life_event_modes: [],
   monitor_life_scrape_metadata_enabled: false,
   monitor_life_scrape_metadata_exclude_paths: '',
   share_strm_auto_download_mediainfo_enabled: false,

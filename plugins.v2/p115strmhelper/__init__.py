@@ -850,7 +850,7 @@ class P115StrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png"
     # 插件版本
-    plugin_version = "1.7.4"
+    plugin_version = "1.7.5"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -924,7 +924,7 @@ class P115StrmHelper(_PluginBase):
         "monitor_life_mp_mediaserver_paths": None,
         "monitor_life_media_server_refresh_enabled": False,
         "monitor_life_mediaservers": None,
-        "monitor_life_auto_remove_local_enabled": False,
+        "monitor_life_event_modes": [],
         "monitor_life_scrape_metadata_enabled": False,
         "monitor_life_scrape_metadata_exclude_paths": None,
         "share_strm_auto_download_mediainfo_enabled": False,
@@ -1909,6 +1909,8 @@ class P115StrmHelper(_PluginBase):
 
                 # 处理源文件是否删除
                 if delete:
+                    logger.info(f"【目录上传】删除源文件：{file_path}")
+                    file_path.unlink(missing_ok=True)
                     for file_dir in file_path.parents:
                         if len(str(file_dir)) <= len(str(Path(mon_path))):
                             break
@@ -2083,6 +2085,11 @@ class P115StrmHelper(_PluginBase):
         if self._strm_url_format == "pickname":
             strm_url += f"&file_name={item_dest_name}"
 
+        _databasehelper = FileDbHelper()
+        _databasehelper.upsert_batch(
+            _databasehelper.process_fileitem(fileitem=item_transfer.target_item)
+        )
+
         status, strm_target_path = generate_strm_files(
             target_dir=local_media_dir,
             pan_media_dir=pan_media_dir,
@@ -2099,6 +2106,9 @@ class P115StrmHelper(_PluginBase):
                 for _path in subtitle_list:
                     fileitem = self.storagechain.get_file_item(
                         storage="u115", path=Path(_path)
+                    )
+                    _databasehelper.upsert_batch(
+                        _databasehelper.process_fileitem(fileitem)
                     )
                     download_url = self.mediainfodownloader.get_download_url(
                         pickcode=fileitem.pickcode
@@ -2122,6 +2132,9 @@ class P115StrmHelper(_PluginBase):
                 for _path in audio_list:
                     fileitem = self.storagechain.get_file_item(
                         storage="u115", path=Path(_path)
+                    )
+                    _databasehelper.upsert_batch(
+                        _databasehelper.process_fileitem(fileitem)
                     )
                     download_url = self.mediainfodownloader.get_download_url(
                         pickcode=fileitem.pickcode
@@ -2438,22 +2451,22 @@ class P115StrmHelper(_PluginBase):
         监控115生活事件
 
         {
-            1: "upload_image_file",  上传图片 生成 STRM
-            2: "upload_file",        上传文件/目录 生成 STRM
+            1: "upload_image_file",  上传图片 生成 STRM;写入数据库
+            2: "upload_file",        上传文件/目录 生成 STRM;写入数据库
             3: "star_image",         标星图片 无操作
             4: "star_file",          标星文件/目录 无操作
-            5: "move_image_file",    移动图片 生成 STRM
-            6: "move_file",          移动文件/目录 生成 STRM
+            5: "move_image_file",    移动图片 生成 STRM;写入数据库
+            6: "move_file",          移动文件/目录 生成 STRM;写入数据库
             7: "browse_image",       浏览图片 无操作
             8: "browse_video",       浏览视频 无操作
             9: "browse_audio",       浏览音频 无操作
             10: "browse_document",   浏览文档 无操作
-            14: "receive_files",     接收文件 生成 STRM
-            17: "new_folder",        创建新目录 无操作
-            18: "copy_folder",       复制文件夹 生成 STRM
+            14: "receive_files",     接收文件 生成 STRM;写入数据库
+            17: "new_folder",        创建新目录 写入数据库
+            18: "copy_folder",       复制文件夹 生成 STRM;写入数据库
             19: "folder_label",      标签文件夹 无操作
             20: "folder_rename",     重命名文件夹 无操作
-            22: "delete_file",       删除文件/文件夹 删除 STRM
+            22: "delete_file",       删除文件/文件夹 删除 STRM;移除数据库
         }
 
         注意: 目前没有重命名文件，复制文件的操作事件
@@ -2577,93 +2590,97 @@ class P115StrmHelper(_PluginBase):
                             processed.extend(_process_item)
                         if item["is_dir"] or item["is_directory"]:
                             continue
-                        file_path = item["path"]
-                        file_path = Path(target_dir) / Path(file_path).relative_to(
-                            pan_media_dir
-                        )
-                        file_target_dir = file_path.parent
-                        original_file_name = file_path.name
-                        file_name = file_path.stem + ".strm"
-                        new_file_path = file_target_dir / file_name
+                        if "creata" in self._monitor_life_event_modes:
+                            file_path = item["path"]
+                            file_path = Path(target_dir) / Path(file_path).relative_to(
+                                pan_media_dir
+                            )
+                            file_target_dir = file_path.parent
+                            original_file_name = file_path.name
+                            file_name = file_path.stem + ".strm"
+                            new_file_path = file_target_dir / file_name
 
-                        if self._monitor_life_auto_download_mediainfo_enabled:
-                            if file_path.suffix in download_mediaext:
-                                pickcode = item["pickcode"]
-                                if not pickcode:
-                                    logger.error(
-                                        f"【监控生活事件】{original_file_name} 不存在 pickcode 值，无法下载该文件"
+                            if self._monitor_life_auto_download_mediainfo_enabled:
+                                if file_path.suffix in download_mediaext:
+                                    pickcode = item["pickcode"]
+                                    if not pickcode:
+                                        logger.error(
+                                            f"【监控生活事件】{original_file_name} 不存在 pickcode 值，无法下载该文件"
+                                        )
+                                        continue
+                                    download_url = (
+                                        self.mediainfodownloader.get_download_url(
+                                            pickcode=pickcode
+                                        )
                                     )
+
+                                    if not download_url:
+                                        logger.error(
+                                            f"【监控生活事件】{original_file_name} 下载链接获取失败，无法下载该文件"
+                                        )
+                                        continue
+
+                                    self.mediainfodownloader.save_mediainfo_file(
+                                        file_path=Path(file_path),
+                                        file_name=original_file_name,
+                                        download_url=download_url,
+                                    )
+                                    mediainfo_count += 1
                                     continue
-                                download_url = (
-                                    self.mediainfodownloader.get_download_url(
-                                        pickcode=pickcode
-                                    )
-                                )
 
-                                if not download_url:
-                                    logger.error(
-                                        f"【监控生活事件】{original_file_name} 下载链接获取失败，无法下载该文件"
-                                    )
-                                    continue
-
-                                self.mediainfodownloader.save_mediainfo_file(
-                                    file_path=Path(file_path),
-                                    file_name=original_file_name,
-                                    download_url=download_url,
+                            if file_path.suffix not in rmt_mediaext:
+                                logger.warn(
+                                    "【监控生活事件】跳过网盘路径: %s",
+                                    str(file_path).replace(str(target_dir), "", 1),
                                 )
-                                mediainfo_count += 1
                                 continue
 
-                        if file_path.suffix not in rmt_mediaext:
-                            logger.warn(
-                                "【监控生活事件】跳过网盘路径: %s",
-                                str(file_path).replace(str(target_dir), "", 1),
-                            )
-                            continue
+                            pickcode = item["pickcode"]
+                            if not pickcode:
+                                pickcode = item["pick_code"]
 
-                        pickcode = item["pickcode"]
-                        if not pickcode:
-                            pickcode = item["pick_code"]
+                            new_file_path.parent.mkdir(parents=True, exist_ok=True)
 
-                        new_file_path.parent.mkdir(parents=True, exist_ok=True)
-
-                        if not pickcode:
-                            logger.error(
-                                f"【监控生活事件】{original_file_name} 不存在 pickcode 值，无法生成 STRM 文件"
-                            )
-                            continue
-                        if not (len(pickcode) == 17 and str(pickcode).isalnum()):
-                            logger.error(
-                                f"【监控生活事件】错误的 pickcode 值 {pickcode}，无法生成 STRM 文件"
-                            )
-                            continue
-                        strm_url = f"{self._moviepilot_address.rstrip('/')}/api/v1/plugin/P115StrmHelper/redirect_url?apikey={settings.API_TOKEN}&pickcode={pickcode}"
-                        if self._strm_url_format == "pickname":
-                            strm_url += f"&file_name={original_file_name}"
-
-                        with open(new_file_path, "w", encoding="utf-8") as file:
-                            file.write(strm_url)
-                        logger.info(
-                            "【监控生活事件】生成 STRM 文件成功: %s", str(new_file_path)
-                        )
-                        strm_count += 1
-                        scrape_metadata = True
-                        if self._monitor_life_scrape_metadata_enabled:
-                            if self._monitor_life_scrape_metadata_exclude_paths:
-                                if self.pathmatchinghelper.get_scrape_metadata_exclude_path(
-                                    self._monitor_life_scrape_metadata_exclude_paths,
-                                    str(new_file_path),
-                                ):
-                                    logger.debug(
-                                        f"【监控生活事件】匹配到刮削排除目录，不进行刮削: {new_file_path}"
-                                    )
-                                    scrape_metadata = False
-                            if scrape_metadata:
-                                self.media_scrape_metadata(
-                                    path=new_file_path,
+                            if not pickcode:
+                                logger.error(
+                                    f"【监控生活事件】{original_file_name} 不存在 pickcode 值，无法生成 STRM 文件"
                                 )
-                        # 刷新媒体服务器
-                        refresh_mediaserver(str(new_file_path), str(original_file_name))
+                                continue
+                            if not (len(pickcode) == 17 and str(pickcode).isalnum()):
+                                logger.error(
+                                    f"【监控生活事件】错误的 pickcode 值 {pickcode}，无法生成 STRM 文件"
+                                )
+                                continue
+                            strm_url = f"{self._moviepilot_address.rstrip('/')}/api/v1/plugin/P115StrmHelper/redirect_url?apikey={settings.API_TOKEN}&pickcode={pickcode}"
+                            if self._strm_url_format == "pickname":
+                                strm_url += f"&file_name={original_file_name}"
+
+                            with open(new_file_path, "w", encoding="utf-8") as file:
+                                file.write(strm_url)
+                            logger.info(
+                                "【监控生活事件】生成 STRM 文件成功: %s",
+                                str(new_file_path),
+                            )
+                            strm_count += 1
+                            scrape_metadata = True
+                            if self._monitor_life_scrape_metadata_enabled:
+                                if self._monitor_life_scrape_metadata_exclude_paths:
+                                    if self.pathmatchinghelper.get_scrape_metadata_exclude_path(
+                                        self._monitor_life_scrape_metadata_exclude_paths,
+                                        str(new_file_path),
+                                    ):
+                                        logger.debug(
+                                            f"【监控生活事件】匹配到刮削排除目录，不进行刮削: {new_file_path}"
+                                        )
+                                        scrape_metadata = False
+                                if scrape_metadata:
+                                    self.media_scrape_metadata(
+                                        path=new_file_path,
+                                    )
+                            # 刷新媒体服务器
+                            refresh_mediaserver(
+                                str(new_file_path), str(original_file_name)
+                            )
                     _databasehelper.upsert_batch(processed)
                 if self._notify:
                     if strm_count > 0 or mediainfo_count > 0:
@@ -2680,92 +2697,93 @@ class P115StrmHelper(_PluginBase):
                         event=event, file_path=file_path
                     )
                 )
-                # 文件情况，直接生成
-                file_path = Path(target_dir) / Path(file_path).relative_to(
-                    pan_media_dir
-                )
-                file_target_dir = file_path.parent
-                original_file_name = file_path.name
-                file_name = file_path.stem + ".strm"
-                new_file_path = file_target_dir / file_name
+                if "creata" in self._monitor_life_event_modes:
+                    # 文件情况，直接生成
+                    file_path = Path(target_dir) / Path(file_path).relative_to(
+                        pan_media_dir
+                    )
+                    file_target_dir = file_path.parent
+                    original_file_name = file_path.name
+                    file_name = file_path.stem + ".strm"
+                    new_file_path = file_target_dir / file_name
 
-                if self._monitor_life_auto_download_mediainfo_enabled:
-                    if file_path.suffix in download_mediaext:
-                        if not pickcode:
-                            logger.error(
-                                f"【监控生活事件】{original_file_name} 不存在 pickcode 值，无法下载该文件"
+                    if self._monitor_life_auto_download_mediainfo_enabled:
+                        if file_path.suffix in download_mediaext:
+                            if not pickcode:
+                                logger.error(
+                                    f"【监控生活事件】{original_file_name} 不存在 pickcode 值，无法下载该文件"
+                                )
+                                return
+                            download_url = self.mediainfodownloader.get_download_url(
+                                pickcode=pickcode
                             )
-                            return
-                        download_url = self.mediainfodownloader.get_download_url(
-                            pickcode=pickcode
-                        )
 
-                        if not download_url:
-                            logger.error(
-                                f"【监控生活事件】{original_file_name} 下载链接获取失败，无法下载该文件"
+                            if not download_url:
+                                logger.error(
+                                    f"【监控生活事件】{original_file_name} 下载链接获取失败，无法下载该文件"
+                                )
+                                return
+
+                            self.mediainfodownloader.save_mediainfo_file(
+                                file_path=Path(file_path),
+                                file_name=original_file_name,
+                                download_url=download_url,
                             )
+                            if self._notify:
+                                self._monitor_life_notification_queue["life"][
+                                    "mediainfo_count"
+                                ] += 1
+                                _schedule_notification()
                             return
 
-                        self.mediainfodownloader.save_mediainfo_file(
-                            file_path=Path(file_path),
-                            file_name=original_file_name,
-                            download_url=download_url,
+                    if file_path.suffix not in rmt_mediaext:
+                        logger.warn(
+                            "【监控生活事件】跳过网盘路径: %s",
+                            str(file_path).replace(str(target_dir), "", 1),
                         )
-                        if self._notify:
-                            self._monitor_life_notification_queue["life"][
-                                "mediainfo_count"
-                            ] += 1
-                            _schedule_notification()
                         return
 
-                if file_path.suffix not in rmt_mediaext:
-                    logger.warn(
-                        "【监控生活事件】跳过网盘路径: %s",
-                        str(file_path).replace(str(target_dir), "", 1),
-                    )
-                    return
+                    new_file_path.parent.mkdir(parents=True, exist_ok=True)
 
-                new_file_path.parent.mkdir(parents=True, exist_ok=True)
-
-                if not pickcode:
-                    logger.error(
-                        f"【监控生活事件】{original_file_name} 不存在 pickcode 值，无法生成 STRM 文件"
-                    )
-                    return
-                if not (len(pickcode) == 17 and str(pickcode).isalnum()):
-                    logger.error(
-                        f"【监控生活事件】错误的 pickcode 值 {pickcode}，无法生成 STRM 文件"
-                    )
-                    return
-                strm_url = f"{self._moviepilot_address.rstrip('/')}/api/v1/plugin/P115StrmHelper/redirect_url?apikey={settings.API_TOKEN}&pickcode={pickcode}"
-                if self._strm_url_format == "pickname":
-                    strm_url += f"&file_name={original_file_name}"
-
-                with open(new_file_path, "w", encoding="utf-8") as file:
-                    file.write(strm_url)
-                logger.info(
-                    "【监控生活事件】生成 STRM 文件成功: %s", str(new_file_path)
-                )
-                if self._notify:
-                    self._monitor_life_notification_queue["life"]["strm_count"] += 1
-                    _schedule_notification()
-                scrape_metadata = True
-                if self._monitor_life_scrape_metadata_enabled:
-                    if self._monitor_life_scrape_metadata_exclude_paths:
-                        if self.pathmatchinghelper.get_scrape_metadata_exclude_path(
-                            self._monitor_life_scrape_metadata_exclude_paths,
-                            str(new_file_path),
-                        ):
-                            logger.debug(
-                                f"【监控生活事件】匹配到刮削排除目录，不进行刮削: {new_file_path}"
-                            )
-                            scrape_metadata = False
-                    if scrape_metadata:
-                        self.media_scrape_metadata(
-                            path=new_file_path,
+                    if not pickcode:
+                        logger.error(
+                            f"【监控生活事件】{original_file_name} 不存在 pickcode 值，无法生成 STRM 文件"
                         )
-                # 刷新媒体服务器
-                refresh_mediaserver(str(new_file_path), str(original_file_name))
+                        return
+                    if not (len(pickcode) == 17 and str(pickcode).isalnum()):
+                        logger.error(
+                            f"【监控生活事件】错误的 pickcode 值 {pickcode}，无法生成 STRM 文件"
+                        )
+                        return
+                    strm_url = f"{self._moviepilot_address.rstrip('/')}/api/v1/plugin/P115StrmHelper/redirect_url?apikey={settings.API_TOKEN}&pickcode={pickcode}"
+                    if self._strm_url_format == "pickname":
+                        strm_url += f"&file_name={original_file_name}"
+
+                    with open(new_file_path, "w", encoding="utf-8") as file:
+                        file.write(strm_url)
+                    logger.info(
+                        "【监控生活事件】生成 STRM 文件成功: %s", str(new_file_path)
+                    )
+                    if self._notify:
+                        self._monitor_life_notification_queue["life"]["strm_count"] += 1
+                        _schedule_notification()
+                    scrape_metadata = True
+                    if self._monitor_life_scrape_metadata_enabled:
+                        if self._monitor_life_scrape_metadata_exclude_paths:
+                            if self.pathmatchinghelper.get_scrape_metadata_exclude_path(
+                                self._monitor_life_scrape_metadata_exclude_paths,
+                                str(new_file_path),
+                            ):
+                                logger.debug(
+                                    f"【监控生活事件】匹配到刮削排除目录，不进行刮削: {new_file_path}"
+                                )
+                                scrape_metadata = False
+                        if scrape_metadata:
+                            self.media_scrape_metadata(
+                                path=new_file_path,
+                            )
+                    # 刷新媒体服务器
+                    refresh_mediaserver(str(new_file_path), str(original_file_name))
 
         def remove_strm(event):
             """
@@ -2862,13 +2880,19 @@ class P115StrmHelper(_PluginBase):
             logger.info(
                 f"【监控生活事件】删除本地{'文件夹' if file_category == 0 else '文件'}: {file_path}"
             )
-            if file_category == 0:
-                shutil.rmtree(Path(file_path))
-            else:
-                Path(file_path).unlink(missing_ok=True)
-                __remove_parent_dir(Path(file_path))
-            _databasehelper.remove_by_path_batch(str(pan_file_path))
-            logger.info(f"【监控生活事件】{file_path} 已删除")
+            try:
+                if not Path(file_path).exists():
+                    logger.warn(f"【监控生活事件】本地 {file_path} 不存在，跳过删除")
+                    return
+                if file_category == 0:
+                    shutil.rmtree(Path(file_path))
+                else:
+                    Path(file_path).unlink(missing_ok=True)
+                    __remove_parent_dir(Path(file_path))
+                _databasehelper.remove_by_path_batch(str(pan_file_path))
+                logger.info(f"【监控生活事件】{file_path} 已删除")
+            except Exception as e:
+                logger.error(f"【监控生活事件】{file_path} 删除失败: {e}")
 
         def new_creata_path(event):
             """
@@ -2938,6 +2962,7 @@ class P115StrmHelper(_PluginBase):
                         and int(event["type"]) != 5
                         and int(event["type"]) != 6
                         and int(event["type"]) != 14
+                        and int(event["type"]) != 17
                         and int(event["type"]) != 18
                         and int(event["type"]) != 22
                     ):
@@ -2970,10 +2995,34 @@ class P115StrmHelper(_PluginBase):
                             if (
                                 self._monitor_life_enabled
                                 and self._monitor_life_paths
-                                and self._monitor_life_auto_remove_local_enabled
+                                and "remove" in self._monitor_life_event_modes
                             ):
                                 delete_list.append(event["file_id"])
                                 remove_strm(event=event)
+
+                    if int(event["type"]) == 17:
+                        # 对于创建文件夹事件直接写入数据库
+                        _databasehelper = FileDbHelper()
+                        file_name = event["file_name"]
+                        dir_path = self.id_path_cache.get_dir_by_id(
+                            int(event["parent_id"])
+                        )
+                        if not dir_path:
+                            dir_path = get_path_to_cid(
+                                self._client, cid=int(event["parent_id"])
+                            )
+                            logger.debug(
+                                f"【监控生活事件】获取 {event['parent_id']} 路径: {dir_path}"
+                            )
+                            self.id_path_cache.add_cache(
+                                id=int(event["parent_id"]), directory=str(dir_path)
+                            )
+                        file_path = Path(dir_path) / file_name
+                        _databasehelper.upsert_batch(
+                            _databasehelper.process_life_dir_item(
+                                event=event, file_path=file_path
+                            )
+                        )
 
         except Exception as e:
             logger.error(f"【监控生活事件】生活事件监控运行失败: {e}")

@@ -111,7 +111,7 @@ const config = reactive({
   monitor_life_mp_mediaserver_paths: '',
   monitor_life_media_server_refresh_enabled: false,
   monitor_life_mediaservers: [],
-  monitor_life_auto_remove_local_enabled: false,
+  monitor_life_event_modes: [],
   monitor_life_scrape_metadata_enabled: false,
   monitor_life_scrape_metadata_exclude_paths: '',
   share_strm_auto_download_mediainfo_enabled: false,
@@ -2041,9 +2041,29 @@ return (_ctx, _cache) => {
                                         md: "3"
                                       }, {
                                         default: _withCtx(() => [
+                                          _createVNode(_component_v_select, {
+                                            modelValue: config.monitor_life_event_modes,
+                                            "onUpdate:modelValue": _cache[22] || (_cache[22] = $event => ((config.monitor_life_event_modes) = $event)),
+                                            label: "处理事件类型",
+                                            items: [
+                        { title: '新增事件', value: 'creata' },
+                        { title: '删除事件', value: 'remove' }
+                      ],
+                                            multiple: "",
+                                            chips: "",
+                                            "closable-chips": ""
+                                          }, null, 8, ["modelValue"])
+                                        ]),
+                                        _: 1
+                                      }),
+                                      _createVNode(_component_v_col, {
+                                        cols: "12",
+                                        md: "3"
+                                      }, {
+                                        default: _withCtx(() => [
                                           _createVNode(_component_v_switch, {
                                             modelValue: config.monitor_life_auto_download_mediainfo_enabled,
-                                            "onUpdate:modelValue": _cache[22] || (_cache[22] = $event => ((config.monitor_life_auto_download_mediainfo_enabled) = $event)),
+                                            "onUpdate:modelValue": _cache[23] || (_cache[23] = $event => ((config.monitor_life_auto_download_mediainfo_enabled) = $event)),
                                             label: "下载媒体数据文件",
                                             color: "warning"
                                           }, null, 8, ["modelValue"])
@@ -2057,23 +2077,9 @@ return (_ctx, _cache) => {
                                         default: _withCtx(() => [
                                           _createVNode(_component_v_switch, {
                                             modelValue: config.monitor_life_scrape_metadata_enabled,
-                                            "onUpdate:modelValue": _cache[23] || (_cache[23] = $event => ((config.monitor_life_scrape_metadata_enabled) = $event)),
+                                            "onUpdate:modelValue": _cache[24] || (_cache[24] = $event => ((config.monitor_life_scrape_metadata_enabled) = $event)),
                                             label: "STRM自动刮削",
                                             color: "primary"
-                                          }, null, 8, ["modelValue"])
-                                        ]),
-                                        _: 1
-                                      }),
-                                      _createVNode(_component_v_col, {
-                                        cols: "12",
-                                        md: "3"
-                                      }, {
-                                        default: _withCtx(() => [
-                                          _createVNode(_component_v_switch, {
-                                            modelValue: config.monitor_life_auto_remove_local_enabled,
-                                            "onUpdate:modelValue": _cache[24] || (_cache[24] = $event => ((config.monitor_life_auto_remove_local_enabled) = $event)),
-                                            label: "网盘删除本地同步删除",
-                                            color: "error"
                                           }, null, 8, ["modelValue"])
                                         ]),
                                         _: 1
@@ -3271,6 +3277,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-ebc8e80a"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-0567f0ca"]]);
 
 export { Config as default };

@@ -1,8 +1,11 @@
 from typing import Dict, Optional, List
+from pathlib import Path
 
 from . import DbOper
 from .models.folder import Folder
 from .models.file import File
+
+from app.schemas import FileItem
 
 
 class FileDbHelper(DbOper):
@@ -90,6 +93,45 @@ class FileDbHelper(DbOper):
                 },
             }
         ]
+
+    def process_fileitem(self, fileitem: FileItem) -> List[Dict]:
+        """
+        处理MP fileitem 类型数据
+        """
+        if fileitem.type == "file":
+            return [
+                {
+                    "table": "files",
+                    "data": {
+                        "id": int(fileitem.fileid),
+                        "parent_id": int(fileitem.parent_fileid)
+                        if fileitem.parent_fileid is not None
+                        else -1,
+                        "name": fileitem.name,
+                        "sha1": "",
+                        "size": fileitem.size if fileitem.size is not None else -1,
+                        "pickcode": fileitem.pickcode,
+                        "ctime": 0,
+                        "mtime": int(fileitem.modify_time),
+                        "path": str(Path(fileitem.path)),
+                        "extra": "",
+                    },
+                }
+            ]
+        else:
+            return [
+                {
+                    "table": "folders",
+                    "data": {
+                        "id": int(fileitem.fileid),
+                        "parent_id": int(fileitem.parent_fileid)
+                        if fileitem.parent_fileid is not None
+                        else -1,
+                        "name": fileitem.name,
+                        "path": str(Path(fileitem.path)),
+                    },
+                }
+            ]
 
     def upsert_batch(self, batch: List[Dict]):
         """
