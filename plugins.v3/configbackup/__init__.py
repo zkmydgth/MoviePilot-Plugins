@@ -3,6 +3,7 @@ import json
 import os
 import re
 import shutil
+import sqlite3
 import tempfile
 import threading
 import time
@@ -51,13 +52,19 @@ class ConfigBackup(_PluginBase):
     _backup_plugins = True
     _extra_paths = None
     _notify = False
+    _notify_type = "插件"
     _onlyonce = False
 
     # 还原操作锁（防止并发还原）
     _restore_lock = threading.Lock()
+    # 备份操作锁（防止「立即运行一次」后台线程与定时任务/手动触发撞车）
+    _backup_lock = threading.Lock()
 
     # 备份文件名前缀
     _prefix = "bk_"
+
+    # 待确认状态有效期（秒）：超时自动作废，避免隔天回来仍挂着「确认还原/确认删除」按钮
+    _pending_ttl = 600
 
     def init_plugin(self, config: dict = None):
         """根据插件配置初始化运行状态。"""
@@ -73,6 +80,7 @@ class ConfigBackup(_PluginBase):
             self._backup_plugins = bool(config.get("backup_plugins", True))
             self._extra_paths = config.get("extra_paths") or ""
             self._notify = bool(config.get("notify"))
+            self._notify_type = config.get("notify_type") or "插件"
             self._onlyonce = bool(config.get("onlyonce"))
 
         if self._onlyonce:
@@ -85,9 +93,16 @@ class ConfigBackup(_PluginBase):
                 "backup_plugins": self._backup_plugins,
                 "extra_paths": self._extra_paths,
                 "notify": self._notify,
+                "notify_type": self._notify_type,
                 "onlyonce": False,
             })
-            self.__backup()
+            # 后台执行：备份目录在网盘、插件配置多时可能耗时几十秒，
+            # 同步跑会卡住「保存配置」请求、触发网关超时。
+            threading.Thread(
+                target=self.__backup,
+                name="ConfigBackup-Once",
+                daemon=True,
+            ).start()
 
     def get_state(self) -> bool:
         """获取插件启用状态。"""
@@ -162,6 +177,10 @@ class ConfigBackup(_PluginBase):
         # 已保存的备份目录若不在候选列表中，追加进去避免丢失
         if self._backup_dir and not any(i["value"] == self._backup_dir for i in dir_items):
             dir_items.append({"title": f"自定义：{self._backup_dir}", "value": self._backup_dir})
+        # 通知场景候选（MessageType 是「场景」不是渠道，渠道由宿主按场景路由）
+        notify_items: List[Dict[str, str]] = [
+            {"title": m.value, "value": m.value} for m in MessageType
+        ]
 
         return [
             {
@@ -179,10 +198,12 @@ class ConfigBackup(_PluginBase):
                                         "props": {
                                             "type": "info",
                                             "variant": "tonal",
-                                            "text": "使用说明：定时备份 MoviePilot 系统配置、PostgreSQL 数据库与插件配置，"
-                                                    "支持保留最近 N 份与一键还原（还原前自动先备份当前状态作安全网）。"
-                                                    "注意：数据库备份/还原要求 MoviePilot 使用 PostgreSQL（兼容 10+ 含 18.x），"
-                                                    "SQLite/MySQL 等将自动跳过数据库部分。首次使用建议先手动备份一次验证。",
+                                            "text": "使用说明：定时备份 MoviePilot 系统配置、数据库与插件配置，"
+                                                    "支持按个数与天数保留、自动清理与一键还原（还原前自动先备份当前状态作安全网）。"
+                                                    "数据库：PostgreSQL 以 SQL 方式备份还原（兼容 10+ 含 18.x）；"
+                                                    "SQLite 以数据库文件方式备份（备份前自动 checkpoint 落盘）；"
+                                                    "其它类型跳过数据库部分。还原为覆盖式：备份包中含有的配置会回到备份那一刻，"
+                                                    "备份后新增的插件配置与站点 Cookie 将被清除。首次使用建议先手动备份一次验证。",
                                         },
                                     }
                                 ],
@@ -194,7 +215,7 @@ class ConfigBackup(_PluginBase):
                         "content": [
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 4},
+                                "props": {"cols": 12, "md": 3},
                                 "content": [
                                     {
                                         "component": "VSwitch",
@@ -207,27 +228,46 @@ class ConfigBackup(_PluginBase):
                             },
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 4},
+                                "props": {"cols": 12, "md": 3},
                                 "content": [
                                     {
                                         "component": "VSwitch",
                                         "props": {
                                             "model": "onlyonce",
                                             "label": "立即运行一次",
-                                            "hint": "保存配置后立即执行一次备份",
+                                            "hint": "保存配置后立即执行一次备份（在后台执行，不阻塞保存）",
+                                            "persistent-hint": True,
                                         }
                                     }
                                 ]
                             },
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 4},
+                                "props": {"cols": 12, "md": 3},
                                 "content": [
                                     {
                                         "component": "VSwitch",
                                         "props": {
                                             "model": "notify",
                                             "label": "发送通知",
+                                            "hint": "备份成功与失败都会通知",
+                                            "persistent-hint": True,
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 3},
+                                "content": [
+                                    {
+                                        "component": "VSelect",
+                                        "props": {
+                                            "model": "notify_type",
+                                            "label": "通知场景",
+                                            "items": notify_items,
+                                            "hint": "具体发到微信还是 Telegram，由宿主的「通知设置」按该场景配置决定",
+                                            "persistent-hint": True,
                                         }
                                     }
                                 ]
@@ -262,7 +302,8 @@ class ConfigBackup(_PluginBase):
                                             "label": "保留备份个数",
                                             "type": "number",
                                             "min": "1",
-                                            "hint": "超过该数量的最旧备份将自动删除",
+                                            "hint": "超过该数量的最旧备份将自动删除；与「保留天数」满足其一即保留",
+                                            "persistent-hint": True,
                                         }
                                     }
                                 ]
@@ -284,6 +325,7 @@ class ConfigBackup(_PluginBase):
                                             "items": dir_items,
                                             "placeholder": "/config/backup",
                                             "hint": "可从下拉选择常用目录，也可直接输入其它目录路径（默认 /config/backup）",
+                                            "persistent-hint": True,
                                         }
                                     }
                                 ]
@@ -298,6 +340,7 @@ class ConfigBackup(_PluginBase):
                                             "model": "backup_plugins",
                                             "label": "备份插件配置",
                                             "hint": "同时备份 /config/plugins 插件数据与配置",
+                                            "persistent-hint": True,
                                         }
                                     }
                                 ]
@@ -334,6 +377,7 @@ class ConfigBackup(_PluginBase):
             "backup_plugins": True,
             "extra_paths": "",
             "notify": False,
+            "notify_type": "插件",
             "onlyonce": False,
         }
 
@@ -785,7 +829,7 @@ class ConfigBackup(_PluginBase):
                     self.__set_pending_restore(None)
                     if ok and self._notify:
                         self.post_message(
-                            mtype=MessageType.SiteMessage,
+                            mtype=self.__notify_mtype(),
                             title="【配置还原完成】",
                             text=msg,
                         )
@@ -848,13 +892,41 @@ class ConfigBackup(_PluginBase):
         """待确认删除状态文件路径。"""
         return self.get_data_path() / "pending_delete.json"
 
+    @classmethod
+    def __is_expired(cls, data: Dict[str, Any]) -> bool:
+        """
+        判断待确认状态是否已过期。
+
+        老格式（无 ts 字段）不判过期，保持向后兼容——升级后不该把用户
+        正在进行的确认操作无声清掉。
+
+        :param data: 待确认状态
+        :return: True 表示已超过 _pending_ttl，应作废
+        """
+        ts = data.get("ts")
+        if not isinstance(ts, (int, float)):
+            return False
+        return (time.time() - ts) > cls._pending_ttl
+
+    @classmethod
+    def __stamp(cls, data: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        """写入待确认状态前打上时间戳。"""
+        if isinstance(data, dict) and "ts" not in data:
+            data = dict(data)
+            data["ts"] = time.time()
+        return data
+
     def __get_pending_delete(self) -> Optional[Dict[str, Any]]:
-        """读取待确认删除状态。"""
+        """读取待确认删除状态（过期自动作废）。"""
         try:
             f = self.__pending_delete_file()
             if f.exists():
                 data = json.loads(f.read_text(encoding="utf-8"))
                 if data and data.get("filename"):
+                    if self.__is_expired(data):
+                        logger.info("待确认删除状态已过期，自动清除")
+                        self.__set_pending_delete(None)
+                        return None
                     return data
         except Exception as e:
             logger.debug(f"读取待删除状态失败: {e}")
@@ -864,6 +936,7 @@ class ConfigBackup(_PluginBase):
         """写入或清除待确认删除状态。"""
         try:
             f = self.__pending_delete_file()
+            data = self.__stamp(data)
             if not data:
                 if f.exists():
                     f.unlink()
@@ -874,12 +947,16 @@ class ConfigBackup(_PluginBase):
             logger.error(f"写入待删除状态失败: {e}")
 
     def __get_pending_restore(self) -> Optional[Dict[str, Any]]:
-        """读取待确认还原状态。"""
+        """读取待确认还原状态（过期自动作废）。"""
         try:
             f = self.__pending_file()
             if f.exists():
                 data = json.loads(f.read_text(encoding="utf-8"))
                 if data and data.get("filename"):
+                    if self.__is_expired(data):
+                        logger.info("待确认还原状态已过期，自动清除")
+                        self.__set_pending_restore(None)
+                        return None
                     return data
         except Exception as e:
             logger.debug(f"读取待还原状态失败: {e}")
@@ -889,6 +966,7 @@ class ConfigBackup(_PluginBase):
         """写入或清除待确认还原状态。"""
         try:
             f = self.__pending_file()
+            data = self.__stamp(data)
             if not data:
                 if f.exists():
                     f.unlink()
@@ -935,6 +1013,16 @@ class ConfigBackup(_PluginBase):
                 msgs.append("备份中无数据库文件，跳过")
 
             # 2. 系统配置文件还原
+            # 先清掉目标端残留的 -wal/-shm：旧 WAL 与新主库混在一起会读出错乱数据，
+            # 而还原侧只写回 user.db 本身（备份时已 checkpoint，主库自包含）。
+            for suffix in ("-wal", "-shm"):
+                stale = Path(settings.CONFIG_PATH) / f"user.db{suffix}"
+                if stale.exists():
+                    try:
+                        stale.unlink()
+                        logger.info(f"已清除残留数据库文件 {stale.name}")
+                    except Exception as e:
+                        logger.warning(f"清除残留数据库文件失败 {stale.name}: {e}")
             cfg_restored = []
             for name in ("app.env", "category.yaml", "user.db"):
                 src = restore_dir / name
@@ -1105,7 +1193,7 @@ class ConfigBackup(_PluginBase):
             return result
         files = sorted(
             glob.glob(f"{bk_path}/{self._prefix}*.zip"),
-            key=os.path.getctime,
+            key=self.__backup_time,
             reverse=True,
         )
         for f in files:
@@ -1113,11 +1201,99 @@ class ConfigBackup(_PluginBase):
                 "name": Path(f).name,
                 "path": f,
                 "size": os.path.getsize(f),
-                "time": datetime.fromtimestamp(os.path.getctime(f)).strftime("%Y-%m-%d %H:%M:%S"),
+                "time": datetime.fromtimestamp(self.__backup_time(f)).strftime("%Y-%m-%d %H:%M:%S"),
             })
         return result
 
+    def __notify_mtype(self) -> MessageType:
+        """
+        按配置解析通知场景；未知值回落为「插件」。
+
+        注意 MessageType 是**通知场景**（站点/插件/手动处理…），不是渠道；
+        实际发到微信还是 Telegram 由宿主按场景路由，用户在通知设置里配。
+
+        :return: 通知场景枚举
+        """
+        try:
+            return MessageType(self._notify_type)
+        except Exception:
+            return MessageType.Plugin
+
     def __backup(self) -> Tuple[bool, str]:
+        """
+        执行配置备份（对外入口）：包装 __run_backup，统一负责通知。
+
+        成功与失败都会按配置发通知——备份失败恰恰是最需要被感知的事件，
+        只在成功分支通知会让定时备份的失败彻底静默（只剩日志）。
+
+        :return: (是否成功, 结果信息)
+        """
+        success, msg = self.__run_backup()
+        if self._notify:
+            try:
+                self.post_message(
+                    mtype=self.__notify_mtype(),
+                    title="【配置备份完成】" if success else "【配置备份失败】",
+                    text=msg,
+                )
+            except Exception as e:
+                logger.error(f"发送备份通知失败: {e}")
+        return success, msg
+
+    @staticmethod
+    def __verify_zip(zip_file: str) -> bool:
+        """
+        校验备份包完整性（逐个成员的 CRC）。
+
+        :param zip_file: 备份包路径
+        :return: True 表示可正常解压
+        """
+        try:
+            with zipfile.ZipFile(zip_file, "r") as zf:
+                return zf.testzip() is None
+        except Exception as e:
+            logger.error(f"备份包校验失败 {zip_file}: {e}")
+            return False
+
+    @staticmethod
+    def __backup_time(f: str) -> float:
+        """
+        取备份文件的时间戳：优先解析文件名里的 bk_<YYYYmmddHHMMSS>.zip。
+
+        不用 ctime——文件被 rsync / 拷贝到本机后 ctime 会变成拷贝时间，
+        按它排序会把最新备份当成最旧的删掉。解析不出再退回 mtime。
+
+        :param f: 备份文件路径
+        :return: 时间戳（秒）
+        """
+        m = re.match(r"^bk_(\d{14})\.zip$", Path(f).name)
+        if m:
+            try:
+                return datetime.strptime(m.group(1), "%Y%m%d%H%M%S").timestamp()
+            except Exception:
+                pass
+        try:
+            return os.path.getmtime(f)
+        except Exception:
+            return 0.0
+
+    def __run_backup(self) -> Tuple[bool, str]:
+        """
+        执行配置备份（带并发保护）：同一时刻只允许一个备份任务在跑。
+
+        「立即运行一次」改为后台线程后，可能与定时触发/手动点击撞车，
+        并发写同一个临时目录名会互相覆盖，所以这里串行化。
+
+        :return: (是否成功, 结果信息)
+        """
+        if not self._backup_lock.acquire(blocking=False):
+            return False, "已有备份任务正在执行，本次跳过"
+        try:
+            return self.__do_backup()
+        finally:
+            self._backup_lock.release()
+
+    def __do_backup(self) -> Tuple[bool, str]:
         """
         执行配置备份：数据库导出、配置文件复制、插件配置复制、压缩与清理。
 
@@ -1170,6 +1346,15 @@ class ConfigBackup(_PluginBase):
             # 5. 压缩
             shutil.make_archive(str(bk_path / backup_name), "zip", str(temp_dir))
             shutil.rmtree(str(temp_dir))
+            # 5.1 自检：损坏的包改名隔离，避免占保留名额、被当成可还原备份
+            if not self.__verify_zip(zip_file):
+                broken = zip_file + ".broken"
+                try:
+                    os.replace(zip_file, broken)
+                except Exception as e:
+                    logger.error(f"隔离损坏备份失败 {zip_file}: {e}")
+                msgs.append("备份包完整性校验失败，已隔离为 .broken")
+                return False, "；".join(msgs)
             zip_size = os.path.getsize(zip_file)
             msgs.append(f"备份完成：{backup_name}.zip（{StringUtils.str_filesize(zip_size)}）")
             success = True
@@ -1183,16 +1368,6 @@ class ConfigBackup(_PluginBase):
         del_cnt = self.__clean_old_backups(bk_path)
         if del_cnt > 0:
             msgs.append(f"自动清理旧备份 {del_cnt} 份")
-
-        msg = "；".join(msgs)
-
-        # 7. 发送通知
-        if self._notify:
-            self.post_message(
-                mtype=MessageType.SiteMessage,
-                title="【配置备份完成】",
-                text=msg,
-            )
 
         logger.info(msg)
         return success, msg
@@ -1337,8 +1512,9 @@ class ConfigBackup(_PluginBase):
         config_path = Path(settings.CONFIG_PATH)
         copied = []
         try:
-            # 数据库文件（SQLite 场景）
+            # 数据库文件（SQLite 场景）：先 checkpoint 把 WAL 写回主库，再复制
             if settings.DB_TYPE == "sqlite":
+                self.__checkpoint_sqlite(config_path / "user.db")
                 for f in config_path.glob("user.db*"):
                     shutil.copy(f, temp_dir)
                     copied.append(f.name)
@@ -1357,6 +1533,33 @@ class ConfigBackup(_PluginBase):
         except Exception as e:
             logger.error(f"系统配置文件备份失败: {e}")
             return False, f"系统配置文件备份失败: {e}"
+
+    @staticmethod
+    def __checkpoint_sqlite(db_file: Path) -> None:
+        """
+        对 SQLite 数据库执行 WAL checkpoint（TRUNCATE），把 WAL 内容写回主库文件。
+
+        WAL 模式下最近的事务可能还留在 -wal 里，直接复制 user.db 会拿到不完整
+        快照；TRUNCATE 之后主库文件自包含，只复制它即可得到一致状态。
+        失败不阻断备份（退化成原来的行为，由还原侧清理残留 WAL 兜底）。
+
+        :param db_file: user.db 路径
+        """
+        if not db_file.exists():
+            return
+        conn = None
+        try:
+            conn = sqlite3.connect(str(db_file), timeout=10)
+            conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+            conn.commit()
+        except Exception as e:
+            logger.warning(f"SQLite WAL checkpoint 失败（按原样复制）: {e}")
+        finally:
+            if conn is not None:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
 
     def __copy_plugins(self, temp_dir: Path) -> Tuple[bool, str]:
         """
@@ -1439,7 +1642,7 @@ class ConfigBackup(_PluginBase):
         """
         if not self._keep_count or self._keep_count <= 0:
             return 0
-        files = sorted(glob.glob(f"{bk_path}/{self._prefix}*.zip"), key=os.path.getctime)
+        files = sorted(glob.glob(f"{bk_path}/{self._prefix}*.zip"), key=self.__backup_time)
         del_cnt = len(files) - int(self._keep_count)
         if del_cnt <= 0:
             return 0
