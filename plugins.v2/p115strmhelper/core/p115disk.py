@@ -18,11 +18,10 @@ from app.core.config import global_vars
 from app.log import logger
 from app.modules.filemanager.storages import transfer_process
 from app.schemas import FileItem, NotificationType
-from app.utils.string import StringUtils
 
 from ..core.config import configer
 from ..core.i18n import i18n
-from ..core.message import post_message
+from ..core.message import post_message, upload_notifier
 
 
 class P115DiskCore:
@@ -136,26 +135,13 @@ class P115DiskCore:
             if not configer.notify or not configer.upload_open_result_notify:
                 return
 
-            if success:
-                size_str = StringUtils.str_filesize(file_size)
-                time_str = f"{elapsed_time:.1f}秒" if elapsed_time else "未知"
-                post_message(
-                    mtype=NotificationType.Plugin,
-                    title=i18n.translate("upload_success_title"),
-                    text=f"\n{i18n.translate('upload_success_text', name=target_name, size=size_str, time=time_str)}\n",
-                )
-            else:
-                size_str = StringUtils.str_filesize(file_size)
-                error_text = f"\n{i18n.translate('upload_fail_text', name=target_name, size=size_str)}\n"
-                if error_msg:
-                    error_text += (
-                        f"{i18n.translate('upload_fail_error', error=error_msg)}\n"
-                    )
-                post_message(
-                    mtype=NotificationType.Plugin,
-                    title=i18n.translate("upload_fail_title"),
-                    text=error_text,
-                )
+            upload_notifier.add(
+                success=success,
+                target_name=target_name,
+                file_size=file_size,
+                elapsed_time=elapsed_time,
+                error_msg=error_msg,
+            )
 
         if not local_path.exists():
             logger.error(f"【P115Disk】本地文件不存在: {local_path}")

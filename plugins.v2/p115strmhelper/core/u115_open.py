@@ -28,7 +28,6 @@ from oss2.utils import b64encode_as_string
 from oss2.exceptions import OssError
 from p115center import P115Center
 from p115center.schemas import UploadInfo
-from p115client import P115Client
 from p115client.tool.attr import normalize_attr
 from p115client.type import DirNode
 from cryptography.hazmat.primitives import hashes
@@ -46,7 +45,7 @@ from app.utils.string import StringUtils
 from ..core.config import configer
 from ..core.p115_client import create_client
 from ..core.i18n import i18n
-from ..core.message import post_message
+from ..core.message import post_message, upload_notifier
 from ..core.cache import idpathcacher
 from ..db_manager.oper import FileDbHelper, OpenFileOper
 from ..utils.sentry import sentry_manager
@@ -418,26 +417,13 @@ class U115OpenHelper:
             if not configer.notify or not configer.upload_open_result_notify:
                 return
 
-            if success:
-                size_str = StringUtils.str_filesize(file_size)
-                time_str = f"{elapsed_time:.1f}秒" if elapsed_time else "未知"
-                post_message(
-                    mtype=NotificationType.Plugin,
-                    title=i18n.translate("upload_success_title"),
-                    text=f"\n{i18n.translate('upload_success_text', name=target_name, size=size_str, time=time_str)}\n",
-                )
-            else:
-                size_str = StringUtils.str_filesize(file_size)
-                error_text = f"\n{i18n.translate('upload_fail_text', name=target_name, size=size_str)}\n"
-                if error_msg:
-                    error_text += (
-                        f"{i18n.translate('upload_fail_error', error=error_msg)}\n"
-                    )
-                post_message(
-                    mtype=NotificationType.Plugin,
-                    title=i18n.translate("upload_fail_title"),
-                    text=error_text,
-                )
+            upload_notifier.add(
+                success=success,
+                target_name=target_name,
+                file_size=file_size,
+                elapsed_time=elapsed_time,
+                error_msg=error_msg,
+            )
 
         target_name = new_name or local_path.name
         target_path = Path(target_dir.path) / target_name
