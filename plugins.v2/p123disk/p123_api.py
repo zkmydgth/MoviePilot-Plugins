@@ -1,4 +1,4 @@
-import json
+import ast
 from pathlib import Path
 from typing import Optional, List, Dict
 from datetime import datetime
@@ -256,7 +256,7 @@ class P123Api:
         :param fileitem: 文件项
         :param path: 文件保存路径
         """
-        json_obj = json.loads(fileitem.pickcode)
+        json_obj = ast.literal_eval(fileitem.pickcode)
         s3keyflag = json_obj["S3KeyFlag"]
         file_id = fileitem.fileid
         file_name = fileitem.name
