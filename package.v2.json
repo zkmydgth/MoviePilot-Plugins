@@ -11,5 +11,17 @@
             "v1.1": "完善筛选菜单",
             "v1.0": "发布"
         }
+    },
+    "MiGuDiscover": {
+        "name": "咪咕视频探索",
+        "description": "让探索支持咪咕视频的数据浏览。",
+        "labels": "探索",
+        "version": "1.0",
+        "icon": "https://raw.githubusercontent.com/DDS-Derek/MoviePilot-Plugins/main/icons/migu_A.png",
+        "author": "DDSRem",
+        "level": 1,
+        "history": {
+            "v1.0": "发布"
+        }
     }
 }
