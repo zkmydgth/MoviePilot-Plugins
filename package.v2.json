@@ -69,5 +69,17 @@
             "v1.0.1": "修复分类菜单切换后显示错误",
             "v1.0.0": "发布"
         }
+    },
+    "TencentVideoDiscover": {
+        "name": "腾讯视频探索",
+        "description": "让探索支持腾讯视频的数据浏览。",
+        "labels": "探索",
+        "version": "1.0.0",
+        "icon": "https://raw.githubusercontent.com/DDS-Derek/MoviePilot-Plugins/main/icons/tencentvideo_A.png",
+        "author": "DDSRem",
+        "level": 1,
+        "history": {
+            "v1.0.0": "发布"
+        }
     }
 }
