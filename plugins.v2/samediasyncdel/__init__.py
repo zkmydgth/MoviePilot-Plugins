@@ -1548,7 +1548,7 @@ class SaMediaSyncDel(_PluginBase):
                     self._scheduler.shutdown()
                 self._scheduler = None
         except Exception as e:
-            logger.error("退出插件失败：%s" % str(e))
+            logger.error(f"退出插件失败：{e}")
 
     @eventmanager.register(EventType.DownloadFileDeleted)
     def downloadfile_del_sync(self, event: Event):
