@@ -53,7 +53,7 @@ class ServiceHelper:
             self.monitorlife = MonitorLife(
                 client=self.client, mediainfodownloader=self.mediainfodownloader
             )
-            self.sharetransferhelper = ShareTransferHelper()
+            self.sharetransferhelper = ShareTransferHelper(self.client)
             return True
         except Exception as e:
             logger.error(f"服务项初始化失败: {e}")
@@ -120,7 +120,9 @@ class ServiceHelper:
         ):
             return
 
-        strm_helper = FullSyncStrmHelper()
+        strm_helper = FullSyncStrmHelper(
+            client=self.client, mediainfodownloader=self.mediainfodownloader
+        )
         strm_helper.generate_strm_files(
             full_sync_strm_paths=configer.get_config("full_sync_strm_paths"),
         )
@@ -188,7 +190,9 @@ class ServiceHelper:
             receive_code = configer.get_config("user_receive_code")
 
         try:
-            strm_helper = ShareStrmHelper()
+            strm_helper = ShareStrmHelper(
+                client=self.client, mediainfodownloader=self.mediainfodownloader
+            )
             strm_helper.get_share_list_creata_strm(
                 cid=0,
                 share_code=share_code,
@@ -237,7 +241,9 @@ class ServiceHelper:
         ):
             return
 
-        strm_helper = IncrementSyncStrmHelper()
+        strm_helper = IncrementSyncStrmHelper(
+            client=self.client, mediainfodownloader=self.mediainfodownloader
+        )
         strm_helper.generate_strm_files(
             sync_strm_paths=configer.get_config("increment_sync_strm_paths"),
         )

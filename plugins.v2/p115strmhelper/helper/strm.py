@@ -6,17 +6,18 @@ from pathlib import Path
 from itertools import batched
 
 from sqlalchemy.orm.exc import MultipleResultsFound
+from p115client import P115Client
 from p115client.tool.export_dir import export_dir_parse_iter
 from p115client.tool.fs_files import iter_fs_files
 from p115client.tool.iterdir import iter_files_with_path, share_iterdir
 
-from ..service import servicer
 from ..core.cache import idpathcacher
 from ..core.config import configer
 from ..utils.tree import DirectoryTree
 from ..core.scrape import media_scrape_metadata
 from ..db_manager.oper import FileDbHelper
 from ..utils.path import PathUtils
+from ..helper.mediainfo_download import MediaInfoDownloader
 
 from app.log import logger
 from app.core.config import settings
@@ -33,10 +34,9 @@ class IncrementSyncStrmHelper:
     增量同步 STRM 文件
     """
 
-    def __init__(
-        self,
-    ):
-        self.client = servicer.client
+    def __init__(self, client: P115Client, mediainfodownloader: MediaInfoDownloader):
+        self.client = client
+        self.mediainfodownloader = mediainfodownloader
         self.rmt_mediaext = [
             f".{ext.strip()}"
             for ext in configer.get_config("user_rmt_mediaext")
@@ -89,15 +89,21 @@ class IncrementSyncStrmHelper:
         """
         迭代目录树
         """
-        parts = Path(pan_path).parts
+        relative_path = None
         cid = int(self.client.fs_dir_getid(pan_path)["id"])
         self.api_count += 2
+        cnt = 0
         for item in export_dir_parse_iter(
             client=self.client, export_file_ids=cid, delete=True
         ):
-            item_path = Path(pan_path) / Path(item).relative_to(
-                "/" + parts[-2] + "/" + parts[-1]
-            )
+            if cnt < 1:
+                cnt += 1
+                continue
+            elif cnt == 1:
+                relative_path = item
+                cnt += 1
+                continue
+            item_path = Path(pan_path) / Path(item).relative_to(relative_path)
             if item_path.name != item_path.stem:
                 if item_path.suffix in self.rmt_mediaext:
                     yield (
@@ -459,7 +465,7 @@ class IncrementSyncStrmHelper:
 
         # 下载媒体信息文件
         self.mediainfo_count, self.mediainfo_fail_count, self.mediainfo_fail_dict = (
-            servicer.mediainfodownloader.auto_downloader(
+            self.mediainfodownloader.auto_downloader(
                 downloads_list=self.download_mediainfo_list
             )
         )
@@ -497,9 +503,7 @@ class FullSyncStrmHelper:
     全量生成 STRM 文件
     """
 
-    def __init__(
-        self,
-    ):
+    def __init__(self, client: P115Client, mediainfodownloader: MediaInfoDownloader):
         self.rmt_mediaext = [
             f".{ext.strip()}"
             for ext in configer.get_config("user_rmt_mediaext")
@@ -515,7 +519,8 @@ class FullSyncStrmHelper:
         self.auto_download_mediainfo = configer.get_config(
             "full_sync_auto_download_mediainfo_enabled"
         )
-        self.client = servicer.client
+        self.client = client
+        self.mediainfodownloader = mediainfodownloader
         self.strm_count = 0
         self.mediainfo_count = 0
         self.strm_fail_count = 0
@@ -770,7 +775,7 @@ class FullSyncStrmHelper:
                     )
 
         self.mediainfo_count, self.mediainfo_fail_count, self.mediainfo_fail_dict = (
-            servicer.mediainfodownloader.auto_downloader(
+            self.mediainfodownloader.auto_downloader(
                 downloads_list=self.download_mediainfo_list
             )
         )
@@ -812,9 +817,7 @@ class ShareStrmHelper:
     根据分享生成STRM
     """
 
-    def __init__(
-        self,
-    ):
+    def __init__(self, client: P115Client, mediainfodownloader: MediaInfoDownloader):
         self.rmt_mediaext = [
             f".{ext.strip()}"
             for ext in configer.get_config("user_rmt_mediaext")
@@ -830,7 +833,8 @@ class ShareStrmHelper:
         self.auto_download_mediainfo = configer.get_config(
             "share_strm_auto_download_mediainfo_enabled"
         )
-        self.client = servicer.client
+        self.client = client
+        self.mediainfodownloader = mediainfodownloader
         self.strm_count = 0
         self.strm_fail_count = 0
         self.mediainfo_count = 0
@@ -972,7 +976,7 @@ class ShareStrmHelper:
         下载媒体信息文件
         """
         self.mediainfo_count, self.mediainfo_fail_count, self.mediainfo_fail_dict = (
-            servicer.mediainfodownloader.auto_downloader(
+            self.mediainfodownloader.auto_downloader(
                 downloads_list=self.download_mediainfo_list
             )
         )
@@ -1117,7 +1121,7 @@ class TransferStrmHelper:
             )
             return False, None
 
-    def do_generate(self, item):
+    def do_generate(self, item, mediainfodownloader: MediaInfoDownloader):
         """
         生成 STRM 操作
         """
@@ -1205,7 +1209,7 @@ class TransferStrmHelper:
                     _databasehelper.upsert_batch(
                         _databasehelper.process_fileitem(fileitem)
                     )
-                    download_url = servicer.mediainfodownloader.get_download_url(
+                    download_url = mediainfodownloader.get_download_url(
                         pickcode=fileitem.pickcode
                     )
                     if not download_url:
@@ -1216,7 +1220,7 @@ class TransferStrmHelper:
                     _file_path = Path(local_media_dir) / Path(_path).relative_to(
                         pan_media_dir
                     )
-                    servicer.mediainfodownloader.save_mediainfo_file(
+                    mediainfodownloader.save_mediainfo_file(
                         file_path=Path(_file_path),
                         file_name=_file_path.name,
                         download_url=download_url,
@@ -1231,7 +1235,7 @@ class TransferStrmHelper:
                     _databasehelper.upsert_batch(
                         _databasehelper.process_fileitem(fileitem)
                     )
-                    download_url = servicer.mediainfodownloader.get_download_url(
+                    download_url = mediainfodownloader.get_download_url(
                         pickcode=fileitem.pickcode
                     )
                     if not download_url:
@@ -1242,7 +1246,7 @@ class TransferStrmHelper:
                     _file_path = Path(local_media_dir) / Path(_path).relative_to(
                         pan_media_dir
                     )
-                    servicer.mediainfodownloader.save_mediainfo_file(
+                    mediainfodownloader.save_mediainfo_file(
                         file_path=Path(_file_path),
                         file_name=_file_path.name,
                         download_url=download_url,

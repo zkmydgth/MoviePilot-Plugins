@@ -461,7 +461,7 @@ class P115StrmHelper(_PluginBase):
             return
 
         strm_helper = TransferStrmHelper()
-        strm_helper.do_generate(item)
+        strm_helper.do_generate(item, mediainfodownloader=servicer.mediainfodownloader)
 
     @eventmanager.register(EventType.PluginAction)
     def p115_full_sync(self, event: Event):
@@ -538,7 +538,9 @@ class P115StrmHelper(_PluginBase):
                 userid=event.event_data.get("user"),
             )
             return
-        strm_helper = FullSyncStrmHelper()
+        strm_helper = FullSyncStrmHelper(
+            client=servicer.client, mediainfodownloader=servicer.mediainfodownloader
+        )
         self.post_message(
             channel=event.event_data.get("channel"),
             title=f"开始 {args} 全量同步 ...",

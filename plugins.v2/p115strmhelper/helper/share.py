@@ -2,6 +2,7 @@ import threading
 import time
 from queue import Queue, Empty
 
+from p115client import P115Client
 from p115client.tool.iterdir import share_iterdir
 from p115client.tool.util import share_extract_payload
 
@@ -9,7 +10,6 @@ from app.log import logger
 from app.core.metainfo import MetaInfo
 from app.chain.media import MediaChain
 
-from ..service import servicer
 from ..core.config import configer
 from ..core.message import post_message
 from ..core.cache import idpathcacher
@@ -20,7 +20,8 @@ class ShareTransferHelper:
     分享链接转存
     """
 
-    def __init__(self):
+    def __init__(self, client: P115Client):
+        self.client = client
         self._add_share_queue = Queue()
         self._add_share_worker_thread = None
         self._add_share_worker_lock = threading.Lock()
@@ -72,7 +73,7 @@ class ShareTransferHelper:
         file_num = 0
         file_mediainfo = None
         for item in share_iterdir(
-            servicer.client,
+            self.client,
             receive_code=receive_code,
             share_code=share_code,
             cid=0,
@@ -119,7 +120,7 @@ class ShareTransferHelper:
             parent_path = configer.get_config("pan_transfer_paths").split("\n")[0]
             parent_id = idpathcacher.get_id_by_dir(directory=str(parent_path))
             if not parent_id:
-                parent_id = servicer.client.fs_dir_getid(parent_path)["id"]
+                parent_id = self.client.fs_dir_getid(parent_path)["id"]
                 logger.info(f"【分享转存】获取到转存目录 ID：{parent_id}")
                 idpathcacher.add_cache(id=int(parent_id), directory=str(parent_path))
             payload = {
@@ -141,7 +142,7 @@ class ShareTransferHelper:
                 share_code=share_code, receive_code=receive_code
             )
 
-            resp = servicer.client.share_receive(payload)
+            resp = self.client.share_receive(payload)
             if resp["state"]:
                 logger.info(f"【分享转存】转存 {share_code} 到 {parent_path} 成功！")
                 if not file_mediainfo:
