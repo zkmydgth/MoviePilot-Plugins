@@ -1,6 +1,7 @@
 # MoviePilot-Plugins
 
-插件交流群：https://t.me/+1lcscM_EbqhkN2Rl
+> [!NOTE]
+> MoviePilot 第三方插件仓库
 
 ## 插件列表
 
@@ -31,3 +32,7 @@
 - [MediaWarp](https://github.com/Akimio521/MediaWarp)
 
 <a href="https://github.com/DDS-Derek/MoviePilot-Plugins/graphs/contributors"><img src="https://contrib.rocks/image?repo=DDS-Derek/MoviePilot-Plugins"></a>
+
+## 许可证
+
+此仓库内所有项目根据 GNU General Public License v3.0 许可证进行许可，详见[`LICENSE`](LICENSE) 文件。
