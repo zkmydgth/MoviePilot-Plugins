@@ -1,6 +1,8 @@
 import ast
 import sys
 import time
+from urllib.parse import quote
+from collections import deque
 from datetime import datetime, timedelta
 from typing import Any, List, Dict, Tuple, Optional
 from pathlib import Path
@@ -13,7 +15,6 @@ from fastapi.responses import JSONResponse, RedirectResponse
 import requests
 from cachetools import cached, TTLCache
 from p123 import P123Client, check_response
-from p123.tool import iterdir, share_iterdir
 
 from app.chain.storage import StorageChain
 from app.core.config import settings
@@ -25,6 +26,154 @@ from app.core.context import MediaInfo
 from app.helper.mediaserver import MediaServerHelper
 from app.schemas.types import EventType
 from app.utils.system import SystemUtils
+
+
+def iterdir(
+    client: P123Client,
+    parent_id: int = 0,
+    interval: int | float = 0,
+    only_file: bool = False,
+):
+    """
+    遍历文件列表
+    广度优先搜索
+    return:
+        迭代器
+    Yields:
+        dict: 文件或目录信息（包含路径）
+    """
+    queue = deque()
+    queue.append((parent_id, ""))
+    while queue:
+        current_parent_id, current_path = queue.popleft()
+        page = 1
+        _next = 0
+        while True:
+            payload = {
+                "limit": 100,
+                "next": _next,
+                "Page": page,
+                "parentFileId": current_parent_id,
+                "inDirectSpace": "false",
+            }
+            if interval != 0:
+                time.sleep(interval)
+            resp = client.fs_list(payload)
+            check_response(resp)
+            item_list = resp.get("data").get("InfoList")
+            if not item_list:
+                break
+            for item in item_list:
+                is_dir = bool(item["Type"])
+                item_path = (
+                    f"{current_path}/{item['FileName']}"
+                    if current_path
+                    else item["FileName"]
+                )
+                if is_dir:
+                    queue.append((int(item["FileId"]), item_path))
+                if is_dir and only_file:
+                    continue
+                if is_dir:
+                    yield {
+                        **item,
+                        "relpath": item_path,
+                        "is_dir": is_dir,
+                        "id": int(item["FileId"]),
+                        "parent_id": int(current_parent_id),
+                        "name": item["FileName"],
+                    }
+                else:
+                    yield {
+                        **item,
+                        "relpath": item_path,
+                        "is_dir": is_dir,
+                        "id": int(item["FileId"]),
+                        "parent_id": int(current_parent_id),
+                        "name": item["FileName"],
+                        "size": int(item["Size"]),
+                        "md5": item["Etag"],
+                        "uri": f"123://{quote(item['FileName'])}|{int(item['Size'])}|{item['Etag']}?{item['S3KeyFlag']}",
+                    }
+            if resp.get("data").get("Next") == "-1":
+                break
+            else:
+                page += 1
+                _next = resp.get("data").get("Next")
+
+
+def share_iterdir(
+    share_key: str,
+    share_pwd: str = "",
+    parent_id: int = 0,
+    interval: int | float = 0,
+    only_file: bool = False,
+):
+    """
+    遍历分享列表
+    广度优先搜索
+    return:
+        迭代器
+    Yields:
+        dict: 文件或目录信息（包含路径）
+    """
+    queue = deque()
+    queue.append((parent_id, ""))
+    while queue:
+        current_parent_id, current_path = queue.popleft()
+        page = 1
+        while True:
+            payload = {
+                "ShareKey": share_key,
+                "SharePwd": share_pwd,
+                "limit": 100,
+                "next": 0,
+                "Page": page,
+                "parentFileId": current_parent_id,
+            }
+            if interval != 0:
+                time.sleep(interval)
+            resp = P123Client.share_fs_list(payload)
+            check_response(resp)
+            item_list = resp.get("data").get("InfoList")
+            if not item_list:
+                break
+            for item in item_list:
+                is_dir = bool(item["Type"])
+                item_path = (
+                    f"{current_path}/{item['FileName']}"
+                    if current_path
+                    else item["FileName"]
+                )
+                if is_dir:
+                    queue.append((int(item["FileId"]), item_path))
+                if is_dir and only_file:
+                    continue
+                if is_dir:
+                    yield {
+                        **item,
+                        "relpath": item_path,
+                        "is_dir": is_dir,
+                        "id": int(item["FileId"]),
+                        "parent_id": int(current_parent_id),
+                        "name": item["FileName"],
+                    }
+                else:
+                    yield {
+                        **item,
+                        "relpath": item_path,
+                        "is_dir": is_dir,
+                        "id": int(item["FileId"]),
+                        "parent_id": int(current_parent_id),
+                        "name": item["FileName"],
+                        "size": int(item["Size"]),
+                        "md5": item["Etag"],
+                        "uri": f"123://{quote(item['FileName'])}|{int(item['Size'])}|{item['Etag']}?{item['S3KeyFlag']}",
+                    }
+            if resp.get("data").get("Next") == "-1":
+                break
+            else:
+                page += 1
 
 
 class FullSyncStrmHelper:
@@ -79,11 +228,7 @@ class FullSyncStrmHelper:
 
             try:
                 for item in iterdir(
-                    self.client,
-                    parent_id=parent_id,
-                    interval=1,
-                    max_depth=-1,
-                    predicate=lambda a: not a["is_dir"],
+                    client=self.client, parent_id=parent_id, interval=1, only_file=True
                 ):
                     file_path = pan_media_dir + "/" + item["relpath"]
                     file_path = Path(target_dir) / Path(file_path).relative_to(
@@ -217,12 +362,11 @@ class ShareStrmHelper:
         获取分享文件，生成 STRM
         """
         for item in share_iterdir(
-            share_code,
-            share_pwd,
+            share_key=share_code,
+            share_pwd=share_pwd,
             parent_id=parent_id,
             interval=1,
-            max_depth=-1,
-            predicate=lambda a: not a["is_dir"],
+            only_file=True,
         ):
             file_path = "/" + item["relpath"]
             if not self.has_prefix(file_path, self.share_media_path):
@@ -315,7 +459,7 @@ class P123StrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/DDS-Derek/MoviePilot-Plugins/main/icons/P123Disk.png"
     # 插件版本
-    plugin_version = "1.0.2"
+    plugin_version = "1.0.3"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
