@@ -761,6 +761,10 @@ class ConfigManager(BaseModel):
         default=None, description="同步删除媒体服务器"
     )
 
+    share_strm_overwrite_check_enabled: bool = Field(
+        default=False, description="分享STRM覆盖大小检查"
+    )
+
     @field_serializer(
         "PLUGIN_CONFIG_PATH",
         "PLUGIN_DB_PATH",

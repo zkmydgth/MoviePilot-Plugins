@@ -9,7 +9,11 @@ from app.core.config import settings
 from app.core.event import eventmanager, Event
 from app.log import logger
 from app.plugins import _PluginBase
-from app.schemas import FileItem, TransferRenameEventData
+from app.schemas import (
+    FileItem,
+    TransferRenameEventData,
+    TransferOverwriteCheckEventData,
+)
 from app.schemas.types import EventType, MessageChannel, ChainEventType
 
 from apscheduler.triggers.cron import CronTrigger
@@ -1807,6 +1811,66 @@ class P115StrmHelper(_PluginBase):
         data.updated = True
         data.updated_str = new_render
         data.source = "媒体数据补充"
+
+    @eventmanager.register(ChainEventType.TransferOverwriteCheck)
+    def share_strm_overwrite_check(self, event: Event) -> None:
+        """
+        分享STRM覆盖大小检查
+        """
+        if not configer.enabled or not configer.share_strm_overwrite_check_enabled:
+            return
+
+        data = event.event_data
+        if not isinstance(data, TransferOverwriteCheckEventData):
+            return
+
+        if data.target_path.suffix.lower() != ".strm":
+            return
+
+        try:
+            url = data.target_path.read_text(encoding="utf-8").strip()
+        except Exception:
+            return
+
+        if (
+            "P115StrmHelper" not in url
+            or "share_code=" not in url
+            or "receive_code=" not in url
+            or "id=" not in url
+        ):
+            return
+
+        params = UrlUtils.parse_query_params(url)
+        share_code = params.get("share_code")
+        receive_code = params.get("receive_code")
+        file_id = params.get("id")
+
+        if not all([share_code, receive_code, file_id]):
+            return
+
+        cache_key = f"{share_code}:{receive_code}:{file_id}"
+
+        if cache_key in sharestrmcacher.file_item_dict:
+            cached = sharestrmcacher.file_item_dict[cache_key]
+            data.target_size = cached.get("size")
+            data.source = "P115StrmHelper"
+            data.reason = "使用分享STRM缓存的真实文件大小"
+            logger.info(
+                f"【分享STRM覆盖检查】使用缓存大小: {data.target_size} for {data.target_path}"
+            )
+        else:
+            media_info, error_message = RenameDictUtils.ffprobe_get_media_info(url=url)
+            if media_info and media_info.get("file_size"):
+                data.target_size = media_info["file_size"]
+                data.source = "P115StrmHelper"
+                data.reason = "使用ffprobe探测的实际文件大小"
+                logger.info(
+                    f"【分享STRM覆盖检查】使用ffprobe探测大小: {data.target_size} for {data.target_path}"
+                )
+            else:
+                logger.warning(
+                    f"【分享STRM覆盖检查】ffprobe探测失败: {error_message} for {url}"
+                )
 
     def stop_service(self):
         """

@@ -16,6 +16,9 @@
       <v-tab value="tab-hdhive-checkin" class="sub-tab">
         <v-icon size="small" start>mdi-calendar-check</v-icon>HDHive 签到
       </v-tab>
+      <v-tab value="tab-utility" class="sub-tab">
+        <v-icon size="small" start>mdi-toolbox</v-icon>实用工具
+      </v-tab>
     </v-tabs>
     <v-divider></v-divider>
     <v-window v-model="otherSubTab" :touch="false" class="tab-window">
@@ -242,6 +245,26 @@
               <div class="mb-1">• 请填写 HDHive 账户与密码；每日签到与赌狗签到<strong>只能二选一</strong>开启</div>
               <div class="mb-1">• 启用后将在设定时间窗口内<strong>每天随机一刻</strong>执行一次登录并签到</div>
               <div>• 也可在 Telegram 等渠道发送 <code>/hdhivechin</code> 手动触发签到</div>
+            </div>
+          </v-alert>
+        </v-card-text>
+      </v-window-item>
+      <v-window-item value="tab-utility">
+        <v-card-text>
+          <v-row class="pl-4">
+            <v-col cols="12" md="6">
+              <v-switch v-model="config.share_strm_overwrite_check_enabled"
+                label="分享STRM覆盖大小检查" color="primary" density="compact"
+                hint="启用后，整理时对比分享STRM指向的实际媒体文件大小，而非STRM文件本身大小"
+                persistent-hint></v-switch>
+            </v-col>
+          </v-row>
+          <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
+            <div class="text-body-2 mb-1"><strong>分享STRM覆盖大小检查</strong></div>
+            <div class="text-caption">
+              <div class="mb-1">• 解决按大小覆盖时 STRM 文件被误判为小文件的问题</div>
+              <div class="mb-1">• 优先使用生成时的缓存数据，未命中时使用 ffprobe 探测</div>
+              <div>• 仅对本插件生成的标准格式分享 STRM 有效</div>
             </div>
           </v-alert>
         </v-card-text>
