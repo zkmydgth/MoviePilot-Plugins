@@ -90,6 +90,7 @@ class P115StrmHelper(_PluginBase):
 
     # 私有属性
     _enabled = False
+    cookies = None
 
     def init_plugin(self, config: dict = None):
         if config:
@@ -174,6 +175,7 @@ class P115StrmHelper(_PluginBase):
         self,
         request: Request,
         pickcode: str = "",
+        file_name: str = "",
         app: str = "",
     ):
         """
@@ -232,14 +234,20 @@ class P115StrmHelper(_PluginBase):
                 url = Url.of(data["url"], data)
             return url
 
-        if pickcode:
-            if not (len(pickcode) == 17 and pickcode.isalnum()):
-                return f"Bad pickcode: {pickcode}"
-        else:
+        if not pickcode:
+            logger.debug("Missing pickcode parameter")
             return "Missing pickcode parameter"
+
+        if not (len(pickcode) == 17 and pickcode.isalnum()):
+            logger.debug(f"Bad pickcode: {pickcode} {file_name}")
+            return f"Bad pickcode: {pickcode} {file_name}"
+
         user_agent = request.headers.get("User-Agent") or b""
+        logger.debug(f"获取到客户端UA: {user_agent}")
+
         url = get_downurl(pickcode.lower(), user_agent, app=app)
         logger.info(f"获取 115 下载地址成功: {url}")
+
         return Response(
             status_code=302,
             headers={
@@ -255,6 +263,7 @@ class P115StrmHelper(_PluginBase):
         """
         监控目录整理生成 STRM 文件
         """
+
         def generate_strm_files(target_dir, pan_path, url):
             """
             依据网盘路径生成 STRM 文件
