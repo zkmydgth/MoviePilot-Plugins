@@ -348,8 +348,8 @@ class P123Api:
                 parent_id=target_dir.fileid,
             )
             check_response(resp)
-            if resp["data"]["Info"]:
-                data = resp["data"]["Info"]
+            data = resp.get("data", {}).get("Info", None)
+            if data:
                 logger.info(f"【123】秒传文件成功: {target_path}")
                 logger.debug(f"【123】秒传文件: {data}")
                 return schemas.FileItem(
@@ -376,8 +376,8 @@ class P123Api:
                 parent_id=target_dir.fileid,
             )
             check_response(resp)
-            if resp["data"]["Info"]:
-                data = resp["data"]["Info"]
+            data = resp.get("data", {}).get("Info", None)
+            if data:
                 logger.info(f"【123】上传文件成功: {target_path}")
                 logger.debug(f"【123】上传文件: {data}")
                 return schemas.FileItem(
