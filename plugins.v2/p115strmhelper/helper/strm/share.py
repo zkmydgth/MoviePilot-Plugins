@@ -167,7 +167,7 @@ class ShareOOPServerHelper:
             license=configer.p115center_license,
             file_path=str(Path(__file__).resolve().parent.parent.parent / "api.py"),
         )
-        resp = client.delete_share_files(
+        resp = client.delete_share_file_iter(
             batch_id,
             headers={"user-agent": configer.get_user_agent()},
         )
