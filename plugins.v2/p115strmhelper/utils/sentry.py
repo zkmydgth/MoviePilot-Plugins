@@ -9,8 +9,6 @@ from sentry_sdk.integrations.stdlib import StdlibIntegration
 from sentry_sdk.integrations.excepthook import ExcepthookIntegration
 from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
 from sentry_sdk.integrations.dedupe import DedupeIntegration
-from sentry_sdk.integrations.httpx import HttpxIntegration
-from sentry_sdk.integrations.threading import ThreadingIntegration
 
 
 sentry_hub = Hub(
@@ -18,7 +16,7 @@ sentry_hub = Hub(
         dsn=base64.b64decode(
             "aHR0cHM6Ly82YTk0ZjI2N2NjOTY0Y2ZiOTk5ZjQyNDgwNGIyMTE1M0BnbGl0Y2h0aXAuZGRzcmVtLmNvbS80"
         ).decode("utf-8"),
-        release="p115strmhelper@v1.9.20",
+        release="p115strmhelper@v2.0.0",
         # 禁用所有默认集成
         default_integrations=False,
         # 启用集成
@@ -27,8 +25,6 @@ sentry_hub = Hub(
             StdlibIntegration(),
             ExcepthookIntegration(always_run=True),
             SqlalchemyIntegration(),
-            HttpxIntegration(),
-            ThreadingIntegration(),
         ],
     )
 )
