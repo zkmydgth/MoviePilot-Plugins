@@ -387,3 +387,16 @@ class StrmGenerater:
             return "小于最小文件大小", False
 
         return "", True
+
+    @staticmethod
+    def get_strm_filename(file_path: Path) -> str:
+        """
+        根据原始文件路径生成 STRM 文件名
+
+        :param file_path: 原始文件路径（Path 对象）
+
+        :return: STRM 文件名（如 "movie.iso.strm" 或 "movie.strm"）
+        """
+        if file_path.suffix.lower() == ".iso":
+            return f"{file_path.stem}.iso.strm"
+        return f"{file_path.stem}.strm"

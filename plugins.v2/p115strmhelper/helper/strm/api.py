@@ -16,7 +16,7 @@ from ...schemas.strm_api import (
     StrmApiData,
     StrmApiStatusCode,
 )
-from ...utils.strm import StrmUrlGetter
+from ...utils.strm import StrmUrlGetter, StrmGenerater
 from ...utils.path import PathUtils
 from ...utils.sentry import sentry_manager
 
@@ -179,7 +179,9 @@ class ApiSyncStrmHelper:
                 )
                 fail_strm_count += 1
                 continue
-            new_file_path = file_path.parent / str(file_path.stem + ".strm")
+            new_file_path = file_path.parent / StrmGenerater.get_strm_filename(
+                file_path
+            )
 
             if pan_path_obj.suffix.lower() not in self.rmt_mediaext:
                 fail_data.append(

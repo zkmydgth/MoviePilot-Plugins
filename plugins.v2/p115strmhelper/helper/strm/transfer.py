@@ -14,7 +14,7 @@ from ...helper.mediainfo_download import MediaInfoDownloader
 from ...helper.mediaserver import MediaServerRefresh
 from ...utils.path import PathUtils
 from ...utils.sentry import sentry_manager
-from ...utils.strm import StrmUrlGetter
+from ...utils.strm import StrmUrlGetter, StrmGenerater
 
 
 class TransferStrmHelper:
@@ -40,7 +40,8 @@ class TransferStrmHelper:
             if PathUtils.has_prefix(pan_path, pan_media_dir):
                 pan_path = pan_path[len(pan_media_dir) :].lstrip("/").lstrip("\\")
             file_path = Path(target_dir) / pan_path
-            file_name = basename + ".strm"
+            original_file_path = Path(item_dest_path).name
+            file_name = StrmGenerater.get_strm_filename(Path(original_file_path))
             new_file_path = file_path / file_name
             new_file_path.parent.mkdir(parents=True, exist_ok=True)
             with open(new_file_path, "w", encoding="utf-8") as file:

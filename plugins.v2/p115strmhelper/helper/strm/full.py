@@ -316,7 +316,7 @@ class FullSyncStrmHelper:
             file_path = target_dir / Path(item_path).relative_to(pan_media_dir)
             file_target_dir = file_path.parent
             original_file_name = file_path.name
-            file_name = file_path.stem + ".strm"
+            file_name = StrmGenerater.get_strm_filename(file_path)
             new_file_path = file_target_dir / file_name
         except FileItemKeyMiss as e:
             logger.error(
@@ -790,7 +790,7 @@ class FullSyncStrmHelper:
                                     strm_info.path_in_pan
                                 ).relative_to(pan_media_dir)
                                 new_file_path = local_path.with_name(
-                                    f"{local_path.stem}.strm"
+                                    StrmGenerater.get_strm_filename(local_path)
                                 )
                                 if self.remove_unless_strm:
                                     path_list.append(str(new_file_path))

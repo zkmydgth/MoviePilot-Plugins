@@ -356,7 +356,7 @@ class MonitorLife:
                         )
                         file_target_dir = file_path.parent
                         original_file_name = file_path.name
-                        file_name = file_path.stem + ".strm"
+                        file_name = StrmGenerater.get_strm_filename(file_path)
                         new_file_path = file_target_dir / file_name
 
                         if configer.get_config(
@@ -497,7 +497,7 @@ class MonitorLife:
                 )
                 file_target_dir = file_path.parent
                 original_file_name = file_path.name
-                file_name = file_path.stem + ".strm"
+                file_name = StrmGenerater.get_strm_filename(file_path)
                 new_file_path = file_target_dir / file_name
 
                 if configer.get_config("monitor_life_auto_download_mediainfo_enabled"):
@@ -711,7 +711,7 @@ class MonitorLife:
         file_path = Path(target_dir) / Path(file_path).relative_to(pan_media_dir)
         if file_path.suffix.lower() in self.rmt_mediaext_set:
             file_target_dir = file_path.parent
-            file_name = file_path.stem + ".strm"
+            file_name = StrmGenerater.get_strm_filename(file_path)
             file_path = file_target_dir / file_name
         logger.info(
             f"【监控生活事件】删除本地{'文件夹' if file_category == 0 else '文件'}: {file_path}"

@@ -168,7 +168,7 @@ class ShareStrmHelper:
         )
         file_target_dir = file_path.parent
         original_file_name = file_path.name
-        file_name = file_path.stem + ".strm"
+        file_name = StrmGenerater.get_strm_filename(file_path)
         new_file_path = file_target_dir / file_name
 
         try:

@@ -151,8 +151,9 @@ class IncrementSyncStrmHelper:
             local_item_path = Path(local_path) / relative_item_path
 
             if item_path.suffix.lower() in self.rmt_mediaext:
+                strm_filename = StrmGenerater.get_strm_filename(local_item_path)
                 yield (
-                    local_item_path.with_suffix(".strm").as_posix(),
+                    (local_item_path.parent / strm_filename).as_posix(),
                     item_path.as_posix(),
                 )
             elif (
