@@ -244,6 +244,7 @@ class EmbyMediaInfoOperate:
                 url,
                 json=media_data,
                 headers={"Content-Type": "application/json"},
+                timeout=60.0
             )
             try:
                 res_data = res.json()
@@ -333,14 +334,15 @@ class EmbyMediaInfoOperate:
                 )
                 item_id = self.emby_operate.get_item_id_by_path(service_name, file_path)
                 if not item_id:
-                    self.emby_operate.trigger_refresh_by_path(service_name, file_path)
-                    for _ in range(3):
-                        sleep(10)
-                        item_id = self.emby_operate.get_item_id_by_path(
-                            service_name, file_path
-                        )
-                        if item_id:
-                            break
+                    sleep(10)
+                    if self.emby_operate.trigger_refresh_by_path(service_name, file_path):
+                        for _ in range(3):
+                            sleep(10)
+                            item_id = self.emby_operate.get_item_id_by_path(
+                                service_name, file_path
+                            )
+                            if item_id:
+                                break
                 if not item_id:
                     logger.error(
                         f"{self.func_name}无法获取媒体 Id 提取媒体信息: {file_path}"
