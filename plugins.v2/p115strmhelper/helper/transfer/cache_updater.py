@@ -1,8 +1,13 @@
 from pathlib import Path
-from typing import Optional
+from typing import Optional, TYPE_CHECKING, Any
 
 from app.log import logger
 from app.schemas import FileItem
+
+if TYPE_CHECKING:
+    from ....p115disk.p115_api import P115Api
+else:
+    P115Api = Any
 
 try:
     from app.plugins.p115disk.p115_api import P115Api  # noqa
@@ -17,7 +22,7 @@ class CacheUpdater:
     115 网盘缓存更新器
     """
 
-    def __init__(self, p115_api: Optional[P115Api] = None):
+    def __init__(self, p115_api: Optional["P115Api"] = None):
         """
         初始化缓存更新器
 

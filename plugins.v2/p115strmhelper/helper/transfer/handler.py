@@ -96,27 +96,103 @@ class TransferHandler:
 
         logger.info(f"【整理接管】开始批量处理 {len(tasks)} 个任务")
 
+        # 当前可继续处理的任务列表
+        remaining_tasks = tasks.copy()
+        # 失败的任务列表（用于最后批量记录）
+        failed_tasks: List[Tuple[TransferTask, str]] = []
+
         try:
             # 发现关联文件
-            self._discover_related_files(tasks)
+            try:
+                self._discover_related_files(remaining_tasks)
+            except Exception as e:
+                error_msg = f"发现关联文件失败: {e}"
+                logger.error(f"【整理接管】{error_msg}", exc_info=True)
+                # 所有任务都失败
+                failed_tasks.extend([(task, error_msg) for task in remaining_tasks])
+                remaining_tasks = []
+                # 阻断后续步骤
+                self._batch_record_failures(failed_tasks)
+                return
 
             # 批量创建目标目录
-            self._batch_create_directories(tasks)
+            if remaining_tasks:
+                try:
+                    failed_in_step, remaining_tasks = self._batch_create_directories(
+                        remaining_tasks
+                    )
+                    failed_tasks.extend(failed_in_step)
+                except Exception as e:
+                    error_msg = f"批量创建目录失败: {e}"
+                    logger.error(f"【整理接管】{error_msg}", exc_info=True)
+                    # 所有剩余任务都失败
+                    failed_tasks.extend([(task, error_msg) for task in remaining_tasks])
+                    remaining_tasks = []
+                    # 阻断后续步骤
+                    self._batch_record_failures(failed_tasks)
+                    return
 
             # 批量移动/复制文件
-            self._batch_move_or_copy(tasks)
+            if remaining_tasks:
+                try:
+                    failed_in_step, remaining_tasks = self._batch_move_or_copy(
+                        remaining_tasks
+                    )
+                    failed_tasks.extend(failed_in_step)
+                except Exception as e:
+                    error_msg = f"批量移动/复制文件失败: {e}"
+                    logger.error(f"【整理接管】{error_msg}", exc_info=True)
+                    # 所有剩余任务都失败
+                    failed_tasks.extend([(task, error_msg) for task in remaining_tasks])
+                    remaining_tasks = []
+                    # 阻断后续步骤
+                    self._batch_record_failures(failed_tasks)
+                    return
 
             # 批量重命名文件
-            self._batch_rename_files(tasks)
+            if remaining_tasks:
+                try:
+                    failed_in_step, remaining_tasks = self._batch_rename_files(
+                        remaining_tasks
+                    )
+                    failed_tasks.extend(failed_in_step)
+                except Exception as e:
+                    error_msg = f"批量重命名文件失败: {e}"
+                    logger.error(f"【整理接管】{error_msg}", exc_info=True)
+                    # 所有剩余任务都失败
+                    failed_tasks.extend([(task, error_msg) for task in remaining_tasks])
+                    remaining_tasks = []
+                    # 阻断后续步骤
+                    self._batch_record_failures(failed_tasks)
+                    return
 
-            # 记录历史
-            self._record_history(tasks)
+            # 记录历史（只处理成功的任务）
+            if remaining_tasks:
+                try:
+                    self._record_history(remaining_tasks)
+                except Exception as e:
+                    error_msg = f"记录历史失败: {e}"
+                    logger.error(f"【整理接管】{error_msg}", exc_info=True)
+                    # 所有剩余任务都失败
+                    failed_tasks.extend([(task, error_msg) for task in remaining_tasks])
+                    remaining_tasks = []
 
-            logger.info(f"【整理接管】批量处理完成，共处理 {len(tasks)} 个任务")
+            # 批量记录所有失败的任务
+            if failed_tasks:
+                self._batch_record_failures(failed_tasks)
+
+            success_count = len(remaining_tasks)
+            fail_count = len(failed_tasks)
+            logger.info(
+                f"【整理接管】批量处理完成，成功: {success_count} 个，失败: {fail_count} 个"
+            )
+
         except Exception as e:
             logger.error(f"【整理接管】批量处理异常: {e}", exc_info=True)
-            for task in tasks:
-                self._record_fail(task, str(e), is_batch_failure=True)
+            # 所有剩余任务都失败
+            error_msg = f"批量处理异常: {e}"
+            failed_tasks.extend([(task, error_msg) for task in remaining_tasks])
+            self._batch_record_failures(failed_tasks)
 
     def _discover_related_files(self, tasks: List[TransferTask]) -> None:
         """
@@ -372,23 +448,30 @@ class TransferHandler:
                 f"【整理接管】发现音轨文件: {track_file.name} -> {target_path.name}"
             )
 
-    def _batch_create_directories(self, tasks: List[TransferTask]) -> None:
+    def _batch_create_directories(
+        self, tasks: List[TransferTask]
+    ) -> Tuple[List[Tuple[TransferTask, str]], List[TransferTask]]:
         """
         批量创建目标目录
 
         :param tasks: 任务列表
+
+        :return: (失败任务列表, 成功任务列表)
         """
         logger.info("【整理接管】开始批量创建目标目录")
 
         # 收集所有目标目录
         target_dirs: set[Path] = set()
+        task_dirs_map: Dict[Path, List[TransferTask]] = defaultdict(list)
         for task in tasks:
             target_dir = task.target_dir
             target_dirs.add(target_dir)
+            task_dirs_map[target_dir].append(task)
             # 关联文件的目标目录
             for related_file in task.related_files:
                 related_dir = related_file.target_path.parent
                 target_dirs.add(related_dir)
+                task_dirs_map[related_dir].append(task)
 
         # 搜集子目录
         leaf_dirs: set[Path] = set()
@@ -402,32 +485,69 @@ class TransferHandler:
 
         # 批量创建子目录（自动递归）
         created_count = 0
+        failed_dirs: set[Path] = set()
         for target_dir in leaf_dirs:
             try:
                 folder_item = self._get_folder(target_dir)
                 if folder_item:
                     created_count += 1
-                    logger.debug(
-                        f"【整理接管】创建目录: {target_dir} (ID: {folder_item.fileid if folder_item.fileid else 'N/A'})"
-                    )
                 else:
                     logger.warn(f"【整理接管】创建目录失败: {target_dir}")
+                    failed_dirs.add(target_dir)
 
             except Exception as e:
                 logger.error(
                     f"【整理接管】创建目录失败 ({target_dir}): {e}",
                     exc_info=True,
                 )
+                failed_dirs.add(target_dir)
 
         logger.info(f"【整理接管】目录创建完成，共创建 {created_count} 个目录")
 
-    def _batch_move_or_copy(self, tasks: List[TransferTask]) -> None:
+        # 收集失败的任务（如果任务的目标目录创建失败，则任务失败）
+        failed_tasks: List[Tuple[TransferTask, str]] = []
+        success_tasks: List[TransferTask] = []
+
+        for task in tasks:
+            task_failed = False
+            # 检查主目录
+            if task.target_dir in failed_dirs:
+                failed_tasks.append((task, f"创建目标目录失败: {task.target_dir}"))
+                task_failed = True
+            else:
+                # 检查关联文件的目录
+                for related_file in task.related_files:
+                    related_dir = related_file.target_path.parent
+                    if related_dir in failed_dirs:
+                        failed_tasks.append(
+                            (task, f"创建关联文件目录失败: {related_dir}")
+                        )
+                        task_failed = True
+                        break
+
+            if not task_failed:
+                success_tasks.append(task)
+
+        return failed_tasks, success_tasks
+
+    def _batch_move_or_copy(
+        self, tasks: List[TransferTask]
+    ) -> Tuple[List[Tuple[TransferTask, str]], List[TransferTask]]:
         """
         批量移动/复制文件（按目标目录分组）
 
         :param tasks: 任务列表
+
+        :return: (失败任务列表, 成功任务列表)
         """
         logger.info("【整理接管】开始批量移动/复制文件")
+
+        # 跟踪每个任务的主文件处理状态（主文件失败则任务失败）
+        task_main_file_status: Dict[TransferTask, bool] = {
+            task: False for task in tasks
+        }
+        # 跟踪每个任务的失败原因
+        task_failures: Dict[TransferTask, str] = {}
 
         # 按目标目录和操作类型分组
         operations: Dict[
@@ -467,12 +587,26 @@ class TransferHandler:
                         logger.error(
                             f"【整理接管】无法获取或创建目标目录: {target_dir}"
                         )
+                        # 该目录下的所有任务都失败
+                        affected_tasks = {task for _, _, task, _, _ in files}
+                        for task in affected_tasks:
+                            if task not in task_failures:
+                                task_failures[task] = (
+                                    f"无法获取或创建目标目录: {target_dir}"
+                                )
                         continue
                     target_dir_id = int(folder_item.fileid)
                 except Exception as e:
                     logger.error(
                         f"【整理接管】无法获取目标目录ID: {target_dir}, 错误: {e}"
                     )
+                    # 该目录下的所有任务都失败
+                    affected_tasks = {task for _, _, task, _, _ in files}
+                    for task in affected_tasks:
+                        if task not in task_failures:
+                            task_failures[task] = (
+                                f"无法获取目标目录ID: {target_dir}, 错误: {e}"
+                            )
                     continue
 
                 # 批量检查目标文件是否已存在
@@ -501,6 +635,9 @@ class TransferHandler:
                 for fileitem, target_name, task, is_main, related_file in files:
                     if not fileitem.fileid:
                         logger.warn(f"【整理接管】文件缺少 fileid: {fileitem.path}")
+                        # 如果是主文件缺少 fileid，标记任务失败
+                        if is_main:
+                            task_failures[task] = f"文件缺少 fileid: {fileitem.path}"
                         continue
 
                     # 检查目标文件是否已存在
@@ -569,9 +706,11 @@ class TransferHandler:
                                 )
 
                             if should_skip:
-                                # 不覆盖，跳过此文件
+                                # 不覆盖，跳过此文件（文件已存在，视为成功）
                                 if is_main:
                                     task.fileitem.fileid = existing_item.fileid
+                                    # 文件已存在，视为成功
+                                    task_main_file_status[task] = True
                                 elif related_file:
                                     related_file.fileitem.fileid = existing_item.fileid
                                 continue
@@ -706,10 +845,20 @@ class TransferHandler:
                         logger.info(
                             f"【整理接管】批量移动 {len(file_ids)} 个文件到 {target_dir}"
                         )
+                        # 标记所有文件移动成功
+                        for file_id, (
+                            task,
+                            is_main,
+                            target_name,
+                            related_file,
+                        ) in file_mapping.items():
+                            if is_main:
+                                task_main_file_status[task] = True
                     except Exception as batch_error:
                         logger.warn(
                             f"【整理接管】批量移动失败，尝试逐个移动: {batch_error}"
                         )
+                        failed_file_ids = []
                         for file_id in file_ids:
                             try:
                                 resp = self.client.fs_move(file_id, pid=target_dir_id)
@@ -751,6 +900,9 @@ class TransferHandler:
                                         self.cache_updater.update_file_cache(
                                             new_fileitem
                                         )
+                                        # 标记主文件移动成功
+                                        if is_main:
+                                            task_main_file_status[task] = True
                                     except Exception as cache_error:
                                         logger.debug(
                                             f"【整理接管】更新移动文件缓存失败 (file_id: {file_id}): {cache_error}"
@@ -759,6 +911,14 @@ class TransferHandler:
                                 logger.error(
                                     f"【整理接管】移动文件失败 (file_id: {file_id}): {single_error}"
                                 )
+                                failed_file_ids.append(file_id)
+                        # 记录失败的主文件对应的任务
+                        for failed_file_id in failed_file_ids:
+                            task, is_main, target_name, related_file = file_mapping.get(
+                                failed_file_id, (None, False, "", None)
+                            )
+                            if task and is_main:
+                                task_failures[task] = f"移动主文件失败: {target_name}"
                 elif transfer_type == "copy":
                     try:
                         resp = self.client.fs_copy(file_ids, pid=target_dir_id)
@@ -814,6 +974,9 @@ class TransferHandler:
                                         ),
                                     )
                                     self.cache_updater.update_file_cache(new_fileitem)
+                                    # 标记主文件复制成功
+                                    if is_main:
+                                        task_main_file_status[task] = True
                             except Exception as cache_error:
                                 logger.debug(
                                     f"【整理接管】更新复制文件缓存失败 (file_id: {file_id}): {cache_error}"
@@ -822,6 +985,7 @@ class TransferHandler:
                         logger.warn(
                             f"【整理接管】批量复制失败，尝试逐个复制: {batch_error}"
                         )
+                        failed_file_ids = []
                         for file_id in file_ids:
                             try:
                                 resp = self.client.fs_copy(file_id, pid=target_dir_id)
@@ -875,6 +1039,9 @@ class TransferHandler:
                                         self.cache_updater.update_file_cache(
                                             new_fileitem
                                         )
+                                        # 标记主文件复制成功
+                                        if is_main:
+                                            task_main_file_status[task] = True
                                 except Exception as cache_error:
                                     logger.debug(
                                         f"【整理接管】更新复制文件缓存失败 (file_id: {file_id}): {cache_error}"
@@ -883,14 +1050,95 @@ class TransferHandler:
                                 logger.error(
                                     f"【整理接管】复制文件失败 (file_id: {file_id}): {single_error}"
                                 )
+                                failed_file_ids.append(file_id)
+                        # 记录失败的主文件对应的任务
+                        for failed_file_id in failed_file_ids:
+                            task, is_main, target_name, related_file = file_mapping.get(
+                                failed_file_id, (None, False, "", None)
+                            )
+                            if task and is_main:
+                                task_failures[task] = f"复制主文件失败: {target_name}"
 
             except Exception as e:
                 logger.error(
                     f"【整理接管】批量移动/复制失败 (目录: {target_dir}, 类型: {transfer_type}): {e}",
                     exc_info=True,
                 )
+                # 记录该目录下所有任务失败
+                affected_tasks = {task for _, _, task, _, _ in files}
+                for task in affected_tasks:
+                    if task not in task_failures:
+                        task_failures[task] = (
+                            f"批量移动/复制失败 (目录: {target_dir}): {e}"
+                        )
 
-        logger.info("【整理接管】批量移动/复制完成")
+        # 收集失败和成功的任务
+        failed_tasks: List[Tuple[TransferTask, str]] = []
+        success_tasks: List[TransferTask] = []
+        # 需要检查的任务（有 fileid 但状态未标记，可能是文件已存在被跳过但未正确标记）
+        tasks_to_check: List[TransferTask] = []
+
+        for task in tasks:
+            if task in task_failures:
+                failed_tasks.append((task, task_failures[task]))
+            elif task_main_file_status.get(task, False):
+                success_tasks.append(task)
+            else:
+                # 主文件未处理或处理失败
+                # 如果文件有 fileid，可能是已存在被跳过但未正确标记状态
+                if task.fileitem.fileid:
+                    tasks_to_check.append(task)
+                else:
+                    failed_tasks.append((task, "主文件移动/复制未完成"))
+
+        # 批量检查需要确认的任务（避免逐个调用 API）
+        if tasks_to_check:
+            # 按目标目录分组，批量检查
+            tasks_by_dir: Dict[Path, List[TransferTask]] = defaultdict(list)
+            for task in tasks_to_check:
+                tasks_by_dir[task.target_dir].append(task)
+
+            for target_dir, dir_tasks in tasks_by_dir.items():
+                try:
+                    # 批量列出目标目录的文件
+                    folder_item = self._get_folder(target_dir)
+                    if folder_item:
+                        existing_files = self.storage_chain.list_files(
+                            fileitem=folder_item,
+                        )
+                        if existing_files:
+                            # 创建文件名到 FileItem 的映射
+                            existing_files_map = {
+                                f.name: f for f in existing_files if f.type == "file"
+                            }
+                            # 检查每个任务的文件是否存在
+                            for task in dir_tasks:
+                                if task.target_name in existing_files_map:
+                                    # 文件已在目标位置，视为成功
+                                    success_tasks.append(task)
+                                else:
+                                    failed_tasks.append((task, "主文件移动/复制未完成"))
+                        else:
+                            # 目录为空，所有任务都失败
+                            for task in dir_tasks:
+                                failed_tasks.append((task, "主文件移动/复制未完成"))
+                    else:
+                        # 无法获取目录，所有任务都失败
+                        for task in dir_tasks:
+                            failed_tasks.append((task, "主文件移动/复制未完成"))
+                except Exception as e:
+                    logger.warn(
+                        f"【整理接管】批量检查文件存在性失败 (目录: {target_dir}): {e}"
+                    )
+                    # 检查失败，所有任务都标记为失败
+                    for task in dir_tasks:
+                        failed_tasks.append((task, "主文件移动/复制未完成"))
+
+        logger.info(
+            f"【整理接管】批量移动/复制完成，成功: {len(success_tasks)} 个，失败: {len(failed_tasks)} 个"
+        )
+
+        return failed_tasks, success_tasks
 
     def _delete_version_files(
         self,
@@ -1083,23 +1331,30 @@ class TransferHandler:
         except Exception as e:
             logger.warn(f"【整理接管】更新文件ID失败 ({target_path}): {e}")
 
-    def _batch_rename_files(self, tasks: List[TransferTask]) -> None:
+    def _batch_rename_files(
+        self, tasks: List[TransferTask]
+    ) -> Tuple[List[Tuple[TransferTask, str]], List[TransferTask]]:
         """
         批量重命名文件
 
         :param tasks: 任务列表
+
+        :return: (失败任务列表, 成功任务列表)
         """
         logger.info("【整理接管】开始批量重命名文件")
 
-        # 收集需要重命名的文件（file_id, new_name）
-        rename_items: List[Tuple[int, str]] = []
+        # 收集需要重命名的文件（file_id, new_name, task, is_main）
+        rename_items: List[Tuple[int, str, TransferTask, bool]] = []
+        task_rename_status: Dict[TransferTask, bool] = {task: True for task in tasks}
 
         for task in tasks:
             # 检查主视频是否需要重命名
             source_name = Path(task.fileitem.path).name
             target_name = task.target_name
             if source_name != target_name and task.fileitem.fileid:
-                rename_items.append((int(task.fileitem.fileid), target_name))
+                rename_items.append(
+                    (int(task.fileitem.fileid), target_name, task, True)
+                )
 
             # 检查关联文件是否需要重命名
             for related_file in task.related_files:
@@ -1107,16 +1362,19 @@ class TransferHandler:
                 target_name = related_file.target_path.name
                 if source_name != target_name and related_file.fileitem.fileid:
                     rename_items.append(
-                        (int(related_file.fileitem.fileid), target_name)
+                        (int(related_file.fileitem.fileid), target_name, task, False)
                     )
 
         if not rename_items:
             logger.info("【整理接管】没有需要重命名的文件")
-            return
+            return [], tasks
 
         try:
-            update_name(self.client, rename_items)
-            for file_id, new_name in rename_items:
+            update_name(
+                self.client,
+                [(file_id, new_name) for file_id, new_name, _, _ in rename_items],
+            )
+            for file_id, new_name, _, _ in rename_items:
                 self.cache_updater.update_rename_cache(file_id, new_name)
             logger.info(
                 f"【整理接管】批量重命名完成，共重命名 {len(rename_items)} 个文件"
@@ -1124,13 +1382,38 @@ class TransferHandler:
         except Exception as e:
             logger.error(f"【整理接管】批量重命名失败: {e}", exc_info=True)
             logger.info("【整理接管】尝试逐个重命名...")
-            for file_id, new_name in rename_items:
+            failed_rename_items = []
+            for file_id, new_name, task, is_main in rename_items:
                 try:
                     update_name(self.client, [(file_id, new_name)])
+                    self.cache_updater.update_rename_cache(file_id, new_name)
                 except Exception as rename_error:
                     logger.error(
                         f"【整理接管】重命名失败 (file_id: {file_id}, name: {new_name}): {rename_error}"
                     )
+                    failed_rename_items.append((file_id, new_name, task, is_main))
+                    # 如果是主文件重命名失败，标记任务失败
+                    if is_main:
+                        task_rename_status[task] = False
+
+            # 记录失败的任务
+            failed_tasks: List[Tuple[TransferTask, str]] = []
+            for file_id, new_name, task, is_main in failed_rename_items:
+                if (
+                    is_main
+                    and task in task_rename_status
+                    and not task_rename_status[task]
+                ):
+                    failed_tasks.append((task, f"重命名主文件失败: {new_name}"))
+
+            success_tasks = [
+                task for task in tasks if task not in [t for t, _ in failed_tasks]
+            ]
+
+            return failed_tasks, success_tasks
+
+        # 所有重命名都成功
+        return [], tasks
 
     def _record_history(self, tasks: List[TransferTask]) -> None:
         """
@@ -1775,6 +2058,28 @@ class TransferHandler:
             dir_item = self.storage_chain.get_parent_item(dir_item)
 
         return dirs_to_delete
+
+    def _batch_record_failures(
+        self, failed_tasks: List[Tuple[TransferTask, str]]
+    ) -> None:
+        """
+        批量记录失败历史
+
+        :param failed_tasks: 失败任务列表，每个元素为 (task, error_message)
+        """
+        if not failed_tasks:
+            return
+
+        logger.info(f"【整理接管】批量记录失败历史，共 {len(failed_tasks)} 个失败任务")
+
+        for task, message in failed_tasks:
+            try:
+                self._record_fail(task, message, is_batch_failure=True)
+            except Exception as e:
+                logger.error(
+                    f"【整理接管】记录失败历史失败 (任务: {task.fileitem.name}): {e}",
+                    exc_info=True,
+                )
 
     def _record_fail(
         self, task: TransferTask, message: str, is_batch_failure: bool = False

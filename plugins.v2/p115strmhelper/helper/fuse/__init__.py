@@ -1,6 +1,6 @@
 __author__ = "ChenyangGao <https://chenyanggao.github.io>"
 __license__ = "GPLv3 <https://www.gnu.org/licenses/gpl-3.0.txt>"
-__all__ = ["P115FuseOperations"]
+__all__ = ["P115FuseOperations", "FUSE_AVAILABLE"]
 
 from errno import ENOTDIR
 from collections.abc import Callable, Mapping
@@ -14,7 +14,15 @@ from stat import S_IFDIR, S_IFREG
 from typing import Any
 from uuid import uuid4
 
-from mfusepy import FUSE, Operations
+try:
+    from mfusepy import FUSE, Operations
+
+    FUSE_AVAILABLE = True
+except ImportError:
+    FUSE = None
+    Operations = None
+    FUSE_AVAILABLE = False
+
 from orjson import dumps
 from p115client import P115Client
 
@@ -90,6 +98,16 @@ def attr_to_stat(attr: Mapping, /, uid: int = 0, gid: int = 0) -> dict:
     }
 
 
+if not FUSE_AVAILABLE:
+
+    class Operations:
+        """
+        占位基类，当 mfusepy 不可用时使用
+        """
+
+        pass
+
+
 class P115FuseOperations(Operations):
     def __init__(
         self,
@@ -107,6 +125,12 @@ class P115FuseOperations(Operations):
         :param uid: 文件所有者 UID
         :param gid: 文件所有者 GID
         """
+        if not FUSE_AVAILABLE:
+            raise ImportError(
+                "mfusepy 未安装，无法使用 FUSE 功能。"
+                "请安装 mfusepy: pip install mfusepy"
+            )
+
         if client is None:
             raise ValueError("client 参数不能为 None，请提供 P115Client 实例或 cookie")
 
@@ -208,6 +232,12 @@ class P115FuseOperations(Operations):
         return 0
 
     def run_forever(self, /, mountpoint: None | str = None, **options):
+        if not FUSE_AVAILABLE:
+            raise ImportError(
+                "mfusepy 未安装，无法使用 FUSE 功能。"
+                "请安装 mfusepy: pip install mfusepy"
+            )
+
         if not mountpoint:
             mountpoint = str(uuid4())
         will_remove_mountpoint = not exists(mountpoint)
