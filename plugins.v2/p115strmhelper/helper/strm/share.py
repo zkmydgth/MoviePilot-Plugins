@@ -269,6 +269,7 @@ class ShareStrmHelper:
                     share_code=config.share_code,
                     receive_code=config.share_receive,
                     cid=0,
+                    speed_mode=config.speed_mode,
                 ),
                 1_000,
             ):

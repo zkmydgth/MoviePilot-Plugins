@@ -89,6 +89,36 @@ class ConfigManager(BaseModel):
         )
         return CronUtils.get_default_cron()
 
+    @field_validator("share_strm_config", mode="before")
+    @classmethod
+    def _validate_share_strm_config(cls, v: Any) -> List[ShareStrmConfig]:
+        """
+        验证并转换 share_strm_config
+        """
+        if v is None:
+            return []
+        if isinstance(v, list):
+            return [
+                ShareStrmConfig.model_validate(item) if isinstance(item, dict) else item
+                for item in v
+            ]
+        return []
+
+    @field_validator("api_strm_config", mode="before")
+    @classmethod
+    def _validate_api_strm_config(cls, v: Any) -> List[StrmApiConfig]:
+        """
+        验证并转换 api_strm_config
+        """
+        if v is None:
+            return []
+        if isinstance(v, list):
+            return [
+                StrmApiConfig.model_validate(item) if isinstance(item, dict) else item
+                for item in v
+            ]
+        return []
+
     @model_validator(mode="before")
     @classmethod
     def _validate_cron_fields_before(cls, data: Dict[str, Any]) -> Dict[str, Any]:
@@ -576,9 +606,12 @@ class ConfigManager(BaseModel):
                 key in updates for key in filename_template_keys
             )
 
-            for key, value in updates.items():
-                if hasattr(self, key):
-                    setattr(self, key, value)
+            current_data = self.model_dump(mode="json")
+            current_data.update(updates)
+            validated = self.model_validate(current_data)
+            for key in updates.keys():
+                if hasattr(validated, key):
+                    setattr(self, key, getattr(validated, key))
 
             if "aliyundrive_token" in updates:
                 if not updates.get("aliyundrive_token"):

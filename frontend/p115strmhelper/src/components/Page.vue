@@ -862,6 +862,10 @@
                           <v-icon icon="mdi-file-size" size="x-small" class="mr-1"></v-icon>
                           最小文件: {{ formatBytes(config.min_file_size) }}
                         </span>
+                        <span v-if="config.speed_mode !== undefined">
+                          <v-icon icon="mdi-speedometer" size="x-small" class="mr-1"></v-icon>
+                          速度: {{ ['最快', '快', '慢', '最慢'][config.speed_mode] }}
+                        </span>
                         <v-chip v-if="config.moviepilot_transfer" size="x-small" color="primary" variant="tonal">
                           MP整理
                         </v-chip>
@@ -966,6 +970,17 @@
             <v-text-field v-model="shareConfigDialog.minFileSizeFormatted" label="分享生成最小文件大小" hint="小于此值不生成STRM(K,M,G)"
               persistent-hint variant="outlined" density="compact" placeholder="例如: 100M" clearable
               prepend-inner-icon="mdi-file-document"></v-text-field>
+          </v-col>
+          <v-col cols="12" md="6">
+            <v-select v-model="shareConfigDialog.speedMode" label="运行速度模式" hint="控制API调用速率，避免触发风控" persistent-hint
+              variant="outlined" density="compact" :items="speedModeItems" prepend-inner-icon="mdi-speedometer">
+              <template v-slot:item="{ props, item }">
+                <v-list-item v-bind="props" :title="item.raw.title" :subtitle="item.raw.subtitle"></v-list-item>
+              </template>
+              <template v-slot:selection="{ item }">
+                <span>{{ item.raw.title }}</span>
+              </template>
+            </v-select>
           </v-col>
         </v-row>
 
@@ -1851,11 +1866,19 @@ const shareConfigDialog = reactive({
   sharePath: '/',
   localPath: '',
   minFileSizeFormatted: '',
+  speedMode: 3,
   moviepilotTransfer: false,
   autoDownloadMediainfo: false,
   mediaServerRefresh: false,
   scrapeMetadata: false,
 });
+
+const speedModeItems = [
+  { title: '最快', subtitle: '0.25s, 0.25s, 0.75s', value: 0 },
+  { title: '快', subtitle: '0.5s, 0.5s, 1.5s', value: 1 },
+  { title: '慢', subtitle: '1s, 1s, 2s', value: 2 },
+  { title: '最慢', subtitle: '1.5s, 1.5s, 2s (推荐)', value: 3 },
+];
 
 const mediaservers = ref([]);
 
@@ -1917,6 +1940,7 @@ const addShareConfig = () => {
   shareConfigDialog.sharePath = '/';
   shareConfigDialog.localPath = '';
   shareConfigDialog.minFileSizeFormatted = '';
+  shareConfigDialog.speedMode = 3;
   shareConfigDialog.moviepilotTransfer = false;
   shareConfigDialog.autoDownloadMediainfo = false;
   shareConfigDialog.mediaServerRefresh = false;
@@ -1935,6 +1959,7 @@ const editShareConfig = (index) => {
   shareConfigDialog.sharePath = config.share_path || '/';
   shareConfigDialog.localPath = config.local_path || '';
   shareConfigDialog.minFileSizeFormatted = formatBytes(config.min_file_size || 0);
+  shareConfigDialog.speedMode = config.speed_mode !== undefined ? config.speed_mode : 3;
   shareConfigDialog.moviepilotTransfer = config.moviepilot_transfer || false;
   shareConfigDialog.autoDownloadMediainfo = config.auto_download_mediainfo || false;
   shareConfigDialog.mediaServerRefresh = config.media_server_refresh || false;
@@ -2009,6 +2034,7 @@ const saveShareConfig = () => {
     share_path: shareConfigDialog.sharePath || null,
     local_path: shareConfigDialog.localPath,
     min_file_size: parseSize(shareConfigDialog.minFileSizeFormatted) || null,
+    speed_mode: shareConfigDialog.speedMode,
     moviepilot_transfer: shareConfigDialog.moviepilotTransfer,
     auto_download_mediainfo: shareConfigDialog.moviepilotTransfer ? false : shareConfigDialog.autoDownloadMediainfo,
     media_server_refresh: shareConfigDialog.moviepilotTransfer ? false : shareConfigDialog.mediaServerRefresh,

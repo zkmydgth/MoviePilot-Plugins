@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Dict, Optional
+from typing import Dict, Literal, Optional
 
 from pydantic import BaseModel, model_validator
 
@@ -58,6 +58,8 @@ class ShareStrmConfig(BaseModel):
     media_server_refresh: bool = False
     # 是否刮削元数据
     scrape_metadata: bool = False
+    # 运行速度模式
+    speed_mode: Literal[0, 1, 2, 3] = 3
 
     @model_validator(mode="after")
     def enforce_moviepilot_constraints(self):

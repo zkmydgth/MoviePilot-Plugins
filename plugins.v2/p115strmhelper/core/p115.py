@@ -2,10 +2,11 @@ __author__ = "DDSRem <https://ddsrem.com>"
 __all__ = ["iter_share_files_with_path", "get_pid_by_path"]
 
 
+from dataclasses import dataclass
 from itertools import cycle
 from os import PathLike
 from pathlib import Path
-from typing import Iterator, Literal, List, Tuple, Dict, Any, Set
+from typing import Iterator, Literal, List, Tuple, Dict, Any, Set, Optional
 from concurrent.futures import ThreadPoolExecutor, Future, as_completed
 
 from p115client import P115Client, check_response
@@ -13,6 +14,17 @@ from p115client.tool.attr import normalize_attr
 
 from ..core.cache import idpathcacher
 from ..utils.limiter import ApiEndpointCooldown
+
+
+@dataclass
+class ApiEndpointInfo:
+    """
+    API 端点信息
+    """
+
+    endpoint: ApiEndpointCooldown
+    api_name: str
+    base_url: Optional[str] = None
 
 
 def iter_share_files_with_path(
@@ -25,6 +37,7 @@ def iter_share_files_with_path(
     ] = "user_ptime",
     asc: Literal[0, 1] = 1,
     max_workers: int = 100,
+    speed_mode: Literal[0, 1, 2, 3] = 3,
     **request_kwargs,
 ) -> Iterator[dict]:
     """
@@ -45,35 +58,60 @@ def iter_share_files_with_path(
 
     :param asc: 升序排列。0: 否，1: 是
     :param max_workers: 最大工作线程数
+    :param speed_mode: 运行速度模式
+        0: 最快 (0.25s, 0.25s, 0.75s)
+        1: 快 (0.5s, 0.5s, 1.5s)
+        2: 慢 (1s, 1s, 2s)
+        3: 最慢 (1.5s, 1.5s, 2s)
 
     :return: 迭代器，返回此分享链接下的（所有文件）文件信息
     """
     if isinstance(client, (str, PathLike)):
         client = P115Client(client, check_for_relogin=True)
-    snap_app_http = ApiEndpointCooldown(
-        api_callable=lambda p: client.share_snap_app(
-            p, app="android", base_url="http://pro.api.115.com", **request_kwargs
+    speed_configs = {
+        0: (0.25, 0.25, 0.75),
+        1: (0.5, 0.5, 1.5),
+        2: (1.0, 1.0, 2.0),
+        3: (1.5, 1.5, 2.0),
+    }
+    app_http_cooldown, app_https_cooldown, api_cooldown = speed_configs.get(
+        speed_mode, speed_configs[1]
+    )
+    snap_app_http_info = ApiEndpointInfo(
+        endpoint=ApiEndpointCooldown(
+            api_callable=lambda p: client.share_snap_app(
+                p, app="android", base_url="http://pro.api.115.com", **request_kwargs
+            ),
+            cooldown=app_http_cooldown,
         ),
-        cooldown=0.25,
+        api_name="share_snap_app_http",
+        base_url="http://pro.api.115.com",
     )
-    snap_app_https = ApiEndpointCooldown(
-        api_callable=lambda p: client.share_snap_app(
-            p, app="android", base_url="https://proapi.115.com", **request_kwargs
+    snap_app_https_info = ApiEndpointInfo(
+        endpoint=ApiEndpointCooldown(
+            api_callable=lambda p: client.share_snap_app(
+                p, app="android", base_url="https://proapi.115.com", **request_kwargs
+            ),
+            cooldown=app_https_cooldown,
         ),
-        cooldown=0.25,
+        api_name="share_snap_app_https",
+        base_url="https://proapi.115.com",
     )
-    snap_api = ApiEndpointCooldown(
-        api_callable=lambda p: P115Client.share_snap(p, **request_kwargs),
-        cooldown=0.75,
+    snap_api_info = ApiEndpointInfo(
+        endpoint=ApiEndpointCooldown(
+            api_callable=lambda p: P115Client.share_snap(p, **request_kwargs),
+            cooldown=api_cooldown,
+        ),
+        api_name="share_snap",
+        base_url=None,
     )
-
-    repeating_pair = [snap_app_http, snap_app_https]
+    repeating_pair = [snap_app_http_info, snap_app_https_info]
     first_page_api_pool = repeating_pair * 6
-    first_page_api_pool.insert(6, snap_api)
+    first_page_api_pool.insert(6, snap_api_info)
     first_page_api_cycler = cycle(first_page_api_pool)
 
     def _job(
-        api_endpoint: ApiEndpointCooldown,
+        api_info: ApiEndpointInfo,
         _cid: int,
         path_prefix: str,
         offset: int,
@@ -90,8 +128,26 @@ def iter_share_files_with_path(
             "asc": asc,
             "o": order,
         }
-        resp = api_endpoint(payload)
-        check_response(resp)
+        try:
+            resp = api_info.endpoint(payload)
+            check_response(resp)
+        except Exception as e:
+            api_info_str = f"API: {api_info.api_name}"
+            if api_info.base_url:
+                api_info_str += f", Base URL: {api_info.base_url}"
+            api_info_str += f", Payload: {payload}"
+            error_msg = f"{str(e)} | {api_info_str}"
+            try:
+                if e.args:
+                    e.args = (error_msg,) + e.args[1:]
+                else:
+                    e.args = (error_msg,)
+            except (TypeError, AttributeError):
+                wrapper_msg = f"Exception occurred: {error_msg}"
+                wrapper_e = RuntimeError(wrapper_msg)
+                wrapper_e.__cause__ = e
+                raise wrapper_e from e
+            raise
         data = resp.get("data", {})
         count = data.get("count", 0)
         items = data.get("list", [])
@@ -128,16 +184,16 @@ def iter_share_files_with_path(
                     for task_args in subdirs:
                         task_offset = task_args[2]
                         if task_offset > 0:
-                            api_to_use = snap_api
+                            api_to_use = snap_api_info
                         else:
                             api_to_use = next(first_page_api_cycler)
                         new_future = executor.submit(_job, api_to_use, *task_args)
                         pending_futures.add(new_future)
-                except Exception as e:
+                except Exception:
                     for f in pending_futures:
                         f.cancel()
                     executor.shutdown(wait=False, cancel_futures=True)
-                    raise e
+                    raise
                 break
 
 
