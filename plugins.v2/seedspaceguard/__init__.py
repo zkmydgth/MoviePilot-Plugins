@@ -37,7 +37,7 @@ class SeedSpaceGuard(_PluginBase):
     plugin_name = "保种空间守护"
     plugin_desc = ("存储空间不足时自动清理保种目录中「保种最久」的资源（种子+文件），"
                    "避免 H&R。支持种子级删除与仅文件两种模式，可限定目标下载器。")
-    plugin_version = "1.0.6"
+    plugin_version = "1.0.7"
     plugin_author = "zkmydgth"
     plugin_config_prefix = "seedspaceguard_"
     plugin_order = 100
@@ -202,7 +202,9 @@ class SeedSpaceGuard(_PluginBase):
                                             "type": "info",
                                             "variant": "tonal",
                                             "text": "使用说明：卷剩余空间低于阈值时，按「保种最久」优先自动清理下载目录中的资源，"
-                                                    "直到空间恢复到阈值以上。种子级=删除下载器中最旧的已完成种子（连带文件，"
+                                                    "直到空间恢复到阈值以上。删除前会先按缺口预选清单，删除后等待"
+                                                    "「源文件联动清理」等插件释放媒体库侧硬链接再复核空间（不会因空间释放"
+                                                    "滞后而一次性过量删除）。种子级=删除下载器中最旧的已完成种子（连带文件，"
                                                     "可用下方「目标下载器」限定范围，留空=全部）；"
                                                     "仅文件=只删文件（可配合源文件联动插件）。建议先试运行预览将删内容，确认后再正式启用；"
                                                     "清理目录本身不会被删除。",
@@ -544,8 +546,14 @@ class SeedSpaceGuard(_PluginBase):
 
     def _clean_by_seed(self, free_gb: int, dry_run: bool) -> Tuple[int, float, List[str]]:
         """
-        种子级清理：按种子真实添加时间从早到晚删除已完成种子（连带文件），
+        种子级清理：按种子完成时间从早到晚删除已完成种子（连带文件），
         直到剩余空间恢复到阈值以上。
+
+        真实删除采用「按缺口预选 → 删除 → 等待联动释放 → 复核」的分轮策略：
+        删除前先按当前缺口从旧到新预选种子清单（名义累计 ≥ 缺口），删除后等待
+        「源文件联动清理」等插件释放媒体库侧硬链接（空间才会真正回收），再实测
+        空间决定是否按新缺口补删下一轮——避免边删边用滞后的实时空间判停而
+        一次性删除过量或永不停止。
 
         :param free_gb: 当前剩余空间（GB）
         :param dry_run: 是否试运行
@@ -562,13 +570,14 @@ class SeedSpaceGuard(_PluginBase):
         detail_lines: List[str] = []
         deleted = 0
         released_gb = 0.0
-        for cand in candidates:
-            # 试运行时空间不会真正释放，用累计候选大小模拟释放量判断是否达标
-            cur_free = free_gb + released_gb if dry_run else (self._disk_free_gb() or free_gb)
-            if cur_free >= self._threshold_gb:
-                break
-            added_text = datetime.fromtimestamp(cand["added"]).strftime("%Y-%m-%d")
-            if dry_run:
+
+        # 试运行：空间不会真正释放，用累计候选大小模拟释放量判断是否达标
+        if dry_run:
+            est_free = float(free_gb)
+            for cand in candidates:
+                if est_free >= self._threshold_gb:
+                    break
+                added_text = datetime.fromtimestamp(cand["added"]).strftime("%Y-%m-%d")
                 detail_lines.append(
                     f"[试运行] 将删除种子：{cand['title']}（{cand['downloader']}，"
                     f"添加于 {added_text}，{cand['size_gb']}GB）"
@@ -576,26 +585,58 @@ class SeedSpaceGuard(_PluginBase):
                 logger.info("【保种空间守护】%s", detail_lines[-1])
                 deleted += 1
                 released_gb += float(cand["size_gb"])
-                continue
-            try:
-                ok = cand["module"].remove_torrents(
-                    hashs=cand["hash"],
-                    delete_file=True,
-                    downloader=cand["downloader"],
-                )
-            except Exception as err:
-                logger.error("【保种空间守护】删除种子 %s 失败：%s", cand["title"], err)
-                continue
-            if ok:
-                deleted += 1
-                released_gb += float(cand["size_gb"])
-                detail_lines.append(
-                    f"已删除种子：{cand['title']}（{cand['downloader']}，"
-                    f"添加于 {added_text}）"
-                )
-                logger.info("【保种空间守护】%s", detail_lines[-1])
-                # 删除种子连带文件后，清理可能遗留的空目录（保护 target_dir 本身）
-                self._prune_empty_dirs(cand["path"])
+                est_free += float(cand["size_gb"])
+            return deleted, round(released_gb, 1), detail_lines
+
+        # 真实删除：分轮按缺口预选并删除，等待联动释放后复核
+        idx = 0
+        while True:
+            free_now = self._disk_free_gb() or free_gb
+            if free_now >= self._threshold_gb:
+                break
+            # 本轮按缺口预选种子：从最旧开始累计名义大小达到缺口即止
+            gap_gb = max(1, self._threshold_gb - free_now)
+            target_bytes = gap_gb * (1024 ** 3)
+            plan: List[Dict[str, Any]] = []
+            planned_bytes = 0.0
+            while idx < len(candidates):
+                cand = candidates[idx]
+                idx += 1
+                plan.append(cand)
+                planned_bytes += float(cand["size_gb"]) * (1024 ** 3)
+                if planned_bytes >= target_bytes:
+                    break
+            if not plan:
+                # 候选耗尽仍未达标，结束
+                break
+            for cand in plan:
+                try:
+                    ok = cand["module"].remove_torrents(
+                        hashs=cand["hash"],
+                        delete_file=True,
+                        downloader=cand["downloader"],
+                    )
+                except Exception as err:
+                    logger.error("【保种空间守护】删除种子 %s 失败：%s", cand["title"], err)
+                    continue
+                if ok:
+                    deleted += 1
+                    released_gb += float(cand["size_gb"])
+                    added_text = datetime.fromtimestamp(
+                        cand["added"]).strftime("%Y-%m-%d")
+                    detail_lines.append(
+                        f"已删除种子：{cand['title']}（{cand['downloader']}，"
+                        f"添加于 {added_text}）"
+                    )
+                    logger.info("【保种空间守护】%s", detail_lines[-1])
+                    # 删除种子连带文件后，清理可能遗留的空目录（保护 target_dir 本身）
+                    self._prune_empty_dirs(cand["path"])
+            # 等待源文件联动清理等插件删除媒体库侧硬链接后再复核空间
+            logger.info(
+                "【保种空间守护】本轮已删除 %d 个种子，等待 %d 秒联动释放后复核空间…",
+                len(plan), self._sync_wait_seconds,
+            )
+            time.sleep(self._sync_wait_seconds)
         return deleted, round(released_gb, 1), detail_lines
 
     def _collect_seed_candidates(self) -> List[Dict[str, Any]]:
@@ -689,13 +730,20 @@ class SeedSpaceGuard(_PluginBase):
 
     # ============================ 仅文件清理 ============================
 
-    def _clean_by_file(self, free_gb: int, dry_run: bool) -> Tuple[int, List[str]]:
+    def _clean_by_file(self, free_gb: int, dry_run: bool) -> Tuple[int, float, List[str]]:
         """
-        仅文件清理：按文件修改时间从旧到新删除目标目录内文件。
+        仅文件清理：按文件修改时间从旧到新删除目标目录内文件，
+        直到剩余空间恢复到阈值以上。
+
+        真实删除采用「按缺口预选 → 删除 → 等待联动释放 → 复核」的分轮策略：
+        下载目录文件与媒体库文件常为同一 inode 的硬链接，os.remove 只删除一侧
+        引用，空间需等「源文件联动清理」插件删除媒体库侧链接后才真正回收，
+        因此删除前先按当前缺口预选文件清单（名义累计 ≥ 缺口），删除后等待
+        联动释放再实测空间，未达标才按新缺口补删下一轮。
 
         :param free_gb: 当前剩余空间（GB）
         :param dry_run: 是否试运行
-        :return: （处理数，明细行）
+        :return: （处理数，预计/实际释放 GB，明细行）
         """
         patterns = [p.strip() for p in re.split(r"[,|，]", self._protect_pattern) if p.strip()]
         recent_secs = self._recent_skip_days * 86400
@@ -721,13 +769,14 @@ class SeedSpaceGuard(_PluginBase):
         detail_lines: List[str] = []
         deleted = 0
         released_gb = 0.0
-        for mtime, fpath, size in files:
-            # 试运行时空间不会真正释放，用累计文件大小模拟释放量判断是否达标
-            cur_free = free_gb + released_gb if dry_run else (self._disk_free_gb() or free_gb)
-            if cur_free >= self._threshold_gb:
-                break
-            mtime_text = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d")
-            if dry_run:
+
+        # 试运行：空间不会真正释放，用累计文件大小模拟释放量判断是否达标
+        if dry_run:
+            est_free = float(free_gb)
+            for mtime, fpath, size in files:
+                if est_free >= self._threshold_gb:
+                    break
+                mtime_text = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d")
                 detail_lines.append(
                     f"[试运行] 将删除文件：{fpath}（修改于 {mtime_text}，"
                     f"{round(size / (1024 ** 3), 1)}GB）"
@@ -735,18 +784,50 @@ class SeedSpaceGuard(_PluginBase):
                 logger.info("【保种空间守护】%s", detail_lines[-1])
                 deleted += 1
                 released_gb += size / (1024 ** 3)
-                continue
-            try:
-                os.remove(fpath)
-            except OSError as err:
-                logger.warning("【保种空间守护】删除文件 %s 失败：%s", fpath, err)
-                continue
-            deleted += 1
-            released_gb += size / (1024 ** 3)
-            detail_lines.append(f"已删除文件：{fpath}（修改于 {mtime_text}）")
-            logger.info("【保种空间守护】%s", detail_lines[-1])
-            # 删除文件后清理可能遗留的空目录（保护 target_dir 本身）
-            self._prune_empty_dirs(fpath)
+                est_free += size / (1024 ** 3)
+            return deleted, round(released_gb, 1), detail_lines
+
+        # 真实删除：分轮按缺口预选文件并删除，等待源文件联动清理释放媒体库侧
+        # 硬链接（空间才会真正回收）后复核，达标或候选耗尽即止
+        idx = 0
+        while True:
+            free_now = self._disk_free_gb() or free_gb
+            if free_now >= self._threshold_gb:
+                break
+            # 本轮按缺口预选文件：从最旧开始累计名义大小达到缺口即止
+            gap_gb = max(1, self._threshold_gb - free_now)
+            target_bytes = gap_gb * (1024 ** 3)
+            plan: List[Tuple[float, str, int]] = []
+            planned_bytes = 0.0
+            while idx < len(files):
+                item = files[idx]
+                idx += 1
+                plan.append(item)
+                planned_bytes += float(item[2])
+                if planned_bytes >= target_bytes:
+                    break
+            if not plan:
+                # 候选耗尽仍未达标，结束
+                break
+            for mtime, fpath, size in plan:
+                try:
+                    os.remove(fpath)
+                except OSError as err:
+                    logger.warning("【保种空间守护】删除文件 %s 失败：%s", fpath, err)
+                    continue
+                deleted += 1
+                released_gb += size / (1024 ** 3)
+                mtime_text = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d")
+                detail_lines.append(f"已删除文件：{fpath}（修改于 {mtime_text}）")
+                logger.info("【保种空间守护】%s", detail_lines[-1])
+                # 删除文件后清理可能遗留的空目录（保护 target_dir 本身）
+                self._prune_empty_dirs(fpath)
+            # 等待源文件联动清理插件删除媒体库侧硬链接后再复核空间
+            logger.info(
+                "【保种空间守护】本轮已删除 %d 个文件，等待 %d 秒联动释放后复核空间…",
+                len(plan), self._sync_wait_seconds,
+            )
+            time.sleep(self._sync_wait_seconds)
         return deleted, round(released_gb, 1), detail_lines
 
     # ============================ 工具方法 ============================
