@@ -64,7 +64,7 @@ class OOPServerRequest:
         for attempt in range(self.max_retries):
             try:
                 response = self.session.request(
-                    method, "https://115_server.ddsrem.com" + path, **kwargs
+                    method, "https://115server.ddsrem.com" + path, **kwargs
                 )
 
                 if response.status_code >= 400:
