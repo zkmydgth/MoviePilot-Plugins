@@ -16,8 +16,10 @@ from app.log import logger
 from app.helper.storage import StorageHelper
 from app.chain.storage import StorageChain
 from app.utils.string import StringUtils
+from app.schemas import NotificationType
 
 from ..core.config import configer
+from ..core.message import post_message
 from ..utils.oopserver import OOPServerRequest
 from ..utils.sentry import sentry_manager
 
@@ -277,10 +279,17 @@ class U115OpenHelper:
             except Exception as e:
                 logger.warn(f"【P115Open】上传信息报告服务器失败: {e}")
 
-        def send_upload_wait():
+        def send_upload_wait(target_name):
             """
             发送上传等待
             """
+            if configer.notify:
+                post_message(
+                    mtype=NotificationType.Plugin,
+                    title="【115网盘】上传模块增强",
+                    text=f"\n触发秒传等待：{target_name}\n",
+                )
+
             try:
                 self.oopserver_request.make_request(
                     path="/upload/wait",
@@ -466,7 +475,7 @@ class U115OpenHelper:
                             break
                         logger.info(f"【P115Open】休眠，等待秒传: {target_name}")
                         if not send_wait:
-                            send_upload_wait()
+                            send_upload_wait(target_name)
                             send_wait = True
                         time.sleep(int(configer.get_config("upload_module_wait_time")))
                     else:
