@@ -2,7 +2,7 @@ import re
 from collections import defaultdict
 from pathlib import Path
 from time import time
-from typing import List, Dict, Tuple, Optional
+from typing import List, Dict, Tuple, Optional, Set
 
 from p115client import P115Client, check_response
 from p115client.tool.edit import update_name
@@ -1222,10 +1222,10 @@ class TransferHandler:
                 ] = defaultdict(list)
 
                 # 收集所有目标文件的季集信息
-                target_seasons_episodes: set[Tuple[Optional[int], Optional[int]]] = (
+                target_seasons_episodes: Set[Tuple[Optional[int], Optional[int]]] = (
                     set()
                 )
-                for target_path, task in tasks:
+                for target_path, _ in tasks:
                     meta = MetaInfoPath(target_path)
                     # 转换为整数（MetaInfoPath 的 season/episode 可能是字符串或整数）
                     season: Optional[int] = None
