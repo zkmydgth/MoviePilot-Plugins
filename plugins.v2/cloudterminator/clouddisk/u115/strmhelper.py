@@ -1,8 +1,9 @@
 import sqlite3
 from pathlib import Path
 
-from p115updatedb.query import iter_children, get_path, get_pickcode
+from p115updatedb.query import iter_children, get_path, get_pickcode, id_to_path
 from p115updatedb import updatedb
+from ...db_manager.u115strmfiles_oper import U115StrmFilesOper
 
 from app.log import logger
 
@@ -47,6 +48,12 @@ class U115StrmHelper:
             top_dirs=0,
         )
 
+    def get_id_by_path(self, path):
+        """
+        通过文件夹路径获取文件夹 ID
+        """
+        return id_to_path(self.connection, path, False)
+
     def get_video_file_path(self, parent_id: int):
         """
         获取视频文件路径
@@ -60,11 +67,9 @@ class U115StrmHelper:
                 self.path_list.append([path, file_parent_id])
         return self.path_list
 
-    def generate_strm_files_db(
-        self, parent_id, target_dir, server_address, database="strm_db.sqlite"
-    ):
+    def generate_strm_files_db(self, parent_id, target_dir, server_address):
         """
-        依据数据库生成 STRM 文件并存储信息到 SQLite 数据库
+        依据数据库生成 STRM 文件
         """
 
         if parent_id != 0:
@@ -76,12 +81,7 @@ class U115StrmHelper:
         target_dir = target_dir.rstrip("/")
         server_address = server_address.rstrip("/")
 
-        conn = sqlite3.connect(database)
-        cursor = conn.cursor()
-
-        cursor.execute("""CREATE TABLE IF NOT EXISTS strm_files
-                        (file_path TEXT, content TEXT)""")
-        conn.commit()
+        strm_oper = U115StrmFilesOper()
 
         for file_path, file_parent_id in path_list:
             file_path = Path(target_dir) / Path(file_path).relative_to(removal_path)
@@ -91,13 +91,12 @@ class U115StrmHelper:
             new_file_path = file_target_dir / file_name
 
             if file_path.suffix not in self.rmt_mediaext:
-                logger.warn("跳过网盘路径： %s", str(file_path).replace(str(target_dir), "", 1))
+                logger.warn(
+                    "跳过网盘路径： %s", str(file_path).replace(str(target_dir), "", 1)
+                )
                 continue
 
-            cursor.execute(
-                "SELECT 1 FROM strm_files WHERE file_path=?", (str(new_file_path),)
-            )
-            if cursor.fetchone():
+            if strm_oper.get_by_path(str(new_file_path)):
                 logger.warn("跳过 %s", str(new_file_path))
                 continue
 
@@ -107,30 +106,18 @@ class U115StrmHelper:
             content = f"{server_address}/{pickcode}/{original_file_name}"
             with open(new_file_path, "w", encoding="utf-8") as file:
                 file.write(content)
-
-            cursor.execute(
-                "INSERT INTO strm_files VALUES (?,?)", (str(new_file_path), content)
-            )
+            strm_oper.add(file_path=str(new_file_path), content=content)
             logger.info("生成 %s", str(new_file_path))
-        conn.commit()
-        conn.close()
 
-    def generate_strm_files(
-        self, pan_path, target_dir, pickcode, server_address, database="strm_db.sqlite"
-    ):
+    def generate_strm_files(self, pan_path, target_dir, pickcode, server_address):
         """
-        依据网盘路径生成 STRM 文件并存储信息到 SQLite 数据库
+        依据网盘路径生成 STRM 文件
         """
 
         target_dir = target_dir.rstrip("/")
         server_address = server_address.rstrip("/")
 
-        conn = sqlite3.connect(database)
-        cursor = conn.cursor()
-
-        cursor.execute("""CREATE TABLE IF NOT EXISTS strm_files
-                        (file_path TEXT, content TEXT)""")
-        conn.commit()
+        strm_oper = U115StrmFilesOper()
 
         file_path = Path(target_dir) / Path(pan_path)
         file_target_dir = file_path.parent
@@ -142,8 +129,7 @@ class U115StrmHelper:
             logger.warn("跳过网盘路径： %s", pan_path)
             return
 
-        cursor.execute("SELECT 1 FROM strm_files WHERE file_path=?", (str(new_file_path),))
-        if cursor.fetchone():
+        if strm_oper.get_by_path(str(new_file_path)):
             logger.warn("跳过 %s", str(new_file_path))
             return
 
@@ -153,7 +139,5 @@ class U115StrmHelper:
         with open(new_file_path, "w", encoding="utf-8") as file:
             file.write(content)
 
-        cursor.execute("INSERT INTO strm_files VALUES (?,?)", (new_file_path, content))
-        logger.info("生成 %s", new_file_path)
-        conn.commit()
-        conn.close()
+        strm_oper.add(file_path=str(new_file_path), content=content)
+        logger.info("生成 %s", str(new_file_path))

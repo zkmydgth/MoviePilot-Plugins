@@ -16,6 +16,8 @@ from app.schemas import NotificationType
 from .clouddisk.u115 import u115_manager
 from .db_manager import ct_db_manager
 from .db_manager.init import init_db, update_db
+from .clouddisk.u115.strmhelper import U115StrmHelper
+from .clouddisk.u115.pan302server import Pan115 as U115_302Server
 from ...core.event import eventmanager, Event
 from ...schemas.types import EventType
 
@@ -111,6 +113,9 @@ class CloudTerminator(_PluginBase):
         self.__db_filename = "cloudterminator.db"
         # 302重定向日志文件名
         self.__302_server_log_filename = "pan302.log"
+        # 302服务进程
+        self._u115_302_server = None
+        self._u115_302_process = None
         # 消息存储
         self.__messages = {}
         # 115网盘客户端
@@ -576,7 +581,7 @@ class CloudTerminator(_PluginBase):
                     self._event.clear()
                 self._scheduler = None
             self.close_database()
-            # todo:停止302
+            self._u115_302_server.stop(self._u115_302_process)
         except Exception as e:
             logger.info(f"插件停止错误: {str(e)}", exc_info=True)
 
@@ -587,7 +592,8 @@ class CloudTerminator(_PluginBase):
         启动插件
         """
         try:
-            pass
+            self._u115_302_server = U115_302Server(self._u115_cookie)
+            self._u115_302_process = self._u115_302_server.start(f"{self.__logs_dir}/{self.__302_server_log_filename}")
         except Exception as e:
             logger.info(f"插件启动错误: {str(e)}", exc_info=True)
             if self._enabled:
@@ -637,19 +643,15 @@ class CloudTerminator(_PluginBase):
         手动全量式同步STRM
         """
         try:
-            self.__sync_u115_strm()
-            return True
+            if self.get_u115_client():
+                client = U115StrmHelper(f"{self.__db_path}/file_list.db", self.__u115_client)
+                client.generate_file_list_db()
+                client.generate_strm_files_db(client.get_id_by_path(self._u115_path), self._u115_strm_path, f"{self._moviepilot_url}xxxx")
         except Exception as e:
             raise e
         finally:
             self._u115_onlyonce = False
             self.__update_config()
-
-    def __sync_u115_strm(self) -> bool:
-        """
-        手动全量与自动增量的共同逻辑
-        """
-        pass
 
     """ 302 server"""
 
