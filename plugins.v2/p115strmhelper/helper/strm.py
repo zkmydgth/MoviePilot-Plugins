@@ -768,7 +768,9 @@ class FullSyncStrmHelper:
                     except Exception as e:
                         logger.error(f"【全量STRM生成】清理无效 STRM 文件失败: {e}")
                 else:
-                    logger.warn("【全量STRM生成】存在生成失败的 STRM 文件，跳过清理无效 STRM 文件")
+                    logger.warn(
+                        "【全量STRM生成】存在生成失败的 STRM 文件，跳过清理无效 STRM 文件"
+                    )
 
         self.mediainfo_count, self.mediainfo_fail_count, self.mediainfo_fail_dict = (
             self.mediainfodownloader.auto_downloader(
