@@ -3,6 +3,7 @@ import threading
 import hashlib
 from typing import Optional, Union
 from pathlib import Path
+from datetime import datetime, timezone
 
 import requests
 import oss2
@@ -16,6 +17,10 @@ from app.helper.storage import StorageHelper
 from app.chain.storage import StorageChain
 from app.utils.string import StringUtils
 
+from ..core.config import configer
+from ..utils.url import SecureRequest
+from ..utils.sentry import capture_all_class_exceptions
+
 
 p115_open_lock = threading.Lock()
 
@@ -26,6 +31,7 @@ class U115NoCheckInException(Exception):
     """
 
 
+@capture_all_class_exceptions
 class U115OpenHelper:
     """
     115 Open Api
@@ -39,6 +45,8 @@ class U115OpenHelper:
         super().__init__()
         self.session = requests.Session()
         self._init_session()
+
+        self.secure_request = SecureRequest(max_retries=3, backoff_factor=1.0)
 
     def _init_session(self):
         """
@@ -212,6 +220,50 @@ class U115OpenHelper:
         def encode_callback(cb: str) -> str:
             return oss2.utils.b64encode_as_string(cb)
 
+        def send_upload_info(
+            file_sha1: Optional[str],
+            first_sha1: Optional[str],
+            second_auth: bool,
+            second_sha1: Optional[str],
+            file_size: Optional[str],
+            file_name: Optional[str],
+            upload_time: Optional[int],
+        ):
+            """
+            发送上传信息
+            """
+            url = "https://115_server.ddsrem.com/upload/info"
+            headers = {"x-machine-id": configer.get_config("MACHINE_ID")}
+            json_data = {
+                "file_sha1": file_sha1,
+                "first_sha1": first_sha1,
+                "second_auth": second_auth,
+                "second_sha1": second_sha1,
+                "file_size": file_size,
+                "file_name": file_name,
+                "time": upload_time,
+                "postime": datetime.now(timezone.utc)
+                .isoformat(timespec="milliseconds")
+                .replace("+00:00", "Z"),
+            }
+            try:
+                response = self.secure_request.make_request(
+                    url=url,
+                    method="POST",
+                    headers=headers,
+                    json_data=json_data,
+                    timeout=10.0,
+                )
+
+                if response is not None and response.status_code == 201:
+                    logger.info(
+                        f"【P115Open】上传信息报告服务器成功: {response.json()}"
+                    )
+                else:
+                    logger.warn("【P115Open】上传信息报告服务器失败，网络问题")
+            except Exception as e:
+                logger.warn(f"【P115Open】上传信息报告服务器失败: {e}")
+
         target_name = new_name or local_path.name
         target_path = Path(target_dir.path) / target_name
         # 计算文件特征值
@@ -223,6 +275,7 @@ class U115OpenHelper:
         target_cid = target_dir.fileid
         target_param = f"U_1_{target_cid}"
 
+        start_time = time.perf_counter()
         # Step 1: 初始化上传
         init_data = {
             "file_name": target_name,
@@ -250,7 +303,10 @@ class U115OpenHelper:
         sign_key = init_result.get("sign_key")
 
         # Step 2: 处理二次认证
+        second_auth = False
+        second_sha1 = ""
         if init_result.get("code") in [700, 701] and sign_check:
+            second_auth = True
             sign_checks = sign_check.split("-")
             start = int(sign_checks[0])
             end = int(sign_checks[1])
@@ -261,6 +317,7 @@ class U115OpenHelper:
                 f.seek(start)
                 chunk = f.read(end - start + 1)
                 sign_val = hashlib.sha1(chunk).hexdigest().upper()
+            second_sha1 = sign_val
             # 重新初始化请求
             # sign_key，sign_val(根据sign_check计算的值大写的sha1值)
             init_data.update(
@@ -284,6 +341,17 @@ class U115OpenHelper:
         # Step 3: 秒传
         if init_result.get("status") == 2:
             logger.info(f"【P115Open】{target_name} 秒传成功")
+            end_time = time.perf_counter()
+            elapsed_time = end_time - start_time
+            send_upload_info(
+                file_sha1,
+                file_preid,
+                second_auth,
+                second_sha1,
+                str(file_size),
+                target_name,
+                int(elapsed_time),
+            )
             file_id = init_result.get("file_id", None)
             if file_id:
                 logger.debug(f"【P115Open】{target_name} 使用秒传返回ID获取文件信息")
@@ -421,5 +489,16 @@ class U115OpenHelper:
                     f"【P115Open】{target_name} 上传失败: {e.status}, 错误码: {e.code}, 详情: {e.message}"
                 )
                 return None
+        end_time = time.perf_counter()
+        elapsed_time = end_time - start_time
+        send_upload_info(
+            file_sha1,
+            file_preid,
+            second_auth,
+            second_sha1,
+            str(file_size),
+            target_name,
+            int(elapsed_time),
+        )
         # 返回结果
         return self._delay_get_item(target_path)
