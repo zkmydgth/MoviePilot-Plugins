@@ -3,6 +3,7 @@ import time
 import shutil
 import base64
 import re
+import traceback
 from threading import Event as ThreadEvent, Timer
 from collections import defaultdict
 from collections.abc import Mapping
@@ -22,6 +23,9 @@ import requests
 from requests.exceptions import HTTPError
 from orjson import dumps, loads
 from cachetools import cached, TTLCache, LRUCache
+from watchdog.events import FileSystemEventHandler
+from watchdog.observers import Observer
+from watchdog.observers.polling import PollingObserver
 from p115client import P115Client
 from p115client.exception import DataError
 from p115client.tool.iterdir import iter_files_with_path, get_path_to_cid, share_iterdir
@@ -56,7 +60,7 @@ from app.chain.storage import StorageChain
 from app.utils.system import SystemUtils
 
 
-p115strmhelper_lock = threading.Lock()
+directory_upload_dict = defaultdict(threading.Lock)
 
 
 def check_response(
@@ -805,6 +809,39 @@ class ShareStrmHelper:
         )
 
 
+class FileMonitorHandler(FileSystemEventHandler):
+    """
+    目录监控响应类
+    """
+
+    def __init__(self, monpath: str, sync: Any, **kwargs):
+        super(FileMonitorHandler, self).__init__(**kwargs)
+        self._watch_path = monpath
+        self.sync = sync
+
+    def on_created(self, event):
+        """
+        创建
+        """
+        self.sync.event_handler(
+            event=event,
+            text="创建",
+            mon_path=self._watch_path,
+            event_path=event.src_path,
+        )
+
+    def on_moved(self, event):
+        """
+        移动
+        """
+        self.sync.event_handler(
+            event=event,
+            text="移动",
+            mon_path=self._watch_path,
+            event_path=event.dest_path,
+        )
+
+
 class P115StrmHelper(_PluginBase):
     # 插件名称
     plugin_name = "115网盘STRM助手"
@@ -847,6 +884,9 @@ class P115StrmHelper(_PluginBase):
 
     # 网盘客户端
     _client = None
+
+    # 目录监控
+    _observer = []
 
     # 任务客户端
     _scheduler = None
@@ -898,6 +938,11 @@ class P115StrmHelper(_PluginBase):
         "cron_clear": "0 */7 * * *",
         "pan_transfer_enabled": False,
         "pan_transfer_paths": None,
+        "directory_upload_enabled": False,
+        "directory_upload_mode": "compatibility",
+        "directory_upload_uploadext": "mp4,mkv,ts,iso,rmvb,avi,mov,mpeg,mpg,wmv,3gp,asf,m4v,flv,m2ts,tp,f4v",
+        "directory_upload_copyext": "srt,ssa,ass",
+        "directory_upload_path": [],
     }
 
     @staticmethod
@@ -978,6 +1023,8 @@ class P115StrmHelper(_PluginBase):
         )
         self._monitor_life_notification_timer = None
 
+        self._observer: List = []
+
         if config:
             default_config_keys = self.__default_config.keys()
             for key in config.keys():
@@ -996,6 +1043,46 @@ class P115StrmHelper(_PluginBase):
                 self.mediainfodownloader = MediaInfoDownloader(cookie=self._cookies)
             except Exception as e:
                 logger.error(f"115网盘客户端创建失败: {e}")
+
+            # 目录上传监控服务
+            if self._directory_upload_enabled:
+                for item in self._directory_upload_path:
+                    if not item:
+                        continue
+                    mon_path = item.get("src", "")
+                    if not mon_path:
+                        continue
+                    try:
+                        if self._directory_upload_mode == "compatibility":
+                            # 兼容模式，目录同步性能降低且NAS不能休眠，但可以兼容挂载的远程共享目录如SMB
+                            observer = PollingObserver(timeout=10)
+                        else:
+                            # 内部处理系统操作类型选择最优解
+                            observer = Observer(timeout=10)
+                        self._observer.append(observer)
+                        observer.schedule(
+                            FileMonitorHandler(mon_path, self),
+                            path=mon_path,
+                            recursive=True,
+                        )
+                        observer.daemon = True
+                        observer.start()
+                        logger.info(f"【目录上传】{mon_path} 实时监控服务启动")
+                    except Exception as e:
+                        err_msg = str(e)
+                        if "inotify" in err_msg and "reached" in err_msg:
+                            logger.warn(
+                                f"【目录上传】监控服务启动出现异常：{err_msg}，请在宿主机上（不是docker容器内）执行以下命令并重启："
+                                + """
+                                    echo fs.inotify.max_user_watches=524288 | sudo tee -a /etc/sysctl.conf
+                                    echo fs.inotify.max_user_instances=524288 | sudo tee -a /etc/sysctl.conf
+                                    sudo sysctl -p
+                                    """
+                            )
+                        else:
+                            logger.error(
+                                f"【目录上传】{mon_path} 启动实时监控失败：{err_msg}"
+                            )
 
             if (self._monitor_life_enabled and self._monitor_life_paths) or (
                 self._pan_transfer_enabled and self._pan_transfer_paths
@@ -1673,6 +1760,168 @@ class P115StrmHelper(_PluginBase):
             media_type="application/json; charset=utf-8",
             content=dumps({"status": "redirecting", "url": url}),
         )
+
+    def event_handler(self, event, mon_path: str, text: str, event_path: str):
+        """
+        处理文件变化
+        :param event: 事件
+        :param mon_path: 监控目录
+        :param text: 事件描述
+        :param event_path: 事件文件路径
+        """
+        if not event.is_directory:
+            # 文件发生变化
+            logger.debug(f"【目录上传】文件 {text}: {event_path}")
+            self.__handle_file(event_path=event_path, mon_path=mon_path)
+
+    def __handle_file(self, event_path: str, mon_path: str):
+        """
+        同步一个文件
+        :param event_path: 事件文件路径
+        :param mon_path: 监控目录
+        """
+        file_path = Path(event_path)
+        try:
+            if not file_path.exists():
+                return
+            # 全程加锁
+            with directory_upload_dict[str(file_path.absolute())]:
+                # 回收站隐藏文件不处理
+                if (
+                    event_path.find("/@Recycle/") != -1
+                    or event_path.find("/#recycle/") != -1
+                    or event_path.find("/.") != -1
+                    or event_path.find("/@eaDir") != -1
+                ):
+                    logger.debug(f"【目录上传】{event_path} 是回收站或隐藏的文件")
+                    return
+
+                # 蓝光目录不处理
+                if re.search(r"BDMV[/\\]STREAM", event_path, re.IGNORECASE):
+                    return
+
+                # 先判断文件是否存在
+                file_item = self.storagechain.get_file_item(
+                    storage="local", path=file_path
+                )
+                if not file_item:
+                    logger.warn(f"【目录上传】{event_path} 未找到对应的文件")
+                    return
+
+                # 获取此监控目录配置
+                for item in self._directory_upload_path:
+                    if not item:
+                        continue
+                    if mon_path == item.get("src", ""):
+                        delete = item.get("delete", False)
+                        dest_remote = item.get("dest_remote", "")
+                        dest_local = item.get("dest_local", "")
+                        break
+
+                if file_path.suffix in [
+                    f".{ext.strip()}"
+                    for ext in self._directory_upload_uploadext.replace(
+                        "，", ","
+                    ).split(",")
+                ]:
+                    # 处理上传
+                    if not dest_remote:
+                        logger.error(
+                            f"【目录上传】{file_path} 未找到对应的上传网盘目录"
+                        )
+                        return
+
+                    target_file_path = Path(dest_remote) / Path(file_path).relative_to(
+                        mon_path
+                    )
+
+                    # 网盘目录创建流程
+                    def __find_dir(
+                        _fileitem: schemas.FileItem, _name: str
+                    ) -> Optional[schemas.FileItem]:
+                        """
+                        查找下级目录中匹配名称的目录
+                        """
+                        for sub_folder in self.storagechain.list_files(_fileitem):
+                            if sub_folder.type != "dir":
+                                continue
+                            if sub_folder.name == _name:
+                                return sub_folder
+                        return None
+
+                    target_fileitem = self.storagechain.get_file_item(
+                        storage="u115", path=target_file_path.parent
+                    )
+                    if not target_fileitem:
+                        # 逐级查找和创建目录
+                        target_fileitem = FileItem(storage="u115", path="/")
+                        for part in target_file_path.parent.parts[1:]:
+                            dir_file = __find_dir(target_fileitem, part)
+                            if dir_file:
+                                target_fileitem = dir_file
+                            else:
+                                dir_file = self.storagechain.create_folder(
+                                    target_fileitem, part
+                                )
+                                if not dir_file:
+                                    logger.error(
+                                        f"【目录上传】创建目录 {target_fileitem.path}{part} 失败！"
+                                    )
+                                    return
+                                target_fileitem = dir_file
+
+                    # 上传流程
+                    if self.storagechain.upload_file(
+                        target_fileitem, file_path, file_path.name
+                    ):
+                        logger.info(
+                            f"【目录上传】{file_path} 上传到网盘 {target_file_path} 成功 "
+                        )
+                    else:
+                        logger.error(f"【目录上传】{file_path} 上传网盘失败")
+                        return
+
+                elif file_path.suffix in [
+                    f".{ext.strip()}"
+                    for ext in self._directory_upload_copyext.replace("，", ",").split(
+                        ","
+                    )
+                ]:
+                    # 处理非上传文件
+                    if dest_local:
+                        target_file_path = Path(dest_local) / Path(
+                            file_path
+                        ).relative_to(mon_path)
+                        # 创建本地目录
+                        target_file_path.parent.mkdir(parents=True, exist_ok=True)
+                        # 复制文件
+                        status, msg = SystemUtils.copy(file_path, target_file_path)
+                        if status == 0:
+                            logger.info(
+                                f"【目录上传】{file_path} 复制到 {target_file_path} 成功 "
+                            )
+                        else:
+                            logger.error(f"【目录上传】{file_path} 复制失败: {msg}")
+                            return
+                else:
+                    # 未匹配后缀的文件直接跳过
+                    return
+
+                # 处理源文件是否删除
+                if delete:
+                    for file_dir in file_path.parents:
+                        if len(str(file_dir)) <= len(str(Path(mon_path))):
+                            break
+                        files = SystemUtils.list_files(file_dir)
+                        if not files:
+                            logger.warn(f"【目录上传】删除空目录：{file_dir}")
+                            shutil.rmtree(file_dir, ignore_errors=True)
+
+        except Exception as e:
+            logger.error(
+                f"【目录上传】目录监控发生错误：{str(e)} - {traceback.format_exc()}"
+            )
+            return
 
     @eventmanager.register(EventType.TransferComplete)
     def delete_top_pan_transfer_path(self, event: Event):
@@ -2778,6 +3027,14 @@ class P115StrmHelper(_PluginBase):
         退出插件
         """
         try:
+            if self._observer:
+                for observer in self._observer:
+                    try:
+                        observer.stop()
+                        observer.join()
+                    except Exception as e:
+                        print(str(e))
+            self._observer = []
             if self._scheduler:
                 self._scheduler.remove_all_jobs()
                 if self._scheduler.running:
@@ -2965,7 +3222,8 @@ class P115StrmHelper(_PluginBase):
                 )
                 or bool(
                     self.monitor_life_thread and self.monitor_life_thread.is_alive()
-                ),
+                )
+                or bool(self._observer),
             },
         }
 
