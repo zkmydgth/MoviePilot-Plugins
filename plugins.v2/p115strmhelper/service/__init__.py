@@ -167,6 +167,13 @@ class ServiceHelper:
                             logger.warning(
                                 "【监控生活事件】连续5分钟检测到线程已停止，正在重新启动..."
                             )
+                            if configer.notify:
+                                post_message(
+                                    mtype=NotificationType.Plugin,
+                                    title="【监控生活事件】自动重启",
+                                    text="\n生活事件监控线程已停止超过5分钟\n"
+                                    "守护线程正在自动重启监控服务\n",
+                                )
                             self._start_monitor_life_internal()
                             self.monitor_life_fail_time = None
             else:
