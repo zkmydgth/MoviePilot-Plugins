@@ -545,8 +545,9 @@ class RenameDictUtils:
         :param source_path: 本地文件或 STRM 路径
         :param url: 无本地路径时直接探测的地址
         :param strm_resolve_media_info: 当 ``source_path`` 为 ``.strm`` 时在 ffprobe 之前调用；
-            入参为 STRM 文件路径，若返回非空字典则作为结果直接返回；
-            返回 ``None`` 或空字典 ``{}`` 则继续 ffprobe
+            入参为该 STRM 内解析得到的探测目标字符串（首条有效 URL/路径经规范化后，与即将作为
+            ``ffprobe -i`` 输入的字符串相同），不是磁盘上的 ``.strm`` 文件路径；
+            若返回非空字典则作为结果直接返回，返回 ``None`` 或空字典 ``{}`` 则继续 ffprobe
         :return: (重命名字段字典, 错误信息)；成功时错误信息为空字符串
         """
         if source_path:

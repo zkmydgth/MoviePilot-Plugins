@@ -1603,7 +1603,7 @@ class P115StrmHelper(_PluginBase):
                 return None
 
         changed = False
-        media_info: Dict = {}
+        media_info: Dict[str, Any] = {}
 
         params: Dict[str, Any] = {"strm_resolve_media_info": share_strm_center}
         need_ffprobe = True

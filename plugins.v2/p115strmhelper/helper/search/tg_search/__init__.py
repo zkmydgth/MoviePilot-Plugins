@@ -12,8 +12,8 @@ from ....helper.share.share_links import (
     extract_cloud_links_from_text,
 )
 from ....schemas.tg_search import ResourceItem
-from ....utils.string import StringUtils
 from ....utils.sentry import sentry_manager
+from ....utils.url import UrlUtils
 
 
 @sentry_manager.capture_all_class_exceptions
@@ -232,7 +232,7 @@ class TgSearcher:
             channel_id = item.get("id")
             if not channel_id:
                 continue
-            url = StringUtils.encode_url_fully(f"https://t.me/s/{channel_id}?q={key}")
+            url = UrlUtils.encode_url_fully(f"https://t.me/s/{channel_id}?q={key}")
             results.extend(
                 [
                     i

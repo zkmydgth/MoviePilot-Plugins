@@ -96,7 +96,7 @@ class LifeEventCache:
     """
 
     def __init__(self):
-        self.create_strm_file_dict: MutableMapping[str, List] = MemoryTTLCache(
+        self.create_strm_file_dict: MutableMapping[str, List[Any]] = MemoryTTLCache(
             maxsize=1_000_000, ttl=600
         )
 
