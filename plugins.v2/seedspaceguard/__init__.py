@@ -66,7 +66,7 @@ class SeedSpaceGuard(_PluginBase):
     plugin_desc = ("存储空间不足时自动清理保种目录中「保种最久」的资源（种子+文件），"
                    "避免 H&R。支持种子级删除与仅文件两种模式，可限定目标下载器；"
                    "除保护后缀外所有文件均纳入清理，可选联动删除种子与转移记录。")
-    plugin_version = "1.3.0"
+    plugin_version = "1.3.1"
     plugin_author = "zkmydgth"
     plugin_config_prefix = "seedspaceguard_"
     plugin_order = 100
@@ -1400,7 +1400,10 @@ class SeedSpaceGuard(_PluginBase):
                     break
                 mtime_text = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d")
                 linked = ino_paths.get(key, [fpath])
-                side_note = f"，含 {len(linked)} 处硬链接" if len(linked) > 1 else ""
+                side_note = (
+                    f"，含 {len(linked)} 条路径（硬链接，共占 {round(size / GIB, 1)}GB）"
+                    if len(linked) > 1 else ""
+                )
                 detail_lines.append(
                     f"[试运行] 将删除：{fpath}（修改于 {mtime_text}，"
                     f"{round(size / GIB, 1)}GB{side_note}）"
@@ -1447,7 +1450,10 @@ class SeedSpaceGuard(_PluginBase):
                     deleted_paths.append(fpath)
                 mtime_text = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d")
                 linked = self._ino_paths.get(key, [fpath])
-                side_note = f"，连同 {len(linked) - 1} 处硬链接一并删除" if len(linked) > 1 else ""
+                side_note = (
+                    f"，连同其余 {len(linked) - 1} 条路径一并删除"
+                    if len(linked) > 1 else ""
+                )
                 detail_lines.append(
                     f"已删除文件：{fpath}（修改于 {mtime_text}{side_note}）"
                 )
