@@ -19,7 +19,12 @@ from requests.exceptions import HTTPError
 from orjson import dumps, loads
 from cachetools import cached, TTLCache
 from p115client import P115Client
-from p115client.tool.iterdir import iter_files_with_path, get_path_to_cid, share_iterdir
+from p115client.tool.iterdir import (
+    iter_files_with_path,
+    get_path_to_cid,
+    share_iterdir,
+    get_id_to_path,
+)
 from p115client.tool.life import iter_life_behavior_list
 from p115client.tool.util import share_extract_payload
 from p115rsacipher import encrypt, decrypt
@@ -274,6 +279,12 @@ class FullSyncStrmHelper:
         )
         return True
 
+    def get_generate_total(self):
+        """
+        输出总共生成文件个数
+        """
+        return self.strm_count, self.mediainfo_count
+
 
 class ShareStrmHelper:
     """
@@ -462,6 +473,7 @@ class ShareStrmHelper:
         logger.info(
             f"【分享STRM生成】分享生成 STRM 文件完成，总共生成 {self.strm_count} 个 STRM 文件，下载 {self.mediainfo_count} 个媒体数据文件"
         )
+        return self.strm_count, self.mediainfo_count
 
 
 class P115StrmHelper(_PluginBase):
@@ -472,7 +484,7 @@ class P115StrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png"
     # 插件版本
-    plugin_version = "1.5.0"
+    plugin_version = "1.5.1"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -737,7 +749,26 @@ class P115StrmHelper(_PluginBase):
 
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:
-        pass
+        """
+        定义远程控制命令
+        :return: 命令关键字、事件、描述、附带数据
+        """
+        return [
+            {
+                "cmd": "/p115_full_sync",
+                "event": EventType.PluginAction,
+                "desc": "全量同步115网盘文件",
+                "category": "",
+                "data": {"action": "p115_full_sync"},
+            },
+            {
+                "cmd": "/p115_add_share",
+                "event": EventType.PluginAction,
+                "desc": "转存分享到待整理目录",
+                "category": "",
+                "data": {"action": "p115_add_share"},
+            },
+        ]
 
     def get_api(self) -> List[Dict[str, Any]]:
         """
@@ -2326,6 +2357,95 @@ class P115StrmHelper(_PluginBase):
                         f"【监控整理STRM生成】 {item_dest_name} {name} 不支持刷新"
                     )
 
+    @eventmanager.register(EventType.PluginAction)
+    def p115_full_sync(self, event: Event):
+        """
+        远程全量同步
+        """
+        if event:
+            event_data = event.event_data
+            if not event_data or event_data.get("action") != "p115_full_sync":
+                return
+            self.post_message(
+                channel=event.event_data.get("channel"),
+                title="开始115网盘媒体库全量同步 ...",
+                userid=event.event_data.get("user"),
+            )
+        strm_count, mediainfo_count = self.full_sync_strm_files()
+        if event:
+            self.post_message(
+                channel=event.event_data.get("channel"),
+                title=f"全量生成 STRM 文件完成，总共生成 {strm_count} 个 STRM 文件，下载 {mediainfo_count} 个媒体数据文件",
+                userid=event.event_data.get("user"),
+            )
+
+    @eventmanager.register(EventType.PluginAction)
+    def p115_add_share(self, event: Event):
+        """
+        远程分享转存
+        """
+        if event:
+            event_data = event.event_data
+            if not event_data or event_data.get("action") != "p115_add_share":
+                return
+            args = event_data.get("arg_str")
+            if not args:
+                logger.error(f"【分享转存】缺少参数：{event_data}")
+                self.post_message(
+                    channel=event.event_data.get("channel"),
+                    title="参数错误！ /p115_add_share 分享链接",
+                    userid=event.event_data.get("user"),
+                )
+                return
+        data = share_extract_payload(args)
+        share_code = data["share_code"]
+        receive_code = data["receive_code"]
+        logger.info(
+            f"【分享转存】解析分享链接 share_code={share_code} receive_code={receive_code}"
+        )
+        if not share_code or not receive_code:
+            logger.error(f"【分享转存】解析分享链接失败：{args}")
+            self.post_message(
+                channel=event.event_data.get("channel"),
+                title=f"解析分享链接失败：{args}",
+                userid=event.event_data.get("user"),
+            )
+            return
+        parent_id = get_id_to_path(
+            self._client, path=self._pan_transfer_paths.split("\n")[0]
+        )
+        payload = {
+            "share_code": share_code,
+            "receive_code": receive_code,
+            "file_id": 0,
+            "cid": int(parent_id),
+            "is_check": 0,
+        }
+        logger.info(f"【分享转存】开始转存：{share_code}")
+        self.post_message(
+            channel=event.event_data.get("channel"),
+            title=f"开始转存：{share_code}",
+            userid=event.event_data.get("user"),
+        )
+        resp = self._client.share_receive(payload)
+        if resp["state"]:
+            logger.info(
+                f"【分享转存】转存 {share_code} 到 {self._pan_transfer_paths.split('\n')[0]} 成功！"
+            )
+            self.post_message(
+                channel=event.event_data.get("channel"),
+                title=f"转存 {share_code} 到 {self._pan_transfer_paths.split('\n')[0]} 成功！",
+                userid=event.event_data.get("user"),
+            )
+        else:
+            logger.info(f"【分享转存】转存 {share_code} 失败：{resp['error']}")
+            self.post_message(
+                channel=event.event_data.get("channel"),
+                title=f"转存 {share_code} 失败：{resp['error']}",
+                userid=event.event_data.get("user"),
+            )
+        return
+
     def full_sync_strm_files(self):
         """
         全量同步
@@ -2348,6 +2468,7 @@ class P115StrmHelper(_PluginBase):
         strm_helper.generate_strm_files(
             full_sync_strm_paths=self._full_sync_strm_paths,
         )
+        return strm_helper.get_generate_total()
 
     def share_strm_files(self):
         """

@@ -87,11 +87,12 @@
         "name": "115网盘STRM助手",
         "description": "115网盘STRM生成一条龙服务",
         "labels": "云盘",
-        "version": "1.5.0",
+        "version": "1.5.1",
         "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png",
         "author": "DDSRem",
         "level": 1,
         "history": {
+            "v1.5.1": "增加交互命令，支持全量同步和转存分享",
             "v1.5.0": "网盘整理公测",
             "v1.4.8": "115生活监控自动刷新媒体库，异常退出自动重启",
             "v1.4.7": "修复总开关无法控制115生活监控",
