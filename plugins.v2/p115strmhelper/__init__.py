@@ -17,7 +17,8 @@ from fastapi import Request, Response
 import requests
 from requests.exceptions import HTTPError
 from orjson import dumps, loads
-from cachetools import cached, TTLCache
+from cachetools import cached, TTLCache, LRUCache
+from cachetools.keys import hashkey
 from p115client import P115Client
 from p115client.tool.iterdir import (
     iter_files_with_path,
@@ -30,19 +31,58 @@ from p115client.tool.util import share_extract_payload
 from p115rsacipher import encrypt, decrypt
 
 from app import schemas
+from app.schemas import TransferInfo, FileItem, RefreshMediaItem, ServiceInfo
+from app.schemas.types import EventType, MediaType
 from app.core.config import settings
 from app.core.event import eventmanager, Event
+from app.core.context import MediaInfo
+from app.core.meta import MetaBase
+from app.core.metainfo import MetaInfoPath
 from app.log import logger
 from app.plugins import _PluginBase
-from app.schemas import TransferInfo, FileItem, RefreshMediaItem, ServiceInfo
 from app.chain.transfer import TransferChain
-from app.core.context import MediaInfo
+from app.chain.media import MediaChain
 from app.helper.mediaserver import MediaServerHelper
-from app.schemas.types import EventType
 from app.utils.system import SystemUtils
 
 
 p115strmhelper_lock = threading.Lock()
+
+
+class IdPathCache:
+    """
+    文件路径ID缓存
+    """
+
+    def __init__(self, maxsize=128):
+        self.id_to_dir = LRUCache(maxsize=maxsize)
+        self.dir_to_id = LRUCache(maxsize=maxsize)
+
+    def add_cache(self, id: int, directory: str):
+        """
+        添加缓存
+        """
+        self.id_to_dir[id] = directory
+        self.dir_to_id[directory] = id
+
+    def get_dir_by_id(self, id: int):
+        """
+        通过 ID 获取路径
+        """
+        return self.id_to_dir.get(id)
+
+    def get_id_by_dir(self, directory: str):
+        """
+        通过路径获取 ID
+        """
+        return self.dir_to_id.get(directory)
+
+    def clear(self):
+        """
+        清空所有缓存
+        """
+        self.id_to_dir.clear()
+        self.dir_to_id.clear()
 
 
 class Url(str):
@@ -484,7 +524,7 @@ class P115StrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png"
     # 插件版本
-    plugin_version = "1.5.1"
+    plugin_version = "1.5.2"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -499,7 +539,10 @@ class P115StrmHelper(_PluginBase):
     # 私有属性
     mediaserver_helper = None
     transferchain = None
+    mediachain = None
 
+    # 目录ID缓存
+    id_path_cache = None
     # 生活事件缓存
     cache_delete_pan_transfer_list = None
     cache_creata_pan_transfer_list = None
@@ -514,6 +557,7 @@ class P115StrmHelper(_PluginBase):
     _user_rmt_mediaext = None
     _user_download_mediaext = None
     _transfer_monitor_enabled = False
+    _transfer_monitor_scrape_metadata_enabled = False
     _transfer_monitor_paths = None
     _transfer_mp_mediaserver_paths = None
     _transfer_monitor_mediaservers = None
@@ -529,7 +573,8 @@ class P115StrmHelper(_PluginBase):
     _monitor_life_mp_mediaserver_paths = None
     _monitor_life_media_server_refresh_enabled = False
     _monitor_life_mediaservers = None
-    _monitor_life_auto_remove_local_enabled = None
+    _monitor_life_auto_remove_local_enabled = False
+    _monitor_life_scrape_metadata_enabled = False
     _share_strm_enabled = False
     _share_strm_auto_download_mediainfo_enabled = False
     _user_share_code = None
@@ -553,8 +598,10 @@ class P115StrmHelper(_PluginBase):
         """
         self.mediaserver_helper = MediaServerHelper()
         self.transferchain = TransferChain()
+        self.mediachain = MediaChain()
         self.monitor_stop_event = threading.Event()
 
+        self.id_path_cache = IdPathCache()
         self.cache_delete_pan_transfer_list = []
         self.cache_creata_pan_transfer_list = []
 
@@ -567,6 +614,9 @@ class P115StrmHelper(_PluginBase):
             self._user_rmt_mediaext = config.get("user_rmt_mediaext")
             self._user_download_mediaext = config.get("user_download_mediaext")
             self._transfer_monitor_enabled = config.get("transfer_monitor_enabled")
+            self._transfer_monitor_scrape_metadata_enabled = config.get(
+                "transfer_monitor_scrape_metadata_enabled"
+            )
             self._transfer_monitor_paths = config.get("transfer_monitor_paths")
             self._transfer_mp_mediaserver_paths = config.get(
                 "transfer_mp_mediaserver_paths"
@@ -599,6 +649,9 @@ class P115StrmHelper(_PluginBase):
             )
             self._monitor_life_auto_remove_local_enabled = config.get(
                 "monitor_life_auto_remove_local_enabled"
+            )
+            self._monitor_life_scrape_metadata_enabled = config.get(
+                "monitor_life_scrape_metadata_enabled"
             )
             self._share_strm_enabled = config.get("share_strm_enabled")
             self._share_strm_auto_download_mediainfo_enabled = config.get(
@@ -838,7 +891,7 @@ class P115StrmHelper(_PluginBase):
                 "content": [
                     {
                         "component": "VCol",
-                        "props": {"cols": 12, "md": 4},
+                        "props": {"cols": 12, "md": 3},
                         "content": [
                             {
                                 "component": "VSwitch",
@@ -851,7 +904,20 @@ class P115StrmHelper(_PluginBase):
                     },
                     {
                         "component": "VCol",
-                        "props": {"cols": 12, "md": 4},
+                        "props": {"cols": 12, "md": 3},
+                        "content": [
+                            {
+                                "component": "VSwitch",
+                                "props": {
+                                    "model": "transfer_monitor_scrape_metadata_enabled",
+                                    "label": "STRM自动刮削",
+                                },
+                            }
+                        ],
+                    },
+                    {
+                        "component": "VCol",
+                        "props": {"cols": 12, "md": 3},
                         "content": [
                             {
                                 "component": "VSwitch",
@@ -864,7 +930,7 @@ class P115StrmHelper(_PluginBase):
                     },
                     {
                         "component": "VCol",
-                        "props": {"cols": 12, "md": 4},
+                        "props": {"cols": 12, "md": 3},
                         "content": [
                             {
                                 "component": "VSelect",
@@ -1081,7 +1147,7 @@ class P115StrmHelper(_PluginBase):
                 "content": [
                     {
                         "component": "VCol",
-                        "props": {"cols": 12, "md": 4},
+                        "props": {"cols": 12, "md": 3},
                         "content": [
                             {
                                 "component": "VSwitch",
@@ -1094,7 +1160,7 @@ class P115StrmHelper(_PluginBase):
                     },
                     {
                         "component": "VCol",
-                        "props": {"cols": 12, "md": 4},
+                        "props": {"cols": 12, "md": 3},
                         "content": [
                             {
                                 "component": "VSwitch",
@@ -1107,7 +1173,20 @@ class P115StrmHelper(_PluginBase):
                     },
                     {
                         "component": "VCol",
-                        "props": {"cols": 12, "md": 4},
+                        "props": {"cols": 12, "md": 3},
+                        "content": [
+                            {
+                                "component": "VSwitch",
+                                "props": {
+                                    "model": "monitor_life_scrape_metadata_enabled",
+                                    "label": "STRM自动刮削",
+                                },
+                            }
+                        ],
+                    },
+                    {
+                        "component": "VCol",
+                        "props": {"cols": 12, "md": 3},
                         "content": [
                             {
                                 "component": "VSwitch",
@@ -1822,6 +1901,7 @@ class P115StrmHelper(_PluginBase):
             "user_rmt_mediaext": "mp4,mkv,ts,iso,rmvb,avi,mov,mpeg,mpg,wmv,3gp,asf,m4v,flv,m2ts,tp,f4v",
             "user_download_mediaext": "srt,ssa,ass",
             "transfer_monitor_enabled": False,
+            "transfer_monitor_scrape_metadata_enabled": False,
             "transfer_monitor_paths": "",
             "transfer_mp_mediaserver_paths": "",
             "transfer_monitor_media_server_refresh_enabled": False,
@@ -1836,7 +1916,8 @@ class P115StrmHelper(_PluginBase):
             "monitor_life_mp_mediaserver_paths": "",
             "monitor_life_media_server_refresh_enabled": False,
             "monitor_life_mediaservers": [],
-            "monitor_life_auto_remove_local_enabled": "",
+            "monitor_life_auto_remove_local_enabled": False,
+            "monitor_life_scrape_metadata_enabled": False,
             "share_strm_enabled": False,
             "share_strm_auto_download_mediainfo_enabled": False,
             "user_share_code": "",
@@ -1866,6 +1947,7 @@ class P115StrmHelper(_PluginBase):
                 "user_rmt_mediaext": self._user_rmt_mediaext,
                 "user_download_mediaext": self._user_download_mediaext,
                 "transfer_monitor_enabled": self._transfer_monitor_enabled,
+                "transfer_monitor_scrape_metadata_enabled": self._transfer_monitor_scrape_metadata_enabled,
                 "transfer_monitor_paths": self._transfer_monitor_paths,
                 "transfer_mp_mediaserver_paths": self._transfer_mp_mediaserver_paths,
                 "transfer_monitor_media_server_refresh_enabled": self._transfer_monitor_media_server_refresh_enabled,
@@ -1881,6 +1963,7 @@ class P115StrmHelper(_PluginBase):
                 "monitor_life_media_server_refresh_enabled": self._monitor_life_media_server_refresh_enabled,
                 "monitor_life_mediaservers": self._monitor_life_mediaservers,
                 "monitor_life_auto_remove_local_enabled": self._monitor_life_auto_remove_local_enabled,
+                "monitor_life_scrape_metadata_enabled": self._monitor_life_scrape_metadata_enabled,
                 "share_strm_enabled": self._share_strm_enabled,
                 "share_strm_auto_download_mediainfo_enabled": self._share_strm_auto_download_mediainfo_enabled,
                 "user_share_code": self._user_share_code,
@@ -1948,6 +2031,9 @@ class P115StrmHelper(_PluginBase):
     def media_transfer(self, event, file_path: Path, rmt_mediaext):
         """
         运行媒体文件整理
+        :param event: 事件
+        :param file_path: 文件路径
+        :param rmt_mediaext: 媒体文件后缀名
         """
         file_category = event["file_category"]
         file_id = event["file_id"]
@@ -2002,6 +2088,110 @@ class P115StrmHelper(_PluginBase):
                     )
                 )
                 logger.info(f"【网盘整理】{file_path} 加入整理列队")
+
+    def media_scrape_metadata(
+        self,
+        path,
+        item_name: str = "",
+        mediainfo: MediaInfo = None,
+        meta: MetaBase = None,
+    ):
+        """
+        媒体刮削服务
+        :param path: 媒体文件路径
+        :param item_name: 媒体名称
+        :param meta: 元数据
+        :param mediainfo: 媒体信息
+        """
+        item_name = item_name if item_name else Path(path).name
+        logger.info(f"【媒体刮削】{item_name} 开始刮削元数据")
+        if mediainfo:
+            # 整理文件刮削
+            if mediainfo.type == MediaType.MOVIE:
+                # 电影刮削上级文件夹
+                dir_path = Path(path).parent
+                fileitem = FileItem(
+                    storage="local",
+                    type="dir",
+                    path=str(dir_path),
+                    name=dir_path.name,
+                    basename=dir_path.stem,
+                    modify_time=dir_path.stat().st_mtime,
+                )
+            else:
+                # 电视剧刮削文件夹
+                # 通过重命名格式判断根目录文件夹
+                # 计算重命名中的文件夹层数
+                rename_format_level = len(settings.TV_RENAME_FORMAT.split("/")) - 1
+                logger.info(rename_format_level)
+                if rename_format_level < 1:
+                    file_path = Path(path)
+                    fileitem = FileItem(
+                        storage="local",
+                        type="file",
+                        path=str(file_path).replace("\\", "/"),
+                        name=file_path.name,
+                        basename=file_path.stem,
+                        extension=file_path.suffix[1:],
+                        size=file_path.stat().st_size,
+                        modify_time=file_path.stat().st_mtime,
+                    )
+                else:
+                    dir_path = Path(Path(path).parents[rename_format_level - 1])
+                    logger.info()
+                    fileitem = FileItem(
+                        storage="local",
+                        type="dir",
+                        path=str(dir_path),
+                        name=dir_path.name,
+                        basename=dir_path.stem,
+                        modify_time=dir_path.stat().st_mtime,
+                    )
+            self.mediachain.scrape_metadata(
+                fileitem=fileitem, meta=meta, mediainfo=mediainfo
+            )
+        else:
+            # 对于没有 mediainfo 的媒体文件刮削
+            # 先获取上级目录 mediainfo
+            mediainfo, meta = None, None
+            dir_path = Path(path).parent
+            meta = MetaInfoPath(dir_path)
+            mediainfo = self.mediachain.recognize_by_meta(meta)
+            if not meta or not mediainfo:
+                # 如果上级目录没有媒体信息则使用传入的路径
+                logger.warn(f"{dir_path} 无法识别文件媒体信息！")
+                finish_path = Path(path)
+                meta = MetaInfoPath(finish_path)
+                mediainfo = self.mediachain.recognize_by_meta(meta)
+            else:
+                if mediainfo.type == MediaType.TV:
+                    # 如果是电视剧，再次获取上级目录媒体信息，兼容电视剧命名，获取 mediainfo
+                    mediainfo, meta = None, None
+                    dir_path = dir_path.parent
+                    meta = MetaInfoPath(dir_path)
+                    mediainfo = self.mediachain.recognize_by_meta(meta)
+                    if not meta or not mediainfo:
+                        # 存在 mediainfo 则使用本级目录
+                        finish_path = dir_path
+                    else:
+                        # 否则使用上级目录
+                        logger.warn(f"{dir_path} 无法识别文件媒体信息！")
+                        finish_path = Path(path).parent
+                        meta = MetaInfoPath(finish_path)
+                        mediainfo = self.mediachain.recognize_by_meta(meta)
+            fileitem = FileItem(
+                storage="local",
+                type="dir",
+                path=str(finish_path),
+                name=finish_path.name,
+                basename=finish_path.stem,
+                modify_time=finish_path.stat().st_mtime,
+            )
+            self.mediachain.scrape_metadata(
+                fileitem=fileitem, meta=meta, mediainfo=mediainfo
+            )
+
+        logger.info(f"【媒体刮削】{item_name} 刮削元数据完成")
 
     @cached(cache=TTLCache(maxsize=1, ttl=2 * 60))
     def redirect_url(
@@ -2258,6 +2448,10 @@ class P115StrmHelper(_PluginBase):
 
         # 转移信息
         item_transfer: TransferInfo = item.get("transferinfo")
+        # 媒体信息
+        mediainfo: MediaInfo = item.get("mediainfo")
+        # 元数据信息
+        meta: MetaBase = item.get("meta")
 
         item_dest_storage: FileItem = item_transfer.target_item.storage
         if item_dest_storage != "u115":
@@ -2314,6 +2508,14 @@ class P115StrmHelper(_PluginBase):
         if not status:
             return
 
+        if self._transfer_monitor_scrape_metadata_enabled:
+            self.media_scrape_metadata(
+                path=strm_target_path,
+                item_name=item_dest_name,
+                mediainfo=mediainfo,
+                meta=meta,
+            )
+
         if self._transfer_monitor_media_server_refresh_enabled:
             if not self.transfer_service_infos:
                 return
@@ -2337,7 +2539,6 @@ class P115StrmHelper(_PluginBase):
                     logger.info(
                         f"【监控整理STRM生成】刷新媒体服务器目录: {strm_target_path}"
                     )
-            mediainfo: MediaInfo = item.get("mediainfo")
             items = [
                 RefreshMediaItem(
                     title=mediainfo.title,
@@ -2411,9 +2612,12 @@ class P115StrmHelper(_PluginBase):
                 userid=event.event_data.get("user"),
             )
             return
-        parent_id = get_id_to_path(
-            self._client, path=self._pan_transfer_paths.split("\n")[0]
-        )
+        parent_path = self._pan_transfer_paths.split("\n")[0]
+        parent_id = self.id_path_cache.get_id_by_dir(directory=str(parent_path))
+        if not parent_id:
+            parent_id = get_id_to_path(self._client, path=parent_path)
+            logger.info(f"【分享转存】获取到转存目录 ID：{parent_id}")
+            self.id_path_cache.add_cache(id=int(parent_id), directory=str(parent_path))
         payload = {
             "share_code": share_code,
             "receive_code": receive_code,
@@ -2429,12 +2633,10 @@ class P115StrmHelper(_PluginBase):
         )
         resp = self._client.share_receive(payload)
         if resp["state"]:
-            logger.info(
-                f"【分享转存】转存 {share_code} 到 {self._pan_transfer_paths.split('\n')[0]} 成功！"
-            )
+            logger.info(f"【分享转存】转存 {share_code} 到 {parent_path} 成功！")
             self.post_message(
                 channel=event.event_data.get("channel"),
-                title=f"转存 {share_code} 到 {self._pan_transfer_paths.split('\n')[0]} 成功！",
+                title=f"转存 {share_code} 到 {parent_path} 成功！",
                 userid=event.event_data.get("user"),
             )
         else:
@@ -2667,6 +2869,10 @@ class P115StrmHelper(_PluginBase):
                     logger.info(
                         "【监控生活事件】生成 STRM 文件成功: %s", str(new_file_path)
                     )
+                    if self._monitor_life_scrape_metadata_enabled:
+                        self.media_scrape_metadata(
+                            path=new_file_path,
+                        )
                     # 刷新媒体服务器
                     refresh_mediaserver(str(new_file_path), str(original_file_name))
             else:
@@ -2730,6 +2936,10 @@ class P115StrmHelper(_PluginBase):
                 logger.info(
                     "【监控生活事件】生成 STRM 文件成功: %s", str(new_file_path)
                 )
+                if self._monitor_life_scrape_metadata_enabled:
+                    self.media_scrape_metadata(
+                        path=new_file_path,
+                    )
                 # 刷新媒体服务器
                 refresh_mediaserver(str(new_file_path), str(original_file_name))
 
