@@ -1314,6 +1314,18 @@ class P115StrmHelper(_PluginBase):
         """
         try:
             event_data = event.event_data
+
+            # 插件 ID 守卫：只处理本插件的按钮回调，避免解析其他插件的 MessageAction
+            plugin_id = str(event_data.get("plugin_id") or "").strip().lower()
+            target_plugin_id = (
+                str(event_data.get("__mp_target_plugin_id") or "").strip().lower()
+            )
+            own_plugin_id = self.__class__.__name__.lower()
+            if plugin_id and plugin_id != own_plugin_id:
+                return
+            if target_plugin_id and target_plugin_id != own_plugin_id:
+                return
+
             callback_text = event_data.get("text", "")
 
             if strm_cleanup_interaction.try_handle_message_action(event_data):
