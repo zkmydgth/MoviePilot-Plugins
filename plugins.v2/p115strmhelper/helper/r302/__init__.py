@@ -12,7 +12,7 @@ from typing import cast, Dict, Optional
 from urllib.parse import parse_qsl, unquote, urlsplit, urlencode
 
 from httpx import AsyncClient, Limits, Timeout
-from orjson import dumps, loads
+from orjson import loads
 from p115cipher import rsa_decrypt, rsa_encrypt
 from p115client import P115Client
 from p115client import check_response as p115_check_response
@@ -185,20 +185,16 @@ class Redirect:
         id = int(info["fid"])
         return id
 
-    @classmethod
-    async def get_receive_code(cls, share_code: str) -> str:
+    async def get_receive_code(self, share_code: str) -> str:
         """
         获取接收码
         """
-        resp = await cls.http_client().get(
-            f"http://web.api.115.com/share/shareinfo?share_code={share_code}",
-        )
-        check_response(resp)
-        json = loads(cast(bytes, resp.content))
-        if not json["state"]:
-            raise FileNotFoundError(ENOENT, json)
-        receive_code = json["data"]["receive_code"]
-        return receive_code
+        resp = await self.client.share_info(share_code, async_=True)
+        p115_check_response(resp)
+        data = resp.get("data")
+        if not data or not data.get("receive_code"):
+            raise FileNotFoundError(ENOENT, resp)
+        return data["receive_code"]
 
     async def get_downurl_cookie(
         self,
@@ -340,24 +336,29 @@ class Redirect:
             "receive_code": receive_code,
             "file_id": file_id,
         }
-        resp = await self.http_client().post(
-            "http://proapi.115.com/app/share/downurl",
-            data={"data": rsa_encrypt(dumps(payload)).decode("utf-8")},
-        )
-        check_response(resp)
-        json = loads(cast(bytes, resp.content))
-        if not json["state"]:
-            if json.get("errno") == 4100008:
+        try:
+            client_url = await self.client.share_download_url(
+                payload,
+                app="android",
+                async_=True,
+            )
+        except Exception as e:
+            error_payload = getattr(e, "message", None)
+            if (
+                isinstance(error_payload, Mapping)
+                and error_payload.get("errno") == 4100008
+            ):
                 receive_code = await self.get_receive_code(share_code)
                 return await self.get_share_downurl(share_code, receive_code, file_id)
-            raise OSError(EIO, json)
-        data = json["data"] = loads(rsa_decrypt(json["data"]))
-        if not (data and (url_info := data["url"])):
-            raise FileNotFoundError(ENOENT, json)
-        data["file_id"] = data.pop("fid")
-        data["file_name"] = data.pop("fn")
-        data["file_size"] = int(data.pop("fs"))
-        url = Url.of(url_info["url"], data)
+            raise
+
+        data = {
+            "file_id": client_url.id,
+            "file_name": client_url.name,
+            "file_size": client_url.size,
+            "sha1": client_url.sha1,
+        }
+        url = Url.of(str(client_url), data)
 
         expires_time = (
             int(next(v for k, v in parse_qsl(urlsplit(url).query) if k == "t")) - 60 * 5
