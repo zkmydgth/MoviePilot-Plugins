@@ -53,7 +53,7 @@ if configer.get_config("error_info_upload"):
             dsn=base64.b64decode(
                 "aHR0cHM6Ly82YTk0ZjI2N2NjOTY0Y2ZiOTk5ZjQyNDgwNGIyMTE1M0BnbGl0Y2h0aXAuZGRzcmVtLmNvbS80"
             ).decode("utf-8"),
-            release="p115strmhelper@v2.0.1",
+            release="p115strmhelper@v2.0.2",
             # 禁用所有默认集成
             default_integrations=False,
             # 启用集成

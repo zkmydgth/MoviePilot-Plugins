@@ -18,7 +18,7 @@ from app.chain.storage import StorageChain
 from app.utils.string import StringUtils
 
 from ..core.config import configer
-from ..utils.url import SecureRequest
+from ..utils.oopserver import OOPServerRequest
 from ..utils.sentry import capture_all_class_exceptions
 
 
@@ -46,7 +46,7 @@ class U115OpenHelper:
         self.session = requests.Session()
         self._init_session()
 
-        self.secure_request = SecureRequest(max_retries=3, backoff_factor=1.0)
+        self.oopserver_request = OOPServerRequest(max_retries=3, backoff_factor=1.0)
 
     def _init_session(self):
         """
@@ -232,7 +232,7 @@ class U115OpenHelper:
             """
             发送上传信息
             """
-            url = "https://115_server.ddsrem.com/upload/info"
+            path = "/upload/info"
             headers = {"x-machine-id": configer.get_config("MACHINE_ID")}
             json_data = {
                 "file_sha1": file_sha1,
@@ -247,8 +247,8 @@ class U115OpenHelper:
                 .replace("+00:00", "Z"),
             }
             try:
-                response = self.secure_request.make_request(
-                    url=url,
+                response = self.oopserver_request.make_request(
+                    path=path,
                     method="POST",
                     headers=headers,
                     json_data=json_data,
