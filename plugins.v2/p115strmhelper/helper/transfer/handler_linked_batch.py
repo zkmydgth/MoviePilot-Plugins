@@ -271,16 +271,14 @@ class TransferHandlerLinkedBatch:
                             # 主视频文件，根据 overwrite_mode 决定是否覆盖
                             overwrite_mode = task.overwrite_mode or "never"
                             over_flag = False
-                            should_skip = False
+                            skip_reason: Optional[str] = None
 
                             if overwrite_mode == "always":
-                                # 总是覆盖同名文件
                                 over_flag = True
                                 logger.info(
                                     f"【整理接管】目标文件已存在，覆盖模式=always，将覆盖: {target_dir / target_name}"
                                 )
                             elif overwrite_mode == "size":
-                                # 存在时大覆盖小
                                 source_size = fileitem.size or 0
                                 target_size = existing_item.size or 0
                                 if source_size > target_size:
@@ -289,43 +287,32 @@ class TransferHandlerLinkedBatch:
                                         f"【整理接管】目标文件已存在，覆盖模式=size，源文件更大 ({source_size} > {target_size})，将覆盖: {target_dir / target_name}"
                                     )
                                 else:
-                                    # 目标文件质量更好，跳过
-                                    should_skip = True
+                                    skip_reason = "媒体库存在同名文件，且质量更好"
                                     logger.info(
                                         f"【整理接管】目标文件已存在，覆盖模式=size，目标文件质量更好 ({target_size} >= {source_size})，跳过: {target_dir / target_name}"
                                     )
                             elif overwrite_mode == "latest":
-                                # 仅保留最新版本
                                 over_flag = True
                                 logger.info(
                                     f"【整理接管】目标文件已存在，覆盖模式=latest，将覆盖: {target_dir / target_name}"
                                 )
-                            else:  # overwrite_mode == "never" or None
-                                # 存在不覆盖
-                                should_skip = True
+                            else:
+                                skip_reason = "媒体库存在同名文件，当前覆盖模式为不覆盖"
                                 logger.info(
                                     f"【整理接管】目标文件已存在，覆盖模式=never，跳过: {target_dir / target_name}"
                                 )
 
-                            if should_skip:
-                                # 不覆盖，跳过此文件（文件已存在，视为成功）
-                                if is_main:
-                                    task.fileitem.fileid = existing_item.fileid
-                                    # 文件已存在，视为成功
-                                    task_path = (
-                                        task.fileitem.path
-                                        if task and task.fileitem
-                                        else None
-                                    )
-                                    if task_path:
-                                        task_main_file_status[task_path] = True
-                                elif related_file:
-                                    related_file.fileitem.fileid = existing_item.fileid
+                            if skip_reason:
+                                task_path = (
+                                    task.fileitem.path
+                                    if task and task.fileitem
+                                    else None
+                                )
+                                if task_path:
+                                    task_failures[task_path] = skip_reason
                                 continue
-                            elif over_flag:
-                                # 覆盖模式，收集需要删除的文件
+                            if over_flag:
                                 files_to_delete.append(existing_item)
-                                # 从映射中移除，避免重复处理
                                 existing_files_map.pop(target_name, None)
                     else:
                         # 目标文件不存在，但如果是 latest 模式，需要删除其他版本文件
