@@ -368,6 +368,7 @@ const config = reactive({
   monitor_life_move_media_create_new_strm: true,
   monitor_life_move_media_mode: 'recreate',
   monitor_life_move_media_to_transfer_remove_local_strm: false,
+  monitor_life_move_media_local_move_related_files: true,
   monitor_life_min_file_size: 0,
   monitor_life_event_wait_time: 0,
   share_strm_config: [],

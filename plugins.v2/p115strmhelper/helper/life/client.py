@@ -1238,24 +1238,25 @@ class MonitorLife:
                 old_strm_path,
             )
 
-        for sibling in old_strm_path.parent.glob(f"{old_strm_path.stem}*"):
-            if sibling.suffix.lower() == ".strm" or not sibling.is_file():
-                continue
-            target_sibling = new_strm_path.parent / sibling.name
-            if target_sibling.exists():
+        if configer.monitor_life_move_media_local_move_related_files:
+            for sibling in old_strm_path.parent.glob(f"{old_strm_path.stem}*"):
+                if sibling.suffix.lower() == ".strm" or not sibling.is_file():
+                    continue
+                target_sibling = new_strm_path.parent / sibling.name
+                if target_sibling.exists():
+                    logger.info(
+                        "【监控生活事件】模式 local_move 关联文件迁移跳过，目标已存在: %s",
+                        target_sibling,
+                    )
+                    continue
+                new_strm_path.parent.mkdir(parents=True, exist_ok=True)
+                shutil_move(str(sibling), str(target_sibling))
+                moved_any = True
                 logger.info(
-                    "【监控生活事件】模式 local_move 关联文件迁移跳过，目标已存在: %s",
+                    "【监控生活事件】模式 local_move 关联文件迁移完成: %s -> %s",
+                    sibling,
                     target_sibling,
                 )
-                continue
-            new_strm_path.parent.mkdir(parents=True, exist_ok=True)
-            shutil_move(str(sibling), str(target_sibling))
-            moved_any = True
-            logger.info(
-                "【监控生活事件】模式 local_move 关联文件迁移完成: %s -> %s",
-                sibling,
-                target_sibling,
-            )
 
         if moved_any:
             PathRemoveUtils.remove_parent_dir(

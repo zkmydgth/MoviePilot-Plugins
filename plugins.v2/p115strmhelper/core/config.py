@@ -385,6 +385,10 @@ class ConfigManager(BaseModel):
         default=False,
         description="从媒体目录移动到待整理目录时是否删除媒体库下对应本地 STRM",
     )
+    monitor_life_move_media_local_move_related_files: bool = Field(
+        default=True,
+        description="媒体目录内移动为 local_move 模式时，是否迁移 STRM 关联文件",
+    )
     monitor_life_min_file_size: Optional[int] = Field(
         default=None, ge=0, description="生活事件生成最小文件大小"
     )

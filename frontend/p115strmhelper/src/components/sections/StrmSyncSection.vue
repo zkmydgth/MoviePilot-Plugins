@@ -567,12 +567,41 @@
                   </v-col>
                 </v-row>
 
+                <v-row v-if="config.monitor_life_move_media_mode === 'local_move'">
+                  <v-col cols="12">
+                    <v-switch
+                      v-model="config.monitor_life_move_media_local_move_related_files"
+                      label="local_move 时迁移 STRM 关联文件"
+                      color="primary"
+                      density="compact"
+                      hide-details
+                    ></v-switch>
+                  </v-col>
+                </v-row>
+
                 <v-alert type="info" variant="text" density="compact" class="mt-3" icon="mdi-information">
                   <div class="text-caption">
-                    <div class="mb-1">• <strong>recreate</strong>：按配置执行“删旧/建新”，适合希望内容重算与重新生成的场景</div>
-                    <div>• <strong>local_move</strong>：仅本地移动旧 STRM 及关联文件，不重新生成</div>
+                    <div class="mb-1">下表根据你当前配置实时生成，展示“源目录 -> 目标目录”的实际处理动作</div>
+                    <div>说明：源目录类型以数据库可识别路径为准</div>
                   </div>
                 </v-alert>
+
+                <v-table density="compact" class="mt-2 life-move-matrix">
+                  <thead>
+                    <tr>
+                      <th class="text-left">源目录</th>
+                      <th class="text-left">目标目录</th>
+                      <th class="text-left">当前处理动作（实时）</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="item in lifeMoveMatrixRows" :key="`${item.source}-${item.target}`">
+                      <td>{{ item.sourceLabel }}</td>
+                      <td>{{ item.targetLabel }}</td>
+                      <td>{{ item.action }}</td>
+                    </tr>
+                  </tbody>
+                </v-table>
               </v-card>
             </v-col>
           </v-row>
@@ -835,6 +864,52 @@ const openDirSelector = inject('openDirSelector');
 const openExcludeDirSelector = inject('openExcludeDirSelector');
 const removeExcludePathEntry = inject('removeExcludePathEntry');
 const checkLifeEventStatus = inject('checkLifeEventStatus');
+
+const lifeMoveMatrixRows = computed(() => {
+  const c = config?.value ?? config;
+  const mode = c.monitor_life_move_media_mode;
+  const recreateKeep = Boolean(c.monitor_life_move_media_keep_old_strm);
+  const recreateCreate = Boolean(c.monitor_life_move_media_create_new_strm);
+  const outRemove = Boolean(c.monitor_life_move_out_media_remove_local_strm);
+  const toTransferRemove = Boolean(c.monitor_life_move_media_to_transfer_remove_local_strm);
+  const localMoveRelated = Boolean(c.monitor_life_move_media_local_move_related_files);
+
+  const mediaToMediaAction =
+    mode === 'local_move'
+      ? `本地迁移旧 STRM（关联文件迁移=${localMoveRelated ? '开启' : '关闭'}）`
+      : `按 recreate 执行：保留旧STRM=${recreateKeep ? '是' : '否'}，生成新STRM=${recreateCreate ? '是' : '否'}`;
+
+  const map = {
+    '媒体->媒体': mediaToMediaAction,
+    '媒体->待整理': `可选删除旧本地STRM（当前=${toTransferRemove ? '是' : '否'}），然后走网盘整理`,
+    '媒体->其它': `可选删除旧本地STRM（当前=${outRemove ? '是' : '否'}）`,
+    '待整理->媒体': '按“迁入媒体目录”处理，生成新STRM',
+    '待整理->待整理': '直接走网盘整理',
+    '待整理->其它': '不处理（安全跳过）',
+    '其它->媒体': '按“迁入媒体目录”处理，生成新STRM',
+    '其它->待整理': '直接走网盘整理',
+    '其它->其它': '不处理（安全跳过）',
+  };
+
+  const rows = [
+    ['媒体', '媒体'],
+    ['媒体', '待整理'],
+    ['媒体', '其它'],
+    ['待整理', '媒体'],
+    ['待整理', '待整理'],
+    ['待整理', '其它'],
+    ['其它', '媒体'],
+    ['其它', '待整理'],
+    ['其它', '其它'],
+  ];
+  return rows.map(([source, target]) => ({
+    source,
+    target,
+    sourceLabel: source,
+    targetLabel: target,
+    action: map[`${source}->${target}`],
+  }));
+});
 </script>
 
 <style scoped>
@@ -848,5 +923,9 @@ const checkLifeEventStatus = inject('checkLifeEventStatus');
   font-weight: 600;
   color: rgba(var(--v-theme-on-surface), 0.85);
   letter-spacing: 0.01em;
+}
+
+.life-move-matrix {
+  background: transparent;
 }
 </style>
