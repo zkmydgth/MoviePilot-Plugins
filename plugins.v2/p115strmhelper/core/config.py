@@ -1,8 +1,8 @@
-import json
 import platform
 from typing import Dict, Any, Optional, List, Union
 from pathlib import Path
 
+from orjson import loads, JSONDecodeError
 from pydantic import BaseModel, ValidationError, Field
 
 from app.log import logger
@@ -312,8 +312,8 @@ class ConfigManager(BaseModel):
         从JSON字符串加载配置
         """
         try:
-            return self.load_from_dict(json.loads(json_str))
-        except json.JSONDecodeError:
+            return self.load_from_dict(loads(json_str))
+        except JSONDecodeError:
             logger.error("【配置管理器】无效的JSON格式")
             return False
 
@@ -333,7 +333,7 @@ class ConfigManager(BaseModel):
         """
         self._update_aliyun_token()
         json_string = self.json()
-        serializable_dict = json.loads(json_string)
+        serializable_dict = loads(json_string)
         return serializable_dict
 
     def update_config(self, updates: Dict[str, Any]) -> bool:
@@ -362,7 +362,7 @@ class ConfigManager(BaseModel):
         systemconfig = SystemConfigOper()
         plugin_id = self.PLUSIN_NAME
         json_string = self.json()
-        serializable_dict = json.loads(json_string)
+        serializable_dict = loads(json_string)
         return systemconfig.set(f"plugin.{plugin_id}", serializable_dict)
 
     def get_user_agent(self, utype: int = -1) -> str:

@@ -1,8 +1,8 @@
-import json
 from typing import List, Dict, Optional
 from pathlib import Path
 
 import requests
+from orjson import loads
 from aligo import Aligo, BatchRequest, BatchSubRequest
 
 
@@ -83,8 +83,8 @@ class AliyunPanLogin:
         """
         if not path.exists():
             return None
-        with open(path, encoding="utf-8") as file:
-            data = json.load(file)
+        with open(path, "rb") as file:
+            data = loads(file.read())
             aligo_refresh_token = data.get("refresh_token")
             if aligo_refresh_token:
                 return aligo_refresh_token

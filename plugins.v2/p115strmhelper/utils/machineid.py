@@ -1,10 +1,11 @@
 import uuid
 import hashlib
-import json
 from pathlib import Path
 from typing import Optional
 import socket
 import platform
+
+from orjson import loads, dumps, JSONDecodeError, OPT_INDENT_2
 
 
 class MachineID:
@@ -53,8 +54,8 @@ class MachineID:
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
 
-            with path.open("x", encoding="utf-8") as f:
-                json.dump({"machine_id": machine_id}, f, indent=4)
+            with path.open("wb") as f:
+                f.write(dumps({"machine_id": machine_id}, option=OPT_INDENT_2))
         except FileExistsError as e:
             raise FileExistsError(
                 f"Machine ID file already exists at {path}, likely due to a race condition."
@@ -83,7 +84,7 @@ class MachineID:
 
         try:
             content = path.read_text(encoding="utf-8")
-            data = json.loads(content)
+            data = loads(content)
             machine_id = data.get("machine_id")
 
             if not isinstance(machine_id, str) or len(machine_id) != 64:
@@ -91,7 +92,7 @@ class MachineID:
                 return MachineID.generate_machine_id(path)
 
             return machine_id
-        except json.JSONDecodeError as e:
+        except JSONDecodeError as e:
             raise ValueError(
                 f"Invalid JSON format in machine ID file {path}: {e}"
             ) from e

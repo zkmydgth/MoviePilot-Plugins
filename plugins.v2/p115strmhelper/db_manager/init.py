@@ -1,8 +1,8 @@
-import json
 import shutil
 from pathlib import Path
 from typing import Set
 
+from orjson import loads
 from alembic import command
 from alembic.config import Config
 from alembic.runtime.environment import EnvironmentContext
@@ -35,8 +35,8 @@ def migration_db(db_path, script_location, version_locations: list):
     """
     # 启动时的更新，调整从 /config/plugins/p115strmhelper/database/versions 中读取持久化的迁移脚本)
     meta_data_path = Path(settings.ROOT_PATH / 'app' / 'plugins' / 'p115strmhelper' / 'migration_meta.json')
-    with open(meta_data_path, 'r', encoding='utf-8') as f:
-        config_data = json.load(f)
+    with open(meta_data_path, 'rb') as f:
+        config_data = loads(f.read())
         revision = config_data.get("revision", 'head')
         logger.debug(f"正在将数据库迁移到版本: {revision} ...")
 

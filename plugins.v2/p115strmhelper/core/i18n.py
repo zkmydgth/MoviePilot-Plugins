@@ -1,6 +1,7 @@
-import json
 from typing import Any, Dict, Optional
 from string import Formatter
+
+from orjson import loads, JSONDecodeError
 
 from app.core.config import settings
 
@@ -46,9 +47,9 @@ class I18N:
         lang_file = locales_dir / f"{lang}.json"
 
         try:
-            with open(lang_file, "r", encoding="utf-8") as f:
-                self.translations = json.load(f)
-        except (FileNotFoundError, json.JSONDecodeError):
+            with open(lang_file, "rb") as f:
+                self.translations = loads(f.read())
+        except (FileNotFoundError, JSONDecodeError):
             self.translations = {}
 
         if lang == default_lang:
@@ -56,9 +57,9 @@ class I18N:
         else:
             default_lang_file = locales_dir / f"{default_lang}.json"
             try:
-                with open(default_lang_file, "r", encoding="utf-8") as f:
-                    self.default_translations = json.load(f)
-            except (FileNotFoundError, json.JSONDecodeError):
+                with open(default_lang_file, "rb") as f:
+                    self.default_translations = loads(f.read())
+            except (FileNotFoundError, JSONDecodeError):
                 self.default_translations = {}
 
     def translate(self, key: str, default: Optional[str] = None, **kwargs: Any) -> str:

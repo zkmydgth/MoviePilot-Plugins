@@ -1,7 +1,6 @@
 import base64
 import io
 import time
-import json
 from datetime import datetime
 from dataclasses import asdict
 from typing import Dict, Any, Optional
@@ -10,7 +9,7 @@ from urllib.parse import quote
 
 import qrcode
 import requests
-from orjson import dumps
+from orjson import dumps, loads
 from p115client import P115Client
 from p115client.exception import DataError
 from p115client.tool.fs_files import iter_fs_files
@@ -515,7 +514,7 @@ class Api:
             data = AliyunPanLogin.ck(t_param, ck_param).get("content")
             if data["data"]["qrCodeStatus"] == "CONFIRMED":
                 h = data["data"]["bizExt"]
-                c = json.loads(base64.b64decode(h).decode("gbk"))
+                c = loads(base64.b64decode(h).decode("gbk"))
                 refresh_token = c["pds_login_result"]["refreshToken"]
                 if refresh_token:
                     configer.update_config({"aliyundrive_token": refresh_token})
