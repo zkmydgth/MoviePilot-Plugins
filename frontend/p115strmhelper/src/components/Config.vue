@@ -235,6 +235,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted, watch, provide } from 'vue';
 import { ensureSentryInitialized } from '../utils/init-sentry.js';
+import { P115_STRM_HELPER_PLUGIN_ID } from '../utils/pluginId.js';
 import { usePathManagement } from './composables/usePathManagement.js';
 import { useQrCode } from './composables/useQrCode.js';
 import { useDirSelector } from './composables/useDirSelector.js';
@@ -266,8 +267,7 @@ const props = defineProps({
 
 const emit = defineEmits(['save', 'close', 'switch']);
 
-// 定义插件ID常量，修复pluginId未定义错误
-const PLUGIN_ID = "P115StrmHelper";
+const PLUGIN_ID = P115_STRM_HELPER_PLUGIN_ID;
 
 // 状态变量
 const loading = ref(true);

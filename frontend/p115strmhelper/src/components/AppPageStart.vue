@@ -301,6 +301,7 @@ import {
   formatStatValue,
   formatNum,
 } from '../utils/strmHistoryDisplay.js';
+import { P115_STRM_HELPER_PLUGIN_ID } from '../utils/pluginId.js';
 
 const props = defineProps({
   api: {
@@ -309,7 +310,7 @@ const props = defineProps({
   },
   pluginId: {
     type: String,
-    default: 'P115StrmHelper',
+    default: P115_STRM_HELPER_PLUGIN_ID,
   },
   navKey: {
     type: String,

@@ -1448,6 +1448,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted, onBeforeUnmount, watch } from 'vue';
 import { ensureSentryInitialized } from '../utils/init-sentry.js';
+import { P115_STRM_HELPER_PLUGIN_ID } from '../utils/pluginId.js';
 import FullSyncConfirmDialog from './dialogs/FullSyncConfirmDialog.vue';
 import DirSelectorDialog from './dialogs/DirSelectorDialog.vue';
 
@@ -1463,6 +1464,8 @@ const props = defineProps({
 });
 
 const emit = defineEmits(['close', 'switch', 'update:config', 'action']);
+
+const pluginId = P115_STRM_HELPER_PLUGIN_ID;
 
 const parseSize = (sizeString) => {
   if (!sizeString || typeof sizeString !== 'string') return 0;
@@ -1673,7 +1676,6 @@ const getStatus = async () => {
   loading.value = true;
   error.value = null;
   try {
-    const pluginId = "P115StrmHelper";
     const result = await props.api.get(`plugin/${pluginId}/get_status`);
     // 此处 result.data 的访问方式与新模型兼容，无需修改
     if (result && result.code === 0 && result.data) {
@@ -1751,7 +1753,6 @@ const getFuseStatus = async () => {
   fuseStatus.loading = true;
   fuseStatus.error = null;
   try {
-    const pluginId = "P115StrmHelper";
     const result = await props.api.get(`plugin/${pluginId}/fuse_status`);
     if (result && result.code === 0 && result.data) {
       fuseStatus.mounted = Boolean(result.data.mounted);
@@ -1778,7 +1779,6 @@ const mountFuse = async () => {
   fuseStatus.mounting = true;
   fuseStatus.error = null;
   try {
-    const pluginId = "P115StrmHelper";
     const result = await props.api.post(`plugin/${pluginId}/fuse_mount`, {
       mountpoint: props.initialConfig.fuse_mountpoint,
       readdir_ttl: props.initialConfig.fuse_readdir_ttl || 60,
@@ -1807,7 +1807,6 @@ const unmountFuse = async () => {
   fuseStatus.unmounting = true;
   fuseStatus.error = null;
   try {
-    const pluginId = "P115StrmHelper";
     const result = await props.api.post(`plugin/${pluginId}/fuse_unmount`);
     if (result && result.code === 0) {
       actionMessage.value = 'FUSE 文件系统卸载成功';
@@ -1848,7 +1847,6 @@ const triggerFullSync = async () => {
     if (!status.enabled) throw new Error('插件未启用，请先在配置页面启用插件');
     if (!status.has_client) throw new Error('插件未配置Cookie或Cookie无效，请先在配置页面设置115 Cookie');
     if (getPathsCount(props.initialConfig?.full_sync_strm_paths) === 0) throw new Error('未配置全量同步路径，请先在配置页面设置同步路径');
-    const pluginId = "P115StrmHelper";
     const result = await props.api.post(`plugin/${pluginId}/full_sync`);
     if (result && result.code === 0) {
       actionMessage.value = result.msg || '全量同步任务已启动';
@@ -1874,7 +1872,6 @@ const triggerFullSyncDb = async () => {
   try {
     if (!status.enabled) throw new Error('插件未启用，请先在配置页面启用插件');
     if (!status.has_client) throw new Error('插件未配置Cookie或Cookie无效，请先在配置页面设置115 Cookie');
-    const pluginId = "P115StrmHelper";
     const result = await props.api.post(`plugin/${pluginId}/full_sync_db`);
     if (result && result.code === 0) {
       actionMessage.value = result.msg || '全量同步数据库任务已启动';
@@ -2090,7 +2087,6 @@ const saveShareConfigs = async () => {
   shareConfigSaving.value = true;
   shareDialog.error = null;
   try {
-    const pluginId = "P115StrmHelper";
     if (props.initialConfig) {
       // 更新配置
       props.initialConfig.share_strm_config = shareDialog.configs;
@@ -2196,7 +2192,6 @@ const loadDirContent = async () => {
         dirDialog.items = [];
       }
     } else {
-      const pluginId = "P115StrmHelper";
       if (!props.initialConfig?.cookies || props.initialConfig?.cookies.trim() === '') {
         throw new Error('请先设置115 Cookie才能浏览网盘目录');
       }
@@ -2279,7 +2274,6 @@ const executeShareSync = async () => {
       throw new Error('请至少添加一个分享配置');
     }
 
-    const pluginId = "P115StrmHelper";
     if (props.initialConfig) {
       // 更新配置
       props.initialConfig.share_strm_config = shareDialog.configs;
@@ -2364,7 +2358,6 @@ const fetchOfflineTasks = async ({ page, itemsPerPage }) => {
   offlineDownloadDialog.loading = true;
   offlineDownloadDialog.error = null;
   try {
-    const pluginId = "P115StrmHelper";
     const result = await props.api.post(`plugin/${pluginId}/offline_tasks`, {
       page: page,
       limit: itemsPerPage
@@ -2393,7 +2386,6 @@ const addOfflineTask = async () => {
   offlineDownloadDialog.adding = true;
   offlineDownloadDialog.addError = null;
   try {
-    const pluginId = "P115StrmHelper";
     const links = offlineDownloadDialog.links.split('\n').map(l => l.trim()).filter(Boolean);
     const result = await props.api.post(`plugin/${pluginId}/add_offline_task`, {
       links: links,
@@ -2521,7 +2513,6 @@ const loadSyncDelHistory = async () => {
   }
   syncDelHistoryLoading.value = true;
   try {
-    const pluginId = "P115StrmHelper";
     const response = await props.api.get(
       `plugin/${pluginId}/get_sync_del_history?page=${syncDelHistoryPage.value}&limit=${syncDelHistoryLimit.value}`
     );
@@ -2571,7 +2562,6 @@ const deleteSyncDelHistory = async (unique) => {
   if (!unique) return;
   deletingHistoryId.value = unique;
   try {
-    const pluginId = "P115StrmHelper";
     const response = await props.api.post(
       `plugin/${pluginId}/delete_sync_del_history`,
       {
@@ -2612,7 +2602,6 @@ const handleConfirmDeleteAllHistory = async () => {
 const deleteAllSyncDelHistory = async () => {
   deletingAllHistory.value = true;
   try {
-    const pluginId = "P115StrmHelper";
     const response = await props.api.post(
       `plugin/${pluginId}/delete_all_sync_del_history`
     );
@@ -2651,7 +2640,6 @@ onMounted(async () => {
     }
   }
   try {
-    const pluginId = "P115StrmHelper";
     const data = await props.api.get(`plugin/${pluginId}/get_config`);
     if (data && data.mediaservers) {
       mediaservers.value = data.mediaservers;
@@ -2687,7 +2675,6 @@ async function fetchUserStorageStatus() {
   storageInfo.loading = true;
   storageInfo.error = null;
   try {
-    const pluginId = "P115StrmHelper";
     // 此接口未包裹在 ApiResponse 中，保持不变
     const response = await props.api.get(`plugin/${pluginId}/user_storage_status`);
     if (response && response.success) {
