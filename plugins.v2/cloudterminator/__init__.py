@@ -18,7 +18,7 @@ from .db_manager.init import init_db, update_db
 from ...core.event import eventmanager, Event
 from ...schemas.types import EventType
 
-from p115updatedb import u115updatedb
+from .strmhelper.u115 import U115StrmHelper
 
 notify_lock = threading.Lock()
 
@@ -603,6 +603,7 @@ class CloudTerminator(_PluginBase):
         try:
             if self._onlyonce:
                 pass
+                # client = U115StrmHelper(f"{self.__db_path}/file_list.db", p115client)
         except Exception as e:
             raise e
         finally:

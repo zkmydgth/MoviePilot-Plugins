@@ -1,5 +1,4 @@
 __author__ = "ChenyangGao <https://chenyanggao.github.io>"
-__all__ = ["main"]
 __doc__ = "115 网盘批量上传"
 __license__ = "MIT"
 
