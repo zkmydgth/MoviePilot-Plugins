@@ -399,16 +399,21 @@ class VarietyGuardTestCase(unittest.TestCase):
         self.assertEqual(checkpoint.items, ())
 
     def test_default_keyword_list_integrity(self):
-        """默认词表：60 项、无重复、全部合法正则；ASCII 项带词边界（E00/EP00 例外）、中文项不带。"""
+        """默认词表：61 项、无重复、全部合法正则；ASCII 项带词边界（E00/EP00 例外）、中文项不带。"""
         from varietyguard import DEFAULT_EXCLUDE_KEYWORDS
 
-        self.assertEqual(len(DEFAULT_EXCLUDE_KEYWORDS), 60)
-        self.assertEqual(len(set(DEFAULT_EXCLUDE_KEYWORDS)), 60)
+        self.assertEqual(len(DEFAULT_EXCLUDE_KEYWORDS), 61)
+        self.assertEqual(len(set(DEFAULT_EXCLUDE_KEYWORDS)), 61)
         for pattern in DEFAULT_EXCLUDE_KEYWORDS:
             re.compile(pattern)  # 非法正则会直接抛错
         chinese_items = [w for w in DEFAULT_EXCLUDE_KEYWORDS if not w.isascii()]
         ascii_items = [w for w in DEFAULT_EXCLUDE_KEYWORDS if w.isascii()]
-        self.assertEqual(len(chinese_items) + len(ascii_items), 60)
+        self.assertEqual(len(chinese_items) + len(ascii_items), 61)
+        # v1.0.7：与「中文 35 + 英文/数字 26」分组一致，且并入 Before
+        self.assertEqual(len(chinese_items), 35)
+        self.assertEqual(len(ascii_items), 26)
+        self.assertIn("(?<![A-Za-z])Before(?![A-Za-z])", DEFAULT_EXCLUDE_KEYWORDS)
+        self.assertIn("独家", DEFAULT_EXCLUDE_KEYWORDS)
         for item in ascii_items:
             if item in {"E00", "EP00"}:
                 continue  # 这两条按设计不加词边界（见 test_bare_episode_zero_keywords）
@@ -631,6 +636,146 @@ class VarietyGuardTestCase(unittest.TestCase):
         self.assertTrue(form)
         self.assertIn("sync_rule_id", model)
         self.assertEqual(model["sync_rule_id"], "")
+
+
+class RestoreDefaultKeywordsTestCase(unittest.TestCase):
+    """F. 恢复默认关键词：配置表单按钮、详情页按钮与 API 三条入口。"""
+
+    def setUp(self) -> None:
+        """为每个用例准备全新插件实例。"""
+        self.plugin = VarietyGuard()
+
+    def tearDown(self) -> None:
+        """卸载补丁，避免污染其它用例。"""
+        self.plugin.stop_service()
+
+    def test_form_button_uses_client_script(self):
+        """配置表单按钮：走 props.onClick 字符串脚本（含 confirm 守卫），且不得出现表单渲染器不支持的 events。"""
+        form, _defaults = VarietyGuard().get_form()
+        blob = repr(form)
+        self.assertIn("恢复默认关键词", blob)
+        self.assertIn("model.exclude_keywords", blob)
+        self.assertIn("confirm(", blob)
+        self.assertNotIn("'events'", blob)
+
+    def test_form_button_payload_equals_defaults(self):
+        """按钮脚本内联的词表必须与内置默认逐项一致，否则「恢复默认」会填错内容。"""
+        import json as _json
+
+        from varietyguard import DEFAULT_ALLOW_KEYWORDS, DEFAULT_EXCLUDE_KEYWORDS
+
+        script = VarietyGuard._restore_keywords_js()
+        exclude_raw = script.split("model.exclude_keywords = ", 1)[1].split(".join(", 1)[0]
+        allow_raw = script.split("model.allow_keywords = ", 1)[1].split(".join(", 1)[0]
+        self.assertEqual(_json.loads(exclude_raw), list(DEFAULT_EXCLUDE_KEYWORDS))
+        self.assertEqual(_json.loads(allow_raw), list(DEFAULT_ALLOW_KEYWORDS))
+
+    def test_default_keywords_text_shape(self):
+        """默认词表文本形态：与常量逐项一致（供配置文本框与 API 写回共用）。"""
+        from varietyguard import DEFAULT_ALLOW_KEYWORDS, DEFAULT_EXCLUDE_KEYWORDS
+
+        payload = VarietyGuard.default_keywords()
+        self.assertEqual(payload["exclude_keywords"].splitlines(), list(DEFAULT_EXCLUDE_KEYWORDS))
+        self.assertEqual(payload["allow_keywords"].splitlines(), list(DEFAULT_ALLOW_KEYWORDS))
+
+    def test_api_requires_confirmation(self):
+        """两阶段：第一次调用只写待确认，配置与运行期词表都不得变化。"""
+        self.plugin.init_plugin({"enabled": True, "exclude_keywords": "只留这一个"})
+
+        first = self.plugin.api_restore_default_keywords()
+
+        self.assertTrue(first["success"])
+        self.assertIn("确认", first["message"])
+        self.assertIsNotNone(self.plugin._restore_pending())
+        self.assertEqual(self.plugin._exclude_keywords, ["只留这一个"])
+
+    def test_api_confirm_writes_defaults_and_keeps_other_fields(self):
+        """确认阶段：写回默认词表、保留其它配置项，并让运行期词表立即生效。"""
+        from varietyguard import DEFAULT_ALLOW_KEYWORDS, DEFAULT_EXCLUDE_KEYWORDS
+
+        self.plugin.update_config({"enabled": True, "notify": True, "sync_rule_id": "RULE4"})
+        self.plugin.init_plugin({"enabled": True, "exclude_keywords": "只留这一个"})
+        self.plugin.api_restore_default_keywords()
+
+        result = self.plugin.api_restore_default_keywords(confirm="1")
+
+        self.assertTrue(result["success"])
+        saved = self.plugin.get_config()
+        self.assertEqual(saved["exclude_keywords"].splitlines(), list(DEFAULT_EXCLUDE_KEYWORDS))
+        self.assertEqual(saved["allow_keywords"].splitlines(), list(DEFAULT_ALLOW_KEYWORDS))
+        self.assertTrue(saved["notify"])
+        self.assertEqual(saved["sync_rule_id"], "RULE4")
+        self.assertEqual(self.plugin._exclude_keywords, list(DEFAULT_EXCLUDE_KEYWORDS))
+        self.assertEqual(self.plugin._allow_keywords, list(DEFAULT_ALLOW_KEYWORDS))
+        self.assertIsNone(self.plugin._restore_pending())
+
+    def test_api_confirm_without_pending_fails(self):
+        """没先选中就直接确认：必须拒绝，且不得改动配置。"""
+        self.plugin.init_plugin({"enabled": True, "exclude_keywords": "只留这一个"})
+
+        result = self.plugin.api_restore_default_keywords(confirm="1")
+
+        self.assertFalse(result["success"])
+        self.assertEqual(self.plugin._exclude_keywords, ["只留这一个"])
+
+    def test_api_cancel_clears_pending(self):
+        """取消：清除待确认状态，且不得改动配置。"""
+        self.plugin.init_plugin({"enabled": True, "exclude_keywords": "只留这一个"})
+        self.plugin.api_restore_default_keywords()
+
+        result = self.plugin.api_restore_default_keywords(confirm="cancel")
+
+        self.assertTrue(result["success"])
+        self.assertIsNone(self.plugin._restore_pending())
+        self.assertEqual(self.plugin._exclude_keywords, ["只留这一个"])
+
+    def test_pending_expires(self):
+        """待确认超过 TTL 自动作废：过期后确认必须失败。"""
+        import time as _time
+
+        self.plugin.init_plugin({"enabled": True, "exclude_keywords": "只留这一个"})
+        self.plugin.save_data("restore_pending", {"count": 61, "time": _time.time() - 601})
+
+        self.assertIsNone(self.plugin._restore_pending())
+        self.assertFalse(self.plugin.api_restore_default_keywords(confirm="1")["success"])
+        self.assertEqual(self.plugin._exclude_keywords, ["只留这一个"])
+
+    def test_api_reports_save_failure(self):
+        """确认阶段保存异常必须回告失败，不得静默当成功。"""
+        self.plugin.init_plugin({"enabled": True, "exclude_keywords": "只留这一个"})
+        self.plugin.api_restore_default_keywords()
+
+        def boom(config, plugin_id=None):
+            raise RuntimeError("磁盘满了")
+
+        self.plugin.update_config = boom  # type: ignore[assignment]
+        result = self.plugin.api_restore_default_keywords(confirm="1")
+
+        self.assertFalse(result["success"])
+        self.assertIn("磁盘满了", result["message"])
+
+    def test_page_shows_two_phase_buttons(self):
+        """详情页两阶段：未选中时单按钮；选中后出现「确认恢复 / 取消」并带 confirm 参数。"""
+        idle = repr(self.plugin.get_page() or [])
+        self.assertIn("恢复默认关键词", idle)
+        self.assertIn("plugin/VarietyGuard/restore_default_keywords", idle)
+        self.assertIn("'method': 'get'", idle)
+        self.assertIn("apikey", idle)
+        self.assertNotIn("确认恢复", idle)
+
+        self.plugin.api_restore_default_keywords()
+
+        armed = repr(self.plugin.get_page() or [])
+        self.assertIn("确认恢复", armed)
+        self.assertIn("取消", armed)
+        self.assertIn("'confirm': '1'", armed)
+        self.assertIn("'confirm': 'cancel'", armed)
+
+    def test_api_registered(self):
+        """插件 API 列表暴露恢复端点（详情页按钮依赖它）。"""
+        apis = VarietyGuard().get_api()
+        self.assertEqual({item["path"] for item in apis}, {"/restore_default_keywords"})
+        self.assertEqual(apis[0]["methods"], ["GET"])
 
 
 if __name__ == "__main__":

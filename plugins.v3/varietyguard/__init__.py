@@ -38,6 +38,7 @@
 """
 
 import dataclasses
+import json
 import re
 import threading
 import time
@@ -63,6 +64,12 @@ try:  # pragma: no cover - 宿主版本差异分支
 except Exception:  # noqa: BLE001 - 兼容不提供该调度门面的宿主
     add_plugin_once_job = None  # type: ignore[assignment]
 
+# 可选能力（详情页按钮回调）的宿主依赖：缺 Token 时按钮不带鉴权参数，功能不受影响。
+try:  # pragma: no cover - 宿主版本差异分支
+    from app.runtime.config import settings
+except Exception:  # noqa: BLE001 - 兼容不提供该配置模块的宿主
+    settings = None  # type: ignore[assignment]
+
 from .version import VERSION
 
 # ============================ 默认配置 ============================
@@ -72,10 +79,10 @@ from .version import VERSION
 #    （如 `...60Fps.MAXPLUS.H265...`），裸写 Plus 会把正片一起误伤（2026-10-08 实测）。
 # 词表来源：用户 2026-10-08 提供的 RULE4「排除综艺非正片」词表，去重后并入。
 #   v1.0.4 起 51 项：+ Extra / EX / 尝鲜篇 / 森林体验篇
-#   **v1.0.5 起 60 项**（本版把此前只存在于配置层的 9 个词并入默认词表）：
-#     + 超前 / 尊享版 / 陪看 / 直拍 / 探班（S02 观众站 ADWeb 包实测漏网，描述「含加更|特辑|超前」）
-#     + 直播 / Live / Pilot / Fancam（S03 观众站 ADWeb 包五类命名：先导.Pilot / 直播.Live / 加更.Plus / 直拍.Fancam / 正片）
-#       —— 后三个英文词解决「只写英文标签、无中文词」的漏网（原词表依赖中文标签兜底）
+#   v1.0.5 起 60 项：+ 超前 / 尊享版 / 陪看 / 直拍 / 探班 / 直播 / Live / Pilot / Fancam
+#     （前 5 个来自 S02 观众站 ADWeb 包命名；后 3 个解决「只写英文标签、无中文词」的漏网）
+#   **v1.0.7 起 61 项**：并入 Before，并把词表口径对齐用户线上配置（中文 35 + 英文/数字 26）；
+#     该词表同时是配置表单/详情页「恢复默认关键词」按钮写回的内容。
 _RAW_DEFAULT_EXCLUDE: Tuple[str, ...] = (
     # —— 中文关键词（无需边界）——
     "纯享",
@@ -107,14 +114,13 @@ _RAW_DEFAULT_EXCLUDE: Tuple[str, ...] = (
     "独家",
     "尝鲜篇",
     "森林体验篇",
-    # —— v1.0.5 新增中文词 ——
     "超前",
     "尊享版",
     "陪看",
     "直拍",
     "探班",
     "直播",
-    # —— 英文/数字关键词（自动加词边界）——
+    # —— 英文/数字关键词（自动加词边界；E00 / EP00 见 _BARE_KEYWORDS）——
     "Dinner",
     "Pure",
     "Plus",
@@ -137,10 +143,10 @@ _RAW_DEFAULT_EXCLUDE: Tuple[str, ...] = (
     "Detective Club",
     "Extra",
     "EX",
-    # —— v1.0.5 新增英文词（自动加词边界；实测 LiveHouse / Pilotlight 不误伤）——
     "Live",
     "Pilot",
     "Fancam",
+    "Before",
 )
 
 
@@ -184,11 +190,15 @@ DEFAULT_SCOPE_CATEGORIES: str = "综艺"
 DATA_KEY_STATS = "stats"
 DATA_KEY_RECORDS = "records"
 DATA_KEY_RULE_SYNC = "rule_sync"
+DATA_KEY_RESTORE_PENDING = "restore_pending"
 
 # 词表同步（可选能力）：一次性任务 ID 与写入前的安全闸区间
 RULE_SYNC_JOB_ID = "sync_rule_keywords"
 RULE_SYNC_MIN_ITEMS = 10
 RULE_SYNC_MAX_ITEMS = 200
+
+# 「恢复默认关键词」两阶段确认：待确认状态的存活时长（秒），过期即自动作废。
+RESTORE_PENDING_TTL_SECONDS = 600
 
 # 补丁安装失败时的提示（供详情页显示）
 PATCH_STATE_OK = "installed"
@@ -749,8 +759,205 @@ class VarietyGuard(_PluginBase):
     # ==================== API ====================
 
     def get_api(self) -> List[Dict[str, Any]]:
-        """本插件不额外暴露 HTTP 接口。"""
-        return []
+        """返回插件 API 列表（详情页按钮回调）。"""
+        return [
+            {
+                "path": "/restore_default_keywords",
+                "endpoint": self.api_restore_default_keywords,
+                "methods": ["GET"],
+                "summary": "恢复内置默认关键词",
+                "description": "两阶段恢复：先选中待确认，再 confirm=1 才写回配置并立即生效",
+            },
+        ]
+
+    # ==================== 默认词表与恢复 ====================
+
+    @staticmethod
+    def default_keywords() -> Dict[str, str]:
+        """返回内置默认词表的文本形态（排除词、白名单），供「恢复默认」使用。
+
+        多词表项以 LF（``chr(10)``）分隔，与配置表单默认值、文本框口径保持一致。
+        """
+        return {
+            "exclude_keywords": chr(10).join(DEFAULT_EXCLUDE_KEYWORDS),
+            "allow_keywords": chr(10).join(DEFAULT_ALLOW_KEYWORDS),
+        }
+
+    @staticmethod
+    def _restore_keywords_js() -> str:
+        """生成配置表单「恢复默认关键词」按钮的前端脚本。
+
+        宿主配置表单渲染器只支持 ``props.on*`` 形式的字符串脚本（在 ``with(model)``
+        作用域里执行），**不支持** ``events``；因此脚本先弹浏览器原生 ``confirm`` 让用户
+        确认，再改本地表单，最后仍需用户点击「保存」才会落库。
+        脚本内联的词表与内置默认逐项一致（由测试校验）。
+        """
+        exclude_json = json.dumps(list(DEFAULT_EXCLUDE_KEYWORDS), ensure_ascii=False)
+        allow_json = json.dumps(list(DEFAULT_ALLOW_KEYWORDS), ensure_ascii=False)
+        guard = json.dumps(
+            "将用内置默认词表覆盖「非正片关键词 / 正片白名单」两个输入框"
+            f"（非正片 {len(DEFAULT_EXCLUDE_KEYWORDS)} 项），确定恢复？",
+            ensure_ascii=False,
+        )
+        return (
+            "function () { if (!confirm("
+            + guard
+            + ")) { return; } model.exclude_keywords = "
+            + exclude_json
+            + ".join(String.fromCharCode(10)); model.allow_keywords = "
+            + allow_json
+            + ".join(String.fromCharCode(10)); }"
+        )
+
+    @staticmethod
+    def _api_key() -> str:
+        """取宿主 API Token 供详情页按钮携带；宿主未提供时返回空串。"""
+        return str(getattr(settings, "API_TOKEN", "") or "") if settings else ""
+
+    def _restore_pending(self) -> Optional[Dict[str, Any]]:
+        """读取待确认的「恢复默认关键词」请求；过期或形态损坏时自动作废。"""
+        pending = self.get_data(DATA_KEY_RESTORE_PENDING)
+        if not isinstance(pending, dict):
+            return None
+        stamp = pending.get("time")
+        if (
+            not isinstance(stamp, (int, float))
+            or time.time() - stamp > RESTORE_PENDING_TTL_SECONDS
+        ):
+            logger.info("【综艺正片守卫】待确认的恢复默认请求已过期，自动作废")
+            self._set_restore_pending(None)
+            return None
+        return pending
+
+    def _set_restore_pending(self, data: Optional[Dict[str, Any]] = None) -> None:
+        """写入或清除待确认状态（不传或传 None 即清除）。"""
+        if not data:
+            self.del_data(DATA_KEY_RESTORE_PENDING)
+            return
+        self.save_data(
+            DATA_KEY_RESTORE_PENDING,
+            {**data, "time": time.time(), "label": time.strftime("%Y-%m-%d %H:%M:%S")},
+        )
+
+    def _restore_action_nodes(self, pending: Optional[Dict[str, Any]]) -> List[dict]:
+        """构造详情页的恢复入口：未选中时单按钮，已选中时「确认恢复 / 取消」两按钮。"""
+        api_path = f"plugin/{self.__class__.__name__}/restore_default_keywords"
+        apikey = self._api_key()
+
+        def button(text: str, color: str, variant: str, icon: str, confirm: str) -> dict:
+            """构造一个带 events 的按钮节点（params 携带 confirm 与 apikey）。"""
+            params: Dict[str, Any] = {"apikey": apikey}
+            if confirm:
+                params["confirm"] = confirm
+            return {
+                "component": "VBtn",
+                "props": {
+                    "color": color,
+                    "variant": variant,
+                    "size": "small",
+                    "class": "mr-2 mb-2",
+                    "prepend-icon": icon,
+                },
+                "text": text,
+                "events": {"click": {"api": api_path, "method": "get", "params": params}},
+            }
+
+        nodes: List[dict] = []
+        if pending:
+            nodes.append(
+                {
+                    "component": "VAlert",
+                    "props": {
+                        "type": "warning",
+                        "variant": "tonal",
+                        "class": "mb-3",
+                        "text": (
+                            "已选中待确认：恢复内置默认关键词"
+                            f"（非正片 {len(DEFAULT_EXCLUDE_KEYWORDS)} 项），"
+                            f"选中于 {pending.get('label') or '刚刚'}。"
+                            "点「确认恢复」才会写入并生效；点「取消」放弃；"
+                            f"{RESTORE_PENDING_TTL_SECONDS // 60} 分钟内未确认将自动作废。"
+                        ),
+                    },
+                }
+            )
+            nodes.append(
+                {
+                    "component": "div",
+                    "props": {"class": "d-flex align-center flex-wrap"},
+                    "content": [
+                        button("确认恢复", "error", "flat", "mdi-check", "1"),
+                        button("取消", "grey", "tonal", "mdi-close", "cancel"),
+                    ],
+                }
+            )
+            return nodes
+        nodes.append(
+            {
+                "component": "div",
+                "props": {"class": "d-flex align-center flex-wrap"},
+                "content": [button("恢复默认关键词", "warning", "tonal", "mdi-restore", "")],
+            }
+        )
+        return nodes
+
+    def api_restore_default_keywords(self, confirm: str = "") -> Dict[str, Any]:
+        """API：两阶段「恢复默认关键词」——先选中待确认，带 confirm=1 才真正写回。
+
+        宿主详情页的按钮事件不支持确认弹窗，故用两阶段交互：第一次点击只写待确认状态
+        （页面重载后出现「确认恢复 / 取消」），只有 confirm=1 且存在未过期请求时才写配置。
+        """
+        if confirm == "cancel":
+            self._set_restore_pending(None)
+            logger.info("【综艺正片守卫】已取消恢复默认关键词")
+            return {"success": True, "message": "已取消恢复默认关键词", "data": None}
+        if confirm != "1":
+            self._set_restore_pending({"count": len(DEFAULT_EXCLUDE_KEYWORDS)})
+            logger.info(
+                "【综艺正片守卫】已选中待确认的恢复默认关键词（%d 项），等待确认",
+                len(DEFAULT_EXCLUDE_KEYWORDS),
+            )
+            return {
+                "success": True,
+                "message": "已选中待确认，请点「确认恢复」执行",
+                "data": None,
+            }
+
+        pending = self._restore_pending()
+        if not pending:
+            logger.warning("【综艺正片守卫】确认恢复被拒：没有未过期的待确认请求")
+            return {
+                "success": False,
+                "message": "没有待确认的恢复请求（可能已过期），请重新点「恢复默认关键词」",
+                "data": None,
+            }
+
+        patch = self.default_keywords()
+        current = self.get_config() or {}
+        if not isinstance(current, dict):
+            current = {}
+        merged = {**current, **patch}
+        try:
+            self.update_config(merged)
+        except Exception as err:  # noqa: BLE001 - 保存失败必须回告调用方
+            logger.error("【综艺正片守卫】恢复默认关键词保存失败：%s", err)
+            return {"success": False, "message": f"保存失败：{err}", "data": None}
+        try:
+            self.init_plugin(merged)
+        except Exception as err:  # noqa: BLE001 - 已保存，重载失败仅告警
+            logger.error("【综艺正片守卫】恢复默认关键词后重载失败：%s", err)
+            return {"success": False, "message": f"已保存但重载失败：{err}", "data": None}
+        self._set_restore_pending(None)
+        logger.info(
+            "【综艺正片守卫】已恢复内置默认关键词：非正片 %d 项、白名单 %d 项",
+            len(DEFAULT_EXCLUDE_KEYWORDS),
+            len(DEFAULT_ALLOW_KEYWORDS),
+        )
+        return {
+            "success": True,
+            "message": f"已恢复默认关键词（非正片 {len(DEFAULT_EXCLUDE_KEYWORDS)} 项）",
+            "data": None,
+        }
 
     # ==================== 配置表单 ====================
 
@@ -852,7 +1059,7 @@ class VarietyGuard(_PluginBase):
                                             "label": "非正片关键词（每行一个，支持正则）",
                                             "rows": 6,
                                             "persistent-hint": True,
-                                            "hint": "命中即跳过（正则、忽略大小写）。内置默认 60 项：中文原样匹配，英文词自动包成「非字母边界」（多词短语可用 . _ - 空格分隔），E00 / EP00 刻意不加边界（站内变体较多，属有意为之）。⚠️ 自己新增的英文词不会自动加边界，若要防误伤请照写 (?<![A-Za-z])Word(?![A-Za-z])。",
+                                            "hint": "命中即跳过（正则、忽略大小写）。内置默认 61 项：中文原样匹配，英文词自动包成「非字母边界」（多词短语可用 . _ - 空格分隔），E00 / EP00 刻意不加边界（站内变体较多，属有意为之）。⚠️ 自己新增的英文词不会自动加边界，若要防误伤请照写 (?<![A-Za-z])Word(?![A-Za-z])。",
                                         },
                                     }
                                 ],
@@ -870,7 +1077,37 @@ class VarietyGuard(_PluginBase):
                                             "persistent-hint": True,
                                             "hint": "命中白名单的文件一律保留，用于「正片花絮」这类混合命名。",
                                         },
-                                    }
+                                    },
+                                    {
+                                        "component": "VCol",
+                                        "props": {"cols": 12},
+                                        "content": [
+                                            {
+                                                "component": "VBtn",
+                                                "props": {
+                                                    "color": "warning",
+                                                    "variant": "tonal",
+                                                    "size": "small",
+                                                    "prepend-icon": "mdi-restore",
+                                                    "onClick": self._restore_keywords_js(),
+                                                },
+                                                "text": "恢复默认关键词",
+                                            },
+                                            {
+                                                "component": "VAlert",
+                                                "props": {
+                                                    "type": "info",
+                                                    "variant": "tonal",
+                                                    "class": "mt-3",
+                                                    "text": (
+                                                        "点此把内置默认词表填回上方两个输入框"
+                                                        "（只改「非正片关键词」与「正片白名单」）；"
+                                                        "点完仍需按「保存」才会生效。"
+                                                    ),
+                                                },
+                                            },
+                                        ],
+                                    },
                                 ],
                             },
                         ],
@@ -1008,10 +1245,11 @@ class VarietyGuard(_PluginBase):
     # ==================== 详情页 ====================
 
     def get_page(self) -> Optional[List[dict]]:
-        """返回插件详情页（统计与最近记录）。"""
+        """返回插件详情页（统计、恢复入口与最近记录）。"""
         records = self.get_data(DATA_KEY_RECORDS) or []
         if not isinstance(records, list):
             records = []
+        pending = self._restore_pending()
         rows = []
         for record in records[:20]:
             if not isinstance(record, dict):
@@ -1053,5 +1291,6 @@ class VarietyGuard(_PluginBase):
                     ),
                 },
             },
+            *self._restore_action_nodes(pending),
             *rows,
         ]
