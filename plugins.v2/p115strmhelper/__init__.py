@@ -20,6 +20,7 @@ from cachetools import cached, TTLCache
 from p115client import P115Client
 from p115client.tool.iterdir import iter_files_with_path, get_path_to_cid, share_iterdir
 from p115client.tool.life import iter_life_behavior_list
+from p115client.tool.util import share_extract_payload
 from p115rsacipher import encrypt, decrypt
 
 from app import schemas
@@ -320,7 +321,7 @@ class P115StrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png"
     # 插件版本
-    plugin_version = "1.4.0"
+    plugin_version = "1.4.1"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -355,6 +356,7 @@ class P115StrmHelper(_PluginBase):
     _share_strm_enabled = False
     _user_share_code = None
     _user_receive_code = None
+    _user_share_link = None
     _user_share_pan_path = None
     _user_share_local_path = None
     _clear_recyclebin_enabled = False
@@ -395,6 +397,7 @@ class P115StrmHelper(_PluginBase):
             self._share_strm_enabled = config.get("share_strm_enabled")
             self._user_share_code = config.get("user_share_code")
             self._user_receive_code = config.get("user_receive_code")
+            self._user_share_link = config.get("user_share_link")
             self._user_share_pan_path = config.get("user_share_pan_path")
             self._user_share_local_path = config.get("user_share_local_path")
             self._clear_recyclebin_enabled = config.get("clear_recyclebin_enabled")
@@ -825,7 +828,7 @@ class P115StrmHelper(_PluginBase):
                 "content": [
                     {
                         "component": "VCol",
-                        "props": {"cols": 12, "md": 4},
+                        "props": {"cols": 12, "md": 3},
                         "content": [
                             {
                                 "component": "VSwitch",
@@ -838,7 +841,20 @@ class P115StrmHelper(_PluginBase):
                     },
                     {
                         "component": "VCol",
-                        "props": {"cols": 12, "md": 4},
+                        "props": {"cols": 12, "md": 3},
+                        "content": [
+                            {
+                                "component": "VTextField",
+                                "props": {
+                                    "model": "user_share_link",
+                                    "label": "分享链接",
+                                },
+                            }
+                        ],
+                    },
+                    {
+                        "component": "VCol",
+                        "props": {"cols": 12, "md": 3},
                         "content": [
                             {
                                 "component": "VTextField",
@@ -851,7 +867,7 @@ class P115StrmHelper(_PluginBase):
                     },
                     {
                         "component": "VCol",
-                        "props": {"cols": 12, "md": 4},
+                        "props": {"cols": 12, "md": 3},
                         "content": [
                             {
                                 "component": "VTextField",
@@ -891,6 +907,30 @@ class P115StrmHelper(_PluginBase):
                                     "label": "本地生成STRM路径",
                                 },
                             }
+                        ],
+                    },
+                ],
+            },
+            {
+                "component": "VRow",
+                "content": [
+                    {
+                        "component": "VAlert",
+                        "props": {
+                            "type": "info",
+                            "variant": "tonal",
+                            "density": "compact",
+                            "class": "mt-2",
+                        },
+                        "content": [
+                            {
+                                "component": "div",
+                                "text": "分享链接/分享码和分享密码 只需要二选一配置即可",
+                            },
+                            {
+                                "component": "div",
+                                "text": "同时填写分享链接，分享码和分享密码时，优先读取分享链接",
+                            },
                         ],
                     },
                 ],
@@ -1218,6 +1258,7 @@ class P115StrmHelper(_PluginBase):
             "share_strm_enabled": False,
             "user_share_code": "",
             "user_receive_code": "",
+            "user_share_link": "",
             "user_share_pan_path": "/",
             "user_share_local_path": "",
             "clear_recyclebin_enabled": False,
@@ -1250,6 +1291,7 @@ class P115StrmHelper(_PluginBase):
                 "share_strm_enabled": self._share_strm_enabled,
                 "user_share_code": self._user_share_code,
                 "user_receive_code": self._user_receive_code,
+                "user_share_link": self._user_share_link,
                 "user_share_pan_path": self._user_share_pan_path,
                 "user_share_local_path": self._user_share_local_path,
                 "clear_recyclebin_enabled": self._clear_recyclebin_enabled,
@@ -1661,13 +1703,24 @@ class P115StrmHelper(_PluginBase):
         分享生成STRM
         """
         if (
-            not self._user_share_code
-            or not self._user_receive_code
-            or not self._user_share_pan_path
+            not self._user_share_pan_path
             or not self._user_share_local_path
             or not self.moviepilot_address
         ):
             return
+
+        if self._user_share_link:
+            data = share_extract_payload(self._user_share_link)
+            share_code = data["share_code"]
+            receive_code = data["receive_code"]
+            logger.info(
+                f"【分享STRM生成】解析分享链接 share_code={share_code} receive_code={receive_code}"
+            )
+        else:
+            if not self._user_share_code or not self._user_receive_code:
+                return
+            share_code = self._user_share_code
+            receive_code = self._user_receive_code
 
         try:
             strm_helper = ShareStrmHelper(
@@ -1679,8 +1732,8 @@ class P115StrmHelper(_PluginBase):
             )
             strm_helper.get_share_list_creata_strm(
                 cid=0,
-                share_code=self._user_share_code,
-                receive_code=self._user_receive_code,
+                share_code=share_code,
+                receive_code=receive_code,
             )
             strm_helper.get_generate_total()
         except Exception as e:
