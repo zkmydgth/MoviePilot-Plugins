@@ -6,20 +6,6 @@ MoviePilot 自用插件市场，可直接作为插件市场源添加：
 https://github.com/zkmydgth/MoviePilot-Plugins
 ```
 
-> [!IMPORTANT]
-> **更新插件后必须重启 MoviePilot（或手动补装依赖后再点「重载插件」）**
->
-> 本仓库插件会**随包分发第三方依赖**（例如 115 助手携带 `full_strm_sync` / `txt_tree_storage` /
-> `share_strm_scan` 三个 Rust 加速扩展的 cp312 + cp314 轮子）。MoviePilot **只在启动时**自动补装插件的缺失依赖，
-> 插件页的**「重载插件」不会安装依赖** —— 所以**只更新不重启，新依赖不会生效**（115 助手会继续走纯 Python 降级路径）。
->
-> 不想重启：在 MoviePilot 容器内手动补装一次 + 重载插件即可立即生效（示例见
-> [115 助手「更新后生效方式」](#更新后生效方式重要)）：
->
-> ```bash
-> uv pip install --find-links /config/plugins/p115strmhelper/wheels full_strm_sync==0.1.6 txt_tree_storage==0.2.1 share_strm_scan==0.2.2
-> ```
-
 ---
 
 ## 插件列表
@@ -68,23 +54,6 @@ https://github.com/zkmydgth/MoviePilot-Plugins
 2. 按需开启 **302 跳转服务**，把地址填入 Emby / Jellyfin 的代理设置
 3. 需要历史全量补档时点**全量同步**，日常新增走**增量同步**（自动触发）
 4. 主界面左侧导航可进入**115助手仪表盘**查看运行状态
-
-### 更新后生效方式（重要）
-
-> **更新本插件后必须重启 MoviePilot。** 本插件随包分发 `full_strm_sync` / `txt_tree_storage` /
-> `share_strm_scan` 三个 Rust 加速扩展的轮子，而 MoviePilot **只在启动时**自动补装插件的缺失依赖 ——
-> 只更新不重启，新依赖不会装上，插件会继续走纯 Python 降级路径（功能一致，大目录 / 大批量场景明显更慢）。
->
-> `full_sync_process_rust`（全量同步的 Rust 加速开关）是插件自身配置，**保存即生效，不需要重启**；
-> 需要重启的是**随包依赖的安装**这一步。
-
-不想重启时，手动补装依赖后点一次「重载插件」即可立即生效：
-
-```bash
-# 在 MoviePilot 容器内执行；插件目录按实际部署路径替换
-uv pip install --find-links /config/plugins/p115strmhelper/wheels \
-  full_strm_sync==0.1.6 txt_tree_storage==0.2.1 share_strm_scan==0.2.2
-```
 
 ### 注意事项
 
