@@ -1,0 +1,30 @@
+name: Test p115strmhelper
+
+on:
+  push:
+    paths:
+      - 'plugins.v2/p115strmhelper/**'
+      - '.github/workflows/test-p115strmhelper.yml'
+  pull_request:
+    paths:
+      - 'plugins.v2/p115strmhelper/**'
+      - '.github/workflows/test-p115strmhelper.yml'
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Run tests
+        working-directory: plugins.v2/p115strmhelper
+        run: |
+          python -m unittest discover -s tests -v

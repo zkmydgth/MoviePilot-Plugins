@@ -165,3 +165,6 @@ test_pluguns/
 
 # MacOS
 .DS_Store
+
+# AI
+CLAUDE.md

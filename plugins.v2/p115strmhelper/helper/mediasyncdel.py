@@ -20,6 +20,7 @@ from ..core.config import configer
 from ..core.plunins import PluginChian
 from ..helper.mediaserver import MediaServerRefresh
 from ..utils.path import PathUtils, PathRemoveUtils
+from ..utils.webhook import WebhookUtils
 
 
 class TransferHBOper(DbOper):
@@ -585,8 +586,6 @@ class MediaSyncDelHelper:
         media_type = event_data.item_type
         # 媒体名称
         media_name = event_data.item_name
-        # 媒体路径
-        media_path = event_data.item_path
         # tmdb_id
         tmdb_id = event_data.tmdb_id
         # 季数
@@ -596,69 +595,97 @@ class MediaSyncDelHelper:
         # 原始数据
         json_object = getattr(event_data, "json_object", {})
 
-        if not media_path:
-            return None
+        description = json_object.get("Description", "")
+        item_paths = WebhookUtils.parse_item_paths_from_description(description)
 
-        media_suffix = None
+        if not item_paths:
+            original_path = event_data.item_path
+            if original_path:
+                item_paths = [original_path]
+            else:
+                logger.warn(f"【同步删除】{media_name} 同步删除失败，未找到Item Path")
+                return None
+
+        logger.info(
+            f"【同步删除】{media_name} 从Description解析到 {len(item_paths)} 个Item Path: {item_paths}"
+        )
 
         if not p115_library_path:
             return None
 
-        status, _ = PathUtils.get_p115_media_path(media_path, p115_library_path)
-        if not status:
-            logger.error(
-                f"【同步删除】{media_name} 同步删除失败，未识别到115网盘储存类型"
-            )
-            return None
+        results = []
+        for media_path in item_paths:
+            if not media_path:
+                continue
 
-        # 对于 115 网盘文件需要获取媒体后缀名
-        if Path(media_path).suffix:
-            media_suffix = json_object.get("Item", {}).get("Container", None)
-            if not media_suffix:
-                media_suffix = self.__get_p115_media_suffix(
-                    media_path, p115_library_path
+            media_suffix = None
+
+            status, _ = PathUtils.get_p115_media_path(media_path, p115_library_path)
+            if not status:
+                logger.warn(
+                    f"【同步删除】{media_name} 路径 {media_path} 同步删除失败，未识别到115网盘储存类型，跳过"
                 )
+                continue
+
+            # 对于 115 网盘文件需要获取媒体后缀名
+            if Path(media_path).suffix:
+                media_suffix = json_object.get("Item", {}).get("Container", None)
                 if not media_suffix:
-                    logger.error(
-                        f"【同步删除】{media_name} 同步删除失败，未识别媒体后缀名"
+                    media_suffix = self.__get_p115_media_suffix(
+                        media_path, p115_library_path
                     )
-                    return None
-        else:
-            logger.debug(f"【同步删除】{media_name} 跳过识别媒体后缀名")
-
-        # 单集或单季缺失 TMDB ID 获取
-        if (episode_num or season_num) and (not tmdb_id or not str(tmdb_id).isdigit()):
-            series_id = json_object.get("Item", {}).get("SeriesId")
-            if series_id and self.mediaserver_refresh:
-                series_tmdb_id = self.mediaserver_refresh.get_series_tmdb_id(series_id)
-                if series_tmdb_id:
-                    tmdb_id = series_tmdb_id
-
-        tmdb_id_int: Optional[int] = None
-        if tmdb_id and str(tmdb_id).isdigit():
-            tmdb_id_int = int(tmdb_id)
-
-        if not tmdb_id_int:
-            if not p115_force_delete_files:
-                logger.error(
-                    f"【同步删除】{media_name} 同步删除失败，未获取到TMDB ID，请检查媒体库媒体是否刮削"
+                    if not media_suffix:
+                        logger.warn(
+                            f"【同步删除】{media_name} 路径 {media_path} 同步删除失败，未识别媒体后缀名，跳过"
+                        )
+                        continue
+            else:
+                logger.debug(
+                    f"【同步删除】{media_name} 路径 {media_path} 跳过识别媒体后缀名"
                 )
-                return None
 
-        return self.__sync_del(
-            media_type=media_type,
-            media_name=media_name,
-            media_path=media_path,
-            tmdb_id=tmdb_id_int,
-            season_num=season_num,
-            episode_num=episode_num,
-            media_suffix=media_suffix,
-            p115_library_path=p115_library_path,
-            p115_force_delete_files=p115_force_delete_files,
-            del_source=del_source,
-            notify=notify,
-            chain=chain,
-        )
+            # 单集或单季缺失 TMDB ID 获取
+            current_tmdb_id = tmdb_id
+            if (episode_num or season_num) and (
+                not current_tmdb_id or not str(current_tmdb_id).isdigit()
+            ):
+                series_id = json_object.get("Item", {}).get("SeriesId")
+                if series_id and self.mediaserver_refresh:
+                    series_tmdb_id = self.mediaserver_refresh.get_series_tmdb_id(
+                        series_id
+                    )
+                    if series_tmdb_id:
+                        current_tmdb_id = series_tmdb_id
+
+            tmdb_id_int: Optional[int] = None
+            if current_tmdb_id and str(current_tmdb_id).isdigit():
+                tmdb_id_int = int(current_tmdb_id)
+
+            if not tmdb_id_int:
+                if not p115_force_delete_files:
+                    logger.warn(
+                        f"【同步删除】{media_name} 路径 {media_path} 同步删除失败，未获取到TMDB ID，请检查媒体库媒体是否刮削，跳过"
+                    )
+                    continue
+
+            result = self.__sync_del(
+                media_type=media_type,
+                media_name=media_name,
+                media_path=media_path,
+                tmdb_id=tmdb_id_int,
+                season_num=season_num,
+                episode_num=episode_num,
+                media_suffix=media_suffix,
+                p115_library_path=p115_library_path,
+                p115_force_delete_files=p115_force_delete_files,
+                del_source=del_source,
+                notify=notify,
+                chain=chain,
+            )
+            if result:
+                results.append(result)
+
+        return results[-1] if results else None
 
     def __sync_del(
         self,

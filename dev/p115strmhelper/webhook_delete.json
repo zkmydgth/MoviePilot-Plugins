@@ -1,6 +1,6 @@
 {
   "Title": "神医助手 - 媒体深度删除",
-  "Description": "Item Name:\n狂怒沙暴\n\nItem Path:\n/data2/test/狂怒沙暴 (2023)/狂怒沙暴 (2023) - 1080p.strm\n\nMount Paths:\nhttp://192.168.31.99:23000/api/v1/plugin/P115StrmHelper/redirect_url?apikey=mtf&pickcode=cg04ctinkn3aidbzc",
+  "Description": "Item Name:\n狂怒沙暴\n\nItem Path:\n/data2/test/狂怒沙暴 (2023)/狂怒沙暴 (2023) - 1080p.strm\n/data2/test/狂怒沙暴 (2023)/狂怒沙暴 (2023) - 720p.strm\n\nMount Paths:\nhttp://192.168.31.99:23000/api/v1/plugin/P115StrmHelper/redirect_url?apikey=mtf&pickcode=cg04ctinkn3aidbzc",
   "Date": "2026-01-12T22:56:45.2907443Z",
   "Event": "deep.delete",
   "User": {
