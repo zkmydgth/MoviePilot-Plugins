@@ -141,7 +141,7 @@ class EmbyOperate:
         }
         try:
             with RequestUtils().post_res(url=req_url, params=params) as res:
-                if res and res.status_code == 200:
+                if res and res.status_code in {200, 204}:
                     return True
                 else:
                     logger.warning(
