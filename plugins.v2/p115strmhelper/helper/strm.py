@@ -7,6 +7,7 @@ from itertools import batched
 import concurrent.futures
 
 from sqlalchemy.orm.exc import MultipleResultsFound
+from orjson import dumps
 from p115client import P115Client
 from p115client.tool.export_dir import export_dir_parse_iter
 from p115client.tool.fs_files import iter_fs_files
@@ -614,6 +615,26 @@ class FullSyncStrmHelper:
         self.local_tree = configer.PLUGIN_TEMP_PATH / "local_tree.txt"
         self.pan_tree = configer.PLUGIN_TEMP_PATH / "pan_tree.txt"
 
+        if configer.full_sync_strm_log:
+            self.__base_logger = self.__base_has_logger
+        else:
+            self.__base_logger = self.__base_no_logger
+
+    @staticmethod
+    def __base_no_logger(level, msg, *args):
+        """
+        空白日志输出器
+        """
+        pass
+
+    @staticmethod
+    def __base_has_logger(level, msg, *args):
+        """
+        由配置控制的日志输出器
+        """
+        log_method = getattr(logger, level)
+        log_method(msg, *args)
+
     @staticmethod
     def __remove_parent_dir(file_path: Path):
         """
@@ -679,10 +700,12 @@ class FullSyncStrmHelper:
 
         for item in batch:
             ancestors = item.get("ancestors", [])
-            for i, ancestor in enumerate(ancestors[1:-1], start=1):
+            path_parts = []
+            for ancestor in ancestors[1:-1]:
+                path_parts.append(ancestor["name"])
+                path = "/" + "/".join(path_parts)
                 ancestor_id = str(ancestor["id"])
                 if ancestor_id not in seen_folder_ids:
-                    path = "/" + "/".join(a["name"] for a in ancestors[1 : i + 1])
                     folders_list.append(
                         {
                             "id": ancestor["id"],
@@ -705,7 +728,7 @@ class FullSyncStrmHelper:
                         "ctime": item.get("ctime", 0),
                         "mtime": item.get("mtime", 0),
                         "path": item.get("path", ""),
-                        "extra": str(item) if item else None,
+                        "extra": dumps(item).decode("utf-8") if item else None,
                     }
                 )
                 seen_file_ids.add(file_id)
@@ -722,7 +745,6 @@ class FullSyncStrmHelper:
         处理单个项目
         """
         path_entry = None
-        self.total_count += 1
         try:
             if item["is_dir"]:
                 return path_entry
@@ -762,16 +784,20 @@ class FullSyncStrmHelper:
                 if file_path.suffix.lower() in self.download_mediaext_set:
                     if file_path.exists():
                         if self.overwrite_mode == "never":
-                            if configer.full_sync_strm_log:
-                                logger.warn(
-                                    f"【全量STRM生成】{file_path} 已存在，覆盖模式 {self.overwrite_mode}，跳过此路径"
-                                )
+                            self.__base_logger(
+                                "warn",
+                                "【全量STRM生成】%s 已存在，覆盖模式 %s，跳过此路径",
+                                new_file_path,
+                                self.overwrite_mode,
+                            )
                             return path_entry
                         else:
-                            if configer.full_sync_strm_log:
-                                logger.warn(
-                                    f"【全量STRM生成】{file_path} 已存在，覆盖模式 {self.overwrite_mode}"
-                                )
+                            self.__base_logger(
+                                "warn",
+                                "【全量STRM生成】%s 已存在，覆盖模式 %s",
+                                new_file_path,
+                                self.overwrite_mode,
+                            )
                     pickcode = item["pickcode"]
                     if not pickcode:
                         logger.error(
@@ -788,11 +814,11 @@ class FullSyncStrmHelper:
                     return path_entry
 
             if file_path.suffix.lower() not in self.rmt_mediaext_set:
-                if configer.full_sync_strm_log:
-                    logger.warn(
-                        "【全量STRM生成】跳过网盘路径: %s",
-                        item["path"],
-                    )
+                self.__base_logger(
+                    "warn",
+                    "【全量STRM生成】跳过网盘路径: %s",
+                    item["path"],
+                )
                 return path_entry
 
             if not (
@@ -800,10 +826,12 @@ class FullSyncStrmHelper:
                     original_file_name, "full", item.get("size", None)
                 )
             )[1]:
-                if configer.full_sync_strm_log:
-                    logger.warn(
-                        "【全量STRM生成】%s，跳过网盘路径: %s", result[0], item["path"]
-                    )
+                self.__base_logger(
+                    "warn",
+                    "【全量STRM生成】%s，跳过网盘路径: %s",
+                    result[0],
+                    item["path"],
+                )
                 return path_entry
 
             if self.remove_unless_strm:
@@ -811,16 +839,16 @@ class FullSyncStrmHelper:
 
             if new_file_path.exists():
                 if self.overwrite_mode == "never":
-                    if configer.full_sync_strm_log:
-                        logger.warn(
-                            f"【全量STRM生成】{new_file_path} 已存在，覆盖模式 {self.overwrite_mode}，跳过此路径"
-                        )
+                    self.__base_logger(
+                        "warn",
+                        f"【全量STRM生成】{new_file_path} 已存在，覆盖模式 {self.overwrite_mode}，跳过此路径",
+                    )
                     return path_entry
                 else:
-                    if configer.full_sync_strm_log:
-                        logger.warn(
-                            f"【全量STRM生成】{new_file_path} 已存在，覆盖模式 {self.overwrite_mode}"
-                        )
+                    self.__base_logger(
+                        "warn",
+                        f"【全量STRM生成】{new_file_path} 已存在，覆盖模式 {self.overwrite_mode}",
+                    )
 
             pickcode = item["pickcode"]
             if not pickcode:
@@ -850,11 +878,11 @@ class FullSyncStrmHelper:
             with open(new_file_path, "w", encoding="utf-8") as file:
                 file.write(strm_url)
             self.strm_count += 1
-            if configer.full_sync_strm_log:
-                logger.info(
-                    "【全量STRM生成】生成 STRM 文件成功: %s",
-                    str(new_file_path),
-                )
+            self.__base_logger(
+                "info",
+                "【全量STRM生成】生成 STRM 文件成功: %s",
+                str(new_file_path),
+            )
             return path_entry
         except Exception as e:
             sentry_manager.sentry_hub.capture_exception(e)
@@ -1017,6 +1045,8 @@ class FullSyncStrmHelper:
                             ): item
                             for item in batch
                         }
+
+                        self.total_count += len(future_to_item)
 
                         for future in concurrent.futures.as_completed(future_to_item):
                             item = future_to_item[future]
