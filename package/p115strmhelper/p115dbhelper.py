@@ -14,6 +14,8 @@ def generate_file_list_db(cookies, dbfile, media_path):
         client,
         dbfile=dbfile,
         top_dirs=media_path,
+        interval=2,
+        no_dir_moved=True,
     )
 
 
