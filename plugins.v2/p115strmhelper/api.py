@@ -1,11 +1,14 @@
 import base64
+import io
 import time
+import json
 from datetime import datetime
 from dataclasses import asdict
 from typing import Dict, Any, Optional
 from pathlib import Path
 from urllib.parse import quote
 
+import qrcode
 import requests
 from cachetools import cached, TTLCache
 from orjson import dumps
@@ -19,6 +22,7 @@ from .core.config import configer
 from .core.cache import idpathcacher
 from .core.message import post_message
 from .core.i18n import i18n
+from .core.aliyunpan import AliyunPanLogin
 from .utils.sentry import sentry_manager
 
 from app.log import logger
@@ -450,6 +454,73 @@ class Api:
         return self._check_qrcode_api_internal(
             uid=uid, _time=_time, sign=sign, client_type=client_type
         )
+
+    def get_aliyundrive_qrcode_api(self):
+        """
+        获取阿里云盘登入二维码
+        """
+        try:
+            data = AliyunPanLogin.qr().get("content").get("data")
+            if data:
+                code_content = data.get("codeContent")
+                logger.info(data)
+                t_param = data.get("t")
+                ck_param = data.get("ck")
+
+                img = qrcode.make(code_content)
+                buffered = io.BytesIO()
+                img.save(buffered, format="PNG")
+                img_bytes = buffered.getvalue()
+                base64_encoded_string = base64.b64encode(img_bytes)
+                base64_string = base64_encoded_string.decode("utf-8")
+                data_url = f"data:image/png;base64,{base64_string}"
+
+                response_data = {
+                    "code": 0,
+                    "msg": "获取成功",
+                    "qrcode": data_url,
+                    "t": t_param,
+                    "ck": ck_param,
+                }
+                return response_data
+            else:
+                return {"code": -1, "msg": "获取二维码失败，无有效数据"}
+
+        except Exception as e:
+            return {"code": -1, "msg": f"获取二维码失败: {e}"}
+
+    def check_aliyundrive_qrcode_api(self, request: Request):
+        """
+        轮询检查二维码的扫描和确认状态
+        """
+        t_param = request.query_params.get("t")
+        ck_param = request.query_params.get("ck")
+        try:
+            data = AliyunPanLogin.ck(t_param, ck_param).get("content")
+            if data["data"]["qrCodeStatus"] == "CONFIRMED":
+                h = data["data"]["bizExt"]
+                c = json.loads(base64.b64decode(h).decode("gbk"))
+                refresh_token = c["pds_login_result"]["refreshToken"]
+                if refresh_token:
+                    configer.update_config({"aliyundrive_token": refresh_token})
+                    configer.update_plugin_config()
+                    return {
+                        "code": 0,
+                        "status": "success",
+                        "msg": "登录成功",
+                        "token": refresh_token,
+                    }
+                return {
+                    "code": -1,
+                    "status": "error",
+                    "msg": "登录成功但未能获取Token",
+                }
+            elif data["data"]["qrCodeStatus"] == "EXPIRED":
+                return {"code": -1, "status": "error", "msg": "二维码无效或已过期"}
+            else:
+                return {"code": 0, "status": "waiting", "msg": "等待扫码"}
+        except Exception as e:
+            return {"code": -1, "msg": f"检查状态时出错: {e}"}
 
     def redirect_url(
         self,

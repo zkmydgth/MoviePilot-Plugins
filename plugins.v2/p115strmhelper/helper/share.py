@@ -1,5 +1,6 @@
 import threading
 import time
+import re
 from queue import Queue, Empty
 from enum import Enum
 from datetime import datetime, timezone
@@ -18,6 +19,8 @@ from ..core.config import configer
 from ..core.message import post_message
 from ..core.cache import idpathcacher
 from ..core.i18n import i18n
+from ..core.aliyunpan import BAligo
+from ..helper.ali2115 import Ali2115Helper
 from ..utils.sentry import sentry_manager
 from ..utils.oopserver import OOPServerRequest
 
@@ -28,8 +31,9 @@ class ShareTransferHelper:
     分享链接转存
     """
 
-    def __init__(self, client: P115Client):
+    def __init__(self, client: P115Client, aligo: BAligo):
         self.client = client
+        self.aligo = aligo
         self._add_share_queue = Queue()
         self._add_share_worker_thread = None
         self._add_share_worker_lock = threading.Lock()
@@ -118,6 +122,13 @@ class ShareTransferHelper:
             )
             return
         try:
+            if bool(
+                re.match(r"^https?://(.*\.)?alipan[^/]*\.[a-zA-Z]{2,}(?:\/|$)", url)
+            ):
+                ali2115 = Ali2115Helper(self.client, self.aligo)
+                ali2115.add_share(url, channel, userid)
+                return
+
             data = self.share_url_extract(url)
             share_code = data["share_code"]
             receive_code = data["receive_code"]

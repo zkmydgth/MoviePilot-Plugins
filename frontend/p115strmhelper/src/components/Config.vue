@@ -55,7 +55,7 @@
                 </v-col>
               </v-row>
               <v-row>
-                <v-col cols="12" md="6">
+                <v-col cols="12" md="4">
                   <v-text-field v-model="config.cookies" label="115 Cookie" hint="点击图标切换显隐、复制或扫码" persistent-hint
                     density="compact" variant="outlined" hide-details="auto"
                     :type="isCookieVisible ? 'text' : 'password'">
@@ -75,7 +75,29 @@
                     </template>
                   </v-text-field>
                 </v-col>
-                <v-col cols="12" md="6">
+                <!-- 阿里云盘 Token 配置 -->
+                <v-col cols="12" md="4">
+                  <v-text-field v-model="config.aliyundrive_token" label="阿里云盘 Token (可选)" hint="非必填。点击图标切换显隐、复制或扫码获取"
+                    persistent-hint density="compact" variant="outlined" hide-details="auto"
+                    :type="isAliTokenVisible ? 'text' : 'password'">
+                    <template v-slot:append-inner>
+                      <v-icon :icon="isAliTokenVisible ? 'mdi-eye-off' : 'mdi-eye'"
+                        @click="isAliTokenVisible = !isAliTokenVisible"
+                        :aria-label="isAliTokenVisible ? '隐藏Token' : '显示Token'"
+                        :title="isAliTokenVisible ? '隐藏Token' : '显示Token'" class="mr-1" size="small"></v-icon>
+                      <v-icon icon="mdi-content-copy" @click="copyAliTokenToClipboard"
+                        :disabled="!config.aliyundrive_token" aria-label="复制Token" title="复制Token到剪贴板" size="small"
+                        class="mr-1"></v-icon>
+                    </template>
+                    <template v-slot:append>
+                      <v-icon icon="mdi-qrcode-scan" @click="openAliQrCodeDialog"
+                        :color="config.aliyundrive_token ? 'success' : 'default'"
+                        :aria-label="config.aliyundrive_token ? '更新/更换Token' : '扫码获取Token'"
+                        :title="config.aliyundrive_token ? '更新/更换Token' : '扫码获取Token'"></v-icon>
+                    </template>
+                  </v-text-field>
+                </v-col>
+                <v-col cols="12" md="4">
                   <v-text-field v-model="config.moviepilot_address" label="MoviePilot 内网访问地址" hint="点右侧图标自动填充当前站点地址。"
                     persistent-hint density="compact" variant="outlined" hide-details="auto">
                     <template v-slot:append>
@@ -1100,7 +1122,6 @@
             </div>
           </div>
         </v-card-text>
-
         <v-divider></v-divider>
         <v-card-actions class="px-3 py-2">
           <v-btn color="grey" variant="text" @click="closeQrDialog" size="small" prepend-icon="mdi-close">关闭</v-btn>
@@ -1112,11 +1133,53 @@
         </v-card-actions>
       </v-card>
     </v-dialog>
+
+    <!-- 阿里云盘二维码登录对话框 -->
+    <v-dialog v-model="aliQrDialog.show" max-width="450">
+      <v-card>
+        <v-card-title class="text-subtitle-1 d-flex align-center px-3 py-2 bg-primary-lighten-5">
+          <v-icon icon="mdi-qrcode" class="mr-2" color="primary" size="small" />
+          <span>阿里云盘扫码登录</span>
+        </v-card-title>
+        <v-card-text class="text-center py-4">
+          <v-alert v-if="aliQrDialog.error" type="error" density="compact" class="mb-3 mx-3" variant="tonal" closable>
+            {{ aliQrDialog.error }}
+          </v-alert>
+          <div v-if="aliQrDialog.loading" class="d-flex flex-column align-center py-3">
+            <v-progress-circular indeterminate color="primary" class="mb-3"></v-progress-circular>
+            <div>正在获取二维码...</div>
+          </div>
+          <div v-else-if="aliQrDialog.qrcode" class="d-flex flex-column align-center">
+            <v-card flat class="border pa-2 mb-2">
+              <img :src="aliQrDialog.qrcode" width="220" height="220" />
+            </v-card>
+            <div class="text-body-2 text-grey mb-1">请使用阿里云盘App扫描二维码</div>
+            <div class="text-subtitle-2 font-weight-medium text-primary">{{ aliQrDialog.status }}</div>
+          </div>
+          <div v-else class="d-flex flex-column align-center py-3">
+            <v-icon icon="mdi-qrcode-off" size="64" color="grey" class="mb-3"></v-icon>
+            <div class="text-subtitle-1">二维码获取失败</div>
+            <div class="text-body-2 text-grey">请点击刷新按钮重试</div>
+          </div>
+        </v-card-text>
+        <v-divider></v-divider>
+        <v-card-actions class="px-3 py-2">
+          <v-btn color="grey" variant="text" @click="closeAliQrCodeDialog" size="small"
+            prepend-icon="mdi-close">关闭</v-btn>
+          <v-spacer></v-spacer>
+          <v-btn color="primary" variant="text" @click="refreshAliQrCode" :disabled="aliQrDialog.loading" size="small"
+            prepend-icon="mdi-refresh">
+            刷新
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, watch } from 'vue';
+import { ref, reactive, computed, onMounted, onBeforeUnmount, watch } from 'vue';
 
 const props = defineProps({
   api: {
@@ -1142,6 +1205,7 @@ const shareSyncLoading = ref(false);
 const activeTab = ref('tab-transfer');
 const mediaservers = ref([]);
 const isCookieVisible = ref(false);
+const isAliTokenVisible = ref(false);
 const config = reactive({
   language: "zh_CN",
   enabled: false,
@@ -1149,6 +1213,7 @@ const config = reactive({
   strm_url_format: 'pickcode',
   link_redirect_mode: 'cookie',
   cookies: '',
+  aliyundrive_token: '',
   password: '',
   moviepilot_address: '',
   user_rmt_mediaext: 'mp4,mkv,ts,iso,rmvb,avi,mov,mpeg,mpg,wmv,3gp,asf,m4v,flv,m2ts,tp,f4v',
@@ -1362,6 +1427,18 @@ const clientTypes = [
   { label: "PAD", value: "115ipad" },
   { label: "TV", value: "tv" }
 ];
+
+// 阿里云盘二维码登录对话框
+const aliQrDialog = reactive({
+  show: false,
+  loading: false,
+  error: null,
+  qrcode: '',
+  t: '',
+  ck: '',
+  status: '等待扫码',
+  checkIntervalId: null,
+});
 
 // 监视config中的路径配置，同步到可视化组件
 watch(() => config.transfer_monitor_paths, (newVal) => {
@@ -2199,7 +2276,7 @@ const closeDirDialog = () => {
   dirDialog.error = null;
 };
 
-// 新增：复制Cookie到剪贴板
+// 复制Cookie到剪贴板
 const copyCookieToClipboard = async () => {
   if (!config.cookies) {
     message.text = 'Cookie为空，无法复制。';
@@ -2219,6 +2296,27 @@ const copyCookieToClipboard = async () => {
     if (message.type === 'success' || message.type === 'warning' || message.type === 'error') {
       message.text = '';
     }
+  }, 3000);
+};
+
+// 复制阿里云盘Token到剪贴板
+const copyAliTokenToClipboard = async () => {
+  if (!config.aliyundrive_token) {
+    message.text = 'Token为空，无法复制。';
+    message.type = 'warning';
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(config.aliyundrive_token);
+    message.text = '阿里云盘Token已复制到剪贴板！';
+    message.type = 'success';
+  } catch (err) {
+    console.error('复制Token失败:', err);
+    message.text = '复制Token失败。请检查浏览器权限或手动复制。';
+    message.type = 'error';
+  }
+  setTimeout(() => {
+    message.text = '';
   }, 3000);
 };
 
@@ -2372,6 +2470,95 @@ const startQrCodeCheckInterval = () => {
   qrDialog.checkIntervalId = setInterval(checkQrCodeStatus, 3000);
 };
 
+const openAliQrCodeDialog = () => {
+  aliQrDialog.show = true;
+  aliQrDialog.loading = false;
+  aliQrDialog.error = null;
+  aliQrDialog.qrcode = '';
+  aliQrDialog.t = '';
+  aliQrDialog.ck = '';
+  aliQrDialog.status = '等待扫码';
+  getAliQrCode();
+};
+
+const getAliQrCode = async () => {
+  aliQrDialog.loading = true;
+  aliQrDialog.error = null;
+  aliQrDialog.qrcode = '';
+  try {
+    const response = await props.api.get(`plugin/${PLUGIN_ID}/get_aliyundrive_qrcode`);
+    if (response && response.code === 0) {
+      aliQrDialog.qrcode = response.qrcode;
+      aliQrDialog.t = response.t;
+      aliQrDialog.ck = response.ck;
+      aliQrDialog.status = '等待扫码';
+      startAliQrCodeCheckInterval();
+    } else {
+      aliQrDialog.error = response?.msg || '获取阿里云盘二维码失败';
+    }
+  } catch (err) {
+    aliQrDialog.error = `获取二维码出错: ${err.message || '未知错误'}`;
+  } finally {
+    aliQrDialog.loading = false;
+  }
+};
+
+const checkAliQrCodeStatus = async () => {
+  if (!aliQrDialog.t || !aliQrDialog.ck || !aliQrDialog.show) return;
+
+  try {
+    const response = await props.api.get(`plugin/${PLUGIN_ID}/check_aliyundrive_qrcode?t=${aliQrDialog.t}&ck=${encodeURIComponent(aliQrDialog.ck)}`);
+
+    if (response && response.code === 0) {
+      if (response.status === 'success' && response.token) {
+        clearAliQrCodeCheckInterval();
+        aliQrDialog.status = '登录成功！';
+        config.aliyundrive_token = response.token;
+        message.text = '阿里云盘登录成功！Token已获取，请点击下方“保存配置”按钮。';
+        message.type = 'success';
+        setTimeout(() => {
+          aliQrDialog.show = false;
+        }, 2000);
+      } else {
+        aliQrDialog.status = response.msg || '等待扫码';
+        if (response.status === 'expired' || response.status === 'invalid') {
+          clearAliQrCodeCheckInterval();
+          aliQrDialog.error = '二维码已失效，请刷新';
+        }
+      }
+    } else if (response) {
+      clearAliQrCodeCheckInterval();
+      aliQrDialog.status = '二维码已失效';
+      aliQrDialog.error = response.msg || '二维码检查失败，请刷新。';
+    }
+  } catch (err) {
+    console.error('检查阿里云盘二维码状态出错:', err);
+  }
+};
+
+const startAliQrCodeCheckInterval = () => {
+  clearAliQrCodeCheckInterval();
+  aliQrDialog.checkIntervalId = setInterval(checkAliQrCodeStatus, 2000);
+};
+
+const clearAliQrCodeCheckInterval = () => {
+  if (aliQrDialog.checkIntervalId) {
+    clearInterval(aliQrDialog.checkIntervalId);
+    aliQrDialog.checkIntervalId = null;
+  }
+};
+
+const refreshAliQrCode = () => {
+  clearAliQrCodeCheckInterval();
+  aliQrDialog.error = null;
+  getAliQrCode();
+};
+
+const closeAliQrCodeDialog = () => {
+  clearAliQrCodeCheckInterval();
+  aliQrDialog.show = false;
+};
+
 const clearQrCodeCheckInterval = () => {
   if (qrDialog.checkIntervalId) {
     clearInterval(qrDialog.checkIntervalId);
@@ -2426,9 +2613,11 @@ onMounted(() => {
 });
 
 // 组件销毁时清理资源
-const beforeUnmount = () => {
+onBeforeUnmount(() => {
+  console.log('组件即将卸载，清理定时器...');
   clearQrCodeCheckInterval();
-};
+  clearAliQrCodeCheckInterval();
+});
 
 // 监听 qrDialog.clientType 的变化来调用 refreshQrCode
 watch(() => qrDialog.clientType, (newVal, oldVal) => {

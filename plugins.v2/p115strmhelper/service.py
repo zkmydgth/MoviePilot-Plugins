@@ -8,6 +8,7 @@ from p115client import P115Client
 from p115client.tool.util import share_extract_payload
 from watchdog.observers import Observer
 from watchdog.observers.polling import PollingObserver
+from aligo.core import set_config_folder
 
 from .core.i18n import i18n
 from .helper.mediainfo_download import MediaInfoDownloader
@@ -20,6 +21,7 @@ from .helper.clean import Cleaner
 from .helper.r302 import Redirect
 from .core.config import configer
 from .core.message import post_message
+from .core.aliyunpan import BAligo
 from .utils.sentry import sentry_manager
 
 from app.log import logger
@@ -37,6 +39,7 @@ class ServiceHelper:
         self.client = None
         self.mediainfodownloader = None
         self.monitorlife = None
+        self.aligo = None
 
         self.sharetransferhelper = None
 
@@ -63,7 +66,7 @@ class ServiceHelper:
             self.monitorlife = MonitorLife(
                 client=self.client, mediainfodownloader=self.mediainfodownloader
             )
-            self.sharetransferhelper = ShareTransferHelper(self.client)
+            self.sharetransferhelper = ShareTransferHelper(self.client, self.aligo)
             self.offlinehelper = OfflineDownloadHelper(
                 client=self.client, monitorlife=self.monitorlife
             )
@@ -74,6 +77,20 @@ class ServiceHelper:
                     payload = {"cname": "多端播放", "pid": 0}
                     pid = self.client.fs_mkdir(payload)["file_id"]
             self.redirect = Redirect(client=self.client, pid=pid)
+            if configer.get_config("aliyundrive_token"):
+                set_config_folder(
+                    str(configer.get_config("PLUGIN_CONFIG_PATH")) + "/" + "aligo"
+                )
+                # 第一次使用最新 Token 登入
+                self.aligo = BAligo(
+                    refresh_token=configer.get_config("aliyundrive_token")
+                )
+                # 第二次固化使用配置文件信息
+                self.aligo = BAligo()
+                # 默认操作资源盘
+                v2_user = self.aligo.v2_user_get()
+                resource_drive_id = v2_user.resource_drive_id
+                self.aligo.default_drive_id = resource_drive_id
             return True
         except Exception as e:
             logger.error(f"服务项初始化失败: {e}")

@@ -10,6 +10,7 @@ from app.core.config import settings
 from app.utils.system import SystemUtils
 from app.db.systemconfig_oper import SystemConfigOper
 
+from ..core.aliyunpan import AliyunPanLogin
 from ..utils.machineid import MachineID
 
 
@@ -49,6 +50,8 @@ class BaseConfig(BaseModel):
     link_redirect_mode: str = "cookie"
     # 115 Cookie
     cookies: Optional[str] = None
+    # 阿里云盘 Token
+    aliyundrive_token: Optional[str] = None
     # 115 安全码
     password: Optional[str] = None
     # MoviePilot 地址
@@ -246,6 +249,20 @@ class ConfigManager:
                     fixed_dict[field_name] = default_value
         return fixed_dict
 
+    def update_aliyun_token(self):
+        """
+        每次更改或者获取配置都需要获得最新的 Aligo 的 Token
+        """
+        self._configs["aliyundrive_token"] = AliyunPanLogin.get_token(
+            Path(
+                self._configs.get("PLUGIN_CONFIG_PATH")
+                + "/"
+                + "aligo"
+                + "/"
+                + "aligo.json"
+            )
+        ) or self._configs.get("aliyundrive_token")
+
     def load_from_dict(self, config_dict: Dict[str, Any]) -> bool:
         """
         从字典加载配置
@@ -254,6 +271,7 @@ class ConfigManager:
             fixed_dict = self.fix_config(config_dict.copy())
             validated = BaseConfig(**fixed_dict)
             self._configs = validated.dict()
+            self.update_aliyun_token()
             return True
         except ValidationError as e:
             logger.error(f"【配置管理器】配置验证失败: {e}")
@@ -284,6 +302,16 @@ class ConfigManager:
             return MachineID.get_or_generate_machine_id(
                 self.get_config("PLUGIN_CONFIG_PATH") / "machine_id.txt"
             )
+        elif key == "aliyundrive_token":
+            return AliyunPanLogin.get_token(
+                Path(
+                    self._configs.get("PLUGIN_CONFIG_PATH")
+                    + "/"
+                    + "aligo"
+                    + "/"
+                    + "aligo.json"
+                )
+            ) or self._configs.get("aliyundrive_token")
         return self._configs.get(key)
 
     def get_all_configs(self) -> Dict[str, Any]:
@@ -291,6 +319,7 @@ class ConfigManager:
         获取所有配置的副本
         """
         self._configs = self.fix_config(self._configs)
+        self.update_aliyun_token()
         return self._configs.copy()
 
     def update_config(self, updates: Dict[str, Any]) -> bool:
@@ -303,6 +332,17 @@ class ConfigManager:
             current = BaseConfig(**self._configs)
             updated = current.copy(update=updates)
             self._configs.update(updated.dict())
+            if "aliyundrive_token" not in updates:
+                self.update_aliyun_token()
+            else:
+                if not updates.get("aliyundrive_token"):
+                    Path(
+                        self._configs.get("PLUGIN_CONFIG_PATH")
+                        + "/"
+                        + "aligo"
+                        + "/"
+                        + "aligo.json"
+                    ).unlink(missing_ok=True)
             return True
         except ValidationError as e:
             logger.error(f"【配置管理器】配置更新失败: {e.json()}")
@@ -329,7 +369,7 @@ class ConfigManager:
         if utype in user_agents:
             return user_agents[utype]
         return (
-            f"{self._configs.get('PLUSIN_NAME')}/2.0.10 "
+            f"{self._configs.get('PLUSIN_NAME')}/2.0.11 "
             f"({platform.system()} {platform.release()}; "
             f"{SystemUtils.cpu_arch() if hasattr(SystemUtils, 'cpu_arch') and callable(SystemUtils.cpu_arch) else 'UnknownArch'})"
         )
