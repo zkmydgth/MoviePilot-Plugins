@@ -9,9 +9,9 @@ import importlib
 import sys
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional
 from unittest import TestCase
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 plugin_root = Path(__file__).resolve().parents[1]
 
@@ -150,6 +150,35 @@ class FakeRelatedFile:
         self.file_type = file_type
 
 
+class FakePathUtils:
+    """
+    假路径工具
+    """
+
+    @staticmethod
+    def get_media_path(paths: Any, file_path: Any) -> tuple:
+        """
+        获取媒体路径
+
+        :param paths (Any): 监控目录配置
+        :param file_path (Any): 文件路径
+
+        :return tuple: (状态, 本地目录, 网盘目录)
+        """
+        return (True, "/local/媒体库", "/pan/媒体库")
+
+    @staticmethod
+    def sanitize_path_parts(path: Any) -> Any:
+        """
+        清洗路径段
+
+        :param path (Any): 路径
+
+        :return Any: 原路径
+        """
+        return path
+
+
 def _setup_mock_env() -> None:
     """
     注册全部假依赖模块
@@ -233,6 +262,34 @@ def _setup_mock_env() -> None:
         "app.plugins.p115strmhelper.schemas.transfer",
         TransferTask=object,
         RelatedFile=FakeRelatedFile,
+    )
+    _make_pkg("app.plugins.p115strmhelper.helper.strm")
+    _make_module("app.plugins.p115strmhelper.core.scrape", media_scrape_metadata=object)
+    _make_module("app.plugins.p115strmhelper.db_manager.oper", FileDbHelper=MagicMock)
+    _make_module(
+        "app.plugins.p115strmhelper.helper.mediainfo_download",
+        MediaInfoDownloader=object,
+    )
+    _make_module(
+        "app.plugins.p115strmhelper.helper.mediaserver",
+        MediaServerRefresh=object,
+        emby_mediainfo_queue=object,
+    )
+    _make_module(
+        "app.plugins.p115strmhelper.utils.path",
+        PathUtils=FakePathUtils,
+        PathRemoveUtils=object,
+    )
+    _make_module(
+        "app.plugins.p115strmhelper.utils.sentry",
+        sentry_manager=SimpleNamespace(
+            sentry_hub=SimpleNamespace(capture_exception=lambda *a, **k: None)
+        ),
+    )
+    _make_module(
+        "app.plugins.p115strmhelper.utils.strm",
+        StrmUrlGetter=object,
+        StrmGenerater=object,
     )
 
 
@@ -432,3 +489,216 @@ class TestDiscoverRelatedFiles(TestCase):
         )
 
         self.assertEqual(len(task.related_files), 0)
+
+
+class TestDoGenerate(TestCase):
+    """
+    do_generate 防御分支测试（TransferComplete 携带字幕/音频走下载流程）
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        """
+        加载真实模块
+        """
+        _setup_mock_env()
+        cls.transfer_module = _load_module("helper.strm.transfer")
+
+    def setUp(self) -> None:
+        """
+        构造下载器、配置与路径 mock
+        """
+        self.downloader = MagicMock()
+        self.downloader.get_download_url.return_value = "http://download/xx"
+        self.downloader.save_mediainfo_file = MagicMock()
+        self.configer = SimpleNamespace(
+            transfer_monitor_clouddrive2_enabled=False,
+            transfer_monitor_emby_mediainfo_enabled=False,
+            native_emby_mediainfo_enabled=False,
+            get_config=MagicMock(side_effect=self._fake_get_config),
+        )
+        self.configer_patch = patch.object(
+            self.transfer_module, "configer", self.configer
+        )
+        self.configer_patch.start()
+        self.media_path = patch.object(
+            self.transfer_module.PathUtils,
+            "get_media_path",
+            return_value=(True, "/local/媒体库", "/pan/媒体库"),
+        )
+        self.media_path.start()
+
+    def tearDown(self) -> None:
+        """
+        清理 mock
+        """
+        self.media_path.stop()
+        self.configer_patch.stop()
+
+    def _build_item(self, file_name: str) -> Dict[str, Any]:
+        """
+        构造假事件数据
+
+        :param file_name (str): 目标文件名
+
+        :return Dict: 事件数据
+        """
+        target_item = SimpleNamespace(
+            storage="115网盘Plus",
+            path=f"/pan/媒体库/电视剧/x/{file_name}",
+            name=file_name,
+            pickcode="a" * 17,
+        )
+        target_diritem = SimpleNamespace(path="/pan/媒体库/电视剧/x/")
+        return {
+            "transferinfo": SimpleNamespace(
+                target_item=target_item,
+                target_diritem=target_diritem,
+                transfer_type="copy",
+            ),
+            "mediainfo": None,
+            "meta": None,
+        }
+
+    @staticmethod
+    def _fake_get_config(key: str) -> Any:
+        """
+        假配置读取（仅转移监控路径有值，其余开关关闭）
+
+        :param key (str): 配置键
+
+        :return Any: 配置值
+        """
+        if key == "transfer_monitor_paths":
+            return "/local/media#/pan/media"
+        return False
+
+    def _do_generate(
+        self, file_name: str, event_type: str = "TransferComplete"
+    ) -> None:
+        """
+        执行 do_generate
+
+        :param file_name (str): 目标文件名
+        :param event_type (str): 事件类型
+        """
+        self.transfer_module.TransferStrmHelper().do_generate(
+            client=MagicMock(),
+            item=self._build_item(file_name),
+            event_type=event_type,
+            mediainfodownloader=self.downloader,
+        )
+
+    def test_transfer_complete_subtitle_downloads(self) -> None:
+        """
+        TransferComplete 携带字幕文件时自动走下载流程且不生成 STRM
+        """
+        module = self.transfer_module
+        with (
+            patch.object(module.TransferStrmHelper, "generate_strm_files") as gen,
+        ):
+            self._do_generate("剑风传奇 - S01E01 - 第 1 集.ass")
+        self.downloader.save_mediainfo_file.assert_called_once()
+        saved_path = self.downloader.save_mediainfo_file.call_args.kwargs["file_path"]
+        self.assertTrue(str(saved_path).endswith(".ass"))
+        gen.assert_not_called()
+
+    def test_transfer_complete_audio_downloads(self) -> None:
+        """
+        TransferComplete 携带音轨文件时自动走下载流程且不生成 STRM
+        """
+        module = self.transfer_module
+        with (
+            patch.object(module.TransferStrmHelper, "generate_strm_files") as gen,
+        ):
+            self._do_generate("剑风传奇 - S01E01 - 第 1 集.flac")
+        self.downloader.save_mediainfo_file.assert_called_once()
+        saved_path = self.downloader.save_mediainfo_file.call_args.kwargs["file_path"]
+        self.assertTrue(str(saved_path).endswith(".flac"))
+        gen.assert_not_called()
+
+    def test_transfer_complete_other_file_skipped(self) -> None:
+        """
+        TransferComplete 携带其它非媒体文件时跳过且不下载
+        """
+        module = self.transfer_module
+        with (
+            patch.object(module.TransferStrmHelper, "_download_media_file") as dl,
+            patch.object(module.TransferStrmHelper, "generate_strm_files") as gen,
+        ):
+            self._do_generate("剑风传奇 - S01E01 - 第 1 集.nfo")
+        dl.assert_not_called()
+        gen.assert_not_called()
+
+    def test_transfer_complete_media_generates_strm(self) -> None:
+        """
+        TransferComplete 携带媒体文件时正常生成 STRM
+        """
+        module = self.transfer_module
+        with (
+            patch.object(
+                module.TransferStrmHelper,
+                "generate_strm_files",
+                return_value=(True, "/local/媒体库/电视剧/x/xx.strm"),
+            ) as gen,
+            patch.object(module, "StrmUrlGetter") as url_getter,
+        ):
+            url_getter.return_value.get_strm_url.return_value = "http://strm/url"
+            self._do_generate("剑风传奇 - S01E01 - 第 1 集.mkv")
+        gen.assert_called_once()
+        self.downloader.save_mediainfo_file.assert_not_called()
+
+    def test_subtitle_event_still_downloads(self) -> None:
+        """
+        字幕事件仍走下载流程（回归保护）
+        """
+        module = self.transfer_module
+        with (
+            patch.object(module.TransferStrmHelper, "generate_strm_files") as gen,
+        ):
+            self._do_generate(
+                "剑风传奇 - S01E01 - 第 1 集.ass",
+                event_type="SubtitleTransferComplete",
+            )
+        self.downloader.save_mediainfo_file.assert_called_once()
+        gen.assert_not_called()
+
+    def test_download_media_file_missing_pickcode(self) -> None:
+        """
+        pickcode 缺失时不下载
+        """
+        module = self.transfer_module
+        item = self._build_item("剑风传奇 - S01E01 - 第 1 集.ass")
+        item["transferinfo"].target_item.pickcode = None
+        module.TransferStrmHelper()._download_media_file(
+            mediainfodownloader=self.downloader,
+            item_transfer=item["transferinfo"],
+            item_dest_pickcode=None,
+            item_dest_path="/pan/媒体库/电视剧/x/剑风传奇 - S01E01 - 第 1 集.ass",
+            item_dest_name="剑风传奇 - S01E01 - 第 1 集.ass",
+            local_media_dir="/local/媒体库",
+            pan_media_dir="/pan/媒体库",
+            database_helper=MagicMock(),
+        )
+        self.downloader.get_download_url.assert_not_called()
+        self.downloader.save_mediainfo_file.assert_not_called()
+
+    def test_download_media_file_no_download_url(self) -> None:
+        """
+        下载链接获取失败时不保存文件
+        """
+        module = self.transfer_module
+        self.downloader.get_download_url.return_value = None
+        module.TransferStrmHelper()._download_media_file(
+            mediainfodownloader=self.downloader,
+            item_transfer=self._build_item("剑风传奇 - S01E01 - 第 1 集.ass")[
+                "transferinfo"
+            ],
+            item_dest_pickcode="a" * 17,
+            item_dest_path="/pan/媒体库/电视剧/x/剑风传奇 - S01E01 - 第 1 集.ass",
+            item_dest_name="剑风传奇 - S01E01 - 第 1 集.ass",
+            local_media_dir="/local/媒体库",
+            pan_media_dir="/pan/媒体库",
+            database_helper=MagicMock(),
+        )
+        self.downloader.save_mediainfo_file.assert_not_called()

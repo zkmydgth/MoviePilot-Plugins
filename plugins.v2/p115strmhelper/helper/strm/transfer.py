@@ -214,6 +214,60 @@ class TransferStrmHelper:
             logger.error("【监控整理STRM生成】扫描旧版本 STRM 文件失败: %s", e)
             sentry_manager.sentry_hub.capture_exception(e)
 
+    def _download_media_file(
+        self,
+        mediainfodownloader: MediaInfoDownloader,
+        item_transfer: TransferInfo,
+        item_dest_pickcode: str,
+        item_dest_path: str,
+        item_dest_name: str,
+        local_media_dir: str,
+        pan_media_dir: str,
+        database_helper: FileDbHelper,
+    ) -> None:
+        """
+        下载音轨/字幕文件到本地（作为媒体信息文件，供播放器直接读取）
+
+        :param mediainfodownloader (MediaInfoDownloader): 媒体信息下载器实例
+        :param item_transfer (TransferInfo): 转移信息
+        :param item_dest_pickcode (str): 网盘目标文件 pickcode
+        :param item_dest_path (str): 网盘目标文件路径
+        :param item_dest_name (str): 网盘目标文件名
+        :param local_media_dir (str): 本地媒体库目录
+        :param pan_media_dir (str): 网盘媒体库目录
+        :param database_helper (FileDbHelper): 文件数据库操作类实例
+        """
+        try:
+            file_item: FileItem = item_transfer.target_item
+            if item_transfer.target_item.storage != "CloudDrive储存":
+                database_helper.upsert_batch(
+                    database_helper.process_fileitem(file_item)
+                )
+            if not item_dest_pickcode:
+                logger.error(
+                    f"【监控整理STRM生成】{item_dest_name} 不存在 pickcode 值，无法下载该文件"
+                )
+                return
+            download_url = mediainfodownloader.get_download_url(
+                pickcode=item_dest_pickcode
+            )
+            if not download_url:
+                logger.error(
+                    f"【监控整理STRM生成】{item_dest_name} 下载链接获取失败，无法下载该文件"
+                )
+                return
+            _file_path = Path(local_media_dir) / PathUtils.sanitize_path_parts(
+                Path(item_dest_path).relative_to(pan_media_dir)
+            )
+            mediainfodownloader.save_mediainfo_file(
+                file_path=Path(_file_path),
+                file_name=_file_path.name,
+                download_url=download_url,
+            )
+        except Exception as e:
+            sentry_manager.sentry_hub.capture_exception(e)
+            logger.error(f"【监控整理STRM生成】媒体信息文件下载出现未知错误: {e}")
+
     def do_generate(
         self,
         client: P115Client,
@@ -287,35 +341,16 @@ class TransferStrmHelper:
             event_type == EventType.AudioTransferComplete
             or event_type == EventType.SubtitleTransferComplete
         ):
-            try:
-                file_item: FileItem = item_transfer.target_item
-                if item_transfer.target_item.storage != "CloudDrive储存":
-                    _database_helper.upsert_batch(
-                        _database_helper.process_fileitem(file_item)
-                    )
-                if not item_dest_pickcode:
-                    logger.error(
-                        f"【监控整理STRM生成】{item_dest_name} 不存在 pickcode 值，无法下载该文件"
-                    )
-                    return
-                download_url = mediainfodownloader.get_download_url(
-                    pickcode=item_dest_pickcode
-                )
-                if not download_url:
-                    logger.error(
-                        f"【监控整理STRM生成】{item_dest_name} 下载链接获取失败，无法下载该文件"
-                    )
-                _file_path = Path(local_media_dir) / PathUtils.sanitize_path_parts(
-                    Path(item_dest_path).relative_to(pan_media_dir)
-                )
-                mediainfodownloader.save_mediainfo_file(
-                    file_path=Path(_file_path),
-                    file_name=_file_path.name,
-                    download_url=download_url,
-                )
-            except Exception as e:
-                sentry_manager.sentry_hub.capture_exception(e)
-                logger.error(f"【监控整理STRM生成】媒体信息文件下载出现未知错误: {e}")
+            self._download_media_file(
+                mediainfodownloader=mediainfodownloader,
+                item_transfer=item_transfer,
+                item_dest_pickcode=item_dest_pickcode,
+                item_dest_path=item_dest_path,
+                item_dest_name=item_dest_name,
+                local_media_dir=local_media_dir,
+                pan_media_dir=pan_media_dir,
+                database_helper=_database_helper,
+            )
             return
 
         # STRM 生成流程
@@ -325,12 +360,32 @@ class TransferStrmHelper:
             )
             return
 
+        # 防御：TransferComplete 事件携带非媒体文件时，字幕/音频自动走下载流程，其余跳过 STRM 生成
         if event_type == EventType.TransferComplete:
             dest_ext = Path(item_dest_name).suffix.lower().lstrip(".")
             allowed_exts = {
                 str(ext).strip().lower().lstrip(".") for ext in settings.RMT_MEDIAEXT
             }
             if dest_ext and dest_ext not in allowed_exts:
+                download_exts = {
+                    str(ext).strip().lower().lstrip(".")
+                    for ext in settings.RMT_SUBEXT + settings.RMT_AUDIOEXT
+                }
+                if dest_ext in download_exts:
+                    logger.warning(
+                        f"【监控整理STRM生成】{item_dest_name} 为字幕/音频文件，自动走下载流程"
+                    )
+                    self._download_media_file(
+                        mediainfodownloader=mediainfodownloader,
+                        item_transfer=item_transfer,
+                        item_dest_pickcode=item_dest_pickcode,
+                        item_dest_path=item_dest_path,
+                        item_dest_name=item_dest_name,
+                        local_media_dir=local_media_dir,
+                        pan_media_dir=pan_media_dir,
+                        database_helper=_database_helper,
+                    )
+                    return
                 logger.warning(
                     f"【监控整理STRM生成】{item_dest_name} 非媒体文件（.{dest_ext}），跳过 STRM 生成"
                 )
