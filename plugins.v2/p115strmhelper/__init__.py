@@ -6,7 +6,6 @@ from functools import wraps
 from pathlib import Path
 from typing import Any, List, Dict, Tuple, Optional, Union
 
-from app.chain.storage import StorageChain
 from app.core.event import eventmanager, Event
 from app.log import logger
 from app.plugins import _PluginBase
@@ -705,7 +704,13 @@ class P115StrmHelper(_PluginBase):
 
         return
 
-    @eventmanager.register(EventType.TransferComplete)
+    @eventmanager.register(
+        [
+            EventType.TransferComplete,
+            EventType.AudioTransferComplete,
+            EventType.SubtitleTransferComplete,
+        ]
+    )
     def generate_strm(self, event: Event):
         """
         监控目录整理生成 STRM 文件
@@ -721,9 +726,16 @@ class P115StrmHelper(_PluginBase):
         item = event.event_data
         if not item:
             return
+        event_type = event.event_type
+        if not event_type:
+            return
 
         strm_helper = TransferStrmHelper()
-        strm_helper.do_generate(item, mediainfodownloader=servicer.mediainfodownloader)
+        strm_helper.do_generate(
+            item=item,
+            event_type=event_type,
+            mediainfodownloader=servicer.mediainfodownloader,
+        )
 
     @eventmanager.register(EventType.PluginAction)
     def p115_full_sync(self, event: Event):
@@ -1152,7 +1164,13 @@ class P115StrmHelper(_PluginBase):
         except Exception as e:
             logger.error(f"处理离线下载命令失败: {e}")
 
-    @eventmanager.register(EventType.TransferComplete)
+    @eventmanager.register(
+        [
+            EventType.TransferComplete,
+            EventType.AudioTransferComplete,
+            EventType.SubtitleTransferComplete,
+        ]
+    )
     def fix_monitor_life_strm(self, event: Event):
         """
         监控整理事件
@@ -1234,6 +1252,9 @@ class P115StrmHelper(_PluginBase):
         item = event.event_data
         if not item:
             return
+        event_type = event.event_type
+        if not event_type:
+            return
 
         # 整理信息
         item_transfer = item.get("transferinfo")
@@ -1241,29 +1262,18 @@ class P115StrmHelper(_PluginBase):
             item_transfer = TransferInfo(**item_transfer)
         # 目的地文件 fileitem
         dest_fileitem: FileItem = item_transfer.target_item
-        # 目标字幕文件清单
-        subtitle_list = getattr(item_transfer, "subtitle_list_new", [])
-        # 目标音频文件清单
-        audio_list = getattr(item_transfer, "audio_list_new", [])
 
         _databasehelper = FileDbHelper()
 
-        file_rename(fileitem=dest_fileitem, refresh=True)
+        # 音轨和字幕文件名称更改无需刷新媒体服务器
+        media_refresh = True
+        if (
+            event_type == EventType.AudioTransferComplete
+            or event_type == EventType.SubtitleTransferComplete
+        ):
+            media_refresh = False
 
-        storagechain = StorageChain()
-        if subtitle_list:
-            for _path in subtitle_list:
-                fileitem = storagechain.get_file_item(
-                    storage=configer.storage_module, path=Path(_path)
-                )
-                file_rename(fileitem=fileitem)
-
-        if audio_list:
-            for _path in audio_list:
-                fileitem = storagechain.get_file_item(
-                    storage=configer.storage_module, path=Path(_path)
-                )
-                file_rename(fileitem=fileitem)
+        file_rename(fileitem=dest_fileitem, refresh=media_refresh)
 
     @eventmanager.register(EventType.WebhookMessage)
     def sync_del_by_webhook(self, event: Event):
