@@ -766,10 +766,12 @@ class CloudDriveApi:
                         st = reply.status_changed.status
                         if st == UploadStatus.FINISH:
                             progress_callback(100)
+                            stream.cancel()
                             break
                         if st in (UploadStatus.ERROR, UploadStatus.FATAL_ERROR):
                             msg = reply.status_changed.error_message or "上传失败"
                             logger.error("【CloudDrive】上传状态错误: %s", msg)
+                            stream.cancel()
                             return None
         except Exception as e:
             logger.error("【CloudDrive】上传过程异常: %s", e)
