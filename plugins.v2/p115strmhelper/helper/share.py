@@ -315,9 +315,9 @@ class ShareTransferHelper:
                         channel=channel,
                         title=i18n.translate("share_add_success"),
                         text=f"""
-    分享链接：https://115cdn.com/s/{share_code}?password={receive_code}
-    转存目录：{parent_path}
-    """,
+分享链接：https://115cdn.com/s/{share_code}?password={receive_code}
+转存目录：{parent_path}
+""",
                         userid=userid,
                     )
             else:
@@ -330,9 +330,9 @@ class ShareTransferHelper:
                             year=file_mediainfo.year,
                         ),
                         text=f"""
-    链接：https://115cdn.com/s/{share_code}?password={receive_code}
-    简介：{file_mediainfo.overview}
-    """,
+链接：https://115cdn.com/s/{share_code}?password={receive_code}
+简介：{file_mediainfo.overview}
+""",
                         image=file_mediainfo.poster_path,
                         userid=userid,
                     )
