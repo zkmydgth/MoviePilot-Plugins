@@ -204,7 +204,7 @@ class ConfigManager:
                 if not isinstance(value, str):
                     default_value = field.default
                     logger.warning(
-                        f"【配置管理器】配置项 {field_name} 的值 {value} 不是字符串类型，已替换为默认值 {default_value}"
+                        f"【配置管理器】路径 {field_name} 的值 {value} 不是字符串类型，已替换为默认值 {default_value}"
                     )
                     fixed_dict[field_name] = default_value
         return fixed_dict
