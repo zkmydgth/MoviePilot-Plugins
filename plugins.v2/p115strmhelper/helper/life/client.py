@@ -47,6 +47,10 @@ from app.chain.storage import StorageChain
 from app.chain.transfer import TransferChain
 
 
+BEHAVIOR_TYPE_TO_NAME[23] = "copy_file"
+BEHAVIOR_TYPE_TO_NAME[24] = "rename_file"
+
+
 @sentry_manager.capture_all_class_exceptions
 class MonitorLife:
     """
@@ -69,9 +73,9 @@ class MonitorLife:
         19: "folder_label",      标签文件夹 无操作
         20: "folder_rename",     重命名文件夹 无操作
         22: "delete_file",       删除文件/文件夹 删除 STRM;移除数据库
+        23: "copy_file",         复制文件 生成 STRM;写入数据库
+        24: "rename_file",       重命名文件 无操作
     }
-
-    注意: 目前没有重命名文件，复制文件的操作事件
     """
 
     def __init__(
@@ -1486,6 +1490,7 @@ class MonitorLife:
                 and int(event["type"]) != 17
                 and int(event["type"]) != 18
                 and int(event["type"]) != 22
+                and int(event["type"]) != 23
             ):
                 continue
 
@@ -1524,6 +1529,7 @@ class MonitorLife:
                 or int(event["type"]) == 2
                 or int(event["type"]) == 14
                 or int(event["type"]) == 18
+                or int(event["type"]) == 23
             ):
                 # 新路径事件处理
                 self.create(event=event)
@@ -1583,7 +1589,7 @@ class MonitorLife:
             and return_from_id == from_id
             and events_batch
             and not any(
-                int(e["type"]) in (1, 2, 5, 6, 14, 17, 18, 22) for e in events_batch
+                int(e["type"]) in (1, 2, 5, 6, 14, 17, 18, 22, 23) for e in events_batch
             )
         ):
             boundary = events_batch[0]
