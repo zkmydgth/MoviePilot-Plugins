@@ -874,25 +874,13 @@ class TransferHandler:
                                 f"【整理接管】批量删除成功: {len(delete_file_ids)} 个文件"
                             )
                         except Exception as batch_delete_error:
-                            logger.warn(
-                                f"【整理接管】批量删除失败，尝试逐个删除: {batch_delete_error}"
+                            logger.error(
+                                f"【整理接管】批量删除失败: {batch_delete_error}",
+                                exc_info=True,
                             )
-                            # 回退到逐个删除
-                            failed_delete_ids = []
+                            # 批量删除失败，从待处理列表中移除对应的文件
                             for file_id in delete_file_ids:
-                                try:
-                                    resp = self.client.fs_delete(file_id)
-                                    check_response(resp)
-                                    self.cache_updater.remove_cache(file_id)
-                                except Exception as single_delete_error:
-                                    logger.error(
-                                        f"【整理接管】删除文件失败 (file_id: {file_id}): {single_delete_error}"
-                                    )
-                                    failed_delete_ids.append(file_id)
-
-                            # 如果删除失败，从待处理列表中移除对应的文件
-                            for failed_file_id in failed_delete_ids:
-                                existing_item = delete_file_mapping.get(failed_file_id)
+                                existing_item = delete_file_mapping.get(file_id)
                                 if existing_item:
                                     # 找到对应的 file_id 并移除
                                     file_id_to_remove = None
@@ -977,73 +965,14 @@ class TransferHandler:
                                 if task_path:
                                     task_main_file_status[task_path] = True
                     except Exception as batch_error:
-                        logger.warn(
-                            f"【整理接管】批量移动失败，尝试逐个移动: {batch_error}"
+                        logger.error(
+                            f"【整理接管】批量移动失败: {batch_error}",
+                            exc_info=True,
                         )
-                        failed_file_ids = []
-                        for file_id in file_ids:
-                            try:
-                                resp = self.client.fs_move(file_id, pid=target_dir_id)
-                                check_response(resp)
-                                task, is_main, target_name, related_file = (
-                                    file_mapping.get(file_id, (None, False, "", None))
-                                )
-                                if task:
-                                    try:
-                                        target_path = target_dir / target_name
-                                        new_fileitem = FileItem(
-                                            storage=self.storage_name,
-                                            path=str(target_path),
-                                            name=target_name,
-                                            fileid=str(file_id),
-                                            type="file",
-                                            size=task.fileitem.size
-                                            if is_main
-                                            else (
-                                                related_file.fileitem.size
-                                                if related_file
-                                                else 0
-                                            ),
-                                            modify_time=task.fileitem.modify_time
-                                            if is_main
-                                            else (
-                                                related_file.fileitem.modify_time
-                                                if related_file
-                                                else 0
-                                            ),
-                                            pickcode=task.fileitem.pickcode
-                                            if is_main
-                                            else (
-                                                related_file.fileitem.pickcode
-                                                if related_file
-                                                else None
-                                            ),
-                                        )
-                                        self.cache_updater.update_file_cache(
-                                            new_fileitem
-                                        )
-                                        # 标记主文件移动成功
-                                        if is_main:
-                                            task_path = (
-                                                task.fileitem.path
-                                                if task and task.fileitem
-                                                else None
-                                            )
-                                            if task_path:
-                                                task_main_file_status[task_path] = True
-                                    except Exception as cache_error:
-                                        logger.debug(
-                                            f"【整理接管】更新移动文件缓存失败 (file_id: {file_id}): {cache_error}"
-                                        )
-                            except Exception as single_error:
-                                logger.error(
-                                    f"【整理接管】移动文件失败 (file_id: {file_id}): {single_error}"
-                                )
-                                failed_file_ids.append(file_id)
                         # 记录失败的主文件对应的任务
-                        for failed_file_id in failed_file_ids:
+                        for file_id in file_ids:
                             task, is_main, target_name, related_file = file_mapping.get(
-                                failed_file_id, (None, False, "", None)
+                                file_id, (None, False, "", None)
                             )
                             if task and is_main:
                                 task_path = (
@@ -1053,7 +982,7 @@ class TransferHandler:
                                 )
                                 if task_path:
                                     task_failures[task_path] = (
-                                        f"移动主文件失败: {target_name}"
+                                        f"批量移动失败: {target_name}"
                                     )
                 elif transfer_type == "copy":
                     try:
@@ -1124,85 +1053,14 @@ class TransferHandler:
                                     f"【整理接管】更新复制文件缓存失败 (file_id: {file_id}): {cache_error}"
                                 )
                     except Exception as batch_error:
-                        logger.warn(
-                            f"【整理接管】批量复制失败，尝试逐个复制: {batch_error}"
+                        logger.error(
+                            f"【整理接管】批量复制失败: {batch_error}",
+                            exc_info=True,
                         )
-                        failed_file_ids = []
-                        for file_id in file_ids:
-                            try:
-                                resp = self.client.fs_copy(file_id, pid=target_dir_id)
-                                check_response(resp)
-                                task, is_main, target_name, related_file = file_mapping[
-                                    file_id
-                                ]
-                                target_path = target_dir / target_name
-                                self._update_single_file_id_after_copy(
-                                    task, is_main, target_path, related_file
-                                )
-                                try:
-                                    actual_fileid = (
-                                        task.fileitem.fileid
-                                        if is_main
-                                        else (
-                                            related_file.fileitem.fileid
-                                            if related_file
-                                            else None
-                                        )
-                                    )
-                                    if actual_fileid:
-                                        new_fileitem = FileItem(
-                                            storage=self.storage_name,
-                                            path=str(target_path),
-                                            name=target_name,
-                                            fileid=actual_fileid,
-                                            type="file",
-                                            size=task.fileitem.size
-                                            if is_main
-                                            else (
-                                                related_file.fileitem.size
-                                                if related_file
-                                                else 0
-                                            ),
-                                            modify_time=task.fileitem.modify_time
-                                            if is_main
-                                            else (
-                                                related_file.fileitem.modify_time
-                                                if related_file
-                                                else 0
-                                            ),
-                                            pickcode=task.fileitem.pickcode
-                                            if is_main
-                                            else (
-                                                related_file.fileitem.pickcode
-                                                if related_file
-                                                else None
-                                            ),
-                                        )
-                                        self.cache_updater.update_file_cache(
-                                            new_fileitem
-                                        )
-                                        # 标记主文件复制成功
-                                        if is_main:
-                                            task_path = (
-                                                task.fileitem.path
-                                                if task and task.fileitem
-                                                else None
-                                            )
-                                            if task_path:
-                                                task_main_file_status[task_path] = True
-                                except Exception as cache_error:
-                                    logger.debug(
-                                        f"【整理接管】更新复制文件缓存失败 (file_id: {file_id}): {cache_error}"
-                                    )
-                            except Exception as single_error:
-                                logger.error(
-                                    f"【整理接管】复制文件失败 (file_id: {file_id}): {single_error}"
-                                )
-                                failed_file_ids.append(file_id)
                         # 记录失败的主文件对应的任务
-                        for failed_file_id in failed_file_ids:
+                        for file_id in file_ids:
                             task, is_main, target_name, related_file = file_mapping.get(
-                                failed_file_id, (None, False, "", None)
+                                file_id, (None, False, "", None)
                             )
                             if task and is_main:
                                 task_path = (
@@ -1212,7 +1070,7 @@ class TransferHandler:
                                 )
                                 if task_path:
                                     task_failures[task_path] = (
-                                        f"复制主文件失败: {target_name}"
+                                        f"批量复制失败: {target_name}"
                                     )
 
             except Exception as e:
@@ -1547,42 +1405,15 @@ class TransferHandler:
             )
         except Exception as e:
             logger.error(f"【整理接管】批量重命名失败: {e}", exc_info=True)
-            logger.info("【整理接管】尝试逐个重命名...")
-            failed_rename_items = []
-            for file_id, new_name, task, is_main in rename_items:
-                try:
-                    update_name(self.client, [(file_id, new_name)])
-                    self.cache_updater.update_rename_cache(file_id, new_name)
-                except Exception as rename_error:
-                    logger.error(
-                        f"【整理接管】重命名失败 (file_id: {file_id}, name: {new_name}): {rename_error}"
-                    )
-                    failed_rename_items.append((file_id, new_name, task, is_main))
-                    # 如果是主文件重命名失败，标记任务失败
-                    if is_main:
-                        task_path = (
-                            task.fileitem.path if task and task.fileitem else None
-                        )
-                        if task_path:
-                            task_rename_status[task_path] = False
-
-            # 记录失败的任务
+            # 批量重命名失败，所有任务都失败
             failed_tasks: List[Tuple[TransferTask, str]] = []
-            for file_id, new_name, task, is_main in failed_rename_items:
+            for file_id, new_name, task, is_main in rename_items:
                 if is_main:
                     task_path = task.fileitem.path if task and task.fileitem else None
-                    if (
-                        task_path
-                        and task_path in task_rename_status
-                        and not task_rename_status[task_path]
-                    ):
-                        failed_tasks.append((task, f"重命名主文件失败: {new_name}"))
+                    if task_path:
+                        failed_tasks.append((task, f"批量重命名失败: {new_name}"))
 
-            success_tasks = [
-                task for task in tasks if task not in [t for t, _ in failed_tasks]
-            ]
-
-            return failed_tasks, success_tasks
+            return failed_tasks, []
 
         # 所有重命名都成功
         return [], tasks
@@ -2180,27 +2011,10 @@ class TransferHandler:
                             f"【整理接管】批量删除空目录成功: {deleted_count} 个目录"
                         )
                     except Exception as batch_delete_error:
-                        logger.warn(
-                            f"【整理接管】批量删除失败，尝试逐个删除: {batch_delete_error}",
+                        logger.error(
+                            f"【整理接管】批量删除空目录失败: {batch_delete_error}",
                             exc_info=True,
                         )
-                        # 批量删除失败，尝试逐个删除
-                        for dir_id, dir_item in sorted_dir_items:
-                            if dir_id not in dir_ids_to_delete:
-                                continue
-                            try:
-                                resp = self.client.fs_delete(dir_id)
-                                check_response(resp)
-                                self.cache_updater.remove_cache(dir_id)
-                                deleted_count += 1
-                                logger.debug(
-                                    f"【整理接管】删除空目录成功 (path: {dir_item.path})"
-                                )
-                            except Exception as single_delete_error:
-                                logger.warn(
-                                    f"【整理接管】删除空目录失败 (path: {dir_item.path}): {single_delete_error}",
-                                    exc_info=True,
-                                )
 
                 logger.info(
                     f"【整理接管】删除空目录完成: {deleted_count}/{len(sorted_dir_items)} 个目录"
