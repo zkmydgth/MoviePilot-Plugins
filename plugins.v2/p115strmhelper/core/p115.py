@@ -300,7 +300,14 @@ def get_pid_by_path(
             return pid
     kwargs = configer.get_ios_ua_app(app=False)
     if request_timeout is not None:
-        kwargs["timeout"] = request_timeout
+        kwargs["extensions"] = {
+            "timeout": {
+                "connect": min(request_timeout, 30),
+                "pool": min(request_timeout, 15),
+                "read": request_timeout,
+                "write": request_timeout,
+            }
+        }
     resp = client.fs_dir_getid(path, **kwargs)
     check_response(resp)
     pid = resp.get("id", -1)
