@@ -609,6 +609,7 @@ class IncrementSyncStrmHelper:
         """
         迭代网盘目录
         """
+        logger.debug(f"【增量STRM生成】迭代网盘目录: {cid} {path}")
         for batch in iter_fs_files(self.client, cid):
             self.api_count += 1
             for item in batch.get("data", []):
@@ -1523,7 +1524,7 @@ class P115StrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png"
     # 插件版本
-    plugin_version = "1.8.13"
+    plugin_version = "1.8.14"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -1898,6 +1899,13 @@ class P115StrmHelper(_PluginBase):
                 "desc": "全量同步115网盘文件",
                 "category": "",
                 "data": {"action": "p115_full_sync"},
+            },
+            {
+                "cmd": "/p115_inc_sync",
+                "event": EventType.PluginAction,
+                "desc": "增量同步115网盘文件",
+                "category": "",
+                "data": {"action": "p115_inc_sync"},
             },
             {
                 "cmd": "/p115_add_share",
@@ -2991,6 +2999,23 @@ class P115StrmHelper(_PluginBase):
         self.full_sync_strm_files()
 
     @eventmanager.register(EventType.PluginAction)
+    def p115_inc_sync(self, event: Event):
+        """
+        远程增量同步
+        """
+        if not event:
+            return
+        event_data = event.event_data
+        if not event_data or event_data.get("action") != "p115_inc_sync":
+            return
+        self.post_message(
+            channel=event.event_data.get("channel"),
+            title="开始115网盘媒体库增量同步 ...",
+            userid=event.event_data.get("user"),
+        )
+        self.increment_sync_strm_files(send_msg=True)
+
+    @eventmanager.register(EventType.PluginAction)
     def p115_strm(self, event: Event):
         """
         全量生成指定网盘目录STRM
@@ -3288,7 +3313,7 @@ class P115StrmHelper(_PluginBase):
                 text=text,
             )
 
-    def increment_sync_strm_files(self):
+    def increment_sync_strm_files(self, send_msg: bool = False):
         """
         增量同步
         """
@@ -3326,10 +3351,13 @@ class P115StrmHelper(_PluginBase):
             mediainfo_fail_count,
         ) = strm_helper.get_generate_total()
         if self._notify and (
-            strm_count != 0
-            or mediainfo_count != 0
-            or strm_fail_count != 0
-            or mediainfo_fail_count != 0
+            send_msg
+            or (
+                strm_count != 0
+                or mediainfo_count != 0
+                or strm_fail_count != 0
+                or mediainfo_fail_count != 0
+            )
         ):
             text = f"""
 📄 生成STRM文件 {strm_count} 个

@@ -165,8 +165,8 @@
                     <v-divider class="my-0"></v-divider>
                     <v-list-item class="px-3 py-0" style="min-height: 34px;">
                       <template v-slot:prepend>
-                        <v-icon :color="initialConfig?.increment_sync_strm_enabled ? 'success' : 'grey'" icon="mdi-book-sync"
-                          size="small" />
+                        <v-icon :color="initialConfig?.increment_sync_strm_enabled ? 'success' : 'grey'"
+                          icon="mdi-book-sync" size="small" />
                       </template>
                       <v-list-item-title class="text-body-2">定期增量同步</v-list-item-title>
                       <template v-slot:append>
@@ -280,7 +280,7 @@
                     </v-list-item>
 
                     <v-divider
-                      v-if="initialConfig?.transfer_monitor_enabled && (initialConfig?.timing_full_sync_strm || initialConfig?.monitor_life_enabled || initialConfig?.pan_transfer_enabled || initialConfig?.directory_upload_enabled)"
+                      v-if="initialConfig?.transfer_monitor_enabled && (initialConfig?.increment_sync_strm_enabled || initialConfig?.timing_full_sync_strm || initialConfig?.monitor_life_enabled || initialConfig?.pan_transfer_enabled || initialConfig?.directory_upload_enabled)"
                       class="my-0"></v-divider>
 
                     <!-- 全量同步路径 -->
@@ -288,6 +288,51 @@
                       <v-list-item-title class="text-body-2 font-weight-medium">全量同步路径</v-list-item-title>
                       <template v-if="getPathsCount(initialConfig?.full_sync_strm_paths) > 0">
                         <template v-for="(path, index) in getParsedPaths(initialConfig?.full_sync_strm_paths)"
+                          :key="`fullsync-${index}`">
+                          <v-divider v-if="index > 0" class="my-1"></v-divider>
+                          <v-list-item-subtitle class="text-caption pa-0 pt-1">
+                            <div class="path-mapping-item pa-2 border rounded-sm"
+                              style="background-color: rgba(var(--v-theme-on-surface), 0.02);">
+                              <v-row dense align="center">
+                                <v-col cols="12" sm="5" class="d-flex align-center">
+                                  <v-icon size="small" color="primary"
+                                    class="mr-2 flex-shrink-0">mdi-folder-home</v-icon>
+                                  <div class="text-truncate w-100" :title="path.local">
+                                    <span class="text-caption font-weight-medium d-block"
+                                      style="line-height: 1.2;">本地目录</span>
+                                    <span class="text-caption" style="line-height: 1.2;">{{ path.local || '-' }}</span>
+                                  </div>
+                                </v-col>
+                                <v-col cols="12" sm="2" class="text-center my-1 my-sm-0">
+                                  <v-icon color="primary" class="icon-spin-animation">mdi-sync</v-icon>
+                                </v-col>
+                                <v-col cols="12" sm="5" class="d-flex align-center">
+                                  <v-icon size="small" color="success" class="mr-2 flex-shrink-0">mdi-cloud</v-icon>
+                                  <div class="text-truncate w-100" :title="path.remote">
+                                    <span class="text-caption font-weight-medium d-block"
+                                      style="line-height: 1.2;">网盘目录</span>
+                                    <span class="text-caption" style="line-height: 1.2;">{{ path.remote || '-' }}</span>
+                                  </div>
+                                </v-col>
+                              </v-row>
+                            </div>
+                          </v-list-item-subtitle>
+                        </template>
+                      </template>
+                      <template v-else>
+                        <v-list-item-subtitle class="text-caption text-error mt-1">未配置路径</v-list-item-subtitle>
+                      </template>
+                    </v-list-item>
+
+                    <v-divider
+                      v-if="initialConfig?.timing_full_sync_strm && (initialConfig?.increment_sync_strm_enabled || initialConfig?.monitor_life_enabled || initialConfig?.pan_transfer_enabled || initialConfig?.directory_upload_enabled)"
+                      class="my-0"></v-divider>
+
+                    <!-- 增量同步路径 -->
+                    <v-list-item v-if="initialConfig?.increment_sync_strm_enabled" class="px-3 py-1 mb-1">
+                      <v-list-item-title class="text-body-2 font-weight-medium">增量同步路径</v-list-item-title>
+                      <template v-if="getPathsCount(initialConfig?.increment_sync_strm_paths) > 0">
+                        <template v-for="(path, index) in getParsedPaths(initialConfig?.increment_sync_strm_paths)"
                           :key="`fullsync-${index}`">
                           <v-divider v-if="index > 0" class="my-1"></v-divider>
                           <v-list-item-subtitle class="text-caption pa-0 pt-1">
@@ -773,10 +818,11 @@ const isProperlyCongifured = computed(() => {
   // 至少一个功能区域配置了路径
   const hasTransferPaths = getPathsCount(props.initialConfig.transfer_monitor_paths) > 0 && props.initialConfig.transfer_monitor_enabled;
   const hasFullSyncPaths = getPathsCount(props.initialConfig.full_sync_strm_paths) > 0 && (props.initialConfig.timing_full_sync_strm);
+  const hasIncrementSyncPaths = getPathsCount(props.initialConfig.increment_sync_strm_paths) > 0 && (props.initialConfig.increment_sync_strm_enabled);
   const hasLifePaths = getPathsCount(props.initialConfig.monitor_life_paths) > 0 && props.initialConfig.monitor_life_enabled;
   const hasSharePaths = props.initialConfig.user_share_local_path && props.initialConfig.user_share_pan_path;
 
-  return hasTransferPaths || hasFullSyncPaths || hasLifePaths || hasSharePaths;
+  return hasTransferPaths || hasFullSyncPaths || hasIncrementSyncPaths || hasLifePaths || hasSharePaths;
 });
 
 // 计算路径数量
