@@ -88,11 +88,12 @@
         "name": "115网盘STRM助手",
         "description": "115网盘STRM生成一条龙服务",
         "labels": "云盘",
-        "version": "1.7.3",
+        "version": "1.7.4",
         "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png",
         "author": "DDSRem",
         "level": 1,
         "history": {
+            "v1.7.4": "增加监控目录自动上传网盘功能",
             "v1.7.3": "修复下载媒体源数据未走覆盖模式",
             "v1.7.2": "生活事件监控删除事件只处理数据库存在项目",
             "v1.7.1": "重构配置获取，全量支持配置覆盖模式",
