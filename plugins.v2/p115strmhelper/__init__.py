@@ -789,7 +789,7 @@ class P115StrmHelper(_PluginBase):
                 logger.error(f"【分享转存】缺少参数：{event_data}")
                 self.post_message(
                     channel=event.event_data.get("channel"),
-                    title="参数错误！ /p115_add_offline 链接",
+                    title="参数错误！ /ol 链接",
                     userid=event.event_data.get("user"),
                 )
                 return
