@@ -26,14 +26,21 @@
                 <v-col cols="12" md="4">
                   <v-switch v-model="config.enabled" label="启用插件" color="success" density="compact"></v-switch>
                 </v-col>
-                <v-col cols="12" md="8">
-                  <v-text-field v-model="config.cookies" label="115 Cookie" hint="115网盘登录Cookie，可点击扫码图标获取"
-                    persistent-hint density="compact" variant="outlined" hide-details="auto"
-                    :append-icon="config.cookies ? 'mdi-check-circle' : 'mdi-qrcode-scan'"
-                    @click:append="openQrCodeDialog"></v-text-field>
+                <v-col cols="12" md="7">
+                  <v-text-field v-model="config.cookies" label="115 Cookie" hint="点击复制图标复制Cookie，点击扫码图标获取或更新Cookie"
+                    persistent-hint density="compact" variant="outlined" hide-details="auto" type="password">
+                    <template v-slot:append>
+                      <v-icon icon="mdi-content-copy" @click="copyCookieToClipboard" :disabled="!config.cookies"
+                        aria-label="复制Cookie" title="复制Cookie到剪贴板" class="mr-1"></v-icon>
+                      <v-icon icon="mdi-qrcode-scan" @click="openQrCodeDialog"
+                        :color="config.cookies ? 'success' : 'default'"
+                        :aria-label="config.cookies ? '更新/更换Cookie (重新扫码)' : '扫码获取Cookie'"
+                        :title="config.cookies ? '更新/更换Cookie (重新扫码)' : '扫码获取Cookie'"></v-icon>
+                    </template>
+                  </v-text-field>
                 </v-col>
               </v-row>
-              <!-- Cookie 失效通知相关配置已移至 “通知与图床” 标签页 -->
+              <!-- Cookie 失效通知相关配置已移至 "通知与图床" 标签页 -->
               <v-row>
                 <v-col cols="12" md="12">
                   <v-text-field v-model="config.moviepilot_address" label="MoviePilot 内网访问地址"
@@ -57,7 +64,7 @@
 
           <!-- 标签页 -->
           <v-card flat class="rounded mb-3 border config-card">
-            <v-tabs v-model="activeTab" color="primary" bg-color="grey-lighten-3" density="compact" class="rounded-t">
+            <v-tabs v-model="activeTab" color="primary" bg-color="grey-lighten-3" class="rounded-t" grow>
               <v-tab value="tab-transfer" class="text-caption">
                 <v-icon size="small" start>mdi-file-move-outline</v-icon>监控MP整理
               </v-tab>
@@ -331,7 +338,8 @@
                     </v-col>
                     <v-col cols="12" md="3">
                       <VCronField v-model="config.cron_clear" label="清理周期" hint="设置清理任务的执行周期" persistent-hint
-                        density="compact"></VCronField>
+                        density="compact">
+                      </VCronField>
                     </v-col>
                   </v-row>
                 </v-card-text>
@@ -1165,40 +1173,52 @@ const navigateToParentDir = () => {
 const confirmDirSelection = () => {
   if (!dirDialog.currentPath) return;
 
+  let processedPath = dirDialog.currentPath;
+  // 移除末尾的斜杠，除非路径是 "/" 或者类似 "C:/" 的驱动器根目录
+  if (processedPath !== '/' &&
+    !(/^[a-zA-Z]:[\\\/]$/.test(processedPath)) &&
+    (processedPath.endsWith('/') || processedPath.endsWith('\\\\'))) {
+    processedPath = processedPath.slice(0, -1);
+  }
+
   if (dirDialog.index >= 0) {
     // 根据类型设置路径
     switch (dirDialog.type) {
       case 'transfer':
         if (dirDialog.isLocal) {
-          transferPaths.value[dirDialog.index].local = dirDialog.currentPath;
+          transferPaths.value[dirDialog.index].local = processedPath;
         } else {
-          transferPaths.value[dirDialog.index].remote = dirDialog.currentPath;
+          transferPaths.value[dirDialog.index].remote = processedPath;
         }
         break;
       case 'fullSync':
         if (dirDialog.isLocal) {
-          fullSyncPaths.value[dirDialog.index].local = dirDialog.currentPath;
+          fullSyncPaths.value[dirDialog.index].local = processedPath;
         } else {
-          fullSyncPaths.value[dirDialog.index].remote = dirDialog.currentPath;
+          fullSyncPaths.value[dirDialog.index].remote = processedPath;
         }
         break;
       case 'monitorLife':
         if (dirDialog.isLocal) {
-          monitorLifePaths.value[dirDialog.index].local = dirDialog.currentPath;
+          monitorLifePaths.value[dirDialog.index].local = processedPath;
         } else {
-          monitorLifePaths.value[dirDialog.index].remote = dirDialog.currentPath;
+          monitorLifePaths.value[dirDialog.index].remote = processedPath;
         }
         break;
       case 'panTransfer':
-        panTransferPaths.value[dirDialog.index].path = dirDialog.currentPath;
+        panTransferPaths.value[dirDialog.index].path = processedPath;
+        break;
+      case 'mediawarpStrm':
+        mediawarpStrmLocalPaths.value[dirDialog.index] = processedPath;
         break;
     }
   } else if (dirDialog.type === 'sharePath') {
-    // 设置分享路径
+    // 这个分支主要用于 Page.vue 的分享路径，Config.vue 目前不直接使用此 type 进行赋值
+    // 但保留逻辑以防未来扩展或共享组件
     if (dirDialog.isLocal) {
-      config.user_share_local_path = dirDialog.currentPath;
+      config.user_share_local_path = processedPath;
     } else {
-      config.user_share_pan_path = dirDialog.currentPath;
+      config.user_share_pan_path = processedPath;
     }
   }
 
@@ -1210,6 +1230,29 @@ const closeDirDialog = () => {
   dirDialog.show = false;
   dirDialog.items = [];
   dirDialog.error = null;
+};
+
+// 新增：复制Cookie到剪贴板
+const copyCookieToClipboard = async () => {
+  if (!config.cookies) {
+    message.text = 'Cookie为空，无法复制。';
+    message.type = 'warning';
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(config.cookies);
+    message.text = 'Cookie已复制到剪贴板！';
+    message.type = 'success';
+  } catch (err) {
+    console.error('复制Cookie失败:', err);
+    message.text = '复制Cookie失败，请检查浏览器权限或手动复制。';
+    message.type = 'error';
+  }
+  setTimeout(() => {
+    if (message.type === 'success' || message.type === 'warning' || message.type === 'error') {
+      message.text = '';
+    }
+  }, 3000);
 };
 
 // 二维码登录方法

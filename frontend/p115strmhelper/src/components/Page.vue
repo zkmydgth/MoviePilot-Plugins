@@ -92,7 +92,7 @@
                           </v-avatar>
                         </template>
                         <v-list-item-title class="text-body-1 font-weight-medium">{{ userInfo.name || '未知用户'
-                          }}</v-list-item-title>
+                        }}</v-list-item-title>
                       </v-list-item>
                       <v-divider class="my-0"></v-divider>
                       <!-- VIP 信息 -->
@@ -105,7 +105,7 @@
                         <template v-slot:append>
                           <v-chip :color="userInfo.is_vip ? 'success' : 'grey'" size="x-small" variant="tonal">
                             {{ userInfo.is_vip ? (userInfo.is_forever_vip ? '永久VIP' : `VIP (至 ${userInfo.vip_expire_date
-                            || 'N/A'})`) : '非VIP' }}
+                              || 'N/A'})`) : '非VIP' }}
                           </v-chip>
                         </template>
                       </v-list-item>
@@ -203,7 +203,7 @@
                           :color="initialConfig?.clear_recyclebin_enabled || initialConfig?.clear_receive_path_enabled ? 'success' : 'grey'"
                           size="x-small" variant="tonal">
                           {{ initialConfig?.clear_recyclebin_enabled || initialConfig?.clear_receive_path_enabled ?
-                          '已启用' : '已禁用' }}
+                            '已启用' : '已禁用' }}
                         </v-chip>
                       </template>
                     </v-list-item>
@@ -435,9 +435,9 @@
 
         <v-row>
           <v-col cols="12" md="6">
-            <v-text-field v-model="shareDialog.panPath" label="分享文件夹路径" hint="分享文件在网盘中的路径，默认为根目录/" persistent-hint
-              variant="outlined" density="compact" append-icon="mdi-folder-network"
-              @click:append="openShareDirSelector('remote')"></v-text-field>
+            <v-text-field v-model="shareDialog.panPath" label="分享文件夹路径"
+              hint="分享内容列表中的相对路径，默认为根目录 /。例如，若分享链接指向一个文件夹，此路径为该文件夹内的子路径。" persistent-hint variant="outlined"
+              density="compact"></v-text-field>
           </v-col>
           <v-col cols="12" md="6">
             <v-text-field v-model="shareDialog.localPath" label="本地生成STRM路径" hint="本地生成STRM文件的路径" persistent-hint

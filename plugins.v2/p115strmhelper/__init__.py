@@ -1,5 +1,4 @@
 import threading
-import sys
 import time
 import shutil
 import base64
@@ -346,6 +345,8 @@ class FullSyncStrmHelper:
         self.client = client
         self.strm_count = 0
         self.mediainfo_count = 0
+        self.strm_fail_count = 0
+        self.strm_fail_dict: Dict[str, str] = {}
         self.server_address = server_address.rstrip("/")
         self.pan_transfer_enabled = pan_transfer_enabled
         self.pan_transfer_paths = pan_transfer_paths
@@ -376,82 +377,103 @@ class FullSyncStrmHelper:
                 for item in iter_files_with_path(
                     self.client, cid=parent_id, cooldown=2
                 ):
-                    if item["is_dir"] or item["is_directory"]:
-                        continue
-                    file_path = item["path"]
-                    file_path = Path(target_dir) / Path(file_path).relative_to(
-                        pan_media_dir
-                    )
-                    file_target_dir = file_path.parent
-                    original_file_name = file_path.name
-                    file_name = file_path.stem + ".strm"
-                    new_file_path = file_target_dir / file_name
-
-                    if self.pan_transfer_enabled and self.pan_transfer_paths:
-                        if self.pathmatchinghelper.get_run_transfer_path(
-                            paths=self.pan_transfer_paths, transfer_path=item["path"]
-                        ):
-                            logger.debug(
-                                f"【全量STRM生成】{item['path']} 为待整理目录下的路径，不做处理"
-                            )
+                    try:
+                        if item["is_dir"] or item["is_directory"]:
                             continue
+                        file_path = item["path"]
+                        file_path = Path(target_dir) / Path(file_path).relative_to(
+                            pan_media_dir
+                        )
+                        file_target_dir = file_path.parent
+                        original_file_name = file_path.name
+                        file_name = file_path.stem + ".strm"
+                        new_file_path = file_target_dir / file_name
 
-                    if self.auto_download_mediainfo:
-                        if file_path.suffix in self.download_mediaext:
-                            pickcode = item["pickcode"]
-                            if not pickcode:
-                                logger.error(
-                                    f"【全量STRM生成】{original_file_name} 不存在 pickcode 值，无法下载该文件"
+                        if self.pan_transfer_enabled and self.pan_transfer_paths:
+                            if self.pathmatchinghelper.get_run_transfer_path(
+                                paths=self.pan_transfer_paths,
+                                transfer_path=item["path"],
+                            ):
+                                logger.debug(
+                                    f"【全量STRM生成】{item['path']} 为待整理目录下的路径，不做处理"
                                 )
                                 continue
-                            self.download_mediainfo_list.append(
-                                {
-                                    "type": "local",
-                                    "pickcode": pickcode,
-                                    "path": file_path,
-                                }
+
+                        if self.auto_download_mediainfo:
+                            if file_path.suffix in self.download_mediaext:
+                                pickcode = item["pickcode"]
+                                if not pickcode:
+                                    logger.error(
+                                        f"【全量STRM生成】{original_file_name} 不存在 pickcode 值，无法下载该文件"
+                                    )
+                                    continue
+                                self.download_mediainfo_list.append(
+                                    {
+                                        "type": "local",
+                                        "pickcode": pickcode,
+                                        "path": file_path,
+                                    }
+                                )
+                                continue
+
+                        if file_path.suffix not in self.rmt_mediaext:
+                            logger.warn(
+                                "【全量STRM生成】跳过网盘路径: %s",
+                                str(file_path).replace(str(target_dir), "", 1),
                             )
                             continue
 
-                    if file_path.suffix not in self.rmt_mediaext:
-                        logger.warn(
-                            "【全量STRM生成】跳过网盘路径: %s",
-                            str(file_path).replace(str(target_dir), "", 1),
+                        pickcode = item["pickcode"]
+                        if not pickcode:
+                            pickcode = item["pick_code"]
+
+                        new_file_path.parent.mkdir(parents=True, exist_ok=True)
+
+                        if not pickcode:
+                            self.strm_fail_count += 1
+                            self.strm_fail_dict[str(new_file_path)] = (
+                                "不存在 pickcode 值"
+                            )
+                            logger.error(
+                                f"【全量STRM生成】{original_file_name} 不存在 pickcode 值，无法生成 STRM 文件"
+                            )
+                            continue
+                        if not (len(pickcode) == 17 and str(pickcode).isalnum()):
+                            self.strm_fail_count += 1
+                            self.strm_fail_dict[str(new_file_path)] = (
+                                f"错误的 pickcode 值 {pickcode}"
+                            )
+                            logger.error(
+                                f"【全量STRM生成】错误的 pickcode 值 {pickcode}，无法生成 STRM 文件"
+                            )
+                            continue
+                        strm_url = f"{self.server_address}/api/v1/plugin/P115StrmHelper/redirect_url?apikey={settings.API_TOKEN}&pickcode={pickcode}"
+
+                        with open(new_file_path, "w", encoding="utf-8") as file:
+                            file.write(strm_url)
+                        self.strm_count += 1
+                        logger.info(
+                            "【全量STRM生成】生成 STRM 文件成功: %s", str(new_file_path)
                         )
-                        continue
-
-                    pickcode = item["pickcode"]
-                    if not pickcode:
-                        pickcode = item["pick_code"]
-
-                    new_file_path.parent.mkdir(parents=True, exist_ok=True)
-
-                    if not pickcode:
+                    except Exception as e:
                         logger.error(
-                            f"【全量STRM生成】{original_file_name} 不存在 pickcode 值，无法生成 STRM 文件"
+                            "【全量STRM生成】生成 STRM 文件失败: %s  %s",
+                            str(new_file_path),
+                            e,
                         )
+                        self.strm_fail_count += 1
+                        self.strm_fail_dict[str(new_file_path)] = str(e)
                         continue
-                    if not (len(pickcode) == 17 and str(pickcode).isalnum()):
-                        logger.error(
-                            f"【全量STRM生成】错误的 pickcode 值 {pickcode}，无法生成 STRM 文件"
-                        )
-                        continue
-                    strm_url = f"{self.server_address}/api/v1/plugin/P115StrmHelper/redirect_url?apikey={settings.API_TOKEN}&pickcode={pickcode}"
-
-                    with open(new_file_path, "w", encoding="utf-8") as file:
-                        file.write(strm_url)
-                    self.strm_count += 1
-                    logger.info(
-                        "【全量STRM生成】生成 STRM 文件成功: %s", str(new_file_path)
-                    )
             except Exception as e:
                 logger.error(f"【全量STRM生成】全量生成 STRM 文件失败: {e}")
                 return False
         self.mediainfo_count = self.mediainfodownloader.auto_downloader(
             downloads_list=self.download_mediainfo_list
         )
+        for path, error in self.strm_fail_dict.items():
+            logger.warn(f"【全量STRM生成】{path} 生成错误原因: {error}")
         logger.info(
-            f"【全量STRM生成】全量生成 STRM 文件完成，总共生成 {self.strm_count} 个 STRM 文件，下载 {self.mediainfo_count} 个媒体数据文件"
+            f"【全量STRM生成】全量生成 STRM 文件完成，总共生成 {self.strm_count} 个 STRM 文件，下载 {self.mediainfo_count} 个媒体数据文件，{self.strm_fail_count} 个 STRM 文件生成失败"
         )
         return True
 
@@ -2621,7 +2643,9 @@ class P115StrmHelper(_PluginBase):
             "data": {
                 "enabled": self._enabled,
                 "has_client": bool(self._client),
-                "running": bool(self._scheduler and self._scheduler.running)
+                "running": (
+                    bool(self._scheduler.get_jobs()) if self._scheduler else False
+                )
                 or bool(
                     self.monitor_life_thread and self.monitor_life_thread.is_alive()
                 ),
@@ -2642,7 +2666,7 @@ class P115StrmHelper(_PluginBase):
                 trigger="date",
                 run_date=datetime.now(tz=pytz.timezone(settings.TZ))
                 + timedelta(seconds=3),
-                name="115网盘助手分享生成STRM",
+                name="115网盘助手全量生成STRM",
             )
             if self._scheduler.get_jobs():
                 self._scheduler.print_jobs()
