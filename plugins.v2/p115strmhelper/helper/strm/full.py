@@ -219,6 +219,15 @@ class FullSyncStrmHelper:
             original_file_name = file_path.name
             file_name = file_path.stem + ".strm"
             new_file_path = file_target_dir / file_name
+        except FileItemKeyMiss as e:
+            logger.error(
+                "【全量STRM生成】生成 STRM 文件失败: %s  %s",
+                str(item),
+                e,
+            )
+            self.strm_fail_count += 1
+            self.strm_fail_dict[str(item)] = str(e)
+            return path_entry
         except Exception as e:
             sentry_manager.sentry_hub.capture_exception(e)
             logger.error(
@@ -332,7 +341,7 @@ class FullSyncStrmHelper:
                         f"【全量STRM生成】{new_file_path} 已存在，覆盖模式 {self.overwrite_mode}",
                     )
 
-            pickcode = item.get("pickcode", item.get("pick_code", None))
+            pickcode = item.get("pickcode", item.get("pick_code", ""))
 
             new_file_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -565,7 +574,7 @@ class FullSyncStrmHelper:
                 return False
 
             if self.remove_unless_strm:
-                while local_tree_task_thread.is_alive():
+                while local_tree_task_thread.is_alive():  # noqa
                     logger.info("【全量STRM生成】扫描本地媒体库运行中...")
                     time.sleep(10)
                 if not self.strm_fail_dict and Path(self.local_tree).exists():
