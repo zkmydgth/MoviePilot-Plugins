@@ -1,6 +1,5 @@
 from shutil import rmtree
 from collections import defaultdict
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Timer, Event, Thread
 from time import sleep, strftime, localtime, time
 from typing import List, Set, Dict, Optional
@@ -190,7 +189,6 @@ class MonitorLife:
         if file_category == 0:
             cache_top_path = False
             cache_file_id_list = []
-            file_item_list = []
             logger.info(f"【网盘整理】开始处理 {file_path} 文件夹中...")
             _databasehelper.remove_by_id_batch(int(event["file_id"]), False)
             # 文件夹情况，遍历文件夹，获取整理文件
@@ -243,8 +241,8 @@ class MonitorLife:
                         pickcode=item["pickcode"],
                         modify_time=item["ctime"],
                     )
-                    file_item_list.append((fileitem, file_path))
-                    logger.info(f"【网盘整理】{file_path} 已收集，待加入整理队列")
+                    transferchain.do_transfer(fileitem=fileitem)
+                    logger.info(f"【网盘整理】{file_path} 加入整理列队")
                 if (
                     file_path.suffix.lower() in settings.RMT_AUDIOEXT
                     or file_path.suffix.lower() in settings.RMT_SUBEXT
@@ -257,23 +255,6 @@ class MonitorLife:
                         pantransfercacher.creata_pan_transfer_list.append(
                             str(item["id"])
                         )
-
-            # 批量加入整理队列
-            if file_item_list:
-                logger.info(f"【网盘整理】开始批量整理，共 {len(file_item_list)} 个文件")
-                with ThreadPoolExecutor(max_workers=16) as executor:
-                    future_to_item = {
-                        executor.submit(
-                            transferchain.do_transfer, fileitem=item[0]
-                        ): item
-                        for item in file_item_list
-                    }
-                    for future in as_completed(future_to_item):
-                        item = future_to_item[future]
-                        try:
-                            future.result()
-                        except Exception as e:
-                            logger.error(f"【网盘整理】整理失败: {item[1]} - {str(e)}")
 
             # 顶层目录MP无法处理时添加到缓存字典中
             if cache_top_path and cache_file_id_list:
