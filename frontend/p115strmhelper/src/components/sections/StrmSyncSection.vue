@@ -534,7 +534,7 @@
         <v-card-text>
           <v-alert type="info" variant="tonal" density="compact" class="mb-4" icon="mdi-information">
             <div class="text-body-2 mb-1"><strong>功能说明：</strong></div>
-            <div class="text-caption mb-2">监控115生活（上传、移动、接收文件、删除、复制）事件，自动在本地对应目录生成STRM文件或者删除STRM文件。</div>
+            <div class="text-caption mb-2">监控115生活（上传、移动、接收文件、删除、复制、重命名）事件，自动在本地对应目录生成STRM文件或者删除STRM文件。</div>
           </v-alert>
           <v-row>
             <v-col cols="12" md="3">
@@ -544,6 +544,7 @@
               <v-select v-model="config.monitor_life_event_modes" label="处理事件类型" :items="[
                 { title: '新增事件', value: 'creata' },
                 { title: '删除事件', value: 'remove' },
+                { title: '重命名事件', value: 'rename' },
                 { title: '网盘整理', value: 'transfer' }
               ]" multiple chips closable-chips></v-select>
             </v-col>
@@ -628,15 +629,15 @@
           </v-row>
 
           <v-row>
-            <v-col cols="12" md="3">
+            <v-col cols="12" md="4">
               <v-switch v-model="config.monitor_life_media_server_refresh_enabled" label="媒体服务器刷新"
                 color="warning"></v-switch>
             </v-col>
-            <v-col cols="12" md="3">
+            <v-col cols="12" md="4">
               <v-switch v-model="config.monitor_life_emby_mediainfo_enabled" label="Emby 媒体信息提取"
                 color="warning"></v-switch>
             </v-col>
-            <v-col cols="12" md="6">
+            <v-col cols="12" md="4">
               <v-select v-model="config.monitor_life_mediaservers" label="媒体服务器" :items="mediaservers" multiple chips
                 closable-chips></v-select>
             </v-col>
@@ -653,22 +654,18 @@
           </v-row>
 
           <v-row>
-            <v-col cols="12" md="3">
+            <v-col cols="12" md="4">
               <v-switch v-model="config.monitor_life_auto_download_mediainfo_enabled" label="下载媒体数据文件"
                 color="warning"></v-switch>
             </v-col>
-            <v-col cols="12" md="3">
+            <v-col cols="12" md="4">
               <v-switch v-model="config.monitor_life_scrape_metadata_enabled" label="STRM自动刮削"
                 color="primary"></v-switch>
             </v-col>
-            <v-col cols="12" md="3">
+            <v-col cols="12" md="4">
               <v-text-field v-model="monitorLifeMinFileSizeFormattedRef" label="STRM最小文件大小"
                 hint="小于此值的文件将不生成STRM(单位K,M,G)" persistent-hint density="compact" placeholder="例如: 100M (可为空)"
                 clearable></v-text-field>
-            </v-col>
-            <v-col cols="12" md="3">
-              <v-text-field v-model.number="config.monitor_life_event_wait_time" label="事件处理延迟时间" type="number"
-                hint="接收到事件后等待的时间，0 则代表不等待 (单位秒)" persistent-hint density="compact"></v-text-field>
             </v-col>
           </v-row>
 

@@ -489,9 +489,6 @@ class ConfigManager(BaseModel):
     monitor_life_first_pull_mode: str = Field(
         default="latest", min_length=1, description="生活事件启动拉取模式"
     )
-    monitor_life_event_wait_time: int = Field(
-        default=0, ge=0, description="生活事件事件等待时间"
-    )
 
     share_strm_config: List[ShareStrmConfig] = Field(
         default_factory=list, description="分享 STRM 生成配置"

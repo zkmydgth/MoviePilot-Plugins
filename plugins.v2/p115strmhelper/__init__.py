@@ -9,7 +9,7 @@ from app.core.config import settings
 from app.core.event import eventmanager, Event
 from app.log import logger
 from app.plugins import _PluginBase
-from app.schemas import TransferInfo, FileItem, TransferRenameEventData
+from app.schemas import FileItem, TransferRenameEventData
 from app.schemas.types import EventType, MessageChannel, ChainEventType
 
 from apscheduler.triggers.cron import CronTrigger
@@ -22,13 +22,12 @@ from .version import VERSION
 from .api import Api
 from .service import servicer
 from .service.hdhive_checkin.job import run_hdhive_checkin_once
-from .core.cache import lifeeventcacher, pantransfercacher, sharestrmcacher
+from .core.cache import pantransfercacher, sharestrmcacher
 from .core.config import configer
 from .core.i18n import i18n
 from .core.message import post_message
 from .db_manager import ct_db_manager
 from .db_manager.init import init_db, migration_db, init_migration_scripts
-from .db_manager.oper import FileDbHelper
 from .mcp import MCPManager
 from .patch.u115_open import U115Patcher
 from .patch.p115disk_upload import P115DiskPatcher
@@ -53,7 +52,6 @@ from .utils.path import PathUtils
 from .utils.offline_link import OfflineLinkResolver
 from .utils.sentry import sentry_manager
 from .helper.share.share_links import ShareLinkResolver
-from .utils.strm import StrmGenerater
 from .utils.rename_dict import RenameDictUtils
 from .utils.url import UrlUtils
 
@@ -1639,125 +1637,6 @@ class P115StrmHelper(_PluginBase):
             event_data=event_data,
             userid=self._get_event_userid(event_data),
         )
-
-    @eventmanager.register(
-        [
-            EventType.TransferComplete,
-            EventType.AudioTransferComplete,
-            EventType.SubtitleTransferComplete,
-        ]
-    )
-    def fix_monitor_life_strm(self, event: Event):
-        """
-        监控整理事件
-        处理115生活事件生成MP整理STRM文件名称错误
-        """
-
-        def file_rename(fileitem: FileItem, refresh: bool = False):
-            """
-            重命名
-            """
-            if (
-                not fileitem
-                or not fileitem.path
-                or not fileitem.name
-                or fileitem.fileid is None
-            ):
-                return
-            file_name = str(fileitem.name)
-            target_path = Path(fileitem.path).parent
-            file_item = lifeeventcacher.create_strm_file_dict.get(
-                str(fileitem.fileid), None
-            )
-            if not file_item:
-                return
-            if fileitem.name != file_item[0]:
-                # 文件名称不一致，表明网盘文件被重命名，需要将本地文件重命名
-                target_path_obj = Path(target_path / file_name).relative_to(
-                    file_item[2]
-                )
-                target_file_path = (
-                    Path(file_item[1])
-                    / target_path_obj.parent
-                    / StrmGenerater.get_strm_filename(target_path_obj)
-                )
-                life_path_obj = Path(target_path / file_item[0]).relative_to(
-                    file_item[2]
-                )
-                life_path = (
-                    Path(file_item[1])
-                    / life_path_obj.parent
-                    / StrmGenerater.get_strm_filename(life_path_obj)
-                )
-                # 如果重命名后的文件存在，先删除再重命名
-                try:
-                    if target_file_path.exists():
-                        target_file_path.unlink(missing_ok=True)
-                    life_path.rename(target_file_path)
-                    _databasehelper.update_path_by_id(
-                        id=int(fileitem.fileid),
-                        new_path=Path(target_path / file_name).as_posix(),
-                    )
-                    _databasehelper.update_name_by_id(
-                        id=int(fileitem.fileid),
-                        new_name=str(fileitem.name),
-                    )
-                    lifeeventcacher.create_strm_file_dict.pop(
-                        str(fileitem.fileid), None
-                    )
-                    logger.info(
-                        f"【监控生活事件】修正文件名称: {life_path} --> {target_file_path}"
-                    )
-                    if refresh:
-                        servicer.monitorlife.mediaserver_helper.refresh_mediaserver(
-                            file_path=Path(target_file_path).as_posix(),
-                            file_name=str(target_file_path.name),
-                        )
-                    return
-                except Exception as e:
-                    logger.error(f"【监控生活事件】修正文件名称失败: {e}")
-
-        # 生活事件已开启
-        if (
-            not configer.monitor_life_enabled
-            or not configer.monitor_life_paths
-            or not configer.monitor_life_event_modes
-        ):
-            return
-
-        # 生活事件在运行
-        if not bool(
-            servicer.monitor_life_thread and servicer.monitor_life_thread.is_alive()
-        ):
-            return
-
-        item = event.event_data
-        if not item:
-            return
-        event_type = event.event_type
-        if not event_type:
-            return
-
-        # 整理信息
-        item_transfer = item.get("transferinfo")
-        if isinstance(item_transfer, dict):
-            item_transfer = TransferInfo(**item_transfer)
-        if not item_transfer or not item_transfer.target_item:
-            return
-        # 目的地文件 fileitem
-        dest_fileitem: FileItem = item_transfer.target_item
-
-        _databasehelper = FileDbHelper()
-
-        # 音轨和字幕文件名称更改无需刷新媒体服务器
-        media_refresh = True
-        if (
-            event_type == EventType.AudioTransferComplete
-            or event_type == EventType.SubtitleTransferComplete
-        ):
-            media_refresh = False
-
-        file_rename(fileitem=dest_fileitem, refresh=media_refresh)
 
     @eventmanager.register(EventType.WebhookMessage)
     def sync_del_by_webhook(self, event: Event):

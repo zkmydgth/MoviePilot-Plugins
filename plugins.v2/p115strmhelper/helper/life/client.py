@@ -9,7 +9,7 @@ from itertools import batched
 from ...core.config import configer
 from ...core.message import post_message
 from ...core.scrape import media_scrape_metadata
-from ...core.cache import idpathcacher, pantransfercacher, lifeeventcacher
+from ...core.cache import idpathcacher, pantransfercacher
 from ...core.i18n import i18n
 from ...core.p115 import get_pid_by_path
 from ...utils.path import PathUtils, PathRemoveUtils
@@ -27,7 +27,6 @@ from ...db_manager.oper import FileDbHelper, LifeEventDbHelper
 from ...helper.mediainfo_download import MediaInfoDownloader
 from ...helper.mediasyncdel import MediaSyncDelHelper
 from ...helper.mediaserver import MediaServerRefresh, emby_mediainfo_queue
-from ...helper.life.queue import LifeTasksQueue
 
 from p115client import P115Client, check_response
 from p115client.exception import P115AuthenticationError
@@ -87,8 +86,6 @@ class MonitorLife:
         self._client = client
         self.mediainfodownloader = mediainfodownloader
         self.stop_event = stop_event
-
-        self.tasks_queue = LifeTasksQueue()
 
         self._monitor_life_notification_timer = None
         self._monitor_life_notification_queue = defaultdict(
@@ -751,12 +748,6 @@ class MonitorLife:
                             file_name=original_file_name,
                             download_url=download_url,
                         )
-                        # 下载的元数据写入缓存，与整理事件对比
-                        lifeeventcacher.create_strm_file_dict[str(event["file_id"])] = [
-                            event["file_name"],
-                            target_dir,
-                            pan_media_dir,
-                        ]
                         if configer.get_config("notify"):
                             self._monitor_life_notification_queue["life"][
                                 "mediainfo_count"
@@ -803,12 +794,6 @@ class MonitorLife:
                 logger.info(
                     "【监控生活事件】生成 STRM 文件成功: %s", str(new_file_path)
                 )
-                # 生成的STRM写入缓存，与整理事件对比
-                lifeeventcacher.create_strm_file_dict[str(event["file_id"])] = [
-                    event["file_name"],
-                    target_dir,
-                    pan_media_dir,
-                ]
                 if configer.get_config("notify"):
                     self._monitor_life_notification_queue["life"]["strm_count"] += 1
                     self._schedule_notification()
@@ -1457,11 +1442,6 @@ class MonitorLife:
 
         return_from_time: int = from_time
         return_from_id: int = from_id
-        wait_time = configer.monitor_life_event_wait_time
-        if wait_time < 0:
-            wait_time = 0
-        process_time: int = int(time()) - wait_time
-        process_item: bool = False
         for event in reversed(events_batch):
             self.rmt_mediaext = [
                 f".{ext.strip()}"
@@ -1481,6 +1461,9 @@ class MonitorLife:
                 f"【监控生活事件】{BEHAVIOR_TYPE_TO_NAME.get(event['type'], '未知类型')}: {event}"
             )
 
+            return_from_id = int(event["id"])
+            return_from_time = int(event["update_time"])
+
             if (
                 int(event["type"]) != 1
                 and int(event["type"]) != 2
@@ -1492,36 +1475,6 @@ class MonitorLife:
                 and int(event["type"]) != 22
                 and int(event["type"]) != 23
             ):
-                continue
-
-            if wait_time == 0:
-                return_from_id = int(event["id"])
-                return_from_time = int(event["update_time"])
-            elif self.tasks_queue.exist(event):
-                if not self.tasks_queue.time_done(process_time):
-                    continue
-                old_event = self.tasks_queue.pop()
-                return_from_id = int(event["id"])
-                return_from_time = int(event["update_time"])
-                if old_event["file_name"] != event["file_name"]:
-                    logger.info(
-                        f"【监控生活事件】{event['id']} 文件名称改变：{old_event['file_name']} -> {event['file_name']}"
-                    )
-                process_item = True
-            elif self.tasks_queue.inq(event) and self.tasks_queue.time_done(
-                process_time
-            ):
-                logger.warning("【监控生活事件】生活事件等待队列出错，清空重新拉取...")
-                self.tasks_queue.clear()
-                break
-            elif not self.tasks_queue.inq(event):
-                self.tasks_queue.add(event)
-                logger.info(
-                    f"【监控生活事件】{BEHAVIOR_TYPE_TO_NAME.get(event['type'], '未知类型')} "
-                    f"{event['id']} {event['file_name']} 加入等待队列"
-                )
-                continue
-            else:
                 continue
 
             if (
@@ -1583,24 +1536,10 @@ class MonitorLife:
                     )
                 )
 
-        # 本批若完全不包含监控类型，循环内不会对游标赋值，需推进游标否则会反复拉取同一批
-        if (
-            return_from_time == from_time
-            and return_from_id == from_id
-            and events_batch
-            and not any(
-                int(e["type"]) in (1, 2, 5, 6, 14, 17, 18, 22, 23) for e in events_batch
-            )
-        ):
-            boundary = events_batch[0]
-            return_from_id = int(boundary["id"])
-            return_from_time = int(boundary["update_time"])
-
-        if not process_item:
-            if self.stop_event and self.stop_event.wait(timeout=20):
-                return return_from_time, return_from_id
-            elif not self.stop_event:
-                sleep(20)
+        if self.stop_event and self.stop_event.wait(timeout=20):
+            return return_from_time, return_from_id
+        elif not self.stop_event:
+            sleep(20)
 
         return return_from_time, return_from_id
 
