@@ -30,6 +30,7 @@ from app.core.event import eventmanager, Event
 from app.log import logger
 from app.plugins import _PluginBase
 from app.schemas import TransferInfo, FileItem, RefreshMediaItem, ServiceInfo
+from app.chain.transfer import TransferChain
 from app.core.context import MediaInfo
 from app.helper.mediaserver import MediaServerHelper
 from app.schemas.types import EventType
@@ -485,6 +486,12 @@ class P115StrmHelper(_PluginBase):
 
     # 私有属性
     mediaserver_helper = None
+    transferchain = None
+
+    # 生活事件缓存
+    cache_delete_pan_transfer_list = None
+    cache_creata_pan_transfer_list = None
+
     _client = None
     _scheduler = None
     _enabled = False
@@ -510,6 +517,7 @@ class P115StrmHelper(_PluginBase):
     _monitor_life_mp_mediaserver_paths = None
     _monitor_life_media_server_refresh_enabled = False
     _monitor_life_mediaservers = None
+    _monitor_life_auto_remove_local_enabled = None
     _share_strm_enabled = False
     _share_strm_auto_download_mediainfo_enabled = False
     _user_share_code = None
@@ -520,6 +528,8 @@ class P115StrmHelper(_PluginBase):
     _clear_recyclebin_enabled = False
     _clear_receive_path_enabled = False
     _cron_clear = None
+    _pan_transfer_enabled = False
+    _pan_transfer_paths = None
     # 退出事件
     _event = ThreadEvent()
     monitor_stop_event = None
@@ -530,7 +540,11 @@ class P115StrmHelper(_PluginBase):
         初始化插件
         """
         self.mediaserver_helper = MediaServerHelper()
+        self.transferchain = TransferChain()
         self.monitor_stop_event = threading.Event()
+
+        self.cache_delete_pan_transfer_list = []
+        self.cache_creata_pan_transfer_list = []
 
         if config:
             self._enabled = config.get("enabled")
@@ -571,6 +585,9 @@ class P115StrmHelper(_PluginBase):
             self._monitor_life_mediaservers = (
                 config.get("monitor_life_mediaservers") or []
             )
+            self._monitor_life_auto_remove_local_enabled = config.get(
+                "monitor_life_auto_remove_local_enabled"
+            )
             self._share_strm_enabled = config.get("share_strm_enabled")
             self._share_strm_auto_download_mediainfo_enabled = config.get(
                 "share_strm_auto_download_mediainfo_enabled"
@@ -583,6 +600,8 @@ class P115StrmHelper(_PluginBase):
             self._clear_recyclebin_enabled = config.get("clear_recyclebin_enabled")
             self._clear_receive_path_enabled = config.get("clear_receive_path_enabled")
             self._cron_clear = config.get("cron_clear")
+            self._pan_transfer_enabled = config.get("pan_transfer_enabled")
+            self._pan_transfer_paths = config.get("pan_transfer_paths")
             if not self._user_rmt_mediaext:
                 self._user_rmt_mediaext = "mp4,mkv,ts,iso,rmvb,avi,mov,mpeg,mpg,wmv,3gp,asf,m4v,flv,m2ts,tp,f4v"
             if not self._user_download_mediaext:
@@ -638,7 +657,10 @@ class P115StrmHelper(_PluginBase):
                 self._scheduler.print_jobs()
                 self._scheduler.start()
 
-        if self._enabled and self._monitor_life_enabled and self._monitor_life_paths:
+        if self._enabled and (
+            (self._monitor_life_enabled and self._monitor_life_paths)
+            or (self._pan_transfer_enabled and self._pan_transfer_paths)
+        ):
             self.monitor_stop_event.clear()
             if self.monitor_life_thread:
                 if not self.monitor_life_thread.is_alive():
@@ -1028,7 +1050,7 @@ class P115StrmHelper(_PluginBase):
                 "content": [
                     {
                         "component": "VCol",
-                        "props": {"cols": 12, "md": 3},
+                        "props": {"cols": 12, "md": 4},
                         "content": [
                             {
                                 "component": "VSwitch",
@@ -1041,7 +1063,7 @@ class P115StrmHelper(_PluginBase):
                     },
                     {
                         "component": "VCol",
-                        "props": {"cols": 12, "md": 3},
+                        "props": {"cols": 12, "md": 4},
                         "content": [
                             {
                                 "component": "VSwitch",
@@ -1054,7 +1076,25 @@ class P115StrmHelper(_PluginBase):
                     },
                     {
                         "component": "VCol",
-                        "props": {"cols": 12, "md": 3},
+                        "props": {"cols": 12, "md": 4},
+                        "content": [
+                            {
+                                "component": "VSwitch",
+                                "props": {
+                                    "model": "monitor_life_auto_remove_local_enabled",
+                                    "label": "网盘删除本地同步删除",
+                                },
+                            }
+                        ],
+                    },
+                ],
+            },
+            {
+                "component": "VRow",
+                "content": [
+                    {
+                        "component": "VCol",
+                        "props": {"cols": 12, "md": 4},
                         "content": [
                             {
                                 "component": "VSwitch",
@@ -1067,7 +1107,7 @@ class P115StrmHelper(_PluginBase):
                     },
                     {
                         "component": "VCol",
-                        "props": {"cols": 12, "md": 3},
+                        "props": {"cols": 12, "md": 4},
                         "content": [
                             {
                                 "component": "VSelect",
@@ -1381,6 +1421,96 @@ class P115StrmHelper(_PluginBase):
             },
         ]
 
+        pan_transfer_tab = [
+            {
+                "component": "VRow",
+                "content": [
+                    {
+                        "component": "VCol",
+                        "props": {"cols": 12, "md": 4},
+                        "content": [
+                            {
+                                "component": "VSwitch",
+                                "props": {
+                                    "model": "pan_transfer_enabled",
+                                    "label": "网盘整理",
+                                },
+                            }
+                        ],
+                    },
+                ],
+            },
+            {
+                "component": "VRow",
+                "content": [
+                    {
+                        "component": "VCol",
+                        "props": {"cols": 12},
+                        "content": [
+                            {
+                                "component": "VTextarea",
+                                "props": {
+                                    "model": "pan_transfer_paths",
+                                    "label": "网盘待整理目录",
+                                    "rows": 5,
+                                    "placeholder": "一行一个，格式：网盘待整理目录\n例如：\n/影视/待整理",
+                                    "hint": "网盘待整理目录",
+                                    "persistent-hint": True,
+                                },
+                            },
+                        ],
+                    }
+                ],
+            },
+            {
+                "component": "VAlert",
+                "props": {
+                    "type": "info",
+                    "variant": "tonal",
+                    "density": "compact",
+                    "class": "mt-2",
+                },
+                "content": [
+                    {
+                        "component": "div",
+                        "text": "使用本功能需要先进入 设定-目录 进行配置",
+                    },
+                    {
+                        "component": "div",
+                        "text": "添加目录配置卡，按需配置媒体类型和媒体类别，资源存储选择115网盘，资源目录输入网盘待整理文件夹",
+                    },
+                    {
+                        "component": "div",
+                        "text": "自动整理模式选择手动整理，媒体库存储依旧选择115网盘，并配置好媒体库路径，整理方式选择移动，按需配置分类、重命名、通知",
+                    },
+                    {
+                        "component": "div",
+                        "text": "配置完成目录设置后只需要在上方 网盘待整理目录 填入 网盘待整理文件夹 即可",
+                    },
+                ],
+            },
+            {
+                "component": "VAlert",
+                "props": {
+                    "type": "warning",
+                    "variant": "tonal",
+                    "density": "compact",
+                    "class": "mt-2",
+                    "text": "注意：配置目录时不能选择刮削元数据，否则可能导致风控！",
+                },
+            },
+            {
+                "component": "VAlert",
+                "props": {
+                    "type": "warning",
+                    "variant": "tonal",
+                    "density": "compact",
+                    "class": "mt-2",
+                    "text": "注意：115生活事件监控会忽略网盘整理触发的移动事件，所以必须使用MP整理事件监控生成STRM",
+                },
+            },
+        ]
+
         return [
             {
                 "component": "VCard",
@@ -1572,6 +1702,21 @@ class P115StrmHelper(_PluginBase):
                                     {"component": "span", "text": "定期清理"},
                                 ],
                             },
+                            {
+                                "component": "VTab",
+                                "props": {"value": "tab-pan-transfer"},
+                                "content": [
+                                    {
+                                        "component": "VIcon",
+                                        "props": {
+                                            "icon": "mdi-file-move-outline",
+                                            "start": True,
+                                            "color": "#1976D2",
+                                        },
+                                    },
+                                    {"component": "span", "text": "网盘整理"},
+                                ],
+                            },
                         ],
                     },
                     {"component": "VDivider"},
@@ -1623,6 +1768,16 @@ class P115StrmHelper(_PluginBase):
                                     {"component": "VCardText", "content": cleanup_tab}
                                 ],
                             },
+                            {
+                                "component": "VWindowItem",
+                                "props": {"value": "tab-pan-transfer"},
+                                "content": [
+                                    {
+                                        "component": "VCardText",
+                                        "content": pan_transfer_tab,
+                                    }
+                                ],
+                            },
                         ],
                     },
                 ],
@@ -1650,6 +1805,7 @@ class P115StrmHelper(_PluginBase):
             "monitor_life_mp_mediaserver_paths": "",
             "monitor_life_media_server_refresh_enabled": False,
             "monitor_life_mediaservers": [],
+            "monitor_life_auto_remove_local_enabled": "",
             "share_strm_enabled": False,
             "share_strm_auto_download_mediainfo_enabled": False,
             "user_share_code": "",
@@ -1660,6 +1816,8 @@ class P115StrmHelper(_PluginBase):
             "clear_recyclebin_enabled": False,
             "clear_receive_path_enabled": False,
             "cron_clear": "0 */7 * * *",
+            "pan_transfer_enabled": False,
+            "pan_transfer_paths": "",
             "tab": "tab-transfer",
         }
 
@@ -1691,6 +1849,7 @@ class P115StrmHelper(_PluginBase):
                 "monitor_life_mp_mediaserver_paths": self._monitor_life_mp_mediaserver_paths,
                 "monitor_life_media_server_refresh_enabled": self._monitor_life_media_server_refresh_enabled,
                 "monitor_life_mediaservers": self._monitor_life_mediaservers,
+                "monitor_life_auto_remove_local_enabled": self._monitor_life_auto_remove_local_enabled,
                 "share_strm_enabled": self._share_strm_enabled,
                 "share_strm_auto_download_mediainfo_enabled": self._share_strm_auto_download_mediainfo_enabled,
                 "user_share_code": self._user_share_code,
@@ -1701,6 +1860,8 @@ class P115StrmHelper(_PluginBase):
                 "clear_recyclebin_enabled": self._clear_recyclebin_enabled,
                 "clear_receive_path_enabled": self._clear_receive_path_enabled,
                 "cron_clear": self._cron_clear,
+                "pan_transfer_enabled": self._pan_transfer_enabled,
+                "pan_transfer_paths": self._pan_transfer_paths,
             }
         )
 
@@ -1728,6 +1889,18 @@ class P115StrmHelper(_PluginBase):
 
         return full[: len(prefix)] == prefix
 
+    def __get_run_transfer_path(self, paths, transfer_path):
+        """
+        判断路径是否为整理路径
+        """
+        transfer_paths = paths.split("\n")
+        for path in transfer_paths:
+            if not path:
+                continue
+            if self.has_prefix(transfer_path, path):
+                return True
+        return False
+
     def __get_media_path(self, paths, media_path):
         """
         获取媒体目录路径
@@ -1740,6 +1913,64 @@ class P115StrmHelper(_PluginBase):
             if self.has_prefix(media_path, parts[1]):
                 return True, parts[0], parts[1]
         return False, None, None
+
+    def media_transfer(self, event, file_path: Path, rmt_mediaext):
+        """
+        运行媒体文件整理
+        """
+        file_category = event["file_category"]
+        file_id = event["file_id"]
+        if file_category == 0:
+            # 文件夹情况，遍历文件夹，获取整理文件
+            # 缓存顶层文件夹ID
+            self.cache_delete_pan_transfer_list.append(str(event["file_id"]))
+            for item in iter_files_with_path(
+                self._client, cid=int(file_id), cooldown=2
+            ):
+                file_path = Path(item["path"])
+                # 缓存文件夹ID
+                if str(item["parent_id"]) not in self.cache_delete_pan_transfer_list:
+                    self.cache_delete_pan_transfer_list.append(str(item["parent_id"]))
+                if file_path.suffix in rmt_mediaext:
+                    # 缓存文件ID
+                    self.cache_creata_pan_transfer_list.append(str(item["id"]))
+                    self.transferchain.do_transfer(
+                        fileitem=FileItem(
+                            storage="u115",
+                            fileid=str(item["id"]),
+                            parent_fileid=str(item["parent_id"]),
+                            path=str(file_path).replace("\\", "/"),
+                            type="file",
+                            name=file_path.name,
+                            basename=file_path.stem,
+                            extension=file_path.suffix[1:],
+                            size=item["size"],
+                            pickcode=item["pickcode"],
+                            modify_time=item["ctime"],
+                        )
+                    )
+                    logger.info(f"【网盘整理】{file_path} 加入整理列队")
+        else:
+            # 文件情况，直接整理
+            if file_path.suffix in rmt_mediaext:
+                # 缓存文件ID
+                self.cache_creata_pan_transfer_list.append(str(event["file_id"]))
+                self.transferchain.do_transfer(
+                    fileitem=FileItem(
+                        storage="u115",
+                        fileid=str(file_id),
+                        parent_fileid=str(event["parent_id"]),
+                        path=str(file_path).replace("\\", "/"),
+                        type="file",
+                        name=file_path.name,
+                        basename=file_path.stem,
+                        extension=file_path.suffix[1:],
+                        size=event["file_size"],
+                        pickcode=event["pick_code"],
+                        modify_time=event["update_time"],
+                    )
+                )
+                logger.info(f"【网盘整理】{file_path} 加入整理列队")
 
     @cached(cache=TTLCache(maxsize=1, ttl=2 * 60))
     def redirect_url(
@@ -2229,19 +2460,13 @@ class P115StrmHelper(_PluginBase):
                     else:
                         logger.warning(f"【监控生活事件】{file_name} {name} 不支持刷新")
 
-        def creata_strm(event):
+        def creata_strm(event, file_path):
             """
             创建 STRM 文件
             """
             pickcode = event["pick_code"]
-            file_name = event["file_name"]
             file_category = event["file_category"]
             file_id = event["file_id"]
-
-            file_path = (
-                Path(get_path_to_cid(self._client, cid=int(event["parent_id"])))
-                / file_name
-            )
             status, target_dir, pan_media_dir = self.__get_media_path(
                 self._monitor_life_paths, file_path
             )
@@ -2414,7 +2639,7 @@ class P115StrmHelper(_PluginBase):
                                     f"【监控生活事件】本地空目录 {parent_path} 已删除"
                                 )
 
-            def get_file_path(
+            def __get_file_path(
                 file_name: str, file_size: str, file_id: str, file_category: int
             ):
                 """
@@ -2442,7 +2667,7 @@ class P115StrmHelper(_PluginBase):
                 return None
 
             file_category = event["file_category"]
-            file_path = get_file_path(
+            file_path = __get_file_path(
                 file_name=str(event["file_name"]),
                 file_size=str(event["file_size"]),
                 file_id=str(event["file_id"]),
@@ -2471,8 +2696,39 @@ class P115StrmHelper(_PluginBase):
                 __remove_parent_dir(Path(file_path))
             logger.info(f"【监控生活事件】{file_path} 已删除")
 
+        def new_creata_path(event):
+            """
+            处理新出现的路径
+            """
+            # 1.获取绝对文件路径
+            file_name = event["file_name"]
+            file_path = (
+                Path(get_path_to_cid(self._client, cid=int(event["parent_id"])))
+                / file_name
+            )
+            # 匹配逻辑 整理路径目录 > 生成STRM文件路径目录
+            # 2.匹配是否为整理路径目录
+            if self._pan_transfer_enabled and self._pan_transfer_paths:
+                if self.__get_run_transfer_path(
+                    paths=self._pan_transfer_paths, transfer_path=file_path
+                ):
+                    self.media_transfer(
+                        event=event,
+                        file_path=Path(file_path),
+                        rmt_mediaext=rmt_mediaext,
+                    )
+                    return
+            # 3.匹配是否为生成STRM文件路径目录
+            if self._monitor_life_enabled and self._monitor_life_paths:
+                if str(event["file_id"]) in self.cache_creata_pan_transfer_list:
+                    # 检查是否命中缓存，命中则不处理
+                    self.cache_creata_pan_transfer_list.remove(str(event["file_id"]))
+                else:
+                    creata_strm(event=event, file_path=file_path)
+
         logger.info("【监控生活事件】生活事件监控启动中...")
         try:
+            # 删除缓存，避免删除无限循环
             delete_list = []
             for events_batch in iter_life_behavior_list(self._client, cooldown=int(10)):
                 if self.monitor_stop_event.is_set():
@@ -2511,15 +2767,29 @@ class P115StrmHelper(_PluginBase):
                         or int(event["type"]) == 14
                         or int(event["type"]) == 18
                     ):
-                        creata_strm(event=event)
+                        # 新路径事件处理
+                        new_creata_path(event=event)
 
                     if int(event["type"]) == 22:
-                        # 通过 delete_list 避免反复删除
+                        # 删除文件/文件夹事件处理
                         if event["file_id"] in delete_list:
+                            # 通过 delete_list 避免反复删除
                             delete_list.remove(event["file_id"])
+                        elif (
+                            str(event["file_id"]) in self.cache_delete_pan_transfer_list
+                        ):
+                            # 检查是否命中删除文件夹缓存，命中则无需处理
+                            self.cache_delete_pan_transfer_list.remove(
+                                str(event["file_id"])
+                            )
                         else:
-                            delete_list.append(event["file_id"])
-                            remove_strm(event=event)
+                            if (
+                                self._monitor_life_enabled
+                                and self._monitor_life_paths
+                                and self._monitor_life_auto_remove_local_enabled
+                            ):
+                                delete_list.append(event["file_id"])
+                                remove_strm(event=event)
 
         except Exception as e:
             logger.error(f"【监控生活事件】生活事件监控运行失败: {e}")
