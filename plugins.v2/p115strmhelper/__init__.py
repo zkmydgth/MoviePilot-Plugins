@@ -29,7 +29,14 @@ from p115client.tool.util import share_extract_payload
 from p115rsacipher import encrypt, decrypt
 
 from app import schemas
-from app.schemas import TransferInfo, FileItem, RefreshMediaItem, ServiceInfo
+from app.schemas import (
+    TransferInfo,
+    FileItem,
+    RefreshMediaItem,
+    ServiceInfo,
+    NotificationType,
+    ContentType,
+)
 from app.schemas.types import EventType, MediaType
 from app.core.config import settings
 from app.core.event import eventmanager, Event
@@ -737,7 +744,7 @@ class P115StrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png"
     # 插件版本
-    plugin_version = "1.6.6"
+    plugin_version = "1.6.7"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -766,6 +773,7 @@ class P115StrmHelper(_PluginBase):
     _client = None
     _scheduler = None
     _enabled = False
+    _notify = False
     _cookies = None
     _password = None
     moviepilot_address = None
@@ -825,6 +833,7 @@ class P115StrmHelper(_PluginBase):
 
         if config:
             self._enabled = config.get("enabled", False)
+            self._notify = config.get("notify", False)
             self._cookies = config.get("cookies")
             self._password = config.get("password")
             self.moviepilot_address = config.get("moviepilot_address")
@@ -1138,6 +1147,7 @@ class P115StrmHelper(_PluginBase):
         self.update_config(
             {
                 "enabled": self._enabled,
+                "notify": self._notify,
                 "cookies": self._cookies,
                 "password": self._password,
                 "moviepilot_address": self.moviepilot_address,
@@ -1350,39 +1360,40 @@ class P115StrmHelper(_PluginBase):
             )
         else:
             # 对于没有 mediainfo 的媒体文件刮削
-            # 先获取上级目录 mediainfo
-            mediainfo, meta = None, None
-            dir_path = Path(path).parent
-            meta = MetaInfoPath(dir_path)
+            # 获取媒体信息
+            meta = MetaInfoPath(Path(path))
             mediainfo = self.mediachain.recognize_by_meta(meta)
-            if not meta or not mediainfo:
-                # 如果上级目录没有媒体信息则使用传入的路径
-                logger.warn(f"【媒体刮削】{dir_path} 无法识别文件媒体信息！")
-                finish_path = Path(path)
-                meta = MetaInfoPath(finish_path)
-                mediainfo = self.mediachain.recognize_by_meta(meta)
-            else:
+            # 判断刮削路径
+            # 先获取上级目录 meta
+            file_type = "dir"
+            dir_path = Path(path).parent
+            tem_mediainfo = self.mediachain.recognize_by_meta(MetaInfoPath(dir_path))
+            # 只有上级目录信息和文件的信息一致时才继续判断上级目录
+            if tem_mediainfo and tem_mediainfo.imdb_id == mediainfo.imdb_id:
                 if mediainfo.type == MediaType.TV:
                     # 如果是电视剧，再次获取上级目录媒体信息，兼容电视剧命名，获取 mediainfo
-                    mediainfo, meta = None, None
                     dir_path = dir_path.parent
-                    meta = MetaInfoPath(dir_path)
-                    mediainfo = self.mediachain.recognize_by_meta(meta)
-                    if meta and mediainfo:
+                    tem_mediainfo = self.mediachain.recognize_by_meta(
+                        MetaInfoPath(dir_path)
+                    )
+                    if tem_mediainfo and tem_mediainfo.imdb_id == mediainfo.imdb_id:
                         # 存在 mediainfo 则使用本级目录
                         finish_path = dir_path
                     else:
                         # 否则使用上级目录
                         logger.warn(f"【媒体刮削】{dir_path} 无法识别文件媒体信息！")
                         finish_path = Path(path).parent
-                        meta = MetaInfoPath(finish_path)
-                        mediainfo = self.mediachain.recognize_by_meta(meta)
                 else:
                     # 电影情况，使用当前目录和元数据
                     finish_path = dir_path
+            else:
+                # 如果上级目录没有媒体信息则使用传入的路径
+                logger.warn(f"【媒体刮削】{dir_path} 无法识别文件媒体信息！")
+                finish_path = Path(path)
+                file_type = "file"
             fileitem = FileItem(
                 storage="local",
-                type="dir",
+                type=file_type,
                 path=str(finish_path),
                 name=finish_path.name,
                 basename=finish_path.stem,
@@ -1829,28 +1840,17 @@ class P115StrmHelper(_PluginBase):
         """
         远程全量同步
         """
-        if event:
-            event_data = event.event_data
-            if not event_data or event_data.get("action") != "p115_full_sync":
-                return
-            self.post_message(
-                channel=event.event_data.get("channel"),
-                title="开始115网盘媒体库全量同步 ...",
-                userid=event.event_data.get("user"),
-            )
-        strm_count, mediainfo_count, strm_fail_count, mediainfo_fail_count = (
-            self.full_sync_strm_files()
+        if not event:
+            return
+        event_data = event.event_data
+        if not event_data or event_data.get("action") != "p115_full_sync":
+            return
+        self.post_message(
+            channel=event.event_data.get("channel"),
+            title="开始115网盘媒体库全量同步 ...",
+            userid=event.event_data.get("user"),
         )
-        if event:
-            self.post_message(
-                channel=event.event_data.get("channel"),
-                title="✅ 全量生成 STRM 文件完成",
-                text=f"📂 生成STRM文件 {strm_count} 个\n"
-                + f"⬇️ 下载媒体文件 {mediainfo_count} 个\n"
-                + f"❌ 生成STRM失败 {strm_fail_count} 个\n"
-                + f"🚫 下载媒体失败 {mediainfo_fail_count} 个",
-                userid=event.event_data.get("user"),
-            )
+        self.full_sync_strm_files()
 
     def add_share(self, url, channel, userid):
         """
@@ -1991,7 +1991,18 @@ class P115StrmHelper(_PluginBase):
         strm_helper.generate_strm_files(
             full_sync_strm_paths=self._full_sync_strm_paths,
         )
-        return strm_helper.get_generate_total()
+        strm_count, mediainfo_count, strm_fail_count, mediainfo_fail_count = (
+            strm_helper.get_generate_total()
+        )
+        if self._notify:
+            self.post_message(
+                mtype=NotificationType.Plugin,
+                title="✅【115网盘】全量生成 STRM 文件完成",
+                text=f"📂 生成STRM文件 {strm_count} 个\n"
+                + f"⬇️ 下载媒体文件 {mediainfo_count} 个\n"
+                + f"❌ 生成STRM失败 {strm_fail_count} 个\n"
+                + f"🚫 下载媒体失败 {mediainfo_fail_count} 个",
+            )
 
     def share_strm_files(self):
         """
@@ -2034,7 +2045,18 @@ class P115StrmHelper(_PluginBase):
                 receive_code=receive_code,
             )
             strm_helper.download_mediainfo()
-            strm_helper.get_generate_total()
+            strm_count, mediainfo_count, strm_fail_count, mediainfo_fail_count = (
+                strm_helper.get_generate_total()
+            )
+            if self._notify:
+                self.post_message(
+                    mtype=NotificationType.Plugin,
+                    title="✅【115网盘】分享生成 STRM 文件完成",
+                    text=f"📂 生成STRM文件 {strm_count} 个\n"
+                    + f"⬇️ 下载媒体文件 {mediainfo_count} 个\n"
+                    + f"❌ 生成STRM失败 {strm_fail_count} 个\n"
+                    + f"🚫 下载媒体失败 {mediainfo_fail_count} 个",
+                )
         except Exception as e:
             logger.error(f"【分享STRM生成】运行失败: {e}")
             return
@@ -2123,6 +2145,8 @@ class P115StrmHelper(_PluginBase):
 
             if file_category == 0:
                 # 文件夹情况，遍历文件夹
+                mediainfo_count = 0
+                strm_count = 0
                 for item in iter_files_with_path(
                     self._client, cid=int(file_id), cooldown=2
                 ):
@@ -2160,6 +2184,7 @@ class P115StrmHelper(_PluginBase):
                                 file_name=original_file_name,
                                 download_url=download_url,
                             )
+                            mediainfo_count += 1
                             continue
 
                     if file_path.suffix not in rmt_mediaext:
@@ -2192,6 +2217,7 @@ class P115StrmHelper(_PluginBase):
                     logger.info(
                         "【监控生活事件】生成 STRM 文件成功: %s", str(new_file_path)
                     )
+                    strm_count += 1
                     scrape_metadata = True
                     if self._monitor_life_scrape_metadata_enabled:
                         if self._monitor_life_scrape_metadata_exclude_paths:
@@ -2209,6 +2235,13 @@ class P115StrmHelper(_PluginBase):
                             )
                     # 刷新媒体服务器
                     refresh_mediaserver(str(new_file_path), str(original_file_name))
+                if self._notify:
+                    self.post_message(
+                        mtype=NotificationType.Plugin,
+                        title="✅【115网盘】生活事件生成 STRM 文件",
+                        text=f"📂 生成STRM文件 {strm_count} 个\n"
+                        + f"⬇️ 下载媒体文件 {mediainfo_count} 个",
+                    )
             else:
                 # 文件情况，直接生成
                 file_path = Path(target_dir) / Path(file_path).relative_to(
@@ -2241,6 +2274,12 @@ class P115StrmHelper(_PluginBase):
                             file_name=original_file_name,
                             download_url=download_url,
                         )
+                        if self._notify:
+                            self.post_message(
+                                mtype=NotificationType.Plugin,
+                                title="✅【115网盘】生活事件生成 STRM 文件",
+                                text="⬇️ 下载媒体文件 1 个",
+                            )
                         return
 
                 if file_path.suffix not in rmt_mediaext:
@@ -2269,6 +2308,12 @@ class P115StrmHelper(_PluginBase):
                 logger.info(
                     "【监控生活事件】生成 STRM 文件成功: %s", str(new_file_path)
                 )
+                if self._notify:
+                    self.post_message(
+                        mtype=NotificationType.Plugin,
+                        title="✅【115网盘】生活事件生成 STRM 文件",
+                        text="📂 生成STRM文件 1 个",
+                    )
                 scrape_metadata = True
                 if self._monitor_life_scrape_metadata_enabled:
                     if self._monitor_life_scrape_metadata_exclude_paths:
@@ -2681,6 +2726,7 @@ class P115StrmHelper(_PluginBase):
         """
         return {
             "enabled": self._enabled,
+            "notify": self._notify,
             "cookies": self._cookies or "",
             "password": self._password or "",
             "moviepilot_address": self.moviepilot_address or "",
@@ -2735,6 +2781,7 @@ class P115StrmHelper(_PluginBase):
         try:
             data = await request.json()
             self._enabled = data.get("enabled", False)
+            self._notify = data.get("notify", False)
             self._cookies = data.get("cookies", "")
             self._password = data.get("password", "")
             self.moviepilot_address = data.get("moviepilot_address", "")

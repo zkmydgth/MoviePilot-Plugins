@@ -26,7 +26,10 @@
                 <v-col cols="12" md="2">
                   <v-switch v-model="config.enabled" label="启用插件" color="success" density="compact"></v-switch>
                 </v-col>
-                <v-col cols="12" md="5">
+                <v-col cols="12" md="2">
+                  <v-switch v-model="config.notify" label="发送通知" color="success" density="compact"></v-switch>
+                </v-col>
+                <v-col cols="12" md="4">
                   <v-text-field v-model="config.cookies" label="115 Cookie" hint="点击图标切换显隐、复制或扫码" persistent-hint
                     density="compact" variant="outlined" hide-details="auto"
                     :type="isCookieVisible ? 'text' : 'password'">
@@ -46,7 +49,7 @@
                     </template>
                   </v-text-field>
                 </v-col>
-                <v-col cols="12" md="5">
+                <v-col cols="12" md="4">
                   <v-text-field v-model="config.moviepilot_address" label="MoviePilot 内网访问地址" hint="点右侧图标自动填充当前站点地址。"
                     persistent-hint density="compact" variant="outlined" hide-details="auto">
                     <template v-slot:append>
@@ -629,6 +632,7 @@ const mediaservers = ref([]);
 const isCookieVisible = ref(false);
 const config = reactive({
   enabled: false,
+  notify: false,
   cookies: '',
   password: '',
   moviepilot_address: '',
