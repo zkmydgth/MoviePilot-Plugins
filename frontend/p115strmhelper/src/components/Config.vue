@@ -734,7 +734,7 @@ watch(() => config.transfer_monitor_paths, (newVal) => {
   }
 
   try {
-    const paths = newVal.split('\\n').filter(line => line.trim());
+    const paths = newVal.split('\n').filter(line => line.trim());
     transferPaths.value = paths.map(path => {
       const parts = path.split('#');
       return { local: parts[0] || '', remote: parts[1] || '' };
@@ -756,7 +756,7 @@ watch(() => config.transfer_mp_mediaserver_paths, (newVal) => {
   }
 
   try {
-    const paths = newVal.split('\\n').filter(line => line.trim());
+    const paths = newVal.split('\n').filter(line => line.trim());
     transferMpPaths.value = paths.map(path => {
       const parts = path.split('#');
       return { local: parts[0] || '', remote: parts[1] || '' };
@@ -778,7 +778,7 @@ watch(() => config.full_sync_strm_paths, (newVal) => {
   }
 
   try {
-    const paths = newVal.split('\\n').filter(line => line.trim());
+    const paths = newVal.split('\n').filter(line => line.trim());
     fullSyncPaths.value = paths.map(path => {
       const parts = path.split('#');
       return { local: parts[0] || '', remote: parts[1] || '' };
@@ -800,7 +800,7 @@ watch(() => config.monitor_life_paths, (newVal) => {
   }
 
   try {
-    const paths = newVal.split('\\n').filter(line => line.trim());
+    const paths = newVal.split('\n').filter(line => line.trim());
     monitorLifePaths.value = paths.map(path => {
       const parts = path.split('#');
       return { local: parts[0] || '', remote: parts[1] || '' };
@@ -822,7 +822,7 @@ watch(() => config.monitor_life_mp_mediaserver_paths, (newVal) => {
   }
 
   try {
-    const paths = newVal.split('\\n').filter(line => line.trim());
+    const paths = newVal.split('\n').filter(line => line.trim());
     monitorLifeMpPaths.value = paths.map(path => {
       const parts = path.split('#');
       return { local: parts[0] || '', remote: parts[1] || '' };
@@ -844,7 +844,7 @@ watch(() => config.pan_transfer_paths, (newVal) => {
   }
 
   try {
-    const paths = newVal.split('\\n').filter(line => line.trim());
+    const paths = newVal.split('\n').filter(line => line.trim());
     panTransferPaths.value = paths.map(path => {
       return { path };
     });
@@ -865,7 +865,7 @@ watch(() => config.transfer_monitor_scrape_metadata_exclude_paths, (newVal) => {
     return;
   }
   try {
-    const paths = newVal.split('\\n').filter(line => line.trim());
+    const paths = newVal.split('\n').filter(line => line.trim());
     transferExcludePaths.value = paths.map(p => ({ path: p }));
     if (transferExcludePaths.value.length === 0) {
       transferExcludePaths.value = [{ path: '' }];
@@ -881,7 +881,7 @@ watch(transferExcludePaths, (newVal) => {
   const pathsString = newVal
     .map(item => item.path?.trim())
     .filter(p => p)
-    .join('\\n');
+    .join('\n');
   if (config.transfer_monitor_scrape_metadata_exclude_paths !== pathsString) {
     config.transfer_monitor_scrape_metadata_exclude_paths = pathsString;
   }
@@ -893,7 +893,7 @@ watch(() => config.monitor_life_scrape_metadata_exclude_paths, (newVal) => {
     return;
   }
   try {
-    const paths = newVal.split('\\n').filter(line => line.trim());
+    const paths = newVal.split('\n').filter(line => line.trim());
     monitorLifeExcludePaths.value = paths.map(p => ({ path: p }));
     if (monitorLifeExcludePaths.value.length === 0) {
       monitorLifeExcludePaths.value = [{ path: '' }];
@@ -909,7 +909,7 @@ watch(monitorLifeExcludePaths, (newVal) => {
   const pathsString = newVal
     .map(item => item.path?.trim())
     .filter(p => p)
-    .join('\\n');
+    .join('\n');
   if (config.monitor_life_scrape_metadata_exclude_paths !== pathsString) {
     config.monitor_life_scrape_metadata_exclude_paths = pathsString;
   }
@@ -950,15 +950,15 @@ const loadConfig = async () => {
 
       const p115LocalPaths = new Set();
       if (config.transfer_monitor_paths) {
-        config.transfer_monitor_paths.split('\\n')
+        config.transfer_monitor_paths.split('\n')
           .map(p => p.split('#')[0]?.trim()).filter(p => p).forEach(p => p115LocalPaths.add(p));
       }
       if (config.full_sync_strm_paths) {
-        config.full_sync_strm_paths.split('\\n')
+        config.full_sync_strm_paths.split('\n')
           .map(p => p.split('#')[0]?.trim()).filter(p => p).forEach(p => p115LocalPaths.add(p));
       }
       if (config.monitor_life_paths) {
-        config.monitor_life_paths.split('\\n')
+        config.monitor_life_paths.split('\n')
           .map(p => p.split('#')[0]?.trim()).filter(p => p).forEach(p => p115LocalPaths.add(p));
       }
 
