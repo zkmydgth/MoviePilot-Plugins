@@ -1,8 +1,8 @@
-import threading
-import time
-import re
 from pathlib import Path
 from queue import Queue, Empty
+from re import match
+from threading import Lock, Thread
+from time import sleep
 from enum import Enum
 from datetime import datetime, timezone
 from typing import Optional
@@ -43,7 +43,7 @@ class ShareTransferHelper:
         self.aligo = aligo
         self._add_share_queue = Queue()
         self._add_share_worker_thread = None
-        self._add_share_worker_lock = threading.Lock()
+        self._add_share_worker_lock = Lock()
 
     def _ensure_add_share_worker_running(self):
         """
@@ -54,7 +54,7 @@ class ShareTransferHelper:
                 self._add_share_worker_thread is None
                 or not self._add_share_worker_thread.is_alive()
             ):
-                self._add_share_worker_thread = threading.Thread(
+                self._add_share_worker_thread = Thread(
                     target=self._process_add_share_queue, daemon=True
                 )
                 self._add_share_worker_thread.start()
@@ -73,7 +73,7 @@ class ShareTransferHelper:
                 self.__add_share(url, channel, userid, pan_path)
 
                 # 任务间隔
-                time.sleep(3)
+                sleep(3)
 
                 # 标记任务完成
                 self._add_share_queue.task_done()
@@ -83,7 +83,7 @@ class ShareTransferHelper:
                 break
             except Exception as e:
                 logger.error(f"【分享转存】任务处理异常: {e}")
-                time.sleep(5)
+                sleep(5)
 
     @staticmethod
     def send_notify(
@@ -301,7 +301,7 @@ class ShareTransferHelper:
         )
 
         # 获取文件大小
-        time.sleep(2)
+        sleep(2)
         payload = {
             "share_code": share_code,
             "receive_code": receive_code,
@@ -382,7 +382,7 @@ class ShareTransferHelper:
             )
             return
         try:
-            if bool(re.match(ALIYUN_SHARE_URL_MATCH, url)):
+            if bool(match(ALIYUN_SHARE_URL_MATCH, url)):
                 if not configer.pan_transfer_unrecognized_path:
                     self.send_notify(
                         channel=channel,

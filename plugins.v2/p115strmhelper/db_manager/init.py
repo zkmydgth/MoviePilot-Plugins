@@ -1,5 +1,5 @@
-import shutil
 from pathlib import Path
+from shutil import copy2
 from typing import Set
 
 from orjson import loads
@@ -33,10 +33,16 @@ def migration_db(db_path, script_location, version_locations: list):
     更新数据库
     """
     # 启动时的更新，调整从 /config/plugins/p115strmhelper/database/versions 中读取持久化的迁移脚本)
-    meta_data_path = Path(settings.ROOT_PATH / 'app' / 'plugins' / 'p115strmhelper' / 'migration_meta.json')
-    with open(meta_data_path, 'rb') as f:
+    meta_data_path = Path(
+        settings.ROOT_PATH
+        / "app"
+        / "plugins"
+        / "p115strmhelper"
+        / "migration_meta.json"
+    )
+    with open(meta_data_path, "rb") as f:
         config_data = loads(f.read())
-        revision = config_data.get("revision", 'head')
+        revision = config_data.get("revision", "head")
         logger.debug(f"正在将数据库迁移到版本: {revision} ...")
 
     # 智能迁移到指定版本
@@ -44,7 +50,7 @@ def migration_db(db_path, script_location, version_locations: list):
         sqlalchemy_url=f"sqlite:///{db_path}",
         script_location=str(script_location),
         target_revision=revision,
-        version_locations=" ".join(version_locations) if version_locations else None
+        version_locations=" ".join(version_locations) if version_locations else None,
     )
 
 
@@ -53,8 +59,17 @@ def init_migration_scripts() -> bool:
     初始化持久化的迁移脚本，将源目录内容完整复制到目标目录。
     """
     # 使用 Path 对象定义路径
-    source_path = Path(settings.ROOT_PATH / 'app' / 'plugins' / 'p115strmhelper' / 'database'/ 'versions')
-    target_path = Path(settings.PLUGIN_DATA_PATH / 'p115strmhelper' / 'database' / 'versions')
+    source_path = Path(
+        settings.ROOT_PATH
+        / "app"
+        / "plugins"
+        / "p115strmhelper"
+        / "database"
+        / "versions"
+    )
+    target_path = Path(
+        settings.PLUGIN_DATA_PATH / "p115strmhelper" / "database" / "versions"
+    )
 
     # 确保源目录存在且是一个目录
     if not source_path.is_dir():
@@ -75,7 +90,7 @@ def init_migration_scripts() -> bool:
                 destination_file = target_path / source_item.name
 
                 # 复制文件（会覆盖已存在的文件）
-                shutil.copy2(source_item, destination_file)
+                copy2(source_item, destination_file)
                 files_copied += 1
     except IOError as e:
         logger.error(f"在复制文件时发生 I/O 错误: {e}")
@@ -84,7 +99,9 @@ def init_migration_scripts() -> bool:
         logger.error(f"发生未知错误: {e}")
         return False
 
-    logger.debug(f"数据库迁移脚本 versions 同步完成，共复制/覆盖了 {files_copied} 个文件。")
+    logger.debug(
+        f"数据库迁移脚本 versions 同步完成，共复制/覆盖了 {files_copied} 个文件。"
+    )
     return True
 
 
@@ -100,10 +117,10 @@ def get_ancestors(script: ScriptDirectory, revision_id: str) -> Set[str]:
 
 
 def sync_to_revision(
-        script_location: str,
-        sqlalchemy_url: str,
-        target_revision: str,
-        version_locations: str = None
+    script_location: str,
+    sqlalchemy_url: str,
+    target_revision: str,
+    version_locations: str = None,
 ):
     """
     智能地将数据库同步到指定的目标版本，无需 alembic.ini 文件。
@@ -127,8 +144,8 @@ def sync_to_revision(
     # 解析目标版本号
     try:
         resolved_target_rev = script.as_revision_number(target_revision)
-        if resolved_target_rev is None and target_revision.lower() == 'base':
-            resolved_target_rev = 'base'
+        if resolved_target_rev is None and target_revision.lower() == "base":
+            resolved_target_rev = "base"
         elif resolved_target_rev is None:
             raise ValueError(f"目标版本 '{target_revision}' 未找到。")
         logger.info(f"解析后的目标版本 ID: {resolved_target_rev}")
@@ -165,13 +182,21 @@ def sync_to_revision(
 
     # 判断是升级、降级还是分支切换
     ancestors_of_current = get_ancestors(script, current_rev)
-    ancestors_of_target = get_ancestors(script, resolved_target_rev) if resolved_target_rev != 'base' else {'base'}
+    ancestors_of_target = (
+        get_ancestors(script, resolved_target_rev)
+        if resolved_target_rev != "base"
+        else {"base"}
+    )
 
     if resolved_target_rev in ancestors_of_current:
-        logger.info(f"目标版本 '{resolved_target_rev}' 是当前版本 '{current_rev}' 的历史版本。将执行降级操作。")
+        logger.info(
+            f"目标版本 '{resolved_target_rev}' 是当前版本 '{current_rev}' 的历史版本。将执行降级操作。"
+        )
         command.downgrade(alembic_cfg, resolved_target_rev)
     elif current_rev in ancestors_of_target:
-        logger.info(f"目标版本 '{resolved_target_rev}' 是当前版本 '{current_rev}' 的未来版本。将执行升级操作。")
+        logger.info(
+            f"目标版本 '{resolved_target_rev}' 是当前版本 '{current_rev}' 的未来版本。将执行升级操作。"
+        )
         command.upgrade(alembic_cfg, resolved_target_rev)
     else:
         logger.error(

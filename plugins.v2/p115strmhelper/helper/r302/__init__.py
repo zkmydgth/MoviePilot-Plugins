@@ -1,12 +1,17 @@
+from asyncio import (
+    create_task,
+    get_event_loop,
+    run as asyncio_run,
+    sleep as asyncio_sleep,
+    to_thread,
+)
 from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
 from errno import EIO, ENOENT
 from typing import cast, Dict, Optional
 from urllib.parse import parse_qsl, unquote, urlsplit, urlencode
 
-import asyncio
-
-import httpx
+from httpx import AsyncClient, Limits, Timeout
 from orjson import dumps, loads
 from p115client import P115Client
 from p115client import check_response as p115_check_response
@@ -29,7 +34,7 @@ class Redirect:
     302 跳转模块
     """
 
-    _http_client: Optional[httpx.AsyncClient] = None
+    _http_client: Optional[AsyncClient] = None
 
     def __init__(self, client: P115Client, pid: Optional[int] = None):
         self.client = client
@@ -38,16 +43,16 @@ class Redirect:
         self.pid = pid
 
     @classmethod
-    def http_client(cls) -> httpx.AsyncClient:
+    def http_client(cls) -> AsyncClient:
         """
         获取 HTTP 客户端，如果未初始化则自动初始化
         """
         if cls._http_client is None:
             cookies = configer.cookies_dict if configer.cookies else None
-            cls._http_client = httpx.AsyncClient(
+            cls._http_client = AsyncClient(
                 follow_redirects=True,
-                timeout=httpx.Timeout(10.0, connect=5.0),
-                limits=httpx.Limits(
+                timeout=Timeout(10.0, connect=5.0),
+                limits=Limits(
                     max_connections=200,
                     max_keepalive_connections=100,
                 ),
@@ -71,18 +76,18 @@ class Redirect:
         """
         if cls._http_client is not None:
             try:
-                loop = asyncio.get_event_loop()
+                loop = get_event_loop()
                 if loop.is_running():
-                    asyncio.create_task(cls.close_http_client())
+                    create_task(cls.close_http_client())
                 else:
                     loop.run_until_complete(cls.close_http_client())
             except RuntimeError:
                 try:
-                    asyncio.run(cls.close_http_client())
+                    asyncio_run(cls.close_http_client())
                 except RuntimeError:
                     with ThreadPoolExecutor() as executor:
                         future = executor.submit(
-                            lambda: asyncio.run(cls.close_http_client())
+                            lambda: asyncio_run(cls.close_http_client())
                         )
                         future.result(timeout=5)
 
@@ -118,7 +123,7 @@ class Redirect:
         """
         异步延迟删除
         """
-        await asyncio.sleep(5.0)
+        await asyncio_sleep(5.0)
         await self.delayed_remove(pickcode)
 
     async def share_get_id_for_name(
@@ -233,7 +238,7 @@ class Redirect:
         )
 
         if post_pickcode != pickcode:
-            asyncio.create_task(self._delayed_remove_async(post_pickcode))
+            create_task(self._delayed_remove_async(post_pickcode))
 
         return url
 
@@ -266,7 +271,7 @@ class Redirect:
             post_pickcode = await self.get_pickcode_for_copy(pickcode)
             logger.debug(f"【302跳转服务】多端播放开启 {pickcode} -> {post_pickcode}")
 
-        resp_url = await asyncio.to_thread(
+        resp_url = await to_thread(
             self.u115openhelper.get_download_url,
             pickcode=post_pickcode,
             user_agent=user_agent,
@@ -284,7 +289,7 @@ class Redirect:
         )
 
         if post_pickcode != pickcode:
-            asyncio.create_task(self._delayed_remove_async(post_pickcode))
+            create_task(self._delayed_remove_async(post_pickcode))
 
         return Url.of(resp_url, data)
 
