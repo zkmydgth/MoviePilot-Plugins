@@ -1,5 +1,5 @@
 """
-MCP 工具定义与执行：包装插件 Api，同步调用用 to_thread
+MCP 工具定义与执行：包装插件 Api 的 tools + 非 Api 暴露的 INTERNAL_TOOLS，同步调用用 to_thread
 """
 
 from asyncio import to_thread
@@ -7,13 +7,17 @@ from typing import Any, Dict, List
 
 from orjson import dumps as orjson_dumps
 
+from ..helper.clean import Cleaner
 from ..schemas.browse import BrowseDirParams
 from ..schemas.fuse import FuseMountPayload
 from ..schemas.offline import AddOfflineTaskPayload, OfflineTasksPayload
 from ..schemas.strm_api import ManualTransferPayload
 
-# 工具定义列表：每项 {"def": { name, description, inputSchema }, "handler": async (api, arguments) -> str }
+# 工具定义列表：每项 {"def": { name, description, inputSchema } }，handler 在 run_tool 的 handlers 中
 TOOLS: List[Dict[str, Any]] = []
+
+# 非 Api 暴露的 tools：不经过 api.py，直接依赖 servicer，每项 {"def": {...}, "handler": async (servicer, arguments) -> Any}
+INTERNAL_TOOLS: List[Dict[str, Any]] = []
 
 
 def _dump(obj: Any) -> str:
@@ -30,15 +34,28 @@ def _dump(obj: Any) -> str:
     return orjson_dumps(obj, default=str).decode()
 
 
-async def run_tool(api: Any, name: str, arguments: Dict[str, Any]) -> str:
+async def run_tool(
+    api: Any, servicer: Any, name: str, arguments: Dict[str, Any]
+) -> str:
     """
-    根据 name 调用对应 Api 方法，返回 JSON 字符串结果。
+    根据 name 调用对应 handler（Api 或 INTERNAL_TOOLS），返回 JSON 字符串结果。
 
-    :param api: 插件 Api 实例。
+    :param api: 插件 Api 实例，供包装 Api 的 tools 使用。
+    :param servicer: 插件 ServiceHelper 实例。
     :param name: 工具名称。
     :param arguments: 工具参数字典。
     :return: 序列化后的 JSON 字符串（成功为结果，失败为含 error 的 dict）。
     """
+    internal_handlers = {t["def"]["name"]: t["handler"] for t in INTERNAL_TOOLS}
+    if name in internal_handlers:
+        if servicer is None:
+            return _dump({"error": "Internal tools require servicer"})
+        try:
+            result = await internal_handlers[name](servicer, arguments)
+            return _dump(result)
+        except Exception as e:
+            return _dump({"error": str(e)})
+
     handlers = {
         "get_plugin_status": _get_plugin_status,
         "get_storage_status": _get_storage_status,
@@ -54,6 +71,9 @@ async def run_tool(api: Any, name: str, arguments: Dict[str, Any]) -> str:
         "get_sync_delete_history": _get_sync_delete_history,
         "fuse_mount": _fuse_mount,
         "fuse_unmount": _fuse_unmount,
+        "get_fuse_status": _get_fuse_status,
+        "trigger_full_sync_db": _trigger_full_sync_db,
+        "check_life_event_status": _check_life_event_status,
     }
     fn = handlers.get(name)
     if not fn:
@@ -205,6 +225,63 @@ async def _fuse_unmount(api: Any, _: Dict) -> Any:
     return await to_thread(api.fuse_unmount_api)
 
 
+async def _get_fuse_status(api: Any, _: Dict) -> Any:
+    """
+    :param api: 插件 Api 实例。
+    :param _: 未使用参数。
+    :return: FUSE 挂载状态。
+    """
+    return await to_thread(api.fuse_status_api)
+
+
+async def _trigger_full_sync_db(api: Any, _: Dict) -> Any:
+    """
+    :param api: 插件 Api 实例。
+    :param _: 未使用参数。
+    :return: 全量同步数据库触发结果。
+    """
+    return await to_thread(api.trigger_full_sync_db_api)
+
+
+async def _check_life_event_status(api: Any, _: Dict) -> Any:
+    """
+    :param api: 插件 Api 实例。
+    :param _: 未使用参数。
+    :return: 生活事件线程状态与调试信息。
+    """
+    return await to_thread(api.check_life_event_status_api)
+
+
+async def _clear_recyclebin_internal(servicer: Any, _: Dict) -> Any:
+    """
+    清空 115 回收站（非 Api 暴露，仅 MCP 内部 tool）。
+
+    :param servicer: 插件 ServiceHelper 实例。
+    :param _: 未使用参数。
+    :return: 结果 dict。
+    """
+    if not servicer or not servicer.client:
+        return {"error": "115 客户端未初始化"}
+    cleaner = Cleaner(servicer.client)
+    await to_thread(cleaner.clear_recyclebin)
+    return {"msg": "回收站已清空"}
+
+
+async def _clear_receive_path_internal(servicer: Any, _: Dict) -> Any:
+    """
+    清空 115 最近接收（非 Api 暴露，仅 MCP 内部 tool）。
+
+    :param servicer: 插件 ServiceHelper 实例。
+    :param _: 未使用参数。
+    :return: 结果 dict。
+    """
+    if not servicer or not servicer.client:
+        return {"error": "115 客户端未初始化"}
+    cleaner = Cleaner(servicer.client)
+    await to_thread(cleaner.clear_receive_path)
+    return {"msg": "最近接收已清空"}
+
+
 # 填充 TOOLS 列表供 tools/list 返回
 TOOLS.extend(
     [
@@ -343,6 +420,49 @@ TOOLS.extend(
                 "description": "卸载 FUSE",
                 "inputSchema": {"type": "object", "properties": {}},
             }
+        },
+        {
+            "def": {
+                "name": "get_fuse_status",
+                "description": "获取 FUSE 挂载状态",
+                "inputSchema": {"type": "object", "properties": {}},
+            }
+        },
+        {
+            "def": {
+                "name": "trigger_full_sync_db",
+                "description": "触发全量同步数据库",
+                "inputSchema": {"type": "object", "properties": {}},
+            }
+        },
+        {
+            "def": {
+                "name": "check_life_event_status",
+                "description": "检查生活事件线程状态与调试信息",
+                "inputSchema": {"type": "object", "properties": {}},
+            }
+        },
+    ]
+)
+
+# 非 Api 暴露的 tools：仅 MCP 使用，直接依赖 servicer
+INTERNAL_TOOLS.extend(
+    [
+        {
+            "def": {
+                "name": "clear_recyclebin",
+                "description": "清空 115 回收站",
+                "inputSchema": {"type": "object", "properties": {}},
+            },
+            "handler": _clear_recyclebin_internal,
+        },
+        {
+            "def": {
+                "name": "clear_receive_path",
+                "description": "清空 115 最近接收",
+                "inputSchema": {"type": "object", "properties": {}},
+            },
+            "handler": _clear_receive_path_internal,
         },
     ]
 )

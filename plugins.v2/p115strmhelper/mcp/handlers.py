@@ -4,17 +4,22 @@ MCP JSON-RPC 方法分发：initialize, tools/list, tools/call, resources/list, 
 
 from typing import Any, Dict, Optional
 
-from .tools import TOOLS, run_tool
+from .tools import INTERNAL_TOOLS, TOOLS, run_tool
 from .resources import RESOURCES, read_resource
 
 
 async def dispatch_rpc(
-    api: Any, method: Optional[str], params: Dict[str, Any], request_id: Any
+    api: Any,
+    servicer: Any,
+    method: Optional[str],
+    params: Dict[str, Any],
+    request_id: Any,
 ) -> Optional[Dict]:
     """
     根据 method 调用对应逻辑，返回 JSON-RPC 响应体（dict），供上层序列化为 JSON。
 
     :param api: 插件 Api 实例。
+    :param servicer: 插件 ServiceHelper 实例。
     :param method: JSON-RPC 方法名，如 initialize、tools/list、tools/call 等。
     :param params: 方法参数（dict）。
     :param request_id: 请求 id，原样带回响应。
@@ -42,10 +47,11 @@ async def dispatch_rpc(
         }
 
     if method == "tools/list":
+        all_defs = [t["def"] for t in TOOLS] + [t["def"] for t in INTERNAL_TOOLS]
         return {
             "jsonrpc": "2.0",
             "id": request_id,
-            "result": {"tools": [t["def"] for t in TOOLS]},
+            "result": {"tools": all_defs},
         }
 
     if method == "tools/call":
@@ -57,7 +63,7 @@ async def dispatch_rpc(
                 "id": request_id,
                 "error": {"code": -32602, "message": "Missing tool name"},
             }
-        content = await run_tool(api, name, arguments)
+        content = await run_tool(api, servicer, name, arguments)
         return {
             "jsonrpc": "2.0",
             "id": request_id,

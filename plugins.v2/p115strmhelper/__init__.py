@@ -148,7 +148,7 @@ class P115StrmHelper(_PluginBase):
             servicer.start_monitor_life()
 
         try:
-            self.mcp_manager = MCPManager(api=self.api)
+            self.mcp_manager = MCPManager(api=self.api, servicer=servicer)
         except Exception as e:
             logger.warning(f"MCP 初始化跳过: {e}")
             self.mcp_manager = None

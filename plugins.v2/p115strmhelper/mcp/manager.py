@@ -33,11 +33,13 @@ class MCPManager:
     MCP SSE + JSON-RPC 管理：会话存储、GET SSE 流、POST 消息处理。
     """
 
-    def __init__(self, api: Any):
+    def __init__(self, api: Any, servicer: Any = None):
         """
         :param api: 插件 Api 实例，供 RPC 调用。
+        :param servicer: 插件 ServiceHelper 实例。
         """
         self._api = api
+        self._servicer = servicer
         self._endpoint = "/mcp/messages"
         # session_id -> Queue of JSON-RPC response bodies (str)
         self._sessions: Dict[str, Queue] = {}
@@ -51,7 +53,9 @@ class MCPManager:
         """
         scope = request.scope
         # 返回客户端用于 POST 的完整路径（含插件前缀），否则客户端会误解析为相对路径导致失败
-        path = (request.url.path if getattr(request, "url", None) else scope.get("path", "")) or ""
+        path = (
+            request.url.path if getattr(request, "url", None) else scope.get("path", "")
+        ) or ""
         if path.rstrip("/").endswith("mcp/sse"):
             base = path.rsplit("mcp/sse", 1)[0].rstrip("/")
         else:
@@ -114,7 +118,9 @@ class MCPManager:
         req_id = msg.get("id")
         params = msg.get("params") or {}
         try:
-            result = await dispatch_rpc(self._api, method, params, req_id)
+            result = await dispatch_rpc(
+                self._api, self._servicer, method, params, req_id
+            )
             if result is not None:
                 await queue.put(orjson_dumps(result).decode())
         except Exception as e:
