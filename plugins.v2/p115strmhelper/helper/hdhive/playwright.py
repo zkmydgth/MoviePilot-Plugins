@@ -1,10 +1,18 @@
 __all__ = ["HDHivePlaywrightClient", "HDHiveLoginError"]
 
+from contextlib import contextmanager
+from socket import (
+    AF_INET,
+    SO_REUSEADDR,
+    SOCK_STREAM,
+    SOL_SOCKET,
+    socket,
+)
 from platform import machine as _machine
 from re import match as re_match, search as re_search
 from sys import platform
 from time import sleep
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Iterator, Optional, Tuple
 from urllib.parse import unquote, urlparse
 
 from httpx import Client
@@ -19,6 +27,7 @@ from playwright.sync_api import (
     TimeoutError as PlaywrightTimeoutError,
     sync_playwright,
 )
+from slippers import Proxy
 
 from app.core.config import settings
 
@@ -119,6 +128,8 @@ class HDHivePlaywrightClient:
         u = urlparse(raw)
         if not u.scheme or not u.hostname:
             return None
+        if u.scheme in ("socks5", "socks") and (u.username or u.password):
+            return None
         port = u.port
         if port is None:
             port = 443 if u.scheme == "https" else 80
@@ -131,18 +142,48 @@ class HDHivePlaywrightClient:
         return pw
 
     @staticmethod
-    def _chromium_launch_kwargs(headless: bool) -> Dict[str, Any]:
+    @contextmanager
+    def _socks5_slippers_if_needed() -> Iterator[Optional[Dict[str, str]]]:
+        """
+        若全局代理为带认证的 SOCKS5，在本机启动 slippers
+
+        :yield: slippers 成功时为 {"server": "socks5://127.0.0.1:端口"}；否则为 None
+        """
+        raw = HDHivePlaywrightClient._proxy_url_from_settings()
+        if not raw:
+            yield None
+            return
+        u = urlparse(raw)
+        if u.scheme not in ("socks5", "socks") or not (u.username or u.password):
+            yield None
+            return
+        sock = socket(AF_INET, SOCK_STREAM)
+        try:
+            sock.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
+            sock.bind(("127.0.0.1", 0))
+            local_port = sock.getsockname()[1]
+        finally:
+            sock.close()
+        sp = Proxy(raw, host="127.0.0.1", port=local_port)
+        with sp:
+            local_url = sp.url()
+            yield {"server": local_url}
+
+    @staticmethod
+    def _chromium_launch_kwargs(
+        headless: bool, proxy: Optional[Dict[str, str]] = None
+    ) -> Dict[str, Any]:
         """
         组装 chromium.launch 参数（含全局代理）
 
         :param headless: 是否无头模式
+        :param proxy: 已解析的 Playwright proxy 字典；为 None 时不设置
         :return: 传给 launch 的关键字参数
         """
         kwargs: Dict[str, Any] = {
             "headless": headless,
             "args": HDHivePlaywrightClient._chromium_launch_args(),
         }
-        proxy = HDHivePlaywrightClient._playwright_proxy_settings()
         if proxy:
             kwargs["proxy"] = proxy
         return kwargs
@@ -150,17 +191,19 @@ class HDHivePlaywrightClient:
     @staticmethod
     def _make_context(
         pw: Playwright,
-        headless: bool = True,
+        headless: bool,
+        proxy: Optional[Dict[str, str]] = None,
     ) -> tuple[Browser, BrowserContext]:
         """
-        启动浏览器并创建带语言、时区与视口的上下文
+        启动 Chromium 并创建登录页用上下文（语言、时区、视口）
 
         :param pw: sync_playwright() 返回的 Playwright 实例
         :param headless: 是否无头模式
+        :param proxy: 已解析的 Playwright proxy 字典
         :return: (browser, context)
         """
         browser = pw.chromium.launch(
-            **HDHivePlaywrightClient._chromium_launch_kwargs(headless),
+            **HDHivePlaywrightClient._chromium_launch_kwargs(headless, proxy),
         )
         context = browser.new_context(
             user_agent=HDHivePlaywrightClient._build_ua(),
@@ -221,22 +264,36 @@ class HDHivePlaywrightClient:
             domain = root.replace("https://", "").replace("http://", "")
 
             with sync_playwright() as p:
-                browser = p.chromium.launch(
-                    **HDHivePlaywrightClient._chromium_launch_kwargs(
-                        self._headless,
-                    ),
-                )
-                context = browser.new_context(
-                    user_agent=HDHivePlaywrightClient._build_ua(),
-                )
-                for name, value in cookies.items():
-                    context.add_cookies(
-                        [{"name": name, "value": value, "domain": domain, "path": "/"}]
+                with HDHivePlaywrightClient._socks5_slippers_if_needed() as slip:
+                    proxy = (
+                        slip
+                        if slip is not None
+                        else HDHivePlaywrightClient._playwright_proxy_settings()
                     )
-                page = context.new_page()
-                page.on("response", on_response)
-                page.goto(root, wait_until="networkidle", timeout=30000)
-                browser.close()
+                    kwargs = HDHivePlaywrightClient._chromium_launch_kwargs(
+                        self._headless, proxy
+                    )
+                    browser = p.chromium.launch(**kwargs)
+                    try:
+                        context = browser.new_context(
+                            user_agent=HDHivePlaywrightClient._build_ua(),
+                        )
+                        for name, value in cookies.items():
+                            context.add_cookies(
+                                [
+                                    {
+                                        "name": name,
+                                        "value": value,
+                                        "domain": domain,
+                                        "path": "/",
+                                    }
+                                ]
+                            )
+                        page = context.new_page()
+                        page.on("response", on_response)
+                        page.goto(root, wait_until="networkidle", timeout=30000)
+                    finally:
+                        browser.close()
         except Exception:
             pass
 
@@ -461,13 +518,21 @@ class HDHivePlaywrightClient:
 
         try:
             with sync_playwright() as p:
-                browser, context = HDHivePlaywrightClient._make_context(
-                    p, self._headless
-                )
-                page = context.new_page()
-                ok = self._fill_and_submit(page, username, password)
-                raw_cookies = context.cookies()
-                browser.close()
+                with HDHivePlaywrightClient._socks5_slippers_if_needed() as slip:
+                    proxy = (
+                        slip
+                        if slip is not None
+                        else HDHivePlaywrightClient._playwright_proxy_settings()
+                    )
+                    browser, context = HDHivePlaywrightClient._make_context(
+                        p, self._headless, proxy
+                    )
+                    try:
+                        page = context.new_page()
+                        ok = self._fill_and_submit(page, username, password)
+                        raw_cookies = context.cookies()
+                    finally:
+                        browser.close()
 
             if not ok:
                 return None
