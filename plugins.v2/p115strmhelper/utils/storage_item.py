@@ -91,13 +91,26 @@ def resolve_directory_via_parent_list(
     else:
         parent_item = chain.get_file_item(storage=storage, path=parent_path)
         if not parent_item:
-            logger.error(
-                "%s 储存「%s」无法解析父目录，跳过文件夹遍历: %s",
+            logger.warning(
+                "%s 储存「%s」无法直接解析父目录，尝试回退遍历解析: %s",
                 log_label,
                 storage,
                 parent_path,
             )
-            return None
+            parent_item = resolve_directory_via_parent_list(
+                chain,
+                storage,
+                parent_path,
+                log_label=log_label,
+            )
+            if not parent_item:
+                logger.error(
+                    "%s 储存「%s」父目录回退遍历失败，跳过文件夹遍历: %s",
+                    log_label,
+                    storage,
+                    parent_path,
+                )
+                return None
 
     try:
         child = find_subdirectory_by_name(chain, parent_item, child_name)
@@ -159,13 +172,26 @@ def resolve_file_via_parent_list(
     else:
         parent_item = chain.get_file_item(storage=storage, path=parent_path)
         if not parent_item:
-            logger.error(
-                "%s 储存「%s」无法解析父目录，跳过单文件整理: %s",
+            logger.warning(
+                "%s 储存「%s」无法直接解析父目录，尝试回退遍历解析: %s",
                 log_label,
                 storage,
                 parent_path,
             )
-            return None
+            parent_item = resolve_directory_via_parent_list(
+                chain,
+                storage,
+                parent_path,
+                log_label=log_label,
+            )
+            if not parent_item:
+                logger.error(
+                    "%s 储存「%s」父目录回退遍历失败，跳过单文件整理: %s",
+                    log_label,
+                    storage,
+                    parent_path,
+                )
+                return None
 
     try:
         child = find_file_by_name(chain, parent_item, child_name)
