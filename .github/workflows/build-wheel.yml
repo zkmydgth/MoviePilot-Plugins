@@ -152,7 +152,7 @@ jobs:
 
       # 步骤5：使用 cibuildwheel 构建 wheel 文件
       - name: 构建 Wheel
-        uses: pypa/cibuildwheel@v2.19.1
+        uses: pypa/cibuildwheel@v3.1.4
         env:
           CIBW_BUILD: ${{ steps.vars.outputs.cibw_build_version }}
           CIBW_OUTPUT_DIR: wheels
@@ -232,7 +232,7 @@ jobs:
           mkdir -p ${{ steps.set_path.outputs.path }}
 
       - name: 下载所有 Wheels 产物
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           path: temp-wheels
 
