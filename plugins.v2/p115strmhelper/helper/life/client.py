@@ -970,6 +970,9 @@ class MonitorLife:
 
         :param event: 事件对象
         """
+        if not configer.monitor_life_enabled or not configer.monitor_life_paths:
+            return
+
         if "rename" not in configer.monitor_life_event_modes:
             return
 
