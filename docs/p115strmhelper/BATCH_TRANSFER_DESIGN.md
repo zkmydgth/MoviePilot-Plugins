@@ -136,6 +136,7 @@ MoviePilot 的原始整理逻辑是**单文件逐个处理**：
 **拦截条件**：
 - 源存储 = 目标存储 = `115网盘Plus`
 - 文件类型 = `file`（目录/蓝光原盘回退到原方法）
+- **字幕/音频文件**：直接忽略（标记为完成但不加入队列），因为会跟随主文件一起处理
 
 ### 职责划分
 
@@ -280,6 +281,7 @@ class TransferTask:
    │   ├─ 批量检查文件存在性
    │   ├─ 处理覆盖模式（always/size/latest/never）
    │   ├─ 批量删除已存在文件（如需要）
+   │   ├─ 批量删除版本文件（latest 模式，目标文件不存在时，循环外批量处理）
    │   ├─ 批量移动/复制
    │   └─ 失败 → 受影响任务标记失败，继续
    │
@@ -289,13 +291,17 @@ class TransferTask:
    ├─ _record_history()              # 记录历史
    │   ├─ 成功任务：add_success()
    │   │   ├─ finish_task()
-   │   │   ├─ 发送 TransferComplete 事件
+   │   │   ├─ 发送 TransferComplete 事件（包含 transfer_history_id）
+   │   │   ├─ 关联文件发送 SubtitleTransferComplete/AudioTransferComplete 事件（包含 transfer_history_id）
    │   │   ├─ 登记到 _success_target_files
-   │   │   ├─ 关联文件独立写历史（新增）
+   │   │   ├─ 关联文件独立写历史（每个文件一条，包含 transfer_history_id）
    │   │   └─ is_finished() → 发送通知/刮削
    │   │
    │   └─ 失败任务：add_fail()
    │       ├─ fail_task()
+   │       ├─ 发送 TransferFailed 事件（包含 transfer_history_id）
+   │       ├─ 关联文件发送 SubtitleTransferFailed/AudioTransferFailed 事件（包含 transfer_history_id）
+   │       ├─ 关联文件独立写失败历史（每个文件一条，包含 transfer_history_id）
    │       └─ 发送失败通知
    │
    ├─ _batch_delete_empty_dirs()     # 删除空目录（仅 move 模式）
@@ -323,8 +329,8 @@ class TransferTask:
 └─ 阻止后续步骤（remaining_tasks 清空）
 
 批量操作失败：
-├─ 回退到逐个处理（如批量移动失败）
-└─ 逐个失败的任务单独标记
+├─ 不再回退到逐个处理（避免 API 风控）
+└─ 批量失败的任务统一标记为失败
 ```
 
 ---
@@ -354,10 +360,11 @@ class TransferTask:
 
 **文件移动/复制**：
 - 按目标目录分组
-- 批量检查文件存在性
+- 批量检查文件存在性（每个目录只列出一次）
 - 批量删除已存在文件（如需要）
+- 批量删除版本文件（latest 模式，循环外批量处理，按目录分组）
 - 批量移动/复制
-- 失败时回退到逐个处理
+- 失败时不回退到逐个处理（避免 API 风控）
 
 **文件重命名**：
 - 收集所有需要重命名的文件
@@ -376,7 +383,10 @@ class TransferTask:
 - 批量检查目标文件是否存在
 - 根据 `overwrite_mode` 决定是否覆盖
 - 附加文件（字幕/音轨）强制覆盖
-- `latest` 模式：删除目录下同季集的其他版本文件
+- `latest` 模式：
+  - 目标文件已存在：收集到批量删除列表，循环外统一删除
+  - 目标文件不存在：收集到 `version_delete_tasks`，循环外调用 `_batch_delete_version_files()` 批量处理
+  - 按目录分组，每个目录只执行一次 `list_files`，收集所有目标文件的季集信息后批量删除
 
 ### 4. 关联文件处理
 
@@ -392,9 +402,10 @@ class TransferTask:
 - 默认字幕：添加 `.default` 前缀
 
 **历史记录**：
-- 主视频：正常记录历史
-- 关联文件：**独立写入历史记录**（每个文件一条）
+- 主视频：正常记录历史（包含 `transfer_history_id`）
+- 关联文件：**独立写入历史记录**（每个文件一条，包含 `transfer_history_id`）
 - 关联文件历史：`need_notify=False`, `need_scrape=False`（不触发通知/刮削）
+- **失败时**：主文件和关联文件都会独立记录失败历史（与 MoviePilot 逻辑一致）
 
 ### 5. 空目录删除
 
@@ -542,10 +553,14 @@ if self.jobview.is_done(task):
 - `TransferFailed` 事件：仅主媒体文件触发
 
 **插件实现**：
-- 主视频文件：正常触发所有事件
-- 关联文件（字幕/音轨）：不触发事件，仅写入历史
+- 主视频文件：发送 `TransferComplete` / `TransferFailed` 事件（包含 `transfer_history_id`）
+- 关联文件（字幕/音轨）：
+  - 成功时：发送 `SubtitleTransferComplete` / `AudioTransferComplete` 事件（包含 `transfer_history_id`）
+  - 失败时：发送 `SubtitleTransferFailed` / `AudioTransferFailed` 事件（包含 `transfer_history_id`）
+  - 关联文件事件：`need_notify=False`, `need_scrape=False`（不触发通知/刮削）
+- 刮削事件：仅主媒体文件触发 `MetadataScrape` 事件
 
-**状态**：已对齐
+**状态**：已对齐（与 MoviePilot 最新实现一致，每个文件类型都发送对应事件）
 
 ---
 
@@ -556,11 +571,11 @@ if self.jobview.is_done(task):
 - 每个文件独立写入历史记录
 
 **插件实现**：
-- 使用 `_record_related_files_success_history()` 方法
-- 为每个关联文件独立写入历史记录
+- 成功时：使用 `_record_related_files_success_history()` 方法，为每个关联文件独立写入历史记录（包含 `transfer_history_id`）
+- 失败时：在 `_record_fail()` 中为每个关联文件独立调用 `add_fail()` 记录失败历史（包含 `transfer_history_id`）
 - `need_notify=False`, `need_scrape=False`（不触发通知/刮削）
 
-**状态**：已对齐
+**状态**：已对齐（与 MoviePilot 最新实现一致，成功和失败都独立记录）
 
 ---
 
@@ -629,9 +644,11 @@ if self.jobview.is_done(task):
 ### 4. 关联文件历史
 
 **实现**：
-- 主视频：正常记录（触发通知/刮削）
-- 关联文件：独立记录（不触发通知/刮削）
-- 使用 `_record_related_files_success_history()` 方法
+- 主视频：正常记录（触发通知/刮削，包含 `transfer_history_id`）
+- 关联文件成功：独立记录（不触发通知/刮削，包含 `transfer_history_id`）
+- 关联文件失败：独立记录失败历史（与 MoviePilot 逻辑一致，包含 `transfer_history_id`）
+- 使用 `_record_related_files_success_history()` 方法（成功时）
+- 失败时在 `_record_fail()` 中为每个关联文件独立调用 `add_fail()`
 
 ### 5. 115→115 特殊处理
 
@@ -746,9 +763,9 @@ plugins.v2/p115strmhelper/
    - 当前：每个目标目录批量列出文件
    - 优化：可以缓存结果，减少重复 API 调用
 
-2. **批量操作回退策略**：
-   - 当前：批量失败时回退到逐个处理
-   - 优化：可以更智能地识别部分失败场景
+2. **批量操作失败处理**：
+   - 当前：批量失败时不再回退到逐个处理（避免 API 风控）
+   - 已优化：所有批量操作失败时统一标记为失败，不进行逐个重试
 
 ### 功能完善
 
@@ -780,4 +797,4 @@ plugins.v2/p115strmhelper/
 
 ---
 
-*最后更新：2026-01-21*
+*最后更新：2026-01-27*
