@@ -27,6 +27,8 @@
 
 ## 感谢
 
+- [p115client](https://github.com/ChenyangGao/p115client)
+- [p123client](https://github.com/ChenyangGao/p123client)
 - [MediaWarp](https://github.com/Akimio521/MediaWarp)
 
 <a href="https://github.com/DDS-Derek/MoviePilot-Plugins/graphs/contributors"><img src="https://contrib.rocks/image?repo=DDS-Derek/MoviePilot-Plugins"></a>
