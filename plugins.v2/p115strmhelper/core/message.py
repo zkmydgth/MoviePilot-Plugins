@@ -2,20 +2,13 @@ import random
 from typing import Optional
 from base64 import b64decode
 
-from app.chain import ChainBase
+
 from app.core.config import settings
 from app.schemas import Notification, NotificationType, MessageChannel
 
 from ..core.config import configer
 from ..core.i18n import i18n
-
-
-class PluginChian(ChainBase):
-    """
-    插件处理链
-    """
-
-    pass
+from ..core.plunins import PluginChian
 
 
 def post_message(
