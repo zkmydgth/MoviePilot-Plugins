@@ -83,6 +83,7 @@ async def run_tool(api: Any, name: str, arguments: Dict[str, Any]) -> str:
 
 - Module: brief description at top of file (one line or short paragraph).
 - Class/function/method: docstring for purpose; required for public API.
+- **Multi-line docstrings**: Use **multi-line** docstrings for functions, classes, and methods (opening `"""` on its own line, description on the next line(s), closing `"""` on its own line). Do not use single-line `"""..."""`.
 - Format: this repo uses **Chinese** + **reStructuredText** style (`:param`, `:return`, `:raises`).
 
 ```python
