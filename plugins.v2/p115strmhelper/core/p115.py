@@ -9,23 +9,14 @@ __all__ = [
 
 
 from asyncio import sleep as async_sleep
-from collections.abc import AsyncIterator, Container, Coroutine, Iterator
+from collections.abc import AsyncIterator, Container, Coroutine, Iterator, Callable
 from dataclasses import dataclass
 from functools import partial
 from itertools import cycle
 from os import PathLike
 from pathlib import Path
 from time import time, sleep
-from typing import (
-    Literal,
-    List,
-    Tuple,
-    Dict,
-    Any,
-    Set,
-    Optional,
-    Callable,
-)
+from typing import Literal, List, Tuple, Dict, Any, Set, Optional
 from concurrent.futures import ThreadPoolExecutor, Future, as_completed
 
 from iterutils import Yield, run_gen_step_iter
