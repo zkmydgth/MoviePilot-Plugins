@@ -26,7 +26,7 @@ pub struct FileInput {
     pub sha1: Option<String>,
 }
 
-#[pyclass(get_all, frozen)]
+#[pyclass(get_all, frozen, from_py_object)]
 #[derive(Clone, Debug)]
 pub struct StrmInfo {
     pub pickcode: String,
@@ -34,7 +34,7 @@ pub struct StrmInfo {
     pub path_in_pan: String,
 }
 
-#[pyclass(get_all, frozen)]
+#[pyclass(get_all, frozen, from_py_object)]
 #[derive(Clone, Debug)]
 pub struct DownloadInfo {
     pub pickcode: String,
@@ -42,14 +42,14 @@ pub struct DownloadInfo {
     pub path_in_pan: String,
 }
 
-#[pyclass(get_all, frozen)]
+#[pyclass(get_all, frozen, from_py_object)]
 #[derive(Clone, Debug)]
 pub struct SkipInfo {
     pub path_in_pan: String,
     pub reason: String,
 }
 
-#[pyclass(get_all, frozen)]
+#[pyclass(get_all, frozen, from_py_object)]
 #[derive(Clone, Debug)]
 pub struct FailInfo {
     pub path_in_pan: String,

@@ -27,16 +27,14 @@ impl PyProcessor {
         Ok(PyProcessor { processor })
     }
 
-    fn process_batch(&self, py: Python, batch_json: String) -> PyResult<PackedResult> {
-        py.allow_threads(|| {
-            let batch: Vec<FileInput> = serde_json::from_str(&batch_json).map_err(|e| {
-                PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
-                    "解析批次 JSON 失败: {}",
-                    e
-                ))
-            })?;
-            Ok(self.processor.process_batch_rust(batch))
-        })
+    fn process_batch(&self, _py: Python, batch_json: String) -> PyResult<PackedResult> {
+        let batch: Vec<FileInput> = serde_json::from_str(&batch_json).map_err(|e| {
+            PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+                "解析批次 JSON 失败: {}",
+                e
+            ))
+        })?;
+        Ok(self.processor.process_batch_rust(batch))
     }
 }
 

@@ -9,7 +9,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 pyo3 = { version = "0.28.0", features = ["extension-module"] }
-rayon = "1.10"
+rayon = "1.12"
 walkdir = "2"
 memchr = "2.7"
 ahash = "0.8"
