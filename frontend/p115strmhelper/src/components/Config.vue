@@ -27,18 +27,12 @@
                   <v-switch v-model="config.enabled" label="启用插件" color="success" density="compact"></v-switch>
                 </v-col>
                 <v-col cols="12" md="4">
-                  <v-select 
-                    v-model="config.strm_url_format" 
-                    label="STRM文件URL格式" 
-                    :items="[
-                      { title: 'pickcode', value: 'pickcode' },
-                      { title: 'pickcode + name', value: 'pickname' }
-                    ]" 
+                  <v-select v-model="config.strm_url_format" label="STRM文件URL格式" :items="[
+                    { title: 'pickcode', value: 'pickcode' },
+                    { title: 'pickcode + name', value: 'pickname' }
+                  ]"
                     :hint="config.strm_url_template_enabled ? '已启用自定义模板时优先使用模板，模板渲染失败时将使用此设置作为后备方案' : '选择 STRM 文件的 URL 格式'"
-                    persistent-hint
-                    chips 
-                    closable-chips
-                  ></v-select>
+                    persistent-hint chips closable-chips></v-select>
                 </v-col>
                 <v-col cols="12" md="4">
                   <v-select v-model="config.link_redirect_mode" label="直链获取模式" :items="[
@@ -695,26 +689,24 @@
                     <strong>功能说明：</strong><br>
                     API STRM 生成功能允许第三方开发者通过 HTTP API 调用，批量生成 STRM 文件。<br>
                     详细 API 文档请参考：
-                    <a href="https://github.com/DDSRem-Dev/MoviePilot-Plugins/blob/main/docs/p115strmhelper/API_STRM生成功能文档.md" 
-                       target="_blank" 
-                       rel="noopener noreferrer"
-                       style="color: inherit; text-decoration: underline;">
+                    <a href="https://github.com/DDSRem-Dev/MoviePilot-Plugins/blob/main/docs/p115strmhelper/API_STRM生成功能文档.md"
+                      target="_blank" rel="noopener noreferrer" style="color: inherit; text-decoration: underline;">
                       GitHub 文档链接
                     </a>
                   </v-alert>
 
                   <v-row>
                     <v-col cols="12" md="3">
-                      <v-switch v-model="config.api_strm_scrape_metadata_enabled" label="STRM自动刮削"
-                        color="primary" density="compact"></v-switch>
+                      <v-switch v-model="config.api_strm_scrape_metadata_enabled" label="STRM自动刮削" color="primary"
+                        density="compact"></v-switch>
                     </v-col>
                     <v-col cols="12" md="3">
-                      <v-switch v-model="config.api_strm_media_server_refresh_enabled" label="媒体服务器刷新"
-                        color="warning" density="compact"></v-switch>
+                      <v-switch v-model="config.api_strm_media_server_refresh_enabled" label="媒体服务器刷新" color="warning"
+                        density="compact"></v-switch>
                     </v-col>
                     <v-col cols="12" md="6">
-                      <v-select v-model="config.api_strm_mediaservers" label="媒体服务器" :items="mediaservers"
-                        multiple chips closable-chips density="compact"></v-select>
+                      <v-select v-model="config.api_strm_mediaservers" label="媒体服务器" :items="mediaservers" multiple
+                        chips closable-chips density="compact"></v-select>
                     </v-col>
                   </v-row>
 
@@ -741,8 +733,7 @@
                               append-icon="mdi-folder-network"
                               @click:append="openDirSelector(index, 'remote', 'apiStrm')"></v-text-field>
                           </div>
-                          <v-btn icon size="small" color="error" class="ml-2"
-                            @click="removePath(index, 'apiStrm')">
+                          <v-btn icon size="small" color="error" class="ml-2" @click="removePath(index, 'apiStrm')">
                             <v-icon>mdi-delete</v-icon>
                           </v-btn>
                         </div>
@@ -771,8 +762,7 @@
                           <div class="path-selector flex-grow-1 ml-2">
                             <v-text-field v-model="pair.remote" label="MP映射目录" density="compact"></v-text-field>
                           </div>
-                          <v-btn icon size="small" color="error" class="ml-2"
-                            @click="removePath(index, 'apiStrm-mp')">
+                          <v-btn icon size="small" color="error" class="ml-2" @click="removePath(index, 'apiStrm-mp')">
                             <v-icon>mdi-delete</v-icon>
                           </v-btn>
                         </div>
@@ -1266,14 +1256,10 @@
                   <!-- STRM URL 自定义模板 -->
                   <v-row>
                     <v-col cols="12">
-                      <v-switch
-                        v-model="config.strm_url_template_enabled"
-                        label="启用 STRM URL 自定义模板 (Jinja2)"
-                        color="primary"
-                        density="compact"
+                      <v-switch v-model="config.strm_url_template_enabled" label="启用 STRM URL 自定义模板 (Jinja2)"
+                        color="primary" density="compact"
                         hint="启用后可以使用 Jinja2 模板语法自定义 STRM 文件的 URL 格式。启用后，将优先使用自定义模板；当模板渲染失败时，将回退使用基础设置中的「STRM文件URL格式」和「STRM URL 文件名称编码」作为后备方案。"
-                        persistent-hint
-                      ></v-switch>
+                        persistent-hint></v-switch>
                     </v-col>
                   </v-row>
 
@@ -1281,33 +1267,21 @@
                     <div v-if="config.strm_url_template_enabled">
                       <v-row class="mt-2">
                         <v-col cols="12">
-                          <v-textarea
-                            v-model="config.strm_url_template"
-                            label="STRM URL 基础模板 (Jinja2)"
-                            hint="支持 Jinja2 语法，可用变量和过滤器见下方说明"
-                            persistent-hint
-                            rows="4"
-                            variant="outlined"
+                          <v-textarea v-model="config.strm_url_template" label="STRM URL 基础模板 (Jinja2)"
+                            hint="支持 Jinja2 语法，可用变量和过滤器见下方说明" persistent-hint rows="4" variant="outlined"
                             density="compact"
                             placeholder="{{ base_url }}?apikey={{ apikey }}&pickcode={{ pickcode }}{% if file_name %}&file_name={{ file_name | urlencode }}{% endif %}"
-                            clearable
-                          ></v-textarea>
+                            clearable></v-textarea>
                         </v-col>
                       </v-row>
 
                       <v-row class="mt-2">
                         <v-col cols="12">
-                          <v-textarea
-                            v-model="config.strm_url_template_custom"
-                            label="STRM URL 扩展名特定模板 (Jinja2)"
-                            hint="为特定文件扩展名指定 URL 模板，优先级高于基础模板。格式：ext1,ext2 => template（每行一个）"
-                            persistent-hint
-                            rows="5"
-                            variant="outlined"
-                            density="compact"
+                          <v-textarea v-model="config.strm_url_template_custom" label="STRM URL 扩展名特定模板 (Jinja2)"
+                            hint="为特定文件扩展名指定 URL 模板，优先级高于基础模板。格式：ext1,ext2 => template（每行一个）" persistent-hint rows="5"
+                            variant="outlined" density="compact"
                             placeholder="例如：&#10;mkv,mp4 => {{ base_url }}?apikey={{ apikey }}&pickcode={{ pickcode }}&file_name={{ file_name | urlencode }}&file_path={{ file_path | path_encode }}&#10;iso => {{ base_url }}?apikey={{ apikey }}&pickcode={{ pickcode }}&file_name={{ file_name | urlencode }}"
-                            clearable
-                          ></v-textarea>
+                            clearable></v-textarea>
                         </v-col>
                       </v-row>
 
@@ -1333,8 +1307,11 @@
                         </div>
                         <div class="mt-2">
                           <strong>模板示例：</strong><br>
-                          普通 STRM: <code>{{ base_url }}?apikey={{ apikey }}&pickcode={{ pickcode }}{% if file_name %}&file_name={{ file_name | urlencode }}{% endif %}</code><br>
-                          分享 STRM: <code>{{ base_url }}?apikey={{ apikey }}&share_code={{ share_code }}&receive_code={{ receive_code }}&id={{ file_id }}{% if file_name %}&file_name={{ file_name | urlencode }}{% endif %}</code>
+                          普通 STRM: <code>{{ base_url }}?apikey={{ apikey }}&pickcode={{ pickcode }}{% if file_name %}&file_name={{
+                  file_name | urlencode }}{% endif %}</code><br>
+                          分享 STRM: <code>{{ base_url }}?apikey={{ apikey }}&share_code={{ share_code }}&receive_code={{
+                  receive_code }}&id={{ file_id }}{% if file_name %}&file_name={{ file_name | urlencode }}{% endif
+                  %}</code>
                         </div>
                       </v-alert>
                     </div>
@@ -1349,14 +1326,10 @@
 
                   <v-row class="mt-4">
                     <v-col cols="12">
-                      <v-switch
-                        v-model="config.strm_filename_template_enabled"
-                        label="启用 STRM 文件名自定义模板 (Jinja2)"
-                        color="primary"
-                        density="compact"
+                      <v-switch v-model="config.strm_filename_template_enabled" label="启用 STRM 文件名自定义模板 (Jinja2)"
+                        color="primary" density="compact"
                         hint="启用后可以使用 Jinja2 模板语法自定义 STRM 文件的文件名格式。启用后，将优先使用自定义模板；当模板渲染失败时，将回退使用默认的文件名生成规则（如 movie.strm 或 movie.iso.strm）。"
-                        persistent-hint
-                      ></v-switch>
+                        persistent-hint></v-switch>
                     </v-col>
                   </v-row>
 
@@ -1364,33 +1337,19 @@
                     <div v-if="config.strm_filename_template_enabled">
                       <v-row class="mt-2">
                         <v-col cols="12">
-                          <v-textarea
-                            v-model="config.strm_filename_template"
-                            label="STRM 文件名基础模板 (Jinja2)"
-                            hint="支持 Jinja2 语法，可用变量和过滤器见下方说明"
-                            persistent-hint
-                            rows="3"
-                            variant="outlined"
-                            density="compact"
-                            placeholder="{{ file_stem }}.strm"
-                            clearable
-                          ></v-textarea>
+                          <v-textarea v-model="config.strm_filename_template" label="STRM 文件名基础模板 (Jinja2)"
+                            hint="支持 Jinja2 语法，可用变量和过滤器见下方说明" persistent-hint rows="3" variant="outlined"
+                            density="compact" placeholder="{{ file_stem }}.strm" clearable></v-textarea>
                         </v-col>
                       </v-row>
 
                       <v-row class="mt-2">
                         <v-col cols="12">
-                          <v-textarea
-                            v-model="config.strm_filename_template_custom"
-                            label="STRM 文件名扩展名特定模板 (Jinja2)"
-                            hint="为特定文件扩展名指定文件名模板，优先级高于基础模板。格式：ext1,ext2 => template（每行一个）"
-                            persistent-hint
-                            rows="4"
-                            variant="outlined"
-                            density="compact"
+                          <v-textarea v-model="config.strm_filename_template_custom" label="STRM 文件名扩展名特定模板 (Jinja2)"
+                            hint="为特定文件扩展名指定文件名模板，优先级高于基础模板。格式：ext1,ext2 => template（每行一个）" persistent-hint rows="4"
+                            variant="outlined" density="compact"
                             placeholder="例如：&#10;iso => {{ file_stem }}.iso.strm&#10;mkv,mp4 => {{ file_stem | upper }}.strm"
-                            clearable
-                          ></v-textarea>
+                            clearable></v-textarea>
                         </v-col>
                       </v-row>
 
@@ -1400,7 +1359,6 @@
                           <code>file_name</code> - 完整文件名（包含扩展名）<br>
                           <code>file_stem</code> - 文件名（不含扩展名）<br>
                           <code>file_suffix</code> - 文件扩展名（包含点号，如 .mkv）<br>
-                          <code>file_path</code> - 文件路径<br>
                         </div>
                         <div class="mt-2">
                           <strong>可用过滤器：</strong><br>
@@ -1414,7 +1372,6 @@
                           默认格式: <code>{{ file_stem }}.strm</code><br>
                           ISO 格式: <code>{{ file_stem }}.iso.strm</code><br>
                           大写文件名: <code>{{ file_stem | upper }}.strm</code><br>
-                          带路径信息: <code>{{ file_path | basename }}.strm</code>
                         </div>
                         <div class="mt-2">
                           <strong>注意事项：</strong><br>
@@ -1464,14 +1421,9 @@
 
                   <v-row class="mt-4">
                     <v-col cols="12" md="4">
-                      <v-switch 
-                        v-model="config.strm_url_encode" 
-                        label="STRM URL 文件名称编码" 
-                        color="info" 
-                        density="compact"
+                      <v-switch v-model="config.strm_url_encode" label="STRM URL 文件名称编码" color="info" density="compact"
                         :hint="config.strm_url_template_enabled ? '已启用自定义模板时优先使用模板，模板渲染失败时将使用此设置作为后备方案。在模板中可使用 urlencode 过滤器进行编码。' : '启用后，STRM文件中的URL会对文件名进行编码处理'"
-                        persistent-hint
-                      ></v-switch>
+                        persistent-hint></v-switch>
                     </v-col>
                   </v-row>
 

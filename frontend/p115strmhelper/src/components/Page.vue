@@ -655,16 +655,16 @@
           <v-card-text class="pa-3">
             <v-row>
               <v-col cols="12">
-                <v-select v-model="shareDialog.globalMediaservers" label="刷新媒体服务器" 
-                  hint="应用于所有分享配置的媒体服务器刷新设置" persistent-hint
-                  :items="mediaservers" multiple chips closable-chips variant="outlined" density="compact"></v-select>
+                <v-select v-model="shareDialog.globalMediaservers" label="刷新媒体服务器" hint="应用于所有分享配置的媒体服务器刷新设置"
+                  persistent-hint :items="mediaservers" multiple chips closable-chips variant="outlined"
+                  density="compact"></v-select>
               </v-col>
             </v-row>
             <v-row class="mt-2">
               <v-col cols="12">
-                <v-textarea v-model="shareDialog.globalMpMediaserverPaths" label="MP-媒体库 目录转换" 
-                  hint="格式：媒体库路径#MP路径，多个用换行分隔。应用于所有分享配置" persistent-hint 
-                  variant="outlined" density="compact" rows="3" auto-grow placeholder="例如:&#10;/media#/mp&#10;/nas#/movie"></v-textarea>
+                <v-textarea v-model="shareDialog.globalMpMediaserverPaths" label="MP-媒体库 目录转换"
+                  hint="格式：媒体库路径#MP路径，多个用换行分隔。应用于所有分享配置" persistent-hint variant="outlined" density="compact" rows="3"
+                  auto-grow placeholder="例如:&#10;/media#/mp&#10;/nas#/movie"></v-textarea>
               </v-col>
             </v-row>
           </v-card-text>
@@ -713,9 +713,9 @@
                   </v-list-item-subtitle>
                   <template v-slot:append>
                     <div class="d-flex align-center">
-                      <v-btn icon="mdi-pencil" size="small" variant="text" color="primary" 
+                      <v-btn icon="mdi-pencil" size="small" variant="text" color="primary"
                         @click="editShareConfig(index)" title="编辑"></v-btn>
-                      <v-btn icon="mdi-delete" size="small" variant="text" color="error" 
+                      <v-btn icon="mdi-delete" size="small" variant="text" color="error"
                         @click="removeShareConfig(index)" title="删除"></v-btn>
                     </div>
                   </template>
@@ -779,9 +779,9 @@
 
         <v-row class="mb-2">
           <v-col cols="12" md="6">
-            <v-text-field v-model="shareConfigDialog.sharePath" label="分享路径"
-              hint="分享内容列表中的相对路径，默认为根目录 /" persistent-hint variant="outlined"
-              density="compact" prepend-inner-icon="mdi-folder-network"></v-text-field>
+            <v-text-field v-model="shareConfigDialog.sharePath" label="分享路径" hint="分享内容列表中的相对路径，默认为根目录 /"
+              persistent-hint variant="outlined" density="compact"
+              prepend-inner-icon="mdi-folder-network"></v-text-field>
           </v-col>
           <v-col cols="12" md="6">
             <v-text-field v-model="shareConfigDialog.localPath" label="本地路径" hint="本地生成STRM文件的路径" persistent-hint
@@ -792,9 +792,9 @@
 
         <v-row class="mb-2">
           <v-col cols="12" md="6">
-            <v-text-field v-model="shareConfigDialog.minFileSizeFormatted" label="分享生成最小文件大小" 
-              hint="小于此值不生成STRM(K,M,G)" persistent-hint variant="outlined" density="compact" 
-              placeholder="例如: 100M" clearable prepend-inner-icon="mdi-file-document"></v-text-field>
+            <v-text-field v-model="shareConfigDialog.minFileSizeFormatted" label="分享生成最小文件大小" hint="小于此值不生成STRM(K,M,G)"
+              persistent-hint variant="outlined" density="compact" placeholder="例如: 100M" clearable
+              prepend-inner-icon="mdi-file-document"></v-text-field>
           </v-col>
         </v-row>
 
@@ -818,8 +818,8 @@
           <div v-if="!shareConfigDialog.moviepilotTransfer">
             <v-row class="mb-2">
               <v-col cols="12" md="4" class="d-flex align-center">
-                <v-switch v-model="shareConfigDialog.autoDownloadMediainfo" color="primary"
-                  density="compact" hide-details class="flex-grow-1">
+                <v-switch v-model="shareConfigDialog.autoDownloadMediainfo" color="primary" density="compact"
+                  hide-details class="flex-grow-1">
                   <template v-slot:label>
                     <div class="d-flex align-center">
                       <v-icon icon="mdi-download" size="small" class="mr-2"></v-icon>
@@ -829,8 +829,8 @@
                 </v-switch>
               </v-col>
               <v-col cols="12" md="4" class="d-flex align-center">
-                <v-switch v-model="shareConfigDialog.mediaServerRefresh" color="primary"
-                  density="compact" hide-details class="flex-grow-1">
+                <v-switch v-model="shareConfigDialog.mediaServerRefresh" color="primary" density="compact" hide-details
+                  class="flex-grow-1">
                   <template v-slot:label>
                     <div class="d-flex align-center">
                       <v-icon icon="mdi-refresh" size="small" class="mr-2"></v-icon>
@@ -840,8 +840,8 @@
                 </v-switch>
               </v-col>
               <v-col cols="12" md="4" class="d-flex align-center">
-                <v-switch v-model="shareConfigDialog.scrapeMetadata" color="primary"
-                  density="compact" hide-details class="flex-grow-1">
+                <v-switch v-model="shareConfigDialog.scrapeMetadata" color="primary" density="compact" hide-details
+                  class="flex-grow-1">
                   <template v-slot:label>
                     <div class="d-flex align-center">
                       <v-icon icon="mdi-file-search" size="small" class="mr-2"></v-icon>
@@ -870,7 +870,8 @@
       <v-card-actions class="px-3 py-1">
         <v-btn color="grey" variant="text" @click="closeShareConfigDialog" size="small">取消</v-btn>
         <v-spacer></v-spacer>
-        <v-btn color="primary" variant="text" @click="saveShareConfig" :disabled="!isShareConfigDialogValid" size="small">
+        <v-btn color="primary" variant="text" @click="saveShareConfig" :disabled="!isShareConfigDialogValid"
+          size="small">
           保存
         </v-btn>
       </v-card-actions>
@@ -1415,10 +1416,10 @@ const openShareDialog = () => {
   shareDialog.error = null;
   if (props.initialConfig) {
     // 加载分享配置列表
-    shareDialog.configs = Array.isArray(props.initialConfig.share_strm_config) 
+    shareDialog.configs = Array.isArray(props.initialConfig.share_strm_config)
       ? JSON.parse(JSON.stringify(props.initialConfig.share_strm_config))
       : [];
-    
+
     // 加载全局配置
     shareDialog.globalMediaservers = Array.isArray(props.initialConfig.share_strm_mediaservers)
       ? [...props.initialConfig.share_strm_mediaservers]
@@ -1427,7 +1428,7 @@ const openShareDialog = () => {
   }
 };
 
-const closeShareDialog = () => { 
+const closeShareDialog = () => {
   shareDialog.show = false;
   shareDialog.configs = [];
   shareDialog.error = null;
@@ -1485,7 +1486,7 @@ const saveShareConfig = () => {
     shareConfigDialog.error = '请填写必填项';
     return;
   }
-  
+
   const config = {
     share_link: shareConfigDialog.shareLink || null,
     share_code: shareConfigDialog.shareCode || null,
@@ -1498,13 +1499,13 @@ const saveShareConfig = () => {
     media_server_refresh: shareConfigDialog.moviepilotTransfer ? false : shareConfigDialog.mediaServerRefresh,
     scrape_metadata: shareConfigDialog.moviepilotTransfer ? false : shareConfigDialog.scrapeMetadata,
   };
-  
+
   if (shareConfigDialog.editingIndex >= 0) {
     shareDialog.configs[shareConfigDialog.editingIndex] = config;
   } else {
     shareDialog.configs.push(config);
   }
-  
+
   closeShareConfigDialog();
 };
 
@@ -1625,19 +1626,19 @@ const executeShareSync = async () => {
     if (shareDialog.configs.length === 0) {
       throw new Error('请至少添加一个分享配置');
     }
-    
+
     const pluginId = "P115StrmHelper";
     if (props.initialConfig) {
       // 更新配置
       props.initialConfig.share_strm_config = shareDialog.configs;
-      props.initialConfig.share_strm_mediaservers = shareDialog.globalMediaservers.length > 0 
-        ? [...shareDialog.globalMediaservers] 
+      props.initialConfig.share_strm_mediaservers = shareDialog.globalMediaservers.length > 0
+        ? [...shareDialog.globalMediaservers]
         : null;
       props.initialConfig.share_strm_mp_mediaserver_paths = shareDialog.globalMpMediaserverPaths || null;
-      
+
       await props.api.post(`plugin/${pluginId}/save_config`, props.initialConfig);
     }
-    
+
     const result = await props.api.post(`plugin/${pluginId}/share_sync`);
     if (result && result.code === 0) {
       actionMessage.value = result.msg || '分享同步任务已启动';
