@@ -221,10 +221,13 @@ class Api:
                 time.sleep(2)
 
             try:
-                dir_info = self._client.fs_dir_getid(path.as_posix())
-                if not dir_info:
-                    return {"code": 1, "msg": f"获取目录ID失败: {path}"}
-                cid = int(dir_info["id"])
+                if path.as_posix() == "/":
+                    cid = 0
+                else:
+                    dir_info = self._client.fs_dir_getid(path.as_posix())
+                    if not dir_info:
+                        return {"code": 1, "msg": f"获取目录ID失败: {path}"}
+                    cid = int(dir_info["id"])
 
                 items = []
                 for batch in iter_fs_files(self._client, cid, cooldown=2):

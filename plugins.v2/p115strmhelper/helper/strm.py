@@ -104,7 +104,10 @@ class IncrementSyncStrmHelper:
         迭代目录树
         """
         relative_path = None
-        cid = int(self.client.fs_dir_getid(pan_path)["id"])
+        if pan_path == "/":
+            cid = 0
+        else:
+            cid = int(self.client.fs_dir_getid(pan_path)["id"])
         self.api_count += 2
         cnt = 0
         for item in export_dir_parse_iter(
@@ -811,7 +814,10 @@ class FullSyncStrmHelper:
                 local_tree_task_thread = self.__remove_unless_strm_local(target_dir)
 
             try:
-                parent_id = int(self.client.fs_dir_getid(pan_media_dir)["id"])
+                if pan_media_dir == "/":
+                    parent_id = 0
+                else:
+                    parent_id = int(self.client.fs_dir_getid(pan_media_dir)["id"])
                 logger.info(
                     f"【全量STRM生成】网盘媒体目录 ID 获取成功: {pan_media_dir} {parent_id}"
                 )
