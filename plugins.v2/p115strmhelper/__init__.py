@@ -1,13 +1,22 @@
+import sqlite3
+import subprocess
+import threading
+from datetime import datetime, timedelta
+from threading import Event as ThreadEvent
 from typing import Any, List, Dict, Tuple, Self, cast
 from errno import EIO, ENOENT
 from urllib.parse import quote, unquote, urlsplit
 from pathlib import Path
+
+import pytz
+from apscheduler.schedulers.background import BackgroundScheduler
 from fastapi import Request, Response
 import requests
 from requests.exceptions import HTTPError
 from orjson import dumps, loads
 from cachetools import cached, TTLCache
 from .p115rsacipher import decrypt, encrypt
+from .p115updatedb_query import iter_children, get_path, get_pickcode, id_to_path
 
 from app import schemas
 from app.core.config import settings
@@ -17,6 +26,9 @@ from app.plugins import _PluginBase
 from app.schemas import TransferInfo, FileItem
 from app.schemas.types import EventType
 from app.utils.system import SystemUtils
+
+
+p115strmhelper_lock = threading.Lock()
 
 
 class Url(str):
@@ -67,6 +79,99 @@ class Url(str):
         return self.__dict__.values()
 
 
+class FullSyncStrmHelper:
+    """
+    解析数据库，生成 STRM 文件
+    """
+
+    def __init__(self, dbfile: str):
+        self.dbfile = dbfile
+        self.connection = sqlite3.connect(dbfile)
+        self.path_list = []
+        self.rmt_mediaext = [
+            ".mp4",
+            ".mkv",
+            ".ts",
+            ".iso",
+            ".rmvb",
+            ".avi",
+            ".mov",
+            ".mpeg",
+            ".mpg",
+            ".wmv",
+            ".3gp",
+            ".asf",
+            ".m4v",
+            ".flv",
+            ".m2ts",
+            ".tp",
+            ".f4v",
+        ]
+
+    def get_id_by_path(self, path):
+        """
+        通过文件夹路径获取文件夹 ID
+        """
+        return id_to_path(self.connection, path, False)
+
+    def get_video_file_path(self, parent_id: int):
+        """
+        获取视频文件路径
+        """
+        for attr in iter_children(self.connection, parent_id):
+            if attr["is_dir"] == 1:
+                self.get_video_file_path(attr["id"])
+            else:
+                path = get_path(self.connection, attr["id"])
+                file_parent_id = attr["id"]
+                self.path_list.append([path, file_parent_id])
+        return self.path_list
+
+    def generate_strm_files_db(self, pan_media_dir, target_dir, server_address):
+        """
+        依据数据库生成 STRM 文件
+        """
+        parent_id = self.get_id_by_path(pan_media_dir)
+        if parent_id != 0:
+            removal_path = get_path(self.connection, parent_id)
+        else:
+            removal_path = ""
+        path_list = self.get_video_file_path(parent_id)
+
+        target_dir = target_dir.rstrip("/")
+        server_address = server_address.rstrip("/")
+
+        for file_path, file_parent_id in path_list:
+            file_path = Path(target_dir) / Path(file_path).relative_to(removal_path)
+            file_target_dir = file_path.parent
+            original_file_name = file_path.name
+            file_name = file_path.stem + ".strm"
+            new_file_path = file_target_dir / file_name
+
+            if file_path.suffix not in self.rmt_mediaext:
+                logger.warn(
+                    "跳过网盘路径: %s", str(file_path).replace(str(target_dir), "", 1)
+                )
+                continue
+
+            pickcode = get_pickcode(self.connection, file_parent_id)
+            new_file_path.parent.mkdir(parents=True, exist_ok=True)
+
+            if not pickcode:
+                logger.error(
+                    f"{original_file_name} 不存在 pickcode 值，无法生成 STRM 文件"
+                )
+                continue
+            if not (len(pickcode) == 17 and str(pickcode).isalnum()):
+                logger.error(f"错误的 pickcode 值 {pickcode}，无法生成 STRM 文件")
+                continue
+            strm_url = f"{server_address}/api/v1/plugin/P115StrmHelper/redirect_url?apikey={settings.API_TOKEN}&pickcode={pickcode}"
+
+            with open(new_file_path, "w", encoding="utf-8") as file:
+                file.write(strm_url)
+            logger.info("生成 STRM 文件成功: %s", str(new_file_path))
+
+
 class P115StrmHelper(_PluginBase):
     # 插件名称
     plugin_name = "115网盘STRM助手"
@@ -88,19 +193,58 @@ class P115StrmHelper(_PluginBase):
     auth_level = 1
 
     # 私有属性
+    _scheduler = None
     _enabled = False
+    _once_full_sync_strm = False
     cookies = None
     pan_media_dir = None
     local_media_dir = None
     moviepilot_address = None
+    # 退出事件
+    _event = ThreadEvent()
+
+    def __init__(self):
+        """
+        初始化
+        """
+        super().__init__()
+        # 类名小写
+        class_name = self.__class__.__name__.lower()
+        self.__config_path = settings.PLUGIN_DATA_PATH / class_name
+        self.__db_filename = "file_list.db"
 
     def init_plugin(self, config: dict = None):
+        """
+        初始化插件
+        """
+        Path(self.__config_path).mkdir(parents=True, exist_ok=True)
+
         if config:
             self._enabled = config.get("enabled")
+            self._once_full_sync_strm = config.get("once_full_sync_strm")
             self.cookies = config.get("cookies")
             self.pan_media_dir = config.get("pan_media_dir")
             self.local_media_dir = config.get("local_media_dir")
             self.moviepilot_address = config.get("moviepilot_address")
+            self.__update_config()
+
+        # 停止现有任务
+        self.stop_service()
+
+        if self._once_full_sync_strm:
+            self._scheduler = BackgroundScheduler(timezone=settings.TZ)
+            self._scheduler.add_job(
+                func=self.full_sync_strm_files,
+                trigger="date",
+                run_date=datetime.now(tz=pytz.timezone(settings.TZ))
+                + timedelta(seconds=3),
+                name="115网盘助手立刻全量同步",
+            )
+            self._once_full_sync_strm = False
+            self.__update_config()
+            if self._scheduler.get_jobs():
+                self._scheduler.print_jobs()
+                self._scheduler.start()
 
     def get_state(self) -> bool:
         return self._enabled
@@ -147,6 +291,19 @@ class P115StrmHelper(_PluginBase):
                                     }
                                 ],
                             },
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 6},
+                                "content": [
+                                    {
+                                        "component": "VSwitch",
+                                        "props": {
+                                            "model": "once_full_sync_strm",
+                                            "label": "立刻全量同步",
+                                        },
+                                    }
+                                ],
+                            },
                         ],
                     },
                     {
@@ -165,11 +322,6 @@ class P115StrmHelper(_PluginBase):
                                     }
                                 ],
                             },
-                        ],
-                    },
-                    {
-                        "component": "VRow",
-                        "content": [
                             {
                                 "component": "VCol",
                                 "props": {"cols": 12, "md": 6},
@@ -201,11 +353,6 @@ class P115StrmHelper(_PluginBase):
                                     }
                                 ],
                             },
-                        ],
-                    },
-                    {
-                        "component": "VRow",
-                        "content": [
                             {
                                 "component": "VCol",
                                 "props": {"cols": 12, "md": 6},
@@ -225,6 +372,7 @@ class P115StrmHelper(_PluginBase):
             },
         ], {
             "enable": False,
+            "once_full_sync_strm": False,
             "cookies": "",
             "moviepilot_address": "",
             "pan_media_dir": "",
@@ -233,6 +381,18 @@ class P115StrmHelper(_PluginBase):
 
     def get_page(self) -> List[dict]:
         pass
+
+    def __update_config(self):
+        self.update_config(
+            {
+                "enabled": self._enabled,
+                "once_full_sync_strm": self._once_full_sync_strm,
+                "cookies": self.cookies,
+                "moviepilot_address": self.moviepilot_address,
+                "pan_media_dir": self.pan_media_dir,
+                "local_media_dir": self.local_media_dir,
+            }
+        )
 
     @cached(cache=TTLCache(maxsize=1, ttl=2 * 60))
     def redirect_url(
@@ -309,8 +469,11 @@ class P115StrmHelper(_PluginBase):
         user_agent = request.headers.get("User-Agent") or b""
         logger.debug(f"获取到客户端UA: {user_agent}")
 
-        url = get_downurl(pickcode.lower(), user_agent, app=app)
-        logger.info(f"获取 115 下载地址成功: {url}")
+        try:
+            url = get_downurl(pickcode.lower(), user_agent, app=app)
+            logger.info(f"获取 115 下载地址成功: {url}")
+        except Exception as e:
+            logger.error(f"获取 115 下载地址失败: {e}")
 
         return Response(
             status_code=302,
@@ -417,8 +580,46 @@ class P115StrmHelper(_PluginBase):
 
         # TODO 生成后调用主程序刮削
 
+    def full_sync_strm_files(self):
+        """
+        全量同步
+        """
+        try:
+            result = subprocess.run(
+                [
+                    f"{str(Path(self.__config_path) / 'p115dbhelper')}",
+                    f"--cookies={self.cookies}",
+                    f"--dbfile_path={str(Path(self.__config_path) / self.__db_filename)}",
+                    f"--media_path={self.pan_media_dir}",
+                ],
+                check=True,
+            )
+            logger.info(result.stdout)
+        except subprocess.CalledProcessError as e:
+            logger.error(f"批量拉取网盘文件结构失败: {e}")
+            return
+        except Exception as e:
+            logger.error(f"批量拉取网盘文件结构失败: {e}")
+            return
+
+        strm_helper = FullSyncStrmHelper(
+            str(Path(self.__config_path) / self.__db_filename)
+        )
+        strm_helper.generate_strm_files_db(
+            self.pan_media_dir, self.local_media_dir, self.moviepilot_address
+        )
+
     def stop_service(self):
         """
         退出插件
         """
-        pass
+        try:
+            if self._scheduler:
+                self._scheduler.remove_all_jobs()
+                if self._scheduler.running:
+                    self._event.set()
+                    self._scheduler.shutdown()
+                    self._event.clear()
+                self._scheduler = None
+        except Exception as e:
+            print(str(e))
