@@ -1,7 +1,7 @@
-import threading
-import time
 from itertools import batched
 from pathlib import Path
+from threading import Thread
+from time import sleep
 from typing import List, Dict, Optional, Tuple, Iterator
 
 from p115client import P115Client
@@ -262,7 +262,7 @@ class IncrementSyncStrmHelper:
                     processed.extend(self.databasehelper.process_fs_files_item(item))
                 self.databasehelper.upsert_batch(processed)
             last_path = temp_path
-            time.sleep(2)
+            sleep(2)
 
     def __generate_local_tree(self, target_dir: str):
         """
@@ -290,7 +290,7 @@ class IncrementSyncStrmHelper:
                     f"【增量STRM生成】扫描本地媒体库文件 {_target_dir} 错误: {e}"
                 )
 
-        local_tree_task_thread = threading.Thread(
+        local_tree_task_thread = Thread(
             target=background_task,
             args=(target_dir,),
         )
@@ -305,7 +305,7 @@ class IncrementSyncStrmHelper:
         """
         while thread.is_alive():
             logger.info("【增量STRM生成】扫描本地媒体库运行中...")
-            time.sleep(10)
+            sleep(10)
 
     def __generate_pan_tree(self, pan_media_dir: str, target_dir: str):
         """
@@ -530,6 +530,8 @@ class IncrementSyncStrmHelper:
                 sentry_manager.sentry_hub.capture_exception(e)
                 logger.error(f"【增量STRM生成】增量同步 STRM 文件失败: {e}")
                 return
+
+            sleep(2)
 
         # 下载媒体信息文件
         self.mediainfo_count, self.mediainfo_fail_count, self.mediainfo_fail_dict = (

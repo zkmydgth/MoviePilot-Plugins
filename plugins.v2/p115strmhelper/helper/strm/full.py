@@ -1,10 +1,10 @@
-import time
 from collections import namedtuple
 from concurrent.futures import as_completed, ThreadPoolExecutor
 from itertools import batched
 from pathlib import Path
 from queue import Queue
 from threading import Thread
+from time import perf_counter, sleep
 from typing import List, Dict, Optional, Set, Tuple
 
 from orjson import dumps
@@ -569,7 +569,7 @@ class FullSyncStrmHelper:
                 logger.debug(
                     f"【全量STRM生成】迭代函数 {iter_func}; 参数 {iter_kwargs}"
                 )
-                start_time = time.perf_counter()
+                start_time = perf_counter()
                 seen_folder_ids: Set[str] = set()
                 seen_file_ids: Set[str] = set()
                 for batch in batched(
@@ -581,7 +581,7 @@ class FullSyncStrmHelper:
                         seen_folder_ids,
                         seen_file_ids,
                     )
-                end_time = time.perf_counter()
+                end_time = perf_counter()
                 self.elapsed_time += end_time - start_time
                 self.total_db_write_count += len(seen_file_ids) + len(seen_folder_ids)
             except Exception as e:
@@ -675,7 +675,7 @@ class FullSyncStrmHelper:
                     logger.debug(
                         f"【全量STRM生成】迭代函数 {iter_func}; 参数 {iter_kwargs}"
                     )
-                    start_time = time.perf_counter()
+                    start_time = perf_counter()
                     seen_folder_ids: Set[str] = set()
                     seen_file_ids: Set[str] = set()
                     for batch in batched(
@@ -740,7 +740,7 @@ class FullSyncStrmHelper:
                                 path_list, append=True
                             )
 
-                    end_time = time.perf_counter()
+                    end_time = perf_counter()
                     self.elapsed_time += end_time - start_time
                     self.total_db_write_count += len(seen_file_ids) + len(
                         seen_folder_ids
@@ -756,7 +756,7 @@ class FullSyncStrmHelper:
                 if self.remove_unless_strm:
                     while local_tree_task_thread.is_alive():  # noqa
                         logger.info("【全量STRM生成】扫描本地媒体库运行中...")
-                        time.sleep(10)
+                        sleep(10)
                     if (
                         not self.strm_fail_dict
                         and (
