@@ -110,15 +110,21 @@
             </v-col>
           </v-row>
           <v-row>
-            <v-col cols="12" md="4">
+            <v-col cols="12" md="3">
               <v-switch v-model="config.upload_share_info" label="上传分享链接" color="info"
                 density="compact"></v-switch>
             </v-col>
-            <v-col cols="12" md="4">
+            <v-col cols="12" md="3">
               <v-switch v-model="config.upload_offline_info" label="上传离线下载链接" color="info"
                 density="compact"></v-switch>
             </v-col>
-            <v-col cols="12" md="4">
+            <v-col cols="12" md="3">
+              <v-switch v-model="config.rename_dict_supplement_enabled" label="媒体元数据补充"
+                color="info" density="compact"
+                hint="整理重命名时用 ffprobe 或中心化信息补全模板中未填的分辨率、编码等字段"
+                persistent-hint></v-switch>
+            </v-col>
+            <v-col cols="12" md="3">
               <v-select v-model="config.storage_module" label="存储模块选择" :items="[
                 { title: '115网盘', value: 'u115' },
                 { title: '115网盘Plus', value: '115网盘Plus' }
