@@ -27,21 +27,17 @@ class TransferStrmHelper:
         target_dir: str,
         pan_media_dir: str,
         item_dest_path: Path,
-        basename: str,
         url: str,
     ):
         """
         依据网盘路径生成 STRM 文件
         """
         try:
-            pan_media_dir = str(Path(pan_media_dir))
-            pan_path = Path(item_dest_path).parent
-            pan_path = str(Path(pan_path))
+            pan_path = item_dest_path.parent.as_posix()
             if PathUtils.has_prefix(pan_path, pan_media_dir):
                 pan_path = pan_path[len(pan_media_dir) :].lstrip("/").lstrip("\\")
             file_path = Path(target_dir) / pan_path
-            original_file_path = Path(item_dest_path).name
-            file_name = StrmGenerater.get_strm_filename(Path(original_file_path))
+            file_name = StrmGenerater.get_strm_filename(Path(item_dest_path.name))
             new_file_path = file_path / file_name
             new_file_path.parent.mkdir(parents=True, exist_ok=True)
             with open(new_file_path, "w", encoding="utf-8") as file:
@@ -50,12 +46,12 @@ class TransferStrmHelper:
                 "【监控整理STRM生成】生成 STRM 文件成功: %s", str(new_file_path)
             )
             return True, str(new_file_path)
-        except Exception as e:  # noqa: F841
+        except Exception as e:
             sentry_manager.sentry_hub.capture_exception(e)
             logger.error(
                 "【监控整理STRM生成】生成 %s 文件失败: %s",
-                str(new_file_path),
-                e,  # noqa
+                str(new_file_path),  # noqa
+                e,
             )
             return False, None
 
@@ -84,8 +80,6 @@ class TransferStrmHelper:
         item_dest_path = item_transfer.target_item.path
         # 网盘目的地文件名称
         item_dest_name = item_transfer.target_item.name
-        # 网盘目的地文件名称（不包含后缀）
-        item_dest_basename = item_transfer.target_item.basename
         # 网盘目的地文件 pickcode
         item_dest_pickcode = item_transfer.target_item.pickcode
         # 是否蓝光原盘
@@ -135,7 +129,6 @@ class TransferStrmHelper:
             target_dir=local_media_dir,
             pan_media_dir=pan_media_dir,
             item_dest_path=Path(item_dest_path),
-            basename=item_dest_basename,
             url=strm_url,
         )
         if not status:
