@@ -1,4 +1,4 @@
-name: p115updatedb builder
+name: p115dbhelper builder
 
 on:
     workflow_dispatch:
@@ -23,14 +23,14 @@ jobs:
           run: |
             mkdir rootfs
             docker buildx build --platform linux/${{ matrix.arch }} --file ./package/p115strmhelper/Dockerfile --output type=local,dest=./rootfs .
-            cp ./rootfs/p115updatedb ./p115updatedb-${{ matrix.arch }}
+            cp ./rootfs/p115dbhelper ./p115dbhelper-${{ matrix.arch }}
           shell: pwsh
 
         - name: Upload linux file
           uses: actions/upload-artifact@v4
           with:
-            name: p115updatedb-${{ matrix.arch }}
-            path: p115updatedb-${{ matrix.arch }}
+            name: p115dbhelper-${{ matrix.arch }}
+            path: p115dbhelper-${{ matrix.arch }}
 
   release:
     runs-on: ubuntu-latest
@@ -49,14 +49,14 @@ jobs:
         shell: bash
         run: |
             mkdir ./release
-            mv ./p115updatedb-amd64/p115updatedb-amd64 ./release
-            mv ./p115updatedb-arm64/p115updatedb-arm64 ./release
+            mv ./p115dbhelper-amd64/p115dbhelper-amd64 ./release
+            mv ./p115dbhelper-arm64/p115dbhelper-arm64 ./release
 
       - 
         name: Delete Release
         uses: dev-drprasad/delete-tag-and-release@v1.1
         with:
-          tag_name: p115updatedb
+          tag_name: p115dbhelper
           delete_release: true
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -64,8 +64,8 @@ jobs:
         name: Release
         uses: softprops/action-gh-release@v2
         with:
-            name: p115updatedb
-            tag_name: p115updatedb
+            name: p115dbhelper
+            tag_name: p115dbhelper
             files: |
-                ./release/p115updatedb-amd64
-                ./release/p115updatedb-arm64
+                ./release/p115dbhelper-amd64
+                ./release/p115dbhelper-arm64
