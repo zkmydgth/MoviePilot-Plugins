@@ -221,7 +221,7 @@ class Api:
                 return {"code": 1, "msg": "未配置cookie或客户端初始化失败"}
 
             if time.time() - self.browse_dir_pan_api_last < 2:
-                logger.warn("浏览网盘目录 API 限流，等待 2s 后继续")
+                logger.debug("浏览网盘目录 API 限流，等待 2s 后继续")
                 time.sleep(2)
 
             try:
@@ -241,6 +241,10 @@ class Api:
                 for batch in iter_fs_files(self._client, cid, cooldown=2):
                     for item in batch.get("data", []):
                         if "fid" not in item:
+                            idpathcacher.add_cache(
+                                id=int(item.get("cid")),
+                                directory=f"{path.as_posix().rstrip('/')}/{item.get('n')}",
+                            )
                             items.append(
                                 {
                                     "name": item.get("n"),

@@ -3,7 +3,7 @@ from time import time
 
 from cachetools import TTLCache as MemoryTTLCache
 
-from app.core.cache import Cache, TTLCache
+from app.core.cache import Cache, LRUCache
 
 
 class IdPathCache:
@@ -12,8 +12,14 @@ class IdPathCache:
     """
 
     def __init__(self, maxsize=128):
-        self.id_to_dir = TTLCache(maxsize=maxsize, ttl=3600 * 24 * 365 * 10)
-        self.dir_to_id = TTLCache(maxsize=maxsize, ttl=3600 * 24 * 365 * 10)
+        self.id_to_dir = LRUCache(
+            region="p115strmhelper_id_path_cache_id_to_dir",
+            maxsize=maxsize,
+        )
+        self.dir_to_id = LRUCache(
+            region="p115strmhelper_id_path_cache_dir_to_id",
+            maxsize=maxsize,
+        )
 
     def add_cache(self, id: int, directory: str):
         """
@@ -87,6 +93,7 @@ class R302Cache:
         maxsize (int): 缓存可以容纳的最大条目数
         """
         self._cache = Cache(maxsize=maxsize)
+        self.region = "p115strmhelper_r302_cache"
 
     def set(self, pick_code, ua_code, url, expires_time):
         """
@@ -99,7 +106,10 @@ class R302Cache:
         expires_time (int): 过期时间
         """
         self._cache.set(
-            key=f"{pick_code}○{ua_code}", value=url, ttl=int(expires_time - time())
+            key=f"{pick_code}○{ua_code}",
+            value=url,
+            ttl=int(expires_time - time()),
+            region=self.region,
         )
 
     def get(self, pick_code, ua_code) -> Optional[str]:
@@ -114,7 +124,7 @@ class R302Cache:
         str: 如果URL存在且未过期，则返回该URL
         None: 如果URL不存在或已过期
         """
-        return self._cache.get(f"{pick_code}○{ua_code}")
+        return self._cache.get(key=f"{pick_code}○{ua_code}", region=self.region)
 
     def count_by_pick_code(self, pick_code) -> int:
         """
@@ -127,7 +137,7 @@ class R302Cache:
         int: 匹配的缓存条目数量
         """
         count = 0
-        for key_str in self._cache:
+        for key_str, _ in self._cache.items(region=self.region):
             key = key_str.split("○")
             if key[0] == pick_code:
                 count += 1
@@ -137,7 +147,7 @@ class R302Cache:
         """
         清空所有缓存
         """
-        self._cache.clear()
+        self._cache.clear(region=self.region)
 
 
 idpathcacher = IdPathCache(maxsize=4096)
