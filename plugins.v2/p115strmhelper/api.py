@@ -819,8 +819,8 @@ class Api:
         离线任务列表
         """
         data = await request.json()
-        page = int(data.get("page"))
-        limit = int(data.get("limit"))
+        page = int(data.get("page", 1))
+        limit = int(data.get("limit", 10))
 
         all_tasks = servicer.offlinehelper.get_cached_data()
         total = len(all_tasks)

@@ -239,13 +239,13 @@
                 <v-card-text class="pa-0">
                   <v-list class="bg-transparent pa-0">
                     <!-- 监控MP整理路径 -->
-                    <v-list-item v-if="initialConfig?.transfer_monitor_enabled" class="px-3 py-1 mb-1">
-                      <v-list-item-title class="text-body-2 font-weight-medium">监控MP整理路径</v-list-item-title>
-                      <template v-if="getPathsCount(initialConfig?.transfer_monitor_paths) > 0">
-                        <template v-for="(path, index) in getParsedPaths(initialConfig?.transfer_monitor_paths)"
-                          :key="`transfer-${index}`">
-                          <v-divider v-if="index > 0" class="my-1"></v-divider>
-                          <v-list-item-subtitle class="text-caption pa-0 pt-1">
+                    <v-list-item v-if="initialConfig?.transfer_monitor_enabled" class="px-3 py-2">
+                      <div>
+                        <div class="text-body-2 font-weight-medium mb-1">监控MP整理路径</div>
+                        <template v-if="getPathsCount(initialConfig?.transfer_monitor_paths) > 0">
+                          <template v-for="(path, index) in getParsedPaths(initialConfig?.transfer_monitor_paths)"
+                            :key="`transfer-${index}`">
+                            <v-divider v-if="index > 0" class="my-1"></v-divider>
                             <div class="path-mapping-item pa-2 border rounded-sm"
                               style="background-color: rgba(var(--v-theme-on-surface), 0.02);">
                               <v-row dense align="center">
@@ -271,12 +271,12 @@
                                 </v-col>
                               </v-row>
                             </div>
-                          </v-list-item-subtitle>
+                          </template>
                         </template>
-                      </template>
-                      <template v-else>
-                        <v-list-item-subtitle class="text-caption text-error mt-1">未配置路径</v-list-item-subtitle>
-                      </template>
+                        <template v-else>
+                          <div class="text-caption text-error mt-1">未配置路径</div>
+                        </template>
+                      </div>
                     </v-list-item>
 
                     <v-divider
@@ -284,13 +284,13 @@
                       class="my-0"></v-divider>
 
                     <!-- 全量同步路径 -->
-                    <v-list-item v-if="initialConfig?.timing_full_sync_strm" class="px-3 py-1 mb-1">
-                      <v-list-item-title class="text-body-2 font-weight-medium">全量同步路径</v-list-item-title>
-                      <template v-if="getPathsCount(initialConfig?.full_sync_strm_paths) > 0">
-                        <template v-for="(path, index) in getParsedPaths(initialConfig?.full_sync_strm_paths)"
-                          :key="`fullsync-${index}`">
-                          <v-divider v-if="index > 0" class="my-1"></v-divider>
-                          <v-list-item-subtitle class="text-caption pa-0 pt-1">
+                    <v-list-item v-if="initialConfig?.timing_full_sync_strm" class="px-3 py-2">
+                      <div>
+                        <div class="text-body-2 font-weight-medium mb-1">全量同步路径</div>
+                        <template v-if="getPathsCount(initialConfig?.full_sync_strm_paths) > 0">
+                          <template v-for="(path, index) in getParsedPaths(initialConfig?.full_sync_strm_paths)"
+                            :key="`fullsync-${index}`">
+                            <v-divider v-if="index > 0" class="my-1"></v-divider>
                             <div class="path-mapping-item pa-2 border rounded-sm"
                               style="background-color: rgba(var(--v-theme-on-surface), 0.02);">
                               <v-row dense align="center">
@@ -316,12 +316,12 @@
                                 </v-col>
                               </v-row>
                             </div>
-                          </v-list-item-subtitle>
+                          </template>
                         </template>
-                      </template>
-                      <template v-else>
-                        <v-list-item-subtitle class="text-caption text-error mt-1">未配置路径</v-list-item-subtitle>
-                      </template>
+                        <template v-else>
+                          <div class="text-caption text-error mt-1">未配置路径</div>
+                        </template>
+                      </div>
                     </v-list-item>
 
                     <v-divider
@@ -329,13 +329,13 @@
                       class="my-0"></v-divider>
 
                     <!-- 增量同步路径 -->
-                    <v-list-item v-if="initialConfig?.increment_sync_strm_enabled" class="px-3 py-1 mb-1">
-                      <v-list-item-title class="text-body-2 font-weight-medium">增量同步路径</v-list-item-title>
-                      <template v-if="getPathsCount(initialConfig?.increment_sync_strm_paths) > 0">
-                        <template v-for="(path, index) in getParsedPaths(initialConfig?.increment_sync_strm_paths)"
-                          :key="`fullsync-${index}`">
-                          <v-divider v-if="index > 0" class="my-1"></v-divider>
-                          <v-list-item-subtitle class="text-caption pa-0 pt-1">
+                    <v-list-item v-if="initialConfig?.increment_sync_strm_enabled" class="px-3 py-2">
+                      <div>
+                        <div class="text-body-2 font-weight-medium mb-1">增量同步路径</div>
+                        <template v-if="getPathsCount(initialConfig?.increment_sync_strm_paths) > 0">
+                          <template v-for="(path, index) in getParsedPaths(initialConfig?.increment_sync_strm_paths)"
+                            :key="`incsync-${index}`">
+                            <v-divider v-if="index > 0" class="my-1"></v-divider>
                             <div class="path-mapping-item pa-2 border rounded-sm"
                               style="background-color: rgba(var(--v-theme-on-surface), 0.02);">
                               <v-row dense align="center">
@@ -361,26 +361,26 @@
                                 </v-col>
                               </v-row>
                             </div>
-                          </v-list-item-subtitle>
+                          </template>
                         </template>
-                      </template>
-                      <template v-else>
-                        <v-list-item-subtitle class="text-caption text-error mt-1">未配置路径</v-list-item-subtitle>
-                      </template>
+                        <template v-else>
+                          <div class="text-caption text-error mt-1">未配置路径</div>
+                        </template>
+                      </div>
                     </v-list-item>
 
                     <v-divider
-                      v-if="initialConfig?.timing_full_sync_strm && (initialConfig?.monitor_life_enabled || initialConfig?.pan_transfer_enabled || initialConfig?.directory_upload_enabled)"
+                      v-if="initialConfig?.increment_sync_strm_enabled && (initialConfig?.monitor_life_enabled || initialConfig?.pan_transfer_enabled || initialConfig?.directory_upload_enabled)"
                       class="my-0"></v-divider>
 
                     <!-- 监控115生活事件路径 -->
-                    <v-list-item v-if="initialConfig?.monitor_life_enabled" class="px-3 py-1 mb-1">
-                      <v-list-item-title class="text-body-2 font-weight-medium">监控115生活事件路径</v-list-item-title>
-                      <template v-if="getPathsCount(initialConfig?.monitor_life_paths) > 0">
-                        <template v-for="(path, index) in getParsedPaths(initialConfig?.monitor_life_paths)"
-                          :key="`life-${index}`">
-                          <v-divider v-if="index > 0" class="my-1"></v-divider>
-                          <v-list-item-subtitle class="text-caption pa-0 pt-1">
+                    <v-list-item v-if="initialConfig?.monitor_life_enabled" class="px-3 py-2">
+                      <div>
+                        <div class="text-body-2 font-weight-medium mb-1">监控115生活事件路径</div>
+                        <template v-if="getPathsCount(initialConfig?.monitor_life_paths) > 0">
+                          <template v-for="(path, index) in getParsedPaths(initialConfig?.monitor_life_paths)"
+                            :key="`life-${index}`">
+                            <v-divider v-if="index > 0" class="my-1"></v-divider>
                             <div class="path-mapping-item pa-2 border rounded-sm"
                               style="background-color: rgba(var(--v-theme-on-surface), 0.02);">
                               <v-row dense align="center">
@@ -406,12 +406,12 @@
                                 </v-col>
                               </v-row>
                             </div>
-                          </v-list-item-subtitle>
+                          </template>
                         </template>
-                      </template>
-                      <template v-else>
-                        <v-list-item-subtitle class="text-caption text-error mt-1">未配置路径</v-list-item-subtitle>
-                      </template>
+                        <template v-else>
+                          <div class="text-caption text-error mt-1">未配置路径</div>
+                        </template>
+                      </div>
                     </v-list-item>
 
                     <v-divider
@@ -419,14 +419,14 @@
                       class="my-0"></v-divider>
 
                     <!-- 网盘整理目录 -->
-                    <v-list-item v-if="initialConfig?.pan_transfer_enabled" class="px-3 py-1">
-                      <v-list-item-title class="text-body-2 font-weight-medium">网盘整理目录</v-list-item-title>
-                      <template v-if="getPanTransferPathsCount(initialConfig?.pan_transfer_paths) > 0">
-                        <template
-                          v-for="(pathItem, index) in getParsedPanTransferPaths(initialConfig?.pan_transfer_paths)"
-                          :key="`pan-${index}`">
-                          <v-divider v-if="index > 0" class="my-1"></v-divider>
-                          <v-list-item-subtitle class="text-caption pa-0 pt-1">
+                    <v-list-item v-if="initialConfig?.pan_transfer_enabled" class="px-3 py-2">
+                      <div>
+                        <div class="text-body-2 font-weight-medium mb-1">网盘整理目录</div>
+                        <template v-if="getPanTransferPathsCount(initialConfig?.pan_transfer_paths) > 0">
+                          <template
+                            v-for="(pathItem, index) in getParsedPanTransferPaths(initialConfig?.pan_transfer_paths)"
+                            :key="`pan-${index}`">
+                            <v-divider v-if="index > 0" class="my-1"></v-divider>
                             <div class="path-item pa-2 border rounded-sm"
                               style="background-color: rgba(var(--v-theme-on-surface), 0.02);">
                               <div class="d-flex align-center">
@@ -439,26 +439,26 @@
                                 </div>
                               </div>
                             </div>
-                          </v-list-item-subtitle>
+                          </template>
                         </template>
-                      </template>
-                      <template v-else>
-                        <v-list-item-subtitle class="text-caption text-error mt-1">未配置网盘整理目录</v-list-item-subtitle>
-                      </template>
+                        <template v-else>
+                          <div class="text-caption text-error mt-1">未配置网盘整理目录</div>
+                        </template>
+                      </div>
                     </v-list-item>
 
                     <v-divider v-if="initialConfig?.pan_transfer_enabled && initialConfig?.directory_upload_enabled"
                       class="my-0"></v-divider>
 
                     <!-- Directory Upload Paths Display -->
-                    <v-list-item v-if="initialConfig?.directory_upload_enabled" class="px-3 py-1">
-                      <v-list-item-title class="text-body-2 font-weight-medium">目录上传路径</v-list-item-title>
-                      <template
-                        v-if="initialConfig?.directory_upload_path && initialConfig.directory_upload_path.length > 0">
-                        <template v-for="(pathGroup, groupIndex) in initialConfig.directory_upload_path"
-                          :key="`upload-group-${groupIndex}`">
-                          <v-divider v-if="groupIndex > 0" class="my-1"></v-divider>
-                          <v-list-item-subtitle class="text-caption pa-0 pt-1">
+                    <v-list-item v-if="initialConfig?.directory_upload_enabled" class="px-3 py-2">
+                      <div>
+                        <div class="text-body-2 font-weight-medium mb-1">目录上传路径</div>
+                        <template
+                          v-if="initialConfig?.directory_upload_path && initialConfig.directory_upload_path.length > 0">
+                          <template v-for="(pathGroup, groupIndex) in initialConfig.directory_upload_path"
+                            :key="`upload-group-${groupIndex}`">
+                            <v-divider v-if="groupIndex > 0" class="my-1"></v-divider>
                             <div class="path-group-item pa-2 border rounded-sm"
                               style="background-color: rgba(var(--v-theme-on-surface), 0.02);">
                               <v-row dense align="center">
@@ -516,12 +516,12 @@
                                 </v-row>
                               </div>
                             </div>
-                          </v-list-item-subtitle>
+                          </template>
                         </template>
-                      </template>
-                      <template v-else>
-                        <v-list-item-subtitle class="text-caption text-error mt-1">未配置路径</v-list-item-subtitle>
-                      </template>
+                        <template v-else>
+                          <div class="text-caption text-error mt-1">未配置路径</div>
+                        </template>
+                      </div>
                     </v-list-item>
                   </v-list>
                 </v-card-text>

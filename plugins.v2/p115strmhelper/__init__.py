@@ -793,7 +793,7 @@ class P115StrmHelper(_PluginBase):
     @eventmanager.register(EventType.PluginAction)
     def p115_add_offline(self, event: Event):
         """
-        远程分享转存
+        添加离线下载任务
         """
         if event:
             event_data = event.event_data
@@ -801,7 +801,7 @@ class P115StrmHelper(_PluginBase):
                 return
             args = event_data.get("arg_str")
             if not args:
-                logger.error(f"【分享转存】缺少参数：{event_data}")
+                logger.error(f"【离线下载】缺少参数：{event_data}")
                 self.post_message(
                     channel=event.event_data.get("channel"),
                     title="参数错误！ /ol 链接",
