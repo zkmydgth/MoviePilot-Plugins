@@ -188,6 +188,13 @@ class P115StrmHelper(_PluginBase):
                 "data": {"action": "p115_add_share"},
             },
             {
+                "cmd": "/ol",
+                "event": EventType.PluginAction,
+                "desc": "添加离线下载任务",
+                "category": "",
+                "data": {"action": "p115_add_offline"},
+            },
+            {
                 "cmd": "/p115_strm",
                 "event": EventType.PluginAction,
                 "desc": "全量生成指定网盘目录STRM",
@@ -195,7 +202,7 @@ class P115StrmHelper(_PluginBase):
                 "data": {"action": "p115_strm"},
             },
             {
-                "cmd": "/search",
+                "cmd": "/sh",
                 "event": EventType.PluginAction,
                 "desc": "搜索指定资源",
                 "category": "",
@@ -294,13 +301,35 @@ class P115StrmHelper(_PluginBase):
                 "auth": "bear",
                 "summary": "检查二维码状态",
             },
+            {
+                "path": "/offline_tasks",
+                "endpoint": self.api.offline_tasks_api,
+                "methods": ["POST"],
+                "auth": "bear",
+                "summary": "离线任务列表",
+            },
+            {
+                "path": "/add_offline_task",
+                "endpoint": self.api.add_offline_task_api,
+                "methods": ["POST"],
+                "auth": "bear",
+                "summary": "添加离线下载任务",
+            },
         ]
 
     def get_service(self) -> List[Dict[str, Any]]:
         """
         注册插件公共服务
         """
-        cron_service = []
+        cron_service = [
+            {
+                "id": "P115StrmHelper_offline_status",
+                "name": "监控115网盘离线下载进度",
+                "trigger": CronTrigger.from_crontab("*/2 * * * *"),
+                "func": servicer.offline_status,
+                "kwargs": {},
+            }
+        ]
         if (
             configer.get_config("cron_full_sync_strm")
             and configer.get_config("timing_full_sync_strm")
@@ -640,7 +669,7 @@ class P115StrmHelper(_PluginBase):
                 self.post_message(
                     **context,
                     title="⚠️ 会话已过期",
-                    text="操作已超时。\n请重新发起 `/p115_search` 命令。",
+                    text="操作已超时。\n请重新发起 `/sh` 命令。",
                 )
                 return
 
@@ -761,6 +790,37 @@ class P115StrmHelper(_PluginBase):
         )
         return
 
+    @eventmanager.register(EventType.PluginAction)
+    def p115_add_offline(self, event: Event):
+        """
+        添加离线下载任务
+        """
+        if event:
+            event_data = event.event_data
+            if not event_data or event_data.get("action") != "p115_add_offline":
+                return
+            args = event_data.get("arg_str")
+            if not args:
+                logger.error(f"【离线下载】缺少参数：{event_data}")
+                self.post_message(
+                    channel=event.event_data.get("channel"),
+                    title="参数错误！ /ol 链接",
+                    userid=event.event_data.get("user"),
+                )
+                return
+        if servicer.offlinehelper.add_urls_to_transfer([str(args)]):
+            self.post_message(
+                channel=event.event_data.get("channel"),
+                title="添加离线下载任务成功！",
+                userid=event.event_data.get("user"),
+            )
+        else:
+            self.post_message(
+                channel=event.event_data.get("channel"),
+                title="添加离线下载任务失败！",
+                userid=event.event_data.get("user"),
+            )
+
     @eventmanager.register(EventType.TransferComplete)
     def fix_monitor_life_strm(self, event: Event):
         """
@@ -839,7 +899,7 @@ class P115StrmHelper(_PluginBase):
                     life_path.rename(target_file_path)
                     _databasehelper.update_path_by_id(
                         id=int(fileitem.fileid),
-                        new_path=str(target_path / fileitem.name),
+                        new_path=Path(target_path / fileitem.name).as_posix(),
                     )
                     _databasehelper.update_name_by_id(
                         id=int(fileitem.fileid),
@@ -853,7 +913,7 @@ class P115StrmHelper(_PluginBase):
                     )
                     if refresh:
                         refresh_mediaserver(
-                            file_path=str(target_file_path),
+                            file_path=Path(target_file_path).as_posix(),
                             file_name=str(target_file_path.name),
                         )
                     return

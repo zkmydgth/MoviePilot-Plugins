@@ -239,13 +239,13 @@
                 <v-card-text class="pa-0">
                   <v-list class="bg-transparent pa-0">
                     <!-- 监控MP整理路径 -->
-                    <v-list-item v-if="initialConfig?.transfer_monitor_enabled" class="px-3 py-1 mb-1">
-                      <v-list-item-title class="text-body-2 font-weight-medium">监控MP整理路径</v-list-item-title>
-                      <template v-if="getPathsCount(initialConfig?.transfer_monitor_paths) > 0">
-                        <template v-for="(path, index) in getParsedPaths(initialConfig?.transfer_monitor_paths)"
-                          :key="`transfer-${index}`">
-                          <v-divider v-if="index > 0" class="my-1"></v-divider>
-                          <v-list-item-subtitle class="text-caption pa-0 pt-1">
+                    <v-list-item v-if="initialConfig?.transfer_monitor_enabled" class="px-3 py-2">
+                      <div>
+                        <div class="text-body-2 font-weight-medium mb-1">监控MP整理路径</div>
+                        <template v-if="getPathsCount(initialConfig?.transfer_monitor_paths) > 0">
+                          <template v-for="(path, index) in getParsedPaths(initialConfig?.transfer_monitor_paths)"
+                            :key="`transfer-${index}`">
+                            <v-divider v-if="index > 0" class="my-1"></v-divider>
                             <div class="path-mapping-item pa-2 border rounded-sm"
                               style="background-color: rgba(var(--v-theme-on-surface), 0.02);">
                               <v-row dense align="center">
@@ -271,12 +271,12 @@
                                 </v-col>
                               </v-row>
                             </div>
-                          </v-list-item-subtitle>
+                          </template>
                         </template>
-                      </template>
-                      <template v-else>
-                        <v-list-item-subtitle class="text-caption text-error mt-1">未配置路径</v-list-item-subtitle>
-                      </template>
+                        <template v-else>
+                          <div class="text-caption text-error mt-1">未配置路径</div>
+                        </template>
+                      </div>
                     </v-list-item>
 
                     <v-divider
@@ -284,13 +284,13 @@
                       class="my-0"></v-divider>
 
                     <!-- 全量同步路径 -->
-                    <v-list-item v-if="initialConfig?.timing_full_sync_strm" class="px-3 py-1 mb-1">
-                      <v-list-item-title class="text-body-2 font-weight-medium">全量同步路径</v-list-item-title>
-                      <template v-if="getPathsCount(initialConfig?.full_sync_strm_paths) > 0">
-                        <template v-for="(path, index) in getParsedPaths(initialConfig?.full_sync_strm_paths)"
-                          :key="`fullsync-${index}`">
-                          <v-divider v-if="index > 0" class="my-1"></v-divider>
-                          <v-list-item-subtitle class="text-caption pa-0 pt-1">
+                    <v-list-item v-if="initialConfig?.timing_full_sync_strm" class="px-3 py-2">
+                      <div>
+                        <div class="text-body-2 font-weight-medium mb-1">全量同步路径</div>
+                        <template v-if="getPathsCount(initialConfig?.full_sync_strm_paths) > 0">
+                          <template v-for="(path, index) in getParsedPaths(initialConfig?.full_sync_strm_paths)"
+                            :key="`fullsync-${index}`">
+                            <v-divider v-if="index > 0" class="my-1"></v-divider>
                             <div class="path-mapping-item pa-2 border rounded-sm"
                               style="background-color: rgba(var(--v-theme-on-surface), 0.02);">
                               <v-row dense align="center">
@@ -316,12 +316,12 @@
                                 </v-col>
                               </v-row>
                             </div>
-                          </v-list-item-subtitle>
+                          </template>
                         </template>
-                      </template>
-                      <template v-else>
-                        <v-list-item-subtitle class="text-caption text-error mt-1">未配置路径</v-list-item-subtitle>
-                      </template>
+                        <template v-else>
+                          <div class="text-caption text-error mt-1">未配置路径</div>
+                        </template>
+                      </div>
                     </v-list-item>
 
                     <v-divider
@@ -329,13 +329,13 @@
                       class="my-0"></v-divider>
 
                     <!-- 增量同步路径 -->
-                    <v-list-item v-if="initialConfig?.increment_sync_strm_enabled" class="px-3 py-1 mb-1">
-                      <v-list-item-title class="text-body-2 font-weight-medium">增量同步路径</v-list-item-title>
-                      <template v-if="getPathsCount(initialConfig?.increment_sync_strm_paths) > 0">
-                        <template v-for="(path, index) in getParsedPaths(initialConfig?.increment_sync_strm_paths)"
-                          :key="`fullsync-${index}`">
-                          <v-divider v-if="index > 0" class="my-1"></v-divider>
-                          <v-list-item-subtitle class="text-caption pa-0 pt-1">
+                    <v-list-item v-if="initialConfig?.increment_sync_strm_enabled" class="px-3 py-2">
+                      <div>
+                        <div class="text-body-2 font-weight-medium mb-1">增量同步路径</div>
+                        <template v-if="getPathsCount(initialConfig?.increment_sync_strm_paths) > 0">
+                          <template v-for="(path, index) in getParsedPaths(initialConfig?.increment_sync_strm_paths)"
+                            :key="`incsync-${index}`">
+                            <v-divider v-if="index > 0" class="my-1"></v-divider>
                             <div class="path-mapping-item pa-2 border rounded-sm"
                               style="background-color: rgba(var(--v-theme-on-surface), 0.02);">
                               <v-row dense align="center">
@@ -361,26 +361,26 @@
                                 </v-col>
                               </v-row>
                             </div>
-                          </v-list-item-subtitle>
+                          </template>
                         </template>
-                      </template>
-                      <template v-else>
-                        <v-list-item-subtitle class="text-caption text-error mt-1">未配置路径</v-list-item-subtitle>
-                      </template>
+                        <template v-else>
+                          <div class="text-caption text-error mt-1">未配置路径</div>
+                        </template>
+                      </div>
                     </v-list-item>
 
                     <v-divider
-                      v-if="initialConfig?.timing_full_sync_strm && (initialConfig?.monitor_life_enabled || initialConfig?.pan_transfer_enabled || initialConfig?.directory_upload_enabled)"
+                      v-if="initialConfig?.increment_sync_strm_enabled && (initialConfig?.monitor_life_enabled || initialConfig?.pan_transfer_enabled || initialConfig?.directory_upload_enabled)"
                       class="my-0"></v-divider>
 
                     <!-- 监控115生活事件路径 -->
-                    <v-list-item v-if="initialConfig?.monitor_life_enabled" class="px-3 py-1 mb-1">
-                      <v-list-item-title class="text-body-2 font-weight-medium">监控115生活事件路径</v-list-item-title>
-                      <template v-if="getPathsCount(initialConfig?.monitor_life_paths) > 0">
-                        <template v-for="(path, index) in getParsedPaths(initialConfig?.monitor_life_paths)"
-                          :key="`life-${index}`">
-                          <v-divider v-if="index > 0" class="my-1"></v-divider>
-                          <v-list-item-subtitle class="text-caption pa-0 pt-1">
+                    <v-list-item v-if="initialConfig?.monitor_life_enabled" class="px-3 py-2">
+                      <div>
+                        <div class="text-body-2 font-weight-medium mb-1">监控115生活事件路径</div>
+                        <template v-if="getPathsCount(initialConfig?.monitor_life_paths) > 0">
+                          <template v-for="(path, index) in getParsedPaths(initialConfig?.monitor_life_paths)"
+                            :key="`life-${index}`">
+                            <v-divider v-if="index > 0" class="my-1"></v-divider>
                             <div class="path-mapping-item pa-2 border rounded-sm"
                               style="background-color: rgba(var(--v-theme-on-surface), 0.02);">
                               <v-row dense align="center">
@@ -406,12 +406,12 @@
                                 </v-col>
                               </v-row>
                             </div>
-                          </v-list-item-subtitle>
+                          </template>
                         </template>
-                      </template>
-                      <template v-else>
-                        <v-list-item-subtitle class="text-caption text-error mt-1">未配置路径</v-list-item-subtitle>
-                      </template>
+                        <template v-else>
+                          <div class="text-caption text-error mt-1">未配置路径</div>
+                        </template>
+                      </div>
                     </v-list-item>
 
                     <v-divider
@@ -419,14 +419,14 @@
                       class="my-0"></v-divider>
 
                     <!-- 网盘整理目录 -->
-                    <v-list-item v-if="initialConfig?.pan_transfer_enabled" class="px-3 py-1">
-                      <v-list-item-title class="text-body-2 font-weight-medium">网盘整理目录</v-list-item-title>
-                      <template v-if="getPanTransferPathsCount(initialConfig?.pan_transfer_paths) > 0">
-                        <template
-                          v-for="(pathItem, index) in getParsedPanTransferPaths(initialConfig?.pan_transfer_paths)"
-                          :key="`pan-${index}`">
-                          <v-divider v-if="index > 0" class="my-1"></v-divider>
-                          <v-list-item-subtitle class="text-caption pa-0 pt-1">
+                    <v-list-item v-if="initialConfig?.pan_transfer_enabled" class="px-3 py-2">
+                      <div>
+                        <div class="text-body-2 font-weight-medium mb-1">网盘整理目录</div>
+                        <template v-if="getPanTransferPathsCount(initialConfig?.pan_transfer_paths) > 0">
+                          <template
+                            v-for="(pathItem, index) in getParsedPanTransferPaths(initialConfig?.pan_transfer_paths)"
+                            :key="`pan-${index}`">
+                            <v-divider v-if="index > 0" class="my-1"></v-divider>
                             <div class="path-item pa-2 border rounded-sm"
                               style="background-color: rgba(var(--v-theme-on-surface), 0.02);">
                               <div class="d-flex align-center">
@@ -439,26 +439,26 @@
                                 </div>
                               </div>
                             </div>
-                          </v-list-item-subtitle>
+                          </template>
                         </template>
-                      </template>
-                      <template v-else>
-                        <v-list-item-subtitle class="text-caption text-error mt-1">未配置网盘整理目录</v-list-item-subtitle>
-                      </template>
+                        <template v-else>
+                          <div class="text-caption text-error mt-1">未配置网盘整理目录</div>
+                        </template>
+                      </div>
                     </v-list-item>
 
                     <v-divider v-if="initialConfig?.pan_transfer_enabled && initialConfig?.directory_upload_enabled"
                       class="my-0"></v-divider>
 
                     <!-- Directory Upload Paths Display -->
-                    <v-list-item v-if="initialConfig?.directory_upload_enabled" class="px-3 py-1">
-                      <v-list-item-title class="text-body-2 font-weight-medium">目录上传路径</v-list-item-title>
-                      <template
-                        v-if="initialConfig?.directory_upload_path && initialConfig.directory_upload_path.length > 0">
-                        <template v-for="(pathGroup, groupIndex) in initialConfig.directory_upload_path"
-                          :key="`upload-group-${groupIndex}`">
-                          <v-divider v-if="groupIndex > 0" class="my-1"></v-divider>
-                          <v-list-item-subtitle class="text-caption pa-0 pt-1">
+                    <v-list-item v-if="initialConfig?.directory_upload_enabled" class="px-3 py-2">
+                      <div>
+                        <div class="text-body-2 font-weight-medium mb-1">目录上传路径</div>
+                        <template
+                          v-if="initialConfig?.directory_upload_path && initialConfig.directory_upload_path.length > 0">
+                          <template v-for="(pathGroup, groupIndex) in initialConfig.directory_upload_path"
+                            :key="`upload-group-${groupIndex}`">
+                            <v-divider v-if="groupIndex > 0" class="my-1"></v-divider>
                             <div class="path-group-item pa-2 border rounded-sm"
                               style="background-color: rgba(var(--v-theme-on-surface), 0.02);">
                               <v-row dense align="center">
@@ -516,12 +516,12 @@
                                 </v-row>
                               </div>
                             </div>
-                          </v-list-item-subtitle>
+                          </template>
                         </template>
-                      </template>
-                      <template v-else>
-                        <v-list-item-subtitle class="text-caption text-error mt-1">未配置路径</v-list-item-subtitle>
-                      </template>
+                        <template v-else>
+                          <div class="text-caption text-error mt-1">未配置路径</div>
+                        </template>
+                      </div>
                     </v-list-item>
                   </v-list>
                 </v-card-text>
@@ -589,6 +589,11 @@
             :disabled="!status.enabled || !status.has_client || actionLoading" :loading="shareSyncLoading"
             @click="openShareDialog" variant="text" size="small" class="ml-1">
             分享同步
+          </v-btn>
+          <v-btn color="secondary" prepend-icon="mdi-cloud-download-outline"
+            :disabled="!status.enabled || !status.has_client || actionLoading" @click="openOfflineDownloadDialog"
+            variant="text" size="small" class="ml-1">
+            离线下载
           </v-btn>
           <v-btn color="primary" @click="emit('switch')" prepend-icon="mdi-cog" variant="text" size="small"
             class="ml-1">配置</v-btn>
@@ -671,6 +676,77 @@
     </v-card>
   </v-dialog>
 
+  <!-- 离线下载对话框 -->
+  <v-dialog v-model="offlineDownloadDialog.show" max-width="800" persistent>
+    <v-card>
+      <v-card-title class="text-subtitle-1 d-flex align-center px-3 py-1 bg-primary-lighten-5">
+        <v-icon icon="mdi-cloud-download-outline" class="mr-2" color="primary" size="small" />
+        <span>115离线下载</span>
+        <v-spacer></v-spacer>
+        <v-btn icon="mdi-close" variant="text" size="small" @click="closeOfflineDownloadDialog"></v-btn>
+      </v-card-title>
+
+      <v-card-text class="pa-0">
+        <v-tabs v-model="offlineDownloadDialog.activeTab" bg-color="primary-gradient" grow>
+          <v-tab value="tasks">任务列表</v-tab>
+          <v-tab value="add">添加任务</v-tab>
+        </v-tabs>
+
+        <v-window v-model="offlineDownloadDialog.activeTab">
+          <!-- 任务列表 -->
+          <v-window-item value="tasks">
+            <v-alert v-if="offlineDownloadDialog.error" type="error" density="compact" class="ma-3" variant="tonal">
+              {{ offlineDownloadDialog.error }}
+            </v-alert>
+            <v-data-table-server :headers="offlineDownloadDialog.headers" :items="offlineDownloadDialog.tasks"
+              :items-length="offlineDownloadDialog.totalTasks" :loading="offlineDownloadDialog.loading"
+              :items-per-page="offlineDownloadDialog.itemsPerPage" @update:options="fetchOfflineTasks" density="compact"
+              class="ma-2" no-data-text="没有离线下载任务" loading-text="正在加载任务..." items-per-page-text="每页条目数">
+              <template v-slot:item.progress="{ item }">
+                <div class="d-flex align-center">
+                  <v-progress-linear :model-value="item.percent" :color="getTaskStatusColor(item.status)"
+                    :stream="item.status === 0 || item.status === 3" :striped="item.status === 0 || item.status === 3"
+                    height="8" rounded class="flex-grow-1 mr-3"></v-progress-linear>
+                  <div class="text-no-wrap text-caption font-weight-medium" style="min-width: 40px; text-align: right;">
+                    {{ item.percent }}%
+                  </div>
+                </div>
+              </template>
+              <template v-slot:item.status_text="{ item }">
+                <v-chip :color="getTaskStatusColor(item.status)" size="x-small" variant="tonal">
+                  {{ item.status_text }}
+                </v-chip>
+              </template>
+            </v-data-table-server>
+          </v-window-item>
+
+          <!-- 添加任务 -->
+          <v-window-item value="add">
+            <div class="pa-3">
+              <v-alert v-if="offlineDownloadDialog.addError" type="error" density="compact" class="mb-3"
+                variant="tonal">
+                {{ offlineDownloadDialog.addError }}
+              </v-alert>
+              <v-textarea v-model="offlineDownloadDialog.links" label="下载链接" hint="每行一个链接，支持 http(s)/ftp/magnet/ed2k"
+                persistent-hint variant="outlined" rows="5" clearable></v-textarea>
+              <v-text-field v-model="offlineDownloadDialog.destPath" label="网盘保存路径 (可选)" hint="可选，默认为网盘待整理目录"
+                persistent-hint variant="outlined" density="compact" class="mt-3"
+                append-inner-icon="mdi-folder-network-outline" @click:append-inner="openOfflineDestDirSelector"
+                clearable></v-text-field>
+
+              <div class="d-flex justify-end mt-3">
+                <v-btn color="primary" @click="addOfflineTask" :loading="offlineDownloadDialog.adding"
+                  :disabled="!offlineDownloadDialog.links || offlineDownloadDialog.adding" prepend-icon="mdi-plus">
+                  添加任务
+                </v-btn>
+              </div>
+            </div>
+          </v-window-item>
+        </v-window>
+      </v-card-text>
+    </v-card>
+  </v-dialog>
+
   <!-- 目录选择器对话框 -->
   <v-dialog v-model="dirDialog.show" max-width="800">
     <v-card>
@@ -716,6 +792,12 @@
           </v-list>
         </div>
 
+        <!-- 新增：根目录限制提示 -->
+        <v-alert v-if="dirDialog.currentPath === '/' && !dirDialog.isLocal" type="warning" density="compact"
+          class="mt-2 text-caption" variant="tonal" icon="mdi-alert-circle-outline">
+          115离线下载不支持选择根目录，请选择或进入一个子目录。
+        </v-alert>
+
         <v-alert v-if="dirDialog.error" type="error" density="compact" class="mt-2 text-caption" variant="tonal">
           {{ dirDialog.error }}
         </v-alert>
@@ -723,7 +805,9 @@
 
       <v-card-actions class="px-3 py-1">
         <v-spacer></v-spacer>
-        <v-btn color="primary" @click="confirmDirSelection" :disabled="!dirDialog.currentPath || dirDialog.loading"
+        <!-- 修改：为 '选择当前目录' 按钮添加禁用条件 -->
+        <v-btn color="primary" @click="confirmDirSelection"
+          :disabled="!dirDialog.currentPath || dirDialog.loading || (dirDialog.currentPath === '/' && !dirDialog.isLocal)"
           variant="text" size="small">
           选择当前目录
         </v-btn>
@@ -785,6 +869,27 @@ const storageInfo = reactive({
   remaining: null,
   error: null,
   loading: true
+});
+
+// 离线下载对话框状态
+const offlineDownloadDialog = reactive({
+  show: false,
+  activeTab: 'tasks',
+  loading: false,
+  adding: false,
+  error: null,
+  addError: null,
+  tasks: [],
+  totalTasks: 0,
+  itemsPerPage: 10,
+  headers: [
+    { title: '文件名', key: 'name', align: 'start', sortable: false },
+    { title: '大小', key: 'size_text', align: 'end', sortable: false, cellProps: { class: 'text-no-wrap' }, minWidth: '110px' },
+    { title: '状态', key: 'status_text', align: 'center', sortable: false },
+    { title: '进度', key: 'progress', align: 'start', sortable: false, minWidth: '160px' },
+  ],
+  links: '',
+  destPath: '',
 });
 
 // 辅助函数，用于计算存储百分比
@@ -1283,6 +1388,109 @@ const executeShareSync = async () => {
     console.error('启动分享同步失败:', err);
   } finally {
     shareSyncLoading.value = false;
+  }
+};
+
+// 新增：离线下载功能
+const openOfflineDownloadDialog = () => {
+  offlineDownloadDialog.show = true;
+  offlineDownloadDialog.activeTab = 'tasks';
+  offlineDownloadDialog.error = null;
+  offlineDownloadDialog.addError = null;
+  // `fetchOfflineTasks` 将被 `v-data-table-server` 的 `update:options` 事件自动触发
+};
+
+const closeOfflineDownloadDialog = () => {
+  offlineDownloadDialog.show = false;
+  offlineDownloadDialog.tasks = [];
+  offlineDownloadDialog.totalTasks = 0;
+  offlineDownloadDialog.links = '';
+  offlineDownloadDialog.destPath = '';
+};
+
+const fetchOfflineTasks = async ({ page, itemsPerPage }) => {
+  offlineDownloadDialog.loading = true;
+  offlineDownloadDialog.error = null;
+  try {
+    const pluginId = "P115StrmHelper";
+    const result = await props.api.post(`plugin/${pluginId}/offline_tasks`, {
+      page: page,
+      limit: itemsPerPage
+    });
+    if (result && result.code === 0 && result.data) {
+      offlineDownloadDialog.tasks = result.data.tasks || [];
+      offlineDownloadDialog.totalTasks = result.data.total || 0;
+    } else {
+      throw new Error(result?.msg || '获取离线任务列表失败');
+    }
+  } catch (err) {
+    offlineDownloadDialog.error = `获取任务失败: ${err.message || '未知错误'}`;
+    console.error('获取离线任务失败:', err);
+    offlineDownloadDialog.tasks = [];
+    offlineDownloadDialog.totalTasks = 0;
+  } finally {
+    offlineDownloadDialog.loading = false;
+  }
+};
+
+const addOfflineTask = async () => {
+  if (!offlineDownloadDialog.links.trim()) {
+    offlineDownloadDialog.addError = '下载链接不能为空。';
+    return;
+  }
+  offlineDownloadDialog.adding = true;
+  offlineDownloadDialog.addError = null;
+  try {
+    const pluginId = "P115StrmHelper";
+    const links = offlineDownloadDialog.links.split('\n').map(l => l.trim()).filter(Boolean);
+    const result = await props.api.post(`plugin/${pluginId}/add_offline_task`, {
+      links: links,
+      path: offlineDownloadDialog.destPath || null,
+    });
+    if (result && result.code === 0) {
+      actionMessage.value = result.msg || '离线任务添加成功';
+      actionMessageType.value = 'success';
+      // 清空表单并切换到任务列表
+      offlineDownloadDialog.links = '';
+      offlineDownloadDialog.destPath = '';
+      offlineDownloadDialog.activeTab = 'tasks';
+      // 刷新任务列表
+      fetchOfflineTasks({ page: 1, itemsPerPage: offlineDownloadDialog.itemsPerPage });
+    } else {
+      throw new Error(result?.msg || '添加离线任务失败');
+    }
+  } catch (err) {
+    offlineDownloadDialog.addError = `添加任务失败: ${err.message || '未知错误'}`;
+    console.error('添加离线任务失败:', err);
+  } finally {
+    offlineDownloadDialog.adding = false;
+  }
+};
+
+const openOfflineDestDirSelector = () => {
+  dirDialog.show = true;
+  dirDialog.isLocal = false; // 网盘目录
+  dirDialog.loading = false;
+  dirDialog.error = null;
+  dirDialog.items = [];
+  dirDialog.currentPath = offlineDownloadDialog.destPath || '/';
+
+  // 设置回调
+  dirDialog.callback = (path) => {
+    offlineDownloadDialog.destPath = path;
+  };
+
+  loadDirContent();
+};
+
+const getTaskStatusColor = (status) => {
+  // 0: 进行中, 1: 下载失败, 2: 下载成功, 3: 重试中
+  switch (status) {
+    case 0: return 'info';      // 进行中
+    case 1: return 'error';     // 下载失败
+    case 2: return 'success';   // 下载成功
+    case 3: return 'warning';   // 重试中
+    default: return 'grey';   // 未知或默认状态
   }
 };
 

@@ -13,6 +13,7 @@ from .helper.mediainfo_download import MediaInfoDownloader
 from .helper.life import MonitorLife
 from .helper.strm import FullSyncStrmHelper, ShareStrmHelper, IncrementSyncStrmHelper
 from .helper.monitor import handle_file, FileMonitorHandler
+from .helper.offline import OfflineDownloadHelper
 from .helper.share import ShareTransferHelper
 from .helper.clean import Cleaner
 from .core.config import configer
@@ -38,6 +39,8 @@ class ServiceHelper:
         self.monitor_stop_event = Event()
         self.monitor_life_thread = None
 
+        self.offlinehelper = None
+
         self.scheduler = None
 
         self.service_observer = []
@@ -55,6 +58,9 @@ class ServiceHelper:
                 client=self.client, mediainfodownloader=self.mediainfodownloader
             )
             self.sharetransferhelper = ShareTransferHelper(self.client)
+            self.offlinehelper = OfflineDownloadHelper(
+                client=self.client, monitorlife=self.monitorlife
+            )
             return True
         except Exception as e:
             logger.error(f"服务项初始化失败: {e}")
@@ -343,6 +349,12 @@ class ServiceHelper:
 
         if configer.get_config("clear_recyclebin_enabled"):
             client.clear_recyclebin()
+
+    def offline_status(self):
+        """
+        监控115网盘离线下载进度
+        """
+        self.offlinehelper.pull_status_to_task()
 
     def stop(self):
         """

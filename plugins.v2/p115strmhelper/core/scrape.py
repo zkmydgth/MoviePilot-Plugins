@@ -34,7 +34,7 @@ def media_scrape_metadata(
             fileitem = FileItem(
                 storage="local",
                 type="dir",
-                path=str(dir_path),
+                path=dir_path.as_posix(),
                 name=dir_path.name,
                 basename=dir_path.stem,
                 modify_time=dir_path.stat().st_mtime,
@@ -49,7 +49,7 @@ def media_scrape_metadata(
                 fileitem = FileItem(
                     storage="local",
                     type="file",
-                    path=str(file_path).replace("\\", "/"),
+                    path=file_path.as_posix(),
                     name=file_path.name,
                     basename=file_path.stem,
                     extension=file_path.suffix[1:],
@@ -61,7 +61,7 @@ def media_scrape_metadata(
                 fileitem = FileItem(
                     storage="local",
                     type="dir",
-                    path=str(dir_path),
+                    path=dir_path.as_posix(),
                     name=dir_path.name,
                     basename=dir_path.stem,
                     modify_time=dir_path.stat().st_mtime,
