@@ -4,15 +4,19 @@ __all__ = [
     "iter_share_files_with_path",
     "get_pid_by_path",
     "get_pickcode_by_path",
+    "iter_life_behavior_once",
 ]
 
 
+from asyncio import sleep as async_sleep
+from collections.abc import AsyncIterator, Container, Coroutine, Iterator
 from dataclasses import dataclass
+from functools import partial
 from itertools import cycle
 from os import PathLike
 from pathlib import Path
+from time import time, sleep
 from typing import (
-    Iterator,
     Literal,
     List,
     Tuple,
@@ -21,11 +25,12 @@ from typing import (
     Set,
     Optional,
     Callable,
-    Coroutine,
 )
 from concurrent.futures import ThreadPoolExecutor, Future, as_completed
 
+from iterutils import Yield, run_gen_step_iter
 from p115client import P115Client, check_response
+from p115client.tool.life import IGNORE_BEHAVIOR_TYPES, BEHAVIOR_TYPE_TO_NAME
 from p115client.util import complete_url, posix_escape_name
 from p115client.tool.attr import normalize_attr, get_id
 
@@ -331,3 +336,96 @@ def get_pickcode_by_path(
         return None
     except Exception:
         return None
+
+
+def iter_life_behavior_once(
+    client: str | PathLike | P115Client,
+    from_id: int = 0,
+    from_time: float = 0,
+    type: str = "",
+    ignore_types: None | Container[int] = IGNORE_BEHAVIOR_TYPES,
+    date: str = "",
+    first_batch_size=0,
+    app: str = "ios",
+    cooldown: float = 0,
+    *,
+    async_: Literal[False, True] = False,
+    **request_kwargs,
+) -> AsyncIterator[dict] | Iterator[dict]:
+    """拉取一组 115 生活操作事件
+
+    .. note::
+        当你指定有 ``from_id != 0`` 时，如果 from_time 为 0，则自动重设为 -1
+
+    .. caution::
+        115 并没有收集 复制文件 和 文件改名 的事件，以及第三方上传可能会没有 上传事件 ("upload_image_file" 和 "upload_file")
+
+        也没有从回收站的还原文件或目录的事件，但是只要你还原了，以前相应的删除事件就会消失
+
+    :param client: 115 客户端或 cookies
+    :param from_id: 开始的事件 id （不含）
+    :param from_time: 开始时间（含），若为 0 则从当前时间开始，若 < 0 则从最早开始
+    :param type: 指定拉取的操作事件名称，若不指定则是全部
+    :param ignore_types: 一组要被忽略的操作事件类型代码，仅当 `type` 为空时生效
+    :param date: 日期，格式为 YYYY-MM-DD，若指定则只拉取这一天的数据
+    :param first_batch_size: 首批的拉取数目
+    :param app: 使用某个 app （设备）的接口
+    :param cooldown: 冷却时间，大于 0 时，两次接口调用之间至少间隔这么多秒
+    :param async_: 是否异步
+    :param request_kwargs: 其它请求参数
+
+    :return: 迭代器，产生 115 生活操作事件日志数据字典
+    """
+    if isinstance(client, (str, PathLike)):
+        client = P115Client(client, check_for_relogin=True)
+    life_behavior_detail_cycle = cycle(
+        [
+            partial(client.life_behavior_detail, **request_kwargs),
+            partial(client.life_behavior_detail_app, app=app, **request_kwargs),
+        ]
+    )
+    if first_batch_size <= 0:
+        first_batch_size = 64 if from_time or from_id else 1000
+    if from_id and not from_time:
+        from_time = -1
+
+    def gen_step():
+        payload = {"type": type, "date": date, "limit": first_batch_size, "offset": 0}
+        seen: set[str] = set()
+        seen_add = seen.add
+        ts_last_call = time()
+        resp = yield next(life_behavior_detail_cycle)(payload, async_=async_)
+        events = check_response(resp)["data"]["list"]
+        payload["limit"] = 1000
+        offset = 0
+        while events:
+            for event in events:
+                if (
+                    from_id
+                    and int(event["id"]) <= from_id
+                    or from_time
+                    and "update_time" in event
+                    and int(event["update_time"]) < from_time
+                ):
+                    return
+                event_type = event["type"]
+                fid = event["file_id"]
+                if fid not in seen:
+                    if type or not ignore_types or event_type not in ignore_types:
+                        event["event_name"] = BEHAVIOR_TYPE_TO_NAME.get(event_type, "")
+                        yield Yield(event)
+                    seen_add(fid)
+            offset += len(events)
+            if offset >= int(resp["data"]["count"]):
+                return
+            payload["offset"] = offset
+            if cooldown > 0 and (delta := ts_last_call + cooldown - time()) > 0:
+                if async_:
+                    yield async_sleep(delta)
+                else:
+                    sleep(delta)
+            ts_last_call = time()
+            resp = yield next(life_behavior_detail_cycle)(payload, async_=async_)
+            events = check_response(resp)["data"]["list"]
+
+    return run_gen_step_iter(gen_step, async_)  # noqa

@@ -11,7 +11,7 @@ from ...core.message import post_message
 from ...core.scrape import media_scrape_metadata
 from ...core.cache import idpathcacher, pantransfercacher, lifeeventcacher
 from ...core.i18n import i18n
-from ...core.p115 import get_pid_by_path
+from ...core.p115 import get_pid_by_path, iter_life_behavior_once
 from ...utils.path import PathUtils, PathRemoveUtils
 from ...utils.sentry import sentry_manager
 from ...utils.strm import StrmUrlGetter, StrmGenerater
@@ -30,11 +30,7 @@ from p115client.exception import P115AuthenticationError
 from p115client.tool.attr import get_path, normalize_attr
 from p115client.tool.fs_files import iter_fs_files
 from p115client.tool.iterdir import iter_files_with_path
-from p115client.tool.life import (
-    iter_life_behavior_once,
-    life_show,
-    BEHAVIOR_TYPE_TO_NAME,
-)
+from p115client.tool.life import life_show, BEHAVIOR_TYPE_TO_NAME
 
 from app.schemas import NotificationType, FileItem
 from app.log import logger
@@ -997,7 +993,8 @@ class MonitorLife:
             elif not self.tasks_queue.inq(event):
                 self.tasks_queue.add(event)
                 logger.info(
-                    f"【监控生活事件】{event['id']} {event['file_name']} 加入等待队列"
+                    f"【监控生活事件】{BEHAVIOR_TYPE_TO_NAME.get(event['type'], '未知类型')} "
+                    f"{event['id']} {event['file_name']} 加入等待队列"
                 )
                 continue
             else:
