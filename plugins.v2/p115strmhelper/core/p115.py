@@ -14,6 +14,7 @@ from typing import Iterator, Literal, List, Tuple, Dict, Any, Set, Optional
 from concurrent.futures import ThreadPoolExecutor, Future, as_completed
 
 from p115client import P115Client, check_response
+from p115client.util import posix_escape_name
 from p115client.tool.attr import normalize_attr, get_id
 
 from ..core.cache import idpathcacher
@@ -162,9 +163,9 @@ def iter_share_files_with_path(
             attr["share_code"] = share_code
             attr["receive_code"] = receive_code
             attr = normalize_attr(attr)
-            path = (
-                f"{path_prefix}/{attr['name']}" if path_prefix else f"/{attr['name']}"
-            )
+            name = posix_escape_name(attr["name"], repl=":")
+            attr["name"] = name
+            path = f"{path_prefix}/{name}" if path_prefix else f"/{name}"
             if attr["is_dir"]:
                 subdirs_to_scan.append((int(attr["id"]), path, 0))
             else:
