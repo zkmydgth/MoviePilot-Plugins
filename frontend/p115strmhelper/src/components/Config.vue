@@ -465,7 +465,16 @@ const config = reactive({
   sync_del_p115_library_path: '',
   sync_del_p115_force_delete_files: false,
   sync_del_remove_versions: false,
-  sync_del_mediaservers: []
+  sync_del_mediaservers: [],
+  timeout_enabled: true,
+  timeout_default_connect: 30,
+  timeout_default_pool: 15,
+  timeout_default_read: 60,
+  timeout_default_write: 60,
+  timeout_slow_connect: 30,
+  timeout_slow_pool: 15,
+  timeout_slow_read: 300,
+  timeout_slow_write: 300,
 });
 
 // 消息提示

@@ -14,6 +14,7 @@ from watchfiles import watch, Change
 
 from ..core.aliyunpan import BAligo
 from ..core.config import configer
+from ..core.p115_client import create_client
 from ..core.i18n import i18n
 from ..core.message import post_message
 from ..core.p115 import get_pid_by_path
@@ -98,7 +99,11 @@ class ServiceHelper:
         """
         try:
             # 115 网盘客户端初始化
-            self.client = P115Client(configer.cookies)
+            self.client = create_client(
+                configer.cookies,
+                default_timeout=configer.get_default_timeout(),
+                slow_timeout=configer.get_slow_timeout(),
+            )
 
             # 阿里云盘登入
             aligo_config = configer.get_config("PLUGIN_ALIGO_PATH")

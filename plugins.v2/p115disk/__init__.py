@@ -11,6 +11,7 @@ from app.helper.storage import StorageHelper
 from app.schemas import StorageOperSelectionEventData, FileItem, StorageUsage
 
 from .p115_api import P115Api
+from .p115_client import create_client, build_timeout_config
 
 
 class P115Disk(_PluginBase):
@@ -52,6 +53,15 @@ class P115Disk(_PluginBase):
         """
         初始化插件
         """
+        if not config:
+            return
+
+        _, form_defaults = self.get_form()
+        merged = {**form_defaults, **config}
+        if merged != config:
+            self.update_config(merged)
+        config = merged
+
         if config:
             storage_helper = StorageHelper()
             storages = storage_helper.get_storagies()
@@ -67,7 +77,26 @@ class P115Disk(_PluginBase):
             self._cookie = config.get("cookie")
 
             try:
-                self._client = P115Client(cookies=self._cookie)
+                timeout_kwargs = {}
+                if config.get("timeout_enabled", True):
+                    timeout_kwargs["default_timeout"] = build_timeout_config(
+                        timeout_enabled=True,
+                        connect=config.get("timeout_default_connect", 30),
+                        pool=config.get("timeout_default_pool", 15),
+                        read=config.get("timeout_default_read", 60),
+                        write=config.get("timeout_default_write", 60),
+                    )
+                    timeout_kwargs["slow_timeout"] = build_timeout_config(
+                        timeout_enabled=True,
+                        connect=config.get("timeout_slow_connect", 30),
+                        pool=config.get("timeout_slow_pool", 15),
+                        read=config.get("timeout_slow_read", 300),
+                        write=config.get("timeout_slow_write", 300),
+                    )
+                self._client = create_client(
+                    self._cookie,
+                    **timeout_kwargs,
+                )
                 self._p115_api = P115Api(client=self._client, disk_name=self._disk_name)
             except Exception as e:
                 logger.error(f"115 网盘客户端创建失败: {e}")
@@ -140,6 +169,156 @@ class P115Disk(_PluginBase):
                         "content": [
                             {
                                 "component": "VCol",
+                                "props": {"cols": 12, "md": 3},
+                                "content": [
+                                    {
+                                        "component": "VSwitch",
+                                        "props": {
+                                            "model": "timeout_enabled",
+                                            "label": "启用超时控制",
+                                        },
+                                    }
+                                ],
+                            },
+                        ],
+                    },
+                    {
+                        "component": "VRow",
+                        "props": {"v-if": "timeout_enabled"},
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 6, "md": 3},
+                                "content": [
+                                    {
+                                        "component": "VTextField",
+                                        "props": {
+                                            "model": "timeout_default_connect",
+                                            "label": "普通-连接超时(秒)",
+                                            "hint": "默认30",
+                                            "persistent-hint": True,
+                                        },
+                                    }
+                                ],
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 6, "md": 3},
+                                "content": [
+                                    {
+                                        "component": "VTextField",
+                                        "props": {
+                                            "model": "timeout_default_pool",
+                                            "label": "普通-连接池超时(秒)",
+                                            "hint": "默认15",
+                                            "persistent-hint": True,
+                                        },
+                                    }
+                                ],
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 6, "md": 3},
+                                "content": [
+                                    {
+                                        "component": "VTextField",
+                                        "props": {
+                                            "model": "timeout_default_read",
+                                            "label": "普通-读取超时(秒)",
+                                            "hint": "默认60",
+                                            "persistent-hint": True,
+                                        },
+                                    }
+                                ],
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 6, "md": 3},
+                                "content": [
+                                    {
+                                        "component": "VTextField",
+                                        "props": {
+                                            "model": "timeout_default_write",
+                                            "label": "普通-写入超时(秒)",
+                                            "hint": "默认60",
+                                            "persistent-hint": True,
+                                        },
+                                    }
+                                ],
+                            },
+                        ],
+                    },
+                    {
+                        "component": "VRow",
+                        "props": {"v-if": "timeout_enabled"},
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 6, "md": 3},
+                                "content": [
+                                    {
+                                        "component": "VTextField",
+                                        "props": {
+                                            "model": "timeout_slow_connect",
+                                            "label": "慢操作-连接超时(秒)",
+                                            "hint": "默认30",
+                                            "persistent-hint": True,
+                                        },
+                                    }
+                                ],
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 6, "md": 3},
+                                "content": [
+                                    {
+                                        "component": "VTextField",
+                                        "props": {
+                                            "model": "timeout_slow_pool",
+                                            "label": "慢操作-连接池超时(秒)",
+                                            "hint": "默认15",
+                                            "persistent-hint": True,
+                                        },
+                                    }
+                                ],
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 6, "md": 3},
+                                "content": [
+                                    {
+                                        "component": "VTextField",
+                                        "props": {
+                                            "model": "timeout_slow_read",
+                                            "label": "慢操作-读取超时(秒)",
+                                            "hint": "默认300",
+                                            "persistent-hint": True,
+                                        },
+                                    }
+                                ],
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 6, "md": 3},
+                                "content": [
+                                    {
+                                        "component": "VTextField",
+                                        "props": {
+                                            "model": "timeout_slow_write",
+                                            "label": "慢操作-写入超时(秒)",
+                                            "hint": "默认300",
+                                            "persistent-hint": True,
+                                        },
+                                    }
+                                ],
+                            },
+                        ],
+                    },
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
                                 "props": {"cols": 12},
                                 "content": [
                                     {
@@ -174,6 +353,15 @@ class P115Disk(_PluginBase):
         ], {
             "enabled": False,
             "cookie": "",
+            "timeout_enabled": True,
+            "timeout_default_connect": 30,
+            "timeout_default_pool": 15,
+            "timeout_default_read": 60,
+            "timeout_default_write": 60,
+            "timeout_slow_connect": 30,
+            "timeout_slow_pool": 15,
+            "timeout_slow_read": 300,
+            "timeout_slow_write": 300,
         }
 
     def get_page(self) -> List[dict]:

@@ -529,6 +529,100 @@
                 persistent-hint></v-switch>
             </v-col>
           </v-row>
+
+          <v-divider class="my-6"></v-divider>
+
+          <!-- 请求超时控制 -->
+          <v-row>
+            <v-col cols="12">
+              <v-switch v-model="config.timeout_enabled" label="启用请求超时控制" color="primary" density="compact"
+                hint="启用后将为所有 115 网盘 API 请求添加超时控制，防止网络卡死" persistent-hint></v-switch>
+            </v-col>
+          </v-row>
+
+          <v-expand-transition>
+            <div v-if="config.timeout_enabled">
+              <v-alert type="info" variant="tonal" density="compact" class="mt-2 mb-3" icon="mdi-information">
+                <div class="text-body-2 mb-1"><strong>超时类型说明：</strong></div>
+                <div class="text-caption">
+                  <div class="mb-1">• <strong>连接超时</strong>：建立 TCP 连接的最大等待时间</div>
+                  <div class="mb-1">• <strong>连接池超时</strong>：从连接池获取连接的最大等待时间</div>
+                  <div class="mb-1">• <strong>读取超时</strong>：等待服务器响应数据的最大时间</div>
+                  <div>• <strong>写入超时</strong>：发送请求数据的最大时间</div>
+                </div>
+              </v-alert>
+
+              <v-card variant="outlined" class="mt-3 mb-4">
+                <v-card-title class="text-subtitle-2 d-flex align-center px-3 py-2 bg-grey-lighten-4">
+                  <v-icon icon="mdi-lightning-bolt" class="mr-2" color="primary" size="small" />
+                  <span>普通操作超时</span>
+                </v-card-title>
+                <v-card-text class="pa-3">
+                  <v-row>
+                    <v-col cols="6" md="3">
+                      <v-text-field v-model.number="config.timeout_default_connect" label="连接超时(秒)" type="number"
+                        hint="默认30秒" persistent-hint density="compact" variant="outlined" hide-details="auto"
+                        min="0" step="1"></v-text-field>
+                    </v-col>
+                    <v-col cols="6" md="3">
+                      <v-text-field v-model.number="config.timeout_default_pool" label="连接池超时(秒)" type="number"
+                        hint="默认15秒" persistent-hint density="compact" variant="outlined" hide-details="auto"
+                        min="0" step="1"></v-text-field>
+                    </v-col>
+                    <v-col cols="6" md="3">
+                      <v-text-field v-model.number="config.timeout_default_read" label="读取超时(秒)" type="number"
+                        hint="默认60秒" persistent-hint density="compact" variant="outlined" hide-details="auto"
+                        min="0" step="1"></v-text-field>
+                    </v-col>
+                    <v-col cols="6" md="3">
+                      <v-text-field v-model.number="config.timeout_default_write" label="写入超时(秒)" type="number"
+                        hint="默认60秒" persistent-hint density="compact" variant="outlined" hide-details="auto"
+                        min="0" step="1"></v-text-field>
+                    </v-col>
+                  </v-row>
+                  <v-alert type="info" variant="tonal" density="compact" class="mt-2" icon="mdi-information">
+                    <div class="text-caption">适用于列表、详情、重命名、删除等快速操作。0 表示不限制。</div>
+                  </v-alert>
+                </v-card-text>
+              </v-card>
+
+              <v-card variant="outlined" class="mb-4">
+                <v-card-title class="text-subtitle-2 d-flex align-center px-3 py-2 bg-grey-lighten-4">
+                  <v-icon icon="mdi-turtle" class="mr-2" color="warning" size="small" />
+                  <span>慢操作超时</span>
+                </v-card-title>
+                <v-card-text class="pa-3">
+                  <v-row>
+                    <v-col cols="6" md="3">
+                      <v-text-field v-model.number="config.timeout_slow_connect" label="连接超时(秒)" type="number"
+                        hint="默认30秒" persistent-hint density="compact" variant="outlined" hide-details="auto"
+                        min="0" step="1"></v-text-field>
+                    </v-col>
+                    <v-col cols="6" md="3">
+                      <v-text-field v-model.number="config.timeout_slow_pool" label="连接池超时(秒)" type="number"
+                        hint="默认15秒" persistent-hint density="compact" variant="outlined" hide-details="auto"
+                        min="0" step="1"></v-text-field>
+                    </v-col>
+                    <v-col cols="6" md="3">
+                      <v-text-field v-model.number="config.timeout_slow_read" label="读取超时(秒)" type="number"
+                        hint="默认300秒" persistent-hint density="compact" variant="outlined" hide-details="auto"
+                        min="0" step="1"></v-text-field>
+                    </v-col>
+                    <v-col cols="6" md="3">
+                      <v-text-field v-model.number="config.timeout_slow_write" label="写入超时(秒)" type="number"
+                        hint="默认300秒" persistent-hint density="compact" variant="outlined" hide-details="auto"
+                        min="0" step="1"></v-text-field>
+                    </v-col>
+                  </v-row>
+                  <v-alert type="warning" variant="tonal" density="compact" class="mt-2" icon="mdi-alert">
+                    <div class="text-caption">
+                      适用于下载链接获取、上传初始化、分享列表获取、生活事件拉取等慢操作。0 表示不限制。
+                    </div>
+                  </v-alert>
+                </v-card-text>
+              </v-card>
+            </div>
+          </v-expand-transition>
         </v-card-text>
       </v-window-item>
     </v-window>

@@ -33,6 +33,7 @@ from zstandard import ZstdCompressor, ZstdDecompressor
 from app.log import logger
 
 from ...core.config import configer
+from ...core.p115_client import create_client
 from ...core.cache import OofFastMiCache
 from ...utils.url import Url
 from ...utils.sentry import sentry_manager
@@ -52,7 +53,11 @@ class MediaInfoDownloader:
 
     def __init__(self, cookie: str):
         self.cookie = cookie
-        self.client = P115Client(cookie)
+        self.client = create_client(
+            cookie,
+            default_timeout=configer.get_default_timeout(),
+            slow_timeout=configer.get_slow_timeout(),
+        )
 
         self.oof_fast_mi_cacher = OofFastMiCache(
             configer.PLUGIN_TEMP_PATH / "oof_fast_mi"

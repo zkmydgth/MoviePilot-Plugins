@@ -810,6 +810,32 @@ class ConfigManager(BaseModel):
         default=False, description="媒体库已存在时拦截整理"
     )
 
+    timeout_enabled: bool = Field(default=True, description="启用请求超时控制")
+    timeout_default_connect: Union[int, float] = Field(
+        default=30, ge=0, description="普通操作连接超时（秒），0 表示不限制"
+    )
+    timeout_default_pool: Union[int, float] = Field(
+        default=15, ge=0, description="普通操作连接池超时（秒），0 表示不限制"
+    )
+    timeout_default_read: Union[int, float] = Field(
+        default=60, ge=0, description="普通操作读取超时（秒），0 表示不限制"
+    )
+    timeout_default_write: Union[int, float] = Field(
+        default=60, ge=0, description="普通操作写入超时（秒），0 表示不限制"
+    )
+    timeout_slow_connect: Union[int, float] = Field(
+        default=30, ge=0, description="慢操作连接超时（秒），0 表示不限制"
+    )
+    timeout_slow_pool: Union[int, float] = Field(
+        default=15, ge=0, description="慢操作连接池超时（秒），0 表示不限制"
+    )
+    timeout_slow_read: Union[int, float] = Field(
+        default=300, ge=0, description="慢操作读取超时（秒），0 表示不限制"
+    )
+    timeout_slow_write: Union[int, float] = Field(
+        default=300, ge=0, description="慢操作写入超时（秒），0 表示不限制"
+    )
+
     @field_serializer(
         "PLUGIN_CONFIG_PATH",
         "PLUGIN_DB_PATH",
@@ -969,6 +995,34 @@ class ConfigManager(BaseModel):
             f"({system()} {release()}; "
             f"{SystemUtils.cpu_arch() if hasattr(SystemUtils, 'cpu_arch') and callable(SystemUtils.cpu_arch) else 'UnknownArch'})"
         )
+
+    def get_default_timeout(self) -> Optional[Dict[str, Any]]:
+        if not self.timeout_enabled:
+            return None
+        timeout = {}
+        if self.timeout_default_connect > 0:
+            timeout["connect"] = self.timeout_default_connect
+        if self.timeout_default_pool > 0:
+            timeout["pool"] = self.timeout_default_pool
+        if self.timeout_default_read > 0:
+            timeout["read"] = self.timeout_default_read
+        if self.timeout_default_write > 0:
+            timeout["write"] = self.timeout_default_write
+        return timeout if timeout else None
+
+    def get_slow_timeout(self) -> Optional[Dict[str, Any]]:
+        if not self.timeout_enabled:
+            return None
+        timeout = {}
+        if self.timeout_slow_connect > 0:
+            timeout["connect"] = self.timeout_slow_connect
+        if self.timeout_slow_pool > 0:
+            timeout["pool"] = self.timeout_slow_pool
+        if self.timeout_slow_read > 0:
+            timeout["read"] = self.timeout_slow_read
+        if self.timeout_slow_write > 0:
+            timeout["write"] = self.timeout_slow_write
+        return timeout if timeout else None
 
     def get_ios_ua_app(self, app: bool = True) -> Dict[str, Any]:
         """

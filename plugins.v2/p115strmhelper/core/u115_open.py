@@ -44,6 +44,7 @@ from app.schemas import NotificationType
 from app.utils.string import StringUtils
 
 from ..core.config import configer
+from ..core.p115_client import create_client
 from ..core.i18n import i18n
 from ..core.message import post_message
 from ..core.cache import idpathcacher
@@ -82,7 +83,11 @@ class U115OpenHelper:
 
         self.p115_center = P115Center(configer.get_config("MACHINE_ID"))
         self.databasehelper = FileDbHelper()
-        self.cookie_client = P115Client(configer.cookies)
+        self.cookie_client = create_client(
+            configer.cookies,
+            default_timeout=configer.get_default_timeout(),
+            slow_timeout=configer.get_slow_timeout(),
+        )
 
     def _init_session(self):
         """

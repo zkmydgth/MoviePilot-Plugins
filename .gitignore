@@ -172,3 +172,4 @@ test_pluguns/
 CLAUDE.md
 !/CLAUDE.md
 .claude/
+.sisyphus/

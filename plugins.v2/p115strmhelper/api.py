@@ -19,6 +19,7 @@ from fastapi.responses import JSONResponse
 
 from .service import servicer
 from .core.config import configer
+from .core.p115_client import create_client
 from .schemas.donate import DEFAULT_DONATE_INFO as DONATE_INFO
 from .core.cache import idpathcacher, DirectoryCache, r302cacher
 from .core.aliyunpan import AliyunPanLogin
@@ -617,7 +618,11 @@ class Api:
                     configer.update_config({"cookies": _cookies})
                     configer.update_plugin_config()
                     try:
-                        self._client = P115Client(_cookies)
+                        self._client = create_client(
+                            _cookies,
+                            default_timeout=configer.get_default_timeout(),
+                            slow_timeout=configer.get_slow_timeout(),
+                        )
                         self.get_user_storage_status.cache_clear()
                         return ApiResponse(
                             data=CheckQRCodeData(
