@@ -54,11 +54,23 @@ MessageChannel = NotificationChannel
 
 
 class EventType(Enum):
-    """事件类型。"""
+    """事件类型。
 
-    PluginReload = "插件重载"
-    PluginData = "插件数据"
-    TransferComplete = "整理完成"
+    注意：本桩仅补充插件 P115StrmHelper 在 V3 实际用到的成员，
+    取值对齐真实 MoviePilot V3（英文串）。其余成员维持原占位。
+    """
+
+    PluginReload = "plugin.reload"
+    PluginData = "plugin.data"
+    PluginAction = "plugin.action"
+    TransferComplete = "transfer.complete"
+    TransferFailed = "transfer.failed"
+    SubtitleTransferComplete = "transfer.subtitle.complete"
+    AudioTransferComplete = "transfer.audio.complete"
+    DownloadFileDeleted = "downloadfile.deleted"
+    UserMessage = "user.message"
+    WebhookMessage = "webhook.message"
+    MessageAction = "message.action"
 
 
 class ChainEventType(Enum):
