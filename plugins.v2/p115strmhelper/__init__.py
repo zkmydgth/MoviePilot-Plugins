@@ -15,6 +15,7 @@ from app.schemas.types import EventType, MessageChannel
 from apscheduler.triggers.cron import CronTrigger
 from fastapi import Request
 
+from .version import VERSION
 from .api import Api
 from .service import servicer
 from .core.cache import pantransfercacher, lifeeventcacher
@@ -49,7 +50,7 @@ class P115StrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png"
     # 插件版本
-    plugin_version = "2.0.43"
+    plugin_version = VERSION
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页

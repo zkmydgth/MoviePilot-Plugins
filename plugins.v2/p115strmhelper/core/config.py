@@ -10,6 +10,7 @@ from app.core.config import settings
 from app.utils.system import SystemUtils
 from app.db.systemconfig_oper import SystemConfigOper
 
+from ..version import VERSION
 from ..core.aliyunpan import AliyunPanLogin
 from ..utils.machineid import MachineID
 
@@ -374,7 +375,7 @@ class ConfigManager(BaseModel):
         if utype in user_agents:
             return user_agents[utype]
         return (
-            f"{self.PLUSIN_NAME}/2.0.41 "
+            f"{self.PLUSIN_NAME}/{VERSION} "
             f"({platform.system()} {platform.release()}; "
             f"{SystemUtils.cpu_arch() if hasattr(SystemUtils, 'cpu_arch') and callable(SystemUtils.cpu_arch) else 'UnknownArch'})"
         )

@@ -13,6 +13,7 @@ from sentry_sdk.integrations.dedupe import DedupeIntegration
 from app.log import logger
 from version import APP_VERSION
 
+from ..version import VERSION
 from ..core.config import configer
 
 
@@ -76,7 +77,45 @@ class SentryManager:
     def __init__(self):
         self.sentry_hub = NoopSentryHub()
         self._patched = False
+
+        self._ignored_rules = [
+            {"type": ValueError, "message": "无法找到路径"},
+            {"type": OSError, "message": "File name too long"},
+            {"type": PermissionError, "message": "Permission denied"},
+        ]
+
         self.reload_config()
+
+    def _before_send(self, event, hint):
+        """
+        Sentry atexit hook
+        """
+        if "exc_info" in hint and self._ignored_rules:
+            _, exc_value, _ = hint["exc_info"]
+            error_message = str(exc_value)
+
+            for rule in self._ignored_rules:
+                rule_type = rule.get("type")
+                rule_message = rule.get("message")
+
+                if not isinstance(exc_value, rule_type):
+                    continue
+
+                if rule_message:
+                    if rule_message in error_message:
+                        return None
+                else:
+                    return None
+
+        if "request" in event:
+            headers = event["request"].get("headers", {})
+
+            if "User-Agent" in headers:
+                headers["User-Agent"] += f" P115StrmHelper/{VERSION}"
+
+            event["request"]["headers"] = headers
+
+        return event
 
     def reload_config(self):
         """
@@ -98,7 +137,7 @@ class SentryManager:
                     dsn=base64.b64decode(
                         "aHR0cHM6Ly82YTk0ZjI2N2NjOTY0Y2ZiOTk5ZjQyNDgwNGIyMTE1M0BnbGl0Y2h0aXAuZGRzcmVtLmNvbS80"
                     ).decode("utf-8"),
-                    release="p115strmhelper@v2.0.41",
+                    release=f"p115strmhelper@v{VERSION}",
                     default_integrations=False,
                     integrations=[
                         DedupeIntegration(),
@@ -106,6 +145,7 @@ class SentryManager:
                         ExcepthookIntegration(always_run=True),
                         SqlalchemyIntegration(),
                     ],
+                    before_send=self._before_send,
                 )
             )
 
