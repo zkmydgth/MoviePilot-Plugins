@@ -648,17 +648,21 @@ class FullSyncStrmHelper:
 
                 config_for_rust = {
                     "pan_transfer_enabled": self.pan_transfer_enabled,
-                    "pan_transfer_paths": self.pan_transfer_paths.split('\n') if self.pan_transfer_paths else [],
+                    "pan_transfer_paths": self.pan_transfer_paths.split("\n")
+                    if self.pan_transfer_paths
+                    else [],
                     "auto_download_mediainfo": self.auto_download_mediainfo,
                     "rmt_mediaext_set": list(self.rmt_mediaext_set),
                     "download_mediaext_set": list(self.download_mediaext_set),
                     "strm_generate_blacklist": configer.strm_generate_blacklist or [],
-                    "mediainfo_download_whitelist": configer.mediainfo_download_whitelist or [],
-                    "mediainfo_download_blacklist": configer.mediainfo_download_blacklist or [],
+                    "mediainfo_download_whitelist": configer.mediainfo_download_whitelist
+                    or [],
+                    "mediainfo_download_blacklist": configer.mediainfo_download_blacklist
+                    or [],
                     "full_sync_min_file_size": configer.full_sync_min_file_size or 0,
                     "pan_media_dir": pan_media_dir,
                 }
-                config_json = dumps(config_for_rust)
+                config_json = dumps(config_for_rust).decode("utf-8")
 
                 try:
                     parent_id = get_pid_by_path(
@@ -710,38 +714,60 @@ class FullSyncStrmHelper:
                         if rust:
                             input_batch = [
                                 {
-                                    "name": item.get("name"), "path": item.get("path"),
-                                    "is_dir": item.get("is_dir"), "size": item.get("size"),
-                                    "pickcode": item.get("pickcode", item.get("pick_code")),
-                                    "sha1": item.get("sha1")
+                                    "name": item.get("name"),
+                                    "path": item.get("path"),
+                                    "is_dir": item.get("is_dir"),
+                                    "size": item.get("size"),
+                                    "pickcode": item.get(
+                                        "pickcode", item.get("pick_code")
+                                    ),
+                                    "sha1": item.get("sha1"),
                                 }
-                                for item in batch if item.get("name") and item.get("path")
+                                for item in batch
+                                if item.get("name") and item.get("path")
                             ]
 
                             self.total_count += len(input_batch)
 
-                            results: PackedResult = process_batch(config_json, input_batch)
+                            results: PackedResult = process_batch(
+                                config_json, input_batch
+                            )
 
                             for fail_info in results.fail_results:
                                 self.strm_fail_count += 1
-                                self.strm_fail_dict[fail_info.path_in_pan] = fail_info.reason
+                                self.strm_fail_dict[fail_info.path_in_pan] = (
+                                    fail_info.reason
+                                )
 
                             for download_info in results.download_results:
-                                local_path = target_dir / Path(download_info.path_in_pan).relative_to(pan_media_dir)
-                                if local_path.exists() and self.overwrite_mode == "never":
+                                local_path = target_dir / Path(
+                                    download_info.path_in_pan
+                                ).relative_to(pan_media_dir)
+                                if (
+                                    local_path.exists()
+                                    and self.overwrite_mode == "never"
+                                ):
                                     self.__base_logger(
                                         "warn",
                                         f"【全量STRM生成】媒体文件 {local_path} 已存在，覆盖模式为 'never'，跳过下载。",
                                     )
                                     continue
-                                self.download_mediainfo_list.append({
-                                    "type": "local", "pickcode": download_info.pickcode,
-                                    "path": local_path, "sha1": download_info.sha1,
-                                })
+                                self.download_mediainfo_list.append(
+                                    {
+                                        "type": "local",
+                                        "pickcode": download_info.pickcode,
+                                        "path": local_path,
+                                        "sha1": download_info.sha1,
+                                    }
+                                )
 
                             for strm_info in results.strm_results:
-                                local_path = target_dir / Path(strm_info.path_in_pan).relative_to(pan_media_dir)
-                                new_file_path = local_path.with_name(f"{local_path.stem}.strm")
+                                local_path = target_dir / Path(
+                                    strm_info.path_in_pan
+                                ).relative_to(pan_media_dir)
+                                new_file_path = local_path.with_name(
+                                    f"{local_path.stem}.strm"
+                                )
                                 if self.remove_unless_strm:
                                     path_list.append(str(new_file_path))
                                 if new_file_path.exists():
@@ -752,9 +778,19 @@ class FullSyncStrmHelper:
                                         )
                                         continue
                                     self.__base_logger(
-                                        "warn", f"【全量STRM生成】{new_file_path} 已存在，将进行覆盖。")
-                                strm_url = self.strmurlgetter.get_strm_url(strm_info.pickcode, strm_info.original_file_name)
-                                self.write_queue.put((new_file_path, strm_url, strm_info.original_file_name))
+                                        "warn",
+                                        f"【全量STRM生成】{new_file_path} 已存在，将进行覆盖。",
+                                    )
+                                strm_url = self.strmurlgetter.get_strm_url(
+                                    strm_info.pickcode, strm_info.original_file_name
+                                )
+                                self.write_queue.put(
+                                    (
+                                        new_file_path,
+                                        strm_url,
+                                        strm_info.original_file_name,
+                                    )
+                                )
 
                             # for skip_info in results.skip_results:
                             #     self.__base_logger("debug", f"Skipped {skip_info.path_in_pan}: {skip_info.reason}")
@@ -782,7 +818,9 @@ class FullSyncStrmHelper:
 
                                     if result.status == "fail":
                                         self.strm_fail_count += 1
-                                        self.strm_fail_dict[result.path] = result.message
+                                        self.strm_fail_dict[result.path] = (
+                                            result.message
+                                        )
                                     elif result.status == "download":
                                         self.download_mediainfo_list.append(result.data)
 

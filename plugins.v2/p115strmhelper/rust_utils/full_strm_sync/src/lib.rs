@@ -1,20 +1,22 @@
 mod processor;
 mod types;
 
+use processor::Processor;
 use pyo3::prelude::*;
 use rayon::prelude::*;
-use processor::Processor;
 use types::*;
 
 #[pyfunction]
 fn process_batch(py: Python, config_json: String, batch: Vec<FileInput>) -> PyResult<PackedResult> {
-    let config: Config = serde_json::from_str(&config_json)
-        .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("解析 JSON 失败: {}", e)))?;
+    let config: Config = serde_json::from_str(&config_json).map_err(|e| {
+        PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("解析 JSON 失败: {}", e))
+    })?;
 
     let processor = Processor::new(config);
 
     let results: Vec<ProcessingResult> = py.allow_threads(|| {
-        batch.par_iter()
+        batch
+            .par_iter()
             .map(|item| processor.process_item(item))
             .collect()
     });
@@ -33,7 +35,12 @@ fn process_batch(py: Python, config_json: String, batch: Vec<FileInput>) -> PyRe
         }
     }
 
-    Ok(PackedResult { strm_results, download_results, skip_results, fail_results })
+    Ok(PackedResult {
+        strm_results,
+        download_results,
+        skip_results,
+        fail_results,
+    })
 }
 
 #[pymodule]
