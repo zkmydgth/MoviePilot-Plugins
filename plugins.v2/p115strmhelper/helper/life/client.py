@@ -186,6 +186,7 @@ class MonitorLife:
                 root_id=None,
                 ensure_file=False,
                 refresh=True,
+                app="android",
                 **configer.get_ios_ua_app(app=False),
             )
             if not dir_path:
@@ -1018,6 +1019,7 @@ class MonitorLife:
                     root_id=None,
                     ensure_file=int(event["file_category"]) != 0,
                     refresh=True,
+                    app="android",
                     **configer.get_ios_ua_app(app=False),
                 )
             )

@@ -21,7 +21,11 @@ from orjson import loads
 from p115center import P115Center
 from p115client import check_response
 from p115client.const import TYPE_TO_SUFFIXES
-from p115client.tool.iterdir import iter_files, iter_files_with_path_skim, iter_items
+from p115client.tool.iterdir import (
+    iter_file_list,
+    iter_files,
+    iter_files_with_path_skim,
+)
 from p115client.util import reduce_image_url_layers
 from p115pickcode import pickcode_to_id
 from zstandard import ZstdCompressor, ZstdDecompressor
@@ -485,7 +489,7 @@ class MediaInfoDownloader:
                 )
                 check_response(resp)
                 attr = next(
-                    iter_items(
+                    iter_file_list(
                         client=self.client,
                         payload=scid,
                         page_size=1,
@@ -543,7 +547,7 @@ class MediaInfoDownloader:
                 # 休眠等待 115 全部转存完成
                 time_sleep(8)
                 attr = next(
-                    iter_items(
+                    iter_file_list(
                         client=self.client,
                         payload=scid,
                         page_size=1,
