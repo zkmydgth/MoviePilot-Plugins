@@ -1,8 +1,10 @@
 <template>
-  <v-container fluid class="app-start pa-4">
-    <div class="d-flex align-center flex-wrap gap-2 mb-3">
-      <v-icon icon="mdi-view-dashboard-outline" color="primary" size="26" />
-      <span class="text-h6 font-weight-medium text-high-emphasis">115 助手仪表盘</span>
+  <v-container fluid class="app-start pa-2 pa-sm-4">
+    <div class="d-flex align-center flex-wrap gap-2 mb-2 mb-sm-3">
+      <v-icon icon="mdi-view-dashboard-outline" color="primary" :size="isMobile ? 22 : 26" />
+      <span :class="['font-weight-medium', 'text-high-emphasis', isMobile ? 'text-subtitle-1' : 'text-h6']">
+        115 助手仪表盘
+      </span>
     </div>
 
     <!-- 分享 STRM 清理（对齐媒体整理：单卡 + 顶栏 + 表格区） -->
@@ -21,7 +23,8 @@
               </div>
             </v-col>
             <v-col cols="12" lg="5" class="pa-1 d-flex align-center justify-lg-end gap-2 flex-wrap">
-              <v-btn-group variant="outlined" divided rounded density="comfortable">
+              <v-btn-group variant="outlined" divided rounded density="comfortable"
+                class="app-start-top-actions">
                 <v-btn prepend-icon="mdi-refresh" :loading="refreshing" @click="refreshAll">
                   刷新
                 </v-btn>
@@ -65,14 +68,16 @@
                 · {{ formatTs(pendingBatch.created_at) }}
               </span>
             </div>
-            <div class="d-flex flex-wrap gap-2 flex-shrink-0">
+            <div class="d-flex flex-wrap gap-2 flex-shrink-0 app-start-batch-actions">
               <v-btn color="error" variant="flat" size="small" prepend-icon="mdi-delete-forever"
                 :loading="execId === pendingBatch.request_id" :disabled="!!cancelId"
+                class="flex-grow-1 flex-sm-grow-0"
                 @click="executeBatch(pendingBatch.request_id)">
                 确认删除
               </v-btn>
               <v-btn variant="outlined" size="small" prepend-icon="mdi-close"
                 :loading="cancelId === pendingBatch.request_id" :disabled="!!execId"
+                class="flex-grow-1 flex-sm-grow-0"
                 @click="cancelBatch(pendingBatch.request_id)">
                 取消
               </v-btn>
@@ -131,7 +136,7 @@
             </v-col>
             <v-col cols="12" md="4" class="pa-1 d-flex justify-md-end">
               <v-btn v-if="missingTotal > 0" size="small" variant="tonal" color="error" prepend-icon="mdi-delete-sweep"
-                :loading="clearAllLoading" @click="clearAllMissing">
+                :loading="clearAllLoading" :block="isMobile" @click="clearAllMissing">
                 清空全部
               </v-btn>
             </v-col>
@@ -141,7 +146,64 @@
 
       <v-divider />
 
-      <div class="missing-media-scroll">
+      <div v-if="isMobile" class="missing-mobile-list">
+        <template v-if="missingLoading">
+          <v-skeleton-loader class="ma-4" type="list-item-three-line" />
+        </template>
+        <template v-else-if="missingItems.length === 0">
+          <div class="text-body-2 text-medium-emphasis py-8 text-center">暂无记录</div>
+        </template>
+        <template v-else>
+          <div
+            v-for="item in missingItems"
+            :key="item.uid"
+            class="missing-mobile-card"
+          >
+            <div class="missing-mobile-card__head">
+              <div class="missing-mobile-card__title">
+                <div class="text-body-2 font-weight-medium text-break">
+                  {{ item.title || '—' }}
+                  <span v-if="item.year != null && item.year !== ''" class="text-medium-emphasis">
+                    ({{ item.year }})
+                  </span>
+                </div>
+                <div class="text-caption text-medium-emphasis mt-1">
+                  <span v-if="item.type">{{ item.type }}</span>
+                  <template v-if="item.seasons != null && item.seasons !== ''">
+                    <span class="mx-1">·</span>{{ item.seasons }}
+                  </template>
+                  <template v-if="item.episodes != null && item.episodes !== ''">
+                    <span class="mx-1">·</span>{{ item.episodes }}
+                  </template>
+                </div>
+              </div>
+              <v-btn icon size="small" variant="text" color="error"
+                :loading="deletingUid === item.uid" @click="deleteOneMissing(item.uid)">
+                <v-icon size="small">mdi-delete-outline</v-icon>
+              </v-btn>
+            </div>
+            <div class="missing-mobile-card__body text-caption">
+              <div class="strm-path-cell text-break">
+                <span class="text-medium-emphasis">STRM：</span>{{ item.strm_path || '—' }}
+              </div>
+              <div class="missing-mobile-card__kv">
+                <span><span class="text-medium-emphasis">分享码：</span>{{ item.share_code || '—' }}</span>
+                <span><span class="text-medium-emphasis">接收码：</span>{{ item.receive_code || '—' }}</span>
+              </div>
+              <div v-if="hasAnyExternalId(item)" class="missing-mobile-card__ids">
+                <span v-if="item.tmdbid != null && item.tmdbid !== ''">TMDB: {{ item.tmdbid }}</span>
+                <span v-if="item.tvdbid != null && item.tvdbid !== ''">TVDB: {{ item.tvdbid }}</span>
+                <span v-if="item.imdbid != null && item.imdbid !== ''">IMDB: {{ item.imdbid }}</span>
+                <span v-if="item.doubanid != null && item.doubanid !== ''">豆瓣: {{ item.doubanid }}</span>
+              </div>
+              <div v-if="item.id != null && item.id !== ''" class="text-medium-emphasis">
+                整理记录 #{{ item.id }}
+              </div>
+            </div>
+          </div>
+        </template>
+      </div>
+      <div v-else class="missing-media-scroll">
         <v-data-table :headers="missingHeaders" :items="missingItems" :loading="missingLoading" item-value="uid"
           density="compact" hover hide-default-footer fixed-header class="app-start-data-table missing-media-table"
           :height="missingTableHeight">
@@ -328,6 +390,8 @@ const paginationShowFirstLast = computed(() => display.smAndUp.value);
 
 const paginationDensity = computed(() => (display.xs.value ? 'compact' : 'comfortable'));
 
+const isMobile = computed(() => display.xs.value);
+
 const refreshing = ref(false);
 
 const toast = reactive({
@@ -432,7 +496,10 @@ const pendingPaths = reactive({
   loading: false,
 });
 
-const missingTableHeight = computed(() => (missingItems.value.length > 12 ? 520 : 360));
+const missingTableHeight = computed(() => {
+  if (display.xs.value) return missingItems.value.length > 8 ? 420 : 300;
+  return missingItems.value.length > 12 ? 520 : 360;
+});
 
 const missingTotalPages = computed(() =>
   Math.max(1, Math.ceil(missingTotal.value / missingLimit.value)),
@@ -469,9 +536,10 @@ const pendingPathsTableItems = computed(() =>
   })),
 );
 
-const pendingPathsTableHeight = computed(() =>
-  pendingPaths.paths.length > 12 ? 420 : 320,
-);
+const pendingPathsTableHeight = computed(() => {
+  if (display.xs.value) return pendingPaths.paths.length > 8 ? 360 : 260;
+  return pendingPaths.paths.length > 12 ? 420 : 320;
+});
 
 const scanLoading = ref(false);
 const execId = ref(null);
@@ -837,5 +905,67 @@ onMounted(async () => {
 
 .app-start-data-table :deep(.v-data-table__td) {
   vertical-align: top;
+}
+
+/* 手机端缺失媒体卡片列表 */
+.missing-mobile-list {
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.missing-mobile-card {
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.08);
+  border-radius: 6px;
+  padding: 10px 12px;
+  background: rgb(var(--v-theme-surface));
+}
+
+.missing-mobile-card__head {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.missing-mobile-card__title {
+  flex: 1 1 auto;
+  min-inline-size: 0;
+}
+
+.missing-mobile-card__body {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  line-height: 1.45;
+}
+
+.missing-mobile-card__kv {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+
+.missing-mobile-card__ids {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  color: rgb(var(--v-theme-on-surface));
+}
+
+/* 手机端顶部操作按钮组全宽 */
+@media (max-width: 599px) {
+  .app-start-top-actions {
+    inline-size: 100%;
+  }
+
+  .app-start-top-actions :deep(.v-btn) {
+    flex: 1 1 0;
+  }
+
+  .app-start-batch-actions {
+    inline-size: 100%;
+  }
 }
 </style>
