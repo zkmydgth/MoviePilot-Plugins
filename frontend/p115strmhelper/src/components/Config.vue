@@ -951,6 +951,17 @@
                           </v-col>
                         </v-row>
 
+                        <v-row v-if="config.pan_transfer_clouddrive2_config">
+                          <v-col cols="12" class="d-flex align-center flex-wrap gap-4">
+                            <v-switch v-model="config.pan_transfer_clouddrive2_config.enabled"
+                              label="交由 CloudDrive2 储存整理" color="info" hide-details></v-switch>
+                            <v-text-field v-if="config.pan_transfer_clouddrive2_config.enabled"
+                              v-model="config.pan_transfer_clouddrive2_config.prefix" label="挂载前缀"
+                              placeholder="必填，如 /115open" density="compact" hide-details class="flex-grow-1"
+                              style="max-width: 280px;"></v-text-field>
+                          </v-col>
+                        </v-row>
+
                         <!-- 待整理和未识别目录 -->
                         <v-card variant="outlined" class="mt-4">
                           <v-card-title class="text-subtitle-1">
@@ -2982,6 +2993,7 @@ const config = reactive({
   clear_receive_path_enabled: false,
   cron_clear: '0 */7 * * *',
   pan_transfer_enabled: false,
+  pan_transfer_clouddrive2_config: { enabled: false, prefix: '' },
   pan_transfer_paths: '',
   pan_transfer_unrecognized_path: '',
   share_recieve_paths: [],

@@ -29,6 +29,15 @@ from ..utils.machineid import MachineID
 from ..utils.user_agent import UserAgentUtils
 
 
+class PanTransferCloudDrive2Config(BaseModel):
+    """
+    交由 CloudDrive2 储存整理配置
+    """
+
+    enabled: bool = Field(default=False, description="交由 CloudDrive2 储存整理")
+    prefix: str = Field(default="", description="CloudDrive2 储存挂载前缀")
+
+
 class ConfigManager(BaseModel):
     """
     插件配置管理器
@@ -389,6 +398,10 @@ class ConfigManager(BaseModel):
     cron_clear: Optional[str] = Field(default="0 */7 * * *", description="清理周期")
 
     pan_transfer_enabled: bool = Field(default=False, description="网盘整理开关")
+    pan_transfer_clouddrive2_config: PanTransferCloudDrive2Config = Field(
+        default_factory=PanTransferCloudDrive2Config,
+        description="网盘整理交由CloudDrive2储存整理",
+    )
     pan_transfer_paths: Optional[str] = Field(default=None, description="网盘整理目录")
     pan_transfer_unrecognized_path: Optional[str] = Field(
         default=None, description="网盘整理未识别目录"

@@ -234,10 +234,19 @@ class MonitorLife:
                     if str(item["id"]) not in cache_file_id_list:
                         cache_file_id_list.append(str(item["id"]))
                     fileitem = FileItem(
-                        storage=configer.storage_module,
+                        storage=configer.storage_module
+                        if not configer.pan_transfer_clouddrive2_config.enabled
+                        else "CloudDrive储存",
                         fileid=str(item["id"]),
                         parent_fileid=str(item["parent_id"]),
-                        path=file_path.as_posix(),
+                        path=(
+                            (
+                                Path(configer.pan_transfer_clouddrive2_config.prefix)
+                                / file_path.as_posix().lstrip("/")
+                            ).as_posix()
+                            if configer.pan_transfer_clouddrive2_config.enabled
+                            else file_path.as_posix()
+                        ),
                         type="file",
                         name=file_path.name,
                         basename=file_path.stem,
@@ -297,10 +306,19 @@ class MonitorLife:
                         str(event["file_id"])
                     )
                 fileitem = FileItem(
-                    storage=configer.storage_module,
+                    storage=configer.storage_module
+                    if not configer.pan_transfer_clouddrive2_config.enabled
+                    else "CloudDrive储存",
                     fileid=str(file_id),
                     parent_fileid=str(event["parent_id"]),
-                    path=file_path.as_posix(),
+                    path=(
+                        (
+                            Path(configer.pan_transfer_clouddrive2_config.prefix)
+                            / file_path.as_posix().lstrip("/")
+                        ).as_posix()
+                        if configer.pan_transfer_clouddrive2_config.enabled
+                        else file_path.as_posix()
+                    ),
                     type="file",
                     name=file_path.name,
                     basename=file_path.stem,
