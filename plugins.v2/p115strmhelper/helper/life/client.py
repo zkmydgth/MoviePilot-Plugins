@@ -855,6 +855,14 @@ class MonitorLife:
             logger.warning(f"【监控生活事件】无法获取父目录路径，跳过移动处理: {event}")
             return
         new_file_path = (Path(new_parent_path) / event["file_name"]).as_posix()
+        # 未识别目录跳过处理
+        if configer.pan_transfer_unrecognized_path and PathUtils.has_prefix(
+            new_file_path, configer.pan_transfer_unrecognized_path
+        ):
+            logger.debug(
+                f"【监控生活事件】{new_file_path} 为未识别目录下的路径，跳过移动处理"
+            )
+            return
 
         # 判断旧路径是否在媒体目录
         old_is_media = False
@@ -997,6 +1005,15 @@ class MonitorLife:
         except Exception as e:
             logger.warning(
                 f"【监控生活事件】无法获取新事件路径，跳过移动处理: {event} {e}"
+            )
+            return
+
+        # 未识别目录跳过处理
+        if configer.pan_transfer_unrecognized_path and PathUtils.has_prefix(
+            new_pan_path, configer.pan_transfer_unrecognized_path
+        ):
+            logger.debug(
+                f"【监控生活事件】{new_pan_path} 为未识别目录下的路径，跳过重命名处理"
             )
             return
 
@@ -1312,6 +1329,13 @@ class MonitorLife:
                 )
                 return
 
+        # 未识别目录跳过处理
+        if configer.pan_transfer_unrecognized_path and PathUtils.has_prefix(
+            file_path, configer.pan_transfer_unrecognized_path
+        ):
+            logger.debug(f"【监控生活事件】{file_path} 为未识别目录下的路径，不做处理")
+            return
+
         # 匹配是否是媒体文件夹目录
         status, target_dir, pan_media_dir = PathUtils.get_media_path(
             configer.get_config("monitor_life_paths"), file_path
@@ -1445,6 +1469,14 @@ class MonitorLife:
             logger.warning(f"【监控生活事件】无法获取父目录路径，跳过处理: {event}")
             return
         file_path = Path(dir_path) / file_name
+        # 未识别目录跳过处理
+        if configer.pan_transfer_unrecognized_path and PathUtils.has_prefix(
+            file_path.as_posix(), configer.pan_transfer_unrecognized_path
+        ):
+            logger.debug(
+                f"【监控生活事件】{file_path} 为未识别目录下的路径，跳过新增处理"
+            )
+            return
         # 匹配逻辑 整理路径目录 > 生成STRM文件路径目录
         # 2.匹配是否为整理路径目录
         if configer.pan_transfer_enabled and configer.pan_transfer_paths:
