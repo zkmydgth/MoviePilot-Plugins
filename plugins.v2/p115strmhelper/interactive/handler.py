@@ -346,6 +346,7 @@ class ActionHandler(BaseActionHandler):
                         "apikey": settings.API_TOKEN,
                         "share_url": share_url,
                     },
+                    timeout=httpx.Timeout(connect=30.0, read=900.0),
                 )
                 if resp.json().get("code") == 0:
                     session.go_to("subscribe_success")
