@@ -44,6 +44,8 @@ __all__ = [
     "NOTIFY_MODE_FAILURE",
     "NOTIFY_MODE_SUCCESS",
     "NOTIFY_MODE_ALL",
+    "DEFAULT_RETRY_INTERVAL_HOURS",
+    "MAX_RETRY_INTERVAL_HOURS",
     "DEFAULT_API_ID",
     "DEFAULT_API_HASH",
     "DEFAULT_ACCOUNTS_TEXT",
@@ -99,6 +101,10 @@ NOTIFY_MODE_NONE = "none"
 NOTIFY_MODE_FAILURE = "failure"
 NOTIFY_MODE_SUCCESS = "success"
 NOTIFY_MODE_ALL = "all"
+
+# 失败重试间隔（小时）：失败后每隔这么久重试一次；0 = 不重试；窗口到次日 0 点重置（2026-10-07 定案）
+DEFAULT_RETRY_INTERVAL_HOURS = 6
+MAX_RETRY_INTERVAL_HOURS = 24
 
 # 交接单里已实测确认的默认账号与签到目标（用户可随意增删改）
 DEFAULT_ACCOUNTS_TEXT = """# 一行一个账号：标识 | 显示名 | 手机号

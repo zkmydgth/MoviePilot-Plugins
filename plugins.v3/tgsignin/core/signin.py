@@ -7,8 +7,10 @@
   文字含关键词的 inline 按钮 → 点击 → 等待 → 读回最新回复；
 - **命令式**（如 HDHaven）：直接发命令 → 等待 → 读回 bot 回复。
 
-只要 bot 有回复即视为「签到动作已完成」——已签到、签到成功、仅回菜单都算，
-因为 bot 侧的重复签到通常不报错（详情见交接单 §0.3④）。
+**只有「本次发送之后收到的」消息才算数**：bot 离线时最近消息全是上一次的残留
+（旧菜单、上次那句「🎉 签到成功」），按时间过滤才不会被误判成成功；本次一条新消息都没有
+= bot 无任何返回 → 直接判失败，不硬说成功（2026-10-07 实测的假成功根因）。
+已签到、签到成功、仅回菜单都算「签到动作已完成」（bot 侧重复签到通常不报错，详见交接单 §0.3④）。
 """
 
 from __future__ import annotations
@@ -24,7 +26,9 @@ from .config import (
     AccountConfig,
     BotTarget,
 )
+from .retry import signed_today
 from .session import build_client
+from .store import load_state
 
 __all__ = [
     "signin_one",
@@ -66,19 +70,48 @@ def now_text() -> str:
     return datetime.now(TZ).strftime("%Y-%m-%d %H:%M:%S")
 
 
-def _pick_reply(messages: Sequence[Any]) -> str:
+def _fresh_messages(
+    messages: Sequence[Any],
+    sent_at: Optional[Any] = None,
+) -> List[Any]:
     """
-    从消息列表里挑一条 bot 的文本回复。
+    只保留「本次发送之后」收到的消息。
 
     :param messages: telethon 消息列表（新→旧）
+    :param sent_at: 本次发送时刻（telethon 的 tz-aware datetime）；None 表示不做时间过滤
+    :return List[Any]: 过滤后的消息列表；没有带时间的消息时返回空列表
+    """
+
+    if sent_at is None:
+        return list(messages)
+    fresh: List[Any] = []
+    for message in messages:
+        sent_date = getattr(message, "date", None)
+        if sent_date is None:
+            continue
+        try:
+            if sent_date >= sent_at:
+                fresh.append(message)
+        except TypeError:  # pragma: no cover - 时间类型异常时按「不新鲜」处理
+            continue
+    return fresh
+
+
+def _pick_reply(messages: Sequence[Any], sent_at: Optional[Any] = None) -> str:
+    """
+    从消息列表里挑一条「本次」bot 的文本回复。
+
+    :param messages: telethon 消息列表（新→旧）
+    :param sent_at: 本次发送时刻；None 表示不做时间过滤
     :return str: 回复文本；没有则返回空串
     """
 
-    for message in messages:
+    latest = _fresh_messages(messages, sent_at)
+    for message in latest:
         if not getattr(message, "out", False) and getattr(message, "text", None):
             return str(message.text)
-    if messages:
-        return str(getattr(messages[0], "text", "") or "")
+    if latest:
+        return str(getattr(latest[0], "text", "") or "")
     return ""
 
 
@@ -87,6 +120,7 @@ async def _click_button(
     entity: Any,
     keyword: str,
     wait_seconds: int,
+    sent_at: Optional[Any] = None,
 ) -> Tuple[bool, str, str, str]:
     """
     在最近消息里点文字含关键词的按钮，并读回回复。
@@ -95,12 +129,15 @@ async def _click_button(
     :param entity: bot 实体
     :param keyword: 按钮关键词（如「签到」）
     :param wait_seconds: 点击后等待秒数
+    :param sent_at: 本次 /start 的发送时刻，用于只认本次菜单（None 表示不过滤）
     :return Tuple[bool, str, str, str]: ``(是否点到, 回复文本, 弹窗文本, 错误信息)``；
         弹窗文本来自 Telegram 的 callback 应答（bot 用 ``answerCallbackQuery``
         弹的那句提示，例如「您今天已经签到过了」），拿不到时为空串
     """
 
-    messages = await client.get_messages(entity, limit=_MSG_SCAN_LIMIT)
+    messages = _fresh_messages(
+        await client.get_messages(entity, limit=_MSG_SCAN_LIMIT), sent_at
+    )
     for message in messages:
         for row in (getattr(message, "buttons", None) or []):
             for button in row:
@@ -109,10 +146,40 @@ async def _click_button(
                     # click() 对 inline 按钮返回 BotCallbackAnswer（含 .message/.alert）
                     answer = await button.click()
                     alert = str(getattr(answer, "message", "") or "")
+                    # 只认「点击这条菜单之后」新出现的消息：
+                    # bot 对点击毫无反应时，不能拿这条菜单自身当成本次回复
+                    menu_date = getattr(message, "date", None)
+                    reply_after = (
+                        menu_date + timedelta(microseconds=1)
+                        if menu_date is not None
+                        else sent_at
+                    )
                     await asyncio.sleep(wait_seconds)
                     latest = await client.get_messages(entity, limit=3)
-                    return True, _pick_reply(latest), alert, ""
-    return False, "", "", f"最近 {_MSG_SCAN_LIMIT} 条消息里没找到含「{keyword}」的按钮"
+                    return True, _pick_reply(latest, reply_after), alert, ""
+    return (
+        False,
+        "",
+        "",
+        f"本次发送后 bot 没有新消息/新按钮（最近 {_MSG_SCAN_LIMIT} 条里没找到含「{keyword}」的按钮）",
+    )
+
+
+def _mentions_signin_done(text: str) -> bool:
+    """
+    文本是否在说「已经签到过了」这类重复签到信号。
+
+    实测口径：emby 类 bot 的弹窗文案是「您今天已经签到过了」，并不含「已签到」三字，
+    因此这里按多种说法匹配（2026-10-07 补）。
+
+    :param text: bot 回复或弹窗文本
+    :return bool: 命中「已签到」类说法返回 True
+    """
+
+    return any(
+        marker in str(text or "")
+        for marker in ("已签到", "已经签到", "签到过了")
+    )
 
 
 def classify_result(
@@ -120,6 +187,7 @@ def classify_result(
     ok: bool,
     method: str = "",
     alert: str = "",
+    already_signed_today: bool = False,
 ) -> str:
     """
     按 bot 回复内容给签到结果分档。
@@ -132,6 +200,7 @@ def classify_result(
     :param ok: 本次是否判定为成功（有回复即算动作完成）
     :param method: 签到方式描述（用于区分「点了按钮但只回菜单」）
     :param alert: 点击按钮时 Telegram 返回的弹窗提示（callback 应答文本）
+    :param already_signed_today: 今天此前是否已经签到成功过（按钮式只回菜单时用于分档）
     :return str: STATUS_SUCCESS / STATUS_REPEATED / STATUS_UNCONFIRMED / STATUS_FAILED
     """
 
@@ -139,37 +208,54 @@ def classify_result(
         return STATUS_FAILED
     alert_text = str(alert or "")
     text = str(reply or "")
-    if alert_text and "已签到" in alert_text:
+    if not text.strip() and not alert_text.strip():
+        # 本次没有任何返回内容（既无回复也无弹窗）：不能当成成功
+        return STATUS_FAILED
+    if alert_text and _mentions_signin_done(alert_text):
         return STATUS_REPEATED
     if "签到成功" in text or "签到成功" in alert_text:
         return STATUS_SUCCESS
-    if "已签到" in text or "已签到" in alert_text:
+    if _mentions_signin_done(text) or _mentions_signin_done(alert_text):
         return STATUS_REPEATED
     if "按钮" in str(method or ""):
-        # 按钮点到了、bot 只回菜单：按交接单，这就是「今日已签到、不再重复发放」，
-        # 部分 bot 会另发一条弹窗提示（alert），拿不到也不影响判定
-        return STATUS_REPEATED
+        # 按钮点到了、bot 只回菜单（没有任何签到结果）：
+        # 仅当「今天此前已经签到成功过」才算「今日已签到、不再重复发放」；
+        # 否则说明 bot 根本没给出签到结果 → 判失败（2026-10-07 用户定案）
+        if already_signed_today:
+            return STATUS_REPEATED
+        return STATUS_FAILED
     return STATUS_UNCONFIRMED
 
 
 async def signin_one(
     client: Any,
     target: BotTarget,
+    already_signed_today: bool = False,
 ) -> Dict[str, Any]:
     """
     对单个 bot 执行一次签到，并补上结果状态分类。
 
     :param client: 已登录的 TelegramClient
     :param target: 签到目标配置
+    :param already_signed_today: 今天此前是否已经签到成功过
     :return Dict[str, Any]: 结果字典（含 status）
     """
 
     result = await _signin_one_impl(client, target)
-    result["status"] = classify_result(
+    status = classify_result(
         str(result.get("reply") or ""),
         bool(result.get("ok")),
         str(result.get("method") or ""),
+        str(result.get("alert") or ""),
+        already_signed_today=already_signed_today,
     )
+    result["status"] = status
+    if status == STATUS_FAILED and result.get("ok"):
+        # 只可能是「按钮式只回菜单 + 今天此前没成功过」：失败不能计入成功
+        result["ok"] = False
+        result["error"] = str(result.get("error") or "") or (
+            "bot 只回了菜单/没有给出签到结果，且今天此前没有签到成功记录"
+        )
     return result
 
 
@@ -203,25 +289,36 @@ async def _signin_one_impl(
 
     try:
         if target.sign_type == SIGN_TYPE_BUTTON:
-            await client.send_message(entity, "/start")
+            start_message = await client.send_message(entity, "/start")
+            sent_at = getattr(start_message, "date", None)
             await asyncio.sleep(max(3, min(target.wait_seconds, 30)))
             clicked, reply, alert, error = await _click_button(
-                client, entity, target.action_text, target.wait_seconds
+                client, entity, target.action_text, target.wait_seconds, sent_at
             )
-            result["ok"] = clicked
+            # 只有「点到按钮 + bot 有返回（回复或弹窗）」才算动作完成；
+            # 点到旧按钮而 bot 零返回 = bot 可能离线，必须如实判失败
+            has_evidence = bool(str(reply or "").strip() or str(alert or "").strip())
+            result["ok"] = bool(clicked and has_evidence)
             result["reply"] = reply
             result["alert"] = alert
-            result["error"] = error
+            result["error"] = error or (
+                ""
+                if result["ok"]
+                else "已点击按钮但 bot 无任何返回（bot 可能离线或已停止服务）"
+            )
             return result
 
         if target.sign_type == SIGN_TYPE_COMMAND:
-            await client.send_message(entity, target.action_text or "/checkin")
+            command_message = await client.send_message(
+                entity, target.action_text or "/checkin"
+            )
+            sent_at = getattr(command_message, "date", None)
             await asyncio.sleep(target.wait_seconds)
             latest = await client.get_messages(entity, limit=3)
-            reply = _pick_reply(latest)
+            reply = _pick_reply(latest, sent_at)
             result["ok"] = bool(reply)
             result["reply"] = reply
-            result["error"] = "" if reply else "发送后没等到 bot 回复"
+            result["error"] = "" if reply else "发送后没等到 bot 回复（bot 可能离线）"
             return result
     except Exception as error:  # pylint: disable=broad-except
         result["error"] = f"执行失败：{type(error).__name__}: {error}"
@@ -259,7 +356,11 @@ async def run_account(
             return [], f"账号 {account.key} 未登录或 session 已失效，请重新登录"
         results: List[Dict[str, Any]] = []
         for target in targets:
-            item = await signin_one(client, target)
+            item = await signin_one(
+                client,
+                target,
+                already_signed_today=signed_today(load_state(data_dir), target),
+            )
             # 带上显示名：通知正文里显示「账号1(acc1)」比纯标识好认
             item["account_label"] = account.display()
             results.append(item)
@@ -280,6 +381,7 @@ async def run_all(
     proxy: Optional[Tuple[str, str, int]],
     only_account: Optional[str] = None,
     only_bot: Optional[str] = None,
+    only_targets: Optional[Sequence[BotTarget]] = None,
 ) -> List[Dict[str, Any]]:
     """
     按账号维度依次签到（同一时刻只连一个账号，避免并发触发风控）。
@@ -290,9 +392,15 @@ async def run_all(
     :param proxy: 代理元组，None 表示直连
     :param only_account: 只跑该账号标识（None 表示全部）
     :param only_bot: 只跑该 bot 用户名（None 表示全部）
+    :param only_targets: 只跑给定的目标集合（失败重试用），None 表示按账号/bot 过滤
     :return List[Dict[str, Any]]: 扁平的结果列表
     """
 
+    allowed = (
+        {f"{item.account_key}|{item.bot_username}" for item in only_targets}
+        if only_targets is not None
+        else None
+    )
     results: List[Dict[str, Any]] = []
     for account in accounts:
         if only_account and account.key != only_account:
@@ -303,6 +411,10 @@ async def run_all(
             if target.account_key == account.key
             and target.enabled
             and (not only_bot or target.bot_username == only_bot)
+            and (
+                allowed is None
+                or f"{target.account_key}|{target.bot_username}" in allowed
+            )
         ]
         if not account_targets:
             continue

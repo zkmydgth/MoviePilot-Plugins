@@ -12,6 +12,8 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List, Sequence
 
+from .retry import record_attempts
+
 __all__ = [
     "state_path",
     "load_state",
@@ -146,6 +148,8 @@ def record_run(
         if counter[key] <= per_bot_limit:
             keep.append(item)
     state["history"] = list(reversed(keep))
+    # 记录每个目标的当日成败与尝试次数，供「失败重试」窗口判定使用（见 core/retry.py）
+    state = record_attempts(state, results)
     save_state(data_dir, state)
     return state
 

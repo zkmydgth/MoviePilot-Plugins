@@ -58,9 +58,33 @@ MUTANTS = [
     ),
     (
         "core/signin.py",
-        '            result["ok"] = clicked',
+        '            result["ok"] = bool(clicked and has_evidence)',
         '            result["ok"] = True',
-        "按钮没点到也判成功",
+        "按钮没点到/无返回也判成功",
+    ),
+    (
+        "core/signin.py",
+        '            has_evidence = bool(str(reply or "").strip() or str(alert or "").strip())',
+        "            has_evidence = True",
+        "无返回也算有证据（假成功回归）",
+    ),
+    (
+        "core/signin.py",
+        "            if sent_date >= sent_at:\n                fresh.append(message)",
+        "            if sent_date <= sent_at:\n                fresh.append(message)",
+        "时间归属反了：只认旧消息",
+    ),
+    (
+        "core/signin.py",
+        "        if already_signed_today:\n            return STATUS_REPEATED\n        return STATUS_FAILED",
+        "        return STATUS_REPEATED",
+        "只回菜单不再看今天是否成功过（假成功回归）",
+    ),
+    (
+        "core/retry.py",
+        '        record["ok_today"] = bool(record.get("ok_today")) or bool(item.get("ok"))',
+        '        record["ok_today"] = bool(item.get("ok"))',
+        "ok_today 不再粘住（当天成功记录丢失去）",
     ),
     (
         "core/signin.py",
@@ -100,9 +124,9 @@ MUTANTS = [
     ),
     (
         "core/signin.py",
-        '    if alert_text and "已签到" in alert_text:',
-        "    if False:",
-        "弹窗提示的「已签到」被忽略（通知里看不出区别）",
+        '        for marker in ("已签到", "已经签到", "签到过了")',
+        '        for marker in ("已签到",)',
+        "弹窗的「已经签到过了」不再被识别（通知里看不出区别）",
     ),
     (
         "core/login.py",

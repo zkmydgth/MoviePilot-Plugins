@@ -245,10 +245,20 @@ class TestApiCommandService(unittest.TestCase):
             self.assertTrue(command["data"]["action"].startswith("tgsignin_"))
 
     def test_service_with_valid_cron(self) -> None:
-        """合法 cron 注册出一个定时服务。"""
+        """合法 cron 注册出「定时签到 + 失败重试」两个服务。"""
         services = self.plugin.get_service()
-        self.assertEqual(len(services), 1)
-        self.assertEqual(services[0]["id"], "tgsignin_daily")
+        self.assertEqual(
+            [item["id"] for item in services], ["tgsignin_daily", "tgsignin_retry"]
+        )
+
+    def test_retry_service_skipped_when_disabled(self) -> None:
+        """重试间隔 0 = 不注册重试服务。"""
+        plugin = TgSignin()
+        plugin.init_plugin(
+            {"enabled": True, "cron": "0 9 * * *", "retry_interval_hours": 0}
+        )
+        services = plugin.get_service()
+        self.assertEqual([item["id"] for item in services], ["tgsignin_daily"])
 
     def test_service_with_invalid_cron(self) -> None:
         """非法 cron 不注册服务（避免调度器抛错）。"""

@@ -9,12 +9,14 @@
 
 import asyncio
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest import mock
 
 import tests  # noqa: F401  触发宿主桩与插件路径注入
 
 from tgsignin.core import signin as signin_mod
+from tgsignin.core.retry import TZ
 from tgsignin.core.config import (
     NOTIFY_MODE_ALL,
     NOTIFY_MODE_FAILURE,
@@ -93,31 +95,37 @@ class _FakeCallbackAnswer:
 class _FakeMessage:
     """消息替身。"""
 
-    def __init__(self, text: str = "", out: bool = False, buttons=None) -> None:
+    def __init__(
+        self, text: str = "", out: bool = False, buttons=None, date=None
+    ) -> None:
         """
         构造消息。
 
         :param text: 文本
         :param out: 是否为自己发出
         :param buttons: 按钮矩阵
+        :param date: 消息时间（带时区）；None 表示不参与时间过滤
         """
         self.text = text
         self.out = out
         self.buttons = buttons
+        self.date = date
 
 
 class _FakeClient:
     """TelegramClient 替身：按脚本依次返回消息。"""
 
-    def __init__(self, batches, entity_error: bool = False) -> None:
+    def __init__(self, batches, entity_error: bool = False, sent_date=None) -> None:
         """
         构造客户端。
 
         :param batches: ``get_messages`` 依次返回的消息批次
         :param entity_error: 是否让 get_entity 抛错
+        :param sent_date: ``send_message`` 返回消息的时间（本次发送时刻）
         """
         self._batches = list(batches)
         self._entity_error = entity_error
+        self._sent_date = sent_date
         self.sent: list = []
         self.clicks: list = []
         self.connected = False
@@ -152,15 +160,16 @@ class _FakeClient:
             raise ValueError(f"cannot find any entity corresponding to {username}")
         return {"username": username}
 
-    async def send_message(self, entity, text: str) -> None:
+    async def send_message(self, entity, text: str):
         """
-        记录发出的消息。
+        记录发出的消息，并返回带时间戳的「自己发出」消息。
 
         :param entity: 目标实体
         :param text: 文本
-        :return None
+        :return _FakeMessage: 已发送消息（带 date，供时间归属过滤）
         """
         self.sent.append(text)
+        return _FakeMessage(text=text, out=True, date=self._sent_date)
 
     async def get_messages(self, entity, limit: int = 5):
         """
@@ -344,11 +353,23 @@ class TestClassifyResult(unittest.TestCase):
             STATUS_REPEATED,
         )
 
-    def test_button_menu_reply_is_repeated(self) -> None:
-        """按钮式签到只回菜单（无成功标记）：按实测口径判为今日已签到。"""
+    def test_button_menu_reply_with_prior_success_is_repeated(self) -> None:
+        """按钮式只回菜单 + 今天此前已成功过：判为今日已签到。"""
+        self.assertEqual(
+            classify_result(
+                "🍉 你好鸭 请选择功能",
+                True,
+                "点按钮「签到」",
+                already_signed_today=True,
+            ),
+            STATUS_REPEATED,
+        )
+
+    def test_button_menu_reply_without_prior_success_fails(self) -> None:
+        """按钮式只回菜单 + 今天此前没成功过：判为失败（bot 没给出签到结果）。"""
         self.assertEqual(
             classify_result("🍉 你好鸭 请选择功能", True, "点按钮「签到」"),
-            STATUS_REPEATED,
+            STATUS_FAILED,
         )
 
     def test_alert_repeated(self) -> None:
@@ -563,6 +584,169 @@ class TestRunAccountAddsLabel(unittest.TestCase):
         self.assertEqual(error, "")
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]["account_label"], "账号1(acc1)")
+
+
+class TestSigninStaleGuard(unittest.TestCase):
+    """时间归属：只有「本次发送之后」的消息才算数（2026-10-07 假成功修复）。"""
+
+    # 旧消息与本次发送时刻
+    OLD = datetime(2026, 10, 7, 9, 0, tzinfo=timezone(timedelta(hours=8)))
+    SENT = datetime(2026, 10, 7, 15, 0, tzinfo=timezone(timedelta(hours=8)))
+    FRESH = datetime(2026, 10, 7, 15, 0, 5, tzinfo=timezone(timedelta(hours=8)))
+    LATER = datetime(2026, 10, 7, 15, 0, 20, tzinfo=timezone(timedelta(hours=8)))
+
+    def setUp(self) -> None:
+        """替换 sleep，避免测试真的等待。"""
+        patcher = mock.patch.object(signin_mod, "asyncio", _FakeAsyncio)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _target(self, sign_type: str = SIGN_TYPE_BUTTON) -> BotTarget:
+        """
+        构造一个签到目标。
+
+        :param sign_type: 签到方式
+        :return BotTarget: 目标
+        """
+        return BotTarget(
+            account_key="acc1",
+            bot_username="@okemby_bot",
+            sign_type=sign_type,
+            action_text="签到" if sign_type == SIGN_TYPE_BUTTON else "/checkin",
+        )
+
+    def test_stale_menu_not_clicked(self) -> None:
+        """bot 离线：只剩上次的旧菜单 → 本次无新消息 → 判失败。"""
+        client = _FakeClient(batches=[], sent_date=self.SENT)
+        client._batches = [
+            [
+                _FakeMessage(
+                    "请选择功能",
+                    buttons=client.make_buttons(["🎯 签到"]),
+                    date=self.OLD,
+                )
+            ]
+        ]
+        result = asyncio.run(signin_one(client, self._target()))
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["status"], STATUS_FAILED)
+        self.assertIn("没有新消息", result["error"])
+
+    def test_stale_reply_not_success(self) -> None:
+        """命令式：旧消息里的「签到成功」不能顶本次结果。"""
+        client = _FakeClient(batches=[], sent_date=self.SENT)
+        client._batches = [
+            [_FakeMessage("🎉 签到成功 | 10 子弹", date=self.OLD)]
+        ]
+        result = asyncio.run(signin_one(client, self._target(SIGN_TYPE_COMMAND)))
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["status"], STATUS_FAILED)
+        self.assertIn("没等到 bot 回复", result["error"])
+
+    def test_click_without_any_return_fails(self) -> None:
+        """点到本次菜单按钮，但点击后 bot 零返回 → 失败（不再假成功）。"""
+        client = _FakeClient(batches=[], sent_date=self.SENT)
+        client._batches = [
+            [
+                _FakeMessage(
+                    "请选择功能",
+                    buttons=client.make_buttons(["🎯 签到"]),
+                    date=self.FRESH,
+                )
+            ],
+            [],  # 点击后没有任何新消息
+        ]
+        result = asyncio.run(signin_one(client, self._target()))
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["status"], STATUS_FAILED)
+        self.assertIn("无任何返回", result["error"])
+
+    def test_menu_only_with_prior_success_repeated(self) -> None:
+        """点击后 bot 又发了一条菜单 + 今天此前已成功过 → 今日已签到。"""
+        client = _FakeClient(batches=[], sent_date=self.SENT)
+        client._batches = [
+            [
+                _FakeMessage(
+                    "请选择功能",
+                    buttons=client.make_buttons(["🎯 签到"]),
+                    date=self.FRESH,
+                )
+            ],
+            [_FakeMessage("请选择功能", date=self.LATER)],
+        ]
+        result = asyncio.run(
+            signin_one(client, self._target(), already_signed_today=True)
+        )
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["status"], STATUS_REPEATED)
+
+    def test_menu_only_without_prior_success_fails(self) -> None:
+        """点击后 bot 只重发菜单、今天此前也没成功过 → 判失败（不再假成功）。"""
+        client = _FakeClient(batches=[], sent_date=self.SENT)
+        client._batches = [
+            [
+                _FakeMessage(
+                    "请选择功能",
+                    buttons=client.make_buttons(["🎯 签到"]),
+                    date=self.FRESH,
+                )
+            ],
+            [_FakeMessage("请选择功能", date=self.LATER)],
+        ]
+        result = asyncio.run(signin_one(client, self._target()))
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["status"], STATUS_FAILED)
+        self.assertIn("只回了菜单", result["error"])
+
+    def test_menu_reply_not_renewed_fails(self) -> None:
+        """点击后 bot 没有新消息（读回的还是那条菜单）→ 判失败，不算已签到。"""
+        client = _FakeClient(batches=[], sent_date=self.SENT)
+        menu = _FakeMessage(
+            "请选择功能",
+            buttons=client.make_buttons(["🎯 签到"]),
+            date=self.FRESH,
+        )
+        client._batches = [[menu], [menu]]
+        result = asyncio.run(signin_one(client, self._target()))
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["status"], STATUS_FAILED)
+        self.assertIn("无任何返回", result["error"])
+
+    def test_fresh_alert_repeated(self) -> None:
+        """弹窗说「已签到」也计入判据（修复 signin_one 漏传 alert）。"""
+        client = _FakeClient(batches=[], sent_date=self.SENT)
+        client._batches = [
+            [
+                _FakeMessage(
+                    "请选择功能",
+                    buttons=client.make_buttons_with_alert(
+                        ["🎯 签到"], "您今天已经签到过了"
+                    ),
+                    date=self.FRESH,
+                )
+            ],
+        ]
+        result = asyncio.run(signin_one(client, self._target()))
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["status"], STATUS_REPEATED)
+        self.assertIn("签到", result["alert"])
+
+    def test_fresh_success_reply(self) -> None:
+        """本次回复命中「签到成功」→ 成功。"""
+        client = _FakeClient(batches=[], sent_date=self.SENT)
+        client._batches = [
+            [
+                _FakeMessage(
+                    "请选择功能",
+                    buttons=client.make_buttons(["🎯 签到"]),
+                    date=self.FRESH,
+                )
+            ],
+            [_FakeMessage("🎉 签到成功 | 12 子弹", date=self.LATER)],
+        ]
+        result = asyncio.run(signin_one(client, self._target()))
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["status"], STATUS_SUCCESS)
 
 
 if __name__ == "__main__":

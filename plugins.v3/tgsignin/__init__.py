@@ -21,7 +21,7 @@ from __future__ import annotations
 import asyncio
 import threading
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from apscheduler.triggers.cron import CronTrigger
 from fastapi import Request
@@ -46,6 +46,8 @@ from .core.config import (
     NOTIFY_MODE_FAILURE,
     NOTIFY_MODE_NONE,
     NOTIFY_MODE_SUCCESS,
+    DEFAULT_RETRY_INTERVAL_HOURS,
+    MAX_RETRY_INTERVAL_HOURS,
     PROXY_MODE_CUSTOM,
     PROXY_MODE_DIRECT,
     PROXY_MODE_MP,
@@ -71,6 +73,7 @@ from .core.session import (
     resolve_proxy,
     session_files,
 )
+from .core.retry import evaluate_retry
 from .core.signin import build_notify_text, now_text, run_all, summarize_results
 from .core.store import (
     PAGE_RESULT_LIMIT,
@@ -140,6 +143,7 @@ class TgSignin(_PluginBase):
         self._enabled = False
         self._cron = "0 9 * * *"
         self._notify_mode = NOTIFY_MODE_FAILURE
+        self._retry_interval_hours = DEFAULT_RETRY_INTERVAL_HOURS
         self._use_text_mode = False
         self._accounts_text = DEFAULT_ACCOUNTS_TEXT
         self._targets_text = DEFAULT_TARGETS_TEXT
@@ -171,6 +175,17 @@ class TgSignin(_PluginBase):
                 NOTIFY_MODE_ALL,
             ):
                 self._notify_mode = NOTIFY_MODE_FAILURE
+            # 失败重试间隔（小时）：0 = 不重试；窗口到次日 0 点自动重置
+            self._retry_interval_hours = max(
+                0,
+                min(
+                    MAX_RETRY_INTERVAL_HOURS,
+                    self._safe_int(
+                        coerce_scalar(config.get("retry_interval_hours")),
+                        DEFAULT_RETRY_INTERVAL_HOURS,
+                    ),
+                ),
+            )
             self._use_text_mode = bool(config.get("use_text_mode"))
             self._accounts_text = str(config.get("accounts_text") or DEFAULT_ACCOUNTS_TEXT)
             self._targets_text = str(config.get("targets_text") or DEFAULT_TARGETS_TEXT)
@@ -496,6 +511,23 @@ class TgSignin(_PluginBase):
                                     "items": notify_items,
                                     "persistent-hint": True,
                                     "hint": "「仅成功时」= 只有全部成功才通知；登录动作失败始终通知",
+                                },
+                            }
+                        ],
+                    },
+                    {
+                        "component": "VCol",
+                        "props": {"cols": 12, "md": 4},
+                        "content": [
+                            {
+                                "component": "VTextField",
+                                "props": {
+                                    "model": "retry_interval_hours",
+                                    "label": "失败重试间隔（小时）",
+                                    "type": "number",
+                                    "placeholder": f"默认 {DEFAULT_RETRY_INTERVAL_HOURS}，0=不重试",
+                                    "persistent-hint": True,
+                                    "hint": "当天签到失败后每隔这么久重试一次；到次日 0 点自动重置重试窗口",
                                 },
                             }
                         ],
@@ -897,6 +929,7 @@ class TgSignin(_PluginBase):
             "enabled": False,
             "cron": "0 9 * * *",
             "notify_mode": NOTIFY_MODE_FAILURE,
+            "retry_interval_hours": DEFAULT_RETRY_INTERVAL_HOURS,
             "use_text_mode": False,
             "accounts_text": DEFAULT_ACCOUNTS_TEXT,
             "targets_text": DEFAULT_TARGETS_TEXT,
@@ -1468,6 +1501,7 @@ class TgSignin(_PluginBase):
                 "enabled": self._enabled,
                 "cron": self._cron,
                 "notify_mode": self._notify_mode,
+                "retry_interval_hours": self._retry_interval_hours,
                 "use_text_mode": self._use_text_mode,
             }
         )
@@ -1598,6 +1632,7 @@ class TgSignin(_PluginBase):
         source: str,
         only_account: Optional[str] = None,
         only_bot: Optional[str] = None,
+        only_targets: Optional[Sequence[Any]] = None,
     ) -> Dict[str, Any]:
         """
         执行签到并按需通知失败。
@@ -1605,6 +1640,7 @@ class TgSignin(_PluginBase):
         :param source: 触发来源（定时/手动/命令）
         :param only_account: 只跑该账号
         :param only_bot: 只跑该 bot
+        :param only_targets: 只跑给定的目标集合（失败重试用），None 表示全部
         :return Dict[str, Any]: 统一响应结构
         """
         self._refresh_parsed_config()
@@ -1625,16 +1661,19 @@ class TgSignin(_PluginBase):
             proxy,
             only_account=only_account,
             only_bot=only_bot,
+            only_targets=only_targets,
         )
         summary = summarize_results(results)
         record_run(self.get_data_path(), results, source, summary)
         for item in results:
             logger.info(
-                "【TgSignin】%s %s → %s %s",
+                "【TgSignin】%s %s → %s %s｜状态=%s%s",
                 "✅" if item.get("ok") else "❌",
                 item.get("account"),
                 item.get("bot"),
-                str(item.get("reply") or item.get("error") or "")[:120],
+                str(item.get("reply") or item.get("error") or "（无返回内容）")[:120],
+                item.get("status") or "",
+                f"｜弹窗={str(item.get('alert'))[:60]}" if item.get("alert") else "",
             )
         self._notify_results(results, source)
         return {"success": True, "message": summary, "data": {"results": results}}
@@ -1672,6 +1711,32 @@ class TgSignin(_PluginBase):
             self._run_sync(lambda: self._signin(source="定时"))
         except Exception as error:  # pylint: disable=broad-except
             logger.error("【TgSignin】定时签到失败：%s", error)
+
+    def scheduled_retry(self) -> None:
+        """
+        失败重试服务入口（同步）：只重跑今天失败且已到重试间隔的目标。
+
+        :return None
+        """
+
+        if not self._enabled or self._retry_interval_hours <= 0:
+            return
+        try:
+            due, _ = evaluate_retry(
+                self._targets,
+                load_state(self.get_data_path()),
+                retry_interval_hours=self._retry_interval_hours,
+            )
+            if not due:
+                return
+            logger.info(
+                "【TgSignin】失败重试：%d 个目标到期（间隔 %d 小时）",
+                len(due),
+                self._retry_interval_hours,
+            )
+            self._run_sync(lambda: self._signin(source="失败重试", only_targets=due))
+        except Exception as error:  # pylint: disable=broad-except
+            logger.error("【TgSignin】失败重试异常：%s", error)
 
     # ==================== 命令 ====================
 
@@ -1842,7 +1907,7 @@ class TgSignin(_PluginBase):
         except ValueError:
             logger.error("【TgSignin】cron 表达式非法，已跳过定时服务：%s", self._cron)
             return []
-        return [
+        services: List[Dict[str, Any]] = [
             {
                 "id": "tgsignin_daily",
                 "name": "Telegram 自动签到",
@@ -1851,3 +1916,15 @@ class TgSignin(_PluginBase):
                 "kwargs": {},
             }
         ]
+        if self._retry_interval_hours > 0:
+            # 失败重试：每小时检查一次，只跑「今天失败且已到重试间隔」的目标
+            services.append(
+                {
+                    "id": "tgsignin_retry",
+                    "name": "Telegram 签到失败重试",
+                    "trigger": CronTrigger.from_crontab("0 * * * *"),
+                    "func": self.scheduled_retry,
+                    "kwargs": {},
+                }
+            )
+        return services
