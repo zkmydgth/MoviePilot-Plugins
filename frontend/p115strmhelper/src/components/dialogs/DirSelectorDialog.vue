@@ -43,6 +43,11 @@
           </v-list>
         </div>
 
+        <v-alert v-if="disableRoot && dirDialog.currentPath === '/' && !dirDialog.isLocal" type="warning"
+          density="compact" class="mt-2 text-caption" variant="tonal" icon="mdi-alert-circle-outline">
+          115离线下载不支持选择根目录，请选择或进入一个子目录。
+        </v-alert>
+
         <v-alert v-if="dirDialog.error" type="error" density="compact" class="mt-2 text-caption" variant="tonal">
           {{ dirDialog.error }}
         </v-alert>
@@ -50,7 +55,8 @@
 
       <v-card-actions class="px-3 py-2">
         <v-spacer></v-spacer>
-        <v-btn color="primary" @click="$emit('confirm')" :disabled="!dirDialog.currentPath || dirDialog.loading"
+        <v-btn color="primary" @click="$emit('confirm')"
+          :disabled="!dirDialog.currentPath || dirDialog.loading || (disableRoot && dirDialog.currentPath === '/' && !dirDialog.isLocal)"
           variant="text" size="small">
           选择当前目录
         </v-btn>
@@ -65,6 +71,7 @@
 <script setup>
 defineProps({
   dirDialog: { type: Object, required: true },
+  disableRoot: { type: Boolean, default: false },
 });
 
 defineEmits(['load-dir', 'navigate-up', 'select-dir', 'confirm', 'close']);

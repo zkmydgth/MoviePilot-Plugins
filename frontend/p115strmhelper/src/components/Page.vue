@@ -1180,104 +1180,23 @@
   </v-dialog>
 
   <!-- 目录选择器对话框 -->
-  <v-dialog v-model="dirDialog.show" max-width="800">
-    <v-card>
-      <v-card-title class="text-subtitle-1 d-flex align-center px-3 py-1 bg-primary-lighten-5">
-        <v-icon :icon="dirDialog.isLocal ? 'mdi-folder-search' : 'mdi-folder-network'" class="mr-2" color="primary" />
-        <span>{{ dirDialog.isLocal ? '选择本地目录' : '选择网盘目录' }}</span>
-      </v-card-title>
-
-      <v-card-text class="px-3 py-2">
-        <div v-if="dirDialog.loading" class="d-flex justify-center my-3">
-          <v-progress-circular indeterminate color="primary"></v-progress-circular>
-        </div>
-
-        <div v-else>
-          <!-- 当前路径显示 -->
-          <v-text-field v-model="dirDialog.currentPath" label="当前路径" variant="outlined" density="compact" class="mb-2"
-            @keyup.enter="loadDirContent"></v-text-field>
-
-          <!-- 文件列表 -->
-          <v-list class="border rounded" max-height="300px" overflow-y="auto">
-            <v-list-item
-              v-if="dirDialog.currentPath !== '/' && dirDialog.currentPath !== 'C:\\' && dirDialog.currentPath !== 'C:/'"
-              @click="navigateToParentDir" class="py-0" style="min-height: auto;">
-              <template v-slot:prepend>
-                <v-icon icon="mdi-arrow-up" size="small" class="mr-2" color="grey" />
-              </template>
-              <v-list-item-title class="text-body-2">上级目录</v-list-item-title>
-              <v-list-item-subtitle>..</v-list-item-subtitle>
-            </v-list-item>
-
-            <v-list-item v-for="(item, index) in dirDialog.items" :key="index" @click="selectDir(item)"
-              :disabled="!item.is_dir" class="py-0" style="min-height: auto;">
-              <template v-slot:prepend>
-                <v-icon :icon="item.is_dir ? 'mdi-folder' : 'mdi-file'" size="small" class="mr-2"
-                  :color="item.is_dir ? 'success' : 'blue'" />
-              </template>
-              <v-list-item-title class="text-body-2">{{ item.name }}</v-list-item-title>
-            </v-list-item>
-
-            <v-list-item v-if="!dirDialog.items.length" class="py-2 text-center">
-              <v-list-item-title class="text-body-2 text-grey">该目录为空或访问受限</v-list-item-title>
-            </v-list-item>
-          </v-list>
-        </div>
-
-        <!-- 新增：根目录限制提示 -->
-        <v-alert v-if="dirDialog.currentPath === '/' && !dirDialog.isLocal" type="warning" density="compact"
-          class="mt-2 text-caption" variant="tonal" icon="mdi-alert-circle-outline">
-          115离线下载不支持选择根目录，请选择或进入一个子目录。
-        </v-alert>
-
-        <v-alert v-if="dirDialog.error" type="error" density="compact" class="mt-2 text-caption" variant="tonal">
-          {{ dirDialog.error }}
-        </v-alert>
-      </v-card-text>
-
-      <v-card-actions class="px-3 py-1">
-        <v-spacer></v-spacer>
-        <!-- 修改：为 '选择当前目录' 按钮添加禁用条件 -->
-        <v-btn color="primary" @click="confirmDirSelection"
-          :disabled="!dirDialog.currentPath || dirDialog.loading || (dirDialog.currentPath === '/' && !dirDialog.isLocal)"
-          variant="text" size="small">
-          选择当前目录
-        </v-btn>
-        <v-btn color="grey" @click="closeDirDialog" variant="text" size="small">
-          取消
-        </v-btn>
-      </v-card-actions>
-    </v-card>
-  </v-dialog>
+  <DirSelectorDialog
+    :dir-dialog="dirDialog"
+    :disable-root="true"
+    @load-dir="loadDirContent"
+    @navigate-up="navigateToParentDir"
+    @select-dir="selectDir"
+    @confirm="confirmDirSelection"
+    @close="closeDirDialog"
+  />
 
   <!-- 全量同步确认对话框 -->
-  <v-dialog v-model="fullSyncConfirmDialog" max-width="500" persistent>
-    <v-card>
-      <v-card-title class="text-h6 d-flex align-center">
-        <v-icon icon="mdi-alert-circle-outline" color="warning" class="mr-2"></v-icon>
-        确认操作
-      </v-card-title>
-      <v-card-text>
-        <div class="mb-2">您确定要立即执行全量同步吗？</div>
-        <v-alert v-if="initialConfig?.full_sync_media_server_refresh_enabled" type="warning" variant="tonal"
-          density="compact" class="mt-2" icon="mdi-alert">
-          <div class="text-body-2 mb-1"><strong>重要警告</strong></div>
-          <div class="text-caption">
-            全量同步完成后将自动刷新整个媒体库，此操作会扫描所有媒体文件，可能导致媒体服务器负载增加。请确保您已了解此风险并自行承担相应责任。
-          </div>
-        </v-alert>
-      </v-card-text>
-      <v-card-actions>
-        <v-spacer></v-spacer>
-        <v-btn color="grey" variant="text" @click="fullSyncConfirmDialog = false" :disabled="syncLoading">
-          取消
-        </v-btn>
-        <v-btn color="warning" variant="text" @click="handleConfirmFullSync" :loading="syncLoading">
-          确认执行
-        </v-btn>
-      </v-card-actions>
-    </v-card>
-  </v-dialog>
+  <FullSyncConfirmDialog
+    v-model="fullSyncConfirmDialog"
+    :loading="syncLoading"
+    :has-media-server-refresh="initialConfig?.full_sync_media_server_refresh_enabled"
+    @confirm="handleConfirmFullSync"
+  />
 
   <v-dialog v-model="fullSyncDbConfirmDialog" max-width="450" persistent>
     <v-card>
@@ -1433,8 +1352,10 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, onBeforeUnmount, watch, getCurrentInstance } from 'vue';
+import { ref, reactive, computed, onMounted, onBeforeUnmount, watch } from 'vue';
 import { ensureSentryInitialized } from '../utils/init-sentry.js';
+import FullSyncConfirmDialog from './dialogs/FullSyncConfirmDialog.vue';
+import DirSelectorDialog from './dialogs/DirSelectorDialog.vue';
 
 const props = defineProps({
   api: {
@@ -2262,13 +2183,6 @@ const buildAvailablePaths = () => {
   offlineDownloadDialog.availablePathStrings = paths.map(p => p.path);
 };
 
-const handlePathSelect = (item) => {
-  if (item && item.path) {
-    offlineDownloadDialog.destPath = item.path;
-  } else {
-    offlineDownloadDialog.destPath = '';
-  }
-};
 
 const getPathLabel = (path) => {
   if (!path) return '';
