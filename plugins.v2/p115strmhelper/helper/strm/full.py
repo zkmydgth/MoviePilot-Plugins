@@ -185,8 +185,10 @@ class FullSyncStrmHelper:
                 )
                 seen_file_ids.add(file_id)
 
-        self.databasehelper.upsert_batch_by_list("files", files_list)
-        self.databasehelper.upsert_batch_by_list("folders", folders_list)
+        if files_list:
+            self.databasehelper.upsert_batch_by_list("files", files_list)
+        if folders_list:
+            self.databasehelper.upsert_batch_by_list("folders", folders_list)
 
         return seen_folder_ids, seen_file_ids
 
