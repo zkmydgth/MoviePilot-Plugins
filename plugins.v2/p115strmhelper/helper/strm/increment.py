@@ -1,4 +1,5 @@
 from collections import deque
+from functools import partial
 from itertools import batched
 from pathlib import Path
 from threading import Thread
@@ -6,7 +7,10 @@ from time import perf_counter, sleep
 from typing import Any, Callable, Dict, Generator, Iterator, List, Optional, Tuple
 
 from p115client import P115Client
-from p115client.tool.export_dir import export_dir_parse_iter
+from p115client.tool.export_dir import (
+    export_dir_parse_iter,
+    parse_export_dir_as_path_iter,
+)
 from p115client.tool.iterdir import iterdir
 from p115client.tool.fs_files import iter_fs_files
 from sqlalchemy.orm.exc import MultipleResultsFound
@@ -192,6 +196,14 @@ class IncrementSyncStrmHelper:
 
         :return Iterator: 网盘路径迭代器
         """
+        from posixpatht import escape as posix_escape
+
+        def custom_escape(name):
+            """
+            处理 115 目录树部分情况下会将 ' 转义为 \'
+            """
+            return posix_escape(name.replace("\\'", "'"))
+
         relative_path = None
 
         cid = get_pid_by_path(self.client, pan_path, True, False, False)
@@ -205,6 +217,7 @@ class IncrementSyncStrmHelper:
             delete=True,
             show_clock=self._make_throttled_export_dir_wait_logger(),
             timeout=configer.increment_sync_itertree_timeout_seconds,
+            parse_iter=partial(parse_export_dir_as_path_iter, escape=custom_escape),
             **configer.get_ios_ua_app(app=False),
         )
         try:
@@ -216,7 +229,9 @@ class IncrementSyncStrmHelper:
         def process_file_item(item_str: str):
             item_path = Path(pan_path) / Path(item_str).relative_to(relative_path)
             relative_item_path = item_path.relative_to(pan_path)
-            local_item_path = Path(local_path) / PathUtils.sanitize_path_parts(relative_item_path)
+            local_item_path = Path(local_path) / PathUtils.sanitize_path_parts(
+                relative_item_path
+            )
 
             if item_path.suffix.lower() in self.rmt_mediaext:
                 strm_filename = StrmGenerater.get_strm_filename(local_item_path)
