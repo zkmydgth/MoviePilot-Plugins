@@ -34,47 +34,40 @@ class Cleaner:
         清空最近接收
         """
         try:
-            # logger.info("【最近接收清理】开始清理最近接收")
-            # parent_id = int(self.client.fs_dir_getid("/最近接收")["id"])
-            # if parent_id == 0:
-            #     logger.info("【最近接收清理】最近接收目录为空，无需清理")
-            #     return
-            # logger.info(f"【最近接收清理】最近接收目录 ID 获取成功: {parent_id}")
-            # sleep(2)
-            # id_list: List = []
-            # for batch in iter_fs_files(self.client, parent_id):
-            #     for item in batch.get("data", []):
-            #         if not item:
-            #             continue
-            #         if "fid" not in item:
-            #             id_list.append(item.get("cid"))
-            #         else:
-            #             id_list.append(item.get("fid"))
-            # if not id_list:
-            #     logger.info("【最近接收清理】最近接收目录为空，无需清理")
-            #     return
-            # batch_size = 4500
-            # total_files = len(id_list)
-            # logger.info(f"【最近接收清理】清理文件总数：{total_files}")
-            # if total_files > batch_size:
-            #     logger.info(f"【最近接收清理】文件数量超过 {batch_size}，将分批删除")
-            #     for i in range(0, total_files, batch_size):
-            #         batch_ids = id_list[i : i + batch_size]
-            #         logger.info(
-            #             f"【最近接收清理】正在删除第{i // batch_size + 1}批，数量：{len(batch_ids)}"
-            #         )
-            #         self.client.fs_delete(batch_ids)
-            #         sleep(2)
-            # else:
-            #     self.client.fs_delete(id_list)
-            # logger.info("【最近接收清理】最近接收已清空")
             logger.info("【最近接收清理】开始清理最近接收")
-            parent_id = int(self.client.fs_dir_getid("/最近接收")["id"])
-            if parent_id == 0:
+            parent_id = int(self.client.fs_sys_dir(0)["cid"])
+            if parent_id == -1:
                 logger.info("【最近接收清理】最近接收目录为空，无需清理")
                 return
             logger.info(f"【最近接收清理】最近接收目录 ID 获取成功: {parent_id}")
-            self.client.fs_delete(parent_id)
+            sleep(2)
+            id_list: List = []
+            for batch in iter_fs_files(self.client, parent_id, cooldown=2):
+                for item in batch.get("data", []):
+                    if not item:
+                        continue
+                    if "fid" not in item:
+                        id_list.append(item.get("cid"))
+                    else:
+                        id_list.append(item.get("fid"))
+            if not id_list:
+                logger.info("【最近接收清理】最近接收目录为空，无需清理")
+                return
+            batch_size = 45000
+            total_files = len(id_list)
+            logger.info(f"【最近接收清理】清理文件总数：{total_files}")
+            sleep(2)
+            if total_files > batch_size:
+                logger.info(f"【最近接收清理】文件数量超过 {batch_size}，将分批删除")
+                for i in range(0, total_files, batch_size):
+                    batch_ids = id_list[i : i + batch_size]
+                    logger.info(
+                        f"【最近接收清理】正在删除第 {i // batch_size + 1} 批，数量：{len(batch_ids)}"
+                    )
+                    self.client.fs_delete(batch_ids)
+                    sleep(2)
+            else:
+                self.client.fs_delete(id_list)
             logger.info("【最近接收清理】最近接收已清空")
         except Exception as e:
             logger.error(f"【最近接收清理】清理最近接收运行失败: {e}")
