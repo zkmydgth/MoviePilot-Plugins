@@ -46,7 +46,7 @@ class BangumiDailyDiscover(_PluginBase):
     # 插件图标
     plugin_icon = "Bangumi_A.png"
     # 插件版本
-    plugin_version = "1.0.2"
+    plugin_version = "1.0.3"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -136,18 +136,18 @@ class BangumiDailyDiscover(_PluginBase):
         """
         rating_info = series_info.get("rating", {})
         title = series_info.get("name_cn") or series_info.get("name", "")
-        images = series_info.get("images", {})
+        images = series_info.get("images", {}) or {}
 
         return schemas.MediaInfo(
             type="电视剧",
             source="bangumi",
             title=title,
             mediaid_prefix="bangumidaily",
-            media_id=series_info.get("id"),
-            bangumi_id=series_info.get("id"),
-            poster_path=images.get("large"),
-            vote_average=rating_info.get("score"),
-            first_air_date=series_info.get("air_date"),
+            media_id=series_info.get("id", ""),
+            bangumi_id=series_info.get("id", ""),
+            poster_path=images.get("large", ""),
+            vote_average=rating_info.get("score", 0),
+            first_air_date=series_info.get("air_date", ""),
         )
 
     def bangumidaily_discover(
@@ -177,7 +177,7 @@ class BangumiDailyDiscover(_PluginBase):
             return results[start_idx:end_idx]
 
         except Exception as e:
-            logger.error(f"获取Bangumi每日放送数据失败: {str(e)}")
+            logger.error(f"获取Bangumi每日放送数据失败: {str(e)}", exc_info=True)
             return []
 
     @staticmethod
