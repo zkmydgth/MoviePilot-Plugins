@@ -2,6 +2,7 @@ from time import strftime, localtime, time
 from typing import List, Tuple, Optional, Dict, Any
 from pathlib import Path
 
+from app.core.event import Event
 from app.log import logger
 from app.core.config import settings
 from app.db.models.transferhistory import TransferHistory
@@ -58,6 +59,22 @@ class MediaSyncDelHelper:
                 func_name="【同步删除】",
                 media_servers=mediaservers,
             )
+
+    def download_file_del_sync(self, event: Event):
+        """
+        下载文件删除事件处理
+        """
+        src = event.event_data.get("src")
+        if not src:
+            return
+        download_hash = self.downloadhis.get_hash_by_fullpath(src)
+        if download_hash:
+            download_history = self.downloadhis.get_by_hash(download_hash)
+            self.handle_torrent(
+                type=download_history.type, src=src, torrent_hash=download_hash
+            )
+        else:
+            logger.warn(f"【同步删除】未查询到文件 {src} 对应的下载记录")
 
     def remove_by_path(self, path: str, del_source: bool = False):
         """

@@ -1296,7 +1296,6 @@ class P115StrmHelper(_PluginBase):
         """
         通过Webhook事件同步删除媒体
         """
-
         if not configer.sync_del_enabled:
             return
 
@@ -1314,6 +1313,22 @@ class P115StrmHelper(_PluginBase):
             p115_library_path=configer.sync_del_p115_library_path,
             p115_force_delete_files=configer.sync_del_p115_force_delete_files,
         )
+
+    @eventmanager.register(EventType.DownloadFileDeleted)
+    def download_file_del_sync(self, event: Event):
+        """
+        下载文件删除处理事件
+        """
+        if not configer.sync_del_enabled:
+            return
+
+        if not event:
+            return
+
+        mediasyncdel_helper = MediaSyncDelHelper()
+        mediasyncdel_helper.init_mediaserver(configer.sync_del_mediaservers)
+
+        mediasyncdel_helper.download_file_del_sync(event)
 
     def stop_service(self):
         """
