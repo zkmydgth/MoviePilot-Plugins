@@ -402,6 +402,11 @@ class ConfigManager(BaseModel):
     increment_sync_second_level_dir_scan: bool = Field(
         default=False, description="扫描二级目录生成目录树（二级目录最大限100文件夹）"
     )
+    increment_sync_itertree_timeout_seconds: Union[int, float] = Field(
+        default=0,
+        ge=0,
+        description="增量同步迭代目录树(115导出)超时秒数，0表示不限制",
+    )
 
     monitor_life_enabled: bool = Field(default=False, description="监控生活事件开关")
     monitor_life_auto_download_mediainfo_enabled: bool = Field(

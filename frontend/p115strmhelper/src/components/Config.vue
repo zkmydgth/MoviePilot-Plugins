@@ -346,6 +346,7 @@ const config = reactive({
   increment_sync_emby_mediainfo_enabled: false,
   increment_sync_min_file_size: 0,
   increment_sync_second_level_dir_scan: false,
+  increment_sync_itertree_timeout_seconds: 0,
   monitor_life_enabled: false,
   monitor_life_auto_download_mediainfo_enabled: false,
   monitor_life_paths: '',

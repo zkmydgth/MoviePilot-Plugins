@@ -3,7 +3,7 @@ from itertools import batched
 from pathlib import Path
 from threading import Thread
 from time import perf_counter, sleep
-from typing import List, Dict, Optional, Tuple, Iterator, Any, Generator
+from typing import Any, Callable, Dict, Generator, Iterator, List, Optional, Tuple
 
 from p115client import P115Client
 from p115client.tool.export_dir import export_dir_parse_iter
@@ -40,6 +40,8 @@ class IncrementSyncStrmHelper:
     """
     增量同步 STRM 文件
     """
+
+    _EXPORT_DIR_WAIT_LOG_INTERVAL_SEC = 60.0
 
     def __init__(self, client: P115Client, mediainfodownloader: MediaInfoDownloader):
         self.client = client
@@ -126,6 +128,32 @@ class IncrementSyncStrmHelper:
         self.pan_tree.clear()
         self.pan_to_local_tree.clear()
 
+    @staticmethod
+    def _make_throttled_export_dir_wait_logger(
+        interval_sec: Optional[float] = None,
+    ) -> Callable[[], None]:
+        """
+        供 export_dir_parse_iter(show_clock=...) 使用：在等待云端导出目录树时用 info 打日志并按时间节流
+
+        :param interval_sec: 节流间隔秒数，默认使用类属性 _EXPORT_DIR_WAIT_LOG_INTERVAL_SEC
+        """
+        sec = (
+            float(interval_sec)
+            if interval_sec is not None
+            else IncrementSyncStrmHelper._EXPORT_DIR_WAIT_LOG_INTERVAL_SEC
+        )
+        last_t: Optional[float] = None
+
+        def _tick() -> None:
+            nonlocal last_t
+            now = perf_counter()
+            if last_t is not None and (now - last_t) < sec:
+                return
+            last_t = now
+            logger.info("【增量STRM生成】等待 115 云端导出目录树任务...")
+
+        return _tick
+
     def __itertree(
         self, pan_path: str, local_path: str
     ) -> Generator[tuple[str, str], Any, None]:
@@ -148,6 +176,8 @@ class IncrementSyncStrmHelper:
             client=self.client,
             export_file_ids=cid,
             delete=True,
+            show_clock=self._make_throttled_export_dir_wait_logger(),
+            timeout=configer.increment_sync_itertree_timeout_seconds,
             **configer.get_ios_ua_app(app=False),
         )
         try:

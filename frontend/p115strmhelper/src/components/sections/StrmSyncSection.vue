@@ -497,6 +497,12 @@
                     <v-switch v-model="config.increment_sync_second_level_dir_scan" label="扫描二级目录生成目录树"
                       color="primary"></v-switch>
                   </v-col>
+                  <v-col cols="12" md="6">
+                    <v-text-field v-model.number="config.increment_sync_itertree_timeout_seconds"
+                      label="目录树导出超时（秒）" type="number" min="0" hide-spin-buttons
+                      hint="115 云端导出目录树任务的最大等待时间；0 表示不限制"
+                      persistent-hint></v-text-field>
+                  </v-col>
                 </v-row>
                 <v-row>
                   <v-col cols="12">
