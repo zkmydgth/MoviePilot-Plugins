@@ -192,7 +192,7 @@ jobs:
           CIBW_MANYLINUX_AARCH64_IMAGE: 'pypa/musllinux_aarch64'
           CIBW_BEFORE_BUILD: 'pip install wheel setuptools cython'
           CIBW_BUILD_VERBOSITY: 1
-          CIBW_BUILD: "cp${{ join(split(inputs.python_version, '.'), '')[:3] }}-*"
+          CIBW_BUILD: ${{ steps.vars.outputs.cibw_build_version }}
           CIBW_OUTPUT_DIR: wheels
           CIBW_ARCHS: ${{ matrix.arch }}
         with:
