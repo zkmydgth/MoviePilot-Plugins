@@ -152,6 +152,14 @@ class ConfigManager(BaseModel):
     full_sync_overwrite_mode: str = "never"
     # 清理无效 STRM 文件
     full_sync_remove_unless_strm: bool = False
+    # 清理无效 STRM 目录（即无 STRM 文件的目录）
+    full_sync_remove_unless_dir: bool = False
+    # 清理无效 STRM 文件关联的媒体信息文件
+    full_sync_remove_unless_file: bool = False
+    # 清理无效 STRM 最大删除阈值
+    full_sync_remove_unless_max_threshold: int = 10
+    # 清理无效 STRM 稳定阈值
+    full_sync_remove_unless_stable_threshold: int = 5
     # 定期全量同步开关
     timing_full_sync_strm: bool = False
     # 下载媒体信息文件开关

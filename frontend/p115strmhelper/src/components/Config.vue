@@ -293,6 +293,24 @@
                           color="warning"></v-switch>
                       </v-col>
                       <v-col cols="12" md="3">
+                        <v-switch v-model="config.full_sync_remove_unless_dir" label="清理无效STRM目录"
+                          color="warning" :disabled="!config.full_sync_remove_unless_strm"></v-switch>
+                      </v-col>
+                      <v-col cols="12" md="3">
+                        <v-switch v-model="config.full_sync_remove_unless_file" label="清理无效STRM文件关联的媒体信息文件"
+                          color="warning" :disabled="!config.full_sync_remove_unless_strm"></v-switch>
+                      </v-col>
+                    </v-row>
+
+                    <v-row>
+                      <v-col cols="12" md="3">
+                        <v-switch v-model="config.timing_full_sync_strm" label="定期全量同步" color="info"></v-switch>
+                      </v-col>
+                      <v-col cols="12" md="3">
+                        <VCronField v-model="config.cron_full_sync_strm" label="运行全量同步周期" hint="设置全量同步的执行周期"
+                          persistent-hint density="compact"></VCronField>
+                      </v-col>
+                      <v-col cols="12" md="3">
                         <v-switch v-model="config.full_sync_auto_download_mediainfo_enabled" label="下载媒体数据文件"
                           color="warning"></v-switch>
                       </v-col>
@@ -300,16 +318,6 @@
                         <v-text-field v-model="fullSyncMinFileSizeFormatted" label="STRM最小文件大小"
                           hint="小于此值的文件将不生成STRM(单位K,M,G)" persistent-hint density="compact" placeholder="例如: 100M (可为空)"
                           clearable></v-text-field>
-                      </v-col>
-                    </v-row>
-
-                    <v-row>
-                      <v-col cols="12" md="6">
-                        <v-switch v-model="config.timing_full_sync_strm" label="定期全量同步" color="info"></v-switch>
-                      </v-col>
-                      <v-col cols="12" md="6">
-                        <VCronField v-model="config.cron_full_sync_strm" label="运行全量同步周期" hint="设置全量同步的执行周期"
-                          persistent-hint density="compact"></VCronField>
                       </v-col>
                     </v-row>
 
@@ -1463,6 +1471,8 @@ const config = reactive({
   timing_full_sync_strm: false,
   full_sync_overwrite_mode: "never",
   full_sync_remove_unless_strm: false,
+  full_sync_remove_unless_dir: false,
+  full_sync_remove_unless_file: false,
   full_sync_auto_download_mediainfo_enabled: false,
   full_sync_strm_log: true,
   full_sync_batch_num: 5000,
@@ -1955,6 +1965,15 @@ watch(monitorLifeExcludePaths, (newVal) => {
     config.monitor_life_scrape_metadata_exclude_paths = pathsString;
   }
 }, { deep: true });
+
+// 监听 full_sync_remove_unless_strm 变化，当禁用时自动禁用依赖的配置项
+watch(() => config.full_sync_remove_unless_strm, (newVal) => {
+  if (!newVal) {
+    // 当主配置被禁用时，自动禁用依赖的配置项
+    config.full_sync_remove_unless_dir = false;
+    config.full_sync_remove_unless_file = false;
+  }
+});
 
 const generatePathsConfig = (paths, key) => {
   const configText = paths.map(p => {

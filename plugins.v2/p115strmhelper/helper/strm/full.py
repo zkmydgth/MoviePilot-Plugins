@@ -28,6 +28,8 @@ from ...utils.sentry import sentry_manager
 from ...utils.strm import StrmUrlGetter, StrmGenerater
 from ...utils.tree import DirectoryTree
 from ...utils.http import check_iter_path_data
+from ...utils.base64 import CBase64
+from ...utils.math import MathUtils
 
 
 class FullSyncStrmHelper:
@@ -115,6 +117,26 @@ class FullSyncStrmHelper:
         """
         log_method = getattr(logger, level)
         log_method(msg, *args)
+
+    def __get_remove_unless_strm(self, path_base64: str) -> Dict:
+        """
+        获取删除信息
+        """
+        data: dict = configer.get_plugin_data("full_remove_unless_strm")
+        if data:
+            return data.get(path_base64, {})
+        return {}
+
+    def __save_remove_unless_strm(self, path_base64: str, value: Dict):
+        """
+        保存删除信息
+        """
+        data: Dict | None = configer.get_plugin_data("full_remove_unless_strm")
+        if data:
+            data[path_base64] = value
+        else:
+            data = {path_base64: value}
+        configer.save_plugin_data("full_remove_unless_strm", data)
 
     def __remove_unless_strm_local(self, target_dir: str) -> threading.Thread:
         """
@@ -463,6 +485,7 @@ class FullSyncStrmHelper:
         for path in media_paths:
             if not path:
                 continue
+            path_base64 = CBase64.encode(str(path).encode("utf-8"))
             parts = path.split("#", 1)
             pan_media_dir = parts[1]
             target_dir = parts[0]
@@ -573,25 +596,78 @@ class FullSyncStrmHelper:
                 while local_tree_task_thread.is_alive():  # noqa
                     logger.info("【全量STRM生成】扫描本地媒体库运行中...")
                     time.sleep(10)
-                if not self.strm_fail_dict and (
-                    settings.CACHE_BACKEND_TYPE == "redis"
-                    or self.local_tree_path.exists()
+                if (
+                    not self.strm_fail_dict
+                    and (
+                        settings.CACHE_BACKEND_TYPE == "redis"
+                        or self.local_tree_path.exists()
+                    )
+                    and self.local_tree.count() != 0
                 ):
                     try:
-                        count = self.local_tree.compare_entry_counts(self.pan_tree)
-                        if count > 500:
+                        counts = self.__get_remove_unless_strm(path_base64).get(
+                            "counts", []
+                        )
+                        local_tree_count = self.local_tree.count()
+                        remove_count = self.local_tree.compare_entry_counts(
+                            self.pan_tree
+                        )
+                        rp = (remove_count / local_tree_count) * 100
+                        if rp > configer.full_sync_remove_unless_max_threshold:
+                            # 在阈值范围外，进行数据稳定性测试
                             logger.warn(
-                                f"【全量STRM生成】本次将删除文件个数为 {count}，超过安全阈值不进行删除操作"
+                                f"【全量STRM生成】本次将删除文件个数为 {remove_count}，超过安全阈值 {configer.full_sync_remove_unless_max_threshold}% 不进行删除操作"
                             )
-                            continue
-                        for path in self.local_tree.compare_trees(self.pan_tree):
+
+                            counts.append(remove_count)
+                            if len(counts) < 3:
+                                logger.info(
+                                    f"【全量STRM生成】删除数据稳定性检查，已收集 {len(counts)}/3 个数据点 {counts}"
+                                )
+                                self.__save_remove_unless_strm(
+                                    path_base64, {"counts": counts}
+                                )
+                                continue
+
+                            if MathUtils.is_stable_cv(
+                                counts,
+                                configer.full_sync_remove_unless_stable_threshold / 100,
+                            ):
+                                logger.info(
+                                    f"【全量STRM生成】删除数据稳定性检查通过: {counts}"
+                                )
+                                self.__save_remove_unless_strm(
+                                    path_base64, {"counts": []}
+                                )
+                            else:
+                                logger.warn(
+                                    f"【全量STRM生成】删除数据稳定性检查失败，重置计数器: {counts}"
+                                )
+                                self.__save_remove_unless_strm(
+                                    path_base64, {"counts": [remove_count]}
+                                )
+                                continue
+                        else:
+                            # 在阈值内，且存在计数，则清空
+                            if len(counts) > 0:
+                                self.__save_remove_unless_strm(
+                                    path_base64, {"counts": []}
+                                )
+
+                        for remove_path in self.local_tree.compare_trees(self.pan_tree):
                             logger.info(f"【全量STRM生成】清理无效 STRM 文件: {path}")
-                            Path(path).unlink(missing_ok=True)
-                            PathRemoveUtils.remove_parent_dir(
-                                file_path=Path(path),
-                                mode="all",
-                                func_type="【全量STRM生成】",
-                            )
+                            Path(remove_path).unlink(missing_ok=True)
+                            if configer.full_sync_remove_unless_file:
+                                PathRemoveUtils.clean_related_files(
+                                    file_path=Path(remove_path),
+                                    func_type="【全量STRM生成】",
+                                )
+                            if configer.full_sync_remove_unless_dir:
+                                PathRemoveUtils.remove_parent_dir(
+                                    file_path=Path(remove_path),
+                                    mode=["strm"],
+                                    func_type="【全量STRM生成】",
+                                )
                             self.remove_unless_strm_count += 1
                     except Exception as e:
                         sentry_manager.sentry_hub.capture_exception(e)
