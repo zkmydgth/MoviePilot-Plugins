@@ -732,6 +732,7 @@ class U115OpenHelper:
                     return self.get_item(new_path)
                 logger.warn(f"【P115Open】创建目录失败: {resp.get('error')}")
                 return None
+            logger.debug(f"【P115Open】OpenAPI 创建目录: {new_path}")
             return schemas.FileItem(
                 storage="u115",
                 fileid=str(resp["data"]["file_id"]),
@@ -748,6 +749,7 @@ class U115OpenHelper:
                     return self.get_item(new_path)
                 logger.warn(f"【P115Open】创建目录失败: {resp}")
                 return None
+            logger.debug(f"【P115Open】Cookie 创建目录: {new_path}")
             return schemas.FileItem(
                 storage="u115",
                 fileid=str(resp["cid"]),
@@ -768,6 +770,7 @@ class U115OpenHelper:
             )
             if not resp:
                 return None
+            logger.debug(f"【P115Open】OpenAPI 获取文件信息 {path}")
             file_item = schemas.FileItem(
                 storage="u115",
                 fileid=str(resp["file_id"]),
@@ -801,6 +804,7 @@ class U115OpenHelper:
                 return None
             if data:
                 if data.get("id", None):
+                    logger.debug(f"【P115Open】DataBase 获取文件信息 {path}")
                     return schemas.FileItem(
                         storage="u115",
                         fileid=str(data.get("id")),
@@ -855,6 +859,7 @@ class U115OpenHelper:
             self.databasehelper.upsert_batch(
                 self.databasehelper.process_fs_files_item(data)
             )
+            logger.debug(f"【P115Open】Cookie 获取文件信息 {path}")
             return schemas.FileItem(
                 storage="u115",
                 fileid=str(data.get("cid")),
