@@ -1,4 +1,5 @@
 from datetime import datetime
+from time import sleep
 from typing import Tuple
 
 from pytz import timezone as pytz_timezone
@@ -12,6 +13,9 @@ from ...core.message import post_message
 from ...helper.hdhive.playwright import HDHiveLoginError, HDHivePlaywrightClient
 from ...utils.sentry import sentry_manager
 from .scheduler import _KEY_LAST_DONE
+
+_HDHIVE_CHECKIN_MAX_RETRIES = 3
+_HDHIVE_CHECKIN_RETRY_DELAY = 3
 
 
 @sentry_manager.capture_plugin_exceptions
@@ -66,16 +70,35 @@ def run_hdhive_checkin_once(
                 )
             return False, err
 
-        ok, detail = client.checkin(gamble=gamble)
         label = "赌狗签到" if gamble else "每日签到"
-        if ok:
-            logger.info("【HDHive 签到】%s 成功：%s", label, detail)
-            if manual:
-                tz = pytz_timezone(settings.TZ)
-                today_str = datetime.now(tz=tz).strftime("%Y-%m-%d")
-                configer.save_plugin_data(_KEY_LAST_DONE, today_str)
-        else:
-            logger.warning("【HDHive 签到】%s 未成功：%s", label, detail)
+        ok = False
+        detail = ""
+        for attempt in range(1, _HDHIVE_CHECKIN_MAX_RETRIES + 1):
+            ok, detail = client.checkin(gamble=gamble)
+            if ok:
+                logger.info("【HDHive 签到】%s 成功：%s", label, detail)
+                if manual:
+                    tz = pytz_timezone(settings.TZ)
+                    today_str = datetime.now(tz=tz).strftime("%Y-%m-%d")
+                    configer.save_plugin_data(_KEY_LAST_DONE, today_str)
+                break
+            if attempt < _HDHIVE_CHECKIN_MAX_RETRIES:
+                logger.warning(
+                    "【HDHive 签到】%s 第 %d/%d 次尝试失败：%s，%d 秒后重试",
+                    label,
+                    attempt,
+                    _HDHIVE_CHECKIN_MAX_RETRIES,
+                    detail,
+                    _HDHIVE_CHECKIN_RETRY_DELAY,
+                )
+                sleep(_HDHIVE_CHECKIN_RETRY_DELAY)
+            else:
+                logger.warning(
+                    "【HDHive 签到】%s 已重试 %d 次仍失败：%s",
+                    label,
+                    _HDHIVE_CHECKIN_MAX_RETRIES,
+                    detail,
+                )
 
         if send_notify and configer.notify:
             post_message(
