@@ -2340,6 +2340,9 @@
         </v-card-title>
 
         <v-card-text class="py-4">
+          <v-alert type="success" variant="tonal" density="compact" class="mb-3" icon="mdi-information-outline">
+            <span class="text-body-2">无论是否捐赠，插件功能均可正常使用。捐赠为自愿支持行为。</span>
+          </v-alert>
           <v-alert v-if="donateDialog.error" type="error" density="compact" class="mb-3" variant="tonal" closable>
             {{ donateDialog.error }}
           </v-alert>
