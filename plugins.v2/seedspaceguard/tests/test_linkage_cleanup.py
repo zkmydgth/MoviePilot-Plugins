@@ -1,14 +1,16 @@
 # -*- coding: utf-8 -*-
 """
-联动清理回归测试：种子 / 转移记录 / 刮削产物。
+联动清理回归测试：联动删除种子 / 删除转移记录。
 
-对应「源文件联动清理」插件的三项能力在「保种空间守护」中的等价实现。
 核心约束（用户明确要求）：
 
     仅文件模式下，**必须某个种子下的所有文件都删除后，才删除该种子**。
 
 因此本文件的重点是围绕 ``_seed_fully_removed`` 的判定边界展开：
 只要该种子还有任一文件在磁盘上存在（含被保护后缀跳过的），就必须保留种子。
+
+另覆盖清理范围规则：除「保护文件后缀」命中的外，**目录下所有文件均纳入候选**
+（含 nfo/图片/字幕等刮削产物），不再按文件类型区分。
 """
 
 import os
@@ -21,7 +23,7 @@ import tests  # noqa: F401  触发宿主桩路径注入
 
 from app.db.downloadhistory_oper import DownloadHistoryOper
 from app.db.transferhistory_oper import TransferHistoryOper
-from seedspaceguard import SeedSpaceGuard, SCRAP_EXTENSIONS
+from seedspaceguard import SeedSpaceGuard
 
 
 class _LinkageBase(unittest.TestCase):
@@ -42,7 +44,6 @@ class _LinkageBase(unittest.TestCase):
         self.plugin._dry_run = False
         self.plugin._delete_torrents = False
         self.plugin._delete_history = False
-        self.plugin._delete_scrap_infos = False
         self.plugin._downloadhis = DownloadHistoryOper()
         self.plugin._transferhis = TransferHistoryOper()
 
@@ -58,169 +59,6 @@ class _LinkageBase(unittest.TestCase):
         with open(path, "wb") as handle:
             handle.write(content)
         return path
-
-
-# ==========================================================================
-# 一、刮削产物清理
-# ==========================================================================
-class TestScrapCleanup(_LinkageBase):
-    """刮削文件清理的匹配规则与防误删边界。"""
-
-    def setUp(self):
-        super().setUp()
-        self.plugin._delete_scrap_infos = True
-
-    def test_same_stem_scrap_removed(self):
-        """同词干的 nfo / 图片 / 字幕应被一并清理。"""
-        media = self.make("阿凡达.mkv")
-        for name in ("阿凡达.nfo", "阿凡达-poster.jpg", "阿凡达.zh.srt",
-                     "阿凡达.fanart.png", "阿凡达.ass"):
-            self.make(name)
-        cleaned = self.plugin._clean_scrap_infos(media)
-        self.assertEqual(len(cleaned), 5)
-        for name in ("阿凡达.nfo", "阿凡达-poster.jpg", "阿凡达.zh.srt",
-                     "阿凡达.fanart.png", "阿凡达.ass"):
-            self.assertFalse(os.path.exists(os.path.join(self.dl, name)))
-
-    def test_sequel_scrap_preserved(self):
-        """续集刮削不得被误删：阿凡达2.nfo 与 阿凡达 词干不一致。"""
-        media = self.make("阿凡达.mkv")
-        sequel = self.make("阿凡达2.nfo")
-        other = self.make("泰坦尼克号.nfo")
-        cleaned = self.plugin._clean_scrap_infos(media)
-        self.assertEqual(cleaned, [])
-        self.assertTrue(os.path.exists(sequel))
-        self.assertTrue(os.path.exists(other))
-
-    def test_non_scrap_extension_preserved(self):
-        """非刮削后缀（如另一个视频）不得被清理。"""
-        media = self.make("阿凡达.mkv")
-        video = self.make("阿凡达-cd2.mkv")
-        cleaned = self.plugin._clean_scrap_infos(media)
-        self.assertEqual(cleaned, [])
-        self.assertTrue(os.path.exists(video))
-
-    def test_trickplay_dir_removed(self):
-        """同名 .trickplay 目录应被整体清理。"""
-        media = self.make("阿凡达.mkv")
-        trick = os.path.join(self.dl, "阿凡达.trickplay")
-        os.makedirs(trick)
-        with open(os.path.join(trick, "thumb.jpg"), "wb") as handle:
-            handle.write(b"t")
-        cleaned = self.plugin._clean_scrap_infos(media)
-        self.assertEqual(cleaned, [trick])
-        self.assertFalse(os.path.exists(trick))
-
-    def test_other_media_trickplay_preserved(self):
-        """其它媒体的 .trickplay 目录不得被清理。"""
-        media = self.make("阿凡达.mkv")
-        trick = os.path.join(self.dl, "泰坦尼克号.trickplay")
-        os.makedirs(trick)
-        cleaned = self.plugin._clean_scrap_infos(media)
-        self.assertEqual(cleaned, [])
-        self.assertTrue(os.path.exists(trick))
-
-    def test_scrap_in_subdir_isolated(self):
-        """
-        刮削清理不跨目录：子目录里的同名 nfo 不受影响。
-
-        注意：同时放一个**同目录**的同名 nfo 作为「阳性对照」，确保测试
-        确实走到了匹配逻辑——否则变异体（如改用固定父目录）会同样返回空，
-        导致测试因错误原因而通过。
-        """
-        media = self.make("阿凡达.mkv")
-        sibling = self.make("阿凡达.nfo")
-        nested = self.make("阿凡达.nfo", sub="sub")
-        cleaned = self.plugin._clean_scrap_infos(media)
-        self.assertEqual(cleaned, [sibling])
-        self.assertFalse(os.path.exists(sibling))
-        self.assertTrue(os.path.exists(nested))
-
-    def test_scrap_outside_target_dir_skipped(self):
-        """
-        配置目录外的刮削路径不得被删除（安全边界）。
-
-        分两层验证：
-
-        1. 扫描层隔离：越界目录不在扫描范围，天然不会被清理
-        2. 删除层兜底：直接构造越界路径调用 ``_remove_scrap_path``，
-           验证即便上游误传，安全边界仍会拦住——这是真正的纵深防御
-        """
-        media = self.make("阿凡达.mkv")
-        inside = self.make("阿凡达.nfo")
-        outside = os.path.join(self.lib, "阿凡达.nfo")
-        with open(outside, "wb") as handle:
-            handle.write(b"o")
-        cleaned = self.plugin._clean_scrap_infos(media)
-        self.assertEqual(cleaned, [inside])
-        self.assertFalse(os.path.exists(inside))
-        self.assertTrue(os.path.exists(outside))
-
-        # 删除层兜底：模拟上游误传越界路径
-        direct: list = []
-        self.plugin._remove_scrap_path(outside, direct)
-        self.assertEqual(direct, [])
-        self.assertTrue(os.path.exists(outside),
-                        "越界路径被删除，安全边界失效")
-
-    def test_remove_scrap_path_refuses_target_dir_itself(self):
-        """删除层不得删除配置目录本身。"""
-        target = self.plugin._target_dirs[0]
-        direct: list = []
-        self.plugin._remove_scrap_path(target, direct)
-        self.assertEqual(direct, [])
-        self.assertTrue(os.path.isdir(target), "配置目录本身被删除")
-
-    def test_all_whitelist_extensions_covered(self):
-        """白名单内各后缀均应被识别并清理（回归防护，避免遗漏后缀）。"""
-        media = self.make("movie.mkv")
-        for ext in SCRAP_EXTENSIONS:
-            self.make(f"movie{ext}")
-        cleaned = self.plugin._clean_scrap_infos(media)
-        self.assertEqual(len(cleaned), len(SCRAP_EXTENSIONS))
-
-
-# ==========================================================================
-# 一之二、刮削产物不得进入清理候选池
-# ==========================================================================
-class TestScrapExcludedFromCandidates(_LinkageBase):
-    """
-    刮削产物不应被当作可清理的「空间占用文件」。
-
-    理由：nfo/图片/字幕体积通常在 KB 级，删除它们对释放空间几乎无贡献，
-    却会破坏媒体库元数据。它们只应随所属媒体文件一并清理。
-    """
-
-    def _index(self, patterns=None):
-        return self.plugin._index_files(patterns or ["*.part"], 0)
-
-    def test_scrap_not_in_candidates(self):
-        """刮削文件不得出现在清理候选中。"""
-        self.make("movie.mkv")
-        self.make("movie.nfo")
-        self.make("movie.srt")
-        self.make("movie-poster.jpg")
-        files, _ino = self._index()
-        names = [os.path.basename(f[1]) for f in files]
-        self.assertEqual(names, ["movie.mkv"])
-
-    def test_media_still_in_candidates(self):
-        """媒体文件本身仍需正常纳入候选（阳性对照）。"""
-        self.make("a.mkv")
-        self.make("b.mp4")
-        self.make("c.ts")
-        files, _ino = self._index()
-        names = sorted(os.path.basename(f[1]) for f in files)
-        self.assertEqual(names, ["a.mkv", "b.mp4", "c.ts"])
-
-    def test_scrap_extension_case_insensitive(self):
-        """后缀大小写不敏感，避免 .NFO 漏网。"""
-        self.make("movie.mkv")
-        self.make("movie.NFO")
-        self.make("movie.Srt")
-        files, _ino = self._index()
-        names = [os.path.basename(f[1]) for f in files]
-        self.assertEqual(names, ["movie.mkv"])
 
 
 # ==========================================================================
@@ -346,7 +184,7 @@ class TestLinkageOrchestration(_LinkageBase):
         """全关时不产生任何联动动作。"""
         path = self.make("阿凡达.mkv")
         stats = self.plugin._run_linkage_after_delete([path], self.detail, False)
-        self.assertEqual(stats, {"scrap": 0, "history": 0,
+        self.assertEqual(stats, {"history": 0,
                                  "torrent": 0, "torrent_kept": 0})
 
     def test_dry_run_no_side_effect(self):
@@ -355,11 +193,9 @@ class TestLinkageOrchestration(_LinkageBase):
         self.make("阿凡达.nfo")
         TransferHistoryOper.add_record(1, "/src", path)
         DownloadHistoryOper.add_seed("H", [path])
-        self.plugin._delete_scrap_infos = True
         self.plugin._delete_history = True
         self.plugin._delete_torrents = True
         stats = self.plugin._run_linkage_after_delete([path], self.detail, True)
-        self.assertEqual(stats["scrap"], 0)
         self.assertEqual(TransferHistoryOper.deleted_ids, [])
         self.assertTrue(os.path.exists(os.path.join(self.dl, "阿凡达.nfo")))
 
@@ -430,27 +266,22 @@ class TestLinkageOrchestration(_LinkageBase):
             self.plugin._run_linkage_after_delete([path], self.detail, False)
         patched.assert_not_called()
 
-    def test_all_three_features_together(self):
-        """三项功能同时开启的完整编排。"""
+    def test_both_features_together(self):
+        """两项功能同时开启的完整编排。"""
         path = self.make("阿凡达.mkv")
-        self.make("阿凡达.nfo")
-        self.make("阿凡达-poster.jpg")
         TransferHistoryOper.add_record(5, "/src", path)
         DownloadHistoryOper.add_seed("ALL", [path])
         # 模拟文件已被清理（联动的输入前提是本轮确实删除了文件）
         os.unlink(path)
 
-        self.plugin._delete_scrap_infos = True
         self.plugin._delete_history = True
         self.plugin._delete_torrents = True
         with mock.patch.object(SeedSpaceGuard, "_delete_torrent_by_hash",
                                return_value=True):
             stats = self.plugin._run_linkage_after_delete([path], self.detail, False)
-        self.assertEqual(stats["scrap"], 2)
         self.assertEqual(stats["history"], 1)
         self.assertEqual(stats["torrent"], 1)
         self.assertEqual(TransferHistoryOper.deleted_ids, [5])
-        self.assertFalse(os.path.exists(os.path.join(self.dl, "阿凡达.nfo")))
 
 
 # ==========================================================================
@@ -514,6 +345,129 @@ class TestDeleteTorrentByHash(_LinkageBase):
         self.plugin._downloaders = []
         with mock.patch("seedspaceguard.ModuleManager", return_value=fake_mgr):
             self.assertIs(self.plugin._get_downloader_for("H"), module)
+
+
+# ==========================================================================
+# 六、清理范围：除保护后缀外，所有文件均纳入候选
+# ==========================================================================
+class TestCandidateScope(_LinkageBase):
+    """
+    候选池范围的回归测试。
+
+    规则（用户明确要求）：除「保护文件后缀」命中的文件外，**目录下所有文件
+    均纳入清理候选**，不区分文件类型——刮削产物（nfo/图片/字幕）同样计入，
+    以便「多余文件一并删除」。
+    """
+
+    def _index(self, patterns=None):
+        return self.plugin._index_files(patterns or [], 0)
+
+    def test_scrap_files_included(self):
+        """刮削产物必须进入候选池（与旧版行为相反）。"""
+        self.make("movie.mkv")
+        self.make("movie.nfo")
+        self.make("movie.srt")
+        self.make("movie-poster.jpg")
+        files, _ino = self._index()
+        names = sorted(os.path.basename(f[1]) for f in files)
+        self.assertEqual(names, ["movie-poster.jpg", "movie.mkv",
+                                 "movie.nfo", "movie.srt"])
+
+    def test_arbitrary_extension_included(self):
+        """任意后缀的文件都应纳入候选，不受类型限制。"""
+        for name in ("a.mkv", "b.txt", "c.bak", "d.iso", "e.json", "f.bin"):
+            self.make(name)
+        files, _ino = self._index()
+        self.assertEqual(len(files), 6)
+
+    def test_protect_pattern_excludes(self):
+        """保护后缀命中的文件不得进入候选。"""
+        self.make("movie.mkv")
+        self.make("downloading.part")
+        self.make("downloading.!qb")
+        self.make("temp.tmp")
+        files, _ino = self._index(
+            ["*.part", "*.!qb", "*.tmp"]
+        )
+        names = [os.path.basename(f[1]) for f in files]
+        self.assertEqual(names, ["movie.mkv"])
+
+    def test_protect_pattern_string_parsed_fully(self):
+        """
+        经 ``_protect_pattern`` 字符串解析时，**每个** pattern 都必须生效。
+
+        回归防护：此处若只取第一个 pattern，后续后缀的保护会静默失效，
+        导致下载中的临时文件被误删。上面那个用例直接传 patterns 列表，
+        绕过了字符串解析，测不出这个问题，因此必须单独覆盖解析路径。
+        """
+        self.make("movie.mkv")
+        self.make("a.part")
+        self.make("b.!qb")
+        self.make("c.download")
+        self.make("d.aria2")
+        self.make("e.tmp")
+        self.make("f.crdownload")
+        self.plugin._protect_pattern = (
+            "*.part|*.!qb|*.download|*.aria2|*.tmp|*.crdownload"
+        )
+        # 走 _clean_by_file 的解析路径：空目录扫描，只关心候选集合
+        patterns = [
+            p.strip()
+            for p in __import__("re").split(r"[,|，]", self.plugin._protect_pattern)
+            if p.strip()
+        ]
+        self.assertEqual(
+            len(patterns), 6,
+            "解析后应得到 6 个 pattern，少于 6 说明解析把后缀漏掉了",
+        )
+        files, _ino = self._index(patterns)
+        names = [os.path.basename(f[1]) for f in files]
+        self.assertEqual(names, ["movie.mkv"],
+                         f"保护后缀未全部生效，候选={names}")
+
+    def test_protect_pattern_comma_separated(self):
+        """支持逗号/中文逗号分隔（与 | 等效）。"""
+        self.make("movie.mkv")
+        self.make("a.part")
+        self.make("b.tmp")
+        patterns = [
+            p.strip()
+            for p in __import__("re").split(r"[,|，]", "*.part,*.tmp")
+            if p.strip()
+        ]
+        files, _ino = self._index(patterns)
+        names = [os.path.basename(f[1]) for f in files]
+        self.assertEqual(names, ["movie.mkv"])
+
+    def test_empty_protect_pattern_includes_all(self):
+        """保护后缀为空时，所有文件均纳入（用户当前配置即此情形）。"""
+        for name in ("a.mkv", "b.part", "c.nfo", "d.tmp"):
+            self.make(name)
+        files, _ino = self._index([])
+        self.assertEqual(len(files), 4)
+
+    def test_trickplay_dir_not_as_file(self):
+        """.trickplay 等目录不作为文件纳入（遍历只取文件）。"""
+        self.make("movie.mkv")
+        os.makedirs(os.path.join(self.dl, "movie.trickplay"))
+        files, _ino = self._index()
+        self.assertEqual(len(files), 1)
+
+    def test_system_dirs_still_excluded(self):
+        """DSM 系统目录与回收站仍应排除（安全边界不因全盘扫描而放宽）。"""
+        self.make("movie.mkv")
+        self.make("SYNOINDEX_x", sub="@eaDir")
+        self.make("recycled.mkv", sub="#recycle")
+        files, _ino = self._index()
+        names = [os.path.basename(f[1]) for f in files]
+        self.assertEqual(names, ["movie.mkv"])
+
+    def test_nested_dirs_scanned(self):
+        """子目录中的文件同样纳入候选（全盘扫描）。"""
+        self.make("top.mkv")
+        self.make("nested.mkv", sub="sub/deep")
+        files, _ino = self._index()
+        self.assertEqual(len(files), 2)
 
 
 if __name__ == "__main__":
