@@ -47,7 +47,7 @@ class NoopSentryHub(Hub):
 
 sentry_hub = NoopSentryHub()
 
-if configer.get_config("error_info_upload"):
+if configer.get_config("error_info_upload") is not False:
     sentry_hub = Hub(
         Client(
             dsn=base64.b64decode(
