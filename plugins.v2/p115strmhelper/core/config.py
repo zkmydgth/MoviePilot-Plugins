@@ -23,6 +23,7 @@ from ..version import VERSION
 from ..core.aliyunpan import AliyunPanLogin
 from ..schemas.cookie import U115Cookie
 from ..schemas.share import ShareStrmConfig
+from ..schemas.strm_api import StrmApiConfig
 from ..utils.machineid import MachineID
 from ..utils.cron import CronUtils
 
@@ -260,6 +261,17 @@ class ConfigManager(BaseModel):
     share_strm_mediaservers: Optional[List[str]] = None
     # MP-媒体库 目录转换
     share_strm_mp_mediaserver_paths: Optional[str] = None
+
+    # API STRM 生成配置
+    api_strm_config: List[StrmApiConfig] = []
+    # 刷新媒体服务器
+    api_strm_mediaservers: Optional[List[str]] = None
+    # MP-媒体库 目录转换
+    api_strm_mp_mediaserver_paths: Optional[str] = None
+    # 刮削 STRM 开关
+    api_strm_scrape_metadata_enabled: bool = False
+    # 刷新媒体服务器开关
+    api_strm_media_server_refresh_enabled: bool = False
 
     # 清理回收站开关
     clear_recyclebin_enabled: bool = False

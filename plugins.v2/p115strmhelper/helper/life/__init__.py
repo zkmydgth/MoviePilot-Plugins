@@ -484,9 +484,10 @@ class MonitorLife:
                     ] += mediainfo_count
                     self._schedule_notification()
         else:
+            file_path_string = file_path.as_posix()
             _databasehelper.upsert_batch(
                 _databasehelper.process_life_file_item(
-                    event=event, file_path=file_path.as_posix()
+                    event=event, file_path=file_path_string
                 )
             )
             if "creata" in configer.get_config("monitor_life_event_modes"):  # pylint: disable=E1135
@@ -579,7 +580,7 @@ class MonitorLife:
                     return
 
                 strm_url = _get_url.get_strm_url(
-                    pickcode, original_file_name, file_path=file_path.as_posix()
+                    pickcode, original_file_name, file_path=file_path_string
                 )
 
                 with open(new_file_path, "w", encoding="utf-8") as file:

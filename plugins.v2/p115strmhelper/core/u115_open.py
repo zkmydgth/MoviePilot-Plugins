@@ -1119,6 +1119,35 @@ class U115OpenHelper:
             data=payload,
         )
 
+    def get_item_info(self, payload, /):
+        """
+        获取文件/文件夹信息
+
+        :param payload: 路径 或 ID
+        """
+        if isinstance(payload, int):
+            resp = self._request_api(
+                "GET",
+                "/open/folder/get_info",
+                "data",
+                params={"file_id": payload},
+            )
+        else:
+            resp = self._request_api(
+                "POST",
+                "/open/folder/get_info",
+                "data",
+                data={"path": payload},
+            )
+        path = ""
+        paths: List[Dict] = resp.get("paths")
+        if len(paths) > 1:
+            for p in paths[1:]:
+                path += f"/{p.get('file_name')}"
+        path += f"/{resp.get('file_name')}"
+        resp["path"] = path
+        return resp
+
     def iter_files_with_path_simple(
         self,
         path: str | int | Path | PathLike,

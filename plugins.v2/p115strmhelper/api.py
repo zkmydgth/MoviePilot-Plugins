@@ -20,6 +20,7 @@ from .core.config import configer
 from .core.cache import idpathcacher, DirectoryCache
 from .core.aliyunpan import AliyunPanLogin
 from .core.p115 import get_pid_by_path
+from .helper.strm import ApiSyncStrmHelper
 from .schemas.offline import (
     OfflineTasksPayload,
     AddOfflineTaskPayload,
@@ -44,6 +45,7 @@ from .schemas.u115 import (
 from .schemas.plugin import PluginStatusData
 from .schemas.base import ApiResponse
 from .schemas.share import ShareApiData, ShareResponseData, ShareSaveParent
+from .schemas.strm_api import StrmApiPayloadData
 from .utils.sentry import sentry_manager
 from .utils.oopserver import OOPServerHelper
 
@@ -769,3 +771,11 @@ class Api:
         判断是否有权限使用此增强功能
         """
         return OOPServerHelper.check_feature(name)
+
+    def api_strm_sync(self, payload: StrmApiPayloadData) -> ApiResponse:
+        """
+        API 请求生成 STRM
+        """
+        strm_helper = ApiSyncStrmHelper(client=self._client)
+        code, msg, data = strm_helper.generate_strm_files(payload)
+        return ApiResponse(code=code, msg=msg, data=data)

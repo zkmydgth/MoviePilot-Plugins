@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="plugin-config">
     <v-card flat class="rounded border" style="display: flex; flex-direction: column; max-height: 85vh;">
       <!-- 标题区域 -->
@@ -143,6 +143,9 @@
               </v-tab>
               <v-tab value="tab-life" class="text-caption">
                 <v-icon size="small" start>mdi-calendar-heart</v-icon>监控115生活事件
+              </v-tab>
+              <v-tab value="tab-api-strm" class="text-caption">
+                <v-icon size="small" start>mdi-api</v-icon>API STRM生成
               </v-tab>
               <v-tab value="tab-cleanup" class="text-caption">
                 <v-icon size="small" start>mdi-broom</v-icon>定期清理
@@ -682,6 +685,110 @@
                   <v-alert type="warning" variant="tonal" density="compact" class="mt-2">
                     注意：当 MoviePilot 主程序运行整理任务时 115生活事件 监控会自动暂停，整理运行完成后会继续监控。
                   </v-alert>
+                </v-card-text>
+              </v-window-item>
+
+              <!-- API STRM生成 -->
+              <v-window-item value="tab-api-strm">
+                <v-card-text>
+                  <v-alert type="info" variant="tonal" density="compact" class="mb-4">
+                    <strong>功能说明：</strong><br>
+                    API STRM 生成功能允许第三方开发者通过 HTTP API 调用，批量生成 STRM 文件。<br>
+                    详细 API 文档请参考：
+                    <a href="https://github.com/DDSRem-Dev/MoviePilot-Plugins/blob/main/docs/p115strmhelper/API_STRM生成功能文档.md" 
+                       target="_blank" 
+                       rel="noopener noreferrer"
+                       style="color: inherit; text-decoration: underline;">
+                      GitHub 文档链接
+                    </a>
+                  </v-alert>
+
+                  <v-row>
+                    <v-col cols="12" md="3">
+                      <v-switch v-model="config.api_strm_scrape_metadata_enabled" label="STRM自动刮削"
+                        color="primary" density="compact"></v-switch>
+                    </v-col>
+                    <v-col cols="12" md="3">
+                      <v-switch v-model="config.api_strm_media_server_refresh_enabled" label="媒体服务器刷新"
+                        color="warning" density="compact"></v-switch>
+                    </v-col>
+                    <v-col cols="12" md="6">
+                      <v-select v-model="config.api_strm_mediaservers" label="媒体服务器" :items="mediaservers"
+                        multiple chips closable-chips density="compact"></v-select>
+                    </v-col>
+                  </v-row>
+
+                  <v-divider class="my-4"></v-divider>
+
+                  <div class="text-subtitle-2 mb-2">路径映射配置:</div>
+                  <v-alert type="info" variant="tonal" density="compact" class="mb-3">
+                    配置网盘路径到本地路径的映射关系。当 API 请求中未指定 local_path 时，系统会根据此配置自动匹配路径。
+                  </v-alert>
+
+                  <v-row>
+                    <v-col cols="12">
+                      <div class="d-flex flex-column">
+                        <div v-for="(pair, index) in apiStrmPaths" :key="`api-strm-${index}`"
+                          class="mb-2 d-flex align-center">
+                          <div class="path-selector flex-grow-1 mr-2">
+                            <v-text-field v-model="pair.local" label="本地STRM目录" density="compact"
+                              append-icon="mdi-folder"
+                              @click:append="openDirSelector(index, 'local', 'apiStrm')"></v-text-field>
+                          </div>
+                          <v-icon>mdi-pound</v-icon>
+                          <div class="path-selector flex-grow-1 ml-2">
+                            <v-text-field v-model="pair.remote" label="网盘媒体库目录" density="compact"
+                              append-icon="mdi-folder-network"
+                              @click:append="openDirSelector(index, 'remote', 'apiStrm')"></v-text-field>
+                          </div>
+                          <v-btn icon size="small" color="error" class="ml-2"
+                            @click="removePath(index, 'apiStrm')">
+                            <v-icon>mdi-delete</v-icon>
+                          </v-btn>
+                        </div>
+                        <v-btn size="small" prepend-icon="mdi-plus" variant="outlined" class="mt-2 align-self-start"
+                          @click="addPath('apiStrm')">
+                          添加路径映射
+                        </v-btn>
+                      </div>
+
+                      <v-alert type="info" variant="tonal" density="compact" class="mt-2">
+                        本地STRM目录：本地STRM文件生成路径<br>
+                        网盘媒体库目录：需要生成本地STRM文件的网盘媒体库路径
+                      </v-alert>
+                    </v-col>
+                  </v-row>
+
+                  <v-row>
+                    <v-col cols="12">
+                      <div class="d-flex flex-column">
+                        <div v-for="(pair, index) in apiStrmMPPaths" :key="`api-strm-mp-${index}`"
+                          class="mb-2 d-flex align-center">
+                          <div class="path-selector flex-grow-1 mr-2">
+                            <v-text-field v-model="pair.local" label="媒体库服务器映射目录" density="compact"></v-text-field>
+                          </div>
+                          <v-icon>mdi-pound</v-icon>
+                          <div class="path-selector flex-grow-1 ml-2">
+                            <v-text-field v-model="pair.remote" label="MP映射目录" density="compact"></v-text-field>
+                          </div>
+                          <v-btn icon size="small" color="error" class="ml-2"
+                            @click="removePath(index, 'apiStrm-mp')">
+                            <v-icon>mdi-delete</v-icon>
+                          </v-btn>
+                        </div>
+                        <v-btn size="small" prepend-icon="mdi-plus" variant="outlined" class="mt-2 align-self-start"
+                          @click="addPath('apiStrm-mp')">
+                          添加路径
+                        </v-btn>
+                      </div>
+
+                      <v-alert type="info" variant="tonal" density="compact" class="mt-2">
+                        媒体服务器映射路径和MP映射路径不一样时请配置此项，如果不配置则无法正常刷新。<br>
+                        当映射路径一样时可省略此配置。
+                      </v-alert>
+                    </v-col>
+                  </v-row>
+
                 </v-card-text>
               </v-window-item>
 
@@ -1662,6 +1769,11 @@ const config = reactive({
   share_strm_config: [],
   share_strm_mediaservers: [],
   share_strm_mp_mediaserver_paths: '',
+  api_strm_config: [],
+  api_strm_mediaservers: [],
+  api_strm_mp_mediaserver_paths: '',
+  api_strm_scrape_metadata_enabled: false,
+  api_strm_media_server_refresh_enabled: false,
   clear_recyclebin_enabled: false,
   clear_receive_path_enabled: false,
   cron_clear: '0 */7 * * *',
@@ -1799,6 +1911,8 @@ const incrementSyncPaths = ref([{ local: '', remote: '' }]);
 const incrementSyncMPPaths = ref([{ local: '', remote: '' }]);
 const monitorLifePaths = ref([{ local: '', remote: '' }]);
 const monitorLifeMpPaths = ref([{ local: '', remote: '' }]);
+const apiStrmPaths = ref([{ local: '', remote: '' }]);
+const apiStrmMPPaths = ref([{ local: '', remote: '' }]);
 const panTransferPaths = ref([{ path: '' }]);
 const shareReceivePaths = ref([{ path: '' }]);
 const offlineDownloadPaths = ref([{ path: '' }]);
@@ -2042,6 +2156,45 @@ watch(() => config.pan_transfer_paths, (newVal) => {
   }
 }, { immediate: true });
 
+watch(() => config.api_strm_config, (newVal) => {
+  if (!newVal || !Array.isArray(newVal)) {
+    apiStrmPaths.value = [{ local: '', remote: '' }];
+    return;
+  }
+  try {
+    apiStrmPaths.value = newVal.map(item => ({
+      local: item.local_path || '',
+      remote: item.pan_path || ''
+    }));
+    if (apiStrmPaths.value.length === 0) {
+      apiStrmPaths.value = [{ local: '', remote: '' }];
+    }
+  } catch (e) {
+    console.error('解析api_strm_config出错:', e);
+    apiStrmPaths.value = [{ local: '', remote: '' }];
+  }
+}, { immediate: true });
+
+watch(() => config.api_strm_mp_mediaserver_paths, (newVal) => {
+  if (!newVal) {
+    apiStrmMPPaths.value = [{ local: '', remote: '' }];
+    return;
+  }
+  try {
+    const paths = newVal.split('\n').filter(line => line.trim());
+    apiStrmMPPaths.value = paths.map(path => {
+      const parts = path.split('#');
+      return { local: parts[0] || '', remote: parts[1] || '' };
+    });
+    if (apiStrmMPPaths.value.length === 0) {
+      apiStrmMPPaths.value = [{ local: '', remote: '' }];
+    }
+  } catch (e) {
+    console.error('解析api_strm_mp_mediaserver_paths出错:', e);
+    apiStrmMPPaths.value = [{ local: '', remote: '' }];
+  }
+}, { immediate: true });
+
 watch(() => config.share_recieve_paths, (newVal) => {
   if (!newVal || !Array.isArray(newVal)) {
     shareReceivePaths.value = [{ path: '' }];
@@ -2274,6 +2427,10 @@ const saveConfig = async () => {
     config.increment_sync_mp_mediaserver_paths = generatePathsConfig(incrementSyncMPPaths.value, 'increment-mp');
     config.monitor_life_paths = generatePathsConfig(monitorLifePaths.value, 'monitorLife');
     config.monitor_life_mp_mediaserver_paths = generatePathsConfig(monitorLifeMpPaths.value, 'monitorLifeMp');
+    config.api_strm_config = apiStrmPaths.value
+      .filter(p => p.local?.trim() && p.remote?.trim())
+      .map(p => ({ local_path: p.local.trim(), pan_path: p.remote.trim() }));
+    config.api_strm_mp_mediaserver_paths = generatePathsConfig(apiStrmMPPaths.value, 'apiStrm-mp');
     config.pan_transfer_paths = generatePathsConfig(panTransferPaths.value, 'panTransfer');
     config.share_recieve_paths = shareReceivePaths.value.filter(p => p.path?.trim()).map(p => p.path);
     config.offline_download_paths = offlineDownloadPaths.value.filter(p => p.path?.trim()).map(p => p.path);
@@ -2413,6 +2570,8 @@ const addPath = (type) => {
     case 'increment-mp': incrementSyncMPPaths.value.push({ local: '', remote: '' }); break;
     case 'monitorLife': monitorLifePaths.value.push({ local: '', remote: '' }); break;
     case 'monitorLifeMp': monitorLifeMpPaths.value.push({ local: '', remote: '' }); break;
+    case 'apiStrm': apiStrmPaths.value.push({ local: '', remote: '' }); break;
+    case 'apiStrm-mp': apiStrmMPPaths.value.push({ local: '', remote: '' }); break;
     case 'directoryUpload': directoryUploadPaths.value.push({ src: '', dest_remote: '', dest_local: '', delete: false }); break;
   }
 };
@@ -2445,6 +2604,14 @@ const removePath = (index, type) => {
     case 'monitorLifeMp':
       monitorLifeMpPaths.value.splice(index, 1);
       if (monitorLifeMpPaths.value.length === 0) monitorLifeMpPaths.value = [{ local: '', remote: '' }];
+      break;
+    case 'apiStrm':
+      apiStrmPaths.value.splice(index, 1);
+      if (apiStrmPaths.value.length === 0) apiStrmPaths.value = [{ local: '', remote: '' }];
+      break;
+    case 'apiStrm-mp':
+      apiStrmMPPaths.value.splice(index, 1);
+      if (apiStrmMPPaths.value.length === 0) apiStrmMPPaths.value = [{ local: '', remote: '' }];
       break;
     case 'directoryUpload':
       directoryUploadPaths.value.splice(index, 1);
@@ -2632,6 +2799,7 @@ const confirmDirSelection = () => {
       case 'fullSync': dirDialog.isLocal ? fullSyncPaths.value[dirDialog.index].local = processedPath : fullSyncPaths.value[dirDialog.index].remote = processedPath; break;
       case 'incrementSync': dirDialog.isLocal ? incrementSyncPaths.value[dirDialog.index].local = processedPath : incrementSyncPaths.value[dirDialog.index].remote = processedPath; break;
       case 'monitorLife': dirDialog.isLocal ? monitorLifePaths.value[dirDialog.index].local = processedPath : monitorLifePaths.value[dirDialog.index].remote = processedPath; break;
+      case 'apiStrm': dirDialog.isLocal ? apiStrmPaths.value[dirDialog.index].local = processedPath : apiStrmPaths.value[dirDialog.index].remote = processedPath; break;
       case 'panTransfer': panTransferPaths.value[dirDialog.index].path = processedPath; break;
       case 'shareReceive': shareReceivePaths.value[dirDialog.index].path = processedPath; break;
       case 'offlineDownload': offlineDownloadPaths.value[dirDialog.index].path = processedPath; break;
