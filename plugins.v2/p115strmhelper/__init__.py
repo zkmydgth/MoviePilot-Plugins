@@ -554,7 +554,6 @@ class IncrementSyncStrmHelper:
         self.mediainfo_count = 0
         self.strm_fail_count = 0
         self.mediainfo_fail_count = 0
-        self.remove_unless_strm_count = 0
         self.api_count = 0
         self.strm_fail_dict: Dict[str, str] = {}
         self.mediainfo_fail_dict: List = None
@@ -767,7 +766,7 @@ class IncrementSyncStrmHelper:
                 append=False,
                 extensions=[".strm"]
                 if not self.auto_download_mediainfo
-                else [".strm"].extend(self.download_mediaext),
+                else [".strm"] + self.download_mediaext,
             )
             logger.info(f"【增量STRM生成】扫描本地媒体库文件完成: {target_dir}")
 
@@ -950,13 +949,6 @@ class IncrementSyncStrmHelper:
                     ),
                 )
 
-            # 清理文件
-            for path in tree.compare_trees(self.local_tree, self.pan_to_local_tree):
-                logger.info(f"【增量STRM生成】清理文件: {path}")
-                Path(path).unlink(missing_ok=True)
-                self.__remove_parent_dir(file_path=Path(path))
-                self.remove_unless_strm_count += 1
-
         # 下载媒体信息文件
         self.mediainfo_count, self.mediainfo_fail_count, self.mediainfo_fail_dict = (
             self.mediainfodownloader.auto_downloader(
@@ -978,8 +970,6 @@ class IncrementSyncStrmHelper:
             logger.warn(
                 f"【增量STRM生成】{self.strm_fail_count} 个 STRM 文件生成失败，{self.mediainfo_fail_count} 个媒体数据文件下载失败"
             )
-        if self.remove_unless_strm_count != 0:
-            logger.warn(f"【增量STRM生成】清理 {self.remove_unless_strm_count} 个文件")
         logger.info(f"【增量STRM生成】API 请求次数 {self.api_count} 次")
 
     def get_generate_total(self):
@@ -991,7 +981,6 @@ class IncrementSyncStrmHelper:
             self.mediainfo_count,
             self.strm_fail_count,
             self.mediainfo_fail_count,
-            self.remove_unless_strm_count,
         )
 
 
@@ -1545,7 +1534,7 @@ class P115StrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png"
     # 插件版本
-    plugin_version = "1.8.7"
+    plugin_version = "1.8.8"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -3289,14 +3278,12 @@ class P115StrmHelper(_PluginBase):
             mediainfo_count,
             strm_fail_count,
             mediainfo_fail_count,
-            remove_unless_strm_count,
         ) = strm_helper.get_generate_total()
         if self._notify and (
             strm_count != 0
             or mediainfo_count != 0
             or strm_fail_count != 0
             or mediainfo_fail_count != 0
-            or remove_unless_strm_count != 0
         ):
             text = f"""
 📄 生成STRM文件 {strm_count} 个
@@ -3304,8 +3291,6 @@ class P115StrmHelper(_PluginBase):
 ❌ 生成STRM失败 {strm_fail_count} 个
 🚫 下载媒体失败 {mediainfo_fail_count} 个
 """
-            if remove_unless_strm_count != 0:
-                text += f"🗑️ 清理无效STRM文件 {remove_unless_strm_count} 个"
             self.post_message(
                 mtype=NotificationType.Plugin,
                 title="✅【115网盘】增量生成 STRM 文件完成",
