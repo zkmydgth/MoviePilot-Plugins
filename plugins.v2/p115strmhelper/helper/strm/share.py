@@ -589,7 +589,10 @@ class ShareStrmHelper:
             resp = None
             try:
                 resp = self.share_client.share_snap_cookie(
-                    {"share_code": config.share_code}
+                    {
+                        "share_code": config.share_code,
+                        "receive_code": config.share_receive,
+                    }
                 )
                 check_response(resp)
             except Exception:
