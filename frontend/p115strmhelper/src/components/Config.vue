@@ -326,7 +326,7 @@
                                 color="warning"></v-switch>
                             </v-col>
                             <v-col cols="12" md="3">
-                              <v-text-field v-model="fullSyncMinFileSizeFormatted" label="STRM最小文件大小"
+                              <v-text-field v-model="fullSyncMinFileSizeFormattedRef" label="STRM最小文件大小"
                                 hint="小于此值的文件将不生成STRM(单位K,M,G)" persistent-hint density="compact"
                                 placeholder="例如: 100M (可为空)" clearable></v-text-field>
                             </v-col>
@@ -458,7 +458,7 @@
                               persistent-hint density="compact"></VCronField>
                           </v-col>
                           <v-col cols="12" md="3">
-                            <v-text-field v-model="incrementSyncMinFileSizeFormatted" label="STRM最小文件大小"
+                            <v-text-field v-model="incrementSyncMinFileSizeFormattedRef" label="STRM最小文件大小"
                               hint="小于此值的文件将不生成STRM(单位K,M,G)" persistent-hint density="compact"
                               placeholder="例如: 100M (可为空)" clearable></v-text-field>
                           </v-col>
@@ -625,7 +625,7 @@
                               color="primary"></v-switch>
                           </v-col>
                           <v-col cols="12" md="3">
-                            <v-text-field v-model="monitorLifeMinFileSizeFormatted" label="STRM最小文件大小"
+                            <v-text-field v-model="monitorLifeMinFileSizeFormattedRef" label="STRM最小文件大小"
                               hint="小于此值的文件将不生成STRM(单位K,M,G)" persistent-hint density="compact"
                               placeholder="例如: 100M (可为空)" clearable></v-text-field>
                           </v-col>
@@ -1744,19 +1744,19 @@
                               </v-row>
                               <v-row>
                                 <v-col cols="12" md="6">
-                                  <v-text-field v-model="skipUploadWaitSizeFormatted" label="跳过等待秒传的文件大小阈值"
+                                  <v-text-field v-model="skipUploadWaitSizeFormattedRef" label="跳过等待秒传的文件大小阈值"
                                     hint="文件小于此值将跳过等待秒传（单位支持K，M，G）" persistent-hint density="compact"
                                     placeholder="例如: 5M, 1.5G (可为空)" clearable></v-text-field>
                                 </v-col>
                                 <v-col cols="12" md="6">
-                                  <v-text-field v-model="forceUploadWaitSizeFormatted" label="强制等待秒传的文件大小阈值"
+                                  <v-text-field v-model="forceUploadWaitSizeFormattedRef" label="强制等待秒传的文件大小阈值"
                                     hint="文件大于此值将强制等待秒传（单位支持K，M，G）" persistent-hint density="compact"
                                     placeholder="例如: 5M, 1.5G (可为空)" clearable></v-text-field>
                                 </v-col>
                               </v-row>
                               <v-row v-if="config.upload_module_skip_slow_upload">
                                 <v-col cols="12" md="6">
-                                  <v-text-field v-model="skipSlowUploadSizeFormatted" label="秒传失败后跳过上传的文件大小阈值"
+                                  <v-text-field v-model="skipSlowUploadSizeFormattedRef" label="秒传失败后跳过上传的文件大小阈值"
                                     hint="秒传失败后，大于等于此值的文件将跳过上传，小于此值的文件将继续上传（单位支持K，M，G）" persistent-hint
                                     density="compact" placeholder="例如: 100M, 1G (可为空)" clearable></v-text-field>
                                 </v-col>
@@ -2896,77 +2896,13 @@ const message = reactive({
   type: 'info'
 });
 
-const skipUploadWaitSizeFormatted = computed({
-  get() {
-    if (!config.upload_module_skip_upload_wait_size || config.upload_module_skip_upload_wait_size <= 0) {
-      return '';
-    }
-    return formatBytes(config.upload_module_skip_upload_wait_size);
-  },
-  set(newValue) {
-    config.upload_module_skip_upload_wait_size = parseSize(newValue);
-  },
-});
-
-const forceUploadWaitSizeFormatted = computed({
-  get() {
-    if (!config.upload_module_force_upload_wait_size || config.upload_module_force_upload_wait_size <= 0) {
-      return '';
-    }
-    return formatBytes(config.upload_module_force_upload_wait_size);
-  },
-  set(newValue) {
-    config.upload_module_force_upload_wait_size = parseSize(newValue);
-  },
-});
-
-const skipSlowUploadSizeFormatted = computed({
-  get() {
-    if (!config.upload_module_skip_slow_upload_size || config.upload_module_skip_slow_upload_size <= 0) {
-      return '';
-    }
-    return formatBytes(config.upload_module_skip_slow_upload_size);
-  },
-  set(newValue) {
-    config.upload_module_skip_slow_upload_size = parseSize(newValue);
-  },
-});
-
-const fullSyncMinFileSizeFormatted = computed({
-  get() {
-    if (!config.full_sync_min_file_size || config.full_sync_min_file_size <= 0) {
-      return '';
-    }
-    return formatBytes(config.full_sync_min_file_size);
-  },
-  set(newValue) {
-    config.full_sync_min_file_size = parseSize(newValue);
-  },
-});
-
-const incrementSyncMinFileSizeFormatted = computed({
-  get() {
-    if (!config.increment_sync_min_file_size || config.increment_sync_min_file_size <= 0) {
-      return '';
-    }
-    return formatBytes(config.increment_sync_min_file_size);
-  },
-  set(newValue) {
-    config.increment_sync_min_file_size = parseSize(newValue);
-  },
-});
-
-const monitorLifeMinFileSizeFormatted = computed({
-  get() {
-    if (!config.monitor_life_min_file_size || config.monitor_life_min_file_size <= 0) {
-      return '';
-    }
-    return formatBytes(config.monitor_life_min_file_size);
-  },
-  set(newValue) {
-    config.monitor_life_min_file_size = parseSize(newValue);
-  },
-});
+// 文件大小输入使用 ref，避免输入时 get 返回 formatBytes 导致内容被重写（如输入 "500M" 时被截断）
+const skipUploadWaitSizeFormattedRef = ref('');
+const forceUploadWaitSizeFormattedRef = ref('');
+const skipSlowUploadSizeFormattedRef = ref('');
+const fullSyncMinFileSizeFormattedRef = ref('');
+const incrementSyncMinFileSizeFormattedRef = ref('');
+const monitorLifeMinFileSizeFormattedRef = ref('');
 
 const parseSize = (sizeString) => {
   if (!sizeString || typeof sizeString !== 'string') return 0;
@@ -3577,7 +3513,13 @@ const loadConfig = async () => {
         config.monitor_life_paths.split('\n')
           .map(p => p.split('#')[0]?.trim()).filter(p => p).forEach(p => p115LocalPaths.add(p));
       }
-
+      // 文件大小输入框：从 config 同步到 ref，避免输入时被 formatBytes 重写
+      skipUploadWaitSizeFormattedRef.value = (config.upload_module_skip_upload_wait_size > 0) ? formatBytes(config.upload_module_skip_upload_wait_size) : '';
+      forceUploadWaitSizeFormattedRef.value = (config.upload_module_force_upload_wait_size > 0) ? formatBytes(config.upload_module_force_upload_wait_size) : '';
+      skipSlowUploadSizeFormattedRef.value = (config.upload_module_skip_slow_upload_size > 0) ? formatBytes(config.upload_module_skip_slow_upload_size) : '';
+      fullSyncMinFileSizeFormattedRef.value = (config.full_sync_min_file_size > 0) ? formatBytes(config.full_sync_min_file_size) : '';
+      incrementSyncMinFileSizeFormattedRef.value = (config.increment_sync_min_file_size > 0) ? formatBytes(config.increment_sync_min_file_size) : '';
+      monitorLifeMinFileSizeFormattedRef.value = (config.monitor_life_min_file_size > 0) ? formatBytes(config.monitor_life_min_file_size) : '';
     }
   } catch (err) {
     console.error('加载配置失败:', err);
@@ -3594,6 +3536,13 @@ const saveConfig = async () => {
   message.text = '';
   message.type = 'info';
   try {
+    // 文件大小输入框：从 ref 同步到 config 再提交
+    config.upload_module_skip_upload_wait_size = parseSize(skipUploadWaitSizeFormattedRef.value) || 0;
+    config.upload_module_force_upload_wait_size = parseSize(forceUploadWaitSizeFormattedRef.value) || 0;
+    config.upload_module_skip_slow_upload_size = parseSize(skipSlowUploadSizeFormattedRef.value) || 0;
+    config.full_sync_min_file_size = parseSize(fullSyncMinFileSizeFormattedRef.value) || 0;
+    config.increment_sync_min_file_size = parseSize(incrementSyncMinFileSizeFormattedRef.value) || 0;
+    config.monitor_life_min_file_size = parseSize(monitorLifeMinFileSizeFormattedRef.value) || 0;
     config.transfer_monitor_paths = generatePathsConfig(transferPaths.value, 'transfer');
     config.transfer_mp_mediaserver_paths = generatePathsConfig(transferMpPaths.value, 'mp');
     config.full_sync_strm_paths = generatePathsConfig(fullSyncPaths.value, 'fullSync');
