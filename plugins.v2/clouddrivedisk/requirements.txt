@@ -1,0 +1,3 @@
+grpcio~=1.78.1
+protobuf~=5.29.6
+httpx[http2]
