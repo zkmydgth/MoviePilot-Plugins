@@ -81,7 +81,7 @@ class U115OpenHelper:
 
     def _init_session(self):
         """
-        初始化带速率限制的会话
+        初始化
         """
         self.session.headers.update(
             {
@@ -101,7 +101,7 @@ class U115OpenHelper:
     @property
     def access_token(self) -> Optional[str]:
         """
-        访问token
+        访问 token
         """
         with p115_open_lock:
             try:
@@ -136,7 +136,11 @@ class U115OpenHelper:
 
     def __refresh_access_token(self, refresh_token: str) -> Optional[dict]:
         """
-        刷新access_token
+        刷新 access_token
+
+        :param refresh_token: 刷新令牌
+
+        :return: 数据字典
         """
         resp = self.session.post(
             "https://passportapi.115.com/open/refreshToken",
@@ -163,7 +167,7 @@ class U115OpenHelper:
         **kwargs,
     ) -> Optional[Union[dict, list]]:
         """
-        带错误处理和速率限制的API请求
+        API 请求函数
         """
         # 检查会话
         self._check_session()
@@ -239,6 +243,8 @@ class U115OpenHelper:
     def _delay_get_item(path: Path) -> Optional[schemas.FileItem]:
         """
         自动延迟重试 get_item 模块
+
+        :param path: 路径
         """
         storage_chain = StorageChain()
         for i in range(1, 4):
@@ -255,6 +261,9 @@ class U115OpenHelper:
     ) -> Optional[str]:
         """
         获取下载链接
+
+        :param pickcode: 提取码
+        :param user_agent: 请求 UA 头
         """
         download_info = self._request_api(
             "POST",
@@ -275,8 +284,10 @@ class U115OpenHelper:
     @staticmethod
     def _calc_sha1(filepath: Path, size: Optional[int] = None) -> str:
         """
-        计算文件SHA1
-        size: 前多少字节
+        计算文件 SHA1
+
+        :param filepath: 文件路径
+        :param size: 前多少字节
         """
         sha1 = hashes.Hash(hashes.SHA1())
         with open(filepath, "rb") as f:
@@ -292,6 +303,8 @@ class U115OpenHelper:
     def _can_write_db(path: Path) -> bool:
         """
         判断目录是否能写入数据库
+
+        :param path: 路径
         """
         # 存在待整理目录时，判断非待整理目录才写入，不存在待整理目录直接写入数据库
         if configer.pan_transfer_paths:
@@ -321,7 +334,7 @@ class U115OpenHelper:
         new_name: Optional[str] = None,
     ) -> Optional[schemas.FileItem]:
         """
-        实现带秒传、断点续传和二次认证的文件上传
+        文件上传
         """
 
         def encode_callback(cb: str) -> str:
