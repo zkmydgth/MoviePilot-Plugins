@@ -828,7 +828,6 @@ class MonitorLife:
                 return from_time, from_id
 
         events_batch: List = []
-        logger.info(1241)
         for attempt in range(3, -1, -1):
             try:
                 # 每次尝试先清空旧的值
