@@ -1,0 +1,586 @@
+from json import JSONDecodeError, loads
+from pathlib import Path
+from subprocess import TimeoutExpired, run
+from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import unquote
+
+from jinja2 import Template
+
+from app.core.cache import TTLCache
+from app.core.event import Event, eventmanager
+from app.log import logger
+from app.plugins import _PluginBase
+from app.schemas import TransferRenameEventData
+from app.schemas.types import ChainEventType
+
+
+class FFprobeNamingSupplement(_PluginBase):
+    """
+    ffprobe 命名补充
+    """
+
+    plugin_name = "ffprobe命名补充"
+    plugin_desc = "整理重命名时调用 ffprobe，补全命名模板中的 videoFormat、videoCodec、audioCodec、fps，支持 STRM "
+    plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/refs/heads/main/icons/ffmpeg.png"
+    plugin_version = "0.0.1"
+    plugin_author = "DDSRem"
+    author_url = "https://github.com/DDSRem"
+    plugin_config_prefix = "ffprobenamingsupplement_"
+    plugin_order = 50
+    auth_level = 1
+
+    FFPROBE_TIMEOUT_SEC = 30
+
+    _OVERWRITE_FILL_MISSING = "fill_missing"
+    _OVERWRITE_ALWAYS = "always"
+
+    _VIDEO_CODEC_MAP = {
+        "h264": "H264",
+        "avc": "H264",
+        "hevc": "H265",
+        "h265": "H265",
+        "av1": "AV1",
+        "vp9": "VP9",
+        "vp8": "VP8",
+        "mpeg2video": "MPEG2",
+        "vc1": "VC1",
+        "mpeg4": "MPEG4",
+    }
+
+    _AUDIO_CODEC_MAP = {
+        "aac": "AAC",
+        "eac3": "EAC3",
+        "ac3": "AC3",
+        "dts": "DTS",
+        "truehd": "TrueHD",
+        "flac": "FLAC",
+        "opus": "OPUS",
+        "mp3": "MP3",
+        "vorbis": "Vorbis",
+    }
+
+    _HEIGHT_SNAP_TIERS: Tuple[Tuple[int, int], ...] = (
+        (4320, 48),
+        (2880, 48),
+        (2160, 48),
+        (1920, 40),
+        (1800, 40),
+        (1600, 40),
+        (1536, 40),
+        (1440, 40),
+        (1366, 32),
+        (1280, 32),
+        (1200, 32),
+        (1152, 32),
+        (1080, 40),
+        (1050, 32),
+        (1024, 32),
+        (960, 32),
+        (900, 28),
+        (864, 28),
+        (854, 24),
+        (800, 24),
+        (768, 24),
+        (720, 32),
+        (704, 24),
+        (640, 24),
+        (600, 20),
+        (576, 20),
+        (540, 20),
+        (528, 20),
+        (512, 20),
+        (506, 20),
+        (480, 24),
+        (468, 20),
+        (456, 20),
+        (432, 20),
+        (408, 16),
+        (400, 16),
+        (360, 16),
+        (320, 16),
+        (288, 16),
+        (272, 16),
+        (240, 16),
+        (228, 12),
+        (180, 12),
+        (168, 12),
+        (144, 12),
+        (120, 12),
+    )
+
+    _HEIGHT_FORMAT_BUCKETS: Tuple[Tuple[int, str], ...] = tuple(
+        (height, f"{height}p") for height, _ in _HEIGHT_SNAP_TIERS
+    )
+
+    _probe_cache = TTLCache(region="ffprobe_naming", maxsize=2048, ttl=3600)
+
+    def __init__(self) -> None:
+        """
+        初始化
+        """
+        super().__init__()
+        self._enabled = False
+        self._overwrite_mode = type(self)._OVERWRITE_FILL_MISSING
+
+    def init_plugin(self, config: dict = None) -> None:
+        """
+        初始化插件
+        """
+        if not config:
+            return
+        cls = type(self)
+        prev_enabled = self._enabled
+        self._enabled = bool(config.get("enabled"))
+        if prev_enabled and not self._enabled:
+            cls._clear_probe_cache()
+        mode = config.get("overwrite_mode") or cls._OVERWRITE_FILL_MISSING
+        self._overwrite_mode = (
+            mode
+            if mode in (cls._OVERWRITE_FILL_MISSING, cls._OVERWRITE_ALWAYS)
+            else cls._OVERWRITE_FILL_MISSING
+        )
+
+    def get_state(self) -> bool:
+        """
+        获取插件状态
+        """
+        return self._enabled
+
+    @staticmethod
+    def get_command() -> List[Dict[str, Any]]:
+        """
+        获取插件命令
+        """
+        pass
+
+    def get_api(self) -> List[Dict[str, Any]]:
+        """
+        获取插件API
+        """
+        pass
+
+    def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
+        cls = type(self)
+        overwrite_items = [
+            {"title": "仅补全缺失或空值", "value": cls._OVERWRITE_FILL_MISSING},
+            {"title": "始终用 ffprobe 覆盖四键", "value": cls._OVERWRITE_ALWAYS},
+        ]
+        return [
+            {
+                "component": "VForm",
+                "content": [
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 4},
+                                "content": [
+                                    {
+                                        "component": "VSwitch",
+                                        "props": {
+                                            "model": "enabled",
+                                            "label": "启用插件",
+                                        },
+                                    }
+                                ],
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 8},
+                                "content": [
+                                    {
+                                        "component": "VSelect",
+                                        "props": {
+                                            "model": "overwrite_mode",
+                                            "label": "写入策略",
+                                            "items": overwrite_items,
+                                            "hint": (
+                                                "针对 videoFormat、videoCodec、audioCodec、fps 四键："
+                                                "仅补全＝缺或空才写入；始终覆盖＝以 ffprobe 为准覆盖"
+                                            ),
+                                            "persistent-hint": True,
+                                        },
+                                    }
+                                ],
+                            },
+                        ],
+                    },
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12},
+                                "content": [
+                                    {
+                                        "component": "VAlert",
+                                        "props": {
+                                            "type": "info",
+                                            "variant": "tonal",
+                                            "density": "compact",
+                                            "class": "mt-2",
+                                        },
+                                        "content": [
+                                            {
+                                                "component": "div",
+                                                "props": {
+                                                    "class": "text-subtitle-2 mb-2",
+                                                },
+                                                "text": (
+                                                    "可写入重命名模板的占位符"
+                                                    "（需在系统「重命名格式」中自行加入对应变量）"
+                                                ),
+                                            },
+                                            {
+                                                "component": "div",
+                                                "props": {
+                                                    "class": "text-body-2",
+                                                },
+                                                "text": (
+                                                    "{{videoFormat}} — 分辨率档（如 2160p、1080p，由视频高度推断）"
+                                                ),
+                                            },
+                                            {
+                                                "component": "div",
+                                                "props": {
+                                                    "class": "text-body-2 mt-1",
+                                                },
+                                                "text": "{{videoCodec}} — 视频编码（如 H264、H265）",
+                                            },
+                                            {
+                                                "component": "div",
+                                                "props": {
+                                                    "class": "text-body-2 mt-1",
+                                                },
+                                                "text": "{{audioCodec}} — 音频编码（如 EAC3、AAC）",
+                                            },
+                                            {
+                                                "component": "div",
+                                                "props": {
+                                                    "class": "text-body-2 mt-1",
+                                                },
+                                                "text": "{{fps}} — 帧率（如 24、23.976）",
+                                            },
+                                        ],
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                ],
+            }
+        ], {
+            "enabled": False,
+            "overwrite_mode": cls._OVERWRITE_FILL_MISSING,
+        }
+
+    def get_page(self) -> Optional[List[dict]]:
+        """
+        获取插件页面
+        """
+        pass
+
+    def stop_service(self) -> None:
+        """
+        停止插件服务
+        """
+        type(self)._clear_probe_cache()
+
+    @classmethod
+    def _clear_probe_cache(cls) -> None:
+        """
+        清空 ffprobe 结果缓存（类级共享，停止或关闭插件时释放）
+        """
+        try:
+            cls._probe_cache.clear()
+        except Exception as e:
+            logger.debug("【ffprobe命名补充】清理探测缓存失败 %s", e)
+
+    @classmethod
+    def _parse_frame_rate(cls, rate: Optional[str]) -> Optional[str]:
+        """
+        将 ffprobe 的帧率字符串转为简短展示用字符串
+
+        :param rate: 如 24000/1001 或 30
+        :return: 如 23.976 或 30
+        """
+        if not rate or rate in ("0/0", "N/A"):
+            return None
+        if "/" in rate:
+            parts = rate.split("/", 1)
+            try:
+                num = int(parts[0].strip())
+                den = int(parts[1].strip())
+            except (ValueError, IndexError):
+                return None
+            if den == 0:
+                return None
+            value = num / den
+        else:
+            try:
+                value = float(rate)
+            except ValueError:
+                return None
+        if abs(value - round(value)) < 1e-3:
+            return str(int(round(value)))
+        text = f"{value:.3f}".rstrip("0").rstrip(".")
+        return text or None
+
+    @classmethod
+    def _snap_height_to_standard(cls, height: int) -> int:
+        """
+        将因 mod16 裁剪、轻微缩放导致的高度吸附到常见标准值
+
+        :param height: ffprobe 报告的帧高度
+        :return: 吸附后的高度（未命中任一容差则原样返回）
+        """
+        for target, tolerance in cls._HEIGHT_SNAP_TIERS:
+            if abs(height - target) <= tolerance:
+                return target
+        return height
+
+    @classmethod
+    def _height_to_video_format(cls, height: Optional[int]) -> Optional[str]:
+        """
+        根据视频高度生成分辨率标签：先吸附再按降序分档，未命中则用「{height}p」
+        """
+        if height is None:
+            return None
+        try:
+            h = int(height)
+        except (TypeError, ValueError):
+            return None
+        if h <= 0:
+            return None
+        h = cls._snap_height_to_standard(h)
+        for min_h, label in cls._HEIGHT_FORMAT_BUCKETS:
+            if h >= min_h:
+                return label
+        return f"{h}p"
+
+    @classmethod
+    def _map_video_codec(cls, codec_name: Optional[str]) -> Optional[str]:
+        if not codec_name:
+            return None
+        key = codec_name.lower().strip()
+        return cls._VIDEO_CODEC_MAP.get(key, codec_name.upper())
+
+    @classmethod
+    def _map_audio_codec(cls, codec_name: Optional[str]) -> Optional[str]:
+        if not codec_name:
+            return None
+        key = codec_name.lower().strip()
+        return cls._AUDIO_CODEC_MAP.get(key, codec_name.upper())
+
+    @classmethod
+    def _pick_video_audio_streams(
+        cls, streams: List[Dict[str, Any]]
+    ) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
+        video_s: Optional[Dict[str, Any]] = None
+        audio_s: Optional[Dict[str, Any]] = None
+        for s in streams:
+            if not isinstance(s, dict):
+                continue
+            ct = s.get("codec_type")
+            if ct == "video" and video_s is None:
+                video_s = s
+            elif ct == "audio" and audio_s is None:
+                audio_s = s
+            if video_s is not None and audio_s is not None:
+                break
+        return video_s, audio_s
+
+    @classmethod
+    def _probe_to_rename_fields(cls, probe_json: Dict[str, Any]) -> Dict[str, str]:
+        """
+        从 ffprobe JSON 提取写入 rename_dict 的四键
+        """
+        out: Dict[str, str] = {}
+        streams = probe_json.get("streams")
+        if not isinstance(streams, list):
+            return out
+        video_s, audio_s = cls._pick_video_audio_streams(streams)
+        if video_s:
+            height = video_s.get("height")
+            try:
+                h_int = int(height) if height is not None else None
+            except (TypeError, ValueError):
+                h_int = None
+            vf = cls._height_to_video_format(h_int)
+            if vf:
+                out["videoFormat"] = vf
+            vc = cls._map_video_codec(video_s.get("codec_name"))
+            if vc:
+                out["videoCodec"] = vc
+            fps = cls._parse_frame_rate(
+                video_s.get("avg_frame_rate")
+            ) or cls._parse_frame_rate(video_s.get("r_frame_rate"))
+            if fps:
+                out["fps"] = fps
+        if audio_s:
+            ac = cls._map_audio_codec(audio_s.get("codec_name"))
+            if ac:
+                out["audioCodec"] = ac
+        return out
+
+    @classmethod
+    def _normalize_strm_target(cls, raw: str) -> str:
+        """
+        规范化 STRM 首行内容，便于 ffprobe 作为 -i 参数使用
+
+        :param raw: 行内原始文本（已去掉首尾空白）
+        :return: 规范化后的地址或路径，无效则空字符串
+        """
+        line = raw.strip()
+        if not line:
+            return ""
+        if len(line) >= 2 and line[0] == line[-1] and line[0] in "\"'":
+            line = line[1:-1].strip()
+        if "%" in line:
+            try:
+                line = unquote(line)
+            except Exception:
+                pass
+        return line.strip()
+
+    @classmethod
+    def _resolve_probe_target(cls, source_path: str) -> Optional[str]:
+        """
+        普通文件直接返回路径；STRM 读取首条有效行并规范化后作为真实地址
+        """
+        p = Path(source_path)
+        if p.suffix.lower() != ".strm":
+            return source_path.strip()
+        try:
+            text = p.read_text(encoding="utf-8-sig", errors="replace")
+        except OSError as e:
+            logger.warning("【ffprobe命名补充】读取 STRM 失败 %s: %s", source_path, e)
+            return None
+        for line in text.splitlines():
+            line = line.strip()
+            if not line or line.lstrip().startswith("#"):
+                continue
+            normalized = cls._normalize_strm_target(line)
+            if normalized:
+                return normalized
+        logger.warning("【ffprobe命名补充】STRM 内容为空 %s", source_path)
+        return None
+
+    @classmethod
+    def _should_apply_key(
+        cls, overwrite_mode: str, key: str, rename_dict: Dict[str, Any], new_val: str
+    ) -> bool:
+        if not new_val:
+            return False
+        if overwrite_mode == cls._OVERWRITE_ALWAYS:
+            return True
+        cur = rename_dict.get(key)
+        if cur is None:
+            return True
+        if isinstance(cur, str) and cur.strip() == "":
+            return True
+        return False
+
+    @classmethod
+    def _run_ffprobe(cls, probe_target: str) -> Optional[Dict[str, Any]]:
+        cmd = [
+            "ffprobe",
+            "-v",
+            "error",
+            "-print_format",
+            "json",
+            "-show_streams",
+            "-show_format",
+            "-i",
+            probe_target,
+        ]
+        try:
+            proc = run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=cls.FFPROBE_TIMEOUT_SEC,
+            )
+        except TimeoutExpired:
+            logger.warning(
+                "【ffprobe命名补充】ffprobe 超时(%ss) target=%s",
+                cls.FFPROBE_TIMEOUT_SEC,
+                probe_target,
+            )
+            return None
+        except OSError as e:
+            logger.warning("【ffprobe命名补充】无法执行 ffprobe: %s", e)
+            return None
+        if proc.returncode != 0:
+            err = (proc.stderr or "").strip() or proc.stdout
+            logger.debug(
+                "【ffprobe命名补充】ffprobe 失败 rc=%s target=%s err=%s",
+                proc.returncode,
+                probe_target,
+                err[:500] if err else "",
+            )
+            return None
+        try:
+            return loads(proc.stdout)
+        except JSONDecodeError as e:
+            logger.warning("【ffprobe命名补充】ffprobe JSON 解析失败: %s", e)
+            return None
+
+    @eventmanager.register(ChainEventType.TransferRename, priority=20)
+    def on_transfer_rename(self, event: Event) -> None:
+        if not self._enabled:
+            return
+        data = event.event_data
+        if not isinstance(data, TransferRenameEventData):
+            return
+        source_path = data.source_path
+        if not source_path or not str(source_path).strip():
+            logger.debug("【ffprobe命名补充】source_path 为空，跳过本次重命名补全")
+            return
+        source_path = str(source_path).strip()
+        rename_dict = data.rename_dict
+        if not isinstance(rename_dict, dict):
+            return
+
+        cls = type(self)
+        probe_target = cls._resolve_probe_target(source_path)
+        if not probe_target:
+            return
+
+        probe_json = self._probe_cache.get(probe_target)
+        if probe_json is None:
+            probe_json = cls._run_ffprobe(probe_target)
+            if probe_json is None:
+                return
+            self._probe_cache.set(probe_target, probe_json)
+
+        fields = cls._probe_to_rename_fields(probe_json)
+        if not fields:
+            logger.debug(
+                "【ffprobe命名补充】未解析到可用媒体信息 target=%s", probe_target
+            )
+            return
+
+        changed = False
+        for key, val in fields.items():
+            if cls._should_apply_key(self._overwrite_mode, key, rename_dict, val):
+                rename_dict[key] = val
+                changed = True
+
+        if not changed:
+            return
+
+        try:
+            new_render = Template(data.template_string).render(rename_dict)
+        except Exception as e:
+            logger.error(
+                "【ffprobe命名补充】模板重新渲染失败: %s",
+                e,
+                exc_info=True,
+            )
+            return
+
+        data.updated = True
+        data.updated_str = new_render
+        data.source = "ffprobe命名补充"
