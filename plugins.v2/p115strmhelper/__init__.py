@@ -425,7 +425,9 @@ class P115StrmHelper(_PluginBase):
         if not item:
             return
 
-        item_transfer: TransferInfo = item.get("transferinfo")
+        item_transfer = item.get("transferinfo")
+        if isinstance(item_transfer, dict):
+            item_transfer = TransferInfo(**item_transfer)
         dest_fileitem: FileItem = item_transfer.target_item
         src_fileitem: FileItem = item.get("fileitem")
 
@@ -957,7 +959,9 @@ class P115StrmHelper(_PluginBase):
             return
 
         # 整理信息
-        item_transfer: TransferInfo = item.get("transferinfo")
+        item_transfer = item.get("transferinfo")
+        if isinstance(item_transfer, dict):
+            item_transfer = TransferInfo(**item_transfer)
         # 目的地文件 fileitem
         dest_fileitem: FileItem = item_transfer.target_item
         # 目标字幕文件清单

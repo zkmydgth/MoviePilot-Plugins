@@ -1233,7 +1233,9 @@ class TransferStrmHelper:
         生成 STRM 操作
         """
         # 转移信息
-        item_transfer: TransferInfo = item.get("transferinfo")
+        item_transfer = item.get("transferinfo")
+        if isinstance(item_transfer, dict):
+            item_transfer = TransferInfo(**item_transfer)
         # 媒体信息
         mediainfo: MediaInfo = item.get("mediainfo")
         # 元数据信息
