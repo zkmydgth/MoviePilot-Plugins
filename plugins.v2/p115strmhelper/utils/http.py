@@ -1,18 +1,23 @@
+__all__ = [
+    "check_response",
+    "check_iter_path_data",
+]
+
 from typing import Dict
 
-import httpx
+from httpx import HTTPStatusError, Response
 
 from ..utils.exception import FileItemKeyMiss
 
 
 def check_response(
-    resp: httpx.Response,
-) -> httpx.Response:
+    resp: Response,
+) -> Response:
     """
     检查 HTTP 响应，如果状态码 ≥ 400 则抛出 httpx.HTTPStatusError
     """
     if resp.status_code >= 400:
-        raise httpx.HTTPStatusError(
+        raise HTTPStatusError(
             f"HTTP Error {resp.status_code}: {resp.reason_phrase}",
             request=resp.request,
             response=resp,

@@ -1,3 +1,6 @@
+__all__ = ["SentryManager", "sentry_manager"]
+
+
 import functools
 import inspect
 from base64 import b64decode

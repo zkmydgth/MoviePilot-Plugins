@@ -1,3 +1,6 @@
+__all__ = ["MediainfoDownloadMiddleware"]
+
+
 from ahocorasick import Automaton
 
 

@@ -1,3 +1,6 @@
+__all__ = ["AutomatonUtils"]
+
+
 from ahocorasick import Automaton
 
 

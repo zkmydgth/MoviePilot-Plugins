@@ -1,5 +1,8 @@
-import time
-import base64
+__all__ = ["OOPServerRequest", "OOPServerHelper"]
+
+
+from base64 import b64decode
+from time import sleep
 from typing import Any, Optional, Dict, List, Tuple
 
 import httpx
@@ -46,7 +49,7 @@ class OOPServerRequest:
         对Base64编码的加密字符串进行解密
         """
         try:
-            encrypted_bytes = base64.b64decode(encoded_string.encode("utf-8"))
+            encrypted_bytes = b64decode(encoded_string.encode("utf-8"))
             encrypted_text = encrypted_bytes.decode("utf-8")
 
             decrypted_chars = []
@@ -112,8 +115,8 @@ class OOPServerRequest:
             except httpx.RequestError as e:
                 last_exception = e
                 if attempt < self.max_retries - 1:
-                    sleep_time = self.backoff_factor * (2 ** attempt)
-                    time.sleep(sleep_time)
+                    sleep_time = self.backoff_factor * (2**attempt)
+                    sleep(sleep_time)
 
         if last_exception:
             raise last_exception

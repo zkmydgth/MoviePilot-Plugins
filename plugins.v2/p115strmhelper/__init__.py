@@ -1,4 +1,4 @@
-import re
+from re import match as re_match
 from time import sleep
 from copy import deepcopy
 from dataclasses import asdict
@@ -1020,8 +1020,8 @@ class P115StrmHelper(_PluginBase):
             return
         if not text.startswith("http"):
             return
-        if not bool(re.match(U115_SHARE_URL_MATCH, text)) and not bool(
-            re.match(ALIYUN_SHARE_URL_MATCH, text)
+        if not bool(re_match(U115_SHARE_URL_MATCH, text)) and not bool(
+            re_match(ALIYUN_SHARE_URL_MATCH, text)
         ):
             return
 
