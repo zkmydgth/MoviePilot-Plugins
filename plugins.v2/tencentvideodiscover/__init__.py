@@ -1,12 +1,12 @@
 import re
-from typing import Any, List, Dict, Tuple, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import requests
 
 from app import schemas
-from app.core.config import settings
-from app.core.event import eventmanager, Event
 from app.core.cache import cached
+from app.core.config import settings
+from app.core.event import Event, eventmanager
 from app.log import logger
 from app.plugins import _PluginBase
 from app.schemas import DiscoverSourceEventData
@@ -54,9 +54,6 @@ def init_base_ui():
                 "page_type": "channel_operation",
                 "page_id": "channel_list_second_page",
             }
-        }
-        body["page_context"] = {
-            "data_src_647bd63b21ef4b64b50fe65201d89c6e_page": "0",
         }
         url = "https://pbaccess.video.qq.com/trpc.universal_backend_service.page_server_rpc.PageServer/GetPageData"
         try:
@@ -168,7 +165,7 @@ class TencentVideoDiscover(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/DDSRem-Dev/MoviePilot-Plugins/main/icons/tencentvideo_A.png"
     # 插件版本
-    plugin_version = "1.0.3"
+    plugin_version = "1.0.4"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -268,10 +265,11 @@ class TencentVideoDiscover(_PluginBase):
         pass
 
     @cached(region="tencentvideo_discover", ttl=1800, skip_none=True)
-    def __request(self, page, mtype, **kwargs) -> List[Dict]:
+    def __request(self, page: int, mtype: str, **kwargs: Any) -> List[Dict]:
         """
         请求腾讯视频 API
         """
+        page = max(int(page), 1)
         body = {
             "page_params": {
                 "channel_id": CHANNEL_PARAMS[mtype]["Id"],
@@ -283,37 +281,50 @@ class TencentVideoDiscover(_PluginBase):
             body["page_params"]["filter_params"] = "&".join(
                 [f"{k}={v}" for k, v in kwargs.items()]
             )
-        if str(page) != "1":
-            body["page_context"] = {
-                "data_src_647bd63b21ef4b64b50fe65201d89c6e_page": str(int(page) - 1),
-            }
         url = "https://pbaccess.video.qq.com/trpc.universal_backend_service.page_server_rpc.PageServer/GetPageData"
-        try:
+
+        def request_data() -> Dict[str, Any]:
             response = requests.post(url, params=PARAMS, json=body, headers=HEADERS)
             response.raise_for_status()
-            data = response.json().get("data")
+            return response.json().get("data") or {}
+
+        try:
+            data = request_data()
             if not data:
                 logger.error(f"No data returned for mtype {mtype}, page {page}")
                 return []
 
-            module_list_datas = data.get("module_list_datas", [])
-            if len(module_list_datas) < 2:
-                logger.error(
-                    f"module_list_datas has insufficient length for mtype {mtype}, page {page}: {module_list_datas}"
+            if page > 1:
+                next_page_context = data.get("next_page_context", {})
+                page_context_key = next(
+                    (
+                        key
+                        for key in next_page_context
+                        if key.startswith("_ds_cli_") and key.endswith("_page")
+                    ),
+                    None,
                 )
-                return []
+                if not page_context_key:
+                    logger.error(
+                        f"No page context returned for mtype {mtype}, page {page}"
+                    )
+                    return []
+                body["page_context"] = {page_context_key: str(page - 1)}
+                data = request_data()
+                if not data:
+                    logger.error(f"No data returned for mtype {mtype}, page {page}")
+                    return []
 
-            module_datas = module_list_datas[1].get("module_datas", [])
-            if not module_datas:
-                logger.error(f"No module_datas for mtype {mtype}, page {page}")
-                return []
+            for module_list_data in data.get("module_list_datas", []):
+                for module_data in module_list_data.get("module_datas", []):
+                    item_datas = module_data.get("item_data_lists", {}).get(
+                        "item_datas", []
+                    )
+                    if any(str(item.get("item_type")) == "2" for item in item_datas):
+                        return item_datas
 
-            item_data_lists = module_datas[0].get("item_data_lists", {})
-            item_datas = item_data_lists.get("item_datas", [])
-            if not item_datas:
-                logger.warning(f"No item_datas for mtype {mtype}, page {page}")
-
-            return item_datas
+            logger.warning(f"No media item data for mtype {mtype}, page {page}")
+            return []
         except requests.RequestException as e:
             logger.error(
                 f"Failed to fetch data for mtype {mtype}, page {page}: {str(e)}"

@@ -94,11 +94,12 @@
         "name": "腾讯视频探索",
         "description": "让探索支持腾讯视频的数据浏览。",
         "labels": "探索",
-        "version": "1.0.3",
+        "version": "1.0.4",
         "icon": "https://raw.githubusercontent.com/DDSRem-Dev/MoviePilot-Plugins/main/icons/tencentvideo_A.png",
         "author": "DDSRem",
         "level": 1,
         "history": {
+            "v1.0.4": "修复腾讯视频探索分页失效",
             "v1.0.3": "统一使用MP缓存模块，要求版本v2.7.4+",
             "v1.0.2": "更换UA",
             "v1.0.1": "优化图片加载",
