@@ -1,7 +1,7 @@
 import re
 from collections import defaultdict
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 from app.core.config import settings
 from app.core.meta import MetaBase
@@ -15,6 +15,33 @@ if TYPE_CHECKING:
     from .handler import TransferHandler
 
 
+def _normalize_ext(ext: Optional[str]) -> Optional[str]:
+    """
+    归一化扩展名（兼容配置中带点/不带点、大小写差异）
+
+    :param ext (str): 原始扩展名
+
+    :return str: 归一化后的带点小写扩展名，如 ".ass"
+    """
+    if not ext:
+        return None
+    return f".{str(ext).strip().lower().lstrip('.')}"
+
+
+def _file_ext(fileitem: FileItem) -> Optional[str]:
+    """
+    获取文件项归一化扩展名（缺失时回退到路径后缀）
+
+    :param fileitem (FileItem): 文件项
+
+    :return str: 归一化后的带点小写扩展名，缺失时返回 None
+    """
+    ext = _normalize_ext(fileitem.extension)
+    if not ext and fileitem.path:
+        ext = _normalize_ext(Path(fileitem.path).suffix)
+    return ext
+
+
 def is_subtitle_or_audio_file(fileitem: FileItem) -> bool:
     """
     判断是否为字幕或独立音轨文件（与 MoviePilot RMT 后缀一致）
@@ -23,12 +50,13 @@ def is_subtitle_or_audio_file(fileitem: FileItem) -> bool:
     :return: 是否为字幕或音轨
     """
     try:
-        if not fileitem.extension:
+        ext = _file_ext(fileitem)
+        if not ext:
             return False
-        ext = f".{fileitem.extension.lower()}"
-        if ext in settings.RMT_SUBEXT or ext in settings.RMT_AUDIOEXT:
-            return True
-        return False
+        return ext in {
+            _normalize_ext(ext_item)
+            for ext_item in settings.RMT_SUBEXT + settings.RMT_AUDIOEXT
+        }
     except Exception as e:
         logger.debug(f"【整理接管】判断字幕/音频文件失败: {e}")
         return False
@@ -113,13 +141,15 @@ def match_subtitle_files(
     )
     _eng_sub_re = r"[.\[(\s]eng[.\])\s]"
 
+    _sub_exts = {_normalize_ext(ext_item) for ext_item in settings.RMT_SUBEXT}
+
     subtitle_files = [
         f
         for f in files
         if f.path != task.fileitem.path
         and f.type == "file"
-        and f.extension
-        and f".{f.extension.lower()}" in settings.RMT_SUBEXT
+        and (ext := _file_ext(f))
+        and ext in _sub_exts
     ]
 
     if not subtitle_files:
@@ -175,7 +205,7 @@ def match_subtitle_files(
             elif re.search(_eng_sub_re, sub_item.name, re.I):
                 new_file_type = ".eng"
 
-            file_ext = f".{sub_item.extension}"
+            file_ext = _file_ext(sub_item) or ""
             new_sub_tag_dict = {
                 ".eng": ".英文",
                 ".chi.zh-cn": ".简体中文",
@@ -234,14 +264,16 @@ def match_audio_track_files(
     """
     匹配音轨文件并追加到 task.related_files
     """
+    _audio_exts = {_normalize_ext(ext_item) for ext_item in settings.RMT_AUDIOEXT}
+
     audio_track_files = [
         file
         for file in files
         if file.path != task.fileitem.path
         and Path(file.name).stem == main_video_path.stem
         and file.type == "file"
-        and file.extension
-        and f".{file.extension.lower()}" in settings.RMT_AUDIOEXT
+        and (ext := _file_ext(file))
+        and ext in _audio_exts
     ]
 
     if not audio_track_files:
@@ -253,7 +285,7 @@ def match_audio_track_files(
     logger.debug(f"【整理接管】音轨文件清单：{[f.name for f in audio_track_files]}")
 
     for track_file in audio_track_files:
-        track_ext = f".{track_file.extension}"
+        track_ext = _file_ext(track_file) or ""
         target_path = task.target_path.with_name(task.target_path.stem + track_ext)
 
         related_file = RelatedFile(

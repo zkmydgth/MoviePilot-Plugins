@@ -6,6 +6,7 @@ from p115client import P115Client
 from p115client.tool.attr import get_attr
 
 from app.chain.storage import StorageChain
+from app.core.config import settings
 from app.core.context import MediaInfo
 from app.core.meta import MetaBase
 from app.core.metainfo import MetaInfoPath
@@ -323,6 +324,17 @@ class TransferStrmHelper:
                 f"【监控整理STRM生成】{item_dest_name} 为蓝光原盘，不支持生成 STRM 文件: {item_dest_path}"
             )
             return
+
+        if event_type == EventType.TransferComplete:
+            dest_ext = Path(item_dest_name).suffix.lower().lstrip(".")
+            allowed_exts = {
+                str(ext).strip().lower().lstrip(".") for ext in settings.RMT_MEDIAEXT
+            }
+            if dest_ext and dest_ext not in allowed_exts:
+                logger.warning(
+                    f"【监控整理STRM生成】{item_dest_name} 非媒体文件（.{dest_ext}），跳过 STRM 生成"
+                )
+                return
 
         if not item_dest_pickcode:
             logger.error(

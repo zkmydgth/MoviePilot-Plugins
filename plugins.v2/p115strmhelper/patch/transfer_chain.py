@@ -600,12 +600,20 @@ class TransferChainPatcher:
                 Path(rename_path) if not isinstance(rename_path, Path) else rename_path
             )
 
-            if task.fileitem.extension:
-                ext = f".{task.fileitem.extension.lower()}"
-                if ext in settings.RMT_SUBEXT:
-                    new_file = TransHandler._TransHandler__rename_subtitles(
-                        task.fileitem, new_file
-                    )
+            from ..helper.transfer.handler import TransferHandler
+
+            ext = TransferHandler._normalize_ext(task.fileitem.extension)
+            if not ext and task.fileitem.path:
+                ext = TransferHandler._normalize_ext(Path(task.fileitem.path).suffix)
+            if not ext:
+                return new_file
+            if ext in {
+                TransferHandler._normalize_ext(ext_item)
+                for ext_item in settings.RMT_SUBEXT
+            }:
+                new_file = TransHandler._TransHandler__rename_subtitles(
+                    task.fileitem, new_file
+                )
 
             return new_file
 

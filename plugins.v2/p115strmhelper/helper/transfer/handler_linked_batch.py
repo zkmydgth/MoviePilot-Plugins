@@ -950,19 +950,29 @@ class TransferHandlerLinkedBatch:
                 except Exception as e:
                     logger.warn(f"【整理接管】标记任务完成失败: {e}", exc_info=True)
 
-                # 发送整理完成事件
-                eventmanager.send_event(
-                    EventType.TransferComplete,
-                    {
-                        "fileitem": task.fileitem,
-                        "meta": task.meta,
-                        "mediainfo": task.mediainfo,
-                        "transferinfo": transferinfo,
-                        "downloader": task.downloader,
-                        "download_hash": task.download_hash,
-                        "transfer_history_id": history.id if history else None,
-                    },
-                )
+                fi = task.fileitem
+                if self._handler._is_media_file(fi):
+                    complete_event = EventType.TransferComplete
+                elif self._handler._is_subtitle_file(fi):
+                    complete_event = EventType.SubtitleTransferComplete
+                elif self._handler._is_audio_file(fi):
+                    complete_event = EventType.AudioTransferComplete
+                else:
+                    complete_event = None
+
+                if complete_event:
+                    eventmanager.send_event(
+                        complete_event,
+                        {
+                            "fileitem": task.fileitem,
+                            "meta": task.meta,
+                            "mediainfo": task.mediainfo,
+                            "transferinfo": transferinfo,
+                            "downloader": task.downloader,
+                            "download_hash": task.download_hash,
+                            "transfer_history_id": history.id if history else None,
+                        },
+                    )
 
                 # 关联文件（字幕/音轨）发送对应的事件
                 for related_file in task.related_files:
