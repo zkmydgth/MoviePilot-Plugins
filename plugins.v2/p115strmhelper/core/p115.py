@@ -1,5 +1,6 @@
 __author__ = "DDSRem <https://ddsrem.com>"
 __all__ = [
+    "ShareP115Client",
     "iter_share_files_with_path",
     "get_pid_by_path",
     "get_pickcode_by_path",
@@ -10,16 +11,64 @@ from dataclasses import dataclass
 from itertools import cycle
 from os import PathLike
 from pathlib import Path
-from typing import Iterator, Literal, List, Tuple, Dict, Any, Set, Optional
+from typing import (
+    Iterator,
+    Literal,
+    List,
+    Tuple,
+    Dict,
+    Any,
+    Set,
+    Optional,
+    Callable,
+    Coroutine,
+)
 from concurrent.futures import ThreadPoolExecutor, Future, as_completed
 
 from p115client import P115Client, check_response
-from p115client.util import posix_escape_name
+from p115client.util import complete_url, posix_escape_name
 from p115client.tool.attr import normalize_attr, get_id
 
 from ..core.cache import idpathcacher
 from ..db_manager.oper import FileDbHelper
 from ..utils.limiter import ApiEndpointCooldown
+
+
+class ShareP115Client(P115Client):
+    """
+    分享同步专用 Client
+    """
+
+    def share_snap_cookie(
+        self,
+        payload: dict,
+        /,
+        base_url: str | Callable[[], str] = "https://webapi.115.com",
+        *,
+        async_: Literal[False, True] = False,
+        **request_kwargs,
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """
+        获取分享链接的某个目录中的文件和子目录的列表（包含详细信息）
+
+        GET https://webapi.115.com/share/snap
+
+        :payload:
+            - share_code: str
+            - receive_code: str
+            - cid: int | str = 0
+            - limit: int = 32
+            - offset: int = 0
+            - asc: 0 | 1 = <default> 💡 是否升序排列
+            - o: str = <default> 💡 用某字段排序
+
+                - "file_name": 文件名
+                - "file_size": 文件大小
+                - "user_ptime": 创建时间/修改时间
+        """
+        api = complete_url("/share/snap", base_url=base_url)
+        payload = {"cid": 0, "limit": 32, "offset": 0, **payload}
+        return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
 
 @dataclass
@@ -34,7 +83,7 @@ class ApiEndpointInfo:
 
 
 def iter_share_files_with_path(
-    client: str | PathLike | P115Client,
+    client: str | PathLike | ShareP115Client,
     share_code: str,
     receive_code: str = "",
     cid: int = 0,
@@ -42,7 +91,7 @@ def iter_share_files_with_path(
         "file_name", "file_size", "file_type", "user_utime", "user_ptime", "user_otime"
     ] = "user_ptime",
     asc: Literal[0, 1] = 1,
-    max_workers: int = 100,
+    max_workers: int = 25,
     speed_mode: Literal[0, 1, 2, 3] = 3,
     **request_kwargs,
 ) -> Iterator[dict]:
@@ -73,7 +122,7 @@ def iter_share_files_with_path(
     :return: 迭代器，返回此分享链接下的（所有文件）文件信息
     """
     if isinstance(client, (str, PathLike)):
-        client = P115Client(client, check_for_relogin=True)
+        client = ShareP115Client(client, check_for_relogin=True)
     speed_configs = {
         0: (0.25, 0.25, 0.75),
         1: (0.5, 0.5, 1.5),
@@ -105,7 +154,7 @@ def iter_share_files_with_path(
     )
     snap_api_info = ApiEndpointInfo(
         endpoint=ApiEndpointCooldown(
-            api_callable=lambda p: P115Client.share_snap(p, **request_kwargs),
+            api_callable=lambda p: client.share_snap_cookie(p, **request_kwargs),
             cooldown=api_cooldown,
         ),
         api_name="share_snap",

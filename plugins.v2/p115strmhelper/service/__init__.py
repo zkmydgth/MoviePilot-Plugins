@@ -471,9 +471,7 @@ class ServiceHelper:
             return
 
         try:
-            strm_helper = ShareStrmHelper(
-                client=self.client, mediainfodownloader=self.mediainfodownloader
-            )
+            strm_helper = ShareStrmHelper(mediainfodownloader=self.mediainfodownloader)
             strm_helper.generate_strm_files()
             strm_count, mediainfo_count, strm_fail_count, mediainfo_fail_count = (
                 strm_helper.get_generate_total()

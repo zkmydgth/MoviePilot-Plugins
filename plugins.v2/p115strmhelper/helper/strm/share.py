@@ -67,7 +67,6 @@ from tempfile import gettempdir
 
 from orjson import dumps, loads
 
-from p115client import P115Client
 from p115client.util import share_extract_payload
 
 from app.chain.transfer import TransferChain
@@ -75,7 +74,7 @@ from app.log import logger
 from app.schemas import FileItem
 
 from ...core.config import configer
-from ...core.p115 import iter_share_files_with_path
+from ...core.p115 import ShareP115Client, iter_share_files_with_path
 from ...core.scrape import media_scrape_metadata
 from ...helper.mediainfo_download import MediaInfoDownloader
 from ...helper.mediaserver import MediaServerRefresh
@@ -306,7 +305,7 @@ class ShareStrmHelper:
     根据分享生成STRM
     """
 
-    def __init__(self, client: P115Client, mediainfodownloader: MediaInfoDownloader):
+    def __init__(self, mediainfodownloader: MediaInfoDownloader):
         self.rmt_mediaext: Set[str] = {
             f".{ext.strip()}"
             for ext in configer.user_rmt_mediaext.replace("，", ",").split(",")
@@ -316,7 +315,7 @@ class ShareStrmHelper:
             for ext in configer.user_download_mediaext.replace("，", ",").split(",")
         }
 
-        self.client = client
+        self.share_client = ShareP115Client(configer.cookies)
         self.mediainfodownloader = mediainfodownloader
 
         self.elapsed_time = 0
@@ -570,13 +569,14 @@ class ShareStrmHelper:
             else:
                 logger.info(f"【分享STRM生成】数据不存在，开始收集数据{comment_info}")
                 data_iter = iter_share_files_with_path(
-                    client=self.client,
+                    client=self.share_client,
                     share_code=config.share_code,
                     receive_code=config.share_receive,
                     cid=0,
                     speed_mode=config.speed_mode,
                 )
                 data_collector = ShareFilesDataCollector(data_iter, temp_file)
+                data_iter = data_collector
 
             has_exception = False
             try:
