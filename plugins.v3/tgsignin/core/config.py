@@ -174,7 +174,7 @@ DEFAULT_FAILURE_KEYWORDS = (
     "temporarily unavailable",
 )
 
-# 交接单里已实测确认的默认账号与签到目标（用户可随意增删改）
+# 默认示例账号与签到目标（占位号码，用户可随意增删改）
 DEFAULT_ACCOUNTS_TEXT = """# 一行一个账号：标识 | 显示名 | 手机号
 acc1 | 账号1 | +12025550101
 acc2 | 账号2 | +12025550102"""
@@ -657,7 +657,7 @@ def targets_from_slots(
 
 def default_slot_config() -> Dict[str, Any]:
     """
-    生成默认的槽位配置（预填交接单里那 2 个账号与 5 条签到目标）。
+    生成默认的槽位配置（预填示例的 2 个账号与 5 条签到目标）。
 
     :return Dict[str, Any]: 槽位字段字典（可直接并入插件默认配置）
     """
