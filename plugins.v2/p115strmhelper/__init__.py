@@ -395,8 +395,10 @@ class P115StrmHelper(_PluginBase):
                     "kwargs": {},
                 }
             )
-        if configer.get_config("increment_sync_strm_enabled") and configer.get_config(
-            "increment_sync_strm_paths"
+        if (
+            configer.get_config("increment_sync_strm_enabled")
+            and configer.get_config("increment_sync_strm_paths")
+            and configer.get_config("increment_sync_cron")
         ):
             cron_service.append(
                 {
