@@ -330,52 +330,65 @@ class MediaInfoDownloader:
         """
         mediainfo_count: int = 0
         mediainfo_fail_count: int = 0
+        mediainfo_fail_dict: List = []
         try:
             for item in downloads_list:
                 if not item:
                     continue
                 download_success = False
                 if item["type"] == "local":
-                    for _ in range(3):
-                        self.local_downloader(
-                            pickcode=item["pickcode"], path=Path(item["path"])
+                    try:
+                        for _ in range(3):
+                            self.local_downloader(
+                                pickcode=item["pickcode"], path=Path(item["path"])
+                            )
+                            if not self.is_file_leq_1k(item["path"]):
+                                mediainfo_count += 1
+                                download_success = True
+                                break
+                            logger.warn(
+                                f"【媒体信息文件下载】{item['path']} 下载该文件失败，自动重试"
+                            )
+                            time.sleep(1)
+                    except Exception as e:
+                        logger.error(
+                            f"【媒体信息文件下载】 {item['path']} 出现未知错误: {e}"
                         )
-                        if not self.is_file_leq_1k(item["path"]):
-                            mediainfo_count += 1
-                            download_success = True
-                            break
-                        logger.warn(
-                            f"【媒体信息文件下载】{item['path']} 下载该文件失败，自动重试"
-                        )
-                        time.sleep(1)
                     if not download_success:
                         mediainfo_fail_count += 1
+                        mediainfo_fail_dict.append(item["path"])
                 elif item["type"] == "share":
-                    for _ in range(3):
-                        self.share_downloader(
-                            share_code=item["share_code"],
-                            receive_code=item["receive_code"],
-                            file_id=item["file_id"],
-                            path=Path(item["path"]),
+                    try:
+                        for _ in range(3):
+                            self.share_downloader(
+                                share_code=item["share_code"],
+                                receive_code=item["receive_code"],
+                                file_id=item["file_id"],
+                                path=Path(item["path"]),
+                            )
+                            if not self.is_file_leq_1k(item["path"]):
+                                mediainfo_count += 1
+                                download_success = True
+                                break
+                            logger.warn(
+                                f"【媒体信息文件下载】{item['path']} 下载该文件失败，自动重试"
+                            )
+                            time.sleep(1)
+                    except Exception as e:
+                        logger.error(
+                            f"【媒体信息文件下载】 {item['path']} 出现未知错误: {e}"
                         )
-                        if not self.is_file_leq_1k(item["path"]):
-                            mediainfo_count += 1
-                            download_success = True
-                            break
-                        logger.warn(
-                            f"【媒体信息文件下载】{item['path']} 下载该文件失败，自动重试"
-                        )
-                        time.sleep(1)
                     if not download_success:
                         mediainfo_fail_count += 1
+                        mediainfo_fail_dict.append(item["path"])
                 else:
                     continue
-                if mediainfo_count % 25 == 0:
+                if mediainfo_count % 50 == 0:
                     logger.info("【媒体信息文件下载】休眠 2s 后继续下载")
                     time.sleep(2)
         except Exception as e:
             logger.error(f"【媒体信息文件下载】出现未知错误: {e}")
-        return mediainfo_count, mediainfo_fail_count
+        return mediainfo_count, mediainfo_fail_count, mediainfo_fail_dict
 
 
 class FullSyncStrmHelper:
@@ -409,6 +422,7 @@ class FullSyncStrmHelper:
         self.strm_fail_count = 0
         self.mediainfo_fail_count = 0
         self.strm_fail_dict: Dict[str, str] = {}
+        self.mediainfo_fail_dict: List = None
         self.server_address = server_address.rstrip("/")
         self.pan_transfer_enabled = pan_transfer_enabled
         self.pan_transfer_paths = pan_transfer_paths
@@ -531,7 +545,7 @@ class FullSyncStrmHelper:
             except Exception as e:
                 logger.error(f"【全量STRM生成】全量生成 STRM 文件失败: {e}")
                 return False
-        self.mediainfo_count, self.mediainfo_fail_count = (
+        self.mediainfo_count, self.mediainfo_fail_count, self.mediainfo_fail_dict = (
             self.mediainfodownloader.auto_downloader(
                 downloads_list=self.download_mediainfo_list
             )
@@ -539,6 +553,9 @@ class FullSyncStrmHelper:
         if self.strm_fail_dict:
             for path, error in self.strm_fail_dict.items():
                 logger.warn(f"【全量STRM生成】{path} 生成错误原因: {error}")
+        if self.mediainfo_fail_dict:
+            for path in self.mediainfo_fail_dict:
+                logger.warn(f"【全量STRM生成】{path} 下载错误")
         logger.info(
             f"【全量STRM生成】全量生成 STRM 文件完成，总共生成 {self.strm_count} 个 STRM 文件，下载 {self.mediainfo_count} 个媒体数据文件"
         )
@@ -590,6 +607,7 @@ class ShareStrmHelper:
         self.mediainfo_count = 0
         self.mediainfo_fail_count = 0
         self.strm_fail_dict: Dict[str, str] = {}
+        self.mediainfo_fail_dict: List = None
         self.share_media_path = share_media_path
         self.local_media_path = local_media_path
         self.server_address = server_address.rstrip("/")
@@ -721,7 +739,7 @@ class ShareStrmHelper:
         """
         下载媒体信息文件
         """
-        self.mediainfo_count, self.mediainfo_fail_count = (
+        self.mediainfo_count, self.mediainfo_fail_count, self.mediainfo_fail_dict = (
             self.mediainfodownloader.auto_downloader(
                 downloads_list=self.download_mediainfo_list
             )
@@ -734,6 +752,9 @@ class ShareStrmHelper:
         if self.strm_fail_dict:
             for path, error in self.strm_fail_dict.items():
                 logger.warn(f"【分享STRM生成】{path} 生成错误原因: {error}")
+        if self.mediainfo_fail_dict:
+            for path in self.mediainfo_fail_dict:
+                logger.warn(f"【分享STRM生成】{path} 下载错误")
         logger.info(
             f"【分享STRM生成】分享生成 STRM 文件完成，总共生成 {self.strm_count} 个 STRM 文件，下载 {self.mediainfo_count} 个媒体数据文件"
         )
@@ -757,7 +778,7 @@ class P115StrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png"
     # 插件版本
-    plugin_version = "1.6.11"
+    plugin_version = "1.6.12"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
