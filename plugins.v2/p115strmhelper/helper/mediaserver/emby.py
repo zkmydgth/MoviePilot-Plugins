@@ -1,6 +1,6 @@
 from pathlib import Path
 from time import sleep
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 from urllib.parse import quote
 
 from httpx import RequestError, post as httpx_post
@@ -13,7 +13,6 @@ from app.utils.http import RequestUtils
 
 from ...core.config import configer
 from ...utils.path import PathUtils
-from ...utils.string import StringUtils
 
 
 class EmbyOperate:
@@ -280,31 +279,13 @@ class EmbyMediaInfoOperate:
             logger.error(f"{self.func_name}{service_name} 更新媒体信息失败: {e}")
         return False, need_upload, media_data
 
-    def _mediainfo_size(self, media_data: Any) -> Optional[int]:
-        """
-        从媒体信息中取出 MediaSourceInfo.Size。
-
-        :param media_data: 中心下发的或 Emby 返回的媒体信息（list 或 dict）。
-        :return: Size 字节数，取不到则返回 None。
-        """
-        if not media_data:
-            return None
-        item = media_data[0] if isinstance(media_data, list) else media_data
-        if not isinstance(item, dict):
-            return None
-        msi = item.get("MediaSourceInfo")
-        if not isinstance(msi, dict):
-            return None
-        size = msi.get("Size")
-        return int(size) if size is not None else None
-
     def get_mediainfo(self, sha1: str, path: Path, size: Optional[int] = None):
         """
         执行提取媒体信息，并上传服务器
 
         :param sha1: 媒体文件的 sha1 值
         :param path: 媒体路径
-        :param size: 可选，当前文件大小（字节）；若与 media_data 内 Size 相差超过 2% 则舍弃缓存并重新获取上传
+        :param size: 可选，当前文件大小（字节）
         """
         media_server = self.service_infos
         if not media_server:
@@ -312,25 +293,14 @@ class EmbyMediaInfoOperate:
 
         media_data = None
         try:
-            resp = self.center.download_emby_mediainfo_data([sha1])
-            media_data = resp.get(sha1, None)
+            resp = self.center.download_emby_mediainfo_data([(sha1, size)])
+            media_data = resp.get(sha1.upper(), None)
         except Exception as e:
             logger.error(f"{self.func_name}{path} 获取媒体信息失败: {e}")
 
         need_upload = True
         if media_data:
             need_upload = False
-            if size is not None and size > 0:
-                cached_size = self._mediainfo_size(media_data)
-                if cached_size is not None and size > 0:
-                    ratio = abs(size - cached_size) / size
-                    if ratio > 0.02:
-                        logger.info(
-                            f"{self.func_name}{path.name} 本地大小 {StringUtils.format_size(size)} 与中心化数据 Size "
-                            f"{StringUtils.format_size(cached_size)} 相差 {ratio:.1%} > 2%，舍弃中心化数据并重新获取"
-                        )
-                        media_data = None
-                        need_upload = True
 
         file_path = path.as_posix()
         if self.mp_mediaserver:
@@ -403,8 +373,14 @@ class EmbyMediaInfoOperate:
                         )
         if need_upload and media_data:
             try:
-                self.center.upload_emby_mediainfo_data(sha1, media_data)
-                logger.info(f"{self.func_name}上传媒体信息成功: [{sha1}]{file_path}")
+                if self.center.upload_emby_mediainfo_data(sha1, media_data, size=size):
+                    logger.info(
+                        f"{self.func_name}上传媒体信息成功: [{sha1}]{file_path}"
+                    )
+                else:
+                    logger.error(
+                        f"{self.func_name}Emby 返回媒体信息异常，不进行上传: [{sha1}]{file_path}"
+                    )
             except Exception as e:
                 logger.warning(
                     f"{self.func_name}上传媒体信息失败: {sha1} {file_path} {e}"
