@@ -16,112 +16,114 @@
 
         <div v-else class="my-1">
           <!-- 基础设置 -->
-          <v-card flat class="rounded mb-3 border config-card">
-            <v-card-title class="text-subtitle-2 d-flex align-center px-3 py-1 bg-primary-lighten-5">
-              <v-icon icon="mdi-cog" class="mr-2" color="primary" size="small" />
-              <span>基础设置</span>
-            </v-card-title>
-            <v-card-text class="pa-3">
-              <v-row>
-                <v-col cols="12" md="4">
-                  <v-switch v-model="config.enabled" label="启用插件" color="success" density="compact"></v-switch>
-                </v-col>
-                <v-col cols="12" md="4">
-                  <v-select v-model="config.strm_url_format" label="STRM文件URL格式" :items="[
-                    { title: 'pickcode', value: 'pickcode' },
-                    { title: 'pickcode + name', value: 'pickname' }
-                  ]"
-                    :hint="config.strm_url_template_enabled ? '已启用自定义模板时优先使用模板，模板渲染失败时将使用此设置作为后备方案' : '选择 STRM 文件的 URL 格式'"
-                    persistent-hint chips closable-chips></v-select>
-                </v-col>
-                <v-col cols="12" md="4">
-                  <v-select v-model="config.link_redirect_mode" label="直链获取模式" :items="[
-                    { title: 'Cookie', value: 'cookie' },
-                    { title: 'OpenAPI', value: 'open' }
-                  ]" chips closable-chips></v-select>
-                </v-col>
-              </v-row>
-              <v-row>
-                <v-col cols="12" md="4">
-                  <v-switch v-model="config.notify" label="发送通知" color="success" density="compact"></v-switch>
-                </v-col>
-                <v-col cols="12" md="8">
-                  <v-select v-model="config.language" label="通知语言" :items="[
-                    { title: '简体中文', value: 'zh_CN' },
-                    { title: '繁中台湾', value: 'zh_TW' },
-                    { title: '繁中港澳', value: 'zh_HK' },
-                    { title: '柔情猫娘', value: 'zh_CN_catgirl' },
-                    { title: '粤韵风华', value: 'zh_yue' },
-                    { title: '咚咚搬砖', value: 'zh_CN_dong' }
-                  ]" chips closable-chips></v-select>
-                </v-col>
-              </v-row>
-              <v-row>
-                <v-col cols="12" md="4">
-                  <v-text-field v-model="config.cookies" label="115 Cookie" hint="点击图标切换显隐、复制或扫码" persistent-hint
-                    density="compact" variant="outlined" hide-details="auto"
-                    :type="isCookieVisible ? 'text' : 'password'">
-                    <template v-slot:append-inner>
-                      <v-icon :icon="isCookieVisible ? 'mdi-eye-off' : 'mdi-eye'"
-                        @click="isCookieVisible = !isCookieVisible"
-                        :aria-label="isCookieVisible ? '隐藏Cookie' : '显示Cookie'"
-                        :title="isCookieVisible ? '隐藏Cookie' : '显示Cookie'" class="mr-1" size="small"></v-icon>
-                      <v-icon icon="mdi-content-copy" @click="copyCookieToClipboard" :disabled="!config.cookies"
-                        aria-label="复制Cookie" title="复制Cookie到剪贴板" size="small" class="mr-1"></v-icon>
-                    </template>
-                    <template v-slot:append>
-                      <v-icon icon="mdi-qrcode-scan" @click="openQrCodeDialog"
-                        :color="config.cookies ? 'success' : 'default'"
-                        :aria-label="config.cookies ? '更新/更换Cookie (重新扫码)' : '扫码获取Cookie'"
-                        :title="config.cookies ? '更新/更换Cookie (重新扫码)' : '扫码获取Cookie'"></v-icon>
-                    </template>
-                  </v-text-field>
-                </v-col>
-                <!-- 阿里云盘 Token 配置 -->
-                <v-col cols="12" md="4">
-                  <v-text-field v-model="config.aliyundrive_token" label="阿里云盘 Token (可选)" hint="非必填。点击图标切换显隐、复制或扫码获取"
-                    persistent-hint density="compact" variant="outlined" hide-details="auto"
-                    :type="isAliTokenVisible ? 'text' : 'password'">
-                    <template v-slot:append-inner>
-                      <v-icon :icon="isAliTokenVisible ? 'mdi-eye-off' : 'mdi-eye'"
-                        @click="isAliTokenVisible = !isAliTokenVisible"
-                        :aria-label="isAliTokenVisible ? '隐藏Token' : '显示Token'"
-                        :title="isAliTokenVisible ? '隐藏Token' : '显示Token'" class="mr-1" size="small"></v-icon>
-                      <v-icon icon="mdi-content-copy" @click="copyAliTokenToClipboard"
-                        :disabled="!config.aliyundrive_token" aria-label="复制Token" title="复制Token到剪贴板" size="small"
-                        class="mr-1"></v-icon>
-                    </template>
-                    <template v-slot:append>
-                      <v-icon icon="mdi-qrcode-scan" @click="openAliQrCodeDialog"
-                        :color="config.aliyundrive_token ? 'success' : 'default'"
-                        :aria-label="config.aliyundrive_token ? '更新/更换Token' : '扫码获取Token'"
-                        :title="config.aliyundrive_token ? '更新/更换Token' : '扫码获取Token'"></v-icon>
-                    </template>
-                  </v-text-field>
-                </v-col>
-                <v-col cols="12" md="4">
-                  <v-text-field v-model="config.moviepilot_address" label="MoviePilot 内网访问地址" hint="点右侧图标自动填充当前站点地址。"
-                    persistent-hint density="compact" variant="outlined" hide-details="auto">
-                    <template v-slot:append>
-                      <v-icon icon="mdi-web" @click="setMoviePilotAddressToCurrentOrigin" aria-label="使用当前站点地址"
-                        title="使用当前站点地址" color="info"></v-icon>
-                    </template>
-                  </v-text-field>
-                </v-col>
-              </v-row>
-              <v-row>
-                <v-col cols="12" md="6">
-                  <v-text-field v-model="config.user_rmt_mediaext" label="可整理媒体文件扩展名" hint="支持的媒体文件扩展名，多个用逗号分隔"
-                    persistent-hint density="compact" variant="outlined" hide-details="auto"></v-text-field>
-                </v-col>
-                <v-col cols="12" md="6">
-                  <v-text-field v-model="config.user_download_mediaext" label="可下载媒体数据文件扩展名"
-                    hint="下载的字幕等附属文件扩展名，多个用逗号分隔" persistent-hint density="compact" variant="outlined"
-                    hide-details="auto"></v-text-field>
-                </v-col>
-              </v-row>
-            </v-card-text>
-          </v-card>
+          <v-expansion-panels v-model="basicConfigExpanded" variant="tonal" class="mb-3" multiple>
+            <v-expansion-panel value="basic-config" class="rounded border config-card" eager>
+              <v-expansion-panel-title class="text-subtitle-2 d-flex align-center px-3 py-2 bg-primary-lighten-5">
+                <v-icon icon="mdi-cog" class="mr-2" color="primary" size="small" />
+                <span>基础设置</span>
+              </v-expansion-panel-title>
+              <v-expansion-panel-text class="pa-3" eager>
+                <v-row>
+                  <v-col cols="12" md="4">
+                    <v-switch v-model="config.enabled" label="启用插件" color="success" density="compact"></v-switch>
+                  </v-col>
+                  <v-col cols="12" md="4">
+                    <v-select v-model="config.strm_url_format" label="STRM文件URL格式" :items="[
+                      { title: 'pickcode', value: 'pickcode' },
+                      { title: 'pickcode + name', value: 'pickname' }
+                    ]"
+                      :hint="config.strm_url_template_enabled ? '已启用自定义模板时优先使用模板，模板渲染失败时将使用此设置作为后备方案' : '选择 STRM 文件的 URL 格式'"
+                      persistent-hint chips closable-chips></v-select>
+                  </v-col>
+                  <v-col cols="12" md="4">
+                    <v-select v-model="config.link_redirect_mode" label="直链获取模式" :items="[
+                      { title: 'Cookie', value: 'cookie' },
+                      { title: 'OpenAPI', value: 'open' }
+                    ]" chips closable-chips></v-select>
+                  </v-col>
+                </v-row>
+                <v-row>
+                  <v-col cols="12" md="4">
+                    <v-switch v-model="config.notify" label="发送通知" color="success" density="compact"></v-switch>
+                  </v-col>
+                  <v-col cols="12" md="8">
+                    <v-select v-model="config.language" label="通知语言" :items="[
+                      { title: '简体中文', value: 'zh_CN' },
+                      { title: '繁中台湾', value: 'zh_TW' },
+                      { title: '繁中港澳', value: 'zh_HK' },
+                      { title: '柔情猫娘', value: 'zh_CN_catgirl' },
+                      { title: '粤韵风华', value: 'zh_yue' },
+                      { title: '咚咚搬砖', value: 'zh_CN_dong' }
+                    ]" chips closable-chips></v-select>
+                  </v-col>
+                </v-row>
+                <v-row>
+                  <v-col cols="12" md="4">
+                    <v-text-field v-model="config.cookies" label="115 Cookie" hint="点击图标切换显隐、复制或扫码" persistent-hint
+                      density="compact" variant="outlined" hide-details="auto"
+                      :type="isCookieVisible ? 'text' : 'password'">
+                      <template v-slot:append-inner>
+                        <v-icon :icon="isCookieVisible ? 'mdi-eye-off' : 'mdi-eye'"
+                          @click="isCookieVisible = !isCookieVisible"
+                          :aria-label="isCookieVisible ? '隐藏Cookie' : '显示Cookie'"
+                          :title="isCookieVisible ? '隐藏Cookie' : '显示Cookie'" class="mr-1" size="small"></v-icon>
+                        <v-icon icon="mdi-content-copy" @click="copyCookieToClipboard" :disabled="!config.cookies"
+                          aria-label="复制Cookie" title="复制Cookie到剪贴板" size="small" class="mr-1"></v-icon>
+                      </template>
+                      <template v-slot:append>
+                        <v-icon icon="mdi-qrcode-scan" @click="openQrCodeDialog"
+                          :color="config.cookies ? 'success' : 'default'"
+                          :aria-label="config.cookies ? '更新/更换Cookie (重新扫码)' : '扫码获取Cookie'"
+                          :title="config.cookies ? '更新/更换Cookie (重新扫码)' : '扫码获取Cookie'"></v-icon>
+                      </template>
+                    </v-text-field>
+                  </v-col>
+                  <!-- 阿里云盘 Token 配置 -->
+                  <v-col cols="12" md="4">
+                    <v-text-field v-model="config.aliyundrive_token" label="阿里云盘 Token (可选)" hint="非必填。点击图标切换显隐、复制或扫码获取"
+                      persistent-hint density="compact" variant="outlined" hide-details="auto"
+                      :type="isAliTokenVisible ? 'text' : 'password'">
+                      <template v-slot:append-inner>
+                        <v-icon :icon="isAliTokenVisible ? 'mdi-eye-off' : 'mdi-eye'"
+                          @click="isAliTokenVisible = !isAliTokenVisible"
+                          :aria-label="isAliTokenVisible ? '隐藏Token' : '显示Token'"
+                          :title="isAliTokenVisible ? '隐藏Token' : '显示Token'" class="mr-1" size="small"></v-icon>
+                        <v-icon icon="mdi-content-copy" @click="copyAliTokenToClipboard"
+                          :disabled="!config.aliyundrive_token" aria-label="复制Token" title="复制Token到剪贴板" size="small"
+                          class="mr-1"></v-icon>
+                      </template>
+                      <template v-slot:append>
+                        <v-icon icon="mdi-qrcode-scan" @click="openAliQrCodeDialog"
+                          :color="config.aliyundrive_token ? 'success' : 'default'"
+                          :aria-label="config.aliyundrive_token ? '更新/更换Token' : '扫码获取Token'"
+                          :title="config.aliyundrive_token ? '更新/更换Token' : '扫码获取Token'"></v-icon>
+                      </template>
+                    </v-text-field>
+                  </v-col>
+                  <v-col cols="12" md="4">
+                    <v-text-field v-model="config.moviepilot_address" label="MoviePilot 内网访问地址" hint="点右侧图标自动填充当前站点地址。"
+                      persistent-hint density="compact" variant="outlined" hide-details="auto">
+                      <template v-slot:append>
+                        <v-icon icon="mdi-web" @click="setMoviePilotAddressToCurrentOrigin" aria-label="使用当前站点地址"
+                          title="使用当前站点地址" color="info"></v-icon>
+                      </template>
+                    </v-text-field>
+                  </v-col>
+                </v-row>
+                <v-row>
+                  <v-col cols="12" md="6">
+                    <v-text-field v-model="config.user_rmt_mediaext" label="可整理媒体文件扩展名" hint="支持的媒体文件扩展名，多个用逗号分隔"
+                      persistent-hint density="compact" variant="outlined" hide-details="auto"></v-text-field>
+                  </v-col>
+                  <v-col cols="12" md="6">
+                    <v-text-field v-model="config.user_download_mediaext" label="可下载媒体数据文件扩展名"
+                      hint="下载的字幕等附属文件扩展名，多个用逗号分隔" persistent-hint density="compact" variant="outlined"
+                      hide-details="auto"></v-text-field>
+                  </v-col>
+                </v-row>
+              </v-expansion-panel-text>
+            </v-expansion-panel>
+          </v-expansion-panels>
 
           <!-- 标签页 -->
           <v-card flat class="rounded mb-3 border config-card">
@@ -2603,6 +2605,8 @@ const embyMediaservers = computed(() => {
 const isCookieVisible = ref(false);
 const isAliTokenVisible = ref(false);
 const isTransferModuleEnhancementLocked = ref(true);
+// 基础设置折叠状态 - 从 localStorage 读取，默认展开
+const basicConfigExpanded = ref(['basic-config']);
 const config = reactive({
   language: "zh_CN",
   enabled: false,
@@ -4276,6 +4280,16 @@ const closeQrDialog = () => {
 onMounted(async () => {
   await loadConfig();
   await checkTransferModuleEnhancement();
+
+  // 从 localStorage 读取基础设置折叠状态
+  const savedBasicConfigState = localStorage.getItem('p115strmhelper_basic_config_expanded');
+  if (savedBasicConfigState !== null) {
+    try {
+      basicConfigExpanded.value = JSON.parse(savedBasicConfigState);
+    } catch (e) {
+      console.error('Failed to parse basic config expanded state:', e);
+    }
+  }
 });
 
 onBeforeUnmount(() => {
@@ -4283,6 +4297,11 @@ onBeforeUnmount(() => {
   clearQrCodeCheckInterval();
   clearAliQrCodeCheckInterval();
 });
+
+// 监听基础设置折叠状态变化并保存到 localStorage
+watch(basicConfigExpanded, (newVal) => {
+  localStorage.setItem('p115strmhelper_basic_config_expanded', JSON.stringify(newVal));
+}, { deep: true });
 
 watch(() => qrDialog.clientType, (newVal, oldVal) => {
   if (newVal !== oldVal && qrDialog.show) {
@@ -4335,6 +4354,19 @@ const removeExcludePathEntry = (index, type) => {
 </script>
 
 <style scoped>
+/* 优化基础设置折叠面板动画速度 */
+:deep(.v-expansion-panel) {
+  transition: all 0.2s ease !important;
+}
+
+:deep(.v-expansion-panel-text__wrapper) {
+  transition: all 0.2s ease !important;
+}
+
+:deep(.v-expansion-panel__shadow) {
+  transition: all 0.2s ease !important;
+}
+
 /* 统一字体 - Inspired by Page.vue */
 :deep(.v-card-title),
 :deep(.v-card-text),
