@@ -376,7 +376,7 @@ class P123Api:
                 parent_id=target_dir.fileid,
             )
             check_response(resp)
-            data = resp.get("data", {}).get("Info", None)
+            data = resp.get("data", {}).get("file_info", None)
             if data:
                 logger.info(f"【123】上传文件成功: {target_path}")
                 logger.debug(f"【123】上传文件: {data}")
