@@ -620,11 +620,19 @@ class Api:
                     error_message, status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
                 )
 
+        file_name = url["file_name"]
+        try:
+            file_name.encode("ascii")
+            content_disposition = f'attachment; filename="{file_name}"'
+        except UnicodeEncodeError:
+            encoded_filename = quote(file_name, safe="")
+            content_disposition = f"attachment; filename*=UTF-8''{encoded_filename}"
+
         return Response(
             status_code=status.HTTP_302_FOUND,
             headers={
                 "Location": url,
-                "Content-Disposition": f'attachment; filename="{quote(url["file_name"])}"',
+                "Content-Disposition": content_disposition,
             },
             media_type="application/json; charset=utf-8",
             content=dumps({"status": "redirecting", "url": url}),
