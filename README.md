@@ -16,6 +16,7 @@
 - [115网盘STRM助手](https://github.com/DDS-Derek/MoviePilot-Plugins/tree/main/plugins.v2/p115strmhelper)：115网盘STRM生成一条龙服务。
 - [123云盘储存](https://github.com/DDS-Derek/MoviePilot-Plugins/tree/main/plugins.v2/p123disk)：使存储支持123云盘。
 - [123云盘STRM助手](https://github.com/DDS-Derek/MoviePilot-Plugins/tree/main/plugins.v2/p123strmhelper)：123云盘STRM生成一条龙服务。
+- [MediaWarp](https://github.com/DDS-Derek/MoviePilot-Plugins/tree/main/plugins.v2/mediawarp)：EmbyServer/Jellyfin 中间件：优化播放 Strm 文件、自定义前端样式、自定义允许访问客户端、嵌入脚本。
 
 ### 媒体管理类
 
@@ -25,3 +26,4 @@
 
 - [p115client](https://github.com/ChenyangGao/p115client)
 - [python-123-client](https://github.com/ChenyangGao/web-mount-packs/tree/main/python-123-client)
+- [MediaWarp](https://github.com/Akimio521/MediaWarp)
