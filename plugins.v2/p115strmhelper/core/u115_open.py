@@ -1,11 +1,20 @@
 import time
 import threading
+import hashlib
 from typing import Optional, Union
+from pathlib import Path
 
 import requests
+import oss2
+from oss2 import SizedFileAdapter, determine_part_size
+from oss2.models import PartInfo
+from tqdm import tqdm
 
+from app import schemas
 from app.log import logger
 from app.helper.storage import StorageHelper
+from app.chain.storage import StorageChain
+from app.utils.string import StringUtils
 
 
 p115_open_lock = threading.Lock()
@@ -142,6 +151,18 @@ class U115OpenHelper:
             return ret_data.get(result_key)
         return ret_data
 
+    def _delay_get_item(self, path: Path) -> Optional[schemas.FileItem]:
+        """
+        自动延迟重试 get_item 模块
+        """
+        storagechain = StorageChain()
+        for _ in range(2):
+            time.sleep(2)
+            fileitem = storagechain.get_file_item(storage="u115", path=Path(path))
+            if fileitem:
+                return fileitem
+        return None
+
     def get_download_url(
         self,
         pickcode: str,
@@ -161,3 +182,244 @@ class U115OpenHelper:
             return None
         logger.debug(f"【P115Open】获取到下载信息: {download_info}")
         return list(download_info.values())[0].get("url", {}).get("url")
+
+    @staticmethod
+    def _calc_sha1(filepath: Path, size: Optional[int] = None) -> str:
+        """
+        计算文件SHA1
+        size: 前多少字节
+        """
+        sha1 = hashlib.sha1()
+        with open(filepath, "rb") as f:
+            if size:
+                chunk = f.read(size)
+                sha1.update(chunk)
+            else:
+                while chunk := f.read(8192):
+                    sha1.update(chunk)
+        return sha1.hexdigest()
+
+    def upload(
+        self,
+        target_dir: schemas.FileItem,
+        local_path: Path,
+        new_name: Optional[str] = None,
+    ) -> Optional[schemas.FileItem]:
+        """
+        实现带秒传、断点续传和二次认证的文件上传
+        """
+
+        def encode_callback(cb: str) -> str:
+            return oss2.utils.b64encode_as_string(cb)
+
+        target_name = new_name or local_path.name
+        target_path = Path(target_dir.path) / target_name
+        # 计算文件特征值
+        file_size = local_path.stat().st_size
+        file_sha1 = self._calc_sha1(local_path)
+        file_preid = self._calc_sha1(local_path, 128 * 1024 * 1024)
+
+        # 获取目标目录CID
+        target_cid = target_dir.fileid
+        target_param = f"U_1_{target_cid}"
+
+        # Step 1: 初始化上传
+        init_data = {
+            "file_name": target_name,
+            "file_size": file_size,
+            "target": target_param,
+            "fileid": file_sha1,
+            "preid": file_preid,
+        }
+        init_resp = self._request_api("POST", "/open/upload/init", data=init_data)
+        if not init_resp:
+            return None
+        if not init_resp.get("state"):
+            logger.warn(f"【P115Open】初始化上传失败: {init_resp.get('error')}")
+            return None
+        # 结果
+        init_result = init_resp.get("data")
+        logger.debug(f"【P115Open】上传 Step 1 初始化结果: {init_result}")
+        # 回调信息
+        bucket_name = init_result.get("bucket")
+        object_name = init_result.get("object")
+        callback = init_result.get("callback")
+        # 二次认证信息
+        sign_check = init_result.get("sign_check")
+        pick_code = init_result.get("pick_code")
+        sign_key = init_result.get("sign_key")
+
+        # Step 2: 处理二次认证
+        if init_result.get("code") in [700, 701] and sign_check:
+            sign_checks = sign_check.split("-")
+            start = int(sign_checks[0])
+            end = int(sign_checks[1])
+            # 计算指定区间的SHA1
+            # sign_check （用下划线隔开,截取上传文内容的sha1）(单位是byte): "2392148-2392298"
+            with open(local_path, "rb") as f:
+                # 取2392148-2392298之间的内容(包含2392148、2392298)的sha1
+                f.seek(start)
+                chunk = f.read(end - start + 1)
+                sign_val = hashlib.sha1(chunk).hexdigest().upper()
+            # 重新初始化请求
+            # sign_key，sign_val(根据sign_check计算的值大写的sha1值)
+            init_data.update(
+                {"pick_code": pick_code, "sign_key": sign_key, "sign_val": sign_val}
+            )
+            init_resp = self._request_api("POST", "/open/upload/init", data=init_data)
+            if not init_resp:
+                return None
+            # 二次认证结果
+            init_result = init_resp.get("data")
+            logger.debug(f"【P115Open】上传 Step 2 二次认证结果: {init_result}")
+            if not pick_code:
+                pick_code = init_result.get("pick_code")
+            if not bucket_name:
+                bucket_name = init_result.get("bucket")
+            if not object_name:
+                object_name = init_result.get("object")
+            if not callback:
+                callback = init_result.get("callback")
+
+        # Step 3: 秒传
+        if init_result.get("status") == 2:
+            logger.info(f"【P115Open】{target_name} 秒传成功")
+            file_id = init_result.get("file_id", None)
+            if file_id:
+                logger.debug(f"【P115Open】{target_name} 使用秒传返回ID获取文件信息")
+                time.sleep(2)
+                info_resp = self._request_api(
+                    "GET",
+                    "/open/folder/get_info",
+                    "data",
+                    params={"file_id": int(file_id)},
+                )
+                if info_resp:
+                    return schemas.FileItem(
+                        storage="u115",
+                        fileid=str(info_resp["file_id"]),
+                        path=str(target_path)
+                        + ("/" if info_resp["file_category"] == "0" else ""),
+                        type="file" if info_resp["file_category"] == "1" else "dir",
+                        name=info_resp["file_name"],
+                        basename=Path(info_resp["file_name"]).stem,
+                        extension=Path(info_resp["file_name"]).suffix[1:]
+                        if info_resp["file_category"] == "1"
+                        else None,
+                        pickcode=info_resp["pick_code"],
+                        size=StringUtils.num_filesize(info_resp["size"])
+                        if info_resp["file_category"] == "1"
+                        else None,
+                        modify_time=info_resp["utime"],
+                    )
+            return self._delay_get_item(target_path)
+
+        # Step 4: 获取上传凭证
+        token_resp = self._request_api("GET", "/open/upload/get_token", "data")
+        if not token_resp:
+            logger.warn("【P115Open】获取上传凭证失败")
+            return None
+        logger.debug(f"【P115Open】上传 Step 4 获取上传凭证结果: {token_resp}")
+        # 上传凭证
+        endpoint = token_resp.get("endpoint")
+        AccessKeyId = token_resp.get("AccessKeyId")
+        AccessKeySecret = token_resp.get("AccessKeySecret")
+        SecurityToken = token_resp.get("SecurityToken")
+
+        # Step 5: 断点续传
+        resume_resp = self._request_api(
+            "POST",
+            "/open/upload/resume",
+            "data",
+            data={
+                "file_size": file_size,
+                "target": target_param,
+                "fileid": file_sha1,
+                "pick_code": pick_code,
+            },
+        )
+        if resume_resp:
+            logger.debug(f"【P115Open】上传 Step 5 断点续传结果: {resume_resp}")
+            if resume_resp.get("callback"):
+                callback = resume_resp["callback"]
+
+        # Step 6: 对象存储上传
+        auth = oss2.StsAuth(
+            access_key_id=AccessKeyId,
+            access_key_secret=AccessKeySecret,
+            security_token=SecurityToken,
+        )
+        bucket = oss2.Bucket(auth, endpoint, bucket_name)  # noqa
+        # determine_part_size方法用于确定分片大小，设置分片大小为 100M
+        part_size = determine_part_size(file_size, preferred_size=100 * 1024 * 1024)
+
+        # 初始化进度条
+        logger.info(
+            f"【P115Open】开始上传: {local_path} -> {target_path}，分片大小：{StringUtils.str_filesize(part_size)}"
+        )
+        progress_bar = tqdm(
+            total=file_size, unit="B", unit_scale=True, desc="上传进度", ascii=True
+        )
+
+        # 初始化分片
+        upload_id = bucket.init_multipart_upload(
+            object_name, params={"encoding-type": "url", "sequential": ""}
+        ).upload_id
+        parts = []
+        # 逐个上传分片
+        with open(local_path, "rb") as fileobj:
+            part_number = 1
+            offset = 0
+            while offset < file_size:
+                num_to_upload = min(part_size, file_size - offset)
+                # 调用SizedFileAdapter(fileobj, size)方法会生成一个新的文件对象，重新计算起始追加位置。
+                logger.info(
+                    f"【P115Open】开始上传 {target_name} 分片 {part_number}: {offset} -> {offset + num_to_upload}"
+                )
+                result = bucket.upload_part(
+                    object_name,
+                    upload_id,
+                    part_number,
+                    data=SizedFileAdapter(fileobj, num_to_upload),
+                )
+                parts.append(PartInfo(part_number, result.etag))
+                logger.info(f"【P115Open】{target_name} 分片 {part_number} 上传完成")
+                offset += num_to_upload
+                part_number += 1
+                # 更新进度
+                progress_bar.update(num_to_upload)
+
+        # 关闭进度条
+        if progress_bar:
+            progress_bar.close()
+
+        # 请求头
+        headers = {
+            "X-oss-callback": encode_callback(callback["callback"]),
+            "x-oss-callback-var": encode_callback(callback["callback_var"]),
+            "x-oss-forbid-overwrite": "false",
+        }
+        try:
+            result = bucket.complete_multipart_upload(
+                object_name, upload_id, parts, headers=headers
+            )
+            if result.status == 200:
+                logger.debug(
+                    f"【P115Open】上传 Step 6 回调结果：{result.resp.response.json()}"
+                )
+                logger.info(f"【P115Open】{target_name} 上传成功")
+            else:
+                logger.warn(
+                    f"【P115Open】{target_name} 上传失败，错误码: {result.status}"
+                )
+                return None
+        except oss2.exceptions.OssError as e:
+            if e.code == "FileAlreadyExists":
+                logger.warn(f"【P115Open】{target_name} 已存在")
+            else:
+                logger.error(
+                    f"【P115Open】{target_name} 上传失败: {e.status}, 错误码: {e.code}, 详情: {e.message}"
+                )
+                return None
+        # 返回结果
+        return self._delay_get_item(target_path)
