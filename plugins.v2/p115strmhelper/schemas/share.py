@@ -38,6 +38,10 @@ class ShareStrmConfig(BaseModel):
     分享 STRM 生成配置
     """
 
+    # 备注
+    comment: Optional[str] = None
+    # 是否启用
+    enabled: bool = True
     # 分享链接
     share_link: Optional[str] = None
     # 分享码

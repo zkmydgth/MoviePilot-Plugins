@@ -256,12 +256,23 @@ class ShareStrmHelper:
             return
 
         for config in configer.share_strm_config:
+            comment_info = f" ({config.comment})" if config.comment else ""
+
+            if not config.enabled:
+                logger.info(f"【分享STRM生成】跳过未启用的配置{comment_info}: {config}")
+                continue
+
             config = ShareStrmHelper.get_share_code(config)
 
             if not config.share_code or not config.share_receive:
-                logger.error(f"【分享STRM生成】缺失分享码或提取码: {config}")
+                logger.error(
+                    f"【分享STRM生成】缺失分享码或提取码{comment_info}: {config}"
+                )
                 continue
 
+            logger.info(
+                f"【分享STRM生成】开始处理分享配置{comment_info}: share_code={config.share_code}, share_path={config.share_path}, local_path={config.local_path}"
+            )
             start_time = perf_counter()
             for batch in batched(
                 iter_share_files_with_path(

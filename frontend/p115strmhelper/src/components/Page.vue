@@ -843,11 +843,16 @@
                   <template v-slot:prepend>
                     <v-icon icon="mdi-share-variant" color="primary" size="small" class="mr-2"></v-icon>
                   </template>
-                  <v-list-item-title class="text-body-2 font-weight-medium">
-                    {{ config.share_link || config.share_code || `分享配置 ${index + 1}` }}
+                  <v-list-item-title class="text-body-2 font-weight-medium d-flex align-center">
+                    <v-icon v-if="!config.enabled" icon="mdi-power-off" size="small" color="grey" class="mr-1"></v-icon>
+                    <v-icon v-else icon="mdi-power" size="small" color="success" class="mr-1"></v-icon>
+                    <span>{{ config.comment || config.share_link || config.share_code || `分享配置 ${index + 1}` }}</span>
                   </v-list-item-title>
                   <v-list-item-subtitle class="text-caption mt-1">
                     <div class="d-flex flex-column">
+                      <div v-if="config.comment && (config.share_link || config.share_code)" class="mb-1 text-grey">
+                        {{ config.share_link || config.share_code }}
+                      </div>
                       <span v-if="config.local_path" class="mb-1">
                         <v-icon icon="mdi-folder" size="x-small" class="mr-1"></v-icon>
                         本地路径: {{ config.local_path }}
@@ -933,6 +938,29 @@
         <v-alert v-if="shareConfigDialog.error" type="error" density="compact" class="mb-3" variant="tonal" closable>
           {{ shareConfigDialog.error }}
         </v-alert>
+
+        <v-row class="mb-2">
+          <v-col cols="12">
+            <v-switch v-model="shareConfigDialog.enabled" label="启用此配置" color="primary" density="compact"
+              hide-details>
+              <template v-slot:label>
+                <div class="d-flex align-center">
+                  <v-icon icon="mdi-power" size="small" class="mr-2"></v-icon>
+                  <span>启用此配置</span>
+                </div>
+              </template>
+            </v-switch>
+          </v-col>
+        </v-row>
+
+        <v-row class="mb-2">
+          <v-col cols="12">
+            <v-text-field v-model="shareConfigDialog.comment" label="备注" hint="为此配置添加备注说明，方便识别" persistent-hint
+              variant="outlined" density="compact" prepend-inner-icon="mdi-note-text" clearable></v-text-field>
+          </v-col>
+        </v-row>
+
+        <v-divider class="my-3"></v-divider>
 
         <v-row class="mb-2">
           <v-col cols="12">
@@ -1860,6 +1888,8 @@ const shareConfigDialog = reactive({
   show: false,
   error: null,
   editingIndex: -1,
+  comment: '',
+  enabled: true,
   shareLink: '',
   shareCode: '',
   shareReceive: '',
@@ -1934,6 +1964,8 @@ const closeShareDialog = () => {
 
 const addShareConfig = () => {
   shareConfigDialog.editingIndex = -1;
+  shareConfigDialog.comment = '';
+  shareConfigDialog.enabled = true;
   shareConfigDialog.shareLink = '';
   shareConfigDialog.shareCode = '';
   shareConfigDialog.shareReceive = '';
@@ -1953,6 +1985,8 @@ const editShareConfig = (index) => {
   if (index < 0 || index >= shareDialog.configs.length) return;
   const config = shareDialog.configs[index];
   shareConfigDialog.editingIndex = index;
+  shareConfigDialog.comment = config.comment || '';
+  shareConfigDialog.enabled = config.enabled !== undefined ? config.enabled : true;
   shareConfigDialog.shareLink = config.share_link || '';
   shareConfigDialog.shareCode = config.share_code || '';
   shareConfigDialog.shareReceive = config.share_receive || '';
@@ -2028,6 +2062,8 @@ const saveShareConfig = () => {
   }
 
   const config = {
+    comment: shareConfigDialog.comment || null,
+    enabled: shareConfigDialog.enabled,
     share_link: shareConfigDialog.shareLink || null,
     share_code: shareConfigDialog.shareCode || null,
     share_receive: shareConfigDialog.shareReceive || null,
