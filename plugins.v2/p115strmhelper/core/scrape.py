@@ -1,12 +1,13 @@
 from pathlib import Path
 
+from app.core.event import eventmanager
 from app.core.metainfo import MetaInfoPath
 from app.core.meta import MetaBase
 from app.core.config import settings
 from app.core.context import MediaInfo
 from app.log import logger
 from app.chain.media import MediaChain
-from app.schemas.types import MediaType
+from app.schemas.types import MediaType, EventType
 from app.schemas import FileItem
 
 
@@ -66,7 +67,14 @@ def media_scrape_metadata(
                     basename=dir_path.stem,
                     modify_time=dir_path.stat().st_mtime,
                 )
-        mediachain.scrape_metadata(fileitem=fileitem, meta=meta, mediainfo=mediainfo)
+        eventmanager.send_event(
+            EventType.MetadataScrape,
+            {
+                "meta": meta,
+                "mediainfo": mediainfo,
+                "fileitem": fileitem,
+            },
+        )
     else:
         # 对于没有 mediainfo 的媒体文件刮削
         # 获取媒体信息
@@ -109,6 +117,13 @@ def media_scrape_metadata(
             basename=finish_path.stem,
             modify_time=finish_path.stat().st_mtime,
         )
-        mediachain.scrape_metadata(fileitem=fileitem, meta=meta, mediainfo=mediainfo)
+        eventmanager.send_event(
+            EventType.MetadataScrape,
+            {
+                "meta": meta,
+                "mediainfo": mediainfo,
+                "fileitem": fileitem,
+            },
+        )
 
     logger.info(f"【媒体刮削】{item_name} 刮削元数据完成")
