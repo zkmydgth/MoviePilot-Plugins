@@ -4,6 +4,7 @@ from pathlib import Path
 from . import DbOper
 from .models.folder import Folder
 from .models.file import File
+from ..utils.exception import PathNotInKey
 
 from app.schemas import FileItem
 
@@ -17,6 +18,9 @@ class FileDbHelper(DbOper):
         """
         处理单个项目，分离文件夹和文件数据
         """
+        if not item.get("path"):
+            raise PathNotInKey("键中不包含 path 项")
+
         results = []
         ancestors = item.get("ancestors", [])
 
@@ -48,7 +52,7 @@ class FileDbHelper(DbOper):
                     "pickcode": item.get("pickcode", item.get("pick_code", "")),
                     "ctime": item.get("ctime", 0),
                     "mtime": item.get("mtime", 0),
-                    "path": item.get("path", ""),
+                    "path": item.get("path"),
                     "extra": str(item) if item else None,
                 },
             }
@@ -98,6 +102,9 @@ class FileDbHelper(DbOper):
         """
         处理115原始返回数据
         """
+        if not item.get("path"):
+            raise PathNotInKey("键中不包含 path 项")
+
         if "fid" not in item:
             return [
                 {
@@ -106,7 +113,7 @@ class FileDbHelper(DbOper):
                         "id": int(item.get("cid")),
                         "parent_id": int(item.get("pid")),
                         "name": item.get("n"),
-                        "path": item.get("path", ""),
+                        "path": item.get("path"),
                     },
                 }
             ]
@@ -123,7 +130,7 @@ class FileDbHelper(DbOper):
                         "pickcode": item.get("pc"),
                         "ctime": item.get("tp", 0),
                         "mtime": item.get("tu", 0),
-                        "path": item.get("path", ""),
+                        "path": item.get("path"),
                         "extra": str(item),
                     },
                 }
