@@ -295,14 +295,6 @@ class ShareTransferHelper:
         )
         logger.info(f"【分享转存】获取到转存目录 {parent_path} ID：{parent_id}")
 
-        payload = {
-            "share_code": share_code,
-            "receive_code": receive_code,
-            "file_id": 0,
-            "cid": int(parent_id),
-            "is_check": 0,
-        }
-
         # 尝试识别媒体信息
         file_mediainfo = self.add_share_recognize_mediainfo(
             share_code=share_code, receive_code=receive_code
@@ -322,6 +314,13 @@ class ShareTransferHelper:
         if resp["state"]:
             size = StringUtils.str_filesize(resp["data"]["shareinfo"]["file_size"])
 
+        payload = {
+            "share_code": share_code,
+            "receive_code": receive_code,
+            "file_id": 0,
+            "cid": int(parent_id),
+            "is_check": 0,
+        }
         resp = self.client.share_receive(payload)
         if resp["state"]:
             logger.info(f"【分享转存】转存 {share_code} 到 {parent_path} 成功！")
