@@ -84,6 +84,24 @@ jobs:
           pip install -r MoviePilot/requirements.txt
           pip install --find-links plugins.v2/p115strmhelper/wheels -r plugins.v2/p115strmhelper/requirements.txt
 
+      - name: Start Redis (Ubuntu)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y redis-server
+          sudo service redis-server start
+          redis-cli ping
+
+      - name: Start Redis (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          choco install redis-64 --version 3.0.503 -y
+          $env:Path += ";C:\Program Files\Redis"
+          redis-server --service-install
+          redis-server --service-start
+          redis-cli ping
+        shell: powershell
+
       - name: Run tests
         working-directory: plugins.v2/p115strmhelper
         env:
