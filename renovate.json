@@ -29,8 +29,11 @@
       "enabled": false
     },
     {
+      "matchManagers": [
+        "github-actions"
+      ],
       "matchDepNames": [
-        "node-version"
+        "node"
       ],
       "matchCurrentVersion": "20",
       "enabled": false
