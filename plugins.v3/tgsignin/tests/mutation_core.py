@@ -81,6 +81,12 @@ MUTANTS = [
         "未发码也能进入确认登录",
     ),
     (
+        "core/signin.py",
+        "    if failed and mode == NOTIFY_MODE_SUCCESS:",
+        "    if False:",
+        "「仅成功时通知」在有失败项时也会发",
+    ),
+    (
         "core/login.py",
         "    if not code:",
         "    if False:",

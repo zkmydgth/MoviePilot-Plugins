@@ -40,6 +40,10 @@ __all__ = [
     "LOGIN_ACTION_NONE",
     "LOGIN_ACTION_SEND",
     "LOGIN_ACTION_CONFIRM",
+    "NOTIFY_MODE_NONE",
+    "NOTIFY_MODE_FAILURE",
+    "NOTIFY_MODE_SUCCESS",
+    "NOTIFY_MODE_ALL",
     "DEFAULT_API_ID",
     "DEFAULT_API_HASH",
     "DEFAULT_ACCOUNTS_TEXT",
@@ -88,6 +92,12 @@ PROXY_MODE_DIRECT = "direct"
 LOGIN_ACTION_NONE = "不操作"
 LOGIN_ACTION_SEND = "发送验证码"
 LOGIN_ACTION_CONFIRM = "确认登录"
+
+# 通知方式：不通知 / 仅失败时 / 仅成功时 / 成功与失败都通知
+NOTIFY_MODE_NONE = "none"
+NOTIFY_MODE_FAILURE = "failure"
+NOTIFY_MODE_SUCCESS = "success"
+NOTIFY_MODE_ALL = "all"
 
 # 交接单里已实测确认的默认账号与签到目标（用户可随意增删改）
 DEFAULT_ACCOUNTS_TEXT = """# 一行一个账号：标识 | 显示名 | 手机号

@@ -16,7 +16,15 @@ from unittest.mock import AsyncMock, MagicMock
 import tests  # noqa: F401  触发宿主桩与插件路径注入
 
 from tgsignin import TgSignin
-from tgsignin.core.config import LOGIN_ACTION_NONE, LOGIN_ACTION_SEND, default_slot_config
+from tgsignin.core.config import (
+    LOGIN_ACTION_NONE,
+    LOGIN_ACTION_SEND,
+    NOTIFY_MODE_ALL,
+    NOTIFY_MODE_FAILURE,
+    NOTIFY_MODE_NONE,
+    NOTIFY_MODE_SUCCESS,
+    default_slot_config,
+)
 from tgsignin.version import VERSION
 
 PLUGIN_ROOT = Path(__file__).resolve().parent.parent
@@ -108,6 +116,36 @@ class TestConfigForm(unittest.TestCase):
         """组标题不得出现「使用说明」四字。"""
         form, _ = self.plugin.get_form()
         self.assertNotIn("使用说明", json.dumps(form, ensure_ascii=False))
+
+    def test_execute_cycle_uses_cron_field(self) -> None:
+        """执行周期用 VCronField（点开可选），不是纯文本输入。"""
+        form, defaults = self.plugin.get_form()
+        components = {node.get("component") for node in _walk(form)}
+        self.assertIn("VCronField", components)
+        cron_fields = [
+            node
+            for node in _walk(form)
+            if isinstance(node.get("props"), dict) and node["props"].get("model") == "cron"
+        ]
+        self.assertEqual(len(cron_fields), 1)
+        self.assertIn("cron", defaults)
+
+    def test_notify_mode_options(self) -> None:
+        """通知方式是选项（四档），默认仅失败时。"""
+        form, defaults = self.plugin.get_form()
+        notify_nodes = [
+            node
+            for node in _walk(form)
+            if isinstance(node.get("props"), dict)
+            and node["props"].get("model") == "notify_mode"
+        ]
+        self.assertEqual(len(notify_nodes), 1)
+        values = [item["value"] for item in notify_nodes[0]["props"]["items"]]
+        self.assertEqual(
+            values,
+            [NOTIFY_MODE_FAILURE, NOTIFY_MODE_SUCCESS, NOTIFY_MODE_ALL, NOTIFY_MODE_NONE],
+        )
+        self.assertEqual(defaults["notify_mode"], NOTIFY_MODE_FAILURE)
 
 
 class TestPage(unittest.TestCase):
@@ -249,6 +287,38 @@ class TestConfigRoundTrip(unittest.TestCase):
             }
         )
         self.assertTrue(any("不存在的账号" in item for item in plugin._config_problems))
+
+    def test_notify_mode_migration_from_legacy_bool(self) -> None:
+        """旧版只有布尔「失败时通知」：关掉映射为不通知，开/缺省映射为仅失败时。"""
+        off = TgSignin()
+        off.init_plugin({"enabled": True, "notify_on_failure": False})
+        self.assertEqual(off._notify_mode, NOTIFY_MODE_NONE)
+
+        default = TgSignin()
+        default.init_plugin({"enabled": True})
+        self.assertEqual(default._notify_mode, NOTIFY_MODE_FAILURE)
+
+        on = TgSignin()
+        on.init_plugin({"enabled": True, "notify_on_failure": True})
+        self.assertEqual(on._notify_mode, NOTIFY_MODE_FAILURE)
+
+    def test_new_notify_mode_wins_over_legacy_bool(self) -> None:
+        """同时存在时以新的通知方式为准；非法值回落仅失败时。"""
+        plugin = TgSignin()
+        plugin.init_plugin(
+            {"enabled": True, "notify_mode": NOTIFY_MODE_ALL, "notify_on_failure": False}
+        )
+        self.assertEqual(plugin._notify_mode, NOTIFY_MODE_ALL)
+
+        bad = TgSignin()
+        bad.init_plugin({"enabled": True, "notify_mode": "weird"})
+        self.assertEqual(bad._notify_mode, NOTIFY_MODE_FAILURE)
+
+    def test_notify_label(self) -> None:
+        """通知方式中文标签（页面摘要用）。"""
+        plugin = TgSignin()
+        plugin.init_plugin({"enabled": True, "notify_mode": NOTIFY_MODE_ALL})
+        self.assertEqual(plugin._notify_label(), "成功与失败都通知")
 
 
 class TestLoginDispatch(unittest.TestCase):

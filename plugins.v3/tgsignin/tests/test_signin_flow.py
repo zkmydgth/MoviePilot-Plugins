@@ -9,13 +9,28 @@
 
 import asyncio
 import unittest
+from pathlib import Path
 from unittest import mock
 
 import tests  # noqa: F401  触发宿主桩与插件路径注入
 
 from tgsignin.core import signin as signin_mod
-from tgsignin.core.config import SIGN_TYPE_BUTTON, SIGN_TYPE_COMMAND, BotTarget
-from tgsignin.core.signin import signin_one, summarize_results
+from tgsignin.core.config import (
+    NOTIFY_MODE_ALL,
+    NOTIFY_MODE_FAILURE,
+    NOTIFY_MODE_NONE,
+    NOTIFY_MODE_SUCCESS,
+    SIGN_TYPE_BUTTON,
+    SIGN_TYPE_COMMAND,
+    AccountConfig,
+    BotTarget,
+)
+from tgsignin.core.signin import (
+    build_notify_text,
+    run_account,
+    signin_one,
+    summarize_results,
+)
 
 
 class _FakeAsyncio:
@@ -246,6 +261,133 @@ class TestSummarize(unittest.TestCase):
     def test_empty(self) -> None:
         """无结果时给出说明。"""
         self.assertEqual(summarize_results([]), "没有可执行的目标")
+
+
+class TestBuildNotifyText(unittest.TestCase):
+    """通知正文生成：四档通知方式 + 明细条数上限 + 摘要截断。"""
+
+    @staticmethod
+    def _results(ok_count: int, fail_count: int) -> list:
+        """
+        构造指定成功/失败条数的结果列表。
+
+        :param ok_count: 成功条数
+        :param fail_count: 失败条数
+        :return list: 结果列表
+        """
+
+        results = []
+        for index in range(ok_count):
+            results.append(
+                {
+                    "account": "acc1",
+                    "bot": f"@ok{index}",
+                    "ok": True,
+                    "reply": "🎉 签到成功 | 10 子弹 💴 当前持有 | 5 子弹 ⏳ 签到日期 | 2026-10-06",
+                    "error": "",
+                    "time": "2026-10-06 09:00:01",
+                }
+            )
+        for index in range(fail_count):
+            results.append(
+                {
+                    "account": "acc2",
+                    "bot": f"@bad{index}",
+                    "ok": False,
+                    "reply": "",
+                    "error": "最近 5 条消息里没找到含「签到」的按钮",
+                    "time": "2026-10-06 09:00:02",
+                }
+            )
+        return results
+
+    def test_failure_mode_only_on_failure(self) -> None:
+        """仅失败时：全绿不发；有失败项才发，且带失败明细。"""
+        self.assertIsNone(
+            build_notify_text(self._results(2, 0), "定时", NOTIFY_MODE_FAILURE)
+        )
+        text = build_notify_text(self._results(1, 1), "定时", NOTIFY_MODE_FAILURE)
+        self.assertIsNotNone(text)
+        self.assertIn("1/2 成功，1 项失败", text)
+        self.assertIn("失败明细：", text)
+        self.assertIn("@bad0", text)
+        # 头部时间取本次结果的首条时间
+        self.assertIn("2026-10-06 09:00:01", text)
+
+    def test_success_mode_requires_all_ok(self) -> None:
+        """仅成功时：只有全部成功才发，正文逐条列 bot 回复。"""
+        self.assertIsNone(
+            build_notify_text(self._results(1, 1), "定时", NOTIFY_MODE_SUCCESS)
+        )
+        text = build_notify_text(self._results(2, 0), "定时", NOTIFY_MODE_SUCCESS)
+        self.assertIsNotNone(text)
+        self.assertIn("2/2 全部成功", text)
+        self.assertIn("@ok0", text)
+        self.assertNotIn("失败明细：", text)
+
+    def test_all_mode_covers_both(self) -> None:
+        """都通知：成功与失败场景都发。"""
+        self.assertIsNotNone(
+            build_notify_text(self._results(1, 1), "手动", NOTIFY_MODE_ALL)
+        )
+        self.assertIsNotNone(
+            build_notify_text(self._results(2, 0), "手动", NOTIFY_MODE_ALL)
+        )
+
+    def test_none_mode_and_empty_results(self) -> None:
+        """不通知模式与空结果都不发。"""
+        self.assertIsNone(
+            build_notify_text(self._results(0, 2), "定时", NOTIFY_MODE_NONE)
+        )
+        self.assertIsNone(build_notify_text([], "定时", NOTIFY_MODE_ALL))
+
+    def test_detail_cap_and_line_length(self) -> None:
+        """失败明细最多 10 条 + 省略提示；每行摘要被截断。"""
+        text = build_notify_text(self._results(0, 12), "定时", NOTIFY_MODE_FAILURE)
+        self.assertIsNotNone(text)
+        self.assertIn("…等 12 项", text)
+        detail_lines = [line for line in text.splitlines() if line.startswith("- ")]
+        self.assertEqual(len(detail_lines), 10)
+        for line in detail_lines:
+            self.assertLessEqual(len(line), 90)
+
+    def test_prefers_account_label(self) -> None:
+        """有显示名时通知里显示「账号1(acc1)」而不是纯标识。"""
+        results = self._results(0, 2)
+        results[0]["account_label"] = "账号1(acc1)"
+        results[1]["account_label"] = "账号2(acc2)"
+        text = build_notify_text(results, "定时", NOTIFY_MODE_FAILURE)
+        self.assertIsNotNone(text)
+        self.assertIn("账号1(acc1) → @bad0", text)
+        self.assertIn("账号2(acc2) → @bad1", text)
+
+
+class TestRunAccountAddsLabel(unittest.TestCase):
+    """run_account 给每条结果补上账号显示名（供通知正文使用）。"""
+
+    def setUp(self) -> None:
+        """替换 sleep，避免命令式签到真的等待 15 秒。"""
+        patcher = mock.patch.object(signin_mod, "asyncio", _FakeAsyncio)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_results_carry_account_label(self) -> None:
+        """结果里带 account_label，且没有账号级错误。"""
+        client = _FakeClient(batches=[[_FakeMessage("✅ 签到成功！获得 5 积分")]])
+        account = AccountConfig(key="acc1", label="账号1", phone="+8613800138000")
+        target = BotTarget(
+            account_key="acc1",
+            bot_username="@HDHaven_Bot",
+            sign_type=SIGN_TYPE_COMMAND,
+            action_text="/checkin",
+        )
+        with mock.patch.object(signin_mod, "build_client", return_value=client):
+            results, error = asyncio.run(
+                run_account(account, [target], Path("/tmp"), None)
+            )
+        self.assertEqual(error, "")
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["account_label"], "账号1(acc1)")
 
 
 if __name__ == "__main__":

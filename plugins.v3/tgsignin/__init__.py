@@ -42,6 +42,10 @@ from .core.config import (
     LOGIN_ACTION_CONFIRM,
     LOGIN_ACTION_NONE,
     LOGIN_ACTION_SEND,
+    NOTIFY_MODE_ALL,
+    NOTIFY_MODE_FAILURE,
+    NOTIFY_MODE_NONE,
+    NOTIFY_MODE_SUCCESS,
     PROXY_MODE_CUSTOM,
     PROXY_MODE_DIRECT,
     PROXY_MODE_MP,
@@ -66,7 +70,7 @@ from .core.session import (
     resolve_proxy,
     session_files,
 )
-from .core.signin import now_text, run_all, summarize_results
+from .core.signin import build_notify_text, now_text, run_all, summarize_results
 from .core.store import (
     PAGE_RESULT_LIMIT,
     load_state,
@@ -101,7 +105,8 @@ class TgSignin(_PluginBase):
     # ---------- 运行状态 ----------
     _enabled: bool = False
     _cron: str = "0 9 * * *"
-    _notify_on_failure: bool = True
+    # 通知方式：不通知 / 仅失败时 / 仅成功时 / 成功与失败都通知
+    _notify_mode: str = NOTIFY_MODE_FAILURE
     # 文本模式：用两个多行文本域配置账号与目标（默认关，走槽位表单）
     _use_text_mode: bool = False
     _accounts_text: str = DEFAULT_ACCOUNTS_TEXT
@@ -133,7 +138,7 @@ class TgSignin(_PluginBase):
 
         self._enabled = False
         self._cron = "0 9 * * *"
-        self._notify_on_failure = True
+        self._notify_mode = NOTIFY_MODE_FAILURE
         self._use_text_mode = False
         self._accounts_text = DEFAULT_ACCOUNTS_TEXT
         self._targets_text = DEFAULT_TARGETS_TEXT
@@ -148,7 +153,23 @@ class TgSignin(_PluginBase):
         if config:
             self._enabled = bool(config.get("enabled"))
             self._cron = str(config.get("cron") or "0 9 * * *")
-            self._notify_on_failure = bool(config.get("notify_on_failure", True))
+            # 通知方式：新字段优先；旧版只有布尔「失败时通知」，按它兼容映射
+            raw_mode = config.get("notify_mode")
+            if raw_mode:
+                self._notify_mode = str(raw_mode)
+            else:
+                self._notify_mode = (
+                    NOTIFY_MODE_FAILURE
+                    if bool(config.get("notify_on_failure", True))
+                    else NOTIFY_MODE_NONE
+                )
+            if self._notify_mode not in (
+                NOTIFY_MODE_NONE,
+                NOTIFY_MODE_FAILURE,
+                NOTIFY_MODE_SUCCESS,
+                NOTIFY_MODE_ALL,
+            ):
+                self._notify_mode = NOTIFY_MODE_FAILURE
             self._use_text_mode = bool(config.get("use_text_mode"))
             self._accounts_text = str(config.get("accounts_text") or DEFAULT_ACCOUNTS_TEXT)
             self._targets_text = str(config.get("targets_text") or DEFAULT_TARGETS_TEXT)
@@ -226,6 +247,21 @@ class TgSignin(_PluginBase):
             self._proxy_port,
             str(getattr(settings, "PROXY_HOST", "") or ""),
         )
+
+    def _notify_label(self) -> str:
+        """
+        返回通知方式的中文标签（页面摘要与排障用）。
+
+        :return str: 如 ``仅失败时通知``
+        """
+
+        mapping = {
+            NOTIFY_MODE_NONE: "不通知",
+            NOTIFY_MODE_FAILURE: "仅失败时通知",
+            NOTIFY_MODE_SUCCESS: "仅成功时通知",
+            NOTIFY_MODE_ALL: "成功与失败都通知",
+        }
+        return mapping.get(self._notify_mode, "仅失败时通知")
 
     def _slot_login(self, account_key: str) -> Dict[str, str]:
         """
@@ -384,6 +420,12 @@ class TgSignin(_PluginBase):
             {"title": "自定义代理", "value": PROXY_MODE_CUSTOM},
             {"title": "直连（不走代理）", "value": PROXY_MODE_DIRECT},
         ]
+        notify_items = [
+            {"title": "仅失败时通知", "value": NOTIFY_MODE_FAILURE},
+            {"title": "仅成功时通知", "value": NOTIFY_MODE_SUCCESS},
+            {"title": "成功与失败都通知", "value": NOTIFY_MODE_ALL},
+            {"title": "不通知", "value": NOTIFY_MODE_NONE},
+        ]
         mp_proxy = str(getattr(settings, "PROXY_HOST", "") or "").strip()
 
         content: List[dict] = [
@@ -405,24 +447,30 @@ class TgSignin(_PluginBase):
                         "props": {"cols": 12, "md": 4},
                         "content": [
                             {
-                                "component": "VTextField",
+                                "component": "VCronField",
                                 "props": {
                                     "model": "cron",
-                                    "label": "定时签到（cron）",
-                                    "placeholder": "0 9 * * *",
+                                    "label": "执行周期",
+                                    "placeholder": "5位cron表达式，默认 0 9 * * *",
                                     "persistent-hint": True,
-                                    "hint": "五段式 cron，默认每天 09:00 签到一次",
+                                    "hint": "点开可直接选「每天/每周/每月 + 时间」，也可手输五段式 cron",
                                 },
                             }
                         ],
                     },
                     {
                         "component": "VCol",
-                        "props": {"cols": 12, "md": 3},
+                        "props": {"cols": 12, "md": 4},
                         "content": [
                             {
-                                "component": "VSwitch",
-                                "props": {"model": "notify_on_failure", "label": "失败时通知"},
+                                "component": "VCombobox",
+                                "props": {
+                                    "model": "notify_mode",
+                                    "label": "通知方式",
+                                    "items": notify_items,
+                                    "persistent-hint": True,
+                                    "hint": "「仅成功时」= 只有全部成功才通知；登录动作失败始终通知",
+                                },
                             }
                         ],
                     },
@@ -822,7 +870,7 @@ class TgSignin(_PluginBase):
         defaults: Dict[str, Any] = {
             "enabled": False,
             "cron": "0 9 * * *",
-            "notify_on_failure": True,
+            "notify_mode": NOTIFY_MODE_FAILURE,
             "use_text_mode": False,
             "accounts_text": DEFAULT_ACCOUNTS_TEXT,
             "targets_text": DEFAULT_TARGETS_TEXT,
@@ -978,7 +1026,7 @@ class TgSignin(_PluginBase):
                     "type": "info",
                     "text": f"代理：{proxy_desc(proxy)}　|　账号：{len(self._accounts)} 个"
                             f"　|　签到目标：{len(self._targets)} 条　|　"
-                            f"定时：{self._cron}",
+                            f"执行周期：{self._cron}　|　通知：{self._notify_label()}",
                 },
             }
         ]
@@ -1374,7 +1422,7 @@ class TgSignin(_PluginBase):
             {
                 "enabled": self._enabled,
                 "cron": self._cron,
-                "notify_on_failure": self._notify_on_failure,
+                "notify_mode": self._notify_mode,
                 "use_text_mode": self._use_text_mode,
             }
         )
@@ -1543,27 +1591,21 @@ class TgSignin(_PluginBase):
                 item.get("bot"),
                 str(item.get("reply") or item.get("error") or "")[:120],
             )
-        self._notify_failure(results)
+        self._notify_results(results, source)
         return {"success": True, "message": summary, "data": {"results": results}}
 
-    def _notify_failure(self, results: List[Dict[str, Any]]) -> None:
+    def _notify_results(self, results: List[Dict[str, Any]], source: str) -> None:
         """
-        签到失败时按配置发送 MoviePilot 通知。
+        按「通知方式」生成并发送签到通知（成功/失败/都发/不发）。
 
         :param results: 本次签到结果
+        :param source: 触发来源（定时/手动/命令）
         :return None
         """
-        if not self._notify_on_failure:
+
+        text = build_notify_text(results, source, self._notify_mode)
+        if not text:
             return
-        failed = [item for item in results if not item.get("ok")]
-        if not failed:
-            return
-        lines = [
-            f"- {item.get('account')} → {item.get('bot')}："
-            f"{str(item.get('error') or item.get('reply') or '无回复')[:120]}"
-            for item in failed[:10]
-        ]
-        text = f"共 {len(failed)} 项签到失败：\n" + "\n".join(lines)
         try:
             self.post_message(
                 mtype=MessageType.Plugin,
@@ -1571,7 +1613,7 @@ class TgSignin(_PluginBase):
                 text=text,
             )
         except Exception as error:  # pylint: disable=broad-except
-            logger.error("【TgSignin】发送失败通知出错：%s", error)
+            logger.error("【TgSignin】发送签到通知出错：%s", error)
 
     def scheduled_signin(self) -> None:
         """

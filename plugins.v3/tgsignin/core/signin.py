@@ -16,7 +16,7 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 from .config import (
     SIGN_TYPE_BUTTON,
@@ -31,8 +31,14 @@ __all__ = [
     "run_account",
     "run_all",
     "summarize_results",
+    "build_notify_text",
     "now_text",
 ]
+
+# 通知正文里每行 bot 回复的截断长度
+_SNIPPET_LIMIT = 60
+# 通知正文最多列出的明细条数
+_DETAIL_LIMIT = 10
 
 # 读取 bot 消息的条数上限（够覆盖菜单与回复）
 _MSG_SCAN_LIMIT = 5
@@ -178,7 +184,10 @@ async def run_account(
             return [], f"账号 {account.key} 未登录或 session 已失效，请重新登录"
         results: List[Dict[str, Any]] = []
         for target in targets:
-            results.append(await signin_one(client, target))
+            item = await signin_one(client, target)
+            # 带上显示名：通知正文里显示「账号1(acc1)」比纯标识好认
+            item["account_label"] = account.display()
+            results.append(item)
         return results, ""
     except Exception as error:  # pylint: disable=broad-except
         return [], f"账号 {account.key} 执行异常：{type(error).__name__}: {error}"
@@ -230,6 +239,7 @@ async def run_all(
                 {
                     "bot": "-",
                     "account": account.key,
+                    "account_label": account.display(),
                     "method": "-",
                     "ok": False,
                     "reply": "",
@@ -253,3 +263,84 @@ def summarize_results(results: Sequence[Dict[str, Any]]) -> str:
         return "没有可执行的目标"
     ok = sum(1 for item in results if item.get("ok"))
     return f"{ok}/{len(results)} 成功"
+
+
+def _snippet(text: Any, limit: int = _SNIPPET_LIMIT) -> str:
+    """
+    把 bot 回复/错误压缩成一行摘要。
+
+    :param text: 原始文本
+    :param limit: 最大长度
+    :return str: 单行摘要
+    """
+
+    cleaned = " ".join(str(text or "").split())
+    if len(cleaned) <= limit:
+        return cleaned
+    return cleaned[:limit] + "…"
+
+
+def _account_name(item: Mapping[str, Any]) -> str:
+    """
+    取结果里的账号显示名（没有时退回标识）。
+
+    :param item: 一条签到结果
+    :return str: 如 ``账号1(acc1)``
+    """
+
+    return str(item.get("account_label") or item.get("account") or "")
+
+
+def build_notify_text(
+    results: Sequence[Dict[str, Any]],
+    source: str,
+    mode: str,
+) -> Optional[str]:
+    """
+    按通知方式生成签到通知正文。
+
+    :param results: 本次签到结果
+    :param source: 触发来源（定时/手动/命令）
+    :param mode: 通知方式（``core.config.NOTIFY_MODE_*``）
+    :return Optional[str]: 需要通知时的正文；不需要通知时返回 None
+    """
+
+    from .config import (  # pylint: disable=import-outside-toplevel
+        NOTIFY_MODE_FAILURE,
+        NOTIFY_MODE_NONE,
+        NOTIFY_MODE_SUCCESS,
+    )
+
+    if mode == NOTIFY_MODE_NONE or not results:
+        return None
+    total = len(results)
+    failed = [item for item in results if not item.get("ok")]
+    if failed and mode == NOTIFY_MODE_SUCCESS:
+        return None
+    if not failed and mode == NOTIFY_MODE_FAILURE:
+        return None
+
+    time_text = str(results[0].get("time") or now_text())
+    head = (
+        f"{total - len(failed)}/{total} 成功，{len(failed)} 项失败"
+        if failed
+        else f"{total}/{total} 全部成功"
+    )
+    lines: List[str] = [f"{head}（{time_text} · {source}）", ""]
+    if failed:
+        lines.append("失败明细：")
+        for item in failed[:_DETAIL_LIMIT]:
+            detail = item.get("error") or item.get("reply") or "无回复"
+            lines.append(
+                f"- {_account_name(item)} → {item.get('bot')}：{_snippet(detail)}"
+            )
+        if len(failed) > _DETAIL_LIMIT:
+            lines.append(f"…等 {len(failed)} 项")
+    else:
+        for item in list(results)[:_DETAIL_LIMIT]:
+            lines.append(
+                f"- {_account_name(item)} → {item.get('bot')}：{_snippet(item.get('reply'))}"
+            )
+        if total > _DETAIL_LIMIT:
+            lines.append(f"…等 {total} 项")
+    return "\n".join(lines)
