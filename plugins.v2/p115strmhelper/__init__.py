@@ -1523,7 +1523,7 @@ class P115StrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png"
     # 插件版本
-    plugin_version = "1.8.12"
+    plugin_version = "1.8.13"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -1714,8 +1714,6 @@ class P115StrmHelper(_PluginBase):
             lambda: {"strm_count": 0, "mediainfo_count": 0}
         )
         self._monitor_life_notification_timer = None
-
-        self._observer: List = []
 
         self._add_share_queue = Queue()
         self._add_share_worker_thread = None
@@ -4179,6 +4177,7 @@ class P115StrmHelper(_PluginBase):
                         observer.join()
                     except Exception as e:
                         print(str(e))
+                logger.info("【目录上传】目录监控已关闭")
             self._observer = []
             if self._scheduler:
                 self._scheduler.remove_all_jobs()
