@@ -13,6 +13,7 @@ from .helper.mediainfo_download import MediaInfoDownloader
 from .helper.life import MonitorLife
 from .helper.strm import FullSyncStrmHelper, ShareStrmHelper, IncrementSyncStrmHelper
 from .helper.monitor import handle_file, FileMonitorHandler
+from .helper.share import ShareTransferHelper
 from .core.config import configer
 from .core.message import post_message
 
@@ -30,6 +31,8 @@ class ServiceHelper:
         self.client = None
         self.mediainfodownloader = None
         self.monitorlife = None
+
+        self.sharetransferhelper = None
 
         self.monitor_stop_event = Event()
         self.monitor_life_thread = None
@@ -50,6 +53,7 @@ class ServiceHelper:
             self.monitorlife = MonitorLife(
                 client=self.client, mediainfodownloader=self.mediainfodownloader
             )
+            self.sharetransferhelper = ShareTransferHelper()
             return True
         except Exception as e:
             logger.error(f"服务项初始化失败: {e}")

@@ -1,4 +1,6 @@
 import base64
+from datetime import datetime
+from dataclasses import asdict
 from typing import Dict, Any, Optional, cast
 from pathlib import Path
 from errno import EIO, ENOENT
@@ -11,17 +13,21 @@ from orjson import dumps, loads
 from p115client import P115Client
 from p115client.exception import DataError
 from p115client.tool.fs_files import iter_fs_files
+from p115client.tool.util import share_extract_payload
 from p115rsacipher import encrypt, decrypt
 from fastapi import Request, Response
 
 from .service import servicer
 from .core.config import configer
 from .core.u115_open import U115OpenHelper
+from .core.cache import idpathcacher
+from .core.message import post_message
 from .utils.http import check_response
 from .utils.url import Url
 
 from app.log import logger
 from app.helper.mediaserver import MediaServerHelper
+from app.schemas import NotificationType
 
 
 class Api:
@@ -713,4 +719,90 @@ class Api:
                 )
                 or bool(servicer.service_observer),
             },
+        }
+
+    def add_transfer_share(self, share_url: str = "") -> Dict:
+        """
+        添加分享转存整理
+        """
+        if not configer.get_config("pan_transfer_enabled") or not configer.get_config(
+            "pan_transfer_paths"
+        ):
+            return {
+                "code": -1,
+                "error": "配置错误",
+                "message": "用户未配置网盘整理",
+            }
+
+        if not share_url:
+            return {
+                "code": -1,
+                "error": "参数错误",
+                "message": "未传入分享链接",
+            }
+
+        data = share_extract_payload(share_url)
+        share_code = data["share_code"]
+        receive_code = data["receive_code"]
+        logger.info(
+            f"【分享转存API】解析分享链接 share_code={share_code} receive_code={receive_code}"
+        )
+        if not share_code or not receive_code:
+            logger.error(f"【分享转存API】解析分享链接失败：{share_url}")
+            return {
+                "code": -1,
+                "error": "解析失败",
+                "message": "解析分享链接失败",
+            }
+
+        file_mediainfo = servicer.sharetransferhelper.add_share_recognize_mediainfo(
+            share_code=share_code, receive_code=receive_code
+        )
+
+        parent_path = configer.get_config("pan_transfer_paths").split("\n")[0]
+        parent_id = idpathcacher.get_id_by_dir(directory=str(parent_path))
+        if not parent_id:
+            parent_id = servicer.client.fs_dir_getid(parent_path)["id"]
+            logger.info(f"【分享转存API】获取到转存目录 ID：{parent_id}")
+            idpathcacher.add_cache(id=int(parent_id), directory=str(parent_path))
+
+        payload = {
+            "share_code": share_code,
+            "receive_code": receive_code,
+            "file_id": 0,
+            "cid": int(parent_id),
+            "is_check": 0,
+        }
+        resp = servicer.client.share_receive(payload)
+        if resp["state"]:
+            logger.info(f"【分享转存API】转存 {share_code} 到 {parent_path} 成功！")
+            if configer.get_config("notify"):
+                if not file_mediainfo:
+                    post_message(
+                        mtype=NotificationType.Plugin,
+                        title=f"转存 {share_code} 到 {parent_path} 成功！",
+                    )
+                else:
+                    post_message(
+                        mtype=NotificationType.Plugin,
+                        title=f"转存 {file_mediainfo.title}（{file_mediainfo.year}）成功",
+                        text=f"\n简介: {file_mediainfo.overview}",
+                        image=file_mediainfo.poster_path,
+                    )
+            return {
+                "code": 0,
+                "success": True,
+                "message": "转存成功",
+                "data": {
+                    "media_info": asdict(file_mediainfo) if file_mediainfo else None,
+                    "save_parent": {"path": parent_path, "id": parent_id},
+                },
+                "timestamp": datetime.now().isoformat(),
+            }
+
+        logger.info(f"【分享转存API】转存 {share_code} 失败：{resp['error']}")
+        return {
+            "code": -1,
+            "error": "转存失败",
+            "message": resp["error"],
         }
