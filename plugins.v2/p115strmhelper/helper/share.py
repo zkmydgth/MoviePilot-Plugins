@@ -168,6 +168,11 @@ class ShareTransferHelper:
             return
         except Exception as e:
             logger.error(f"【分享转存】运行失败: {e}")
+            post_message(
+                channel=channel,
+                title=f"转存失败：{e}",
+                userid=userid,
+            )
             return
 
     def add_share(self, url, channel, userid):
