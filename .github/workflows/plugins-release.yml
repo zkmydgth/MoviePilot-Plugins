@@ -103,23 +103,22 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Setup Node.js
-        if: ${{ hashFiles(format('frontend/{0}/package.json', matrix.plugin.id)) != '' }}
+        if: ${{ hashFiles(format('frontend/{0}/package.json', matrix.plugin.backend_path)) != '' }}
         uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
-          cache-dependency-path: ${{ format('frontend/{0}/package-lock.json', matrix.plugin.id) }}
+          cache-dependency-path: ${{ format('frontend/{0}/package-lock.json', matrix.plugin.backend_path) }}
 
       - name: Build frontend and copy dist
-        if: ${{ hashFiles(format('frontend/{0}/package.json', matrix.plugin.id)) != '' }}
+        if: ${{ hashFiles(format('frontend/{0}/package.json', matrix.plugin.backend_path)) != '' }}
         env:
-          PLUGIN_ID: ${{ matrix.plugin.id }}
-          PLUGIN_PATH: ${{ matrix.plugin.backend_worker_path }}
+          FRONTEND_NAME: ${{ matrix.plugin.backend_path }}
+          PLUGIN_DIR: ${{ matrix.plugin.backend_worker_path }}/${{ matrix.plugin.backend_path }}
         run: |
-          FRONTEND_DIR="frontend/${PLUGIN_ID}"
-          PLUGIN_DIR="${PLUGIN_PATH}/${PLUGIN_ID,,}"
+          FRONTEND_DIR="frontend/${FRONTEND_NAME}"
 
-          echo "Building frontend for ${PLUGIN_ID}..."
+          echo "Building frontend for ${FRONTEND_NAME}..."
           cd "${FRONTEND_DIR}"
           npm ci
           npm run build
