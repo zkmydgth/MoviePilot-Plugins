@@ -1,8 +1,7 @@
-import re
 from collections import defaultdict
 from pathlib import Path
 from time import time
-from typing import List, Dict, Tuple, Optional, Set
+from typing import Dict, List, Optional, Set, Tuple
 
 from p115client import P115Client, check_response
 from p115client.tool.edit import update_name
@@ -11,7 +10,6 @@ from app.chain.storage import StorageChain
 from app.chain.transfer import TransferChain, task_lock
 from app.core.config import settings
 from app.core.event import eventmanager
-from app.core.meta import MetaBase
 from app.core.metainfo import MetaInfoPath
 from app.db.transferhistory_oper import TransferHistoryOper
 from app.helper.directory import DirectoryHelper
@@ -22,7 +20,7 @@ from app.schemas.types import EventType, MediaType, NotificationType
 from app.utils.string import StringUtils
 
 from ...core.config import configer
-from ...schemas.transfer import TransferTask, RelatedFile
+from ...schemas.transfer import TransferTask
 from .cache_updater import CacheUpdater
 
 
@@ -72,6 +70,44 @@ class TransferHandler:
         if not fileitem.extension:
             return False
         return f".{fileitem.extension.lower()}" in settings.RMT_AUDIOEXT
+
+    @staticmethod
+    def _is_media_file(fileitem: FileItem) -> bool:
+        """
+        与 TransferChain.__is_media_file 一致的主要媒体文件判定（文件项）
+
+        :param fileitem: 文件项
+        :return: 是否为主要媒体文件
+        """
+        if fileitem.type == "dir":
+            return StorageChain().is_bluray_folder(fileitem)
+        if not fileitem.extension:
+            return False
+        return f".{fileitem.extension.lower()}" in settings.RMT_MEDIAEXT
+
+    @staticmethod
+    def _sort_tasks_for_batch(tasks: List[TransferTask]) -> List[TransferTask]:
+        """
+        批次内顺序：字幕 → 音频 → 其它 → 主视频
+
+        主视频放最后，使 _record_history 里最后一个 finish_task 对应主视频；同一作业在字幕/音轨
+        先完成后再 is_finished，才能通过 _is_media_file 门控发出 MetadataScrape
+
+        :param tasks: 任务列表
+        :return: 排序后的新列表
+        """
+
+        def _key(t: TransferTask) -> Tuple[int, str]:
+            fi = t.fileitem
+            if TransferHandler._is_subtitle_file(fi):
+                return (0, fi.path or "")
+            if TransferHandler._is_audio_file(fi):
+                return (1, fi.path or "")
+            if TransferHandler._is_media_file(fi):
+                return (3, fi.path or "")
+            return (2, fi.path or "")
+
+        return sorted(tasks, key=_key)
 
     @staticmethod
     def _create_mp_task(task: TransferTask) -> MPTransferTask:
@@ -209,25 +245,10 @@ class TransferHandler:
 
         logger.info(f"【整理接管】开始批量处理 {len(tasks)} 个任务")
 
-        # 当前可继续处理的任务列表
-        remaining_tasks = tasks.copy()
-        # 失败的任务列表（用于最后批量记录）
+        remaining_tasks = self._sort_tasks_for_batch(tasks)
         failed_tasks: List[Tuple[TransferTask, str]] = []
 
         try:
-            # 发现关联文件
-            try:
-                self._discover_related_files(remaining_tasks)
-            except Exception as e:
-                error_msg = f"发现关联文件失败: {e}"
-                logger.error(f"【整理接管】{error_msg}", exc_info=True)
-                # 所有任务都失败
-                failed_tasks.extend([(task, error_msg) for task in remaining_tasks])
-                remaining_tasks = []
-                # 阻断后续步骤
-                self._batch_record_failures(failed_tasks)
-                return
-
             # 批量创建目标目录
             if remaining_tasks:
                 try:
@@ -307,271 +328,6 @@ class TransferHandler:
             failed_tasks.extend([(task, error_msg) for task in remaining_tasks])
             self._batch_record_failures(failed_tasks)
 
-    def _discover_related_files(self, tasks: List[TransferTask]) -> None:
-        """
-        发现关联文件（字幕、音轨）
-
-        :param tasks: 任务列表
-        """
-        logger.info("【整理接管】开始发现关联文件")
-
-        # 按源目录分组任务
-        tasks_by_dir: Dict[Path, List[TransferTask]] = defaultdict(list)
-        for task in tasks:
-            source_dir = Path(task.fileitem.path).parent
-            tasks_by_dir[source_dir].append(task)
-
-        # 对每个源目录，列出文件并匹配关联文件
-        for source_dir, dir_tasks in tasks_by_dir.items():
-            try:
-                source_fileitem = FileItem(
-                    storage=self.storage_name,
-                    path=str(source_dir) + "/",
-                    type="dir",
-                )
-                files = self.cache_updater._p115_api.list(source_fileitem)
-
-                if not files:
-                    logger.debug(
-                        f"【整理接管】源目录 {source_dir} 为空，跳过关联文件发现"
-                    )
-                    continue
-
-                # 为每个任务匹配关联文件
-                for task in dir_tasks:
-                    main_video_path = Path(task.fileitem.path)
-                    main_video_metainfo = MetaInfoPath(main_video_path)
-
-                    # 匹配字幕文件
-                    TransferHandler._match_subtitle_files(
-                        task, main_video_path, main_video_metainfo, files
-                    )
-
-                    # 匹配音轨文件
-                    TransferHandler._match_audio_track_files(
-                        task, main_video_path, files
-                    )
-
-            except Exception as e:
-                logger.error(
-                    f"【整理接管】发现关联文件失败 (目录: {source_dir}): {e}",
-                    exc_info=True,
-                )
-
-        # 统计关联文件数量
-        total_related = sum(len(task.related_files) for task in tasks)
-        logger.info(f"【整理接管】关联文件发现完成，共发现 {total_related} 个关联文件")
-
-    @staticmethod
-    def _match_subtitle_files(
-        task: TransferTask,
-        main_video_path: Path,
-        main_video_metainfo: MetaBase,
-        files: List[FileItem],
-    ) -> None:
-        """
-        匹配字幕文件
-
-        :param task: 任务
-        :param main_video_path: 主视频路径
-        :param main_video_metainfo: 主视频元信息
-        :param files: 目录文件列表
-        """
-        _zhcn_sub_re = (
-            r"([.\[(\s](((zh[-_])?(cn|ch[si]|sg|sc))|zho?"
-            r"|chinese|(cn|ch[si]|sg|zho?)[-_&]?(cn|ch[si]|sg|zho?|eng|jap|ja|jpn)"
-            r"|eng[-_&]?(cn|ch[si]|sg|zho?)|(jap|ja|jpn)[-_&]?(cn|ch[si]|sg|zho?)"
-            r"|简[体中]?)[.\])\s])"
-            r"|([\u4e00-\u9fa5]{0,3}[中双][\u4e00-\u9fa5]{0,2}[字文语][\u4e00-\u9fa5]{0,3})"
-            r"|简体|简中|JPSC|sc_jp"
-            r"|(?<![a-z0-9])gb(?![a-z0-9])"
-        )
-        _zhtw_sub_re = (
-            r"([.\[(\s](((zh[-_])?(hk|tw|cht|tc))"
-            r"|cht[-_&]?(cht|eng|jap|ja|jpn)"
-            r"|eng[-_&]?cht|(jap|ja|jpn)[-_&]?cht"
-            r"|繁[体中]?)[.\])\s])"
-            r"|繁体中[文字]|中[文字]繁体|繁体|JPTC|tc_jp"
-            r"|(?<![a-z0-9])big5(?![a-z0-9])"
-        )
-        _ja_sub_re = (
-            r"([.\[(\s](ja-jp|jap|ja|jpn"
-            r"|(jap|ja|jpn)[-_&]?eng|eng[-_&]?(jap|ja|jpn))[.\])\s])"
-            r"|日本語|日語"
-        )
-        _eng_sub_re = r"[.\[(\s]eng[.\])\s]"
-
-        # 筛选字幕文件
-        subtitle_files = [
-            f
-            for f in files
-            if f.path != task.fileitem.path
-            and f.type == "file"
-            and f.extension
-            and f".{f.extension.lower()}" in settings.RMT_SUBEXT
-        ]
-
-        if not subtitle_files:
-            logger.debug(f"【整理接管】{main_video_path.parent} 目录下没有找到字幕文件")
-            return
-
-        logger.debug(f"【整理接管】字幕文件清单：{[f.name for f in subtitle_files]}")
-
-        # 匹配字幕文件
-        for sub_item in subtitle_files:
-            # 识别字幕文件名（去除语言标识）
-            sub_file_name = re.sub(
-                _zhtw_sub_re,
-                ".",
-                re.sub(_zhcn_sub_re, ".", sub_item.name, flags=re.I),
-                flags=re.I,
-            )
-            sub_file_name = re.sub(_eng_sub_re, ".", sub_file_name, flags=re.I)
-            sub_metainfo = MetaInfoPath(Path(sub_item.path))
-
-            # 匹配字幕文件名
-            if (
-                main_video_path.stem == Path(sub_file_name).stem
-                or (
-                    sub_metainfo.cn_name
-                    and sub_metainfo.cn_name == main_video_metainfo.cn_name
-                )
-                or (
-                    sub_metainfo.en_name
-                    and sub_metainfo.en_name == main_video_metainfo.en_name
-                )
-            ):
-                # 检查 part、season、episode 是否匹配
-                if (
-                    main_video_metainfo.part
-                    and main_video_metainfo.part != sub_metainfo.part
-                ):
-                    continue
-                if (
-                    main_video_metainfo.season
-                    and main_video_metainfo.season != sub_metainfo.season
-                ):
-                    continue
-                if (
-                    main_video_metainfo.episode
-                    and main_video_metainfo.episode != sub_metainfo.episode
-                ):
-                    continue
-
-                # 确定字幕语言类型
-                new_file_type = ""
-                if re.search(_zhcn_sub_re, sub_item.name, re.I):
-                    new_file_type = ".chi.zh-cn"
-                elif re.search(_zhtw_sub_re, sub_item.name, re.I):
-                    new_file_type = ".zh-tw"
-                elif re.search(_ja_sub_re, sub_item.name, re.I):
-                    new_file_type = ".ja"
-                elif re.search(_eng_sub_re, sub_item.name, re.I):
-                    new_file_type = ".eng"
-
-                # 生成字幕文件目标路径
-                file_ext = f".{sub_item.extension}"
-                new_sub_tag_dict = {
-                    ".eng": ".英文",
-                    ".chi.zh-cn": ".简体中文",
-                    ".zh-tw": ".繁体中文",
-                }
-                new_sub_tag_list = [
-                    (
-                        (
-                            ".default" + new_file_type
-                            if (
-                                (
-                                    settings.DEFAULT_SUB == "zh-cn"
-                                    and new_file_type == ".chi.zh-cn"
-                                )
-                                or (
-                                    settings.DEFAULT_SUB == "zh-tw"
-                                    and new_file_type == ".zh-tw"
-                                )
-                                or (
-                                    settings.DEFAULT_SUB == "ja"
-                                    and new_file_type == ".ja"
-                                )
-                                or (
-                                    settings.DEFAULT_SUB == "eng"
-                                    and new_file_type == ".eng"
-                                )
-                            )
-                            else new_file_type
-                        )
-                        if t == 0
-                        else f"{new_file_type}{new_sub_tag_dict.get(new_file_type, '')}({t})"
-                    )
-                    for t in range(6)
-                ]
-
-                # 尝试找到可用的目标文件名
-                for new_sub_tag in new_sub_tag_list:
-                    target_path = task.target_path.with_name(
-                        task.target_path.stem + new_sub_tag + file_ext
-                    )
-
-                    # 添加到关联文件列表（只添加第一个匹配的）
-                    related_file = RelatedFile(
-                        fileitem=sub_item,
-                        target_path=target_path,
-                        file_type="subtitle",
-                    )
-                    task.related_files.append(related_file)
-
-                    logger.debug(
-                        f"【整理接管】发现字幕文件: {sub_item.name} -> {target_path.name}"
-                    )
-                    break
-
-    @staticmethod
-    def _match_audio_track_files(
-        task: TransferTask,
-        main_video_path: Path,
-        files: List[FileItem],
-    ) -> None:
-        """
-        匹配音轨文件
-
-        :param task: 任务
-        :param main_video_path: 主视频路径
-        :param files: 目录文件列表
-        """
-        audio_track_files = [
-            file
-            for file in files
-            if file.path != task.fileitem.path
-            and Path(file.name).stem == main_video_path.stem
-            and file.type == "file"
-            and file.extension
-            and f".{file.extension.lower()}" in settings.RMT_AUDIOEXT
-        ]
-
-        if not audio_track_files:
-            logger.debug(
-                f"【整理接管】{main_video_path.parent} 目录下没有找到匹配的音轨文件"
-            )
-            return
-
-        logger.debug(f"【整理接管】音轨文件清单：{[f.name for f in audio_track_files]}")
-
-        # 添加音轨文件
-        for track_file in audio_track_files:
-            track_ext = f".{track_file.extension}"
-            target_path = task.target_path.with_name(task.target_path.stem + track_ext)
-
-            related_file = RelatedFile(
-                fileitem=track_file,
-                target_path=target_path,
-                file_type="audio_track",
-            )
-            task.related_files.append(related_file)
-
-            logger.debug(
-                f"【整理接管】发现音轨文件: {track_file.name} -> {target_path.name}"
-            )
-
     def _batch_create_directories(
         self, tasks: List[TransferTask]
     ) -> Tuple[List[Tuple[TransferTask, str]], List[TransferTask]]:
@@ -591,11 +347,6 @@ class TransferHandler:
             target_dir = task.target_dir
             target_dirs.add(target_dir)
             task_dirs_map[target_dir].append(task)
-            # 关联文件的目标目录
-            for related_file in task.related_files:
-                related_dir = related_file.target_path.parent
-                target_dirs.add(related_dir)
-                task_dirs_map[related_dir].append(task)
 
         # 搜集子目录
         leaf_dirs: set[Path] = set()
@@ -638,16 +389,6 @@ class TransferHandler:
             if task.target_dir in failed_dirs:
                 failed_tasks.append((task, f"创建目标目录失败: {task.target_dir}"))
                 task_failed = True
-            else:
-                # 检查关联文件的目录
-                for related_file in task.related_files:
-                    related_dir = related_file.target_path.parent
-                    if related_dir in failed_dirs:
-                        failed_tasks.append(
-                            (task, f"创建关联文件目录失败: {related_dir}")
-                        )
-                        task_failed = True
-                        break
 
             if not task_failed:
                 success_tasks.append(task)
@@ -666,45 +407,24 @@ class TransferHandler:
         """
         logger.info("【整理接管】开始批量移动/复制文件")
 
-        # 跟踪每个任务的主文件处理状态（主文件失败则任务失败）
         task_main_file_status: Dict[str, bool] = {
             task.fileitem.path: False for task in tasks
         }
-        # 跟踪每个任务的失败原因
         task_failures: Dict[str, str] = {}
 
-        # 按目标目录和操作类型分组
-        operations: Dict[
-            Tuple[Path, str],
-            List[Tuple[FileItem, str, TransferTask, bool, Optional[RelatedFile]]],
-        ] = defaultdict(list)
+        operations: Dict[Tuple[Path, str], List[Tuple[FileItem, str, TransferTask]]] = (
+            defaultdict(list)
+        )
 
         for task in tasks:
             target_dir = task.target_dir
             transfer_type = task.transfer_type
-
-            # 主视频 (is_main=True, related_file=None)
             operations[(target_dir, transfer_type)].append(
-                (task.fileitem, task.target_name, task, True, None)
+                (task.fileitem, task.target_name, task)
             )
 
-            # 关联文件 (is_main=False, related_file=related_file)
-            for related_file in task.related_files:
-                related_dir = related_file.target_path.parent
-                operations[(related_dir, transfer_type)].append(
-                    (
-                        related_file.fileitem,
-                        related_file.target_path.name,
-                        task,
-                        False,
-                        related_file,
-                    )
-                )
-
-        # 批量执行移动/复制
         for (target_dir, transfer_type), files in operations.items():
             try:
-                # 获取目标目录的 fileid
                 try:
                     folder_item = self._get_folder(target_dir)
                     if not folder_item or not folder_item.fileid:
@@ -713,7 +433,7 @@ class TransferHandler:
                         )
                         affected_tasks = []
                         seen_tasks = set()
-                        for _, _, task, _, _ in files:
+                        for _, _, task in files:
                             task_id = (
                                 task.fileitem.path if task and task.fileitem else None
                             )
@@ -736,7 +456,7 @@ class TransferHandler:
                     )
                     affected_tasks = []
                     seen_tasks = set()
-                    for _, _, task, _, _ in files:
+                    for _, _, task in files:
                         task_id = task.fileitem.path if task and task.fileitem else None
                         if task_id and task_id not in seen_tasks:
                             affected_tasks.append(task)
@@ -751,12 +471,10 @@ class TransferHandler:
                             )
                     continue
 
-                # 批量检查目标文件是否已存在
                 existing_files_map: Dict[str, FileItem] = {}
                 try:
                     existing_files = self.cache_updater._p115_api.list(folder_item)
                     if existing_files:
-                        # 创建文件名到 FileItem 的映射
                         for existing_file in existing_files:
                             if existing_file.type == "file":
                                 existing_files_map[existing_file.name] = existing_file
@@ -765,69 +483,52 @@ class TransferHandler:
                         f"【整理接管】批量列出目标目录文件失败 ({target_dir}): {list_error}，将跳过文件存在性检查"
                     )
 
-                # 收集 文件 ID 和 文件信息 映射，并处理目标文件已存在的情况
-                file_ids = []
-                file_mapping: Dict[
-                    int, Tuple[TransferTask, bool, str, Optional[RelatedFile]]
-                ] = {}
+                file_ids: List[int] = []
+                file_mapping: Dict[int, Tuple[TransferTask, str, FileItem]] = {}
                 files_to_delete: List[FileItem] = []
-                # 收集需要批量删除版本文件的任务（按目录分组）
                 version_delete_tasks: Dict[Path, List[Tuple[Path, TransferTask]]] = (
                     defaultdict(list)
                 )
 
-                for fileitem, target_name, task, is_main, related_file in files:
+                for fileitem, target_name, task in files:
                     if not fileitem.fileid:
                         logger.warn(f"【整理接管】文件缺少 fileid: {fileitem.path}")
-                        # 如果是主文件缺少 fileid，标记任务失败
-                        if is_main:
-                            task_path = (
-                                task.fileitem.path if task and task.fileitem else None
+                        task_path = (
+                            task.fileitem.path if task and task.fileitem else None
+                        )
+                        if task_path:
+                            task_failures[task_path] = (
+                                f"文件缺少 fileid: {fileitem.path}"
                             )
-                            if task_path:
-                                task_failures[task_path] = (
-                                    f"文件缺少 fileid: {fileitem.path}"
-                                )
                         continue
 
-                    # 检查目标文件是否已存在
                     existing_item = existing_files_map.get(target_name)
 
-                    # 判断是否为附加文件（字幕、音轨）
                     is_extra_file = False
-                    if related_file:
-                        # 关联文件（字幕、音轨）强制覆盖
-                        is_extra_file = True
-                    elif fileitem.extension:
-                        # 检查文件扩展名是否为附加文件类型
+                    if fileitem.extension:
                         file_ext = f".{fileitem.extension.lower()}"
                         is_extra_file = file_ext in (
                             settings.RMT_SUBEXT + settings.RMT_AUDIOEXT
                         )
 
                     if existing_item:
-                        # 目标文件已存在
                         if is_extra_file:
-                            # 附加文件强制覆盖
                             logger.info(
                                 f"【整理接管】目标文件已存在，附加文件强制覆盖: {target_dir / target_name}"
                             )
                             files_to_delete.append(existing_item)
                             existing_files_map.pop(target_name, None)
                         else:
-                            # 主视频文件，根据 overwrite_mode 决定是否覆盖
                             overwrite_mode = task.overwrite_mode or "never"
                             over_flag = False
                             should_skip = False
 
                             if overwrite_mode == "always":
-                                # 总是覆盖同名文件
                                 over_flag = True
                                 logger.info(
                                     f"【整理接管】目标文件已存在，覆盖模式=always，将覆盖: {target_dir / target_name}"
                                 )
                             elif overwrite_mode == "size":
-                                # 存在时大覆盖小
                                 source_size = fileitem.size or 0
                                 target_size = existing_item.size or 0
                                 if source_size > target_size:
@@ -836,79 +537,64 @@ class TransferHandler:
                                         f"【整理接管】目标文件已存在，覆盖模式=size，源文件更大 ({source_size} > {target_size})，将覆盖: {target_dir / target_name}"
                                     )
                                 else:
-                                    # 目标文件质量更好，跳过
                                     should_skip = True
                                     logger.info(
                                         f"【整理接管】目标文件已存在，覆盖模式=size，目标文件质量更好 ({target_size} >= {source_size})，跳过: {target_dir / target_name}"
                                     )
                             elif overwrite_mode == "latest":
-                                # 仅保留最新版本
                                 over_flag = True
                                 logger.info(
                                     f"【整理接管】目标文件已存在，覆盖模式=latest，将覆盖: {target_dir / target_name}"
                                 )
-                            else:  # overwrite_mode == "never" or None
-                                # 存在不覆盖
+                            else:
                                 should_skip = True
                                 logger.info(
                                     f"【整理接管】目标文件已存在，覆盖模式=never，跳过: {target_dir / target_name}"
                                 )
 
                             if should_skip:
-                                # 不覆盖，跳过此文件（文件已存在，视为成功）
-                                if is_main:
-                                    task.fileitem.fileid = existing_item.fileid
-                                    # 文件已存在，视为成功
-                                    task_path = (
-                                        task.fileitem.path
-                                        if task and task.fileitem
-                                        else None
-                                    )
-                                    if task_path:
-                                        task_main_file_status[task_path] = True
-                                elif related_file:
-                                    related_file.fileitem.fileid = existing_item.fileid
+                                task.fileitem.fileid = existing_item.fileid
+                                task_path = (
+                                    task.fileitem.path
+                                    if task and task.fileitem
+                                    else None
+                                )
+                                if task_path:
+                                    task_main_file_status[task_path] = True
                                 continue
                             elif over_flag:
-                                # 覆盖模式，收集需要删除的文件
                                 files_to_delete.append(existing_item)
-                                # 从映射中移除，避免重复处理
                                 existing_files_map.pop(target_name, None)
                     else:
-                        # 目标文件不存在，但如果是 latest 模式，需要删除其他版本文件
                         if not is_extra_file and task.overwrite_mode == "latest":
-                            # 收集到批量删除列表，循环外统一处理
                             version_delete_tasks[target_dir].append(
                                 (target_dir / target_name, task)
                             )
 
                     file_id = int(fileitem.fileid)
                     file_ids.append(file_id)
-                    file_mapping[file_id] = (task, is_main, target_name, related_file)
+                    file_mapping[file_id] = (task, target_name, fileitem)
 
-                # 批量删除已存在的文件
                 if files_to_delete:
                     logger.info(
                         f"【整理接管】批量删除 {len(files_to_delete)} 个已存在的目标文件"
                     )
-                    # 收集需要删除的文件 ID
                     delete_file_ids = []
-                    delete_file_mapping: Dict[int, FileItem] = {}  # file_id -> FileItem
+                    delete_file_mapping: Dict[int, FileItem] = {}
                     for existing_item in files_to_delete:
                         if existing_item.fileid:
-                            file_id = int(existing_item.fileid)
-                            delete_file_ids.append(file_id)
-                            delete_file_mapping[file_id] = existing_item
+                            file_id_del = int(existing_item.fileid)
+                            delete_file_ids.append(file_id_del)
+                            delete_file_mapping[file_id_del] = existing_item
 
                     if delete_file_ids:
                         try:
-                            # 批量删除
                             resp = self.client.fs_delete(
                                 delete_file_ids, **configer.get_ios_ua_app(app=False)
                             )
                             check_response(resp)
-                            for file_id in delete_file_ids:
-                                self.cache_updater.remove_cache(file_id)
+                            for file_id_del in delete_file_ids:
+                                self.cache_updater.remove_cache(file_id_del)
                             logger.info(
                                 f"【整理接管】批量删除成功: {len(delete_file_ids)} 个文件"
                             )
@@ -917,33 +603,24 @@ class TransferHandler:
                                 f"【整理接管】批量删除失败: {batch_delete_error}",
                                 exc_info=True,
                             )
-                            # 批量删除失败，从待处理列表中移除对应的文件
-                            for file_id in delete_file_ids:
-                                existing_item = delete_file_mapping.get(file_id)
+                            for file_id_del in delete_file_ids:
+                                existing_item = delete_file_mapping.get(file_id_del)
                                 if existing_item:
-                                    # 找到对应的 file_id 并移除
                                     file_id_to_remove = None
-                                    for fid, (
-                                        t,
-                                        is_m,
-                                        t_name,
-                                        rf,
-                                    ) in file_mapping.items():
+                                    for fid, (_, t_name, _) in file_mapping.items():
                                         if t_name == existing_item.name:
                                             file_id_to_remove = fid
                                             break
-                                    if file_id_to_remove:
+                                    if file_id_to_remove is not None:
                                         file_ids.remove(file_id_to_remove)
                                         file_mapping.pop(file_id_to_remove, None)
 
-                # 批量删除版本文件（latest 模式，目标文件不存在时）
                 if version_delete_tasks:
                     self._batch_delete_version_files(version_delete_tasks)
 
                 if not file_ids:
                     continue
 
-                # 执行批量 移动 /复制
                 if transfer_type == "move":
                     try:
                         resp = self.client.fs_move(
@@ -954,9 +631,8 @@ class TransferHandler:
                         check_response(resp)
                         for file_id, (
                             task,
-                            is_main,
                             target_name,
-                            related_file,
+                            fileitem,
                         ) in file_mapping.items():
                             try:
                                 target_path = target_dir / target_name
@@ -966,27 +642,9 @@ class TransferHandler:
                                     name=target_name,
                                     fileid=str(file_id),
                                     type="file",
-                                    size=task.fileitem.size
-                                    if is_main
-                                    else (
-                                        related_file.fileitem.size
-                                        if related_file
-                                        else 0
-                                    ),
-                                    modify_time=task.fileitem.modify_time
-                                    if is_main
-                                    else (
-                                        related_file.fileitem.modify_time
-                                        if related_file
-                                        else 0
-                                    ),
-                                    pickcode=task.fileitem.pickcode
-                                    if is_main
-                                    else (
-                                        related_file.fileitem.pickcode
-                                        if related_file
-                                        else None
-                                    ),
+                                    size=fileitem.size,
+                                    modify_time=fileitem.modify_time,
+                                    pickcode=fileitem.pickcode,
                                 )
                                 self.cache_updater.update_file_cache(new_fileitem)
                             except Exception as cache_error:
@@ -996,32 +654,26 @@ class TransferHandler:
                         logger.info(
                             f"【整理接管】批量移动 {len(file_ids)} 个文件到 {target_dir}"
                         )
-                        # 标记所有文件移动成功
                         for file_id, (
                             task,
-                            is_main,
                             target_name,
-                            related_file,
+                            fileitem,
                         ) in file_mapping.items():
-                            if is_main:
-                                task_path = (
-                                    task.fileitem.path
-                                    if task and task.fileitem
-                                    else None
-                                )
-                                if task_path:
-                                    task_main_file_status[task_path] = True
+                            task_path = (
+                                task.fileitem.path if task and task.fileitem else None
+                            )
+                            if task_path:
+                                task_main_file_status[task_path] = True
                     except Exception as batch_error:
                         logger.error(
                             f"【整理接管】批量移动失败: {batch_error}",
                             exc_info=True,
                         )
-                        # 记录失败的主文件对应的任务
                         for file_id in file_ids:
-                            task, is_main, target_name, related_file = file_mapping.get(
-                                file_id, (None, False, "", None)
+                            task, target_name, _ = file_mapping.get(
+                                file_id, (None, "", None)
                             )
-                            if task and is_main:
+                            if task:
                                 task_path = (
                                     task.fileitem.path
                                     if task and task.fileitem
@@ -1045,20 +697,11 @@ class TransferHandler:
                         self._update_file_ids_after_copy(target_dir, file_mapping)
                         for file_id, (
                             task,
-                            is_main,
                             target_name,
-                            related_file,
+                            fileitem,
                         ) in file_mapping.items():
                             try:
-                                actual_fileid = (
-                                    task.fileitem.fileid
-                                    if is_main
-                                    else (
-                                        related_file.fileitem.fileid
-                                        if related_file
-                                        else None
-                                    )
-                                )
+                                actual_fileid = task.fileitem.fileid
                                 if actual_fileid:
                                     target_path = target_dir / target_name
                                     new_fileitem = FileItem(
@@ -1067,38 +710,18 @@ class TransferHandler:
                                         name=target_name,
                                         fileid=actual_fileid,
                                         type="file",
-                                        size=task.fileitem.size
-                                        if is_main
-                                        else (
-                                            related_file.fileitem.size
-                                            if related_file
-                                            else 0
-                                        ),
-                                        modify_time=task.fileitem.modify_time
-                                        if is_main
-                                        else (
-                                            related_file.fileitem.modify_time
-                                            if related_file
-                                            else 0
-                                        ),
-                                        pickcode=task.fileitem.pickcode
-                                        if is_main
-                                        else (
-                                            related_file.fileitem.pickcode
-                                            if related_file
-                                            else None
-                                        ),
+                                        size=fileitem.size,
+                                        modify_time=fileitem.modify_time,
+                                        pickcode=fileitem.pickcode,
                                     )
                                     self.cache_updater.update_file_cache(new_fileitem)
-                                    # 标记主文件复制成功
-                                    if is_main:
-                                        task_path = (
-                                            task.fileitem.path
-                                            if task and task.fileitem
-                                            else None
-                                        )
-                                        if task_path:
-                                            task_main_file_status[task_path] = True
+                                    task_path = (
+                                        task.fileitem.path
+                                        if task and task.fileitem
+                                        else None
+                                    )
+                                    if task_path:
+                                        task_main_file_status[task_path] = True
                             except Exception as cache_error:
                                 logger.debug(
                                     f"【整理接管】更新复制文件缓存失败 (file_id: {file_id}): {cache_error}"
@@ -1108,12 +731,11 @@ class TransferHandler:
                             f"【整理接管】批量复制失败: {batch_error}",
                             exc_info=True,
                         )
-                        # 记录失败的主文件对应的任务
                         for file_id in file_ids:
-                            task, is_main, target_name, related_file = file_mapping.get(
-                                file_id, (None, False, "", None)
+                            task, target_name, _ = file_mapping.get(
+                                file_id, (None, "", None)
                             )
-                            if task and is_main:
+                            if task:
                                 task_path = (
                                     task.fileitem.path
                                     if task and task.fileitem
@@ -1131,7 +753,7 @@ class TransferHandler:
                 )
                 affected_tasks = []
                 seen_tasks = set()
-                for _, _, task, _, _ in files:
+                for _, _, task in files:
                     task_id = task.fileitem.path if task and task.fileitem else None
                     if task_id and task_id not in seen_tasks:
                         affected_tasks.append(task)
@@ -1144,10 +766,8 @@ class TransferHandler:
                             f"批量移动/复制失败 (目录: {target_dir}): {e}"
                         )
 
-        # 收集失败和成功的任务
         failed_tasks: List[Tuple[TransferTask, str]] = []
         success_tasks: List[TransferTask] = []
-        # 需要检查的任务（有 fileid 但状态未标记，可能是文件已存在被跳过但未正确标记）
         tasks_to_check: List[TransferTask] = []
 
         for task in tasks:
@@ -1157,51 +777,40 @@ class TransferHandler:
             elif task_path and task_main_file_status.get(task_path, False):
                 success_tasks.append(task)
             else:
-                # 主文件未处理或处理失败
-                # 如果文件有 fileid，可能是已存在被跳过但未正确标记状态
                 if task.fileitem.fileid:
                     tasks_to_check.append(task)
                 else:
                     failed_tasks.append((task, "主文件移动/复制未完成"))
 
-        # 批量检查需要确认的任务（避免逐个调用 API）
         if tasks_to_check:
-            # 按目标目录分组，批量检查
             tasks_by_dir: Dict[Path, List[TransferTask]] = defaultdict(list)
             for task in tasks_to_check:
                 tasks_by_dir[task.target_dir].append(task)
 
             for target_dir, dir_tasks in tasks_by_dir.items():
                 try:
-                    # 批量列出目标目录的文件
                     folder_item = self._get_folder(target_dir)
                     if folder_item:
                         existing_files = self.cache_updater._p115_api.list(folder_item)
                         if existing_files:
-                            # 创建文件名到 FileItem 的映射
                             existing_files_map = {
                                 f.name: f for f in existing_files if f.type == "file"
                             }
-                            # 检查每个任务的文件是否存在
                             for task in dir_tasks:
                                 if task.target_name in existing_files_map:
-                                    # 文件已在目标位置，视为成功
                                     success_tasks.append(task)
                                 else:
                                     failed_tasks.append((task, "主文件移动/复制未完成"))
                         else:
-                            # 目录为空，所有任务都失败
                             for task in dir_tasks:
                                 failed_tasks.append((task, "主文件移动/复制未完成"))
                     else:
-                        # 无法获取目录，所有任务都失败
                         for task in dir_tasks:
                             failed_tasks.append((task, "主文件移动/复制未完成"))
                 except Exception as e:
                     logger.warn(
                         f"【整理接管】批量检查文件存在性失败 (目录: {target_dir}): {e}"
                     )
-                    # 检查失败，所有任务都标记为失败
                     for task in dir_tasks:
                         failed_tasks.append((task, "主文件移动/复制未完成"))
 
@@ -1329,16 +938,15 @@ class TransferHandler:
     def _update_file_ids_after_copy(
         self,
         target_dir: Path,
-        file_mapping: Dict[int, Tuple[TransferTask, bool, str, Optional[RelatedFile]]],
+        file_mapping: Dict[int, Tuple[TransferTask, str, FileItem]],
     ) -> None:
         """
         批量更新复制后的 文件 ID
 
         :param target_dir: 目标目录
-        :param file_mapping: 文件ID到任务信息的映射
+        :param file_mapping: 文件ID到 (任务, 目标文件名, 源文件项) 的映射
         """
         try:
-            # 获取目标目录的文件列表
             target_dir_fileitem = FileItem(
                 storage=self.storage_name,
                 path=str(target_dir) + "/",
@@ -1350,33 +958,18 @@ class TransferHandler:
                 logger.warn(f"【整理接管】目标目录 {target_dir} 为空，无法更新文件ID")
                 return
 
-            # 创建文件名到文件项的映射
             file_map: Dict[str, FileItem] = {
                 f.name: f for f in files if f.type == "file"
             }
 
-            # 更新每个文件的任务信息
-            for file_id, (
-                task,
-                is_main,
-                target_name,
-                related_file,
-            ) in file_mapping.items():
+            for _file_id, (task, target_name, _fileitem) in file_mapping.items():
                 if target_name in file_map:
                     new_fileitem = file_map[target_name]
                     if new_fileitem.fileid:
-                        if is_main:
-                            # 更新主视频的 fileid
-                            task.fileitem.fileid = new_fileitem.fileid
-                            logger.debug(
-                                f"【整理接管】更新主视频文件ID: {target_name} -> {new_fileitem.fileid}"
-                            )
-                        elif related_file:
-                            # 更新关联文件的 fileid
-                            related_file.fileitem.fileid = new_fileitem.fileid
-                            logger.debug(
-                                f"【整理接管】更新关联文件ID: {target_name} -> {new_fileitem.fileid}"
-                            )
+                        task.fileitem.fileid = new_fileitem.fileid
+                        logger.debug(
+                            f"【整理接管】更新文件ID: {target_name} -> {new_fileitem.fileid}"
+                        )
                 else:
                     logger.warn(
                         f"【整理接管】未找到复制后的文件: {target_name} (目录: {target_dir})"
@@ -1387,39 +980,6 @@ class TransferHandler:
                 f"【整理接管】批量更新文件ID失败 (目录: {target_dir}): {e}",
                 exc_info=True,
             )
-
-    def _update_single_file_id_after_copy(
-        self,
-        task: TransferTask,
-        is_main: bool,
-        target_path: Path,
-        related_file: Optional[RelatedFile],
-    ) -> None:
-        """
-        单个文件复制后更新 文件 ID
-
-        :param task: 任务
-        :param is_main: 是否为主视频
-        :param target_path: 目标路径
-        :param related_file: 关联文件（如果不是主视频）
-        """
-        try:
-            file_item = self.cache_updater._p115_api.get_item(target_path)
-            if file_item and file_item.fileid:
-                if is_main:
-                    task.fileitem.fileid = file_item.fileid
-                    logger.debug(
-                        f"【整理接管】更新主视频文件ID: {target_path.name} -> {file_item.fileid}"
-                    )
-                elif related_file:
-                    related_file.fileitem.fileid = file_item.fileid
-                    logger.debug(
-                        f"【整理接管】更新关联文件ID: {target_path.name} -> {file_item.fileid}"
-                    )
-            else:
-                logger.warn(f"【整理接管】未找到复制后的文件: {target_path}")
-        except Exception as e:
-            logger.warn(f"【整理接管】更新文件ID失败 ({target_path}): {e}")
 
     def _batch_rename_files(
         self, tasks: List[TransferTask]
@@ -1433,26 +993,15 @@ class TransferHandler:
         """
         logger.info("【整理接管】开始批量重命名文件")
 
-        # 收集需要重命名的文件（file_id, new_name, task, is_main）
-        rename_items: List[Tuple[int, str, TransferTask, bool]] = []
+        rename_items: List[Tuple[int, str, TransferTask]] = []
 
         for task in tasks:
-            # 检查主视频是否需要重命名
+            if not task.need_rename:
+                continue
             source_name = Path(task.fileitem.path).name
             target_name = task.target_name
             if source_name != target_name and task.fileitem.fileid:
-                rename_items.append(
-                    (int(task.fileitem.fileid), target_name, task, True)
-                )
-
-            # 检查关联文件是否需要重命名
-            for related_file in task.related_files:
-                source_name = Path(related_file.fileitem.path).name
-                target_name = related_file.target_path.name
-                if source_name != target_name and related_file.fileitem.fileid:
-                    rename_items.append(
-                        (int(related_file.fileitem.fileid), target_name, task, False)
-                    )
+                rename_items.append((int(task.fileitem.fileid), target_name, task))
 
         if not rename_items:
             logger.info("【整理接管】没有需要重命名的文件")
@@ -1461,10 +1010,10 @@ class TransferHandler:
         try:
             update_name(
                 self.client,
-                [(file_id, new_name) for file_id, new_name, _, _ in rename_items],
+                [(file_id, new_name) for file_id, new_name, _ in rename_items],
                 **configer.get_ios_ua_app(app=False),
             )
-            for file_id, new_name, _, _ in rename_items:
+            for file_id, new_name, _ in rename_items:
                 self.cache_updater.update_rename_cache(file_id, new_name)
             logger.info(
                 f"【整理接管】批量重命名完成，共重命名 {len(rename_items)} 个文件"
@@ -1473,104 +1022,15 @@ class TransferHandler:
             logger.error(f"【整理接管】批量重命名失败: {e}", exc_info=True)
             # 批量重命名失败，所有任务都失败
             failed_tasks: List[Tuple[TransferTask, str]] = []
-            for file_id, new_name, task, is_main in rename_items:
-                if is_main:
-                    task_path = task.fileitem.path if task and task.fileitem else None
-                    if task_path:
-                        failed_tasks.append((task, f"批量重命名失败: {new_name}"))
+            for _file_id, new_name, task in rename_items:
+                task_path = task.fileitem.path if task and task.fileitem else None
+                if task_path:
+                    failed_tasks.append((task, f"批量重命名失败: {new_name}"))
 
             return failed_tasks, []
 
         # 所有重命名都成功
         return [], tasks
-
-    def _record_related_files_success_history(
-        self, task: TransferTask
-    ) -> tuple[int, dict]:
-        """
-        为关联文件（字幕、音轨）补充独立的成功历史记录。
-
-        :param task: 整理任务
-
-        :return tuple[int, dict]: (写入数量, 历史记录字典 {文件路径: history对象})
-        """
-        if not task.related_files:
-            return 0, {}
-
-        recorded = 0
-        related_file_histories = {}
-        for related_file in task.related_files:
-            try:
-                if (
-                    not related_file
-                    or not related_file.fileitem
-                    or not related_file.fileitem.path
-                    or not related_file.target_path
-                ):
-                    continue
-
-                target_path = related_file.target_path
-
-                # 构造目标文件项
-                target_fileitem = FileItem(
-                    storage=self.storage_name,
-                    path=str(target_path),
-                    name=target_path.name,
-                    fileid=related_file.fileitem.fileid,
-                    type="file",
-                    size=related_file.fileitem.size,
-                    modify_time=related_file.fileitem.modify_time,
-                    pickcode=related_file.fileitem.pickcode,
-                )
-
-                # 构造目标目录项
-                target_diritem = FileItem(
-                    storage=self.storage_name,
-                    path=str(target_path.parent) + "/",
-                    name=target_path.parent.name,
-                    type="dir",
-                )
-
-                # 构造 TransferInfo（不触发通知/刮削）
-                transferinfo = TransferInfo(
-                    success=True,
-                    fileitem=related_file.fileitem,
-                    target_item=target_fileitem,
-                    target_diritem=target_diritem,
-                    transfer_type=task.transfer_type,
-                    file_list=[related_file.fileitem.path],
-                    file_list_new=[target_fileitem.path],
-                    need_scrape=False,
-                    need_notify=False,
-                )
-
-                # 写入独立历史记录（每个关联文件一条）
-                related_history = self.history_oper.add_success(
-                    fileitem=related_file.fileitem,
-                    mode=task.transfer_type,
-                    meta=task.meta,
-                    mediainfo=task.mediainfo,
-                    transferinfo=transferinfo,
-                    downloader=task.downloader,
-                    download_hash=task.download_hash,
-                )
-                # 保存历史记录，用于后续事件发送
-                if related_history:
-                    related_file_histories[related_file.fileitem.path] = related_history
-                recorded += 1
-            except Exception as e:
-                name = "unknown"
-                try:
-                    if related_file and related_file.fileitem:
-                        name = related_file.fileitem.name
-                except Exception:
-                    pass
-                logger.error(
-                    f"【整理接管】写入关联文件历史失败 (file: {name}): {e}",
-                    exc_info=True,
-                )
-
-        return recorded, related_file_histories
 
     def _record_history(self, tasks: List[TransferTask]) -> None:
         """
@@ -1585,27 +1045,13 @@ class TransferHandler:
 
         for task in tasks:
             try:
-                # 构造目标文件项
-                target_fileitem = FileItem(
-                    storage=self.storage_name,
-                    path=str(task.target_path),
-                    name=task.target_name,
-                    fileid=task.fileitem.fileid,
-                    type="file",
-                    size=task.fileitem.size,
-                    modify_time=task.fileitem.modify_time,
-                    pickcode=task.fileitem.pickcode,
+                target_fileitem, target_diritem = self._build_plugin_target_fileitems(
+                    task
                 )
 
-                # 构造目标目录项
-                target_diritem = FileItem(
-                    storage=self.storage_name,
-                    path=str(task.target_dir) + "/",
-                    name=task.target_dir.name,
-                    type="dir",
+                need_notify_val = (
+                    task.need_notify if task.need_notify is not None else True
                 )
-
-                # 构造 TransferInfo
                 transferinfo = TransferInfo(
                     success=True,
                     fileitem=task.fileitem,
@@ -1614,18 +1060,10 @@ class TransferHandler:
                     transfer_type=task.transfer_type,
                     file_list=[task.fileitem.path],
                     file_list_new=[target_fileitem.path],
-                    need_scrape=task.scrape or False,
-                    need_notify=task.need_notify
-                    if task.need_notify is not None
-                    else True,
+                    need_scrape=task.need_scrape,
+                    need_notify=need_notify_val,
                 )
 
-                # 添加关联文件到文件列表
-                for related_file in task.related_files:
-                    transferinfo.file_list.append(related_file.fileitem.path)
-                    transferinfo.file_list_new.append(str(related_file.target_path))
-
-                # 记录成功历史
                 history = self.history_oper.add_success(
                     fileitem=task.fileitem,
                     mode=task.transfer_type,
@@ -1636,34 +1074,19 @@ class TransferHandler:
                     download_hash=task.download_hash,
                 )
 
-                # 关联文件（字幕/音轨）写入历史（每个关联文件独立一条）
-                related_file_histories = {}
-                try:
-                    related_count, related_file_histories = (
-                        self._record_related_files_success_history(task)
-                    )
-                    if related_count:
-                        logger.debug(
-                            f"【整理接管】已写入 {related_count} 个关联文件历史记录: {task.fileitem.name}"
-                        )
-                except Exception as e:
-                    logger.debug(
-                        f"【整理接管】写入关联文件历史异常 (任务: {task.fileitem.name}): {e}",
-                        exc_info=True,
-                    )
+                # 与 TransferChain.__default_callback 成功分支顺序一致：事件 → 登记清单 → finish_task
+                fi = task.fileitem
+                if self._is_media_file(fi):
+                    complete_event = EventType.TransferComplete
+                elif self._is_subtitle_file(fi):
+                    complete_event = EventType.SubtitleTransferComplete
+                elif self._is_audio_file(fi):
+                    complete_event = EventType.AudioTransferComplete
+                else:
+                    complete_event = EventType.TransferComplete
 
-                # 标记任务完成
-                try:
-                    chain = TransferChain()
-                    mp_task = self._create_mp_task(task)
-                    chain.jobview.finish_task(mp_task)
-                    logger.debug(f"【整理接管】标记任务完成: {task.fileitem.path}")
-                except Exception as e:
-                    logger.warn(f"【整理接管】标记任务完成失败: {e}", exc_info=True)
-
-                # 发送整理完成事件
                 eventmanager.send_event(
-                    EventType.TransferComplete,
+                    complete_event,
                     {
                         "fileitem": task.fileitem,
                         "meta": task.meta,
@@ -1675,87 +1098,9 @@ class TransferHandler:
                     },
                 )
 
-                # 关联文件（字幕/音轨）发送对应的事件
-                for related_file in task.related_files:
-                    related_history = (
-                        related_file_histories.get(related_file.fileitem.path)
-                        if related_file_histories
-                        else None
-                    )
-                    if related_file.file_type == "subtitle":
-                        eventmanager.send_event(
-                            EventType.SubtitleTransferComplete,
-                            {
-                                "fileitem": related_file.fileitem,
-                                "meta": task.meta,
-                                "mediainfo": task.mediainfo,
-                                "transferinfo": TransferInfo(
-                                    success=True,
-                                    fileitem=related_file.fileitem,
-                                    target_item=FileItem(
-                                        storage=self.storage_name,
-                                        path=str(related_file.target_path),
-                                        name=related_file.target_path.name,
-                                        fileid=related_file.fileitem.fileid,
-                                        type="file",
-                                        size=related_file.fileitem.size,
-                                        modify_time=related_file.fileitem.modify_time,
-                                        pickcode=related_file.fileitem.pickcode,
-                                    ),
-                                    target_diritem=transferinfo.target_diritem,
-                                    transfer_type=task.transfer_type,
-                                    file_list=[related_file.fileitem.path],
-                                    file_list_new=[str(related_file.target_path)],
-                                    need_scrape=False,
-                                    need_notify=False,
-                                ),
-                                "downloader": task.downloader,
-                                "download_hash": task.download_hash,
-                                "transfer_history_id": related_history.id
-                                if related_history
-                                else None,
-                            },
-                        )
-                    elif related_file.file_type == "audio_track":
-                        eventmanager.send_event(
-                            EventType.AudioTransferComplete,
-                            {
-                                "fileitem": related_file.fileitem,
-                                "meta": task.meta,
-                                "mediainfo": task.mediainfo,
-                                "transferinfo": TransferInfo(
-                                    success=True,
-                                    fileitem=related_file.fileitem,
-                                    target_item=FileItem(
-                                        storage=self.storage_name,
-                                        path=str(related_file.target_path),
-                                        name=related_file.target_path.name,
-                                        fileid=related_file.fileitem.fileid,
-                                        type="file",
-                                        size=related_file.fileitem.size,
-                                        modify_time=related_file.fileitem.modify_time,
-                                        pickcode=related_file.fileitem.pickcode,
-                                    ),
-                                    target_diritem=transferinfo.target_diritem,
-                                    transfer_type=task.transfer_type,
-                                    file_list=[related_file.fileitem.path],
-                                    file_list_new=[str(related_file.target_path)],
-                                    need_scrape=False,
-                                    need_notify=False,
-                                ),
-                                "downloader": task.downloader,
-                                "download_hash": task.download_hash,
-                                "transfer_history_id": related_history.id
-                                if related_history
-                                else None,
-                            },
-                        )
-
-                # 登记转移成功文件清单到 _success_target_files
                 try:
                     chain = TransferChain()
                     with task_lock:
-                        # 登记转移成功文件清单
                         target_dir_path = transferinfo.target_diritem.path
                         target_files = transferinfo.file_list_new
                         if chain._success_target_files.get(target_dir_path):
@@ -1768,6 +1113,14 @@ class TransferHandler:
                     logger.debug(
                         f"【整理接管】登记文件清单到 _success_target_files 失败: {e}"
                     )
+
+                try:
+                    chain = TransferChain()
+                    mp_task = self._create_mp_task(task)
+                    chain.jobview.finish_task(mp_task)
+                    logger.debug(f"【整理接管】标记任务完成: {task.fileitem.path}")
+                except Exception as e:
+                    logger.warn(f"【整理接管】标记任务完成失败: {e}", exc_info=True)
 
                 # 整理完成且有成功的任务时，执行 __do_finished 逻辑
                 try:
@@ -1825,8 +1178,10 @@ class TransferHandler:
                                         exc_info=True,
                                     )
 
-                            # 发送刮削事件
-                            if transferinfo.need_scrape:
+                            # 发送刮削事件（与 MP __default_callback 一致：仅主视频）
+                            if transferinfo.need_scrape and self._is_media_file(
+                                task.fileitem
+                            ):
                                 try:
                                     eventmanager.send_event(
                                         EventType.MetadataScrape,
@@ -2280,6 +1635,33 @@ class TransferHandler:
 
         return dirs_to_delete
 
+    def _build_plugin_target_fileitems(
+        self, task: TransferTask
+    ) -> Tuple[FileItem, FileItem]:
+        """
+        从插件整理任务构造目标文件与目标目录的 FileItem（与成功历史一致）
+
+        :param task: 插件 TransferTask
+        :return: (target_item, target_diritem)
+        """
+        target_fileitem = FileItem(
+            storage=self.storage_name,
+            path=str(task.target_path),
+            name=task.target_name,
+            fileid=task.fileitem.fileid,
+            type="file",
+            size=task.fileitem.size,
+            modify_time=task.fileitem.modify_time,
+            pickcode=task.fileitem.pickcode,
+        )
+        target_diritem = FileItem(
+            storage=self.storage_name,
+            path=str(task.target_dir) + "/",
+            name=task.target_dir.name,
+            type="dir",
+        )
+        return target_fileitem, target_diritem
+
     def _batch_record_failures(
         self, failed_tasks: List[Tuple[TransferTask, str]]
     ) -> None:
@@ -2326,26 +1708,54 @@ class TransferHandler:
         :param message: 失败原因
         """
         try:
-            # 构造 TransferInfo
+            try:
+                target_item, target_diritem = self._build_plugin_target_fileitems(task)
+            except Exception as e:
+                logger.debug(
+                    f"【整理接管】失败历史构造目标 FileItem 失败，使用精简字段: {e}",
+                    exc_info=True,
+                )
+                target_item, target_diritem = None, None
+
+            need_notify_val = task.need_notify if task.need_notify is not None else True
+            src_path = task.fileitem.path
             transferinfo = TransferInfo(
                 success=False,
                 fileitem=task.fileitem,
+                target_item=target_item,
+                target_diritem=target_diritem,
                 transfer_type=task.transfer_type,
+                file_list=[src_path],
+                file_list_new=[str(task.target_path)] if task.target_path else [],
+                fail_list=[src_path],
                 message=message,
+                need_scrape=task.need_scrape,
+                need_notify=need_notify_val,
             )
 
             # 记录失败历史
             history = self.history_oper.add_fail(
                 fileitem=task.fileitem,
-                mode=task.transfer_type,
+                mode=task.transfer_type or "",
                 meta=task.meta,
                 mediainfo=task.mediainfo,
                 transferinfo=transferinfo,
+                downloader=task.downloader,
+                download_hash=task.download_hash,
             )
 
-            # 发送整理失败事件
+            fi = task.fileitem
+            if self._is_media_file(fi):
+                fail_event = EventType.TransferFailed
+            elif self._is_subtitle_file(fi):
+                fail_event = EventType.SubtitleTransferFailed
+            elif self._is_audio_file(fi):
+                fail_event = EventType.AudioTransferFailed
+            else:
+                fail_event = EventType.TransferFailed
+
             eventmanager.send_event(
-                EventType.TransferFailed,
+                fail_event,
                 {
                     "fileitem": task.fileitem,
                     "meta": task.meta,
@@ -2356,54 +1766,6 @@ class TransferHandler:
                     "transfer_history_id": history.id if history else None,
                 },
             )
-
-            # 关联文件（字幕/音轨）记录历史并发送对应的失败事件
-            for related_file in task.related_files:
-                related_transferinfo = TransferInfo(
-                    success=False,
-                    fileitem=related_file.fileitem,
-                    transfer_type=task.transfer_type,
-                    message=message,
-                )
-                related_history = self.history_oper.add_fail(
-                    fileitem=related_file.fileitem,
-                    mode=task.transfer_type,
-                    meta=task.meta,
-                    mediainfo=task.mediainfo,
-                    transferinfo=related_transferinfo,
-                    downloader=task.downloader,
-                    download_hash=task.download_hash,
-                )
-                if related_file.file_type == "subtitle":
-                    eventmanager.send_event(
-                        EventType.SubtitleTransferFailed,
-                        {
-                            "fileitem": related_file.fileitem,
-                            "meta": task.meta,
-                            "mediainfo": task.mediainfo,
-                            "transferinfo": related_transferinfo,
-                            "downloader": task.downloader,
-                            "download_hash": task.download_hash,
-                            "transfer_history_id": related_history.id
-                            if related_history
-                            else None,
-                        },
-                    )
-                elif related_file.file_type == "audio_track":
-                    eventmanager.send_event(
-                        EventType.AudioTransferFailed,
-                        {
-                            "fileitem": related_file.fileitem,
-                            "meta": task.meta,
-                            "mediainfo": task.mediainfo,
-                            "transferinfo": related_transferinfo,
-                            "downloader": task.downloader,
-                            "download_hash": task.download_hash,
-                            "transfer_history_id": related_history.id
-                            if related_history
-                            else None,
-                        },
-                    )
 
             # 发送失败通知
             try:

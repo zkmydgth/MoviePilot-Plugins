@@ -2,7 +2,7 @@ from functools import wraps
 from inspect import Parameter, signature
 from pathlib import Path
 from threading import Lock
-from typing import Optional, Tuple, Callable, TYPE_CHECKING
+from typing import Callable, Optional, Tuple, TYPE_CHECKING
 
 from app.log import logger
 
@@ -109,7 +109,7 @@ class TransferChainPatcher:
         from app.core.context import MediaInfo
         from app.db.transferhistory_oper import TransferHistoryOper
         from app.helper.directory import DirectoryHelper
-        from app.schemas import Notification
+        from app.schemas import Notification, TransferInfo
         from app.schemas.types import MediaType, NotificationType
 
         from ..schemas.transfer import TransferTask as PluginTransferTask
@@ -244,16 +244,7 @@ class TransferChainPatcher:
                     f"【整理接管】检测到 115 → 115 整理任务: {task.fileitem.name}"
                 )
 
-                # 如果是字幕或音频文件，直接忽略
-                if cls._is_subtitle_or_audio_file(task.fileitem):
-                    logger.debug(
-                        f"【整理接管】忽略字幕/音频文件（将跟随主文件一起处理）: {task.fileitem.name}"
-                    )
-                    chain_self.jobview.running_task(task)
-                    chain_self.jobview.finish_task(task)
-                    if chain_self.jobview.is_done(task):
-                        chain_self.jobview.remove_job(task)
-                    return True, "已由插件接管（字幕/音频文件，跟随主文件处理）"
+                need_rename, need_notify, need_scrape = cls._derive_transfer_flags(task)
 
                 # 注意：这个验证在 transfer_media 中进行，但由于我们拦截了，需要在这里进行
                 if task.mediainfo.type == MediaType.TV and task.fileitem.type == "file":
@@ -261,10 +252,23 @@ class TransferChainPatcher:
                         logger.warn(
                             f"【整理接管】文件 {task.fileitem.path} 整理失败：未识别到文件集数"
                         )
+                        fail_msg = "未识别到文件集数"
+                        src_path = task.fileitem.path
                         transferhis.add_fail(
                             fileitem=task.fileitem,
-                            mode=task.transfer_type,
+                            mode=task.transfer_type or "",
                             meta=task.meta,
+                            mediainfo=task.mediainfo,
+                            transferinfo=TransferInfo(
+                                success=False,
+                                fileitem=task.fileitem,
+                                message=fail_msg,
+                                transfer_type=task.transfer_type,
+                                file_list=[src_path],
+                                fail_list=[src_path],
+                                need_notify=need_notify,
+                                need_scrape=need_scrape,
+                            ),
                             downloader=task.downloader,
                             download_hash=task.download_hash,
                         )
@@ -282,7 +286,7 @@ class TransferChainPatcher:
                         task.meta.end_episode = None
 
                 # 计算目标路径
-                target_path = cls._compute_target_path(task)
+                target_path = cls._compute_target_path(task, need_rename=need_rename)
                 if not target_path:
                     logger.error(f"【整理接管】计算目标路径失败: {task.fileitem.path}")
                     # 回退到原方法
@@ -309,8 +313,10 @@ class TransferChainPatcher:
                     meta=task.meta,
                     transfer_type=transfer_type or "move",
                     overwrite_mode=overwrite_mode,
+                    need_rename=need_rename,
+                    need_notify=need_notify,
+                    need_scrape=need_scrape,
                     scrape=task.scrape,
-                    need_notify=True,
                     manual=task.manual,
                     background=task.background,
                     username=task.username,
@@ -339,27 +345,35 @@ class TransferChainPatcher:
             except Exception as fallback_error:
                 logger.error(f"【整理接管】回退到原方法也失败: {fallback_error}")
                 return False, f"整理异常: {e}"
+        finally:
+            # 与原生 __handle_transfer 一致：每次处理完尝试移除已完成作业
+            chain_self.jobview.try_remove_job(task)
 
     @classmethod
-    def _is_subtitle_or_audio_file(cls, fileitem) -> bool:
+    def _derive_transfer_flags(cls, task) -> Tuple[bool, bool, bool]:
         """
-        判断是否为字幕或音频文件
+        与 app.modules.filemanager 中 transfer() 一致，推导 need_rename / need_notify / need_scrape
 
-        :param fileitem: 文件项
-        :return: 是否为字幕或音频文件
+        :param task: MoviePilot TransferTask
+        :return: (need_rename, need_notify, need_scrape)
         """
-        try:
-            from app.core.config import settings
-
-            if not fileitem.extension:
-                return False
-            ext = f".{fileitem.extension.lower()}"
-            if ext in settings.RMT_SUBEXT or ext in settings.RMT_AUDIOEXT:
-                return True
-            return False
-        except Exception as e:
-            logger.debug(f"【整理接管】判断字幕/音频文件失败: {e}")
-            return False
+        if task.target_directory:
+            need_rename = bool(task.target_directory.renaming)
+            need_notify = bool(task.target_directory.notify)
+            if task.scrape is None:
+                need_scrape = bool(task.target_directory.scraping)
+            else:
+                need_scrape = bool(task.scrape)
+            return need_rename, need_notify, need_scrape
+        if task.target_path:
+            need_rename = True
+            need_notify = False
+            need_scrape = bool(task.scrape) if task.scrape is not None else False
+            return need_rename, need_notify, need_scrape
+        need_rename = True
+        need_notify = True
+        need_scrape = bool(task.scrape) if task.scrape is not None else False
+        return need_rename, need_notify, need_scrape
 
     @classmethod
     def _should_intercept(cls, source_storage: str, target_storage: str) -> bool:
@@ -378,11 +392,12 @@ class TransferChainPatcher:
         )
 
     @classmethod
-    def _compute_target_path(cls, task) -> Optional[Path]:
+    def _compute_target_path(cls, task, need_rename: bool = True) -> Optional[Path]:
         """
-        使用 MoviePilot 的逻辑计算目标路径
+        与 TransHandler.transfer_media 单文件分支一致的目标路径
 
         :param task: MoviePilot 的 TransferTask
+        :param need_rename: 是否与 MP 目录 renaming 一致
         :return: 目标路径，失败返回 None
         """
         from app.core.config import settings
@@ -390,29 +405,29 @@ class TransferChainPatcher:
         from app.schemas.types import MediaType
 
         try:
-            # 获取重命名格式
-            if task.mediainfo.type == MediaType.TV:
-                rename_format = settings.TV_RENAME_FORMAT
-            else:
-                rename_format = settings.MOVIE_RENAME_FORMAT
-
-            # 创建 TransHandler 实例
             handler = TransHandler()
 
-            # 计算目标目录
             target_dir = handler.get_dest_dir(
                 mediainfo=task.mediainfo,
                 target_dir=task.target_directory,
+                need_type_folder=task.library_type_folder,
+                need_category_folder=task.library_category_folder,
             )
 
             if not target_dir:
                 logger.error("【整理接管】计算目标目录失败")
                 return None
 
-            # 获取文件扩展名
+            if not need_rename:
+                return target_dir / task.fileitem.name
+
+            if task.mediainfo.type == MediaType.TV:
+                rename_format = settings.TV_RENAME_FORMAT
+            else:
+                rename_format = settings.MOVIE_RENAME_FORMAT
+
             file_ext = Path(task.fileitem.name).suffix
 
-            # 获取命名字典
             naming_dict = handler.get_naming_dict(
                 meta=task.meta,
                 mediainfo=task.mediainfo,
@@ -420,7 +435,6 @@ class TransferChainPatcher:
                 episodes_info=task.episodes_info,
             )
 
-            # 计算重命名路径
             rename_kwargs = {
                 "template_string": rename_format,
                 "rename_dict": naming_dict,
@@ -439,14 +453,21 @@ class TransferChainPatcher:
                 pass
             rename_path = handler.get_rename_path(**rename_kwargs)
 
-            # 确保返回 Path 对象
-            if rename_path:
-                return (
-                    Path(rename_path)
-                    if not isinstance(rename_path, Path)
-                    else rename_path
-                )
-            return None
+            if not rename_path:
+                return None
+
+            new_file = (
+                Path(rename_path) if not isinstance(rename_path, Path) else rename_path
+            )
+
+            if task.fileitem.extension:
+                ext = f".{task.fileitem.extension.lower()}"
+                if ext in settings.RMT_SUBEXT:
+                    new_file = TransHandler._TransHandler__rename_subtitles(
+                        task.fileitem, new_file
+                    )
+
+            return new_file
 
         except Exception as e:
             logger.error(f"【整理接管】计算目标路径失败: {e}", exc_info=True)
@@ -543,6 +564,3 @@ class TransferChainPatcher:
         except Exception as e:
             logger.error(f"【整理接管】执行 transfer 失败: {e}", exc_info=True)
             return False, f"整理失败: {e}"
-
-        finally:
-            chain_self.jobview.try_remove_job(task)

@@ -99,7 +99,7 @@ MoviePilot 的原始整理逻辑是**单文件逐个处理**：
 │                                                               │
 │  ┌─────────────────────────────────────────────────────┐   │
 │  │  process_batch(tasks)                                │   │
-│  │  ├─ _discover_related_files()      # 发现字幕/音轨    │   │
+│  │  ├─ 批次排序（字幕→音频→其它→主视频）                │   │
 │  │  ├─ _batch_create_directories()     # 批量创建目录     │   │
 │  │  ├─ _batch_move_or_copy()          # 批量移动/复制    │   │
 │  │  ├─ _batch_rename_files()          # 批量重命名       │   │
@@ -136,7 +136,7 @@ MoviePilot 的原始整理逻辑是**单文件逐个处理**：
 **拦截条件**：
 - 源存储 = 目标存储 = `115网盘Plus`
 - 文件类型 = `file`（目录/蓝光原盘回退到原方法）
-- **字幕/音频文件**：直接忽略（标记为完成但不加入队列），因为会跟随主文件一起处理
+- **字幕/音频**：与 MoviePilot 一致，作为**独立** `TransferTask` 入队并批量处理（不再「忽略后由主视频捎带」）
 
 ### 职责划分
 
@@ -181,7 +181,8 @@ MoviePilot 的原始整理逻辑是**单文件逐个处理**：
 - `enable()`: 启用补丁
 - `_patched_handle_transfer()`: 拦截后的处理逻辑
 - `_should_intercept()`: 判断是否拦截
-- `_compute_target_path()`: 使用 MoviePilot 逻辑计算目标路径
+- `_derive_transfer_flags()`: 与 `filemanager.transfer()` 一致推导 `need_rename` / `need_notify` / `need_scrape`
+- `_compute_target_path()`: 与 `TransHandler.transfer_media` 单文件分支一致（含 `need_rename`、字幕 `__rename_subtitles`）
 
 ### 2. TransferTaskManager
 
@@ -212,8 +213,7 @@ MoviePilot 的原始整理逻辑是**单文件逐个处理**：
 - 同步 MoviePilot 状态
 
 **关键方法**：
-- `process_batch()`: 批量处理主流程
-- `_discover_related_files()`: 发现字幕/音轨
+- `process_batch()`: 批量处理主流程（含 `_sort_tasks_for_batch`）
 - `_batch_create_directories()`: 批量创建目录
 - `_batch_move_or_copy()`: 批量移动/复制
 - `_batch_rename_files()`: 批量重命名
@@ -229,23 +229,26 @@ MoviePilot 的原始整理逻辑是**单文件逐个处理**：
 
 **文件**：`plugins.v2/p115strmhelper/schemas/transfer.py`
 
-**数据结构**：
+**数据结构**（节选）：
 ```python
 @dataclass
 class TransferTask:
-    fileitem: FileItem              # 源文件
-    target_path: Path              # 目标路径
-    mediainfo: MediaInfo           # 媒体信息
-    meta: MetaBase                 # 元数据
-    transfer_type: str             # 整理类型 (move/copy)
-    overwrite_mode: Optional[str]  # 覆盖模式
-    related_files: List[RelatedFile]  # 关联文件（字幕/音轨）
-    # ... 其他字段
+    fileitem: FileItem
+    target_path: Path
+    mediainfo: MediaInfo
+    meta: MetaBase
+    transfer_type: str
+    overwrite_mode: Optional[str]
+    need_rename: bool
+    need_notify: Optional[bool]
+    need_scrape: bool
+    # downloader / download_hash / manual / background / username 等
 ```
 
 **与 MoviePilot TransferTask 的区别**：
-- 插件版本：包含 `target_path`（已计算好的完整路径）
-- MoviePilot 版本：包含 `target_directory`（目录配置，需要计算路径）
+- 插件版本：包含已计算的 `target_path`，以及与 `filemanager.transfer()` 对齐的 `need_rename` / `need_notify` / `need_scrape`
+- MoviePilot 版本：含 `target_directory`，由 `transfer_media` 内部推导上述标志
+- **不再使用** `related_files`：字幕/音轨各为独立任务，与 MP `do_transfer` 一致
 
 ---
 
@@ -270,8 +273,7 @@ class TransferTask:
    └─ 调用 TransferHandler.process_batch(tasks)
 
 3. TransferHandler 批量处理
-   ├─ _discover_related_files()      # 发现字幕/音轨
-   │   └─ 失败 → 所有任务标记失败，停止
+   ├─ 批次内排序（字幕 → 音频 → 其它 → 主视频；主视频最后，便于 is_finished 时当前任务仍为主视频从而发出 MetadataScrape）
    │
    ├─ _batch_create_directories()     # 批量创建目录
    │   └─ 失败 → 受影响任务标记失败，停止
@@ -291,18 +293,11 @@ class TransferTask:
    ├─ _record_history()              # 记录历史
    │   ├─ 成功任务：add_success()
    │   │   ├─ finish_task()
-   │   │   ├─ 发送 TransferComplete 事件（包含 transfer_history_id）
-   │   │   ├─ 关联文件发送 SubtitleTransferComplete/AudioTransferComplete 事件（包含 transfer_history_id）
+   │   │   ├─ 按主文件类型发送 TransferComplete / SubtitleTransferComplete / AudioTransferComplete
    │   │   ├─ 登记到 _success_target_files
-   │   │   ├─ 关联文件独立写历史（每个文件一条，包含 transfer_history_id）
-   │   │   └─ is_finished() → 发送通知/刮削
+   │   │   └─ is_finished() → 通知；MetadataScrape 仅主视频且 need_scrape（对齐 MP __default_callback）
    │   │
-   │   └─ 失败任务：add_fail()
-   │       ├─ fail_task()
-   │       ├─ 发送 TransferFailed 事件（包含 transfer_history_id）
-   │       ├─ 关联文件发送 SubtitleTransferFailed/AudioTransferFailed 事件（包含 transfer_history_id）
-   │       ├─ 关联文件独立写失败历史（每个文件一条，包含 transfer_history_id）
-   │       └─ 发送失败通知
+   │   └─ 失败路径（_record_fail）：add_fail()、按类型发送 TransferFailed / SubtitleTransferFailed / AudioTransferFailed、通知
    │
    ├─ _batch_delete_empty_dirs()     # 删除空目录（仅 move 模式）
    │   ├─ 检查 is_success()
@@ -354,7 +349,7 @@ class TransferTask:
 ### 2. 批量操作优化
 
 **目录创建**：
-- 收集所有目标目录（包括关联文件的目录）
+- 收集各任务 `target_path` 的父目录
 - 识别叶子目录（非其他目录的父目录）
 - 批量创建（115 API 自动递归）
 
@@ -367,9 +362,8 @@ class TransferTask:
 - 失败时不回退到逐个处理（避免 API 风控）
 
 **文件重命名**：
-- 收集所有需要重命名的文件
+- 仅 `need_rename=True` 的任务参与；与 MP 一致，`need_rename=False` 时目标文件名为源文件名，不产生重命名 API 调用
 - 批量重命名（使用 `p115client.tool.edit.update_name`）
-- 失败时回退到逐个重命名
 
 ### 3. 覆盖模式处理
 
@@ -388,24 +382,13 @@ class TransferTask:
   - 目标文件不存在：收集到 `version_delete_tasks`，循环外调用 `_batch_delete_version_files()` 批量处理
   - 按目录分组，每个目录只执行一次 `list_files`，收集所有目标文件的季集信息后批量删除
 
-### 4. 关联文件处理
+### 4. 字幕与音轨（独立任务，对齐 MP）
 
-**发现逻辑**：
-- 按源目录分组任务
-- 列出目录文件
-- 匹配字幕文件（基于文件名、季集信息）
-- 匹配音轨文件（基于文件名）
-
-**命名规则**：
-- 字幕：根据语言标识添加后缀（`.chi.zh-cn`, `.zh-tw`, `.eng`）
-- 音轨：保持原扩展名
-- 默认字幕：添加 `.default` 前缀
-
-**历史记录**：
-- 主视频：正常记录历史（包含 `transfer_history_id`）
-- 关联文件：**独立写入历史记录**（每个文件一条，包含 `transfer_history_id`）
-- 关联文件历史：`need_notify=False`, `need_scrape=False`（不触发通知/刮削）
-- **失败时**：主文件和关联文件都会独立记录失败历史（与 MoviePilot 逻辑一致）
+- MoviePilot `do_transfer` 为每个字幕/音频创建独立 `TransferTask`；插件**同样**为每条任务入队并批量处理，**不再**使用 `related_files` 或目录内「发现关联」
+- 目标路径：补丁层 `_compute_target_path` 与 `TransHandler.transfer_media` 一致（`need_rename`、字幕 `__rename_subtitles`）
+- 覆盖：扩展名为 `RMT_SUBEXT` / `RMT_AUDIOEXT` 的源文件在批量移动中按「附加文件」**强制覆盖**
+- 历史与事件：每个文件一条 `add_success` / `add_fail`；成功/失败事件按类型为 `Subtitle*` / `Audio*` / 主视频 `Transfer*`
+- 聚合通知与刮削：`need_notify` / `need_scrape` 来自目录配置（及 `task.scrape`）；`MetadataScrape` **仅**在主视频任务且 `is_finished` 时发送（与 `__default_callback` 一致）
 
 ### 5. 空目录删除
 
@@ -485,7 +468,7 @@ MoviePilot TransferTask
 | 功能点 | MoviePilot | 插件实现 | 说明 |
 |--------|-----------|---------|------|
 | **文件操作** | 逐个处理 | 批量处理 | 性能优化 |
-| **关联文件历史** | 独立记录 | ✅ 独立记录 | 已对齐 |
+| **字幕/音轨任务** | 每文件独立任务与历史 | ✅ 独立任务批量处理，无 related_files | 已对齐 |
 | **事件触发** | 仅主媒体文件 | 仅主媒体文件 | 已对齐 |
 | **空目录删除** | 支持 | ✅ 支持 | 已实现 |
 
@@ -553,29 +536,22 @@ if self.jobview.is_done(task):
 - `TransferFailed` 事件：仅主媒体文件触发
 
 **插件实现**：
-- 主视频文件：发送 `TransferComplete` / `TransferFailed` 事件（包含 `transfer_history_id`）
-- 关联文件（字幕/音轨）：
-  - 成功时：发送 `SubtitleTransferComplete` / `AudioTransferComplete` 事件（包含 `transfer_history_id`）
-  - 失败时：发送 `SubtitleTransferFailed` / `AudioTransferFailed` 事件（包含 `transfer_history_id`）
-  - 关联文件事件：`need_notify=False`, `need_scrape=False`（不触发通知/刮削）
-- 刮削事件：仅主媒体文件触发 `MetadataScrape` 事件
+- 主视频：发送 `TransferComplete` / `TransferFailed`
+- 字幕主任务：`SubtitleTransferComplete` / `SubtitleTransferFailed`
+- 音频主任务：`AudioTransferComplete` / `AudioTransferFailed`
+- `TransferInfo.need_notify` / `need_scrape` 与 `filemanager.transfer()` 推导一致；`MetadataScrape` 仅在 `is_finished` 且当前任务文件为主视频且 `need_scrape` 时发送（批次排序保证含字幕/音轨时主视频在 `_record_history` 中最后 `finish_task`，避免最后一项是音轨导致门控永远不通过）
 
-**状态**：已对齐（与 MoviePilot 最新实现一致，每个文件类型都发送对应事件）
+**状态**：已对齐 MoviePilot `__default_callback` 按文件类型分支的行为
 
 ---
 
-#### 2. 关联文件历史记录 ✅
+#### 2. 字幕/音轨历史记录 ✅
 
-**MoviePilot 实现**：
-- 字幕/音轨文件作为独立任务处理
-- 每个文件独立写入历史记录
+**MoviePilot**：每文件独立任务，各写一条历史
 
-**插件实现**：
-- 成功时：使用 `_record_related_files_success_history()` 方法，为每个关联文件独立写入历史记录（包含 `transfer_history_id`）
-- 失败时：在 `_record_fail()` 中为每个关联文件独立调用 `add_fail()` 记录失败历史（包含 `transfer_history_id`）
-- `need_notify=False`, `need_scrape=False`（不触发通知/刮削）
+**插件**：每条插件 `TransferTask` 对应一条 `add_success` / `add_fail`，无 `related_files` 二次写入
 
-**状态**：已对齐（与 MoviePilot 最新实现一致，成功和失败都独立记录）
+**状态**：已对齐
 
 ---
 
@@ -641,14 +617,9 @@ if self.jobview.is_done(task):
 - 批量记录失败历史
 - 按媒体组统一移除失败任务组
 
-### 4. 关联文件历史
+### 4. 字幕/音频历史
 
-**实现**：
-- 主视频：正常记录（触发通知/刮削，包含 `transfer_history_id`）
-- 关联文件成功：独立记录（不触发通知/刮削，包含 `transfer_history_id`）
-- 关联文件失败：独立记录失败历史（与 MoviePilot 逻辑一致，包含 `transfer_history_id`）
-- 使用 `_record_related_files_success_history()` 方法（成功时）
-- 失败时在 `_record_fail()` 中为每个关联文件独立调用 `add_fail()`
+**实现**：与 MP 一致，每条整理任务一条历史；通知/刮削由 `need_notify` / `need_scrape` 与作业聚合（`is_finished`）决定
 
 ### 5. 115→115 特殊处理
 
@@ -731,9 +702,8 @@ plugins.v2/p115strmhelper/
    - 检查队列中是否有待处理任务
    - 检查定时器是否正常触发
 
-3. **关联文件未写入历史**：
-   - 检查 `task.related_files` 是否为空
-   - 检查 `_record_related_files_success_history()` 是否被调用
+3. **字幕未随主视频移动**：
+   - 与 MP 一致：需由 `do_transfer` 等为字幕单独排队；插件不再从目录「发现」关联文件
 
 ---
 
@@ -797,4 +767,4 @@ plugins.v2/p115strmhelper/
 
 ---
 
-*最后更新：2026-01-27*
+*最后更新：2026-04-08*
