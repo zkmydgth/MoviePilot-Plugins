@@ -170,6 +170,10 @@ class BilibiliDiscover(_PluginBase):
     def bilibili_discover(
         self,
         mtype: str = "tv",
+        release_date: str = None,
+        year: str = None,
+        sort: str = None,
+        season_status: str = None,
         page: int = 1,
         count: int = 30,
     ) -> List[schemas.MediaInfo]:
@@ -207,6 +211,14 @@ class BilibiliDiscover(_PluginBase):
                 "page_num": page,
                 "page_size": count,
             }
+            if year:
+                params.update({"year": year})
+            if release_date:
+                params.update({"release_date": release_date})
+            if sort:
+                params.update({"sort": sort})
+            if season_status:
+                params.update({"season_status": season_status})
             result = self.__request(**params)
         except Exception as err:
             logger.error(str(err))
@@ -228,9 +240,127 @@ class BilibiliDiscover(_PluginBase):
             {
                 "component": "VChip",
                 "props": {"filter": True, "tile": True, "value": value},
-                "text": CHANNEL_PARAMS[value]['name'],
+                "text": CHANNEL_PARAMS[value]["name"],
             }
             for value in CHANNEL_PARAMS
+        ]
+
+        year = {
+            "Id": "release_date",
+            "Text": "年份",
+            "Options": [
+                {"Value": "[2024-01-01 00:00:00,2025-01-01 00:00:00]", "Text": "2024"},
+                {"Value": "[2023-01-01 00:00:00,2024-01-01 00:00:00)", "Text": "2023"},
+                {"Value": "[2022-01-01 00:00:00,2023-01-01 00:00:00)", "Text": "2022"},
+                {"Value": "[2021-01-01 00:00:00,2022-01-01 00:00:00)", "Text": "2021"},
+                {"Value": "[2020-01-01 00:00:00,2021-01-01 00:00:00)", "Text": "2020"},
+                {"Value": "[2019-01-01 00:00:00,2020-01-01 00:00:00)", "Text": "2019"},
+                {"Value": "[2018-01-01 00:00:00,2019-01-01 00:00:00)", "Text": "2018"},
+                {"Value": "[2017-01-01 00:00:00,2018-01-01 00:00:00)", "Text": "2017"},
+                {"Value": "[2016-01-01 00:00:00,2017-01-01 00:00:00)", "Text": "2016"},
+                {
+                    "Value": "[2010-01-01 00:00:00,2016-01-01 00:00:00)",
+                    "Text": "2015-2010",
+                },
+                {
+                    "Value": "[2005-01-01 00:00:00,2010-01-01 00:00:00)",
+                    "Text": "2009-2005",
+                },
+                {
+                    "Value": "[2000-01-01 00:00:00,2005-01-01 00:00:00)",
+                    "Text": "2004-2000",
+                },
+                {
+                    "Value": "[1990-01-01 00:00:00,2000-01-01 00:00:00)",
+                    "Text": "90年代",
+                },
+                {
+                    "Value": "[1980-01-01 00:00:00,1990-01-01 00:00:00)",
+                    "Text": "80年代",
+                },
+                {"Value": "[,1980-01-01 00:00:00)", "Text": "更早"},
+            ],
+        }
+        year_ui = [
+            {
+                "component": "VChip",
+                "props": {"filter": True, "tile": True, "value": value["Value"]},
+                "text": value["Text"],
+            }
+            for value in year["Options"]
+        ]
+
+        year1 = {
+            "Id": "year",
+            "Text": "年份",
+            "Options": [
+                {"Value": "[2024,2025)", "Text": "2024"},
+                {"Value": "[2023,2024)", "Text": "2023"},
+                {"Value": "[2022,2023)", "Text": "2022"},
+                {"Value": "[2021,2022)", "Text": "2021"},
+                {"Value": "[2020,2021)", "Text": "2020"},
+                {"Value": "[2019,2020)", "Text": "2019"},
+                {"Value": "[2018,2019)", "Text": "2018"},
+                {"Value": "[2017,2018)", "Text": "2017"},
+                {"Value": "[2016,2017)", "Text": "2016"},
+                {"Value": "[2010,2016)", "Text": "2015-2010"},
+                {"Value": "[2005,2010)", "Text": "2009-2005"},
+                {"Value": "[2000,2005)", "Text": "2004-2000"},
+                {"Value": "[1990,2000)", "Text": "90年代"},
+                {"Value": "[1980,1990)", "Text": "80年代"},
+                {"Value": "[,1980)", "Text": "更早"},
+            ],
+        }
+        year1_ui = [
+            {
+                "component": "VChip",
+                "props": {"filter": True, "tile": True, "value": value["Value"]},
+                "text": value["Text"],
+            }
+            for value in year1["Options"]
+        ]
+
+        season_status = {
+            "Id": "season_status",
+            "Text": "付费",
+            "Options": [
+                {"Value": "1", "Text": "免费"},
+                {"Value": "4,6", "Text": "大会员"},
+                {"Value": "2,6", "Text": "付费"},
+            ],
+        }
+        season_status_ui = [
+            {
+                "component": "VChip",
+                "props": {"filter": True, "tile": True, "value": value["Value"]},
+                "text": value["Text"],
+            }
+            for value in season_status["Options"]
+        ]
+        season_status1_ui = [
+            {
+                "component": "VChip",
+                "props": {"filter": True, "tile": True, "value": value["Value"]},
+                "text": value["Text"],
+            }
+            for value in season_status["Options"][:2]
+        ]
+
+        sort = {
+            "Id": "sort",
+            "Text": "排序",
+            "Options": [
+                {"Value": "0", "Text": "降序"},
+                {"Value": "1", "Text": "升序"},
+            ],
+        }
+        sort_ui = [
+            {
+                "component": "VChip",
+                "props": {"filter": True, "tile": True, "value": value["Value"]},
+                "text": value["Text"],
+            }
+            for value in sort["Options"]
         ]
 
         ui = [
@@ -247,6 +377,102 @@ class BilibiliDiscover(_PluginBase):
                         "component": "VChipGroup",
                         "props": {"model": "mtype"},
                         "content": mtype_ui,
+                    },
+                ],
+            },
+            {
+                "component": "div",
+                "props": {"class": "flex justify-start items-center"},
+                "content": [
+                    {
+                        "component": "div",
+                        "props": {"class": "mr-5"},
+                        "content": [{"component": "VLabel", "text": sort["Text"]}],
+                    },
+                    {
+                        "component": "VChipGroup",
+                        "props": {"model": sort["Id"]},
+                        "content": sort_ui,
+                    },
+                ],
+            },
+            {
+                "component": "div",
+                "props": {
+                    "class": "flex justify-start items-center",
+                    "show": "{{mtype == 'bangumi' || mtype == 'guo'}}",
+                },
+                "content": [
+                    {
+                        "component": "div",
+                        "props": {"class": "mr-5"},
+                        "content": [{"component": "VLabel", "text": year1["Text"]}],
+                    },
+                    {
+                        "component": "VChipGroup",
+                        "props": {"model": year1["Id"]},
+                        "content": year1_ui,
+                    },
+                ],
+            },
+            {
+                "component": "div",
+                "props": {
+                    "class": "flex justify-start items-center",
+                    "show": "{{mtype == 'tv' || mtype == 'documentary' || mtype == 'movie'}}",
+                },
+                "content": [
+                    {
+                        "component": "div",
+                        "props": {"class": "mr-5"},
+                        "content": [{"component": "VLabel", "text": year["Text"]}],
+                    },
+                    {
+                        "component": "VChipGroup",
+                        "props": {"model": year["Id"]},
+                        "content": year_ui,
+                    },
+                ],
+            },
+            {
+                "component": "div",
+                "props": {
+                    "class": "flex justify-start items-center",
+                    "show": "{{mtype == 'tv' || mtype == 'variety'}}",
+                },
+                "content": [
+                    {
+                        "component": "div",
+                        "props": {"class": "mr-5"},
+                        "content": [
+                            {"component": "VLabel", "text": season_status["Text"]}
+                        ],
+                    },
+                    {
+                        "component": "VChipGroup",
+                        "props": {"model": season_status["Id"]},
+                        "content": season_status1_ui,
+                    },
+                ],
+            },
+            {
+                "component": "div",
+                "props": {
+                    "class": "flex justify-start items-center",
+                    "show": "{{mtype == 'guo' || mtype == 'documentary' || mtype == 'movie' || mtype == 'bangumi'}}",
+                },
+                "content": [
+                    {
+                        "component": "div",
+                        "props": {"class": "mr-5"},
+                        "content": [
+                            {"component": "VLabel", "text": season_status["Text"]}
+                        ],
+                    },
+                    {
+                        "component": "VChipGroup",
+                        "props": {"model": season_status["Id"]},
+                        "content": season_status_ui,
                     },
                 ],
             },
@@ -268,6 +494,10 @@ class BilibiliDiscover(_PluginBase):
             api_path=f"plugin/BilibiliDiscover/bilibili_discover?apikey={settings.API_TOKEN}",
             filter_params={
                 "mtype": "tv",
+                "release_date": None,
+                "year": None,
+                "sort": None,
+                "season_status": None,
             },
             filter_ui=self.bilibili_filter_ui(),
         )
