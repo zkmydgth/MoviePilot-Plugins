@@ -612,8 +612,11 @@ class FFprobeNamingSupplement(_PluginBase):
             return
         source_path = data.source_path
         source_item: Optional[FileItem] = getattr(data, "source_item", None)
-        if not source_path or not str(source_path).strip() or not source_item:
+        if not source_path or not str(source_path).strip():
             logger.debug("【ffprobe命名补充】source_path 为空，跳过本次重命名补全")
+            return
+        if not source_item:
+            logger.debug("【ffprobe命名补充】source_item 为空，跳过本次重命名补全")
             return
         if source_item.storage != "local":
             logger.debug(
