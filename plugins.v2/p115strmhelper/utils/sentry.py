@@ -112,6 +112,7 @@ class SentryManager:
             {"type": OSError, "message": "Read-only file system"},
             {"type": OSError, "message": "Stale file handle"},
             {"type": PermissionError, "message": "Permission denied"},
+            {"type": NotADirectoryError},
         ]
 
         self.reload_config()

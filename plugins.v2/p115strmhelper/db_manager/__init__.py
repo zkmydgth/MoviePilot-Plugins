@@ -221,6 +221,39 @@ def update_args_db(args: tuple, kwargs: dict, db: Session) -> Tuple[tuple, dict]
     return args, kwargs
 
 
+def init_database() -> bool:
+    """
+    初始化数据库操作
+    """
+    # 自动初始化数据库管理器
+    if not ct_db_manager.is_initialized():
+        logger.info("数据库管理器未初始化，正在自动初始化...")
+
+        # 延迟导入避免循环导入
+        from .init import init_db, migration_db, init_migration_scripts
+
+        # 初始化数据库
+        ct_db_manager.init_database(db_path=configer.PLUGIN_DB_PATH)
+
+        # 初始化数据库表
+        init_db(engine=ct_db_manager.Engine)
+
+        # 运行迁移脚本
+        if init_migration_scripts():
+            migration_db(
+                db_path=configer.PLUGIN_DB_PATH,
+                script_location=configer.PLUGIN_DATABASE_SCRIPT_LOCATION,
+                version_locations=configer.PLUGIN_DATABASE_VERSION_LOCATIONS,
+            )
+
+    # 检查 ScopedSession 是否可用
+    if ct_db_manager.ScopedSession is None:
+        logger.error("数据库会话工厂初始化失败")
+        raise RuntimeError("数据库会话工厂初始化失败")
+
+    return True
+
+
 def db_update(func):
     """
     数据库更新类操作装饰器，第一个参数必须是数据库会话或存在db参数
@@ -236,6 +269,7 @@ def db_update(func):
             # 从参数中获取数据库会话
             db = get_args_db(args, kwargs)
             if not db:
+                init_database()
                 # 如果没有获取到数据库会话，创建一个
                 db = ct_db_manager.ScopedSession()
                 # 标记需要关闭数据库会话
@@ -290,6 +324,7 @@ def db_query(func):
         # 从参数中获取数据库会话
         db = get_args_db(args, kwargs)
         if not db:
+            init_database()
             # 如果没有获取到数据库会话，创建一个
             db = ct_db_manager.ScopedSession()
             # 标记需要关闭数据库会话
