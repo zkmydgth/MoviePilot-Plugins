@@ -1180,7 +1180,6 @@ class P115StrmHelper(_PluginBase):
             del_source=configer.sync_del_source,
             p115_library_path=configer.sync_del_p115_library_path,
             p115_force_delete_files=configer.sync_del_p115_force_delete_files,
-            chain=self.chain,
         )
 
     def stop_service(self):

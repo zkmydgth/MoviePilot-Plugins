@@ -17,6 +17,7 @@ from app.schemas.types import MediaType, MediaImageType, NotificationType
 from app.schemas.mediaserver import WebhookEventInfo
 
 from ..core.config import configer
+from ..core.message import post_message
 from ..core.plunins import PluginChian
 from ..helper.mediaserver import MediaServerRefresh
 from ..utils.path import PathUtils, PathRemoveUtils
@@ -558,7 +559,6 @@ class MediaSyncDelHelper:
         del_source: bool,
         p115_library_path: Optional[str],
         p115_force_delete_files: bool,
-        chain=None,
     ) -> Optional[Dict[str, Any]]:
         """
         通过Webhook事件同步删除媒体
@@ -569,7 +569,6 @@ class MediaSyncDelHelper:
         :param del_source: 是否删除源文件
         :param p115_library_path: 115 网盘媒体库路径映射
         :param p115_force_delete_files: 115 网盘强制删除
-        :param chain: 插件链（用于获取图片等）
         """
         if not enabled:
             return None
@@ -680,7 +679,6 @@ class MediaSyncDelHelper:
                 p115_force_delete_files=p115_force_delete_files,
                 del_source=del_source,
                 notify=notify,
-                chain=chain,
             )
             if result:
                 results.append(result)
@@ -700,7 +698,6 @@ class MediaSyncDelHelper:
         p115_force_delete_files: bool,
         del_source: bool,
         notify: bool,
-        chain=None,
     ) -> Dict[str, Any]:
         """
         执行同步删除
@@ -716,7 +713,6 @@ class MediaSyncDelHelper:
         :param p115_force_delete_files: 115 网盘 强制删除
         :param del_source: 是否删除源文件
         :param notify: 是否通知
-        :param chain: 插件链
         """
         if not media_type:
             logger.error(
@@ -883,9 +879,9 @@ class MediaSyncDelHelper:
             "media_name": media_name,
         }
 
-        if notify and chain:
+        if notify:
             backrop_image = (
-                chain.obtain_specific_image(
+                self.chain.obtain_specific_image(
                     mediaid=tmdb_id,
                     mtype=media_type_enum,
                     image_type=MediaImageType.Backdrop,
@@ -907,7 +903,7 @@ class MediaSyncDelHelper:
                     torrent_cnt_msg += f"暂停种子{stop_cnt}个\n"
             if error_cnt:
                 torrent_cnt_msg += f"删种失败{error_cnt}个\n"
-            chain.post_message(
+            post_message(
                 mtype=NotificationType.Plugin,
                 title="媒体库同步删除任务完成",
                 image=backrop_image,
@@ -917,16 +913,15 @@ class MediaSyncDelHelper:
                 f"时间 {strftime('%Y-%m-%d %H:%M:%S', localtime(time()))}",
             )
 
-        self._save_sync_del_history(result, chain)
+        self._save_sync_del_history(result)
 
         return result
 
-    def _save_sync_del_history(self, result: Dict[str, Any], chain=None):
+    def _save_sync_del_history(self, result: Dict[str, Any]):
         """
         保存同步删除历史记录
 
         :param result: 同步删除结果
-        :param chain: 插件链（用于获取图片）
         """
         if not result:
             logger.warning("【同步删除】历史记录保存失败：result 为空")
@@ -934,14 +929,10 @@ class MediaSyncDelHelper:
 
         try:
             history = configer.get_plugin_data(key="sync_del_history") or []
-            poster_image = (
-                chain.obtain_specific_image(
-                    mediaid=result.get("tmdb_id"),
-                    mtype=result.get("media_type"),
-                    image_type=MediaImageType.Poster,
-                )
-                if chain
-                else None
+            poster_image = self.chain.obtain_specific_image(
+                mediaid=result.get("tmdb_id"),
+                mtype=result.get("media_type"),
+                image_type=MediaImageType.Poster,
             ) or result.get("image", "https://emby.media/notificationicon.png")
 
             history_item = {
