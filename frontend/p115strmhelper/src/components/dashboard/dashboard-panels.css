@@ -1,26 +1,15 @@
 /* 仪表盘卡片：与 plugin-page / config-card 一致，用 --v-theme-* 适配浅色与深色 */
 
-/* 与 MoviePilot DashboardElement（Vuetify 模式）一致：absolute right-5 top-5 */
+/*
+ * 拖拽把手由 MoviePilot 宿主 dashboard.vue 统一渲染，
+ * 本组件只负责填充 dashboard-plugin-vue-renderer 容器并展示内容
+ */
 .p115-dashboard-widget {
-  position: relative;
-  height: 100%;
-  width: 100%;
-}
-
-.p115-dashboard-widget__drag {
-  position: absolute;
-  z-index: 24;
-  top: 1.25rem;
-  right: 1.25rem;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.15s ease;
-  line-height: 1;
-}
-
-.p115-dashboard-widget:hover .p115-dashboard-widget__drag {
-  opacity: 1;
-  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  block-size: 100%;
+  inline-size: 100%;
+  min-block-size: 0;
 }
 
 .dashboard-widget--strm {

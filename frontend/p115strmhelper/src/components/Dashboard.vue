@@ -1,8 +1,5 @@
 <template>
-  <div class="p115-dashboard-widget">
-    <div class="p115-dashboard-widget__drag" aria-hidden="true" title="拖动排序">
-      <v-icon icon="mdi-drag" size="small" class="cursor-move" color="medium-emphasis" />
-    </div>
+  <div class="p115-dashboard-widget d-flex flex-column h-100 w-100" style="min-block-size: 0">
     <DashboardStrmPanel v-if="panelKey === 'strm'" :api="api" :config="config" :allow-refresh="allowRefresh"
       :refresh-interval="refreshInterval" />
     <DashboardStatusPanel v-else-if="panelKey === 'status'" :api="api" :config="config" :allow-refresh="allowRefresh"
