@@ -25,7 +25,7 @@ from .core.config import configer
 from .core.i18n import i18n
 from .core.message import post_message
 from .db_manager import ct_db_manager
-from .db_manager.init import init_db, update_db
+from .db_manager.init import init_db, migration_db, init_migration_scripts
 from .db_manager.oper import FileDbHelper
 from .patch.u115_open import U115Patcher
 from .interactive.framework.callbacks import decode_action, Action
@@ -102,8 +102,8 @@ class P115StrmHelper(_PluginBase):
         # 初始化配置项
         configer.load_from_dict(config or {})
 
-        if not Path(configer.get_config("PLUGIN_TEMP_PATH")).exists():
-            Path(configer.get_config("PLUGIN_TEMP_PATH")).mkdir(
+        if not Path(configer.PLUGIN_TEMP_PATH).exists():
+            Path(configer.PLUGIN_TEMP_PATH).mkdir(
                 parents=True, exist_ok=True
             )
 
@@ -132,7 +132,7 @@ class P115StrmHelper(_PluginBase):
         # 停止现有任务
         self.stop_service()
 
-        if configer.get_config("enabled"):
+        if configer.enabled:
             self.init_database()
 
             if servicer.init_service():
@@ -150,29 +150,34 @@ class P115StrmHelper(_PluginBase):
         """
         初始化数据库
         """
-        if not Path(configer.get_config("PLUGIN_CONFIG_PATH")).exists():
-            Path(configer.get_config("PLUGIN_CONFIG_PATH")).mkdir(
+        if not Path(configer.PLUGIN_CONFIG_PATH).exists():
+            Path(configer.PLUGIN_CONFIG_PATH).mkdir(
                 parents=True, exist_ok=True
             )
         if not ct_db_manager.is_initialized():
             # 初始化数据库会话
-            ct_db_manager.init_database(db_path=configer.get_config("PLUGIN_DB_PATH"))
+            ct_db_manager.init_database(db_path=configer.PLUGIN_DB_PATH)
             # 表单补全
             init_db(
                 engine=ct_db_manager.Engine,
             )
-            # 更新数据库
-            update_db(
-                db_path=configer.get_config("PLUGIN_DB_PATH"),
-                database_dir=configer.get_config("PLUGIN_DATABASE_PATH"),
-            )
+            # 初始化 迁移脚本
+            if init_migration_scripts():
+                # 更新数据库
+                migration_db(
+                    db_path=configer.PLUGIN_DB_PATH,
+                    script_location=configer.PLUGIN_DATABASE_SCRIPT_LOCATION,
+                    version_locations=configer.PLUGIN_DATABASE_VERSION_LOCATIONS,
+                )
+            else:
+                raise Exception("初始化迁移脚本失败")
         return True
 
     def get_state(self) -> bool:
         """
         插件状态
         """
-        return configer.get_config("enabled")
+        return configer.enabled
 
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:
@@ -374,47 +379,47 @@ class P115StrmHelper(_PluginBase):
             }
         ]
         if (
-            configer.get_config("cron_full_sync_strm")
-            and configer.get_config("timing_full_sync_strm")
-            and configer.get_config("full_sync_strm_paths")
+            configer.cron_full_sync_strm
+            and configer.timing_full_sync_strm
+            and configer.full_sync_strm_paths
         ):
             cron_service.append(
                 {
                     "id": "P115StrmHelper_full_sync_strm_files",
                     "name": "定期全量同步115媒体库",
                     "trigger": CronTrigger.from_crontab(
-                        configer.get_config("cron_full_sync_strm")
+                        configer.cron_full_sync_strm
                     ),
                     "func": servicer.full_sync_strm_files,
                     "kwargs": {},
                 }
             )
-        if configer.get_config("cron_clear") and (
-            configer.get_config("clear_recyclebin_enabled")
-            or configer.get_config("clear_receive_path_enabled")
+        if configer.cron_clear and (
+            configer.clear_recyclebin_enabled
+            or configer.clear_receive_path_enabled
         ):
             cron_service.append(
                 {
                     "id": "P115StrmHelper_main_cleaner",
                     "name": "定期清理115空间",
                     "trigger": CronTrigger.from_crontab(
-                        configer.get_config("cron_clear")
+                        configer.cron_clear
                     ),
                     "func": servicer.main_cleaner,
                     "kwargs": {},
                 }
             )
         if (
-            configer.get_config("increment_sync_strm_enabled")
-            and configer.get_config("increment_sync_strm_paths")
-            and configer.get_config("increment_sync_cron")
+            configer.increment_sync_strm_enabled
+            and configer.increment_sync_strm_paths
+            and configer.increment_sync_cron
         ):
             cron_service.append(
                 {
                     "id": "P115StrmHelper_increment_sync_strm",
                     "name": "115网盘定期增量同步",
                     "trigger": CronTrigger.from_crontab(
-                        configer.get_config("increment_sync_cron")
+                        configer.increment_sync_cron
                     ),
                     "func": servicer.increment_sync_strm_files,
                     "kwargs": {},
@@ -450,9 +455,7 @@ class P115StrmHelper(_PluginBase):
         处理网盘整理MP无法删除的顶层目录
         """
 
-        if not configer.get_config("pan_transfer_enabled") or not configer.get_config(
-            "pan_transfer_paths"
-        ):
+        if not configer.pan_transfer_enabled or not configer.pan_transfer_paths:
             return
 
         if not pantransfercacher.top_delete_pan_transfer_list:
@@ -475,7 +478,7 @@ class P115StrmHelper(_PluginBase):
             return
 
         if not PathUtils.get_run_transfer_path(
-            paths=configer.get_config("pan_transfer_paths"),
+            paths=configer.pan_transfer_paths,
             transfer_path=src_fileitem.path,
         ):
             return
@@ -511,10 +514,10 @@ class P115StrmHelper(_PluginBase):
         监控目录整理生成 STRM 文件
         """
         if (
-            not configer.get_config("enabled")
-            or not configer.get_config("transfer_monitor_enabled")
-            or not configer.get_config("transfer_monitor_paths")
-            or not configer.get_config("moviepilot_address")
+            not configer.enabled
+            or not configer.transfer_monitor_enabled
+            or not configer.transfer_monitor_paths
+            or not configer.moviepilot_address
         ):
             return
 
@@ -579,9 +582,9 @@ class P115StrmHelper(_PluginBase):
             )
             return
         if (
-            not configer.get_config("full_sync_strm_paths")
-            or not configer.get_config("moviepilot_address")
-            or not configer.get_config("user_download_mediaext")
+            not configer.full_sync_strm_paths
+            or not configer.moviepilot_address
+            or not configer.user_download_mediaext
         ):
             post_message(
                 channel=event.event_data.get("channel"),
@@ -591,7 +594,7 @@ class P115StrmHelper(_PluginBase):
             return
 
         status, paths = PathUtils.get_p115_strm_path(
-            paths=configer.get_config("full_sync_strm_paths"), media_path=args
+            paths=configer.full_sync_strm_paths, media_path=args
         )
         if not status:
             post_message(
@@ -670,9 +673,7 @@ class P115StrmHelper(_PluginBase):
 
             search_keyword = args.strip()
 
-            if configer.get_config("nullbr_app_id") and configer.get_config(
-                "nullbr_api_key"
-            ):
+            if configer.nullbr_app_id and configer.nullbr_api_key:
                 command = "search"
                 view = "search_list"
             else:
@@ -800,7 +801,7 @@ class P115StrmHelper(_PluginBase):
         """
         远程分享转存
         """
-        if not configer.get_config("enabled"):
+        if not configer.enabled:
             return
         text = event.event_data.get("text")
         userid = event.event_data.get("userid")
@@ -891,14 +892,14 @@ class P115StrmHelper(_PluginBase):
             """
             刷新媒体服务器
             """
-            if configer.get_config("monitor_life_media_server_refresh_enabled"):
+            if configer.monitor_life_media_server_refresh_enabled:
                 if not servicer.monitorlife.monitor_life_service_infos:
                     return
                 logger.info(f"【监控生活事件】 {file_name} 开始刷新媒体服务器")
-                if configer.get_config("monitor_life_mp_mediaserver_paths"):
+                if configer.monitor_life_mp_mediaserver_paths:
                     status, mediaserver_path, moviepilot_path = (
                         PathUtils.get_media_path(
-                            configer.get_config("monitor_life_mp_mediaserver_paths"),
+                            configer.monitor_life_mp_mediaserver_paths,
                             file_path,
                         )
                     )
@@ -989,9 +990,9 @@ class P115StrmHelper(_PluginBase):
 
         # 生活事件已开启
         if (
-            not configer.get_config("monitor_life_enabled")
-            or not configer.get_config("monitor_life_paths")
-            or not configer.get_config("monitor_life_event_modes")
+            not configer.monitor_life_enabled
+            or not configer.monitor_life_paths
+            or not configer.monitor_life_event_modes
         ):
             return
 

@@ -12,11 +12,11 @@ from sqlalchemy import (
     Engine,
 )
 from sqlalchemy.orm import (
-    as_declarative,
     declared_attr,
     sessionmaker,
     scoped_session,
-    Session,
+    DeclarativeBase,
+    Session
 )
 
 from ..core.config import configer
@@ -278,8 +278,7 @@ def db_query(func):
     return wrapper
 
 
-@as_declarative()
-class P115StrmHelperBase:
+class P115StrmHelperBase(DeclarativeBase):
     id: Any
     __name__: str
 

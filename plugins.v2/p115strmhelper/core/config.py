@@ -37,7 +37,7 @@ class ConfigManager(BaseModel):
         )
 
     @staticmethod
-    def _get_default_plugin_database_path() -> Path:
+    def _get_default_plugin_database_script_location() -> Path:
         """
         返回默认的插件数据库结构目录路径
         """
@@ -65,9 +65,12 @@ class ConfigManager(BaseModel):
     # 插件数据库目录
     PLUGIN_DB_PATH: Path = Field(default_factory=_get_default_plugin_db_path)
     # 插件数据库表目录
-    PLUGIN_DATABASE_PATH: Path = Field(
-        default_factory=_get_default_plugin_database_path
+    PLUGIN_DATABASE_SCRIPT_LOCATION: Path = Field(
+        default_factory=_get_default_plugin_database_script_location
     )
+    PLUGIN_DATABASE_VERSION_LOCATIONS: List[Path] = [
+        str(_get_default_plugin_config_path() / "database/versions")
+    ]
     # 插件临时目录
     PLUGIN_TEMP_PATH: Path = Field(default_factory=_get_default_plugin_temp_path)
 
