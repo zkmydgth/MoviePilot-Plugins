@@ -1187,6 +1187,22 @@ class MonitorLife:
                 return
         else:
             # 文件重命名
+            if new_path.suffix.lower() not in self.rmt_mediaext_set:
+                if old_path and Path(old_path).parent != Path(new_path).parent:
+                    logger.warning(
+                        "【监控生活事件】旧关联文件路径与新关联文件路径不一致，"
+                        "跳过重命名处理: %s",
+                        event,
+                    )
+                    return
+                if old_path and configer.monitor_life_rename_auto_related_files:
+                    self._move_local_related_asset(
+                        source_path=Path(old_path),
+                        target_path=Path(new_path),
+                        scene="关联文件重命名",
+                    )
+                return
+
             new_strm_path = new_path.parent / StrmGenerater.get_strm_filename(new_path)
             new_strm_exists = new_strm_path.is_file()
 
@@ -1731,6 +1747,15 @@ class MonitorLife:
             )
             return
 
+        if new_local_path.suffix.lower() not in self.rmt_mediaext_set:
+            if configer.monitor_life_move_media_local_move_related_files:
+                self._move_local_related_asset(
+                    source_path=old_local_path,
+                    target_path=new_local_path,
+                    scene="模式 local_move 关联文件迁移",
+                )
+            return
+
         old_strm_path = old_local_path.parent / StrmGenerater.get_strm_filename(
             old_local_path
         )
@@ -1845,6 +1870,55 @@ class MonitorLife:
                 file_path=old_strm_path,
                 mode="mixed",
                 func_type="【监控生活事件】",
+            )
+
+    @staticmethod
+    def _move_local_related_asset(
+        source_path: Path, target_path: Path, scene: str
+    ) -> None:
+        """
+        迁移生活事件对应的本地关联文件
+
+        :param source_path (Path): 本地源文件路径
+        :param target_path (Path): 本地目标文件路径
+        :param scene (str): 日志场景
+        """
+        if source_path == target_path:
+            logger.debug(
+                "【监控生活事件】%s 路径未变，跳过: %s",
+                scene,
+                target_path,
+            )
+            return
+        if not source_path.is_file():
+            logger.debug(
+                "【监控生活事件】%s 源文件不存在，跳过: %s",
+                scene,
+                source_path,
+            )
+            return
+        if target_path.exists():
+            logger.info(
+                "【监控生活事件】%s 目标已存在，跳过: %s",
+                scene,
+                target_path,
+            )
+            return
+        try:
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil_move(str(source_path), str(target_path))
+            logger.info(
+                "【监控生活事件】%s 完成: %s -> %s",
+                scene,
+                source_path,
+                target_path,
+            )
+        except Exception as e:
+            logger.error(
+                "【监控生活事件】%s 失败: %s",
+                scene,
+                e,
+                exc_info=True,
             )
 
     def _sync_move_event_db_records(
