@@ -10,8 +10,8 @@
     "system_version": ">=3.0.0",
     "level": 1,
     "history": {
-      "v2.7.18": "⚠️ 更新后请重启 MoviePilot：本插件随包分发第三方依赖（含 Rust 加速扩展轮子），而 MP 只在启动时自动安装插件缺失依赖，只更新不重启不会生效（也可在容器内手动 uv pip 安装依赖后再重载插件）。本版仅更新更新说明，无功能变更。",
-      "v2.7.17": "补齐三个 Rust 加速扩展的 cp314 轮子并放开 3.14 环境标记，Python 3.14 宿主现在也能启用 Rust 加速（此前走纯 Python 降级）。",
+      "v2.7.18": "仅更新插件说明，无功能与依赖变更（无需重启）。",
+      "v2.7.17": "补齐三个 Rust 加速扩展的 cp314 轮子并放开 3.14 环境标记，Python 3.14 宿主现在也能启用 Rust 加速（此前走纯 Python 降级）。⚠️ 本版含随包依赖变更：更新后请重启 MoviePilot 让依赖装载生效（或在容器内手动 uv pip install --find-links …/wheels 安装依赖后重载插件）。",
       "v2.7.16": "增量同步报错可诊断性加固：导出目录树解析异常统一转成带处置指向的提示，并跳过无意义的重试。",
       "v2.7.15": "新增 python-concurrenttools 兼容别名（有条件生效）：共享运行环境里若已装 0.1.9（threadpool_map / taskgroup_map 已改名 thread_conmap / async_conmap），插件在 import 阶段自动把新名别名回旧名，p115client 0.0.9.6.5.1 不再直接崩溃（此前表现为插件加载报 cannot import name 'threadpool_map'）。requirements.txt 仍保留 <0.1.9 上限，别名只是兜底；等 p115client 升级到适配 0.1.9 的版本后应与上限一并移除。",
       "v2.7.14": "修复测试环境依赖：test_transfer_classify 单独运行时报缺 app.application.transfer",
