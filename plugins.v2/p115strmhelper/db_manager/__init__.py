@@ -12,11 +12,11 @@ from sqlalchemy import (
     Engine,
 )
 from sqlalchemy.orm import (
-    as_declarative,
     declared_attr,
     sessionmaker,
     scoped_session,
-    Session,
+    DeclarativeBase,
+    Session
 )
 
 from ..core.config import configer
@@ -36,7 +36,8 @@ class __DBManager:
     # 多线程全局使用的数据库会话
     ScopedSession: Optional[scoped_session] = None
 
-    def _setup_sqlite_pragmas(self, dbapi_connection, _connection_record):
+    @staticmethod
+    def _setup_sqlite_pragmas(dbapi_connection, _connection_record):
         """
         事件监听器，在每个新连接上执行
 
@@ -278,8 +279,7 @@ def db_query(func):
     return wrapper
 
 
-@as_declarative()
-class P115StrmHelperBase:
+class P115StrmHelperBase(DeclarativeBase):
     id: Any
     __name__: str
 

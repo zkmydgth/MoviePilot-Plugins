@@ -20,3 +20,9 @@ class CanNotFindPathToCid(Exception):
     """
     无法找到路径对应的 cid
     """
+
+
+class PathNotInKey(ValueError):
+    """
+    键中不包含 Path 项
+    """

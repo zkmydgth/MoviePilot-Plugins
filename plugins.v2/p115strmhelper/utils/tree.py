@@ -45,9 +45,9 @@ class DirectoryTree:
         :param append: 是否追加模式 (默认覆盖)
         """
         mode = "a" if append else "w"
-        with open(output_file, mode, encoding="utf-8") as f_out:
-            for file_path in file_list:
-                f_out.write(f"{file_path}\n")
+        buffer_size = 1048576
+        with open(output_file, mode, encoding="utf-8", buffering=buffer_size) as f_out:
+            f_out.writelines(f"{path}\n" for path in file_list)
 
     @staticmethod
     def compare_trees(tree_file1, tree_file2):

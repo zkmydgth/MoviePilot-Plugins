@@ -1,6 +1,15 @@
 from typing import Dict, List
 
-from sqlalchemy import Column, Integer, String, Text, select, delete, or_
+from sqlalchemy import (
+    Column,
+    Integer,
+    String,
+    Text,
+    select,
+    delete,
+    text,
+)
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
 from ...db_manager import db_update, db_query, P115StrmHelperBase
@@ -16,7 +25,7 @@ class Folder(P115StrmHelperBase):
     id = Column(Integer, primary_key=True)
     parent_id = Column(Integer, nullable=False)
     name = Column(String(255), nullable=False)
-    path = Column(Text, nullable=False)
+    path = Column(Text, nullable=False, unique=True)
 
     @staticmethod
     @db_query
@@ -68,33 +77,15 @@ class Folder(P115StrmHelperBase):
 
     @staticmethod
     @db_update
-    def upsert_batch(db: Session, batch: List[Dict]):
+    def upsert_batch_by_list(db: Session, batch: List[Dict]):
         """
-        批量写入或更新数据
+        通过列表批量写入或更新数据
+        """
+        db.execute(text("PRAGMA synchronous = OFF"))
+        db.execute(text("PRAGMA journal_mode = MEMORY"))
 
-        逻辑：
-          - 先判断需要写入的数据路径是否存在，存在则先删除记录
-          - 写入数据
-        """
-        folders_data = []
-        seen_ids = set()
-        seen_paths = set()
-        append = folders_data.append
-        for entry in batch:
-            if entry["table"] == "folders":
-                data = entry["data"]
-                if data["id"] not in seen_ids:
-                    seen_ids.add(data["id"])
-                    seen_paths.add(data["path"])
-                    append(data)
-        if not folders_data:
-            return True
-        db.execute(
-            delete(Folder).where(
-                or_(Folder.id.in_(seen_ids), Folder.path.in_(seen_paths))
-            )
-        )
-        db.bulk_insert_mappings(Folder, folders_data)
+        stmt = sqlite_insert(Folder).prefix_with("OR REPLACE").values(batch)
+        db.execute(stmt)
         return True
 
     @staticmethod
@@ -103,7 +94,5 @@ class Folder(P115StrmHelperBase):
         """
         通过路径批量删除
         """
-        db.query(Folder).filter(Folder.path.startswith(path)).delete(
-            synchronize_session=False
-        )
+        db.execute(delete(Folder).where(Folder.path.startswith(path)))
         return True
