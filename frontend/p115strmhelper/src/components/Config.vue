@@ -482,8 +482,8 @@
                     </v-col>
                     <v-col cols="12" md="8">
                       <v-select v-model="config.directory_upload_mode" label="监控模式" :items="[
-                        { title: '兼容模式 (推荐Docker或SMB挂载)', value: 'compatibility' },
-                        { title: '性能模式 (仅本地物理路径)', value: 'fast' }
+                        { title: '兼容模式', value: 'compatibility' },
+                        { title: '性能模式', value: 'fast' }
                       ]" chips closable-chips density="compact" hide-details></v-select>
                     </v-col>
                   </v-row>
@@ -508,7 +508,7 @@
                     <v-row dense>
                       <!-- 本地监控目录 -->
                       <v-col cols="12" md="6">
-                        <v-text-field v-model="pair.src" label="本地监控目录 (源)" density="compact" variant="outlined"
+                        <v-text-field v-model="pair.src" label="本地监控目录" density="compact" variant="outlined"
                           hide-details append-icon="mdi-folder-search-outline"
                           @click:append="openDirSelector(index, 'local', 'directoryUpload', 'src')">
                           <template v-slot:prepend-inner>

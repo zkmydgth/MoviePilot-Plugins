@@ -1,10 +1,10 @@
 
-.config-card[data-v-d4d3b9dc] {
+.config-card[data-v-aea5926e] {
   box-shadow: none !important;
   transition: all 0.2s ease;
   margin-bottom: 10px !important;
 }
-.config-card[data-v-d4d3b9dc]:hover {
+.config-card[data-v-aea5926e]:hover {
   transform: translateY(-2px);
   box-shadow: 0 4px 8px rgba(0, 0, 0, 0.05) !important;
 }
@@ -12,42 +12,42 @@
 /* 统一字体 */
 
 /* 文字大小 */
-[data-v-d4d3b9dc] .text-caption {
+[data-v-aea5926e] .text-caption {
   font-size: 0.8rem !important;
 }
-[data-v-d4d3b9dc] .text-body-2 {
+[data-v-aea5926e] .text-body-2 {
   font-size: 0.85rem !important;
 }
 
 /* 美化卡片标题 */
-.bg-primary-gradient[data-v-d4d3b9dc] {
+.bg-primary-gradient[data-v-aea5926e] {
   background: linear-gradient(135deg, rgba(var(--v-theme-primary), 0.1), rgba(var(--v-theme-primary), 0.05)) !important;
 }
 
 /* 美化芯片 */
 
 /* Ensure py-0 on list items takes effect with Vuetify's defaults if used specifically */
-.py-0[data-v-d4d3b9dc] {
+.py-0[data-v-aea5926e] {
   padding-top: 0 !important;
   padding-bottom: 0 !important;
 }
-.my-0[data-v-d4d3b9dc] {
+.my-0[data-v-aea5926e] {
   margin-top: 0 !important;
   margin-bottom: 0 !important;
 }
 
 /* Reduce margin for subtitles in path display if they have mt-1 */
-.mt-1[data-v-d4d3b9dc] {
+.mt-1[data-v-aea5926e] {
   margin-top: 2px !important;
   /* Reduced from default 4px of Vuetify's mt-1 */
 }
 
 /* Reduce margin for subtitles in path display if they have mb-1 */
-.mb-1[data-v-d4d3b9dc] {
+.mb-1[data-v-aea5926e] {
   margin-bottom: 2px !important;
   /* Reduced from default 4px of Vuetify's mb-1 */
 }
-.sticky-actions[data-v-d4d3b9dc] {
+.sticky-actions[data-v-aea5926e] {
   position: sticky;
   bottom: 0;
   background-color: var(--v-theme-surface, white);
@@ -67,3 +67,14 @@
 /* Warning Color Switch */
 
 /* Error Color Switch */
+.icon-spin-animation[data-v-aea5926e] {
+  animation: spin-aea5926e 2s linear infinite;
+}
+@keyframes spin-aea5926e {
+0% {
+    transform: rotate(0deg);
+}
+100% {
+    transform: rotate(360deg);
+}
+}

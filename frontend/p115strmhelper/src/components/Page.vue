@@ -224,24 +224,41 @@
                 </v-card-title>
                 <v-card-text class="pa-0">
                   <v-list class="bg-transparent pa-0">
+                    <!-- 监控MP整理路径 -->
                     <v-list-item v-if="initialConfig?.transfer_monitor_enabled" class="px-3 py-1 mb-1">
                       <v-list-item-title class="text-body-2 font-weight-medium">监控MP整理路径</v-list-item-title>
                       <template v-if="getPathsCount(initialConfig?.transfer_monitor_paths) > 0">
-                        <v-list-item-subtitle
-                          v-for="(path, index) in getParsedPaths(initialConfig?.transfer_monitor_paths)" :key="index"
-                          class="text-caption mt-2">
-                          <div class="d-flex align-center justify-space-between">
-                            <div class="d-flex align-center text-truncate mr-2" style="flex-basis: 45%;">
-                              <v-icon size="small" color="primary" class="mr-2">mdi-folder-home-outline</v-icon>
-                              <span class="text-truncate" :title="path.local">{{ path.local }}</span>
+                        <template v-for="(path, index) in getParsedPaths(initialConfig?.transfer_monitor_paths)"
+                          :key="`transfer-${index}`">
+                          <v-divider v-if="index > 0" class="my-1"></v-divider>
+                          <v-list-item-subtitle class="text-caption pa-0 pt-1">
+                            <div class="path-mapping-item pa-2 border rounded-sm"
+                              style="background-color: rgba(var(--v-theme-on-surface), 0.02);">
+                              <v-row dense align="center">
+                                <v-col cols="12" sm="5" class="d-flex align-center">
+                                  <v-icon size="small" color="primary"
+                                    class="mr-2 flex-shrink-0">mdi-folder-home</v-icon>
+                                  <div class="text-truncate w-100" :title="path.local">
+                                    <span class="text-caption font-weight-medium d-block"
+                                      style="line-height: 1.2;">本地目录</span>
+                                    <span class="text-caption" style="line-height: 1.2;">{{ path.local || '-' }}</span>
+                                  </div>
+                                </v-col>
+                                <v-col cols="12" sm="2" class="text-center my-1 my-sm-0">
+                                  <v-icon color="primary" class="icon-spin-animation">mdi-sync</v-icon>
+                                </v-col>
+                                <v-col cols="12" sm="5" class="d-flex align-center">
+                                  <v-icon size="small" color="success" class="mr-2 flex-shrink-0">mdi-cloud</v-icon>
+                                  <div class="text-truncate w-100" :title="path.remote">
+                                    <span class="text-caption font-weight-medium d-block"
+                                      style="line-height: 1.2;">网盘目录</span>
+                                    <span class="text-caption" style="line-height: 1.2;">{{ path.remote || '-' }}</span>
+                                  </div>
+                                </v-col>
+                              </v-row>
                             </div>
-                            <v-icon color="grey-darken-1" class="align-self-center">mdi-chevron-right</v-icon>
-                            <div class="d-flex align-center text-truncate ml-2" style="flex-basis: 45%;">
-                              <v-icon size="small" color="amber-darken-2" class="mr-2">mdi-cloud-outline</v-icon>
-                              <span class="text-truncate" :title="path.remote">{{ path.remote }}</span>
-                            </div>
-                          </div>
-                        </v-list-item-subtitle>
+                          </v-list-item-subtitle>
+                        </template>
                       </template>
                       <template v-else>
                         <v-list-item-subtitle class="text-caption text-error mt-1">未配置路径</v-list-item-subtitle>
@@ -249,27 +266,44 @@
                     </v-list-item>
 
                     <v-divider
-                      v-if="initialConfig?.transfer_monitor_enabled && (initialConfig?.timing_full_sync_strm || initialConfig?.monitor_life_enabled || initialConfig?.pan_transfer_enabled)"
+                      v-if="initialConfig?.transfer_monitor_enabled && (initialConfig?.timing_full_sync_strm || initialConfig?.monitor_life_enabled || initialConfig?.pan_transfer_enabled || initialConfig?.directory_upload_enabled)"
                       class="my-0"></v-divider>
 
+                    <!-- 全量同步路径 -->
                     <v-list-item v-if="initialConfig?.timing_full_sync_strm" class="px-3 py-1 mb-1">
                       <v-list-item-title class="text-body-2 font-weight-medium">全量同步路径</v-list-item-title>
                       <template v-if="getPathsCount(initialConfig?.full_sync_strm_paths) > 0">
-                        <v-list-item-subtitle
-                          v-for="(path, index) in getParsedPaths(initialConfig?.full_sync_strm_paths)" :key="index"
-                          class="text-caption mt-2">
-                          <div class="d-flex align-center justify-space-between">
-                            <div class="d-flex align-center text-truncate mr-2" style="flex-basis: 45%;">
-                              <v-icon size="small" color="primary" class="mr-2">mdi-folder-home-outline</v-icon>
-                              <span class="text-truncate" :title="path.local">{{ path.local }}</span>
+                        <template v-for="(path, index) in getParsedPaths(initialConfig?.full_sync_strm_paths)"
+                          :key="`fullsync-${index}`">
+                          <v-divider v-if="index > 0" class="my-1"></v-divider>
+                          <v-list-item-subtitle class="text-caption pa-0 pt-1">
+                            <div class="path-mapping-item pa-2 border rounded-sm"
+                              style="background-color: rgba(var(--v-theme-on-surface), 0.02);">
+                              <v-row dense align="center">
+                                <v-col cols="12" sm="5" class="d-flex align-center">
+                                  <v-icon size="small" color="primary"
+                                    class="mr-2 flex-shrink-0">mdi-folder-home</v-icon>
+                                  <div class="text-truncate w-100" :title="path.local">
+                                    <span class="text-caption font-weight-medium d-block"
+                                      style="line-height: 1.2;">本地目录</span>
+                                    <span class="text-caption" style="line-height: 1.2;">{{ path.local || '-' }}</span>
+                                  </div>
+                                </v-col>
+                                <v-col cols="12" sm="2" class="text-center my-1 my-sm-0">
+                                  <v-icon color="primary" class="icon-spin-animation">mdi-sync</v-icon>
+                                </v-col>
+                                <v-col cols="12" sm="5" class="d-flex align-center">
+                                  <v-icon size="small" color="success" class="mr-2 flex-shrink-0">mdi-cloud</v-icon>
+                                  <div class="text-truncate w-100" :title="path.remote">
+                                    <span class="text-caption font-weight-medium d-block"
+                                      style="line-height: 1.2;">网盘目录</span>
+                                    <span class="text-caption" style="line-height: 1.2;">{{ path.remote || '-' }}</span>
+                                  </div>
+                                </v-col>
+                              </v-row>
                             </div>
-                            <v-icon color="grey-darken-1" class="align-self-center">mdi-chevron-right</v-icon>
-                            <div class="d-flex align-center text-truncate ml-2" style="flex-basis: 45%;">
-                              <v-icon size="small" color="amber-darken-2" class="mr-2">mdi-cloud-outline</v-icon>
-                              <span class="text-truncate" :title="path.remote">{{ path.remote }}</span>
-                            </div>
-                          </div>
-                        </v-list-item-subtitle>
+                          </v-list-item-subtitle>
+                        </template>
                       </template>
                       <template v-else>
                         <v-list-item-subtitle class="text-caption text-error mt-1">未配置路径</v-list-item-subtitle>
@@ -277,50 +311,157 @@
                     </v-list-item>
 
                     <v-divider
-                      v-if="initialConfig?.timing_full_sync_strm && (initialConfig?.monitor_life_enabled || initialConfig?.pan_transfer_enabled)"
+                      v-if="initialConfig?.timing_full_sync_strm && (initialConfig?.monitor_life_enabled || initialConfig?.pan_transfer_enabled || initialConfig?.directory_upload_enabled)"
                       class="my-0"></v-divider>
 
+                    <!-- 监控115生活事件路径 -->
                     <v-list-item v-if="initialConfig?.monitor_life_enabled" class="px-3 py-1 mb-1">
                       <v-list-item-title class="text-body-2 font-weight-medium">监控115生活事件路径</v-list-item-title>
                       <template v-if="getPathsCount(initialConfig?.monitor_life_paths) > 0">
-                        <v-list-item-subtitle v-for="(path, index) in getParsedPaths(initialConfig?.monitor_life_paths)"
-                          :key="index" class="text-caption mt-2">
-                          <div class="d-flex align-center justify-space-between">
-                            <div class="d-flex align-center text-truncate mr-2" style="flex-basis: 45%;">
-                              <v-icon size="small" color="primary" class="mr-2">mdi-folder-home-outline</v-icon>
-                              <span class="text-truncate" :title="path.local">{{ path.local }}</span>
+                        <template v-for="(path, index) in getParsedPaths(initialConfig?.monitor_life_paths)"
+                          :key="`life-${index}`">
+                          <v-divider v-if="index > 0" class="my-1"></v-divider>
+                          <v-list-item-subtitle class="text-caption pa-0 pt-1">
+                            <div class="path-mapping-item pa-2 border rounded-sm"
+                              style="background-color: rgba(var(--v-theme-on-surface), 0.02);">
+                              <v-row dense align="center">
+                                <v-col cols="12" sm="5" class="d-flex align-center">
+                                  <v-icon size="small" color="primary"
+                                    class="mr-2 flex-shrink-0">mdi-folder-home</v-icon>
+                                  <div class="text-truncate w-100" :title="path.local">
+                                    <span class="text-caption font-weight-medium d-block"
+                                      style="line-height: 1.2;">本地目录</span>
+                                    <span class="text-caption" style="line-height: 1.2;">{{ path.local || '-' }}</span>
+                                  </div>
+                                </v-col>
+                                <v-col cols="12" sm="2" class="text-center my-1 my-sm-0">
+                                  <v-icon color="primary" class="icon-spin-animation">mdi-sync</v-icon>
+                                </v-col>
+                                <v-col cols="12" sm="5" class="d-flex align-center">
+                                  <v-icon size="small" color="success" class="mr-2 flex-shrink-0">mdi-cloud</v-icon>
+                                  <div class="text-truncate w-100" :title="path.remote">
+                                    <span class="text-caption font-weight-medium d-block"
+                                      style="line-height: 1.2;">网盘目录</span>
+                                    <span class="text-caption" style="line-height: 1.2;">{{ path.remote || '-' }}</span>
+                                  </div>
+                                </v-col>
+                              </v-row>
                             </div>
-                            <v-icon color="grey-darken-1" class="align-self-center">mdi-chevron-right</v-icon>
-                            <div class="d-flex align-center text-truncate ml-2" style="flex-basis: 45%;">
-                              <v-icon size="small" color="amber-darken-2" class="mr-2">mdi-cloud-outline</v-icon>
-                              <span class="text-truncate" :title="path.remote">{{ path.remote }}</span>
-                            </div>
-                          </div>
-                        </v-list-item-subtitle>
+                          </v-list-item-subtitle>
+                        </template>
                       </template>
                       <template v-else>
                         <v-list-item-subtitle class="text-caption text-error mt-1">未配置路径</v-list-item-subtitle>
                       </template>
                     </v-list-item>
 
-                    <v-divider v-if="initialConfig?.monitor_life_enabled && initialConfig?.pan_transfer_enabled"
+                    <v-divider
+                      v-if="initialConfig?.monitor_life_enabled && (initialConfig?.pan_transfer_enabled || initialConfig?.directory_upload_enabled)"
                       class="my-0"></v-divider>
 
+                    <!-- 网盘整理目录 -->
                     <v-list-item v-if="initialConfig?.pan_transfer_enabled" class="px-3 py-1">
                       <v-list-item-title class="text-body-2 font-weight-medium">网盘整理目录</v-list-item-title>
                       <template v-if="getPanTransferPathsCount(initialConfig?.pan_transfer_paths) > 0">
-                        <v-list-item-subtitle
+                        <template
                           v-for="(pathItem, index) in getParsedPanTransferPaths(initialConfig?.pan_transfer_paths)"
-                          :key="index" class="text-caption mt-2">
-                          <div class="d-flex align-center">
-                            <v-icon size="small" color="deep-purple-accent-2"
-                              class="mr-2">mdi-folder-arrow-down-outline</v-icon>
-                            <span class="text-truncate" :title="pathItem.path">{{ pathItem.path }}</span>
-                          </div>
-                        </v-list-item-subtitle>
+                          :key="`pan-${index}`">
+                          <v-divider v-if="index > 0" class="my-1"></v-divider>
+                          <v-list-item-subtitle class="text-caption pa-0 pt-1">
+                            <div class="path-item pa-2 border rounded-sm"
+                              style="background-color: rgba(var(--v-theme-on-surface), 0.02);">
+                              <div class="d-flex align-center">
+                                <v-icon size="small" color="success"
+                                  class="mr-2 flex-shrink-0">mdi-folder-arrow-down</v-icon>
+                                <div class="text-truncate w-100" :title="pathItem.path">
+                                  <span class="text-caption font-weight-medium d-block"
+                                    style="line-height: 1.2;">待整理网盘目录</span>
+                                  <span class="text-caption" style="line-height: 1.2;">{{ pathItem.path }}</span>
+                                </div>
+                              </div>
+                            </div>
+                          </v-list-item-subtitle>
+                        </template>
                       </template>
                       <template v-else>
                         <v-list-item-subtitle class="text-caption text-error mt-1">未配置网盘整理目录</v-list-item-subtitle>
+                      </template>
+                    </v-list-item>
+
+                    <v-divider v-if="initialConfig?.pan_transfer_enabled && initialConfig?.directory_upload_enabled"
+                      class="my-0"></v-divider>
+
+                    <!-- Directory Upload Paths Display -->
+                    <v-list-item v-if="initialConfig?.directory_upload_enabled" class="px-3 py-1">
+                      <v-list-item-title class="text-body-2 font-weight-medium">目录上传路径</v-list-item-title>
+                      <template
+                        v-if="initialConfig?.directory_upload_path && initialConfig.directory_upload_path.length > 0">
+                        <template v-for="(pathGroup, groupIndex) in initialConfig.directory_upload_path"
+                          :key="`upload-group-${groupIndex}`">
+                          <v-divider v-if="groupIndex > 0" class="my-1"></v-divider>
+                          <v-list-item-subtitle class="text-caption pa-0 pt-1">
+                            <div class="path-group-item pa-2 border rounded-sm"
+                              style="background-color: rgba(var(--v-theme-on-surface), 0.02);">
+                              <v-row dense align="center">
+                                <v-col cols="12" md="5" class="d-flex align-center">
+                                  <v-icon size="small" color="primary"
+                                    class="mr-2 flex-shrink-0">mdi-folder-table</v-icon>
+                                  <div class="text-truncate w-100" :title="pathGroup.src">
+                                    <span class="text-caption font-weight-medium d-block"
+                                      style="line-height:1.2;">本地监控</span>
+                                    <span class="text-caption" style="line-height:1.2;">{{ pathGroup.src || '-'
+                                    }}</span>
+                                  </div>
+                                </v-col>
+                                <v-col cols="12" md="2" class="text-center my-1 my-md-0">
+                                  <v-icon color="primary" class="icon-spin-animation">mdi-sync</v-icon>
+                                </v-col>
+                                <v-col cols="12" md="5" class="d-flex align-center">
+                                  <v-icon size="small" color="success"
+                                    class="mr-2 flex-shrink-0">mdi-cloud-upload</v-icon>
+                                  <div class="text-truncate w-100" :title="pathGroup.dest_remote">
+                                    <span class="text-caption font-weight-medium d-block"
+                                      style="line-height:1.2;">网盘上传</span>
+                                    <span class="text-caption" style="line-height:1.2;">{{ pathGroup.dest_remote || '-'
+                                    }}</span>
+                                  </div>
+                                </v-col>
+                              </v-row>
+                              <div v-if="pathGroup.dest_local || typeof pathGroup.delete === 'boolean'"
+                                class="mt-1 pt-1" style="border-top: 1px dashed rgba(var(--v-border-color), 0.2);">
+                                <v-row dense align="center" class="mt-1">
+                                  <v-col cols="12" :md="typeof pathGroup.delete === 'boolean' ? 7 : 12">
+                                    <div v-if="pathGroup.dest_local" class="d-flex align-center">
+                                      <v-icon size="small" color="warning"
+                                        class="mr-2 flex-shrink-0">mdi-content-copy</v-icon>
+                                      <div class="text-truncate w-100" :title="pathGroup.dest_local">
+                                        <span class="text-caption font-weight-medium d-block"
+                                          style="line-height:1.2;">本地复制</span>
+                                        <span class="text-caption" style="line-height:1.2;">{{ pathGroup.dest_local
+                                        }}</span>
+                                      </div>
+                                    </div>
+                                  </v-col>
+                                  <v-col v-if="typeof pathGroup.delete === 'boolean'" cols="12"
+                                    :md="pathGroup.dest_local ? 5 : 12" class="d-flex align-center"
+                                    :class="{ 'justify-md-end': pathGroup.dest_local, 'mt-1 mt-md-0': pathGroup.dest_local }">
+                                    <v-icon size="small" :color="pathGroup.delete ? 'error' : 'grey-darken-1'"
+                                      class="mr-1 flex-shrink-0">
+                                      {{ pathGroup.delete ? 'mdi-delete' : 'mdi-delete-off' }}
+                                    </v-icon>
+                                    <span class="text-caption"
+                                      :class="pathGroup.delete ? 'text-error' : 'text-grey-darken-1'">
+                                      {{ pathGroup.delete ? '删除源' : '不删源' }}
+                                    </span>
+                                  </v-col>
+                                </v-row>
+                              </div>
+                            </div>
+                          </v-list-item-subtitle>
+                        </template>
+                      </template>
+                      <template v-else>
+                        <v-list-item-subtitle class="text-caption text-error mt-1">未配置路径</v-list-item-subtitle>
                       </template>
                     </v-list-item>
                   </v-list>
@@ -505,7 +646,7 @@
               :disabled="!item.is_dir" class="py-0" style="min-height: auto;">
               <template v-slot:prepend>
                 <v-icon :icon="item.is_dir ? 'mdi-folder' : 'mdi-file'" size="small" class="mr-2"
-                  :color="item.is_dir ? 'amber-darken-2' : 'blue'" />
+                  :color="item.is_dir ? 'success' : 'blue'" />
               </template>
               <v-list-item-title class="text-body-2">{{ item.name }}</v-list-item-title>
             </v-list-item>
@@ -550,7 +691,7 @@ const props = defineProps({
   }
 });
 
-const emit = defineEmits(['close', 'switch', 'update:config']);
+const emit = defineEmits(['close', 'switch', 'update:config', 'action']);
 
 // 状态变量
 const loading = ref(true);
@@ -1299,5 +1440,19 @@ async function fetchUserStorageStatus() {
 :deep(v-switch[color="error"] .v-selection-control--dirty .v-switch__track) {
   background-color: rgb(var(--v-theme-error)) !important;
   border-color: rgb(var(--v-theme-error)) !important;
+}
+
+.icon-spin-animation {
+  animation: spin 2s linear infinite;
+}
+
+@keyframes spin {
+  0% {
+    transform: rotate(0deg);
+  }
+
+  100% {
+    transform: rotate(360deg);
+  }
 }
 </style>

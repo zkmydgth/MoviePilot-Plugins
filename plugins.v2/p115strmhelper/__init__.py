@@ -60,8 +60,7 @@ from app.chain.storage import StorageChain
 from app.utils.system import SystemUtils
 
 
-p115strmhelper_lock = threading.Lock()
-directory_upload_lock = threading.Lock()
+directory_upload_dict = defaultdict(threading.Lock)
 
 
 def check_response(
@@ -1043,6 +1042,7 @@ class P115StrmHelper(_PluginBase):
             except Exception as e:
                 logger.error(f"115网盘客户端创建失败: {e}")
 
+            # 目录上传监控服务
             if self._directory_upload_enabled:
                 for item in self._directory_upload_path:
                     if not item:
@@ -1783,7 +1783,7 @@ class P115StrmHelper(_PluginBase):
             if not file_path.exists():
                 return
             # 全程加锁
-            with directory_upload_lock:
+            with directory_upload_dict[str(file_path.absolute())]:
                 # 回收站隐藏文件不处理
                 if (
                     event_path.find("/@Recycle/") != -1
@@ -1803,7 +1803,7 @@ class P115StrmHelper(_PluginBase):
                     storage="local", path=file_path
                 )
                 if not file_item:
-                    logger.warn(f"【目录上传】{event_path.name} 未找到对应的文件")
+                    logger.warn(f"【目录上传】{event_path} 未找到对应的文件")
                     return
 
                 # 获取此监控目录配置
@@ -1816,17 +1816,19 @@ class P115StrmHelper(_PluginBase):
                         dest_local = item.get("dest_local", "")
                         break
 
-                # 处理上传
-                if not dest_remote:
-                    logger.error(f"【目录上传】{mon_path} 未找到对应的上传网盘目录")
-                    return
                 if file_path.suffix in [
                     f".{ext.strip()}"
                     for ext in self._directory_upload_uploadext.replace(
                         "，", ","
                     ).split(",")
                 ]:
-                    # 走上传流程
+                    # 处理上传
+                    if not dest_remote:
+                        logger.error(
+                            f"【目录上传】{file_path} 未找到对应的上传网盘目录"
+                        )
+                        return
+
                     target_file_path = Path(dest_remote) / Path(file_path).relative_to(
                         mon_path
                     )
@@ -1877,15 +1879,14 @@ class P115StrmHelper(_PluginBase):
                         logger.error(f"【目录上传】{file_path} 上传网盘失败")
                         return
 
-                # 处理非上传文件
-                if dest_local:
-                    if file_path.suffix in [
-                        f".{ext.strip()}"
-                        for ext in self._directory_upload_copyext.replace(
-                            "，", ","
-                        ).split(",")
-                    ]:
-                        # 走本地复制流程
+                elif file_path.suffix in [
+                    f".{ext.strip()}"
+                    for ext in self._directory_upload_copyext.replace("，", ",").split(
+                        ","
+                    )
+                ]:
+                    # 处理非上传文件
+                    if dest_local:
                         target_file_path = Path(dest_local) / Path(
                             file_path
                         ).relative_to(mon_path)
@@ -1900,6 +1901,9 @@ class P115StrmHelper(_PluginBase):
                         else:
                             logger.error(f"【目录上传】{file_path} 复制失败: {msg}")
                             return
+                else:
+                    # 未匹配后缀的文件直接跳过
+                    return
 
                 # 处理源文件是否删除
                 if delete:

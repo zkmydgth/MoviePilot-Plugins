@@ -2615,8 +2615,8 @@ return (_ctx, _cache) => {
                                             "onUpdate:modelValue": _cache[36] || (_cache[36] = $event => ((config.directory_upload_mode) = $event)),
                                             label: "监控模式",
                                             items: [
-                        { title: '兼容模式 (推荐Docker或SMB挂载)', value: 'compatibility' },
-                        { title: '性能模式 (仅本地物理路径)', value: 'fast' }
+                        { title: '兼容模式', value: 'compatibility' },
+                        { title: '性能模式', value: 'fast' }
                       ],
                                             chips: "",
                                             "closable-chips": "",
@@ -2687,7 +2687,7 @@ return (_ctx, _cache) => {
                                               _createVNode(_component_v_text_field, {
                                                 modelValue: pair.src,
                                                 "onUpdate:modelValue": $event => ((pair.src) = $event),
-                                                label: "本地监控目录 (源)",
+                                                label: "本地监控目录",
                                                 density: "compact",
                                                 variant: "outlined",
                                                 "hide-details": "",
@@ -3271,6 +3271,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-f12d26a4"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-ebc8e80a"]]);
 
 export { Config as default };
