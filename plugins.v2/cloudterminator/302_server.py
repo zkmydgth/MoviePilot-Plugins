@@ -1,8 +1,9 @@
-import logging
 import sys
 import subprocess
 import atexit
 from functools import partial
+
+from app.log import logger
 
 
 class Pan302Server:
@@ -27,7 +28,7 @@ class Pan302Server:
             "timeout_graceful_shutdown=1)"
         ]
         process = subprocess.Popen(command, stdout=log_file, stderr=log_file, start_new_session=True)
-        logging.info('302 服务启动完成')
+        logger.info('302 服务已启动')
         return process
 
     def cleanup_302_process(self, _process):
@@ -42,4 +43,4 @@ class Pan302Server:
         302 服务停止
         """
         atexit.register(partial(self.cleanup_302_process, _process))
-        logging.info('302 服务已停止')
+        logger.info('302 服务已停止')

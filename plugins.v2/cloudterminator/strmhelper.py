@@ -1,8 +1,9 @@
 import sqlite3
 import os
-import logging
 
 from p115updatedb.query import iter_children, get_path, get_pickcode
+
+from app.log import logger
 
 
 class StrmHelper:
@@ -61,12 +62,12 @@ class StrmHelper:
             new_file_path = os.path.join(file_target_dir, file_name)
 
             if os.path.splitext(original_file_name)[1] not in rmt_mediaext:
-                logging.warning("跳过网盘路径： %s", file_path.replace(target_dir, '', 1))
+                logger.warn("跳过网盘路径： %s", file_path.replace(target_dir, '', 1))
                 continue
 
             cursor.execute("SELECT 1 FROM strm_files WHERE file_path=?", (new_file_path,))
             if cursor.fetchone():
-                logging.warning("跳过 %s", new_file_path)
+                logger.warn("跳过 %s", new_file_path)
                 continue
 
             pickcode = get_pickcode(self.connection, file_parent_id)
@@ -77,6 +78,6 @@ class StrmHelper:
                 file.write(content)
 
             cursor.execute('INSERT INTO strm_files VALUES (?,?)', (new_file_path, content))
-            logging.info("生成 %s", new_file_path)
+            logger.info("生成 %s", new_file_path)
         conn.commit()
         conn.close()
