@@ -387,6 +387,9 @@ class ConfigManager(BaseModel):
         default=False, description="115 上传秒传失败时跳过上传返回失败"
     )
     upload_module_notify: bool = Field(default=True, description="115 上传增强开启通知")
+    upload_open_result_notify: bool = Field(
+        default=False, description="115 上传结果通知"
+    )
     upload_module_wait_time: int = Field(
         default=5 * 60, ge=0, description="115 上传增强休眠等待时间"
     )

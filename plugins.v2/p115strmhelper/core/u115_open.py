@@ -406,6 +406,44 @@ class U115OpenHelper:
             except Exception:
                 pass
 
+        def send_upload_result_notify(
+            success: bool,
+            target_name: str,
+            file_size: int,
+            elapsed_time: Optional[float] = None,
+            error_msg: Optional[str] = None,
+        ):
+            """
+            发送上传结果通知
+
+            :param success: 是否成功
+            :param target_name: 文件名
+            :param file_size: 文件大小
+            :param elapsed_time: 耗时（秒）
+            :param error_msg: 错误信息
+            """
+            if not configer.notify or not configer.upload_open_result_notify:
+                return
+
+            if success:
+                size_str = StringUtils.str_filesize(file_size)
+                time_str = f"{elapsed_time:.1f}秒" if elapsed_time else "未知"
+                post_message(
+                    mtype=NotificationType.Plugin,
+                    title="【115网盘】上传成功",
+                    text=f"\n文件名：{target_name}\n文件大小：{size_str}\n耗时：{time_str}\n",
+                )
+            else:
+                size_str = StringUtils.str_filesize(file_size)
+                error_text = f"\n文件名：{target_name}\n文件大小：{size_str}\n"
+                if error_msg:
+                    error_text += f"错误信息：{error_msg}\n"
+                post_message(
+                    mtype=NotificationType.Plugin,
+                    title="【115网盘】上传失败",
+                    text=error_text,
+                )
+
         target_name = new_name or local_path.name
         target_path = Path(target_dir.path) / target_name
         # 计算文件特征值
@@ -507,6 +545,12 @@ class U115OpenHelper:
                     str(file_size),
                     target_name,
                     int(elapsed_time),
+                )
+                send_upload_result_notify(
+                    success=True,
+                    target_name=target_name,
+                    file_size=file_size,
+                    elapsed_time=elapsed_time,
                 )
                 file_id = init_result.get("file_id", None)
                 if file_id:
@@ -815,14 +859,36 @@ class U115OpenHelper:
                         if self._upload_fail_count():
                             logger.warn(f"【P115Open】{target_name} 上传重试")
                             return self.upload(target_dir, local_path, new_name)
+                        error_msg = data.get("error", "上传失败")
                         logger.error(f"【P115Open】{target_name} 上传失败")
+                        send_upload_result_notify(
+                            success=False,
+                            target_name=target_name,
+                            file_size=file_size,
+                            error_msg=error_msg,
+                        )
                         return None
                 except Exception:
                     logger.warn("【P115Open】上传 Step 6 回调无结果")
                 logger.info(f"【P115Open】{target_name} 上传成功")
+                end_time = perf_counter()
+                elapsed_time = end_time - start_time
+                send_upload_result_notify(
+                    success=True,
+                    target_name=target_name,
+                    file_size=file_size,
+                    elapsed_time=elapsed_time,
+                )
             else:
+                error_msg = f"错误码: {result.status}"
                 logger.warn(
                     f"【P115Open】{target_name} 上传失败，错误码: {result.status}"
+                )
+                send_upload_result_notify(
+                    success=False,
+                    target_name=target_name,
+                    file_size=file_size,
+                    error_msg=error_msg,
                 )
                 return None
         except OssError as e:
@@ -835,12 +901,26 @@ class U115OpenHelper:
             if e.code == "FileAlreadyExists":
                 logger.warn(f"【P115Open】{target_name} 已存在")
             else:
+                error_msg = f"错误码: {e.code}, 详情: {e.message}"
                 logger.error(
                     f"【P115Open】{target_name} 上传失败: {e.status}, 错误码: {e.code}, 详情: {e.message}"
                 )
+                send_upload_result_notify(
+                    success=False,
+                    target_name=target_name,
+                    file_size=file_size,
+                    error_msg=error_msg,
+                )
                 return None
         except Exception as e:
+            error_msg = f"未知错误: {str(e)}"
             logger.error(f"【P115Open】{target_name} 回调出现未知错误: {e}")
+            send_upload_result_notify(
+                success=False,
+                target_name=target_name,
+                file_size=file_size,
+                error_msg=error_msg,
+            )
             return None
 
         end_time = perf_counter()

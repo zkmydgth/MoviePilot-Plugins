@@ -1393,6 +1393,10 @@
                             <v-switch v-model="config.upload_module_notify" label="秒传等待发送通知" color="info"
                               density="compact"></v-switch>
                           </v-col>
+                          <v-col cols="12" md="4">
+                            <v-switch v-model="config.upload_open_result_notify" label="上传结果通知" color="info"
+                              density="compact"></v-switch>
+                          </v-col>
                         </v-row>
                         <v-row>
                           <v-col cols="12" md="6">
@@ -2311,6 +2315,7 @@ const config = reactive({
   upload_module_wait_timeout: 3600,
   upload_module_skip_upload_wait_size: 0,
   upload_module_force_upload_wait_size: 0,
+  upload_open_result_notify: false,
   upload_share_info: true,
   upload_offline_info: true,
   transfer_module_enhancement: false,
