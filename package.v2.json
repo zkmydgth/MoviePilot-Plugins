@@ -89,11 +89,12 @@
         "name": "115网盘STRM助手",
         "description": "115网盘STRM生成一条龙服务",
         "labels": "云盘",
-        "version": "1.8.10",
+        "version": "1.8.11",
         "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png",
         "author": "DDSRem",
         "level": 1,
         "history": {
+            "v1.8.11": "增量同步计划任务名称错误",
             "v1.8.10": "分享转存添加队列，避免一次性执行导致风控",
             "v1.8.9": "加强增量同步错误捕捉",
             "v1.8.8": "移除增量删除本地文件功能",

@@ -1522,7 +1522,7 @@ class P115StrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png"
     # 插件版本
-    plugin_version = "1.8.10"
+    plugin_version = "1.8.11"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -2038,7 +2038,7 @@ class P115StrmHelper(_PluginBase):
             cron_service.append(
                 {
                     "id": "P115StrmHelper_increment_sync_strm",
-                    "name": "115网盘定期全量同步",
+                    "name": "115网盘定期增量同步",
                     "trigger": CronTrigger.from_crontab(self._increment_sync_cron),
                     "func": self.increment_sync_strm_files,
                     "kwargs": {},
