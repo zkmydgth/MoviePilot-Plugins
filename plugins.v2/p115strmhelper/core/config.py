@@ -311,6 +311,8 @@ class ConfigManager(BaseModel):
     mediainfo_download_whitelist: Optional[List] = None
     # 媒体信息文件下载黑名单
     mediainfo_download_blacklist: Optional[List] = None
+    # STRM URL 文件名称编码
+    strm_url_encode: bool = False
 
     @property
     def PLUGIN_ALIGO_PATH(self) -> Path:
