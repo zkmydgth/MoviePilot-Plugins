@@ -1,4 +1,5 @@
 import hashlib
+from enum import IntEnum
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -14,13 +15,23 @@ from app.schemas import FileItem, StorageUsage
 from clouddrive2_client import CloudDriveClient
 
 
-# 上传状态枚举
-_UPLOAD_STATUS_FINISH = 5
-_UPLOAD_STATUS_ERROR = 9
-_UPLOAD_STATUS_FATAL_ERROR = 10
-# HashType: Md5=1, Sha1=2
-_HASH_TYPE_MD5 = 1
-_HASH_TYPE_SHA1 = 2
+class UploadStatus(IntEnum):
+    """
+    上传状态枚举
+    """
+
+    FINISH = 5
+    ERROR = 9
+    FATAL_ERROR = 10
+
+
+class HashType(IntEnum):
+    """
+    Hash 类型：Md5=1, Sha1=2
+    """
+
+    MD5 = 1
+    SHA1 = 2
 
 
 def _cloudfile_to_fileitem(
@@ -72,7 +83,7 @@ class CloudDriveApi:
         """
         :param client: 已认证的 CloudDrive 客户端
         :param disk_name: 储存名称，与注册的 storage 一致
-        :param download_base: 下载 URL 基地址（如 http://localhost:19798），用于拼接 downloadUrlPath
+        :param download_base: 下载 URL 基地址
         """
         self.client = client
         self._disk_name = disk_name
@@ -93,7 +104,7 @@ class CloudDriveApi:
         try:
             sub = self.client.get_sub_files(path)
         except Exception as e:
-            logger.warning("【CloudDrive】列出目录失败 %s: %s", path, e)
+            logger.error("【CloudDrive】列出目录失败 %s: %s", path, e)
             return []
         return [
             _cloudfile_to_fileitem(f, self._disk_name, parent_fileid=fileitem.fileid)
@@ -121,7 +132,7 @@ class CloudDriveApi:
                     items.append(child)
             return items
         except Exception as e:
-            logger.warning("【CloudDrive】递归列表失败 %s: %s", fileitem.path, e)
+            logger.error("【CloudDrive】递归列表失败 %s: %s", fileitem.path, e)
             return None
 
     def get_item(self, path: Path) -> Optional[FileItem]:
@@ -172,9 +183,7 @@ class CloudDriveApi:
         try:
             result = self.client.create_folder(parent_path, name)
         except Exception as e:
-            logger.warning(
-                "【CloudDrive】创建文件夹失败 %s/%s: %s", parent_path, name, e
-            )
+            logger.error("【CloudDrive】创建文件夹失败 %s/%s: %s", parent_path, name, e)
             return None
         if not result or not result.result or not result.result.success:
             return None
@@ -199,7 +208,6 @@ class CloudDriveApi:
                 return folder
 
         def __find_dir(parent: FileItem, name: str) -> Optional[FileItem]:
-            """在父目录下查找名为 name 的子目录。"""
             for sub in self.list(parent):
                 if sub.type != "dir":
                     continue
@@ -232,7 +240,7 @@ class CloudDriveApi:
             else:
                 dir_file = self.create_folder(fileitem, part)
                 if not dir_file:
-                    logger.warning(
+                    logger.error(
                         "【CloudDrive】创建目录 %s%s 失败",
                         fileitem.path,
                         part,
@@ -262,7 +270,7 @@ class CloudDriveApi:
             result = self.client.delete_file(fileitem.path)
             return bool(result and result.success)
         except Exception as e:
-            logger.warning("【CloudDrive】删除失败 %s: %s", fileitem.path, e)
+            logger.error("【CloudDrive】删除失败 %s: %s", fileitem.path, e)
             return False
 
     def rename(self, fileitem: FileItem, name: str) -> bool:
@@ -277,7 +285,7 @@ class CloudDriveApi:
             result = self.client.rename_file(fileitem.path, name)
             return bool(result and result.success)
         except Exception as e:
-            logger.warning(
+            logger.error(
                 "【CloudDrive】重命名失败 %s -> %s: %s", fileitem.path, name, e
             )
             return False
@@ -297,7 +305,7 @@ class CloudDriveApi:
         try:
             result = self.client.move_file([fileitem.path], dest_path)
             if not result or not result.success:
-                logger.warning(
+                logger.error(
                     "【CloudDrive】移动失败 %s -> %s: %s",
                     fileitem.path,
                     dest_path,
@@ -308,7 +316,7 @@ class CloudDriveApi:
                 new_path = f"{dest_path}/{fileitem.name}"
                 rename_result = self.client.rename_file(new_path, new_name)
                 if not rename_result or not rename_result.success:
-                    logger.warning(
+                    logger.error(
                         "【CloudDrive】移动后重命名失败 %s -> %s: %s",
                         new_path,
                         new_name,
@@ -319,7 +327,7 @@ class CloudDriveApi:
                     return False
             return True
         except Exception as e:
-            logger.warning(
+            logger.error(
                 "【CloudDrive】移动失败 %s -> %s: %s",
                 fileitem.path,
                 dest_path,
@@ -342,7 +350,7 @@ class CloudDriveApi:
         try:
             result = self.client.copy_file([fileitem.path], dest_path)
             if not result or not result.success:
-                logger.warning(
+                logger.error(
                     "【CloudDrive】复制失败 %s -> %s: %s",
                     fileitem.path,
                     dest_path,
@@ -353,7 +361,7 @@ class CloudDriveApi:
                 new_path = f"{dest_path}/{fileitem.name}"
                 rename_result = self.client.rename_file(new_path, new_name)
                 if not rename_result or not rename_result.success:
-                    logger.warning(
+                    logger.error(
                         "【CloudDrive】复制后重命名失败 %s -> %s: %s",
                         new_path,
                         new_name,
@@ -364,7 +372,7 @@ class CloudDriveApi:
                     return False
             return True
         except Exception as e:
-            logger.warning(
+            logger.error(
                 "【CloudDrive】复制失败 %s -> %s: %s",
                 fileitem.path,
                 dest_path,
@@ -460,7 +468,7 @@ class CloudDriveApi:
         :param hash_type: 哈希类型 (MD5/SHA1)
         :return: 十六进制字符串
         """
-        h = hashlib.md5() if hash_type == _HASH_TYPE_MD5 else hashlib.sha1()
+        h = hashlib.md5() if hash_type == HashType.MD5 else hashlib.sha1()
         with open(path, "rb") as f:
             while chunk := f.read(8192):
                 h.update(chunk)
@@ -556,10 +564,10 @@ class CloudDriveApi:
                         logger.warning("【CloudDrive】RemoteHashProgress 失败: %s", e)
                 elif which == "status_changed":
                     st = reply.status_changed.status
-                    if st == _UPLOAD_STATUS_FINISH:
+                    if st == UploadStatus.FINISH:
                         progress_callback(100)
                         break
-                    if st in (_UPLOAD_STATUS_ERROR, _UPLOAD_STATUS_FATAL_ERROR):
+                    if st in (UploadStatus.ERROR, UploadStatus.FATAL_ERROR):
                         msg = reply.status_changed.error_message or "上传失败"
                         logger.error("【CloudDrive】上传状态错误: %s", msg)
                         return None
