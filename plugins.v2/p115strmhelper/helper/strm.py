@@ -588,6 +588,8 @@ class FullSyncStrmHelper:
             .replace("，", ",")
             .split(",")
         ]
+        self.download_mediaext_set = set(self.download_mediaext)
+        self.rmt_mediaext_set = set(self.rmt_mediaext)
         self.auto_download_mediainfo = configer.get_config(
             "full_sync_auto_download_mediainfo_enabled"
         )
@@ -716,7 +718,7 @@ class FullSyncStrmHelper:
 
         return seen_folder_ids, seen_file_ids
 
-    def __process_single_item(self, item, target_dir, pan_media_dir):
+    def __process_single_item(self, item: Dict, target_dir: Path, pan_media_dir: str):
         """
         处理单个项目
         """
@@ -729,7 +731,7 @@ class FullSyncStrmHelper:
             # 全量拉数据时可能混入无关路径
             if not PathUtils.has_prefix(file_path, pan_media_dir):
                 return path_entry
-            file_path = Path(target_dir) / Path(file_path).relative_to(pan_media_dir)
+            file_path = target_dir / Path(file_path).relative_to(pan_media_dir)
             file_target_dir = file_path.parent
             original_file_name = file_path.name
             file_name = file_path.stem + ".strm"
@@ -752,22 +754,25 @@ class FullSyncStrmHelper:
                     transfer_path=item["path"],
                 ):
                     logger.debug(
-                        f"【全量STRM生成】{item['path']} 为待整理目录下的路径，不做处理"
+                        "【全量STRM生成】%s 为待整理目录下的路径，不做处理",
+                        item["path"],
                     )
                     return path_entry
 
             if self.auto_download_mediainfo:
-                if file_path.suffix.lower() in self.download_mediaext:
+                if file_path.suffix.lower() in self.download_mediaext_set:
                     if file_path.exists():
                         if self.overwrite_mode == "never":
-                            logger.warn(
-                                f"【全量STRM生成】{file_path} 已存在，覆盖模式 {self.overwrite_mode}，跳过此路径"
-                            )
+                            if configer.full_sync_strm_log:
+                                logger.warn(
+                                    f"【全量STRM生成】{file_path} 已存在，覆盖模式 {self.overwrite_mode}，跳过此路径"
+                                )
                             return path_entry
                         else:
-                            logger.warn(
-                                f"【全量STRM生成】{file_path} 已存在，覆盖模式 {self.overwrite_mode}"
-                            )
+                            if configer.full_sync_strm_log:
+                                logger.warn(
+                                    f"【全量STRM生成】{file_path} 已存在，覆盖模式 {self.overwrite_mode}"
+                                )
                     pickcode = item["pickcode"]
                     if not pickcode:
                         logger.error(
@@ -783,11 +788,12 @@ class FullSyncStrmHelper:
                     )
                     return path_entry
 
-            if file_path.suffix.lower() not in self.rmt_mediaext:
-                logger.warn(
-                    "【全量STRM生成】跳过网盘路径: %s",
-                    item["path"],
-                )
+            if file_path.suffix.lower() not in self.rmt_mediaext_set:
+                if configer.full_sync_strm_log:
+                    logger.warn(
+                        "【全量STRM生成】跳过网盘路径: %s",
+                        item["path"],
+                    )
                 return path_entry
 
             if not (
@@ -795,9 +801,10 @@ class FullSyncStrmHelper:
                     original_file_name, "full", item.get("size", None)
                 )
             )[1]:
-                logger.warn(
-                    f"【全量STRM生成】{result[0]}，跳过网盘路径: {item['path']}"
-                )
+                if configer.full_sync_strm_log:
+                    logger.warn(
+                        "【全量STRM生成】%s，跳过网盘路径: %s", result[0], item["path"]
+                    )
                 return path_entry
 
             if self.remove_unless_strm:
@@ -805,14 +812,16 @@ class FullSyncStrmHelper:
 
             if new_file_path.exists():
                 if self.overwrite_mode == "never":
-                    logger.warn(
-                        f"【全量STRM生成】{new_file_path} 已存在，覆盖模式 {self.overwrite_mode}，跳过此路径"
-                    )
+                    if configer.full_sync_strm_log:
+                        logger.warn(
+                            f"【全量STRM生成】{new_file_path} 已存在，覆盖模式 {self.overwrite_mode}，跳过此路径"
+                        )
                     return path_entry
                 else:
-                    logger.warn(
-                        f"【全量STRM生成】{new_file_path} 已存在，覆盖模式 {self.overwrite_mode}"
-                    )
+                    if configer.full_sync_strm_log:
+                        logger.warn(
+                            f"【全量STRM生成】{new_file_path} 已存在，覆盖模式 {self.overwrite_mode}"
+                        )
 
             pickcode = item["pickcode"]
             if not pickcode:
@@ -842,7 +851,7 @@ class FullSyncStrmHelper:
             with open(new_file_path, "w", encoding="utf-8") as file:
                 file.write(strm_url)
             self.strm_count += 1
-            if configer.get_config("full_sync_strm_log"):
+            if configer.full_sync_strm_log:
                 logger.info(
                     "【全量STRM生成】生成 STRM 文件成功: %s",
                     str(new_file_path),
@@ -998,11 +1007,13 @@ class FullSyncStrmHelper:
                             seen_file_ids,
                         )
 
+                        target_dir_path = Path(target_dir)
+
                         future_to_item = {
                             executor.submit(
                                 self.__process_single_item,
                                 item,
-                                target_dir,
+                                target_dir_path,
                                 pan_media_dir,
                             ): item
                             for item in batch
