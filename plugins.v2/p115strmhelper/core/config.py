@@ -68,7 +68,7 @@ class ConfigManager(BaseModel):
     PLUGIN_DATABASE_SCRIPT_LOCATION: Path = Field(
         default_factory=_get_default_plugin_database_script_location
     )
-    PLUGIN_DATABASE_VERSION_LOCATIONS: List[Path] = [
+    PLUGIN_DATABASE_VERSION_LOCATIONS: List[str] = [
         str(_get_default_plugin_config_path() / "database/versions")
     ]
     # 插件临时目录
