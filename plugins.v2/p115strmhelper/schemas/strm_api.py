@@ -159,6 +159,14 @@ class StrmApiResponseRemoveData(BaseModel):
     )
 
 
+class ManualTransferPayload(BaseModel):
+    """
+    手动整理参数
+    """
+
+    path: str = Field(description="网盘路径")
+
+
 class StrmApiStatusCode:
     """
     API STRM 错误

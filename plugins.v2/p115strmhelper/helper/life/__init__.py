@@ -1,6 +1,6 @@
 from shutil import rmtree
 from collections import defaultdict
-from threading import Timer, Event
+from threading import Timer, Event, Thread
 from time import sleep, strftime, localtime, time
 from typing import List, Set, Dict, Optional
 from pathlib import Path
@@ -11,6 +11,7 @@ from ...core.message import post_message
 from ...core.scrape import media_scrape_metadata
 from ...core.cache import idpathcacher, pantransfercacher, lifeeventcacher
 from ...core.i18n import i18n
+from ...core.p115 import get_pid_by_path
 from ...utils.path import PathUtils, PathRemoveUtils
 from ...utils.sentry import sentry_manager
 from ...utils.strm import StrmUrlGetter, StrmGenerater
@@ -26,7 +27,8 @@ from ...helper.life.queue import LifeTasksQueue
 
 from p115client import P115Client
 from p115client.exception import P115AuthenticationError
-from p115client.tool.attr import get_path
+from p115client.tool.attr import get_path, normalize_attr
+from p115client.tool.fs_files import iter_fs_files
 from p115client.tool.iterdir import iter_files_with_path
 from p115client.tool.life import (
     iter_life_behavior_once,
@@ -1034,6 +1036,137 @@ class MonitorLife:
 
         return return_from_time, return_from_id
 
+    def once_transfer(self, path: str) -> None:
+        """
+        手动运行网盘整理
+
+        :param path: 网盘路径
+        """
+        if not path or not isinstance(path, str):
+            logger.error(f"【监控生活事件】无效的路径参数: {path}")
+            return
+
+        logger.info(f"【监控生活事件】开始手动运行网盘整理，路径: {path}")
+
+        total_files = 0
+        total_dirs = 0
+        success_count = 0
+        failed_count = 0
+        skipped_count = 0
+        failed_items = []
+
+        try:
+            self.rmt_mediaext = [
+                f".{ext.strip()}"
+                for ext in configer.user_rmt_mediaext.replace("，", ",").split(",")
+            ]
+
+            try:
+                parent_id = get_pid_by_path(self._client, path, True, True, True)
+                logger.info(
+                    f"【监控生活事件】网盘媒体目录 ID 获取成功: {path} -> {parent_id}"
+                )
+            except Exception as e:
+                logger.error(f"【监控生活事件】网盘媒体目录 ID 获取失败: {path} {e}")
+                return
+
+            logger.info(f"【监控生活事件】开始遍历目录: {path}")
+            try:
+                for batch_count, data in enumerate(
+                    iter_fs_files(self._client, parent_id, cooldown=2), 1
+                ):
+                    if not data:
+                        logger.debug(
+                            f"【监控生活事件】第 {batch_count} 批数据为空，跳过"
+                        )
+                        continue
+                    items = data.get("data", [])
+                    if not items:
+                        logger.debug(
+                            f"【监控生活事件】第 {batch_count} 批数据中无文件项，跳过"
+                        )
+                        continue
+                    logger.debug(
+                        f"【监控生活事件】处理第 {batch_count} 批数据，包含 {len(items)} 个项目"
+                    )
+                    for item_index, item in enumerate(items, 1):
+                        item_type = "未知"
+                        item_name = "未知"
+                        try:
+                            item = normalize_attr(item)
+                            item_name = item.get("name")
+                            item_id = item.get("id")
+                            item_type = "文件夹" if item.get("is_dir") else "文件"
+
+                            if item.get("is_dir"):
+                                total_dirs += 1
+                            else:
+                                total_files += 1
+
+                            file_path = Path(path) / item_name
+
+                            event = {
+                                "file_category": 0 if item.get("is_dir") else 1,
+                                "file_id": item.get("id"),
+                                "parent_id": item.get("parent_id"),
+                                "file_size": item.get("size", 0),
+                                "pick_code": item.get("pickcode", ""),
+                                "update_time": item.get("ctime", 0),
+                                "file_name": item_name,
+                            }
+
+                            logger.debug(
+                                f"【监控生活事件】处理 {item_type} [{batch_count}-{item_index}]: "
+                                f"{item_name} (ID: {item_id})"
+                            )
+                            self.media_transfer(
+                                event=event,
+                                file_path=file_path,
+                                rmt_mediaext=self.rmt_mediaext,
+                            )
+                            success_count += 1
+                        except Exception as e:
+                            failed_count += 1
+                            error_msg = f"{item_type} {item_name} 处理异常: {type(e).__name__}: {e}"
+                            failed_items.append(error_msg)
+                            logger.error(f"【监控生活事件】{error_msg}")
+                            continue
+                    processed = success_count + failed_count + skipped_count
+                    logger.info(
+                        f"【监控生活事件】已处理 {processed} 个项目 "
+                        f"(成功: {success_count}, 失败: {failed_count}, 跳过: {skipped_count})"
+                    )
+            except StopIteration:
+                pass
+            except Exception as e:
+                logger.error(
+                    f"【监控生活事件】遍历文件时发生错误: 错误类型: {type(e).__name__}, 错误: {e}"
+                )
+        except Exception as e:
+            logger.error(
+                f"【监控生活事件】网盘整理过程中发生未预期的错误: "
+                f"错误类型: {type(e).__name__}, 错误: {e}",
+            )
+        finally:
+            total_processed = total_files + total_dirs
+            logger.info(
+                f"【监控生活事件】手动网盘整理完成 - 路径: {path}\n"
+                f"  总计: {total_processed} 个项目 (文件: {total_files}, 文件夹: {total_dirs})\n"
+                f"  成功: {success_count} 个\n"
+                f"  失败: {failed_count} 个\n"
+                f"  跳过: {skipped_count} 个"
+            )
+            if failed_items:
+                logger.warning(
+                    f"【监控生活事件】失败项目详情 ({len(failed_items)} 个):\n"
+                    + "\n".join(f"  - {item}" for item in failed_items[:10])
+                    + (
+                        f"\n  ... 还有 {len(failed_items) - 10} 个失败项目"
+                        if len(failed_items) > 10
+                        else ""
+                    )
+                )
+
     def check_status(self):
         """
         检查生活事件开启状态
@@ -1122,3 +1255,29 @@ class MonitorLife:
             error_messages.append(f"拉取数据异常: {str(e)}")
 
         return success, debug_info, error_messages
+
+    def start_manual_transfer(self, path: str) -> bool:
+        """
+        启动后台手动整理任务
+
+        :param path: 网盘路径
+        :return: 是否成功启动任务
+        """
+        if not path or not isinstance(path, str) or not path.strip():
+            logger.error(f"【监控生活事件】无效的路径参数: {path}")
+            return False
+
+        path = path.strip()
+
+        def run_transfer():
+            try:
+                logger.info(f"【监控生活事件】开始执行手动整理任务: {path}")
+                self.once_transfer(path)
+                logger.info(f"【监控生活事件】手动整理任务完成: {path}")
+            except Exception as e:
+                logger.error(f"【监控生活事件】手动整理任务执行失败: {path}, 错误: {e}")
+
+        transfer_thread = Thread(target=run_transfer, daemon=True)
+        transfer_thread.start()
+        logger.info(f"【监控生活事件】已启动手动整理任务线程: {path}")
+        return True

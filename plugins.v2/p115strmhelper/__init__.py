@@ -422,6 +422,13 @@ class P115StrmHelper(_PluginBase):
                 "auth": "bear",
                 "summary": "检查115生活事件进程状态并测试拉取数据",
             },
+            {
+                "path": "/manual_transfer",
+                "endpoint": self.api.manual_transfer_api,
+                "methods": ["POST"],
+                "auth": "bear",
+                "summary": "手动触发网盘整理",
+            },
         ]
 
     def get_service(self) -> List[Dict[str, str | Dict[Any, Any] | Any]] | None:

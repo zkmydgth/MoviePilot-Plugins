@@ -898,6 +898,10 @@
                                 append-icon="mdi-folder-network"
                                 @click:append="openDirSelector(index, 'remote', 'panTransfer')"
                                 class="flex-grow-1"></v-text-field>
+                              <v-btn icon size="small" color="primary" class="ml-2" @click="manualTransfer(index)"
+                                :disabled="!path.path" title="手动整理此目录">
+                                <v-icon>mdi-play</v-icon>
+                              </v-btn>
                               <v-btn icon size="small" color="error" class="ml-2" @click="removePanTransferPath(index)">
                                 <v-icon>mdi-delete</v-icon>
                               </v-btn>
@@ -1778,6 +1782,58 @@
       </v-card>
     </v-dialog>
 
+    <v-dialog v-model="manualTransferDialog.show" max-width="500" persistent>
+      <v-card>
+        <v-card-title class="text-subtitle-1 d-flex align-center px-3 py-2 bg-primary-lighten-5">
+          <v-icon icon="mdi-play-circle" class="mr-2" color="primary" size="small" />
+          <span>手动整理确认</span>
+        </v-card-title>
+
+        <v-card-text class="px-3 py-3">
+          <div v-if="!manualTransferDialog.loading && !manualTransferDialog.result">
+            <div class="text-body-2 mb-3">确定要手动整理以下目录吗？</div>
+            <v-alert type="info" variant="tonal" density="compact" icon="mdi-information">
+              <div class="text-body-2">
+                <strong>路径：</strong>{{ manualTransferDialog.path }}
+              </div>
+            </v-alert>
+          </div>
+
+          <div v-else-if="manualTransferDialog.loading" class="d-flex flex-column align-center py-3">
+            <v-progress-circular indeterminate color="primary" size="48" class="mb-3"></v-progress-circular>
+            <div class="text-body-2 text-grey">正在启动整理任务...</div>
+          </div>
+
+          <div v-else-if="manualTransferDialog.result">
+            <v-alert :type="manualTransferDialog.result.type" variant="tonal" density="compact"
+              :icon="manualTransferDialog.result.type === 'success' ? 'mdi-check-circle' : 'mdi-alert-circle'">
+              <div class="text-subtitle-2 mb-1">
+                {{ manualTransferDialog.result.title }}
+              </div>
+              <div class="text-body-2">{{ manualTransferDialog.result.message }}</div>
+            </v-alert>
+          </div>
+        </v-card-text>
+
+        <v-card-actions class="px-3 py-2">
+          <v-spacer></v-spacer>
+          <template v-if="!manualTransferDialog.loading && !manualTransferDialog.result">
+            <v-btn color="grey" variant="text" @click="closeManualTransferDialog" size="small">
+              取消
+            </v-btn>
+            <v-btn color="primary" variant="text" @click="confirmManualTransfer" size="small">
+              确认执行
+            </v-btn>
+          </template>
+          <template v-else>
+            <v-btn color="primary" variant="text" @click="closeManualTransferDialog" size="small">
+              关闭
+            </v-btn>
+          </template>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <!-- 二维码登录对话框 -->
     <v-dialog v-model="qrDialog.show" max-width="450">
       <v-card>
@@ -1954,7 +2010,7 @@
                         size="small" class="mr-2"></v-icon>
                       <span class="text-caption">MonitorLife初始化:
                         <strong>{{ lifeEventCheckDialog.result.data?.summary?.monitorlife_initialized ? '是' : '否'
-                        }}</strong>
+                          }}</strong>
                       </span>
                     </div>
                   </v-col>
@@ -2372,6 +2428,14 @@ const lifeEventCheckDialog = reactive({
   loading: false,
   error: null,
   result: null,
+});
+
+// 手动整理对话框
+const manualTransferDialog = reactive({
+  show: false,
+  loading: false,
+  path: '',
+  result: null, // { type: 'success' | 'error', title: string, message: string }
 });
 
 watch(() => config.transfer_monitor_paths, (newVal) => {
@@ -3000,6 +3064,81 @@ const addPanTransferPath = () => { panTransferPaths.value.push({ path: '' }); };
 const removePanTransferPath = (index) => {
   panTransferPaths.value.splice(index, 1);
   if (panTransferPaths.value.length === 0) panTransferPaths.value = [{ path: '' }];
+};
+
+const manualTransfer = (index) => {
+  if (index < 0 || index >= panTransferPaths.value.length) {
+    message.text = '路径项不存在';
+    message.type = 'error';
+    return;
+  }
+
+  const pathItem = panTransferPaths.value[index];
+  if (!pathItem) {
+    message.text = '路径项不存在';
+    message.type = 'error';
+    return;
+  }
+
+  const path = pathItem.path;
+  if (!path || typeof path !== 'string' || !path.trim()) {
+    message.text = '请先配置网盘路径';
+    message.type = 'warning';
+    return;
+  }
+
+  Object.assign(manualTransferDialog, {
+    path: path.trim(),
+    loading: false,
+    result: null,
+    show: true
+  });
+};
+
+const confirmManualTransfer = async () => {
+  if (!manualTransferDialog.path) {
+    return;
+  }
+
+  manualTransferDialog.loading = true;
+  manualTransferDialog.result = null;
+
+  try {
+    const result = await props.api.post(`plugin/${PLUGIN_ID}/manual_transfer`, {
+      path: manualTransferDialog.path
+    });
+
+    if (result.code === 0) {
+      manualTransferDialog.result = {
+        type: 'success',
+        title: '整理任务已启动',
+        message: '整理任务已在后台启动，正在执行中。您可以在日志中查看详细进度。'
+      };
+    } else {
+      manualTransferDialog.result = {
+        type: 'error',
+        title: '启动失败',
+        message: result.msg || '启动整理任务失败，请检查配置和网络连接。'
+      };
+    }
+  } catch (error) {
+    manualTransferDialog.result = {
+      type: 'error',
+      title: '启动失败',
+      message: `启动整理任务时发生错误：${error.message || error}`
+    };
+  } finally {
+    manualTransferDialog.loading = false;
+  }
+};
+
+const closeManualTransferDialog = () => {
+  Object.assign(manualTransferDialog, {
+    show: false,
+    path: '',
+    loading: false,
+    result: null
+  });
 };
 
 const addShareReceivePath = () => { shareReceivePaths.value.push({ path: '' }); };

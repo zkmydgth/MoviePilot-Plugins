@@ -49,6 +49,7 @@ from .schemas.strm_api import (
     StrmApiPayloadData,
     StrmApiPayloadByPathData,
     StrmApiPayloadRemoveData,
+    ManualTransferPayload,
 )
 from .utils.sentry import sentry_manager
 from .utils.oopserver import OOPServerHelper
@@ -1038,3 +1039,24 @@ class Api:
         )
         code, msg, data = strm_helper.remove_unless_strm(payload)
         return ApiResponse(code=code, msg=msg, data=data)
+
+    @staticmethod
+    def manual_transfer_api(payload: ManualTransferPayload) -> ApiResponse:
+        """
+        手动触发网盘整理
+
+        :param payload: 包含网盘路径的请求体
+        """
+        if not servicer.monitorlife:
+            return ApiResponse(code=-1, msg="MonitorLife 实例未初始化", data=None)
+        path = payload.path
+        if not path or not isinstance(path, str) or not path.strip():
+            return ApiResponse(code=-1, msg="无效的路径参数", data=None)
+        path = path.strip()
+        success = servicer.monitorlife.start_manual_transfer(path)
+        if success:
+            return ApiResponse(
+                code=0, msg="整理任务已启动，正在后台执行", data={"path": path}
+            )
+        else:
+            return ApiResponse(code=-1, msg="启动整理任务失败", data=None)
