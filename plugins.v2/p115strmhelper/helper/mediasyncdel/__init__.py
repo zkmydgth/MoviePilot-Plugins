@@ -42,24 +42,12 @@ class MediaSyncDelHelper:
         self.downloader_helper = DownloaderHelper()
         self.chain = PluginChian()
         self.storagechain = StorageChain()
-        self.mediaserver_refresh: Optional[EmbyOperate] = None
+        self.mediaserver_operate = EmbyOperate(func_name="【同步删除】")
 
         downloader_services = self.downloader_helper.get_services()
         for downloader_name, downloader_info in downloader_services.items():
             if downloader_info.config.default:
                 self.default_downloader = downloader_name
-
-    def init_mediaserver(self, mediaservers: Optional[List[str]] = None):
-        """
-        初始化媒体服务器配置
-
-        :param mediaservers: 媒体服务器列表
-        """
-        if mediaservers:
-            self.mediaserver_refresh = EmbyOperate(
-                func_name="【同步删除】",
-                media_servers=mediaservers,
-            )
 
     def download_file_del_sync(self, event: Event):
         """
@@ -724,9 +712,9 @@ class MediaSyncDelHelper:
                 not current_tmdb_id or not str(current_tmdb_id).isdigit()
             ):
                 series_id = json_object.get("Item", {}).get("SeriesId")
-                if series_id and self.mediaserver_refresh:
-                    series_tmdb_id = self.mediaserver_refresh.get_series_tmdb_id(
-                        series_id
+                if series_id and configer.sync_del_mediaservers:
+                    series_tmdb_id = self.mediaserver_operate.get_series_tmdb_id(
+                        configer.sync_del_mediaservers[0], series_id
                     )
                     if series_tmdb_id:
                         current_tmdb_id = series_tmdb_id

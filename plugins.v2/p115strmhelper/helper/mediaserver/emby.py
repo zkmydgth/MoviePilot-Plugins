@@ -1,5 +1,6 @@
 from pathlib import Path
-from typing import Optional, List, Dict
+from time import sleep
+from typing import Optional, List, Dict, Tuple
 from urllib.parse import quote
 
 from httpx import RequestError, post as httpx_post
@@ -19,34 +20,42 @@ class EmbyOperate:
     Emby 媒体服务器操作类
     """
 
-    def __init__(self, func_name: str, media_servers: Optional[List[str]] = None):
+    def __init__(self, func_name: str):
         self.func_name = func_name
-        self.media_servers = media_servers
         self.mediaserver_helper = MediaServerHelper()
 
-    def get_series_tmdb_id(self, series_id: str) -> Optional[str]:
+    def get_emby_info(self, name: str) -> Tuple[str, str, str]:
         """
-        获取剧集 TMDB ID
+        获取 Emby 服务器信息
 
-        :param series_id: 剧集ID
+        :param name: Emby Server Name
 
-        :return: TMDB ID
+        :return: Emby 服务器信息
         """
-        if not self.media_servers:
-            return None
-
-        emby_server = self.mediaserver_helper.get_service(
-            name=self.media_servers[0], type_filter="emby"
-        )
+        emby_server = self.mediaserver_helper.get_service(name=name, type_filter="emby")
         emby_user = emby_server.instance.get_user()
         emby_apikey = emby_server.config.config.get("apikey")
         emby_host = emby_server.config.config.get("host")
         if not emby_host:
-            return None
+            return "", "", ""
         if not emby_host.endswith("/"):
             emby_host += "/"
         if not emby_host.startswith("http"):
             emby_host = "http://" + emby_host  # noqa
+        return emby_host, emby_user, emby_apikey
+
+    def get_series_tmdb_id(self, name: str, series_id: str) -> Optional[str]:
+        """
+        获取剧集 TMDB ID
+
+        :param name: Emby Server Name
+        :param series_id: 剧集ID
+
+        :return: TMDB ID
+        """
+        emby_host, emby_user, emby_apikey = self.get_emby_info(name)
+        if not emby_host:
+            return None
 
         req_url = (
             f"{emby_host}emby/Users/{emby_user}/Items/{series_id}?api_key={emby_apikey}"
@@ -56,11 +65,105 @@ class EmbyOperate:
                 if res:
                     return res.json().get("ProviderIds", {}).get("Tmdb")
                 else:
-                    logger.info(f"{self.func_name}获取剧集 TMDB ID 失败，无法连接 Emby")
+                    logger.warning(
+                        f"{self.func_name}获取剧集 TMDB ID 失败，Emby 未返回有效响应 name={name!r} series_id={series_id!r}"
+                    )
                     return None
         except Exception as e:
-            logger.error(f"{self.func_name}连接 Items 出错：{str(e)}")
+            logger.error(
+                f"{self.func_name}获取剧集 TMDB ID 异常 name={name!r} series_id={series_id!r}: {e}",
+            )
             return None
+
+    def get_item_id_by_path(self, name: str, path: str) -> Optional[str]:
+        """
+        依据路径获取 Emby 项目 ID
+
+        :param name: Emby Server Name
+        :param path: 项目路径
+
+        :return: 项目 ID
+        """
+        emby_host, _, emby_apikey = self.get_emby_info(name)
+        if not emby_host:
+            return None
+
+        req_url = f"{emby_host}emby/Items"
+        params = {
+            "Path": path,
+            "Recursive": "true",
+            "Fields": "Path",
+            "IncludeItemTypes": "Movie,Episode,Folder,Series",
+            "api_key": emby_apikey,
+        }
+        try:
+            with RequestUtils().get_res(url=req_url, params=params) as res:
+                if res:
+                    items = res.json().get("Items", [])
+                    for item in items:
+                        if item.get("Path") == path:
+                            return item.get("Id")
+                    logger.warning(
+                        f"{self.func_name}无法获取项目 Id，未匹配到路径 name={name!r} path={path!r}"
+                    )
+                else:
+                    logger.warning(
+                        f"{self.func_name}获取项目 Id 失败，Emby 未返回有效响应 name={name!r} path={path!r}"
+                    )
+            return None
+        except Exception as e:
+            logger.error(
+                f"{self.func_name}获取项目 Id 异常 name={name!r} path={path!r}: {e}",
+            )
+            return None
+
+    def trigger_refresh_by_id(self, name: str, item_id: str) -> bool:
+        """
+        触发指定 ID 的刷新任务
+
+        :param name: Emby Server Name
+        :param item_id: ID
+
+        :return: 是否触发成功
+        """
+        emby_host, _, emby_apikey = self.get_emby_info(name)
+        if not emby_host:
+            return False
+
+        req_url = f"{emby_host}emby/Items/{item_id}/Refresh?api_key={emby_apikey}"
+        try:
+            with RequestUtils().get_res(url=req_url) as res:
+                if res and res.status_code in [200, 204]:
+                    return True
+                else:
+                    logger.warning(
+                        f"{self.func_name}触发刷新任务失败，Emby 未返回有效响应 name={name!r} item_id={item_id!r}"
+                    )
+                    return False
+        except Exception as e:
+            logger.error(
+                f"{self.func_name}触发刷新任务异常 name={name!r} item_id={item_id!r}: {e}",
+            )
+            return False
+
+    def trigger_refresh_by_path(self, name: str, path: str) -> bool:
+        """
+        依据路径触发刷新任务
+
+        :param name: Emby Server Name
+        :param path: 项目路径
+
+        :return: 是否触发成功
+        """
+        path_obj = Path(path)
+        for parent in path_obj.parents:
+            if len(parent.parts) <= 1:
+                break
+            item_id = self.get_item_id_by_path(name, parent.as_posix())
+            if not item_id:
+                continue
+            return self.trigger_refresh_by_id(name, item_id)
+        return False
 
 
 class EmbyMediaInfoOperate:
@@ -81,6 +184,7 @@ class EmbyMediaInfoOperate:
             license=configer.p115center_license,
             file_path=str(Path(__file__).resolve().parent.parent.parent / "api.py"),
         )
+        self.emby_operate = EmbyOperate(func_name)
 
     @property
     def service_infos(self) -> Optional[Dict[str, ServiceInfo]]:
@@ -115,6 +219,56 @@ class EmbyMediaInfoOperate:
             return None
 
         return active_services
+
+    def _sync_media_info(
+        self,
+        host: str,
+        api_key: str,
+        media_data: Optional[Dict],
+        service_name: str,
+        need_upload: bool,
+        file_path: Optional[str] = None,
+        item_id: Optional[str] = None,
+    ) -> Tuple[bool, bool, Optional[Dict]]:
+        if file_path:
+            path_encoded = quote(file_path, safe="")
+            url = (
+                f"{host}emby/Items/SyncMediaInfo?Path={path_encoded}&api_key={api_key}"
+            )
+        elif item_id:
+            url = f"{host}emby/Items/SyncMediaInfo?Id={item_id}&api_key={api_key}"
+        else:
+            return False, need_upload, media_data
+        try:
+            res = httpx_post(
+                url,
+                json=media_data,
+                headers={"Content-Type": "application/json"},
+            )
+            try:
+                res_data = res.json()
+            except Exception:
+                res_data = []
+            if res.status_code == 200 and res_data:
+                logger.info(
+                    f"{self.func_name}{service_name} 更新媒体信息成功: {file_path if file_path else item_id}"
+                )
+                if need_upload:
+                    media_data = res_data
+                elif media_data != res_data:
+                    logger.warning(
+                        f"{self.func_name}{service_name} 媒体信息不一致，重新上传服务器: {file_path if file_path else item_id}"
+                    )
+                    need_upload = True
+                    media_data = res_data
+                return True, need_upload, media_data
+            else:
+                logger.warning(
+                    f"{self.func_name}{service_name} 更新媒体信息失败: [{res.status_code}] {res_data}"
+                )
+        except RequestError as e:
+            logger.error(f"{self.func_name}{service_name} 更新媒体信息失败: {e}")
+        return False, need_upload, media_data
 
     def get_mediainfo(self, sha1: str, path: Path):
         """
@@ -165,42 +319,50 @@ class EmbyMediaInfoOperate:
                 host += "/"
             if not host.startswith("http"):
                 host = "http://" + host  # noqa
-            path_encoded = quote(file_path, safe="")
-            url = (
-                f"{host}emby/Items/SyncMediaInfo?Path={path_encoded}&api_key={api_key}"
+            status, need_upload, media_data = self._sync_media_info(
+                host=host,
+                api_key=api_key,
+                media_data=media_data,
+                service_name=service_name,
+                need_upload=need_upload,
+                file_path=file_path,
             )
-            try:
-                res = httpx_post(
-                    url,
-                    json=media_data,
-                    headers={"Content-Type": "application/json"},
+            if not status:
+                logger.info(
+                    f"{self.func_name}尝试获取媒体 Id 提取媒体信息: {file_path}"
                 )
-                try:
-                    res_data = res.json()
-                except Exception:
-                    res_data = []
-                if res.status_code == 200 and res_data:
-                    logger.info(
-                        f"{self.func_name}{service_name} 更新媒体信息成功: {file_path}"
-                    )
-                    if need_upload:
-                        media_data = res_data
-                    elif media_data != res_data:
-                        logger.warn(
-                            f"{self.func_name}{service_name} 媒体信息不一致，重新上传服务器: {file_path}"
+                item_id = self.emby_operate.get_item_id_by_path(service_name, file_path)
+                if not item_id:
+                    self.emby_operate.trigger_refresh_by_path(service_name, file_path)
+                    for _ in range(3):
+                        sleep(10)
+                        item_id = self.emby_operate.get_item_id_by_path(
+                            service_name, file_path
                         )
-                        need_upload = True
-                        media_data = res_data
-                else:
-                    logger.warning(
-                        f"{self.func_name}{service_name} 更新媒体信息失败: [{res.status_code}] {res_data}"
+                        if item_id:
+                            break
+                if not item_id:
+                    logger.error(
+                        f"{self.func_name}无法获取媒体 Id 提取媒体信息: {file_path}"
                     )
-            except RequestError as e:
-                logger.error(f"{self.func_name}{service_name} 更新媒体信息失败: {e}")
-
+                else:
+                    status, need_upload, media_data = self._sync_media_info(
+                        host=host,
+                        api_key=api_key,
+                        media_data=media_data,
+                        service_name=service_name,
+                        need_upload=need_upload,
+                        item_id=item_id,
+                    )
+                    if not status:
+                        logger.error(
+                            f"{self.func_name}使用媒体 Id 提取媒体信息失败: [{item_id}] {file_path}"
+                        )
         if need_upload and media_data:
             try:
                 self.center.upload_emby_mediainfo_data(sha1, media_data)
                 logger.info(f"{self.func_name}上传媒体信息成功: [{sha1}]{file_path}")
             except Exception as e:
-                logger.warn(f"{self.func_name}上传媒体信息失败: {sha1} {file_path} {e}")
+                logger.warning(
+                    f"{self.func_name}上传媒体信息失败: {sha1} {file_path} {e}"
+                )

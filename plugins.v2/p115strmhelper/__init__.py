@@ -1329,8 +1329,6 @@ class P115StrmHelper(_PluginBase):
             return
 
         mediasyncdel_helper = MediaSyncDelHelper()
-        mediasyncdel_helper.init_mediaserver(configer.sync_del_mediaservers)
-
         mediasyncdel_helper.sync_del_by_webhook(
             event_data=event.event_data,
             enabled=configer.sync_del_enabled,
@@ -1352,8 +1350,6 @@ class P115StrmHelper(_PluginBase):
             return
 
         mediasyncdel_helper = MediaSyncDelHelper()
-        mediasyncdel_helper.init_mediaserver(configer.sync_del_mediaservers)
-
         mediasyncdel_helper.download_file_del_sync(event)
 
     def stop_service(self):
