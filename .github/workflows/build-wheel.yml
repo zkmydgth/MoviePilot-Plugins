@@ -70,7 +70,7 @@ jobs:
       - name: 从输入字符串生成矩阵 JSON
         id: generate_matrix
         run: |
-          JSON_OBJECT=$(echo '${{ inputs.alpine_platforms }}' | jq -c -R '{arch: split(" ")}')
+          JSON_OBJECT=$(echo '${{ inputs.musllinux_platforms }}' | jq -c -R '{arch: split(" ")}')
           echo "matrix=${JSON_OBJECT}" >> $GITHUB_OUTPUT
 
   # 任务1：获取源码包信息
