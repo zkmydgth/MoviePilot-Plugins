@@ -329,5 +329,17 @@
             "v1.0.1": "兼容更多友商STRM文件地址，修复STRM地址编码错误",
             "v1.0.0": "发布"
         }
+    },
+    "TestPlugin": {
+        "name": "TestPlugin",
+        "description": "Test 插件",
+        "version": "0.0.1",
+        "icon": "cloud.png",
+        "author": "DDSRem",
+        "level": 1,
+        "release": true,
+        "history": {
+            "v0.0.1": "Github Action测试"
+        }
     }
 }
