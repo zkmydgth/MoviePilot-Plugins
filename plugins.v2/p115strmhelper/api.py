@@ -7,10 +7,9 @@ from typing import Dict, Optional
 from pathlib import Path
 from urllib.parse import quote
 
-import httpx
 from qrcode import make as qr_make
 from orjson import dumps, loads
-from p115client import P115Client
+from p115client import P115Client, check_response
 from p115client.exception import DataError
 from p115client.tool.fs_files import iter_fs_files
 from fastapi import Request, Response, Depends, status
@@ -315,55 +314,27 @@ class Api:
             ]
             if final_client_type not in allowed_types:
                 final_client_type = "alipaymini"
-
             logger.info(f"【扫码登入】二维码API - 使用客户端类型: {final_client_type}")
 
-            resp = httpx.get(
-                "https://qrcodeapi.115.com/api/1.0/web/1.0/token/", timeout=10
-            )
-            resp.raise_for_status()
-            resp_info = resp.json().get("data", {})
-            uid = resp_info.get("uid", "")
+            resp = P115Client.login_qrcode_token()
+            check_response(resp)
+            resp_info = resp.get("data", {})
+            _uid = resp_info.get("uid", "")
             _time = resp_info.get("time", "")
-            sign = resp_info.get("sign", "")
-
-            resp = httpx.get(
-                f"https://qrcodeapi.115.com/api/1.0/web/1.0/qrcode?uid={uid}",
-                timeout=10,
-            )
-            resp.raise_for_status()
-
-            qrcode_base64 = b64encode(resp.content).decode("utf-8")
-
-            tips_map = {
-                "alipaymini": "请使用115客户端或支付宝扫描二维码登录",
-                "wechatmini": "请使用115客户端或微信扫描二维码登录",
-                "android": "请使用115安卓客户端扫描登录",
-                "115android": "请使用115安卓客户端扫描登录",
-                "ios": "请使用115 iOS客户端扫描登录",
-                "115ios": "请使用115 iOS客户端扫描登录",
-                "web": "请使用115网页版扫码登录",
-                "115ipad": "请使用115 PAD客户端扫描登录",
-                "tv": "请使用115 TV客户端扫描登录",
-                "qandroid": "请使用115 qandroid客户端扫描登录",
-            }
-            tips = tips_map.get(final_client_type, "请扫描二维码登录")
+            _sign = resp_info.get("sign", "")
+            resp = P115Client.login_qrcode(_uid)
+            qrcode_base64 = b64encode(resp).decode("utf-8")
 
             return ApiResponse(
                 data=QRCodeData(
-                    uid=uid,
+                    uid=_uid,
                     time=_time,
-                    sign=sign,
+                    sign=_sign,
                     qrcode=f"data:image/png;base64,{qrcode_base64}",
-                    tips=tips,
+                    tips="请使用115客户端扫描二维码登录",
                     client_type=final_client_type,
                 )
             )
-
-        except httpx.HTTPStatusError as e:
-            error_msg = f"获取二维码失败: {e.response.status_code} - {e.response.text}"
-            logger.error(f"【扫码登入】获取二维码HTTP错误: {error_msg}", exc_info=True)
-            return ApiResponse(code=-1, msg=error_msg)
         except Exception as e:
             error_msg = f"获取登录二维码出错: {str(e)}"
             logger.error(f"【扫码登入】获取二维码异常: {e}", exc_info=True)
@@ -378,13 +349,14 @@ class Api:
         try:
             if not uid:
                 return ApiResponse(code=-1, msg="无效的二维码ID，参数uid不能为空")
-
-            resp = httpx.get(
-                f"https://qrcodeapi.115.com/get/status/?uid={uid}&time={_time}&sign={sign}",
-                timeout=120,
-            )
-            resp.raise_for_status()
-            status_code = resp.json().get("data").get("status")
+            payload = {
+                "uid": uid,
+                "time": _time,
+                "sign": sign,
+            }
+            resp = P115Client.login_qrcode_scan_status(payload)
+            check_response(resp)
+            status_code = resp.get("data").get("status")
         except Exception as e:
             error_msg = f"检查二维码状态异常: {str(e)}"
             logger.error(f"【扫码登入】检查二维码状态异常: {e}", exc_info=True)
@@ -397,7 +369,7 @@ class Api:
                 data=CheckQRCodeData(status="scanned", msg="已扫码，等待确认")
             )
         if status_code == -1 or (
-            status_code is None and resp.json().get("message") == "key invalid"
+            status_code is None and resp.get("message") == "key invalid"
         ):
             return ApiResponse(code=-1, msg="二维码已过期")
         if status_code == -2:
@@ -405,18 +377,13 @@ class Api:
 
         if status_code == 2:
             try:
-                resp = httpx.post(
-                    f"https://passportapi.115.com/app/1.0/{client_type}/1.0/login/qrcode/",
-                    data={"app": client_type, "account": uid},
-                    timeout=10,
-                )
-                resp.raise_for_status()
-                login_data = resp.json()
+                resp = P115Client.login_qrcode_scan_result(uid, app=client_type)
+                check_response(resp)
             except Exception as e:
                 return ApiResponse(code=-1, msg=f"获取登录结果请求失败: {e}")
 
-            if login_data.get("state") and login_data.get("data"):
-                cookie_data = login_data.get("data", {})
+            if resp.get("state") and resp.get("data"):
+                cookie_data = resp.get("data", {})
                 cookie_string = ""
                 if "cookie" in cookie_data and isinstance(cookie_data["cookie"], dict):
                     cookie_string = "; ".join(
@@ -446,8 +413,8 @@ class Api:
                 else:
                     return ApiResponse(code=-1, msg="登录成功但未能正确解析Cookie")
             else:
-                specific_error = login_data.get(
-                    "message", login_data.get("error", "未知错误")
+                specific_error = resp.get(
+                    "message", resp.get("error", "未知错误")
                 )
                 return ApiResponse(
                     code=-1, msg=f"获取登录会话数据失败: {specific_error}"
@@ -505,9 +472,9 @@ class Api:
         """
         try:
             data = AliyunPanLogin.ck(params.t, params.ck).get("content").get("data")
-            status = data["qrCodeStatus"]
+            _status = data["qrCodeStatus"]
 
-            if status == "CONFIRMED":
+            if _status == "CONFIRMED":
                 h = data["bizExt"]
                 c = loads(b64decode(h).decode("gbk"))
                 refresh_token = c["pds_login_result"]["refreshToken"]
@@ -520,11 +487,11 @@ class Api:
                         )
                     )
                 return ApiResponse(code=-1, msg="登录成功但未能获取Token")
-            elif status == "EXPIRED":
+            elif _status == "EXPIRED":
                 return ApiResponse(code=-1, msg="二维码无效或已过期")
-            elif status == "CANCELED":
+            elif _status == "CANCELED":
                 return ApiResponse(code=-1, msg="用户取消登录")
-            elif status == "SCANED":
+            elif _status == "SCANED":
                 return ApiResponse(
                     data=CheckAliyunDriveQRCodeData(
                         status="scanned", msg="请在手机上确认"
