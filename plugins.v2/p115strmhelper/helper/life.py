@@ -919,6 +919,19 @@ class MonitorLife:
                 file_name = event["file_name"]
                 dir_path = self._get_path_by_cid(int(event["parent_id"]))
                 file_path = Path(dir_path) / file_name
+                # 待整理目录跳过处理
+                if configer.pan_transfer_enabled and configer.pan_transfer_paths:
+                    if PathUtils.get_run_transfer_path(
+                        paths=configer.pan_transfer_paths,
+                        transfer_path=file_path.as_posix(),
+                    ):
+                        continue
+                # 未识别目录跳过处理
+                if configer.pan_transfer_unrecognized_path:
+                    if PathUtils.has_prefix(
+                        file_path.as_posix(), configer.pan_transfer_unrecognized_path
+                    ):
+                        continue
                 _databasehelper.upsert_batch(
                     _databasehelper.process_life_dir_item(
                         event=event, file_path=file_path
