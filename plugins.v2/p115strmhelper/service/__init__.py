@@ -616,6 +616,8 @@ class ServiceHelper:
                     self.monitor_stop_event = None
             if self.fuse_manager:
                 self.fuse_manager.stop_fuse()
+            if self.redirect:
+                self.redirect.close_http_client_sync()
         except Exception as e:
             logger.error(f"发生错误: {e}")
 

@@ -1,8 +1,10 @@
 from collections.abc import Mapping
-from typing import cast, Dict, Optional
+from concurrent.futures import ThreadPoolExecutor
 from errno import EIO, ENOENT
+from typing import cast, Dict, Optional
 from urllib.parse import parse_qsl, unquote, urlsplit, urlencode
-from threading import Timer
+
+import asyncio
 
 import httpx
 from orjson import dumps, loads
@@ -27,11 +29,56 @@ class Redirect:
     302 跳转模块
     """
 
+    _http_client: Optional[httpx.AsyncClient] = None
+
     def __init__(self, client: P115Client, pid: Optional[int] = None):
         self.client = client
         self.u115openhelper = U115OpenHelper()
 
         self.pid = pid
+
+        if Redirect._http_client is None:
+            cookies = configer.cookies_dict if configer.cookies else None
+            Redirect._http_client = httpx.AsyncClient(
+                follow_redirects=True,
+                timeout=httpx.Timeout(10.0, connect=5.0),
+                limits=httpx.Limits(
+                    max_connections=200,
+                    max_keepalive_connections=100,
+                ),
+                cookies=cookies,
+            )
+
+    @classmethod
+    async def close_http_client(cls):
+        """
+        关闭 HTTP 客户端连接池
+        """
+        if cls._http_client is not None:
+            await cls._http_client.aclose()
+            cls._http_client = None
+
+    @classmethod
+    def close_http_client_sync(cls):
+        """
+        同步关闭 HTTP 客户端连接池
+        """
+        if cls._http_client is not None:
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    asyncio.create_task(cls.close_http_client())
+                else:
+                    loop.run_until_complete(cls.close_http_client())
+            except RuntimeError:
+                try:
+                    asyncio.run(cls.close_http_client())
+                except RuntimeError:
+                    with ThreadPoolExecutor() as executor:
+                        future = executor.submit(
+                            lambda: asyncio.run(cls.close_http_client())
+                        )
+                        future.result(timeout=5)
 
     @staticmethod
     def get_first(m: Mapping, *keys, default=None):
@@ -40,28 +87,35 @@ class Redirect:
                 return m[k]
         return default
 
-    def get_pickcode_for_copy(self, pickcode: str) -> Optional[str]:
+    async def get_pickcode_for_copy(self, pickcode: str) -> Optional[str]:
         """
         通过复制文件获取二次 PickCode
         """
         if not self.pid:
             return None
-        resp = self.client.fs_copy(to_id(pickcode), pid=self.pid)
+        resp = await self.client.fs_copy(to_id(pickcode), pid=self.pid, async_=True)
         p115_check_response(resp)
         payload = {"cid": self.pid, "o": "user_ptime", "asc": 0}
-        resp = self.client.fs_files(payload)
+        resp = await self.client.fs_files(payload, async_=True)
         p115_check_response(resp)
         data = resp.get("data")[0]
         return data.get("pc", None)
 
-    def delayed_remove(self, pickcode: str) -> None:
+    async def delayed_remove(self, pickcode: str) -> None:
         """
         延迟删除
         """
-        self.client.fs_delete(to_id(pickcode))
+        await self.client.fs_delete(to_id(pickcode), async_=True)
         logger.debug(f"【302跳转服务】清理 {pickcode} 文件")
 
-    def share_get_id_for_name(
+    async def _delayed_remove_async(self, pickcode: str) -> None:
+        """
+        异步延迟删除
+        """
+        await asyncio.sleep(5.0)
+        await self.delayed_remove(pickcode)
+
+    async def share_get_id_for_name(
         self,
         share_code: str,
         receive_code: str,
@@ -83,19 +137,15 @@ class Redirect:
         suffix = name.rpartition(".")[-1]
         if suffix.isalnum():
             payload["suffix"] = suffix
-        resp = httpx.get(
+        resp = await self._http_client.get(
             f"{api}?{urlencode(payload)}",
-            follow_redirects=True,
-            cookies=configer.cookies_dict,
         )
         check_response(resp)
         json = loads(cast(bytes, resp.content))
         if self.get_first(json, "errno", "errNo") == 20021:
             payload.pop("suffix")
-            resp = httpx.get(
+            resp = await self._http_client.get(
                 f"{api}?{urlencode(payload)}",
-                follow_redirects=True,
-                cookies=configer.cookies_dict,
             )
             check_response(resp)
             json = loads(cast(bytes, resp.content))
@@ -107,15 +157,13 @@ class Redirect:
         id = int(info["fid"])
         return id
 
-    @staticmethod
-    def get_receive_code(share_code: str) -> str:
+    @classmethod
+    async def get_receive_code(cls, share_code: str) -> str:
         """
         获取接收码
         """
-        resp = httpx.get(
+        resp = await cls._http_client.get(
             f"http://web.api.115.com/share/shareinfo?share_code={share_code}",
-            follow_redirects=True,
-            cookies=configer.cookies_dict,
         )
         check_response(resp)
         json = loads(cast(bytes, resp.content))
@@ -124,7 +172,7 @@ class Redirect:
         receive_code = json["data"]["receive_code"]
         return receive_code
 
-    def get_downurl_cookie(
+    async def get_downurl_cookie(
         self,
         pickcode: str,
         user_agent: str = "",
@@ -137,8 +185,8 @@ class Redirect:
         else:
             cache_ua = user_agent
 
-        if r302cacher.get(pickcode, cache_ua):
-            cache_url = r302cacher.get(pickcode, cache_ua)
+        cache_url = await r302cacher.get(pickcode, cache_ua)
+        if cache_url:
             logger.debug(f"【302跳转服务】缓存获取 {pickcode} {cache_ua} {cache_url}")
             return Url.of(
                 cache_url,
@@ -148,12 +196,12 @@ class Redirect:
         post_pickcode = pickcode
         if (
             configer.get_config("same_playback")
-            and r302cacher.count_by_pick_code(pickcode) > 0
+            and await r302cacher.count_by_pick_code(pickcode) > 0
         ):
-            post_pickcode = self.get_pickcode_for_copy(pickcode)
+            post_pickcode = await self.get_pickcode_for_copy(pickcode)
             logger.debug(f"【302跳转服务】多端播放开启 {pickcode} -> {post_pickcode}")
 
-        resp = httpx.post(
+        resp = await self._http_client.post(
             "http://proapi.115.com/android/2.0/ufile/download",
             data={
                 "data": encrypt(f'{{"pick_code":"{post_pickcode}"}}').decode("utf-8")
@@ -161,8 +209,6 @@ class Redirect:
             headers={
                 "User-Agent": user_agent,
             },
-            follow_redirects=True,
-            cookies=configer.cookies_dict,
         )
         check_response(resp)
         json = loads(cast(bytes, resp.content))
@@ -175,21 +221,17 @@ class Redirect:
         expires_time = (
             int(next(v for k, v in parse_qsl(urlsplit(url).query) if k == "t")) - 60 * 5
         )
-        r302cacher.set(pickcode, cache_ua, str(url), expires_time)
+        await r302cacher.set(pickcode, cache_ua, str(url), expires_time)
         logger.debug(
             f"【302跳转服务】添加至缓存 {pickcode} {cache_ua} {url} {expires_time}"
         )
 
         if post_pickcode != pickcode:
-            Timer(
-                5.0,
-                self.delayed_remove,
-                args=(post_pickcode,),
-            ).start()
+            asyncio.create_task(self._delayed_remove_async(post_pickcode))
 
         return url
 
-    def get_downurl_open(
+    async def get_downurl_open(
         self,
         pickcode: str,
         user_agent: str = "",
@@ -202,8 +244,8 @@ class Redirect:
         else:
             cache_ua = user_agent
 
-        if r302cacher.get(pickcode, cache_ua):
-            cache_url = r302cacher.get(pickcode, cache_ua)
+        cache_url = await r302cacher.get(pickcode, cache_ua)
+        if cache_url:
             logger.debug(f"【302跳转服务】缓存获取 {pickcode} {cache_ua} {cache_url}")
             return Url.of(
                 cache_url,
@@ -213,13 +255,15 @@ class Redirect:
         post_pickcode = pickcode
         if (
             configer.get_config("same_playback")
-            and r302cacher.count_by_pick_code(pickcode) > 0
+            and await r302cacher.count_by_pick_code(pickcode) > 0
         ):
-            post_pickcode = self.get_pickcode_for_copy(pickcode)
+            post_pickcode = await self.get_pickcode_for_copy(pickcode)
             logger.debug(f"【302跳转服务】多端播放开启 {pickcode} -> {post_pickcode}")
 
-        resp_url = self.u115openhelper.get_download_url(
-            pickcode=post_pickcode, user_agent=user_agent
+        resp_url = await asyncio.to_thread(
+            self.u115openhelper.get_download_url,
+            pickcode=post_pickcode,
+            user_agent=user_agent,
         )
         data: Dict = {}
         data["file_name"] = unquote(urlsplit(resp_url).path.rpartition("/")[-1])
@@ -228,21 +272,17 @@ class Redirect:
             int(next(v for k, v in parse_qsl(urlsplit(resp_url).query) if k == "t"))
             - 60 * 5
         )
-        r302cacher.set(pickcode, cache_ua, resp_url, expires_time)
+        await r302cacher.set(pickcode, cache_ua, resp_url, expires_time)
         logger.debug(
             f"【302跳转服务】添加至缓存 {pickcode} {cache_ua} {resp_url} {expires_time}"
         )
 
         if post_pickcode != pickcode:
-            Timer(
-                5.0,
-                self.delayed_remove,
-                args=(post_pickcode,),
-            ).start()
+            asyncio.create_task(self._delayed_remove_async(post_pickcode))
 
         return Url.of(resp_url, data)
 
-    def get_share_downurl(
+    async def get_share_downurl(
         self, share_code: str, receive_code: str, file_id: int, user_agent: str = ""
     ) -> Url:
         """
@@ -253,8 +293,10 @@ class Redirect:
         else:
             cache_ua = user_agent
 
-        if r302cacher.get(f"{share_code}{receive_code}{file_id}", cache_ua):
-            cache_url = r302cacher.get(f"{share_code}{receive_code}{file_id}", cache_ua)
+        cache_url = await r302cacher.get(
+            f"{share_code}{receive_code}{file_id}", cache_ua
+        )
+        if cache_url:
             logger.debug(
                 f"【302跳转服务】分享缓存获取 {share_code} {receive_code} {file_id} {cache_ua} {cache_url}"
             )
@@ -268,18 +310,16 @@ class Redirect:
             "receive_code": receive_code,
             "file_id": file_id,
         }
-        resp = httpx.post(
+        resp = await self._http_client.post(
             "http://proapi.115.com/app/share/downurl",
             data={"data": encrypt(dumps(payload)).decode("utf-8")},
-            follow_redirects=True,
-            cookies=configer.cookies_dict,
         )
         check_response(resp)
         json = loads(cast(bytes, resp.content))
         if not json["state"]:
             if json.get("errno") == 4100008:
-                receive_code = self.get_receive_code(share_code)
-                return self.get_share_downurl(share_code, receive_code, file_id)
+                receive_code = await self.get_receive_code(share_code)
+                return await self.get_share_downurl(share_code, receive_code, file_id)
             raise OSError(EIO, json)
         data = json["data"] = loads(decrypt(json["data"]))
         if not (data and (url_info := data["url"])):
@@ -292,7 +332,7 @@ class Redirect:
         expires_time = (
             int(next(v for k, v in parse_qsl(urlsplit(url).query) if k == "t")) - 60 * 5
         )
-        r302cacher.set(
+        await r302cacher.set(
             f"{share_code}{receive_code}{file_id}", cache_ua, str(url), expires_time
         )
         logger.debug(

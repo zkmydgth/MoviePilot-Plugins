@@ -213,20 +213,38 @@ class SentryManager:
         if getattr(func, "_sentry_captured", False):
             return func
 
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            with self.sentry_hub:
-                try:
-                    return func(*args, **kwargs)
-                except Exception as e:
-                    with self.sentry_hub.configure_scope() as scope:
-                        scope.set_tag("capture_source", "plugin_decorator")
-                        scope.set_tag("function_name", func.__name__)
-                    self.sentry_hub.capture_exception(e)
-                    raise
+        if inspect.iscoroutinefunction(func):
 
-        wrapper._sentry_captured = True  # pylint: disable=W0212,protected-access
-        return wrapper
+            @functools.wraps(func)
+            async def async_wrapper(*args, **kwargs):
+                with self.sentry_hub:
+                    try:
+                        return await func(*args, **kwargs)
+                    except Exception as e:
+                        with self.sentry_hub.configure_scope() as scope:
+                            scope.set_tag("capture_source", "plugin_decorator")
+                            scope.set_tag("function_name", func.__name__)
+                        self.sentry_hub.capture_exception(e)
+                        raise
+
+            async_wrapper._sentry_captured = True  # pylint: disable=W0212,protected-access
+            return async_wrapper
+        else:
+
+            @functools.wraps(func)
+            def wrapper(*args, **kwargs):
+                with self.sentry_hub:
+                    try:
+                        return func(*args, **kwargs)
+                    except Exception as e:
+                        with self.sentry_hub.configure_scope() as scope:
+                            scope.set_tag("capture_source", "plugin_decorator")
+                            scope.set_tag("function_name", func.__name__)
+                        self.sentry_hub.capture_exception(e)
+                        raise
+
+            wrapper._sentry_captured = True  # pylint: disable=W0212,protected-access
+            return wrapper
 
     def capture_all_class_exceptions(self, cls):
         """

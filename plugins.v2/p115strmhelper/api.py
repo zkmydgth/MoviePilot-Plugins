@@ -593,7 +593,7 @@ class Api:
         )
 
     @staticmethod
-    def _redirect_url_impl(
+    async def _redirect_url_impl(
         request: Request,
         pickcode: str = "",
         file_name: str = "",
@@ -610,14 +610,14 @@ class Api:
         if share_code:
             try:
                 if not receive_code:
-                    receive_code = servicer.redirect.get_receive_code(share_code)
+                    receive_code = await servicer.redirect.get_receive_code(share_code)
                 elif len(receive_code) != 4:
                     return Api._create_error_response(
                         f"Bad receive_code: {receive_code}"
                     )
                 if not id:
                     if file_name:
-                        id = servicer.redirect.share_get_id_for_name(
+                        id = await servicer.redirect.share_get_id_for_name(
                             share_code,
                             receive_code,
                             file_name,
@@ -626,7 +626,7 @@ class Api:
                     return Api._create_error_response(
                         f"Please specify id or name for share_code={share_code!r}"
                     )
-                url = servicer.redirect.get_share_downurl(
+                url = await servicer.redirect.get_share_downurl(
                     share_code, receive_code, id, user_agent
                 )
                 logger.info(f"【302跳转服务】获取 115 下载地址成功: {url}")
@@ -649,11 +649,11 @@ class Api:
 
             try:
                 if configer.get_config("link_redirect_mode") == "cookie":
-                    url = servicer.redirect.get_downurl_cookie(
+                    url = await servicer.redirect.get_downurl_cookie(
                         pickcode.lower(), user_agent
                     )
                 else:
-                    url = servicer.redirect.get_downurl_open(
+                    url = await servicer.redirect.get_downurl_open(
                         pickcode.lower(), user_agent
                     )
                 logger.info(
@@ -685,7 +685,7 @@ class Api:
         )
 
     @staticmethod
-    def redirect_url_get(
+    async def redirect_url_get(
         request: Request,
         pickcode: str = "",
         file_name: str = "",
@@ -696,12 +696,12 @@ class Api:
         """
         115 网盘 302 跳转 (GET)
         """
-        return Api._redirect_url_impl(
+        return await Api._redirect_url_impl(
             request, pickcode, file_name, id, share_code, receive_code
         )
 
     @staticmethod
-    def redirect_url_post(
+    async def redirect_url_post(
         request: Request,
         pickcode: str = "",
         file_name: str = "",
@@ -712,12 +712,12 @@ class Api:
         """
         115 网盘 302 跳转 (POST)
         """
-        return Api._redirect_url_impl(
+        return await Api._redirect_url_impl(
             request, pickcode, file_name, id, share_code, receive_code
         )
 
     @staticmethod
-    def redirect_url_head(
+    async def redirect_url_head(
         request: Request,
         pickcode: str = "",
         file_name: str = "",
@@ -728,12 +728,12 @@ class Api:
         """
         115 网盘 302 跳转 (HEAD)
         """
-        return Api._redirect_url_impl(
+        return await Api._redirect_url_impl(
             request, pickcode, file_name, id, share_code, receive_code
         )
 
     @staticmethod
-    def redirect_url_get_path(
+    async def redirect_url_get_path(
         request: Request,
         args: str = "",
         pickcode: str = "",
@@ -747,12 +747,12 @@ class Api:
         """
         if args and len(args) == 17 and args.isalnum() and not pickcode:
             pickcode = args
-        return Api._redirect_url_impl(
+        return await Api._redirect_url_impl(
             request, pickcode, file_name, id, share_code, receive_code
         )
 
     @staticmethod
-    def redirect_url_post_path(
+    async def redirect_url_post_path(
         request: Request,
         args: str = "",
         pickcode: str = "",
@@ -766,12 +766,12 @@ class Api:
         """
         if args and len(args) == 17 and args.isalnum() and not pickcode:
             pickcode = args
-        return Api._redirect_url_impl(
+        return await Api._redirect_url_impl(
             request, pickcode, file_name, id, share_code, receive_code
         )
 
     @staticmethod
-    def redirect_url_head_path(
+    async def redirect_url_head_path(
         request: Request,
         args: str = "",
         pickcode: str = "",
@@ -785,7 +785,7 @@ class Api:
         """
         if args and len(args) == 17 and args.isalnum() and not pickcode:
             pickcode = args
-        return Api._redirect_url_impl(
+        return await Api._redirect_url_impl(
             request, pickcode, file_name, id, share_code, receive_code
         )
 
