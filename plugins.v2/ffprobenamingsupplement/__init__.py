@@ -22,7 +22,7 @@ class FFprobeNamingSupplement(_PluginBase):
     plugin_name = "ffprobe命名补充"
     plugin_desc = "整理重命名时调用 ffprobe，补全命名模板中的 videoFormat、videoCodec、videoBit、audioCodec、fps、effect，支持 STRM "
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/refs/heads/main/icons/ffmpeg.png"
-    plugin_version = "0.1.8"
+    plugin_version = "0.1.9"
     plugin_author = "DDSRem"
     author_url = "https://github.com/DDSRem"
     plugin_config_prefix = "ffprobenamingsupplement_"
@@ -764,7 +764,9 @@ class FFprobeNamingSupplement(_PluginBase):
             cur_stripped = cur.strip()
             if not cur_stripped:
                 return True
-            if key == "audioCodec" and not re_search(r"(?:^|\s)\d+\.\d+$", cur_stripped):
+            if key == "audioCodec" and not re_search(
+                r"(?:^|\s)\d+\.\d+$", cur_stripped
+            ):
                 return True
         return False
 
