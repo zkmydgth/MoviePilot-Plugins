@@ -107,7 +107,9 @@ class IncrementSyncStrmHelper:
         if pan_path == "/":
             cid = 0
         else:
-            cid = int(self.client.fs_dir_getid(pan_path)["id"])
+            cid = int(self.client.fs_dir_getid(pan_path).get("id", None))
+        if not cid:
+            raise ValueError(f"网盘路径不存在: {pan_path}")
         self.api_count += 2
         cnt = 0
         for item in export_dir_parse_iter(
