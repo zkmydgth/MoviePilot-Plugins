@@ -1,3 +1,5 @@
+This file provides guidance to AI coding agents when working with code in this repository.
+
 # MoviePilot-Plugins Project Conventions
 
 ## 1. Commit Conventions
