@@ -1,7 +1,7 @@
-from typing import List, Optional, Any
+from typing import List
 from pathlib import Path
 
-import jieba
+from jieba import cut as jieba_cut
 
 from app.log import logger
 from app.core.config import settings
@@ -12,6 +12,7 @@ from app.db.downloadhistory_oper import DownloadHistoryOper
 from app.db.plugindata_oper import PluginDataOper
 from app.helper.downloader import DownloaderHelper
 
+from ..core.config import configer
 from ..core.plunins import PluginChian
 from ..utils.path import PathUtils, PathRemoveUtils
 
@@ -25,8 +26,12 @@ class TransferHBOper(DbOper):
         """
         通过路径查询转移记录
         所有匹配项
+
+        :param path: 查询路径
+
+        :return List: 数据列表
         """
-        words = jieba.cut(path, HMM=False)
+        words = jieba_cut(path, HMM=False)
         title = "%".join(words)
         total = TransferHistory.count_by_title(self._db, title=title)
         result = TransferHistory.list_by_title(
@@ -57,31 +62,12 @@ class MediaSyncDelHelper:
             if downloader_info.config.default:
                 self.default_downloader = downloader_name
 
-    def get_data(
-        self, key: Optional[str] = None, plugin_id: Optional[str] = None
-    ) -> Any:
-        """
-        获取插件数据
-        :param key: 数据key
-        :param plugin_id: plugin_id
-        """
-        if not plugin_id:
-            plugin_id = self.__class__.__name__
-        return self.plugindata.get_data(plugin_id, key)
-
-    def del_data(self, key: str, plugin_id: Optional[str] = None) -> Any:
-        """
-        删除插件数据
-        :param key: 数据key
-        :param plugin_id: plugin_id
-        """
-        if not plugin_id:
-            plugin_id = self.__class__.__name__
-        return self.plugindata.del_data(plugin_id, key)
-
     def remove_by_path(self, path: str, del_source: bool = False):
         """
         通过路径删除历史记录和源文件
+
+        :param path: 删除路径
+        :param del_source: 删除源文件
         """
         transfer_history = self.transferhisb.get_transfer_his_by_path_title(path)
 
@@ -146,12 +132,16 @@ class MediaSyncDelHelper:
         判断种子是否局部删除
         局部删除则暂停种子
         全部删除则删除种子
+
+        :param type: 类型
+        :param src: 目录
+        :param torrent_hash: 种子 hash 值
         """
         download_id = torrent_hash
         download = self.default_downloader
         history_key = f"{download}-{torrent_hash}"
         plugin_id = "TorrentTransfer"
-        transfer_history = self.get_data(key=history_key, plugin_id=plugin_id)
+        transfer_history = configer.get_plugin_data(key=history_key, plugin_id=plugin_id)
         logger.info(f"【同步删除】查询到 {history_key} 转种历史 {transfer_history}")
 
         handle_torrent_hashs = []
@@ -199,7 +189,7 @@ class MediaSyncDelHelper:
                 # 删除种子
                 if delete_flag:
                     # 删除转种记录
-                    self.del_data(key=history_key, plugin_id=plugin_id)
+                    configer.del_plugin_data(key=history_key, plugin_id=plugin_id)
 
                     # 转种后未删除源种时，同步删除源种
                     if not delete_source:
@@ -288,6 +278,12 @@ class MediaSyncDelHelper:
     ):
         """
         处理做种合集
+
+        :param src: 路径
+        :param delete_flag: 删除合集种子
+        :param torrent_hash: 种子 hash 值
+        :param download_files: 下载文件列表
+        :param handle_torrent_hashs: 种子文件 hash 列表
         """
         try:
             src_download_files = self.downloadhis.get_files_by_fullpath(fullpath=src)
@@ -359,11 +355,15 @@ class MediaSyncDelHelper:
     def __del_seed(self, download_id, delete_flag, handle_torrent_hashs):
         """
         删除辅种
+
+        :param download_id: 下载 ID
+        :param delete_flag: 删除辅种
+        :param handle_torrent_hashs: 种子 hash 列表
         """
         # 查询是否有辅种记录
         history_key = download_id
         plugin_id = "IYUUAutoSeed"
-        seed_history = self.get_data(key=history_key, plugin_id=plugin_id) or []
+        seed_history = configer.get_plugin_data(key=history_key, plugin_id=plugin_id) or []
         logger.info(f"【同步删除】查询到 {history_key} 辅种历史 {seed_history}")
 
         # 有辅种记录则处理辅种
@@ -397,5 +397,5 @@ class MediaSyncDelHelper:
 
             # 删除辅种历史
             if delete_flag:
-                self.del_data(key=history_key, plugin_id=plugin_id)
+                configer.del_plugin_data(key=history_key, plugin_id=plugin_id)
         return handle_torrent_hashs

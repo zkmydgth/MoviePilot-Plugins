@@ -447,30 +447,39 @@ class ConfigManager(BaseModel):
             f"{SystemUtils.cpu_arch() if hasattr(SystemUtils, 'cpu_arch') and callable(SystemUtils.cpu_arch) else 'UnknownArch'})"
         )
 
-    def save_plugin_data(self, key: str, value: Any):
+    def save_plugin_data(self, key: str, value: Any, plugin_id: Optional[str] = None):
         """
         保存插件数据
         :param key: 数据key
         :param value: 数据值
+        :param plugin_id: plugin_id
         """
+        if not plugin_id:
+            plugin_id = self.PLUSIN_NAME
         plugindata = PluginDataOper()
-        plugindata.save(self.PLUSIN_NAME, key, value)
+        plugindata.save(plugin_id, key, value)
 
-    def get_plugin_data(self, key: Optional[str] = None) -> Any:
+    def get_plugin_data(self, key: Optional[str] = None, plugin_id: Optional[str] = None) -> Any:
         """
         获取插件数据
         :param key: 数据key
+        :param plugin_id: plugin_id
         """
+        if not plugin_id:
+            plugin_id = self.PLUSIN_NAME
         plugindata = PluginDataOper()
-        return plugindata.get_data(self.PLUSIN_NAME, key)
+        return plugindata.get_data(plugin_id, key)
 
-    def del_plugin_data(self, key: str) -> Any:
+    def del_plugin_data(self, key: str, plugin_id: Optional[str] = None) -> Any:
         """
         删除插件数据
         :param key: 数据key
+        :param plugin_id: plugin_id
         """
+        if not plugin_id:
+            plugin_id = self.PLUSIN_NAME
         plugindata = PluginDataOper()
-        return plugindata.del_data(self.PLUSIN_NAME, key)
+        return plugindata.del_data(plugin_id, key)
 
 
 configer = ConfigManager()
