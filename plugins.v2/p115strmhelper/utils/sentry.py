@@ -107,6 +107,7 @@ class SentryManager:
             {"type": CanNotFindPathToCid, "message": "无法找到路径"},
             {"type": PanPathNotFound, "message": "网盘路径不存在"},
             {"type": OSError, "message": "File name too long"},
+            {"type": OSError, "message": "Read-only file system"},
             {"type": PermissionError, "message": "Permission denied"},
         ]
 
