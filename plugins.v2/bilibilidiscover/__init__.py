@@ -1,10 +1,9 @@
 from typing import Any, List, Dict, Tuple
 
-from cachetools import cached, TTLCache
-
 from app import schemas
 from app.core.config import settings
 from app.core.event import eventmanager, Event
+from app.core.cache import cached
 from app.log import logger
 from app.plugins import _PluginBase
 from app.schemas import DiscoverSourceEventData
@@ -80,7 +79,7 @@ class BilibiliDiscover(_PluginBase):
     # 插件图标
     plugin_icon = "Bilibili_E.png"
     # 插件版本
-    plugin_version = "1.0.4"
+    plugin_version = "1.0.5"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -150,7 +149,7 @@ class BilibiliDiscover(_PluginBase):
     def get_page(self) -> List[dict]:
         pass
 
-    @cached(cache=TTLCache(maxsize=32, ttl=1800))
+    @cached(region="bilibili_discover", ttl=1800, skip_none=True)
     def __request_bilibili_api(
         self, mtype: str, page_num: int, page_size: int, **kwargs
     ) -> List[schemas.MediaInfo]:

@@ -1,10 +1,9 @@
 from typing import Any, List, Dict, Tuple
 
-from cachetools import cached, TTLCache
-
 from app import schemas
 from app.core.config import settings
 from app.core.event import eventmanager, Event
+from app.core.cache import cached
 from app.log import logger
 from app.plugins import _PluginBase
 from app.schemas import DiscoverSourceEventData
@@ -94,7 +93,7 @@ class MangGuoDiscover(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/DDS-Derek/MoviePilot-Plugins/main/icons/mangguo_A.jpg"
     # 插件版本
-    plugin_version = "1.0.2"
+    plugin_version = "1.0.3"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -168,7 +167,7 @@ class MangGuoDiscover(_PluginBase):
     def get_page(self) -> List[dict]:
         pass
 
-    @cached(cache=TTLCache(maxsize=32, ttl=1800))
+    @cached(region="mangguo_discover", ttl=1800, skip_none=True)
     def __request(self, **kwargs) -> List[schemas.MediaInfo]:
         """
         请求芒果TV API

@@ -2,11 +2,10 @@ import dataclasses
 from datetime import datetime
 from typing import Any, List, Dict, Tuple
 
-from cachetools import cached, TTLCache
-
 from app import schemas
 from app.core.config import settings
 from app.core.event import eventmanager, Event
+from app.core.cache import cached
 from app.log import logger
 from app.plugins import _PluginBase
 from app.schemas import DiscoverSourceEventData
@@ -46,7 +45,7 @@ class BangumiDailyDiscover(_PluginBase):
     # 插件图标
     plugin_icon = "Bangumi_A.png"
     # 插件版本
-    plugin_version = "1.0.4"
+    plugin_version = "1.0.5"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -113,21 +112,87 @@ class BangumiDailyDiscover(_PluginBase):
     def get_page(self) -> List[dict]:
         pass
 
-    @cached(cache=TTLCache(maxsize=32, ttl=1800))
-    def __request_bangumi_data(self) -> List[dict]:
+    @staticmethod
+    def _fetch_raw_bangumi_data() -> List[dict] | None:
         """
-        请求Bangumi每日放送 API
+        仅负责请求原始的Bangumi API数据，不加缓存
         """
         try:
             res = RequestUtils(headers=BANGUMI_HEADERS).get_res(BANGUMI_API_URL)
             if res is None:
-                raise ConnectionError("无法连接Bangumi每日放送，请检查网络连接！")
+                logger.error("无法连接Bangumi每日放送，请检查网络连接！")
+                return None
             if not res.ok:
-                raise ValueError(f"请求Bangumi每日放送 API失败：{res.text}")
+                logger.error(f"请求Bangumi每日放送 API失败：{res.text}")
+                return None
             return res.json()
         except Exception as e:
-            logger.error(f"获取Bangumi数据失败: {str(e)}")
-            raise
+            logger.error(f"请求Bangumi数据时发生异常: {str(e)}")
+            return None
+
+    @cached(region="bangumi_daily_discover", ttl=1800, skip_none=True)
+    def _get_processed_bangumi_data(self) -> Dict[str, List[schemas.MediaInfo]] | None:
+        """
+        获取、处理并缓存数据
+        """
+        raw_data = self._fetch_raw_bangumi_data()
+        if not raw_data:
+            return None
+
+        processed_data: Dict[str, List[schemas.MediaInfo]] = {
+            str(day[0]): [] for day in WEEKDAYS
+        }
+
+        all_items = []
+
+        for day_entry in raw_data:
+            # 获取星期ID
+            weekday_id_num = day_entry.get("weekday", {}).get("id")
+            if weekday_id_num is None:
+                continue
+
+            weekday_id = str(weekday_id_num)
+
+            # 将当前星期的所有番剧转换为MediaInfo对象
+            converted_items = [
+                self.__convert_to_media_info(item)
+                for item in day_entry.get("items", [])
+            ]
+
+            # 存入对应星期的列表
+            if weekday_id in processed_data:
+                processed_data[weekday_id].extend(converted_items)
+
+            # 同时也将所有番剧存入"全部"列表
+            all_items.extend(converted_items)
+
+        processed_data["0"] = all_items
+        return processed_data
+
+    def bangumidaily_discover(
+        self,
+        weekday: str = "0",
+        page: int = 1,
+        count: int = 20,
+    ) -> List[schemas.MediaInfo]:
+        """
+        对外提供API接口
+        """
+        try:
+            processed_data = self._get_processed_bangumi_data()
+            if not processed_data:
+                return []
+
+            results = processed_data.get(str(weekday), [])
+
+            # 执行分页
+            start_idx = (page - 1) * count
+            end_idx = start_idx + count
+            return results[start_idx:end_idx]
+
+        except Exception as e:
+            logger.error(f"获取Bangumi每日放送数据失败: {str(e)}", exc_info=True)
+            return []
 
     @staticmethod
     def __convert_to_media_info(series_info: dict) -> schemas.MediaInfo:
@@ -149,36 +214,6 @@ class BangumiDailyDiscover(_PluginBase):
             vote_average=rating_info.get("score", 0),
             first_air_date=series_info.get("air_date", ""),
         )
-
-    def bangumidaily_discover(
-        self,
-        weekday: str = "0",
-        page: int = 1,
-        count: int = 20,
-    ) -> List[schemas.MediaInfo]:
-        """
-        获取Bangumi每日放送探索数据
-        """
-        try:
-            bangumi_data = self.__request_bangumi_data()
-            if not bangumi_data:
-                return []
-
-            results = []
-            for day_entry in bangumi_data:
-                if weekday == "0" or str(day_entry["weekday"]["id"]) == weekday:
-                    results.extend(
-                        self.__convert_to_media_info(item)
-                        for item in day_entry.get("items", [])
-                    )
-
-            start_idx = (page - 1) * count
-            end_idx = min(page * count, len(results))
-            return results[start_idx:end_idx]
-
-        except Exception as e:
-            logger.error(f"获取Bangumi每日放送数据失败: {str(e)}", exc_info=True)
-            return []
 
     @staticmethod
     def bangumidaily_filter_ui() -> List[dict]:

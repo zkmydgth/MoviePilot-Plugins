@@ -2,11 +2,10 @@ import re
 from typing import Any, List, Dict, Tuple
 from dataclasses import dataclass
 
-from cachetools import cached, TTLCache
-
 from app import schemas
 from app.core.config import settings
 from app.core.event import eventmanager, Event
+from app.core.cache import cached
 from app.log import logger
 from app.plugins import _PluginBase
 from app.schemas import DiscoverSourceEventData
@@ -47,7 +46,7 @@ class CCTVDiscover(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/DDS-Derek/MoviePilot-Plugins/main/icons/CCTV_A.png"
     # 插件版本
-    plugin_version = "1.2.1"
+    plugin_version = "1.2.2"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -143,7 +142,7 @@ class CCTVDiscover(_PluginBase):
             data=VideoAlbumListData(total=data_body.get("total", 0), list=albums)
         )
 
-    @cached(cache=TTLCache(maxsize=32, ttl=1800))
+    @cached(region="cctv_discover", ttl=1800, skip_none=True)
     def __request(
         self, page_num: int, page_size: int, **kwargs
     ) -> List[schemas.MediaInfo]:

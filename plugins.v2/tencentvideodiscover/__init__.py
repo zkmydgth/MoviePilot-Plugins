@@ -2,11 +2,11 @@ import re
 from typing import Any, List, Dict, Tuple
 
 import requests
-from cachetools import cached, TTLCache
 
 from app import schemas
 from app.core.config import settings
 from app.core.event import eventmanager, Event
+from app.core.cache import cached
 from app.log import logger
 from app.plugins import _PluginBase
 from app.schemas import DiscoverSourceEventData
@@ -158,7 +158,7 @@ class TencentVideoDiscover(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/DDS-Derek/MoviePilot-Plugins/main/icons/tencentvideo_A.png"
     # 插件版本
-    plugin_version = "1.0.2"
+    plugin_version = "1.0.3"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -232,7 +232,7 @@ class TencentVideoDiscover(_PluginBase):
     def get_page(self) -> List[dict]:
         pass
 
-    @cached(cache=TTLCache(maxsize=32, ttl=1800))
+    @cached(region="tencentvideo_discover", ttl=1800, skip_none=True)
     def __request(self, page, mtype, **kwargs) -> List[schemas.MediaInfo]:
         """
         请求腾讯视频 API
