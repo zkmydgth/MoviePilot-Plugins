@@ -66,7 +66,7 @@ class BilibiliDiscover(_PluginBase):
     # 插件图标
     plugin_icon = "Bilibili_E.png"
     # 插件版本
-    plugin_version = "0.0.1"
+    plugin_version = "0.0.2"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -181,7 +181,6 @@ class BilibiliDiscover(_PluginBase):
             """
             电影数据转换为MediaInfo
             """
-            logger.info(movie_info)
             return schemas.MediaInfo(
                 type="电影",
                 title=movie_info.get("title"),
@@ -194,7 +193,6 @@ class BilibiliDiscover(_PluginBase):
             """
             电视剧数据转换为MediaInfo
             """
-            logger.info(series_info)
             return schemas.MediaInfo(
                 type="电视剧",
                 title=series_info.get("title"),

@@ -28,11 +28,12 @@
         "name": "哔哩哔哩探索",
         "description": "让探索支持哔哩哔哩的数据浏览。",
         "labels": "探索",
-        "version": "0.0.1",
+        "version": "0.0.2",
         "icon": "Bilibili_E.png",
         "author": "DDSRem",
         "level": 1,
         "history": {
+            "v0.0.2": "移除不必要的日志",
             "v0.0.1": "第一个版本，能用就行（后续补充）"
         }
     }
