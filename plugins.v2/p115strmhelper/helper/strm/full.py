@@ -799,7 +799,11 @@ class FullSyncStrmHelper:
 
                             if configer.full_sync_strm_log:
                                 for skip_info in results.skip_results:
-                                    self.__base_logger("warn", skip_info.reason)
+                                    if not skip_info.reason:
+                                        continue
+                                    self.__base_logger(
+                                        "warn", "【全量STRM生成】" + skip_info.reason
+                                    )
                         else:
                             target_dir_path = Path(target_dir)
 
