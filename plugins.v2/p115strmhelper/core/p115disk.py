@@ -205,14 +205,33 @@ class P115DiskCore:
             while True:
                 start_time = perf_counter()
                 # Step 1: 初始化上传
-                init_resp = self._p115_api.client.upload_file_init(
-                    filename=target_name,
-                    filesize=file_size,
-                    filesha1=file_sha1,
-                    pid=target_pid,
-                    read_range_bytes_or_hash=read_range_hash,
-                )
-                check_response(init_resp)
+                init_resp = None
+                init_max_retries = 3
+                init_retry_delay = 2
+                for init_attempt in range(init_max_retries):
+                    try:
+                        init_resp = self._p115_api.client.upload_file_init(
+                            filename=target_name,
+                            filesize=file_size,
+                            filesha1=file_sha1,
+                            pid=target_pid,
+                            read_range_bytes_or_hash=read_range_hash,
+                        )
+                        check_response(init_resp)
+                        break
+                    except Exception as e:
+                        if init_attempt < init_max_retries - 1:
+                            logger.warn(
+                                f"【P115Disk】初始化上传失败，"
+                                f"第 {init_attempt + 1}/{init_max_retries} 次重试: {e}"
+                            )
+                            sleep(init_retry_delay)
+                            init_retry_delay *= 2
+                        else:
+                            logger.error(f"【P115Disk】初始化上传重试用尽: {e}")
+                            return None
+                if init_resp is None:
+                    return None
 
                 logger.debug(f"【P115Disk】上传初始化结果: {init_resp}")
 

@@ -1,5 +1,5 @@
 from pathlib import Path
-from time import time, monotonic
+from time import time, monotonic, sleep
 from typing import Optional, List, Dict, Tuple
 from datetime import datetime, timezone
 
@@ -775,14 +775,33 @@ class P115Api:
                     sha1.update(chunk)
                     return sha1.finalize().hex().upper()
 
-            init_resp = self.client.upload_file_init(
-                filename=target_name,
-                filesize=file_size,
-                filesha1=file_sha1,
-                pid=target_pid,
-                read_range_bytes_or_hash=read_range_hash,
-            )
-            check_response(init_resp)
+            init_resp = None
+            init_max_retries = 3
+            init_retry_delay = 2
+            for init_attempt in range(init_max_retries):
+                try:
+                    init_resp = self.client.upload_file_init(
+                        filename=target_name,
+                        filesize=file_size,
+                        filesha1=file_sha1,
+                        pid=target_pid,
+                        read_range_bytes_or_hash=read_range_hash,
+                    )
+                    check_response(init_resp)
+                    break
+                except Exception as e:
+                    if init_attempt < init_max_retries - 1:
+                        logger.warn(
+                            f"【P115Disk】初始化上传失败，"
+                            f"第 {init_attempt + 1}/{init_max_retries} 次重试: {e}"
+                        )
+                        sleep(init_retry_delay)
+                        init_retry_delay *= 2
+                    else:
+                        logger.error(f"【P115Disk】初始化上传重试用尽: {e}")
+                        return None
+            if init_resp is None:
+                return None
 
             if not init_resp.get("state"):
                 logger.error(f"【P115Disk】初始化上传失败: {init_resp.get('error')}")
