@@ -673,10 +673,22 @@ class U115OpenHelper:
                     break
 
         if configer.upload_module_skip_slow_upload:
-            logger.warn(
-                f"【P115Open】{target_name} 无法秒传，跳过上传 {configer.upload_module_skip_slow_upload}"
+            skip_upload_size = configer.get_config(
+                "upload_module_skip_slow_upload_size"
             )
-            return None
+            if skip_upload_size and skip_upload_size > 0:
+                if file_size >= skip_upload_size:
+                    logger.warn(
+                        f"【P115Open】{target_name} 无法秒传，文件大小 {file_size} 大于等于阈值 {skip_upload_size}，跳过上传"
+                    )
+                    return None
+                else:
+                    logger.info(
+                        f"【P115Open】{target_name} 无法秒传，但文件大小 {file_size} 小于阈值 {skip_upload_size}，继续执行上传"
+                    )
+            else:
+                logger.warn(f"【P115Open】{target_name} 无法秒传，跳过上传")
+                return None
 
         # Step 4: 获取上传凭证
         second_auth = False

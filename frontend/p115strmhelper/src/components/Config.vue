@@ -1418,9 +1418,17 @@
                               placeholder="例如: 5M, 1.5G (可为空)" clearable></v-text-field>
                           </v-col>
                         </v-row>
+                        <v-row v-if="config.upload_module_skip_slow_upload">
+                          <v-col cols="12" md="6">
+                            <v-text-field v-model="skipSlowUploadSizeFormatted" label="秒传失败后跳过上传的文件大小阈值"
+                              hint="秒传失败后，大于等于此值的文件将跳过上传，小于此值的文件将继续上传（单位支持K，M，G）" persistent-hint density="compact"
+                              placeholder="例如: 100M, 1G (可为空)" clearable></v-text-field>
+                          </v-col>
+                        </v-row>
                         <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
                           <div class="text-body-2 mb-1"><strong>秒传失败直接退出：</strong></div>
                           <div class="text-caption">此功能开启后，对于无法秒传或者秒传等待超时的文件将直接跳过上传步骤，整理返回失败。</div>
+                          <div class="text-caption mt-1">如果设置了"秒传失败后跳过上传的文件大小阈值"，则只有大于等于该阈值的文件才会跳过上传，小于该阈值的文件将继续执行上传。</div>
                         </v-alert>
                       </v-expansion-panel-text>
                     </v-expansion-panel>
@@ -2316,6 +2324,7 @@ const config = reactive({
   upload_module_wait_timeout: 3600,
   upload_module_skip_upload_wait_size: 0,
   upload_module_force_upload_wait_size: 0,
+  upload_module_skip_slow_upload_size: 0,
   upload_open_result_notify: false,
   upload_share_info: true,
   upload_offline_info: true,
@@ -2366,6 +2375,18 @@ const forceUploadWaitSizeFormatted = computed({
   },
   set(newValue) {
     config.upload_module_force_upload_wait_size = parseSize(newValue);
+  },
+});
+
+const skipSlowUploadSizeFormatted = computed({
+  get() {
+    if (!config.upload_module_skip_slow_upload_size || config.upload_module_skip_slow_upload_size <= 0) {
+      return '';
+    }
+    return formatBytes(config.upload_module_skip_slow_upload_size);
+  },
+  set(newValue) {
+    config.upload_module_skip_slow_upload_size = parseSize(newValue);
   },
 });
 

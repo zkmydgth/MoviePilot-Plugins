@@ -402,6 +402,11 @@ class ConfigManager(BaseModel):
     upload_module_force_upload_wait_size: Optional[int] = Field(
         default=None, ge=0, description="115 上传增强强制等待秒传的文件大小阈值"
     )
+    upload_module_skip_slow_upload_size: Optional[int] = Field(
+        default=None,
+        ge=0,
+        description="115 上传秒传失败后跳过上传的文件大小阈值（大于此值的文件将跳过上传）",
+    )
     upload_share_info: bool = Field(default=True, description="上传分享链接")
     upload_offline_info: bool = Field(default=True, description="上传离线下载链接")
     transfer_module_enhancement: bool = Field(default=False, description="115 整理增强")
