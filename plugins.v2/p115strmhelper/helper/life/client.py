@@ -206,9 +206,8 @@ class MonitorLife:
         """
         org_file_path = file_path.as_posix()
         _databasehelper = FileDbHelper()
-        use_queue = self.life_queue is not None
         transferchain = None
-        if not use_queue:
+        if self.life_queue is None:
             transferchain = TransferChain()
         file_category = event["file_category"]
         file_id = event["file_id"]
@@ -267,7 +266,7 @@ class MonitorLife:
                         pickcode=item["pickcode"],
                         modify_time=item["ctime"],
                     )
-                    if use_queue:
+                    if self.life_queue is not None:
                         try:
                             self.life_queue.put(fileitem.model_dump())
                             logger.info(f"【网盘整理】{file_path} 已发送到主进程队列")
@@ -337,7 +336,7 @@ class MonitorLife:
                     pickcode=event["pick_code"],
                     modify_time=event["update_time"],
                 )
-                if use_queue:
+                if self.life_queue is not None:
                     try:
                         self.life_queue.put(fileitem.model_dump())
                         logger.info(f"【网盘整理】{file_path} 已发送到主进程队列")

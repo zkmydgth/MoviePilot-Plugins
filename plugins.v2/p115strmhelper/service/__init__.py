@@ -1,7 +1,15 @@
 from logging import ERROR
 from time import time
 from threading import Lock, Thread
-from multiprocessing import Process, Event as ProcessEvent, Queue as ProcessQueue
+from multiprocessing import (
+    Process,
+    Event as ProcessEvent,
+    Queue as ProcessQueue,
+    parent_process,
+    current_process,
+    set_start_method,
+    get_start_method,
+)
 from queue import Empty
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -37,6 +45,29 @@ from app.schemas import NotificationType
 from app.scheduler import Scheduler
 
 
+def _setup_multiprocessing():
+    """
+    配置 multiprocessing 启动方法，避免 SSL 冲突
+    """
+    try:
+        try:
+            parent = parent_process()
+            if parent is not None:
+                return
+        except AttributeError:
+            if current_process().name != "MainProcess":
+                return
+
+        try:
+            set_start_method("spawn", force=True)
+            logger.info("multiprocessing set to spawn success")
+        except RuntimeError:
+            current_method = get_start_method()
+            logger.info(f"multiprocessing start method is: {current_method}")
+    except Exception as e:
+        logger.warning(f"Set multiprocessing start method error: {e}")
+
+
 @sentry_manager.capture_all_class_exceptions
 class ServiceHelper:
     """
@@ -44,6 +75,8 @@ class ServiceHelper:
     """
 
     def __init__(self):
+        _setup_multiprocessing()
+
         self.client = None
         self.mediainfodownloader: Optional[MediaInfoDownloader] = None
         self.monitorlife: Optional[MonitorLife] = None
