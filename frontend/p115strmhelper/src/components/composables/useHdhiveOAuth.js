@@ -58,9 +58,21 @@ export function useHdhiveOAuth(api, message, pluginId) {
         return null;
       }
     }
-    const code = data.code || data.authorization_code;
-    const state = data.state;
-    if (code && state) return { code, state };
+
+    // 常见结构：{code,state} / {authorization_code,state} / {data:{code,state}} / {response:{code,state}}
+    const pick = (obj) => {
+      if (!obj) return null;
+      const code = obj.code || obj.authorization_code;
+      const state = obj.state;
+      if (code && state) return { code, state };
+      return null;
+    };
+
+    const direct = pick(data);
+    if (direct) return direct;
+    const nested = pick(data.data) || pick(data.response) || pick(data.payload);
+    if (nested) return nested;
+
     return null;
   };
 

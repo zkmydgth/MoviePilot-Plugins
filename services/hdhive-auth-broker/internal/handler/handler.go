@@ -33,12 +33,17 @@ func New(cfg config.Config, st store.Store, hive *hdhive.Client) *Handler {
 func (h *Handler) OAuthStart(c *gin.Context) {
 	instanceKey := strings.TrimSpace(c.Query("instance_key"))
 	scope := strings.TrimSpace(c.Query("scope"))
+	responseMode := strings.TrimSpace(c.Query("response_mode"))
 	if instanceKey == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "code": "MISSING_INSTANCE_KEY"})
 		return
 	}
 	if scope == "" {
 		scope = "query unlock"
+	}
+	// 优先使用 redirect（query）模式，避免部分环境下 postMessage 不投递导致一直 pending
+	if responseMode == "" {
+		responseMode = "query"
 	}
 	state, err := randomState()
 	if err != nil {
@@ -60,13 +65,16 @@ func (h *Handler) OAuthStart(c *gin.Context) {
 	q.Set("redirect_uri", h.cfg.RedirectURI)
 	q.Set("scope", scope)
 	q.Set("state", state)
-	q.Set("response_mode", "postmessage")
+	if responseMode != "" {
+		q.Set("response_mode", responseMode)
+	}
 	authorizeURL := h.cfg.HDHiveBase + h.cfg.AuthorizePath + "?" + q.Encode()
 	c.JSON(http.StatusOK, gin.H{
 		"success":       true,
 		"authorize_url": authorizeURL,
 		"state":         state,
 		"redirect_uri":  h.cfg.RedirectURI,
+		"response_mode": responseMode,
 		"instance_key":  instanceKey,
 	})
 }
