@@ -18,6 +18,13 @@
         "full-strm-sync"
       ],
       "enabled": false
+    },
+    {
+      "matchPackageNames": [
+        "grpcio",
+        "protobuf"
+      ],
+      "enabled": false
     }
   ]
 }
