@@ -1,6 +1,6 @@
 from pathlib import Path
 from threading import Thread
-from typing import Dict, Union
+from typing import Dict, Union, Set
 
 from p115client import P115Client
 from p115client.tool.attr import get_attr
@@ -83,7 +83,10 @@ class TransferStrmHelper:
         meta: MetaBase = item.get("meta")
 
         # 判断储存类型是否匹配
-        if item_transfer.target_item.storage not in ["u115", "115网盘Plus"]:
+        allowed_storages: Set[str] = {"u115", "115网盘Plus"}
+        if configer.transfer_monitor_clouddrive2_enabled:
+            allowed_storages.add("CloudDrive储存")
+        if item_transfer.target_item.storage not in allowed_storages:
             return
 
         # 网盘目的地目录
@@ -94,6 +97,19 @@ class TransferStrmHelper:
         item_dest_name: str = item_transfer.target_item.name
         # 网盘目的地文件 pickcode
         item_dest_pickcode: str = item_transfer.target_item.pickcode
+        if (
+            not item_dest_pickcode
+            and item_transfer.target_item.storage == "CloudDrive储存"
+        ):
+            try:
+                item_dest_pickcode = client.to_pickcode(
+                    int(item_transfer.target_item.fileid)
+                )
+            except Exception as e:
+                logger.error(
+                    f"【监控整理STRM生成】CloudDrive2 储存 {item_dest_name} 无法转换获取 PickCode 值: {e}"
+                )
+                return
         # 是否蓝光原盘
         item_bluray: bool = StorageChain().is_bluray_folder(item_transfer.target_item)
 
@@ -114,9 +130,10 @@ class TransferStrmHelper:
         ):
             try:
                 file_item: FileItem = item_transfer.target_item
-                _database_helper.upsert_batch(
-                    _database_helper.process_fileitem(file_item)
-                )
+                if item_transfer.target_item.storage != "CloudDrive储存":
+                    _database_helper.upsert_batch(
+                        _database_helper.process_fileitem(file_item)
+                    )
                 if not item_dest_pickcode:
                     logger.error(
                         f"【监控整理STRM生成】{item_dest_name} 不存在 pickcode 值，无法下载该文件"
@@ -164,9 +181,10 @@ class TransferStrmHelper:
             item_dest_pickcode, item_dest_name, item_dest_path
         )
 
-        _database_helper.upsert_batch(
-            _database_helper.process_fileitem(fileitem=item_transfer.target_item)
-        )
+        if item_transfer.target_item.storage != "CloudDrive储存":
+            _database_helper.upsert_batch(
+                _database_helper.process_fileitem(fileitem=item_transfer.target_item)
+            )
 
         status, strm_target_path = self.generate_strm_files(
             target_dir=local_media_dir,

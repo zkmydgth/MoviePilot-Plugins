@@ -181,17 +181,21 @@
                               color="primary"></v-switch>
                           </v-col>
                           <v-col cols="12" md="4">
-                            <v-switch v-model="config.transfer_monitor_media_server_refresh_enabled" label="媒体服务器刷新"
-                              color="warning"></v-switch>
+                            <v-switch v-model="config.transfer_monitor_clouddrive2_enabled"
+                              label="CloudDrive2储存监控" color="info"></v-switch>
                           </v-col>
                         </v-row>
 
                         <v-row>
                           <v-col cols="12" md="4">
+                            <v-switch v-model="config.transfer_monitor_media_server_refresh_enabled" label="媒体服务器刷新"
+                              color="warning"></v-switch>
+                          </v-col>
+                          <v-col cols="12" md="4">
                             <v-switch v-model="config.transfer_monitor_emby_mediainfo_enabled" label="Emby 媒体信息提取"
                               color="warning"></v-switch>
                           </v-col>
-                          <v-col cols="12" md="8">
+                          <v-col cols="12" md="4">
                             <v-select v-model="config.transfer_monitor_mediaservers" label="媒体服务器" :items="mediaservers"
                               multiple chips closable-chips></v-select>
                           </v-col>
@@ -2905,6 +2909,7 @@ const config = reactive({
   transfer_mp_mediaserver_paths: '',
   transfer_monitor_media_server_refresh_enabled: false,
   transfer_monitor_emby_mediainfo_enabled: false,
+  transfer_monitor_clouddrive2_enabled: false,
   transfer_monitor_mediaservers: [],
   timing_full_sync_strm: false,
   full_sync_overwrite_mode: "never",

@@ -219,6 +219,9 @@ class ConfigManager(BaseModel):
     transfer_monitor_emby_mediainfo_enabled: bool = Field(
         default=False, description="EMBY 媒体信息提取开关"
     )
+    transfer_monitor_clouddrive2_enabled: bool = Field(
+        default=False, description="监控MP整理开启CloudDrive2储存监控"
+    )
 
     full_sync_overwrite_mode: str = Field(
         default="never", min_length=1, description="全量同步覆盖模式"
