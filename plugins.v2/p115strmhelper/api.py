@@ -208,7 +208,7 @@ class Api:
                 return {"code": 1, "msg": "未配置cookie或客户端初始化失败"}
 
             try:
-                dir_info = self._client.fs_dir_getid(str(path))
+                dir_info = self._client.fs_dir_getid(path.as_posix())
                 if not dir_info:
                     return {"code": 1, "msg": f"获取目录ID失败: {path}"}
                 cid = int(dir_info["id"])
@@ -216,17 +216,17 @@ class Api:
                 items = []
                 for batch in iter_fs_files(self._client, cid):
                     for item in batch.get("data", []):
-                        if "fc" in item:
+                        if "fid" not in item:
                             items.append(
                                 {
                                     "name": item.get("n"),
-                                    "path": f"{str(path).rstrip('/')}/{item.get('n')}",
+                                    "path": f"{path.as_posix().rstrip('/')}/{item.get('n')}",
                                     "is_dir": True,
                                 }
                             )
                 return {
                     "code": 0,
-                    "path": str(path),
+                    "path": path.as_posix(),
                     "items": sorted(items, key=lambda x: x["name"]),
                 }
             except Exception as e:
