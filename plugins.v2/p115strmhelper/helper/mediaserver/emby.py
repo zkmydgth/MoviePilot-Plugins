@@ -130,14 +130,22 @@ class EmbyOperate:
         if not emby_host:
             return False
 
-        req_url = f"{emby_host}emby/Items/{item_id}/Refresh?api_key={emby_apikey}"
+        req_url = f"{emby_host}emby/Items/{item_id}/Refresh"
+        params = {
+            "Recursive": True,
+            "MetadataRefreshMode": "FullRefresh",
+            "ImageRefreshMode": "FullRefresh",
+            "ReplaceAllMetadata": False,
+            "ReplaceAllImages": False,
+            "api_key": emby_apikey,
+        }
         try:
-            with RequestUtils().get_res(url=req_url) as res:
-                if res and res.status_code in [200, 204]:
+            with RequestUtils().get_res(url=req_url, params=params) as res:
+                if res and res.status_code == 200:
                     return True
                 else:
                     logger.warning(
-                        f"{self.func_name}触发刷新任务失败，Emby 未返回有效响应 name={name!r} item_id={item_id!r}"
+                        f"{self.func_name}触发刷新任务失败，Emby 未返回有效响应 code={res.status_code!r} name={name!r} item_id={item_id!r}"
                     )
                     return False
         except Exception as e:
@@ -244,7 +252,7 @@ class EmbyMediaInfoOperate:
                 url,
                 json=media_data,
                 headers={"Content-Type": "application/json"},
-                timeout=60.0
+                timeout=60.0,
             )
             try:
                 res_data = res.json()
@@ -335,7 +343,9 @@ class EmbyMediaInfoOperate:
                 item_id = self.emby_operate.get_item_id_by_path(service_name, file_path)
                 if not item_id:
                     sleep(10)
-                    if self.emby_operate.trigger_refresh_by_path(service_name, file_path):
+                    if self.emby_operate.trigger_refresh_by_path(
+                        service_name, file_path
+                    ):
                         for _ in range(3):
                             sleep(10)
                             item_id = self.emby_operate.get_item_id_by_path(
