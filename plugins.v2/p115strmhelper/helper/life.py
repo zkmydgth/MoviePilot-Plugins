@@ -13,6 +13,7 @@ from ..core.cache import idpathcacher, pantransfercacher, lifeeventcacher
 from ..core.i18n import i18n
 from ..utils.path import PathUtils
 from ..utils.sentry import sentry_manager
+from ..utils.strm import StrmUrlGetter
 from ..db_manager.oper import FileDbHelper
 from ..helper.mediainfo_download import MediaInfoDownloader
 
@@ -336,6 +337,8 @@ class MonitorLife:
         """
         _databasehelper = FileDbHelper()
 
+        _get_url = StrmUrlGetter()
+
         pickcode = event["pick_code"]
         file_category = event["file_category"]
         file_id = event["file_id"]
@@ -427,9 +430,8 @@ class MonitorLife:
                                 f"【监控生活事件】错误的 pickcode 值 {pickcode}，无法生成 STRM 文件"
                             )
                             continue
-                        strm_url = f"{configer.get_config('moviepilot_address').rstrip('/')}/api/v1/plugin/P115StrmHelper/redirect_url?apikey={settings.API_TOKEN}&pickcode={pickcode}"
-                        if configer.get_config("strm_url_format") == "pickname":
-                            strm_url += f"&file_name={original_file_name}"
+
+                        strm_url = _get_url.get_strm_url(pickcode, original_file_name)
 
                         with open(new_file_path, "w", encoding="utf-8") as file:
                             file.write(strm_url)
@@ -539,9 +541,8 @@ class MonitorLife:
                         f"【监控生活事件】错误的 pickcode 值 {pickcode}，无法生成 STRM 文件"
                     )
                     return
-                strm_url = f"{configer.get_config('moviepilot_address').rstrip('/')}/api/v1/plugin/P115StrmHelper/redirect_url?apikey={settings.API_TOKEN}&pickcode={pickcode}"
-                if configer.get_config("strm_url_format") == "pickname":
-                    strm_url += f"&file_name={original_file_name}"
+
+                strm_url = _get_url.get_strm_url(pickcode, original_file_name)
 
                 with open(new_file_path, "w", encoding="utf-8") as file:
                     file.write(strm_url)

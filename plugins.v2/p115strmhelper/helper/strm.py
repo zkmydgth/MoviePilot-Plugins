@@ -23,6 +23,7 @@ from ..utils.sentry import sentry_manager
 from ..core.scrape import media_scrape_metadata
 from ..db_manager.oper import FileDbHelper
 from ..utils.path import PathUtils
+from ..utils.strm import StrmUrlGetter
 from ..helper.mediainfo_download import MediaInfoDownloader
 
 from app.log import logger
@@ -84,6 +85,8 @@ class IncrementSyncStrmHelper:
         self.strm_url_format = configer.get_config("strm_url_format")
         self.databasehelper = FileDbHelper()
         self.download_mediainfo_list = []
+
+        self.strmurlgetter = StrmUrlGetter()
 
         # 临时文件配置
         self.local_tree = (
@@ -393,9 +396,8 @@ class IncrementSyncStrmHelper:
                     f"【增量STRM生成】错误的 pickcode 值 {pickcode}，无法生成 STRM 文件"
                 )
                 return
-            strm_url = f"{self.server_address}/api/v1/plugin/P115StrmHelper/redirect_url?apikey={settings.API_TOKEN}&pickcode={pickcode}"
-            if self.strm_url_format == "pickname":
-                strm_url += f"&file_name={pan_path.name}"
+
+            strm_url = self.strmurlgetter.get_strm_url(pickcode, pan_path.name)
 
             with open(new_file_path, "w", encoding="utf-8") as file:
                 file.write(strm_url)
@@ -566,6 +568,8 @@ class FullSyncStrmHelper:
         self.databasehelper = FileDbHelper()
         self.download_mediainfo_list = []
 
+        self.strmurlgetter = StrmUrlGetter()
+
         self.local_tree = configer.get_config("PLUGIN_TEMP_PATH") / "local_tree.txt"
         self.pan_tree = configer.get_config("PLUGIN_TEMP_PATH") / "pan_tree.txt"
 
@@ -731,9 +735,8 @@ class FullSyncStrmHelper:
                     f"【全量STRM生成】错误的 pickcode 值 {pickcode}，无法生成 STRM 文件"
                 )
                 return _process_item, path_entry
-            strm_url = f"{self.server_address}/api/v1/plugin/P115StrmHelper/redirect_url?apikey={settings.API_TOKEN}&pickcode={pickcode}"
-            if self.strm_url_format == "pickname":
-                strm_url += f"&file_name={original_file_name}"
+
+            strm_url = self.strmurlgetter.get_strm_url(pickcode, original_file_name)
 
             with open(new_file_path, "w", encoding="utf-8") as file:
                 file.write(strm_url)
@@ -952,6 +955,8 @@ class ShareStrmHelper:
         self.strm_url_format = configer.get_config("strm_url_format")
         self.download_mediainfo_list = []
 
+        self.strmurlgetter = StrmUrlGetter()
+
     def generate_strm_files(
         self,
         share_code: str,
@@ -1020,9 +1025,10 @@ class ShareStrmHelper:
                 self.strm_fail_dict[str(new_file_path)] = "不存在 receive_code 值"
                 self.strm_fail_count += 1
                 return
-            strm_url = f"{self.server_address}/api/v1/plugin/P115StrmHelper/redirect_url?apikey={settings.API_TOKEN}&share_code={share_code}&receive_code={receive_code}&id={file_id}"
-            if self.strm_url_format == "pickname":
-                strm_url += f"&file_name={pan_file_name}"
+
+            strm_url = self.strmurlgetter.get_share_strm_url(
+                share_code, receive_code, file_id, pan_file_name
+            )
 
             with open(new_file_path, "w", encoding="utf-8") as file:
                 file.write(strm_url)
@@ -1232,6 +1238,8 @@ class TransferStrmHelper:
         """
         生成 STRM 操作
         """
+        _get_url = StrmUrlGetter()
+
         # 转移信息
         item_transfer = item.get("transferinfo")
         if isinstance(item_transfer, dict):
@@ -1288,9 +1296,8 @@ class TransferStrmHelper:
                 f"【监控整理STRM生成】错误的 pickcode 值 {item_dest_name}，无法生成 STRM 文件"
             )
             return
-        strm_url = f"{configer.get_config('moviepilot_address').rstrip('/')}/api/v1/plugin/P115StrmHelper/redirect_url?apikey={settings.API_TOKEN}&pickcode={item_dest_pickcode}"
-        if configer.get_config("strm_url_format") == "pickname":
-            strm_url += f"&file_name={item_dest_name}"
+
+        strm_url = _get_url.get_strm_url(item_dest_pickcode, item_dest_name)
 
         _databasehelper = FileDbHelper()
         _databasehelper.upsert_batch(

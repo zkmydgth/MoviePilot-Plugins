@@ -154,6 +154,9 @@
               <v-tab value="tab-data-enhancement" class="text-caption">
                 <v-icon size="small" start>mdi-database-eye-outline</v-icon>数据增强
               </v-tab>
+              <v-tab value="tab-advanced-configuration" class="text-caption">
+                <v-icon size="small" start>mdi-tune</v-icon>高级配置
+              </v-tab>
             </v-tabs>
             <v-divider></v-divider>
 
@@ -966,6 +969,28 @@
                 </v-card-text>
               </v-window-item>
 
+              <v-window-item value="tab-advanced-configuration">
+                <v-card-text>
+                  <v-row>
+                    <v-col cols="12">
+                      <v-textarea v-model="config.strm_url_mode_custom" label="自定义STRM URL格式" variant="outlined"
+                        rows="5" persistent-hint hint="为特定文件扩展名指定URL格式，优先级高于基础设置。格式：ext1,ext2 => format"
+                        placeholder="例如：&#10;iso => pickname&#10;mp4,mkv => pickcode" clearable></v-textarea>
+                    </v-col>
+                  </v-row>
+                  <v-alert type="info" variant="tonal" density="compact" class="mt-2 text-caption">
+                    <strong>格式说明:</strong><br>
+                    - 每行一条规则，格式为：`文件后缀 => URL格式`。<br>
+                    - 左侧为文件扩展名(不含`.`)，多个后缀用英文逗号(`,`)分隔。<br>
+                    - 右侧为URL格式，可选值为 `pickcode` 或 `pickname`。<br>
+                    - 此处未指定的扩展名将使用 “基础设置” 中的 “STRM文件URL格式” 配置。<br>
+                    - <strong>示例:</strong><br>
+                    &nbsp;&nbsp;<code>iso => pickname</code> (iso文件使用 pickcode+name 格式)<br>
+                    &nbsp;&nbsp;<code>mp4,mkv,ts => pickcode</code> (mp4, mkv, ts 文件使用 pickcode 格式)
+                  </v-alert>
+                </v-card-text>
+              </v-window-item>
+
             </v-window>
           </v-card>
 
@@ -1282,7 +1307,8 @@ const config = reactive({
   upload_module_skip_upload_wait_size: 0,
   upload_module_force_upload_wait_size: 0,
   upload_share_info: true,
-  upload_offline_info: true
+  upload_offline_info: true,
+  strm_url_mode_custom: ''
 });
 
 // 消息提示

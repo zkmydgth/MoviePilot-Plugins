@@ -241,6 +241,9 @@ class ConfigManager(BaseModel):
     # 上传离线下载链接
     upload_offline_info: bool = True
 
+    # 高级配置，STRM URL 自定义配置
+    strm_url_mode_custom: Optional[str] = None
+
     @property
     def PLUGIN_ALIGO_PATH(self) -> Path:
         """
@@ -357,7 +360,7 @@ class ConfigManager(BaseModel):
         if utype in user_agents:
             return user_agents[utype]
         return (
-            f"{self.PLUSIN_NAME}/2.0.12 "
+            f"{self.PLUSIN_NAME}/2.0.13 "
             f"({platform.system()} {platform.release()}; "
             f"{SystemUtils.cpu_arch() if hasattr(SystemUtils, 'cpu_arch') and callable(SystemUtils.cpu_arch) else 'UnknownArch'})"
         )
