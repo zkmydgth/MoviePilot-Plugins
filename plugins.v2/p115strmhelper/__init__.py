@@ -3,6 +3,8 @@ import time
 import shutil
 import base64
 import re
+from threading import Timer
+from collections import defaultdict
 from collections.abc import Mapping
 from datetime import datetime, timedelta
 from threading import Event as ThreadEvent
@@ -756,7 +758,7 @@ class P115StrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png"
     # 插件版本
-    plugin_version = "1.6.10"
+    plugin_version = "1.6.11"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -781,6 +783,10 @@ class P115StrmHelper(_PluginBase):
     cache_delete_pan_transfer_list = None
     cache_creata_pan_transfer_list = None
     cache_top_delete_pan_transfer_list = None
+
+    # 生活事件监控通知系统
+    _monitor_life_notification_queue = None
+    _monitor_life_notification_timer = None
 
     _client = None
     _scheduler = None
@@ -843,6 +849,11 @@ class P115StrmHelper(_PluginBase):
         self.cache_delete_pan_transfer_list = []
         self.cache_creata_pan_transfer_list = []
         self.cache_top_delete_pan_transfer_list: Dict[str, List] = {}
+
+        self._monitor_life_notification_queue = defaultdict(
+            lambda: {"strm_count": 0, "mediainfo_count": 0}
+        )
+        self._monitor_life_notification_timer = None
 
         if config:
             self._enabled = config.get("enabled", False)
@@ -2105,6 +2116,46 @@ class P115StrmHelper(_PluginBase):
         注意: 目前没有重命名文件，复制文件的操作事件
         """
 
+        def _schedule_notification():
+            """
+            安排通知发送，如果一分钟内没有新事件则发送
+            """
+            if self._monitor_life_notification_timer:
+                self._monitor_life_notification_timer.cancel()
+
+            self._monitor_life_notification_timer = Timer(60.0, _send_notification)
+            self._monitor_life_notification_timer.start()
+
+        def _send_notification():
+            """
+            发送合并后的通知
+            """
+            if "life" not in self._monitor_life_notification_queue:
+                return
+
+            counts = self._monitor_life_notification_queue["life"]
+            if counts["strm_count"] == 0 and counts["mediainfo_count"] == 0:
+                return
+
+            text_parts = []
+            if counts["strm_count"] > 0:
+                text_parts.append(f"📂 生成STRM文件 {counts['strm_count']} 个")
+            if counts["mediainfo_count"] > 0:
+                text_parts.append(f"⬇️ 下载媒体文件 {counts['mediainfo_count']} 个")
+
+            if text_parts and self._notify:
+                self.post_message(
+                    mtype=NotificationType.Plugin,
+                    title="✅【115网盘】生活事件生成 STRM 文件",
+                    text="\n".join(text_parts),
+                )
+
+            # 重置计数器
+            self._monitor_life_notification_queue["life"] = {
+                "strm_count": 0,
+                "mediainfo_count": 0,
+            }
+
         def refresh_mediaserver(file_path: str, file_name: str):
             """
             刷新媒体服务器
@@ -2256,12 +2307,14 @@ class P115StrmHelper(_PluginBase):
                     # 刷新媒体服务器
                     refresh_mediaserver(str(new_file_path), str(original_file_name))
                 if self._notify:
-                    self.post_message(
-                        mtype=NotificationType.Plugin,
-                        title="✅【115网盘】生活事件生成 STRM 文件",
-                        text=f"📂 生成STRM文件 {strm_count} 个\n"
-                        + f"⬇️ 下载媒体文件 {mediainfo_count} 个",
-                    )
+                    if strm_count > 0 or mediainfo_count > 0:
+                        self._monitor_life_notification_queue["life"]["strm_count"] += (
+                            strm_count
+                        )
+                        self._monitor_life_notification_queue["life"][
+                            "mediainfo_count"
+                        ] += mediainfo_count
+                        _schedule_notification()
             else:
                 # 文件情况，直接生成
                 file_path = Path(target_dir) / Path(file_path).relative_to(
@@ -2295,11 +2348,10 @@ class P115StrmHelper(_PluginBase):
                             download_url=download_url,
                         )
                         if self._notify:
-                            self.post_message(
-                                mtype=NotificationType.Plugin,
-                                title="✅【115网盘】生活事件生成 STRM 文件",
-                                text="⬇️ 下载媒体文件 1 个",
-                            )
+                            self._monitor_life_notification_queue["life"][
+                                "mediainfo_count"
+                            ] += 1
+                            _schedule_notification()
                         return
 
                 if file_path.suffix not in rmt_mediaext:
@@ -2331,11 +2383,8 @@ class P115StrmHelper(_PluginBase):
                     "【监控生活事件】生成 STRM 文件成功: %s", str(new_file_path)
                 )
                 if self._notify:
-                    self.post_message(
-                        mtype=NotificationType.Plugin,
-                        title="✅【115网盘】生活事件生成 STRM 文件",
-                        text="📂 生成STRM文件 1 个",
-                    )
+                    self._monitor_life_notification_queue["life"]["strm_count"] += 1
+                    _schedule_notification()
                 scrape_metadata = True
                 if self._monitor_life_scrape_metadata_enabled:
                     if self._monitor_life_scrape_metadata_exclude_paths:
