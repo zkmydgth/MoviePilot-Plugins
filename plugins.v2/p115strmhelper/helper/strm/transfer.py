@@ -217,11 +217,19 @@ class TransferStrmHelper:
                 mediaservers=configer.transfer_monitor_mediaservers,
             )
             try:
-                file_id = get_id_to_path(
-                    client=client,
-                    path=item_dest_path,
-                    **configer.get_ios_ua_app(app=False),
-                )
+                try:
+                    file_id = get_id_to_path(
+                        client=client,
+                        path=item_dest_path,
+                        **configer.get_ios_ua_app(app=False),
+                    )
+                except KeyError:
+                    file_id = get_id_to_path(
+                        client=client,
+                        path=item_dest_path,
+                        refresh=True,
+                        **configer.get_ios_ua_app(app=False),
+                    )
                 item = get_attr(
                     client=client,
                     id=file_id,

@@ -429,9 +429,17 @@ class P115Api:
         self._get_item_rate_limiter.acquire()
 
         try:
-            file_id = get_id_to_path(
-                client=self.client, path=path_str, **get_ios_ua_app(app=False)
-            )
+            try:
+                file_id = get_id_to_path(
+                    client=self.client, path=path_str, **get_ios_ua_app(app=False)
+                )
+            except KeyError:
+                file_id = get_id_to_path(
+                    client=self.client,
+                    path=path_str,
+                    refresh=True,
+                    **get_ios_ua_app(app=False),
+                )
             file_item = get_attr(
                 client=self.client, id=file_id, **get_ios_ua_app(app=False)
             )
