@@ -24,8 +24,10 @@
 
 - [神医媒体文件同步删除](https://github.com/DDS-Derek/MoviePilot-Plugins/tree/main/plugins.v2/samediasyncdel)：通过神医插件通知同步删除历史记录、源文件和下载任务。
 
-## 感谢名单
+## 感谢
 
 - [p115client](https://github.com/ChenyangGao/p115client)
 - [p123client](https://github.com/ChenyangGao/p123client)
 - [MediaWarp](https://github.com/Akimio521/MediaWarp)
+
+<a href="https://github.com/DDS-Derek/MoviePilot-Plugins/graphs/contributors"><img src="https://contrib.rocks/image?repo=DDS-Derek/MoviePilot-Plugins"></a>
