@@ -17,10 +17,7 @@ from fastapi import Request
 
 from .api import Api
 from .service import servicer
-from .core.cache import (
-    cacher_top_delete_pan_transfer_list,
-    cacher_create_strm_file_dict,
-)
+from .core.cache import pantransfercacher, lifeeventcacher
 from .core.config import configer
 from .db_manager import ct_db_manager
 from .db_manager.init import init_db, update_db
@@ -384,7 +381,7 @@ class P115StrmHelper(_PluginBase):
         ):
             return
 
-        if not cacher_top_delete_pan_transfer_list:
+        if not pantransfercacher.top_delete_pan_transfer_list:
             return
 
         item = event.event_data
@@ -409,11 +406,11 @@ class P115StrmHelper(_PluginBase):
 
         remove_id = ""
         # 遍历删除字典
-        for key, item_list in cacher_top_delete_pan_transfer_list.items():
+        for key, item_list in pantransfercacher.top_delete_pan_transfer_list.items():
             # 只有目前处理完成的这个文件ID在处理列表中，才表明匹配到了该删除的顶层目录
             if str(dest_fileitem.fileid) in item_list:
                 # 从列表中删除这个ID
-                cacher_top_delete_pan_transfer_list[key] = [
+                pantransfercacher.top_delete_pan_transfer_list[key] = [
                     item for item in item_list if item != str(dest_fileitem.fileid)
                 ]
                 # 记录需删除的顶层目录
@@ -422,8 +419,8 @@ class P115StrmHelper(_PluginBase):
 
         if remove_id:
             # 只有需删除的顶层目录下面的文件全部整理完成才进行删除操作
-            if not cacher_top_delete_pan_transfer_list.get(remove_id):
-                del cacher_top_delete_pan_transfer_list[remove_id]
+            if not pantransfercacher.top_delete_pan_transfer_list.get(remove_id):
+                del pantransfercacher.top_delete_pan_transfer_list[remove_id]
                 resp = servicer.client.fs_delete(int(remove_id))
                 if resp["state"]:
                     logger.info(f"【网盘整理】删除 {remove_id} 文件夹成功")
@@ -809,7 +806,9 @@ class P115StrmHelper(_PluginBase):
             重命名
             """
             target_path = Path(fileitem.path).parent
-            file_item = cacher_create_strm_file_dict.get(str(fileitem.fileid), None)
+            file_item = lifeeventcacher.create_strm_file_dict.get(
+                str(fileitem.fileid), None
+            )
             if not file_item:
                 return
             if fileitem.name != file_item[0]:
@@ -833,7 +832,9 @@ class P115StrmHelper(_PluginBase):
                         id=int(fileitem.fileid),
                         new_name=str(fileitem.name),
                     )
-                    cacher_create_strm_file_dict.pop(str(fileitem.fileid), None)
+                    lifeeventcacher.create_strm_file_dict.pop(
+                        str(fileitem.fileid), None
+                    )
                     logger.info(
                         f"【监控生活事件】修正文件名称: {life_path} --> {target_file_path}"
                     )

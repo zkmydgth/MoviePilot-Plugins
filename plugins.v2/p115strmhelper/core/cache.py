@@ -39,10 +39,28 @@ class IdPathCache:
         self.dir_to_id.clear()
 
 
+class PanTransferCache:
+    """
+    网盘整理缓存
+    """
+
+    def __init__(self):
+        self.delete_pan_transfer_list = []
+        self.creata_pan_transfer_list = []
+        self.top_delete_pan_transfer_list: Dict[str, List] = {}
+
+
+class LifeEventCache:
+    """
+    生活事件监控缓存
+    """
+
+    def __init__(self):
+        self.create_strm_file_dict: MutableMapping[str, List] = TTLCache(
+            maxsize=1_000_000, ttl=600
+        )
+
+
 idpathcacher = IdPathCache()
-cacher_delete_pan_transfer_list = []
-cacher_creata_pan_transfer_list = []
-cacher_top_delete_pan_transfer_list: Dict[str, List] = {}
-cacher_create_strm_file_dict: MutableMapping[str, List] = TTLCache(
-    maxsize=1_000_000, ttl=600
-)
+pantransfercacher = PanTransferCache()
+lifeeventcacher = LifeEventCache()

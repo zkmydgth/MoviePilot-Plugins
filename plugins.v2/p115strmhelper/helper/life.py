@@ -9,13 +9,7 @@ from itertools import batched, chain
 from ..core.config import configer
 from ..core.message import post_message
 from ..core.scrape import media_scrape_metadata
-from ..core.cache import (
-    idpathcacher,
-    cacher_delete_pan_transfer_list,
-    cacher_creata_pan_transfer_list,
-    cacher_top_delete_pan_transfer_list,
-    cacher_create_strm_file_dict,
-)
+from ..core.cache import idpathcacher, pantransfercacher, lifeeventcacher
 from ..utils.path import PathUtils
 from ..db_manager.oper import FileDbHelper
 from ..helper.mediainfo_download import MediaInfoDownloader
@@ -224,19 +218,29 @@ class MonitorLife:
             logger.info(f"【网盘整理】开始处理 {file_path} 文件夹中...")
             # 文件夹情况，遍历文件夹，获取整理文件
             # 缓存顶层文件夹ID
-            if str(event["file_id"]) not in cacher_delete_pan_transfer_list:
-                cacher_delete_pan_transfer_list.append(str(event["file_id"]))
+            if str(event["file_id"]) not in pantransfercacher.delete_pan_transfer_list:
+                pantransfercacher.delete_pan_transfer_list.append(str(event["file_id"]))
             for item in iter_files_with_path(
                 self._client, cid=int(file_id), cooldown=2
             ):
                 file_path = Path(item["path"])
                 # 缓存文件夹ID
-                if str(item["parent_id"]) not in cacher_delete_pan_transfer_list:
-                    cacher_delete_pan_transfer_list.append(str(item["parent_id"]))
+                if (
+                    str(item["parent_id"])
+                    not in pantransfercacher.delete_pan_transfer_list
+                ):
+                    pantransfercacher.delete_pan_transfer_list.append(
+                        str(item["parent_id"])
+                    )
                 if file_path.suffix in rmt_mediaext:
                     # 缓存文件ID
-                    if str(item["id"]) not in cacher_creata_pan_transfer_list:
-                        cacher_creata_pan_transfer_list.append(str(item["id"]))
+                    if (
+                        str(item["id"])
+                        not in pantransfercacher.creata_pan_transfer_list
+                    ):
+                        pantransfercacher.creata_pan_transfer_list.append(
+                            str(item["id"])
+                        )
                     # 判断此顶层目录MP是否能处理
                     if str(item["parent_id"]) != event["file_id"]:
                         cache_top_path = True
@@ -263,33 +267,48 @@ class MonitorLife:
                     or file_path.suffix in settings.RMT_SUBEXT
                 ):
                     # 如果是MP可处理的音轨或字幕文件，则缓存文件ID
-                    if str(item["id"]) not in cacher_creata_pan_transfer_list:
-                        cacher_creata_pan_transfer_list.append(str(item["id"]))
+                    if (
+                        str(item["id"])
+                        not in pantransfercacher.creata_pan_transfer_list
+                    ):
+                        pantransfercacher.creata_pan_transfer_list.append(
+                            str(item["id"])
+                        )
 
             # 顶层目录MP无法处理时添加到缓存字典中
             if cache_top_path and cache_file_id_list:
-                if str(event["file_id"]) in cacher_top_delete_pan_transfer_list:
+                if (
+                    str(event["file_id"])
+                    in pantransfercacher.top_delete_pan_transfer_list
+                ):
                     # 如果存在相同ID的根目录则合并
                     cache_file_id_list = list(
                         dict.fromkeys(
                             chain(
                                 cache_file_id_list,
-                                cacher_top_delete_pan_transfer_list[
+                                pantransfercacher.top_delete_pan_transfer_list[
                                     str(event["file_id"])
                                 ],
                             )
                         )
                     )
-                    del cacher_top_delete_pan_transfer_list[str(event["file_id"])]
-                cacher_top_delete_pan_transfer_list[str(event["file_id"])] = (
-                    cache_file_id_list
-                )
+                    del pantransfercacher.top_delete_pan_transfer_list[
+                        str(event["file_id"])
+                    ]
+                pantransfercacher.top_delete_pan_transfer_list[
+                    str(event["file_id"])
+                ] = cache_file_id_list
         else:
             # 文件情况，直接整理
             if file_path.suffix in rmt_mediaext:
                 # 缓存文件ID
-                if str(event["file_id"]) not in cacher_creata_pan_transfer_list:
-                    cacher_creata_pan_transfer_list.append(str(event["file_id"]))
+                if (
+                    str(event["file_id"])
+                    not in pantransfercacher.creata_pan_transfer_list
+                ):
+                    pantransfercacher.creata_pan_transfer_list.append(
+                        str(event["file_id"])
+                    )
                 transferchain.do_transfer(
                     fileitem=FileItem(
                         storage="u115",
@@ -485,7 +504,7 @@ class MonitorLife:
                             download_url=download_url,
                         )
                         # 下载的元数据写入缓存，与整理事件对比
-                        cacher_create_strm_file_dict[str(event["file_id"])] = [
+                        lifeeventcacher.create_strm_file_dict[str(event["file_id"])] = [
                             event["file_name"],
                             target_dir,
                             pan_media_dir,
@@ -526,7 +545,7 @@ class MonitorLife:
                     "【监控生活事件】生成 STRM 文件成功: %s", str(new_file_path)
                 )
                 # 生成的STRM写入缓存，与整理事件对比
-                cacher_create_strm_file_dict[str(event["file_id"])] = [
+                lifeeventcacher.create_strm_file_dict[str(event["file_id"])] = [
                     event["file_name"],
                     target_dir,
                     pan_media_dir,
@@ -707,9 +726,9 @@ class MonitorLife:
         if configer.get_config("monitor_life_enabled") and configer.get_config(
             "monitor_life_paths"
         ):
-            if str(event["file_id"]) in cacher_creata_pan_transfer_list:
+            if str(event["file_id"]) in pantransfercacher.creata_pan_transfer_list:
                 # 检查是否命中缓存
-                cacher_creata_pan_transfer_list.remove(str(event["file_id"]))
+                pantransfercacher.creata_pan_transfer_list.remove(str(event["file_id"]))
                 if "transfer" in configer.get_config("monitor_life_event_modes"):
                     self.creata_strm(event=event, file_path=file_path)
             else:
@@ -785,9 +804,11 @@ class MonitorLife:
 
             if int(event["type"]) == 22:
                 # 删除文件/文件夹事件处理
-                if str(event["file_id"]) in cacher_delete_pan_transfer_list:
+                if str(event["file_id"]) in pantransfercacher.delete_pan_transfer_list:
                     # 检查是否命中删除文件夹缓存，命中则无需处理
-                    cacher_delete_pan_transfer_list.remove(str(event["file_id"]))
+                    pantransfercacher.delete_pan_transfer_list.remove(
+                        str(event["file_id"])
+                    )
                 else:
                     if (
                         configer.get_config("monitor_life_enabled")

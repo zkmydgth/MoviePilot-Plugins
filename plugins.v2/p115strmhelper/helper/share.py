@@ -89,6 +89,13 @@ class ShareTransferHelper:
             file_mediainfo = mediachain.recognize_by_meta(file_meta)
         return file_mediainfo
 
+    @staticmethod
+    def share_url_extract(url: str):
+        """
+        解析分享链接
+        """
+        return share_extract_payload(url)
+
     def __add_share(self, url, channel, userid):
         """
         分享转存
@@ -103,7 +110,7 @@ class ShareTransferHelper:
             )
             return
         try:
-            data = share_extract_payload(url)
+            data = self.share_url_extract(url)
             share_code = data["share_code"]
             receive_code = data["receive_code"]
             logger.info(

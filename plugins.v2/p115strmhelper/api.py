@@ -13,7 +13,6 @@ from orjson import dumps, loads
 from p115client import P115Client
 from p115client.exception import DataError
 from p115client.tool.fs_files import iter_fs_files
-from p115client.tool.util import share_extract_payload
 from p115rsacipher import encrypt, decrypt
 from fastapi import Request, Response
 
@@ -741,7 +740,7 @@ class Api:
                 "message": "未传入分享链接",
             }
 
-        data = share_extract_payload(share_url)
+        data = servicer.sharetransferhelper.share_url_extract(share_url)
         share_code = data["share_code"]
         receive_code = data["receive_code"]
         logger.info(
