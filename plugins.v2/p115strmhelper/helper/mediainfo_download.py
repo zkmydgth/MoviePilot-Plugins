@@ -67,16 +67,6 @@ class MediaInfoDownloader:
         logger.debug(f"【媒体信息文件下载】初始化请求头：{self.headers}")
 
     @staticmethod
-    def is_file_leq_1k(file_path):
-        """
-        判断文件是否小于 100B
-        """
-        file = Path(file_path)
-        if not file.exists():
-            return True
-        return file.stat().st_size <= 100
-
-    @staticmethod
     async def async_is_file_leq_1k(file_path: str | Path) -> bool:
         """
         判断文件是否小于等于 100B。
@@ -203,75 +193,6 @@ class MediaInfoDownloader:
                     logger.error(
                         f"【媒体信息文件下载】保存 {file_name} 在 {max_retries} 次尝试后最终失败"
                     )
-
-    def local_downloader(self, pickcode: str, path: Path):
-        """
-        下载用户网盘文件
-        """
-        download_url = self.get_download_url(pickcode=pickcode)
-        if not download_url:
-            logger.error(
-                f"【媒体信息文件下载】{path.name} 下载链接获取失败，无法下载该文件"
-            )
-            return
-        self.save_mediainfo_file(
-            file_path=path,
-            file_name=path.name,
-            download_url=download_url,
-        )
-
-    def auto_downloader(self, downloads_list: List):
-        """
-        根据列表自动下载
-        """
-        self.stop_all_flag = False
-        mediainfo_count: int = 0
-        mediainfo_fail_count: int = 0
-        mediainfo_fail_dict: List = []
-        stop_all_msg_flag = True
-        try:
-            for item in downloads_list:
-                if not item:
-                    continue
-                if self.stop_all_flag is True:
-                    if stop_all_msg_flag:
-                        logger.error(
-                            "【媒体信息文件下载】触发风控，停止所有媒体信息文件下载"
-                        )
-                        stop_all_msg_flag = False
-                    mediainfo_fail_count += 1
-                    mediainfo_fail_dict.append(item["path"])
-                    continue
-                download_success = False
-                if item["type"] == "local":
-                    try:
-                        for _ in range(3):
-                            self.local_downloader(
-                                pickcode=item["pickcode"], path=Path(item["path"])
-                            )
-                            if not self.is_file_leq_1k(item["path"]):
-                                mediainfo_count += 1
-                                download_success = True
-                                break
-                            logger.warn(
-                                f"【媒体信息文件下载】{item['path']} 下载该文件失败，自动重试"
-                            )
-                            time.sleep(1)
-                    except Exception as e:
-                        logger.error(
-                            f"【媒体信息文件下载】 {item['path']} 出现未知错误: {e}"
-                        )
-                    if not download_success:
-                        mediainfo_fail_count += 1
-                        mediainfo_fail_dict.append(item["path"])
-                else:
-                    continue
-                if mediainfo_count % 50 == 0:
-                    logger.info("【媒体信息文件下载】休眠 2s 后继续下载")
-                    time.sleep(2)
-        except Exception as e:
-            logger.error(f"【媒体信息文件下载】出现未知错误: {e}")
-        return mediainfo_count, mediainfo_fail_count, mediainfo_fail_dict
 
     async def __async_download_batch_subtitle_image(
         self, data_map: Dict[str | int, str], item_list, value: str = "sha1"

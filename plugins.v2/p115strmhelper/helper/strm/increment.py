@@ -2,7 +2,7 @@ import threading
 import time
 from itertools import batched
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple, Iterator
 
 from p115client import P115Client
 from p115client.tool.export_dir import export_dir_parse_iter
@@ -120,9 +120,14 @@ class IncrementSyncStrmHelper:
         self.pan_tree.clear()
         self.pan_to_local_tree.clear()
 
-    def __itertree(self, pan_path: str, local_path: str):
+    def __itertree(self, pan_path: str, local_path: str) -> Iterator:
         """
         迭代目录树
+
+        :param pan_path: 网盘路径
+        :param local_path: 本地路径
+
+        :return Iterator: 网盘路径迭代器
         """
         relative_path = None
 
@@ -159,9 +164,14 @@ class IncrementSyncStrmHelper:
                         item_path.as_posix(),
                     )
 
-    def __iterdir(self, cid: int, path: str):
+    def __iterdir(self, cid: int, path: str) -> Iterator:
         """
         迭代网盘目录
+
+        :param cid: 网盘目录 ID
+        :param path: 网盘路径
+
+        :return Iterator: 网盘文件(夹)信息迭代器
         """
         logger.debug(f"【增量STRM生成】迭代网盘目录: {cid} {path}")
         for batch in iter_fs_files(self.client, cid, cooldown=2):
@@ -170,10 +180,14 @@ class IncrementSyncStrmHelper:
                 item["path"] = path + "/" + item.get("n")
                 yield item
 
-    def __get_cid_by_path(self, path: str):
+    def __get_cid_by_path(self, path: str) -> Optional[int]:
         """
         通过路径获取 cid
         先从缓存获取，再从数据库获取
+
+        :param path: 网盘目录
+
+        :return int: 网盘目录 ID
         """
         cid = idpathcacher.get_id_by_dir(path)
         if not cid:
@@ -192,6 +206,10 @@ class IncrementSyncStrmHelper:
     def __get_size(self, path: str) -> Optional[int]:
         """
         通过数据库获取文件大小
+
+        :param path: 网盘路径
+
+        :return int: 文件大小
         """
         data = self.databasehelper.get_by_path(path=path)
         if data:
@@ -200,9 +218,13 @@ class IncrementSyncStrmHelper:
                 return size
         return None
 
-    def __get_pickcode(self, path: str):
+    def __get_pickcode_sha1(self, path: str) -> Tuple[str, str]:
         """
-        通过路径获取 pickcode
+        通过路径获取 pick_code, sha1
+
+        :param path: 文件网盘路径
+
+        :return pick_code, sha1: 返回此文件的 pick_code 和 sha1
         """
         last_path = None
         processed = []
@@ -214,7 +236,7 @@ class IncrementSyncStrmHelper:
                 self.databasehelper.remove_by_path_batch(path=path, only_file=True)
                 file_item = None
             if file_item:
-                return file_item.get("pickcode")
+                return file_item.get("pickcode"), file_item.get("sha1")
             file_path = Path(path)
             temp_path = None
             cid = None
@@ -347,7 +369,7 @@ class IncrementSyncStrmHelper:
                         )
                         return
 
-                    pickcode = self.__get_pickcode(pan_path)
+                    pickcode, sha1 = self.__get_pickcode_sha1(pan_path)
                     if not pickcode:
                         logger.error(
                             f"【增量STRM生成】{pan_path_obj.name} 不存在 pickcode 值，无法下载该文件"
@@ -358,6 +380,7 @@ class IncrementSyncStrmHelper:
                             "type": "local",
                             "pickcode": pickcode,
                             "path": local_path,
+                            "sha1": sha1,
                         }
                     )
                     return
@@ -380,7 +403,7 @@ class IncrementSyncStrmHelper:
                 )
                 return
 
-            pickcode = self.__get_pickcode(pan_path)
+            pickcode = self.__get_pickcode_sha1(pan_path)[0]
 
             if not (
                 result := StrmGenerater.not_min_limit(
@@ -510,7 +533,7 @@ class IncrementSyncStrmHelper:
 
         # 下载媒体信息文件
         self.mediainfo_count, self.mediainfo_fail_count, self.mediainfo_fail_dict = (
-            self.mediainfodownloader.auto_downloader(
+            self.mediainfodownloader.batch_auto_downloader(
                 downloads_list=self.download_mediainfo_list
             )
         )
