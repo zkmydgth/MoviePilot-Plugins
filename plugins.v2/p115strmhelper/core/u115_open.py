@@ -673,7 +673,7 @@ class U115OpenHelper:
             access_key_secret=access_key_secret,
             security_token=security_token,
         )
-        bucket = oss2.Bucket(auth, endpoint, bucket_name, connect_timeout=120)  # noqa
+        bucket = Bucket(auth, endpoint, bucket_name, connect_timeout=120)  # noqa
         part_size = determine_part_size(file_size, preferred_size=self.chunk_size)
 
         # 初始化进度条
