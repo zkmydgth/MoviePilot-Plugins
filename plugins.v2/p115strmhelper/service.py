@@ -357,7 +357,7 @@ class ServiceHelper:
         启动目录上传监控
         """
         if configer.get_config("directory_upload_enabled"):
-            for item in configer.get_config("directory_upload_path"):
+            for item in configer.get_config("directory_upload_path"):  # pylint: disable=E1133
                 if not item:
                     continue
                 mon_path = item.get("src", "")
