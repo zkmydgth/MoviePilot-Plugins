@@ -151,10 +151,10 @@ class MonitorLife:
                     idpathcacher.add_cache(id=cid, directory=str(dir_path))
                     return Path(dir_path)
             dir_path = get_path(client=self._client, attr=cid, root_id=None)
-            idpathcacher.add_cache(id=cid, directory=str(dir_path))
             if not dir_path:
                 logger.error(f"获取 {cid} 路径失败")
                 return None
+            idpathcacher.add_cache(id=cid, directory=str(dir_path))
             logger.debug(f"获取 {cid} 路径（API）: {dir_path}")
             return Path(dir_path)
         logger.debug(f"获取 {cid} 路径（缓存）: {dir_path}")
