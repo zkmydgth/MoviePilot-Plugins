@@ -72,7 +72,15 @@ class CloudDriveDisk(_PluginBase):
             return
         address = f"{self._host}:{self._port}"
         try:
-            self._client = CloudDriveClient(address)
+            self._client = CloudDriveClient(
+                address,
+                options=[
+                    ("grpc.keepalive_time_ms", 30000),
+                    ("grpc.keepalive_timeout_ms", 10000),
+                    ("grpc.keepalive_permit_without_calls", True),
+                    ("grpc.http2.max_pings_without_data", 0),
+                ],
+            )
             if not self._client.authenticate(self._username, self._password):
                 logger.error("【CloudDrive】认证失败，请检查用户名与密码")
                 self._client.close()
