@@ -245,6 +245,15 @@ class FileDbHelper(DbOper):
             Folder.remove_by_path_batch(self._db, path)
         return True
 
+    def remove_by_path(self, path_type: str, path: str):
+        """
+        删除指定路径的记录
+        """
+        if path_type == "file":
+            File.delete_by_path(self._db, path)
+        else:
+            Folder.delete_by_path(self._db, path)
+
     def update_path_by_id(self, id: int, new_path: str) -> bool:
         """
         通过ID匹配数据并修改path

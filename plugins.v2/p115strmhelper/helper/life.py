@@ -691,6 +691,12 @@ class MonitorLife:
             return
         logger.debug("【监控生活事件】匹配到网盘文件夹路径: %s", str(pan_media_dir))
 
+        # 清理数据库此路径记录
+        _databasehelper.remove_by_path(
+            path_type="folder" if file_category == 0 else "file",
+            path=str(pan_file_path),
+        )
+
         storagechain = StorageChain()
         fileitem = storagechain.get_file_item(storage="u115", path=Path(file_path))
         if fileitem:
@@ -723,8 +729,10 @@ class MonitorLife:
                 Path(file_path).unlink(missing_ok=True)
                 # 判断父目录是否需要删除
                 __remove_parent_dir(Path(file_path))
-            # 清理数据库文件
-            _databasehelper.remove_by_path_batch(str(pan_file_path))
+            # 清理数据库所有路径
+            _databasehelper.remove_by_path_batch(
+                path=str(pan_file_path), only_file=False
+            )
             logger.info(f"【监控生活事件】{file_path} 已删除")
             # 同步删除历史记录
             if configer.monitor_life_remove_mp_history:

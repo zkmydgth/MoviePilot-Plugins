@@ -52,8 +52,9 @@ class File(P115StrmHelperBase):
             db.execute(select(File).where(File.parent_id == parent_id)).scalars().all()
         )
 
+    @staticmethod
     @db_update
-    def delete_by_path(self, db: Session, file_path: str):
+    def delete_by_path(db: Session, file_path: str):
         """
         通过路径删除（删除所有匹配值）
         """

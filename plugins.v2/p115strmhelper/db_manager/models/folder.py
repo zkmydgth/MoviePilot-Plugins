@@ -48,8 +48,9 @@ class Folder(P115StrmHelperBase):
             .all()
         )
 
+    @staticmethod
     @db_update
-    def delete_by_path(self, db: Session, file_path: str):
+    def delete_by_path(db: Session, file_path: str):
         """
         通过路径删除（删除所有匹配值）
         """
