@@ -1,6 +1,7 @@
 import functools
 import inspect
-import base64
+from base64 import b64decode
+from typing import Dict, List, Any
 
 import sentry_sdk
 from sentry_sdk.hub import Hub
@@ -46,7 +47,7 @@ class NoopSentryHub(Hub):
     一个不执行任何操作的 Sentry Hub，用于禁用状态
     """
 
-    def capture_event(self, event, hint=None, scope=None):
+    def capture_event(self, event, hint=None, scope=None, **scope_kwargs):
         pass
 
     def capture_exception(self, error=None, **kwargs):
@@ -55,7 +56,7 @@ class NoopSentryHub(Hub):
     def capture_message(self, message, **kwargs):
         pass
 
-    def configure_scope(self, callback=None):
+    def configure_scope(self, callback=None, continue_trace=True):
         class NoopScope:
             def __enter__(self):
                 return self
@@ -67,13 +68,13 @@ class NoopSentryHub(Hub):
                 return lambda *args, **kwargs: None
 
         if callback:
-            callback(NoopScope())
+            callback(NoopScope())  # noqa
         return NoopScope()
 
     def add_breadcrumb(self, crumb=None, hint=None, **kwargs):
         pass
 
-    def push_scope(self, callback=None):
+    def push_scope(self, callback=None, continue_trace=True):
         class NoopContextManager:
             def __enter__(self):
                 pass
@@ -102,7 +103,7 @@ class SentryManager:
         self.sentry_hub = NoopSentryHub()
         self._patched = False
 
-        self._ignored_rules = [
+        self._ignored_rules: List[Dict[str, Any]] = [
             {"type": U115NoCheckInException},
             {"type": PanDataNotInDb, "message": "无法找到路径"},
             {"type": CanNotFindPathToCid, "message": "无法找到路径"},
@@ -164,7 +165,7 @@ class SentryManager:
             logger.debug("【Sentry】Enabling Sentry error reporting...")
             self.sentry_hub = Hub(
                 Client(
-                    dsn=base64.b64decode(
+                    dsn=b64decode(
                         "aHR0cHM6Ly82YTk0ZjI2N2NjOTY0Y2ZiOTk5ZjQyNDgwNGIyMTE1M0BnbGl0Y2h0aXAuZGRzcmVtLmNvbS80"
                     ).decode("utf-8"),
                     release=f"p115strmhelper@v{VERSION}",
