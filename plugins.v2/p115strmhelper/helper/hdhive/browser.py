@@ -1210,14 +1210,19 @@ class HDHivePlaywrightClient:
                 debug.save_html(page, "avatar_all_failed")
                 return False, "等待头像按钮超时，可能未登录成功"
 
-            debug.log(f"等待签到按钮出现: '{label}'")
-            btn_loc = page.locator(f"button:has-text('{label}')")
+            _CHECKIN_SVG_ANCHOR = {
+                False: "M6.96 2c.418",
+                True: "M216 64v128",
+            }
+            anchor = _CHECKIN_SVG_ANCHOR[gamble]
+            debug.log(f"等待签到按钮出现 (SVG图标识别, 锚点={anchor!r})")
+            btn_loc = page.locator(f"button:has(path[d^='{anchor}'])")
             try:
                 btn_loc.first.wait_for(state="visible", timeout=15000)
-                debug.log("签到按钮已出现")
+                debug.log("签到按钮已出现（SVG图标匹配）")
                 debug.screenshot(page, "checkin_btn_visible", f"签到按钮可见: {label}")
             except PlaywrightTimeoutError:
-                debug.log("等待签到按钮超时！用户菜单未出现或按钮文本不匹配")
+                debug.log("等待签到按钮超时！SVG图标未匹配（菜单未出现或图标已变更）")
                 debug.screenshot(page, "checkin_btn_timeout", "签到按钮等待超时")
                 debug.save_html(page, "checkin_btn_timeout")
                 return False, f"等待{label}按钮超时，用户菜单未出现"
