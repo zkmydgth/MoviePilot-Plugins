@@ -41,7 +41,7 @@ class ConfigManager(BaseModel):
         """
         返回默认的插件数据库结构目录路径
         """
-        return settings.ROOT_PATH / "app/plugins/p115strmhelper/database"
+        return settings.ROOT_PATH / "app" / "plugins" / "p115strmhelper" / "database"
 
     @staticmethod
     def _get_default_plugin_temp_path() -> Path:

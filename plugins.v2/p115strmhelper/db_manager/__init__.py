@@ -36,7 +36,8 @@ class __DBManager:
     # 多线程全局使用的数据库会话
     ScopedSession: Optional[scoped_session] = None
 
-    def _setup_sqlite_pragmas(self, dbapi_connection, _connection_record):
+    @staticmethod
+    def _setup_sqlite_pragmas(dbapi_connection, _connection_record):
         """
         事件监听器，在每个新连接上执行
 
