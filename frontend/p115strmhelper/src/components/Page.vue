@@ -2656,6 +2656,67 @@ async function fetchUserStorageStatus() {
    页面组件样式 - 镜面效果 + 蓝粉白配色
    ============================================ */
 
+/* 动画关键帧定义 */
+@keyframes cardEnter {
+  0% {
+    opacity: 0;
+    transform: translateY(20px) scale(0.95);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes listItemEnter {
+  0% {
+    opacity: 0;
+    transform: translateX(-15px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes buttonPulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(91, 207, 250, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgba(91, 207, 250, 0);
+  }
+}
+
+@keyframes iconBounce {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.2);
+  }
+}
+
+@keyframes statusPulse {
+  0%, 100% {
+    transform: scale(1);
+    filter: drop-shadow(0 0 0 rgba(91, 207, 250, 0));
+  }
+  50% {
+    transform: scale(1.05);
+    filter: drop-shadow(0 0 8px rgba(91, 207, 250, 0.4));
+  }
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .plugin-page {
   padding: 12px;
 }
@@ -2664,21 +2725,23 @@ async function fetchUserStorageStatus() {
   border-radius: 20px !important;
   overflow: hidden;
   /* 镜面效果 - 动态适配主题 */
-  background: rgba(var(--v-theme-surface), 0.7) !important;
+  background: rgba(var(--v-theme-surface), 0.75) !important;
   backdrop-filter: blur(20px) saturate(180%) !important;
   -webkit-backdrop-filter: blur(20px) saturate(180%) !important;
   box-shadow:
-    0 8px 32px rgba(91, 207, 250, 0.25),
-    0 2px 8px rgba(245, 171, 185, 0.2),
+    0 8px 32px rgba(91, 207, 250, 0.2),
+    0 2px 8px rgba(245, 171, 185, 0.15),
     inset 0 1px 0 rgba(var(--v-theme-on-surface), 0.05) !important;
-  border: 1px solid rgba(var(--v-theme-on-surface), 0.12) !important;
-  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.1) !important;
+  transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
+  animation: cardEnter 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  will-change: transform, box-shadow;
 }
 
 /* 暗色模式下的主卡片 */
 :deep(.v-theme--dark) .plugin-page .v-card,
 :deep([data-theme="dark"]) .plugin-page .v-card {
-  background: rgba(var(--v-theme-surface), 0.75) !important;
+  background: rgba(var(--v-theme-surface), 0.8) !important;
   border: 1px solid rgba(255, 255, 255, 0.15) !important;
   box-shadow:
     0 8px 32px rgba(91, 207, 250, 0.3),
@@ -2689,23 +2752,24 @@ async function fetchUserStorageStatus() {
 .config-card {
   border-radius: 16px !important;
   /* 镜面效果 - 动态适配主题 */
-  background: rgba(var(--v-theme-surface), 0.65) !important;
+  background: rgba(var(--v-theme-surface), 0.7) !important;
   backdrop-filter: blur(15px) saturate(180%) !important;
   -webkit-backdrop-filter: blur(15px) saturate(180%) !important;
-  border: 1px solid rgba(var(--v-theme-on-surface), 0.12) !important;
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.1) !important;
   box-shadow:
-    0 4px 16px rgba(91, 207, 250, 0.2),
-    0 1px 4px rgba(245, 171, 185, 0.15),
+    0 4px 16px rgba(91, 207, 250, 0.18),
+    0 1px 4px rgba(245, 171, 185, 0.12),
     inset 0 1px 0 rgba(var(--v-theme-on-surface), 0.05) !important;
-  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
   margin-bottom: 16px !important;
   overflow: hidden;
+  will-change: transform, box-shadow;
 }
 
 /* 暗色模式下的配置卡片 */
 :deep(.v-theme--dark) .config-card,
 :deep([data-theme="dark"]) .config-card {
-  background: rgba(var(--v-theme-surface), 0.7) !important;
+  background: rgba(var(--v-theme-surface), 0.75) !important;
   border: 1px solid rgba(255, 255, 255, 0.15) !important;
   box-shadow:
     0 4px 16px rgba(91, 207, 250, 0.25),
@@ -2714,27 +2778,27 @@ async function fetchUserStorageStatus() {
 }
 
 .config-card:hover {
-  transform: translateY(-4px) scale(1.01);
+  transform: translateY(-6px) scale(1.015);
   box-shadow:
-    0 12px 32px rgba(91, 207, 250, 0.3),
-    0 4px 12px rgba(245, 171, 185, 0.25),
-    inset 0 1px 0 rgba(var(--v-theme-on-surface), 0.08) !important;
+    0 16px 40px rgba(91, 207, 250, 0.35),
+    0 6px 16px rgba(245, 171, 185, 0.25),
+    inset 0 1px 0 rgba(var(--v-theme-on-surface), 0.1) !important;
   border-color: rgba(91, 207, 250, 0.5) !important;
-  background: rgba(var(--v-theme-surface), 0.75) !important;
+  background: rgba(var(--v-theme-surface), 0.8) !important;
 }
 
 /* 暗色模式下的配置卡片悬停状态 */
 :deep(.v-theme--dark) .config-card:hover,
 :deep([data-theme="dark"]) .config-card:hover {
-  background: rgba(var(--v-theme-surface), 0.8) !important;
+  background: rgba(var(--v-theme-surface), 0.85) !important;
   border-color: rgba(91, 207, 250, 0.6) !important;
   box-shadow:
-    0 12px 32px rgba(91, 207, 250, 0.4),
-    0 4px 12px rgba(245, 171, 185, 0.3),
+    0 16px 40px rgba(91, 207, 250, 0.45),
+    0 6px 16px rgba(245, 171, 185, 0.3),
     inset 0 1px 0 rgba(255, 255, 255, 0.15) !important;
 }
 
-/* 统一字体 */
+/* 现代字体栈 */
 :deep(.v-card-title),
 :deep(.v-card-text),
 :deep(.v-list-item-title),
@@ -2745,7 +2809,212 @@ async function fetchUserStorageStatus() {
 :deep(.text-subtitle-1),
 :deep(.text-body-1),
 :deep(.text-body-2) {
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif !important;
+  font-family: 'Inter', 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif !important;
+}
+
+/* 标题字体优化 */
+:deep(.v-card-title) {
+  font-weight: 700 !important;
+  font-size: 1.1rem !important;
+  letter-spacing: -0.02em !important;
+  line-height: 1.3 !important;
+}
+
+:deep(.text-subtitle-1) {
+  font-weight: 600 !important;
+  font-size: 1rem !important;
+  letter-spacing: -0.01em !important;
+  line-height: 1.4 !important;
+}
+
+:deep(.text-subtitle-2) {
+  font-weight: 600 !important;
+  font-size: 0.9rem !important;
+  letter-spacing: 0 !important;
+  line-height: 1.35 !important;
+}
+
+/* 正文字体优化 */
+:deep(.text-body-1) {
+  font-weight: 400 !important;
+  font-size: 1rem !important;
+  line-height: 1.6 !important;
+  letter-spacing: 0 !important;
+}
+
+:deep(.text-body-2) {
+  font-weight: 400 !important;
+  font-size: 0.9rem !important;
+  line-height: 1.5 !important;
+  letter-spacing: 0 !important;
+}
+
+/* 小字字体优化 */
+:deep(.text-caption) {
+  font-weight: 400 !important;
+  font-size: 0.8rem !important;
+  line-height: 1.4 !important;
+  letter-spacing: 0.01em !important;
+}
+
+/* 列表项字体优化 */
+:deep(.v-list-item-title) {
+  font-weight: 500 !important;
+  font-size: 0.9rem !important;
+  line-height: 1.4 !important;
+}
+
+:deep(.v-list-item-subtitle) {
+  font-weight: 400 !important;
+  font-size: 0.8rem !important;
+  line-height: 1.4 !important;
+  letter-spacing: 0.01em !important;
+}
+
+/* 按钮字体优化 */
+:deep(.v-btn) {
+  font-weight: 500 !important;
+  font-size: 0.875rem !important;
+  letter-spacing: 0.02em !important;
+  text-transform: none !important;
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
+  will-change: transform, box-shadow;
+}
+
+:deep(.v-btn:hover) {
+  transform: translateY(-3px) scale(1.05);
+  box-shadow: 0 8px 20px rgba(91, 207, 250, 0.35) !important;
+}
+
+:deep(.v-btn:active) {
+  transform: scale(0.98) translateY(-1px);
+  transition: all 0.1s ease !important;
+}
+
+/* 主要按钮脉冲效果 */
+:deep(.v-btn.color-primary:not(:hover)) {
+  animation: buttonPulse 2s ease-in-out infinite;
+}
+
+/* 图标动画优化 */
+:deep(.v-icon) {
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
+  will-change: transform;
+}
+
+:deep(.v-btn:hover .v-icon) {
+  transform: scale(1.15) rotate(5deg);
+}
+
+/* 列表项动画优化 */
+:deep(.v-list-item) {
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
+  will-change: transform, background;
+  opacity: 0;
+  animation: listItemEnter 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+:deep(.v-list-item:nth-child(1)) { animation-delay: 0.1s; }
+:deep(.v-list-item:nth-child(2)) { animation-delay: 0.15s; }
+:deep(.v-list-item:nth-child(3)) { animation-delay: 0.2s; }
+:deep(.v-list-item:nth-child(4)) { animation-delay: 0.25s; }
+:deep(.v-list-item:nth-child(5)) { animation-delay: 0.3s; }
+:deep(.v-list-item:nth-child(6)) { animation-delay: 0.35s; }
+:deep(.v-list-item:nth-child(7)) { animation-delay: 0.4s; }
+:deep(.v-list-item:nth-child(8)) { animation-delay: 0.45s; }
+
+:deep(.v-list-item:hover) {
+  transform: translateX(6px);
+  background: linear-gradient(135deg,
+      rgba(91, 207, 250, 0.15) 0%,
+      rgba(245, 171, 185, 0.1) 100%) !important;
+}
+
+:deep(.v-list-item:hover .v-icon) {
+  transform: scale(1.2);
+}
+
+/* 状态芯片动画 */
+:deep(.v-chip) {
+  transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
+  will-change: transform, box-shadow;
+}
+
+:deep(.v-chip:hover) {
+  transform: scale(1.08) translateY(-2px);
+  box-shadow: 0 4px 12px rgba(91, 207, 250, 0.25) !important;
+}
+
+/* 状态图标脉冲效果 */
+:deep(.v-icon.text-success),
+:deep(.v-icon.text-error) {
+  animation: statusPulse 2s ease-in-out infinite;
+}
+
+/* 刷新按钮旋转动画 */
+:deep(.v-btn[loading] .v-icon),
+:deep(.icon-spin-animation) {
+  animation: spin 1s linear infinite;
+}
+
+/* 进度条动画优化 */
+:deep(.v-progress-linear) {
+  transition: all 0.3s ease !important;
+}
+
+:deep(.v-progress-linear__determinate) {
+  transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
+}
+
+/* 路径映射项动画 */
+.path-mapping-item {
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
+  will-change: transform, box-shadow;
+}
+
+.path-mapping-item:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 8px 20px rgba(91, 207, 250, 0.15) !important;
+}
+
+/* 对话框动画优化 */
+:deep(.v-dialog .v-overlay__content) {
+  animation: cardEnter 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+/* 警告框动画优化 */
+:deep(.v-alert) {
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
+}
+
+:deep(.v-alert:hover) {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px rgba(91, 207, 250, 0.2) !important;
+}
+
+/* 输入框动画优化 */
+:deep(.v-field) {
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
+  will-change: box-shadow, border-color;
+}
+
+:deep(.v-field--focused) {
+  box-shadow: 0 0 0 3px rgba(91, 207, 250, 0.2) !important;
+}
+
+/* 菜单动画优化 */
+:deep(.v-menu .v-overlay__content) {
+  animation: cardEnter 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+/* 头像动画优化 */
+:deep(.v-avatar) {
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
+}
+
+:deep(.v-avatar:hover) {
+  transform: scale(1.1);
+  box-shadow: 0 4px 12px rgba(91, 207, 250, 0.3) !important;
 }
 
 /* 文字大小 */

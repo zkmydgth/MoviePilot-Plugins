@@ -193,121 +193,253 @@ onUnmounted(() => {
 <style scoped>
 /* ============================================
    仪表盘组件样式 - 镜面效果 + 蓝粉白配色
+   主题色: #5bcffa (蓝) / #f5abb9 (粉) / #ffb8c9 (粉强调)
    ============================================ */
 
+/* 现代字体栈 */
 .dashboard-widget {
   height: 100%;
   width: 100%;
+  font-family: 'Inter', 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+
+/* 卡片入场动画 */
+@keyframes cardEnter {
+  0% {
+    opacity: 0;
+    transform: translateY(20px) scale(0.95);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* 列表项交错入场动画 */
+@keyframes listItemEnter {
+  0% {
+    opacity: 0;
+    transform: translateX(-15px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* 状态图标脉冲动画 */
+@keyframes statusPulse {
+  0%, 100% {
+    transform: scale(1);
+    filter: drop-shadow(0 0 0 rgba(91, 207, 250, 0));
+  }
+  50% {
+    transform: scale(1.05);
+    filter: drop-shadow(0 0 8px rgba(91, 207, 250, 0.4));
+  }
+}
+
+/* 刷新按钮旋转动画 */
+@keyframes refreshSpin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .dashboard-widget :deep(.v-card) {
   border-radius: 20px !important;
   overflow: hidden;
   /* 镜面效果 */
-  background: rgba(255, 255, 255, 0.7) !important;
+  background: rgba(255, 255, 255, 0.75) !important;
   backdrop-filter: blur(20px) saturate(180%) !important;
   -webkit-backdrop-filter: blur(20px) saturate(180%) !important;
   box-shadow:
-    0 8px 32px rgba(91, 207, 250, 0.25),
-    0 2px 8px rgba(245, 171, 185, 0.2),
-    inset 0 1px 0 rgba(255, 255, 255, 0.7) !important;
-  border: 1px solid rgba(255, 255, 255, 0.3) !important;
-  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1) !important;
+    0 8px 32px rgba(91, 207, 250, 0.2),
+    0 2px 8px rgba(245, 171, 185, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.8) !important;
+  border: 1px solid rgba(255, 255, 255, 0.4) !important;
+  transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
+  animation: cardEnter 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  will-change: transform, box-shadow;
 }
 
 .dashboard-widget :deep(.v-card:hover) {
   box-shadow:
-    0 12px 32px rgba(91, 207, 250, 0.15),
-    0 4px 12px rgba(245, 171, 185, 0.1),
-    inset 0 1px 0 rgba(255, 255, 255, 0.7) !important;
-  transform: translateY(-4px) scale(1.02);
-  background: rgba(255, 255, 255, 0.75) !important;
+    0 16px 40px rgba(91, 207, 250, 0.25),
+    0 4px 16px rgba(245, 171, 185, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9) !important;
+  transform: translateY(-6px) scale(1.02);
+  background: rgba(255, 255, 255, 0.85) !important;
 }
 
 .v-card-item {
   padding-bottom: 8px;
 }
 
+/* 标题字体优化 */
 :deep(.v-card-title) {
-  font-weight: 600 !important;
-  color: rgba(var(--v-theme-on-surface), 0.87) !important;
+  font-weight: 700 !important;
+  font-size: 1.1rem !important;
+  letter-spacing: -0.02em !important;
+  color: rgba(var(--v-theme-on-surface), 0.9) !important;
+  line-height: 1.3 !important;
 }
 
 :deep(.v-card-subtitle) {
-  color: rgba(var(--v-theme-on-surface), 0.6) !important;
+  font-weight: 400 !important;
+  font-size: 0.8rem !important;
+  letter-spacing: 0.01em !important;
+  color: rgba(var(--v-theme-on-surface), 0.55) !important;
+  line-height: 1.4 !important;
 }
 
+/* 列表项动画优化 */
 :deep(.v-list-item) {
-  min-height: 36px;
-  border-radius: 8px;
-  margin: 2px 4px;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  min-height: 40px;
+  border-radius: 10px;
+  margin: 3px 6px;
+  transition: all 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
+  opacity: 0;
+  animation: listItemEnter 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  will-change: transform, background;
 }
+
+/* 列表项交错动画延迟 */
+:deep(.v-list-item:nth-child(1)) { animation-delay: 0.1s; }
+:deep(.v-list-item:nth-child(2)) { animation-delay: 0.2s; }
+:deep(.v-list-item:nth-child(3)) { animation-delay: 0.3s; }
+:deep(.v-list-item:nth-child(4)) { animation-delay: 0.4s; }
+:deep(.v-list-item:nth-child(5)) { animation-delay: 0.5s; }
 
 :deep(.v-list-item:hover) {
   background: linear-gradient(135deg,
-      rgba(91, 207, 250, 0.2) 0%,
-      rgba(245, 171, 185, 0.15) 100%) !important;
-  backdrop-filter: blur(10px) !important;
-  transform: translateX(4px);
+      rgba(91, 207, 250, 0.18) 0%,
+      rgba(245, 171, 185, 0.12) 100%) !important;
+  backdrop-filter: blur(12px) !important;
+  transform: translateX(6px) scale(1.01);
   box-shadow:
-    0 2px 8px rgba(91, 207, 250, 0.25),
-    inset 0 1px 0 rgba(255, 255, 255, 0.4) !important;
-}
-
-:deep(.v-list-item-title) {
-  font-weight: 500 !important;
-}
-
-:deep(.v-btn) {
-  border-radius: 8px !important;
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
-}
-
-:deep(.v-btn:hover) {
-  transform: scale(1.1) translateY(-2px);
-  background: linear-gradient(135deg,
-      rgba(91, 207, 250, 0.25) 0%,
-      rgba(245, 171, 185, 0.2) 100%) !important;
-  backdrop-filter: blur(10px) !important;
-  box-shadow:
-    0 6px 16px rgba(91, 207, 250, 0.35),
-    0 2px 8px rgba(245, 171, 185, 0.3),
+    0 4px 12px rgba(91, 207, 250, 0.2),
     inset 0 1px 0 rgba(255, 255, 255, 0.5) !important;
 }
 
+/* 列表项标题字体 */
+:deep(.v-list-item-title) {
+  font-weight: 500 !important;
+  font-size: 0.9rem !important;
+  letter-spacing: 0 !important;
+  line-height: 1.4 !important;
+}
+
+/* 状态文字样式 */
+:deep(.v-list-item-title .text-success),
+:deep(.v-list-item-title .text-grey) {
+  font-weight: 600 !important;
+  transition: all 0.3s ease;
+}
+
+/* 按钮动画优化 */
+:deep(.v-btn) {
+  border-radius: 10px !important;
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
+  font-weight: 500 !important;
+  letter-spacing: 0.02em !important;
+  will-change: transform;
+}
+
+:deep(.v-btn:hover) {
+  transform: scale(1.08) translateY(-3px);
+  background: linear-gradient(135deg,
+      rgba(91, 207, 250, 0.3) 0%,
+      rgba(245, 171, 185, 0.25) 100%) !important;
+  backdrop-filter: blur(12px) !important;
+  box-shadow:
+    0 8px 20px rgba(91, 207, 250, 0.4),
+    0 4px 12px rgba(245, 171, 185, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.6) !important;
+}
+
+:deep(.v-btn:active) {
+  transform: scale(0.98) translateY(-1px);
+  transition: all 0.1s ease !important;
+}
+
+/* 刷新按钮旋转动画 */
+:deep(.v-btn[loading] .v-icon) {
+  animation: refreshSpin 1s linear infinite;
+}
+
+/* 图标动画优化 */
 :deep(.v-icon) {
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
+  will-change: transform, filter;
+}
+
+:deep(.v-list-item:hover .v-icon) {
+  transform: scale(1.15) rotate(5deg);
+  filter: drop-shadow(0 2px 4px rgba(91, 207, 250, 0.3));
+}
+
+/* 状态图标脉冲效果 */
+:deep(.v-icon.text-success),
+:deep(.v-icon.text-error) {
+  animation: statusPulse 2s ease-in-out infinite;
 }
 
 /* 刷新状态栏 - 动态镜面效果 */
 .refresh-actions {
   background: linear-gradient(135deg,
-      rgba(91, 207, 250, 0.15) 0%,
-      rgba(245, 171, 185, 0.12) 100%) !important;
+      rgba(91, 207, 250, 0.12) 0%,
+      rgba(245, 171, 185, 0.1) 100%) !important;
   backdrop-filter: blur(20px) saturate(180%) !important;
   -webkit-backdrop-filter: blur(20px) saturate(180%) !important;
-  border-top: 1px solid rgba(255, 255, 255, 0.4) !important;
+  border-top: 1px solid rgba(255, 255, 255, 0.5) !important;
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.5),
-    0 -2px 12px rgba(91, 207, 250, 0.15),
-    0 -1px 4px rgba(245, 171, 185, 0.1) !important;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+    inset 0 1px 0 rgba(255, 255, 255, 0.6),
+    0 -2px 12px rgba(91, 207, 250, 0.12),
+    0 -1px 4px rgba(245, 171, 185, 0.08) !important;
+  transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
 }
 
 .refresh-actions:hover {
   background: linear-gradient(135deg,
-      rgba(91, 207, 250, 0.2) 0%,
-      rgba(245, 171, 185, 0.15) 100%) !important;
+      rgba(91, 207, 250, 0.18) 0%,
+      rgba(245, 171, 185, 0.14) 100%) !important;
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.6),
-    0 -2px 16px rgba(91, 207, 250, 0.2),
-    0 -1px 6px rgba(245, 171, 185, 0.15) !important;
+    inset 0 1px 0 rgba(255, 255, 255, 0.7),
+    0 -2px 16px rgba(91, 207, 250, 0.18),
+    0 -1px 6px rgba(245, 171, 185, 0.12) !important;
+}
+
+/* 时间戳文字样式 */
+.refresh-actions .text-caption {
+  font-weight: 400 !important;
+  font-size: 0.75rem !important;
+  letter-spacing: 0.02em !important;
+  color: rgba(var(--v-theme-on-surface), 0.5) !important;
 }
 
 :deep(.refresh-actions .v-divider) {
-  border-color: rgba(91, 207, 250, 0.3) !important;
-  opacity: 0.6;
+  border-color: rgba(91, 207, 250, 0.25) !important;
+  opacity: 0.5;
+}
+
+/* 加载动画优化 */
+:deep(.v-progress-circular) {
+  transition: all 0.3s ease;
+}
+
+/* 错误状态动画 */
+.text-error {
+  animation: shake 0.5s ease-in-out;
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-3px); }
+  75% { transform: translateX(3px); }
 }
 
 /* 移动端优化 - 保持镜面效果 */
@@ -316,6 +448,7 @@ onUnmounted(() => {
     border-radius: 16px !important;
     backdrop-filter: blur(15px) saturate(180%) !important;
     -webkit-backdrop-filter: blur(15px) saturate(180%) !important;
+    animation: cardEnter 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
   }
 
   /* 优化触摸目标大小 */
@@ -332,24 +465,25 @@ onUnmounted(() => {
   /* 优化列表项触摸区域 */
   :deep(.v-list-item) {
     min-height: 48px !important;
-    padding: 8px 12px !important;
-    margin: 4px 2px !important;
+    padding: 10px 14px !important;
+    margin: 4px 6px !important;
   }
 
   /* 优化卡片标题 */
   :deep(.v-card-title) {
-    font-size: 0.875rem !important;
-    padding: 10px 12px !important;
+    font-size: 1rem !important;
+    padding: 12px 14px !important;
+    font-weight: 600 !important;
   }
 
   :deep(.v-card-subtitle) {
     font-size: 0.75rem !important;
-    padding: 0 12px 8px 12px !important;
+    padding: 0 14px 10px 14px !important;
   }
 
   /* 优化文本大小 */
   :deep(.v-list-item-title) {
-    font-size: 0.8rem !important;
+    font-size: 0.85rem !important;
   }
 
   /* 优化图标大小 */
@@ -363,12 +497,32 @@ onUnmounted(() => {
 
   /* 优化卡片内容区域 */
   :deep(.v-card-text) {
-    padding: 10px !important;
+    padding: 12px !important;
   }
 
   /* 优化卡片操作区域 */
   :deep(.v-card-actions) {
-    padding: 8px 10px !important;
+    padding: 10px 12px !important;
+  }
+
+  /* 减少动画复杂度 */
+  :deep(.v-list-item:hover) {
+    transform: translateX(4px);
+  }
+
+  :deep(.v-btn:hover) {
+    transform: scale(1.05) translateY(-2px);
+  }
+}
+
+/* 小屏幕优化 */
+@media (max-width: 480px) {
+  :deep(.v-card-title) {
+    font-size: 0.95rem !important;
+  }
+
+  :deep(.v-list-item-title) {
+    font-size: 0.8rem !important;
   }
 }
 </style>

@@ -4600,9 +4600,381 @@ const removeExcludePathEntry = (index, type) => {
 </script>
 
 <style scoped>
+/* ============================================
+   动画关键帧定义
+   ============================================ */
+
+/* 卡片入场动画 */
+@keyframes cardEnter {
+  0% {
+    opacity: 0;
+    transform: translateY(20px) scale(0.95);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* 列表项交错入场动画 */
+@keyframes listItemEnter {
+  0% {
+    opacity: 0;
+    transform: translateX(-15px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* 按钮脉冲动画 */
+@keyframes buttonPulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(91, 207, 250, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgba(91, 207, 250, 0);
+  }
+}
+
+/* 图标弹跳动画 */
+@keyframes iconBounce {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.2);
+  }
+}
+
+/* 标签页滑入动画 */
+@keyframes tabSlideIn {
+  0% {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* 输入框聚焦发光动画 */
+@keyframes inputGlow {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(91, 207, 250, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgba(91, 207, 250, 0.1);
+  }
+}
+
 /* 优化基础设置折叠面板动画速度 */
-:deep(.v-expansion-panel) {
+:v-deep(.v-expansion-panel) {
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
+}
+
+:v-deep(.v-expansion-panel-text__wrapper) {
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
+}
+
+:v-deep(.v-expansion-panel__shadow) {
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
+}
+
+/* 统一字体 - 现代字体栈 */
+:v-deep(.v-card-title),
+:v-deep(.v-card-text),
+:v-deep(.v-list-item-title),
+:v-deep(.v-list-item-subtitle),
+:v-deep(.v-alert),
+:v-deep(.v-btn),
+:v-deep(.text-caption),
+:v-deep(.text-subtitle-1),
+:v-deep(.text-body-1),
+:v-deep(.text-body-2) {
+  font-family: 'Inter', 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif !important;
+}
+
+/* 标题字体优化 */
+:v-deep(.v-card-title) {
+  font-weight: 700 !important;
+  font-size: 1.1rem !important;
+  letter-spacing: -0.02em !important;
+  line-height: 1.3 !important;
+}
+
+:v-deep(.text-subtitle-1) {
+  font-weight: 600 !important;
+  font-size: 1rem !important;
+  letter-spacing: -0.01em !important;
+  line-height: 1.4 !important;
+}
+
+:v-deep(.text-subtitle-2) {
+  font-weight: 600 !important;
+  font-size: 0.9rem !important;
+  letter-spacing: 0 !important;
+  line-height: 1.35 !important;
+}
+
+/* 正文字体优化 */
+:v-deep(.text-body-1) {
+  font-weight: 400 !important;
+  font-size: 1rem !important;
+  line-height: 1.6 !important;
+  letter-spacing: 0 !important;
+}
+
+:v-deep(.text-body-2) {
+  font-weight: 400 !important;
+  font-size: 0.9rem !important;
+  line-height: 1.5 !important;
+  letter-spacing: 0 !important;
+}
+
+/* 小字字体优化 */
+:v-deep(.text-caption) {
+  font-weight: 400 !important;
+  font-size: 0.8rem !important;
+  line-height: 1.4 !important;
+  letter-spacing: 0.01em !important;
+}
+
+/* 列表项字体优化 */
+:v-deep(.v-list-item-title) {
+  font-weight: 500 !important;
+  font-size: 0.9rem !important;
+  line-height: 1.4 !important;
+}
+
+:v-deep(.v-list-item-subtitle) {
+  font-weight: 400 !important;
+  font-size: 0.8rem !important;
+  line-height: 1.4 !important;
+  letter-spacing: 0.01em !important;
+}
+
+/* 按钮字体优化 */
+:v-deep(.v-btn) {
+  font-weight: 500 !important;
+  font-size: 0.875rem !important;
+  letter-spacing: 0.02em !important;
+  text-transform: none !important;
+}
+
+/* 标签字体优化 */
+:v-deep(.v-tab) {
+  font-weight: 500 !important;
+  font-size: 0.875rem !important;
+  letter-spacing: 0.01em !important;
+}
+
+/* 输入框字体优化 */
+:v-deep(.v-field__input) {
+  font-weight: 400 !important;
+  font-size: 0.9rem !important;
+  letter-spacing: 0 !important;
+}
+
+:v-deep(.v-label) {
+  font-weight: 500 !important;
+  font-size: 0.85rem !important;
+  letter-spacing: 0.01em !important;
+}
+
+/* 警告/提示字体优化 */
+:v-deep(.v-alert) {
+  font-weight: 400 !important;
+  font-size: 0.85rem !important;
+  line-height: 1.5 !important;
+}
+
+/* 卡片入场动画 */
+.plugin-config :deep(.v-card) {
+  animation: cardEnter 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+/* 配置卡片悬停动画优化 */
+.config-card {
+  transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
+  will-change: transform, box-shadow;
+}
+
+.config-card:hover {
+  transform: translateY(-6px) scale(1.015);
+  box-shadow:
+    0 16px 40px rgba(91, 207, 250, 0.35),
+    0 6px 16px rgba(245, 171, 185, 0.25),
+    inset 0 1px 0 rgba(var(--v-theme-on-surface), 0.1) !important;
+}
+
+/* 按钮动画优化 */
+:v-deep(.v-btn) {
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
+  will-change: transform, box-shadow;
+}
+
+:v-deep(.v-btn:hover) {
+  transform: translateY(-3px) scale(1.05);
+  box-shadow: 0 8px 20px rgba(91, 207, 250, 0.35) !important;
+}
+
+:v-deep(.v-btn:active) {
+  transform: scale(0.98) translateY(-1px);
+  transition: all 0.1s ease !important;
+}
+
+/* 主要按钮脉冲效果 */
+:v-deep(.v-btn.color-primary:not(:hover)) {
+  animation: buttonPulse 2s ease-in-out infinite;
+}
+
+/* 图标动画优化 */
+:v-deep(.v-icon) {
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
+  will-change: transform;
+}
+
+:v-deep(.v-btn:hover .v-icon) {
+  transform: scale(1.15) rotate(5deg);
+}
+
+:v-deep(.v-tab:hover .v-icon) {
+  animation: iconBounce 0.5s ease;
+}
+
+/* 标签页动画优化 */
+.main-category-tabs {
+  animation: tabSlideIn 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+:v-deep(.main-category-tabs .v-tab) {
+  transition: all 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
+  will-change: transform, background;
+}
+
+:v-deep(.main-category-tabs .v-tab:hover) {
+  transform: translateY(-3px) scale(1.02);
+}
+
+:v-deep(.main-category-tabs .v-tab--selected) {
+  animation: buttonPulse 2s ease-in-out infinite;
+}
+
+/* 子标签页动画 */
+:v-deep(.sub-category-tabs .v-tab) {
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
+}
+
+:v-deep(.sub-category-tabs .v-tab:hover) {
+  transform: translateY(-2px);
+}
+
+/* 输入框动画优化 */
+:v-deep(.v-field) {
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
+  will-change: box-shadow, border-color;
+}
+
+:v-deep(.v-field--focused) {
+  animation: inputGlow 1.5s ease-in-out infinite;
+}
+
+/* 开关动画优化 */
+:v-deep(.v-switch__track) {
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
+}
+
+:v-deep(.v-switch__thumb) {
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
+}
+
+/* 列表项动画优化 */
+:v-deep(.v-list-item) {
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
+  will-change: transform, background;
+}
+
+:v-deep(.v-list-item:hover) {
+  transform: translateX(5px);
+}
+
+/* 芯片动画优化 */
+:v-deep(.v-chip) {
+  transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
+  will-change: transform, box-shadow;
+}
+
+:v-deep(.v-chip:hover) {
+  transform: scale(1.08) translateY(-2px);
+  box-shadow: 0 4px 12px rgba(91, 207, 250, 0.25) !important;
+}
+
+/* 对话框动画优化 */
+:v-deep(.v-dialog .v-overlay__content) {
+  animation: cardEnter 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+/* 警告框动画优化 */
+:v-deep(.v-alert) {
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
+}
+
+:v-deep(.v-alert:hover) {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px rgba(91, 207, 250, 0.2) !important;
+}
+
+/* 展开面板动画优化 */
+:v-deep(.v-expansion-panel-title) {
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
+}
+
+:v-deep(.v-expansion-panel-title:hover) {
+  background: linear-gradient(135deg,
+      rgba(91, 207, 250, 0.1) 0%,
+      rgba(245, 171, 185, 0.08) 100%) !important;
+}
+
+/* 路径组动画优化 */
+.path-group {
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
+  will-change: transform, box-shadow;
+}
+
+.path-group:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 8px 20px rgba(91, 207, 250, 0.15) !important;
+}
+
+/* 进度条动画优化 */
+:v-deep(.v-progress-linear) {
+  transition: all 0.3s ease !important;
+}
+
+:v-deep(.v-progress-linear__determinate) {
+  transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
+}
+
+/* 选择器动画优化 */
+:v-deep(.v-select__selection) {
   transition: all 0.2s ease !important;
+}
+
+/* 菜单动画优化 */
+:v-deep(.v-menu .v-overlay__content) {
+  animation: cardEnter 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+/* 滚动条动画优化 */
+:v-deep(::-webkit-scrollbar-thumb) {
+  transition: all 0.3s ease !important;
+}
+
+:v-deep(::-webkit-scrollbar-thumb:hover) {
+  background: linear-gradient(135deg, rgba(91, 207, 250, 0.9), rgba(245, 171, 185, 0.9)) !important;
 }
 
 :deep(.v-expansion-panel-text__wrapper) {
