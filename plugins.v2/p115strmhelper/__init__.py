@@ -624,6 +624,7 @@ class IncrementSyncStrmHelper:
         """
         cid = self.id_path_cache.get_id_by_dir(path)
         if not cid:
+            # 这里如果有多条重复数据就不进行删除文件夹操作了，说明数据库重复过多，直接放弃
             data = self.databasehelper.get_by_path(path=path)
             if data:
                 cid = data.get("id", None)
@@ -640,6 +641,7 @@ class IncrementSyncStrmHelper:
         通过路径获取 pickcode
         """
         while True:
+            # 这里如果有多条重复数据直接删除文件重复信息，然后迭代重新获取
             try:
                 file_item = self.databasehelper.get_by_path(path=path)
             except MultipleResultsFound:
