@@ -20,7 +20,10 @@ from ..core.p115 import get_pid_by_path
 from ..helper.clean import Cleaner
 from ..helper.life import MonitorLife
 from ..helper.mediainfo_download import MediaInfoDownloader
-from ..helper.monitor import process_file_change
+from ..helper.monitor.directory_upload_queue import (
+    DirectoryUploadTask,
+    directory_upload_queue,
+)
 from ..helper.offline import OfflineDownloadHelper
 from ..helper.r302 import Redirect
 from ..helper.share import ShareTransferHelper
@@ -570,6 +573,7 @@ class ServiceHelper:
         启动目录上传监控
         """
         if configer.directory_upload_enabled:
+            directory_upload_queue.start()
             for item in configer.directory_upload_path:
                 if not item:
                     continue
@@ -593,8 +597,12 @@ class ServiceHelper:
                                 for change in changes:
                                     change_type, path_str = change
                                     if change_type == Change.added:
-                                        process_file_change(
-                                            servicer.client, path_str, path
+                                        directory_upload_queue.enqueue(
+                                            DirectoryUploadTask(
+                                                servicer.client,
+                                                path_str,
+                                                path,
+                                            )
                                         )
                         except Exception as e:
                             logger.error(
@@ -676,6 +684,10 @@ class ServiceHelper:
                         logger.error(f"【目录上传】关闭失败: {e}")
                 logger.info("【目录上传】目录监控已关闭")
             self.service_observer = []
+            try:
+                directory_upload_queue.stop()
+            except Exception as e:
+                logger.debug(f"【目录上传】停止 worker 异常: {e}")
             if self.scheduler:
                 self.scheduler.remove_all_jobs()
                 if self.scheduler.running:
