@@ -15,7 +15,7 @@
       </v-tab>
     </v-tabs>
     <v-divider></v-divider>
-    <v-window v-model="otherSubTab" :touch="false">
+    <v-window v-model="otherSubTab" :touch="false" class="tab-window">
       <v-window-item value="tab-sync-del">
         <v-card-text>
           <v-row>

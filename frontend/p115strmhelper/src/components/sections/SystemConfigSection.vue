@@ -12,7 +12,7 @@
       </v-tab>
     </v-tabs>
     <v-divider></v-divider>
-    <v-window v-model="systemSubTab" :touch="false">
+    <v-window v-model="systemSubTab" :touch="false" class="tab-window">
       <v-window-item value="tab-cache-config">
         <v-card-text>
           <v-row>

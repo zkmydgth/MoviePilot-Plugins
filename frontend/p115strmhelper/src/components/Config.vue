@@ -10,12 +10,15 @@
       <!-- 通知区域 -->
       <v-card-text class="px-3 py-2"
         style="flex-grow: 1; min-height: 0; overflow-y: auto; padding-bottom: 56px; -webkit-overflow-scrolling: touch;">
+        <transition name="alert-fade" appear>
         <v-alert v-if="message.text" :type="message.type" density="compact" class="mb-2 text-caption" variant="tonal"
           closable>{{ message.text }}</v-alert>
+      </transition>
 
-        <v-skeleton-loader v-if="loading" type="article, actions"></v-skeleton-loader>
+        <transition name="content-fade" mode="out-in">
+          <v-skeleton-loader v-if="loading" key="skeleton" type="article, actions"></v-skeleton-loader>
 
-        <div v-else class="my-1">
+        <div v-else key="content" class="my-1">
           <!-- 基础设置 -->
           <v-expansion-panels v-model="basicConfigExpanded" variant="tonal" class="mb-3" multiple>
             <v-expansion-panel value="basic-config" class="rounded border config-card" eager>
@@ -146,7 +149,7 @@
             <v-divider></v-divider>
 
             <!-- 主分类内容区域 -->
-            <v-window v-model="mainCategory" :touch="false">
+            <v-window v-model="mainCategory" :touch="false" class="tab-window">
               <!-- STRM同步分类 -->
               <v-window-item value="category-strm">
                 <StrmSyncSection />
@@ -172,6 +175,7 @@
           <!-- 操作按钮 -->
 
         </div>
+        </transition>
       </v-card-text>
       <v-card-actions class="px-3 py-2 d-flex" style="flex-shrink: 0;">
         <v-btn color="warning" variant="text" @click="emit('switch')" size="small" prepend-icon="mdi-arrow-left">
@@ -1296,12 +1300,12 @@ provide('machineId', machineId);
 @keyframes cardEnter {
   0% {
     opacity: 0;
-    transform: translateY(20px) scale(0.95);
+    transform: translateY(12px);
   }
 
   100% {
     opacity: 1;
-    transform: translateY(0) scale(1);
+    transform: translateY(0);
   }
 }
 
@@ -1309,25 +1313,12 @@ provide('machineId', machineId);
 @keyframes listItemEnter {
   0% {
     opacity: 0;
-    transform: translateX(-15px);
+    transform: translateX(-10px);
   }
 
   100% {
     opacity: 1;
     transform: translateX(0);
-  }
-}
-
-/* 按钮脉冲动画 */
-@keyframes buttonPulse {
-
-  0%,
-  100% {
-    box-shadow: 0 0 0 0 rgba(91, 207, 250, 0.4);
-  }
-
-  50% {
-    box-shadow: 0 0 0 8px rgba(91, 207, 250, 0);
   }
 }
 
@@ -1340,7 +1331,7 @@ provide('machineId', machineId);
   }
 
   50% {
-    transform: scale(1.2);
+    transform: scale(1.15);
   }
 }
 
@@ -1348,7 +1339,7 @@ provide('machineId', machineId);
 @keyframes tabSlideIn {
   0% {
     opacity: 0;
-    transform: translateY(10px);
+    transform: translateY(6px);
   }
 
   100% {
@@ -1357,63 +1348,50 @@ provide('machineId', machineId);
   }
 }
 
-/* 输入框聚焦发光动画 */
-@keyframes inputGlow {
-
-  0%,
-  100% {
-    box-shadow: 0 0 0 0 rgba(91, 207, 250, 0.3);
-  }
-
-  50% {
-    box-shadow: 0 0 0 4px rgba(91, 207, 250, 0.1);
-  }
-}
-
 
 /* 优化基础设置折叠面板动画速度 */
-:v-deep(.v-expansion-panel) {
-  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
+:deep(.v-expansion-panel) {
+  transition: margin 0.3s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
 }
 
-:v-deep(.v-expansion-panel-text__wrapper) {
-  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
+:deep(.v-expansion-panel-text__wrapper) {
+  transition: padding 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
 }
 
-:v-deep(.v-expansion-panel__shadow) {
-  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
+:deep(.v-expansion-panel__shadow) {
+  transition: box-shadow 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
 }
 
 /* 统一字体 - 现代字体栈 */
-:v-deep(.v-card-title),
-:v-deep(.v-card-text),
-:v-deep(.v-list-item-title),
-:v-deep(.v-list-item-subtitle),
-:v-deep(.v-alert),
-:v-deep(.v-btn),
-:v-deep(.text-caption),
-:v-deep(.text-subtitle-1),
-:v-deep(.text-body-1),
-:v-deep(.text-body-2) {
+:deep(.v-card-title),
+:deep(.v-card-text),
+:deep(.v-list-item-title),
+:deep(.v-list-item-subtitle),
+:deep(.v-alert),
+:deep(.v-btn),
+:deep(.text-caption),
+:deep(.text-subtitle-1),
+:deep(.text-body-1),
+:deep(.text-body-2) {
   font-family: 'Inter', 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif !important;
 }
 
 /* 标题字体优化 */
-:v-deep(.v-card-title) {
+:deep(.v-card-title) {
   font-weight: 700 !important;
   font-size: 1.1rem !important;
   letter-spacing: -0.02em !important;
   line-height: 1.3 !important;
 }
 
-:v-deep(.text-subtitle-1) {
+:deep(.text-subtitle-1) {
   font-weight: 600 !important;
   font-size: 1rem !important;
   letter-spacing: -0.01em !important;
   line-height: 1.4 !important;
 }
 
-:v-deep(.text-subtitle-2) {
+:deep(.text-subtitle-2) {
   font-weight: 600 !important;
   font-size: 0.9rem !important;
   letter-spacing: 0 !important;
@@ -1421,14 +1399,14 @@ provide('machineId', machineId);
 }
 
 /* 正文字体优化 */
-:v-deep(.text-body-1) {
+:deep(.text-body-1) {
   font-weight: 400 !important;
   font-size: 1rem !important;
   line-height: 1.6 !important;
   letter-spacing: 0 !important;
 }
 
-:v-deep(.text-body-2) {
+:deep(.text-body-2) {
   font-weight: 400 !important;
   font-size: 0.9rem !important;
   line-height: 1.5 !important;
@@ -1436,7 +1414,7 @@ provide('machineId', machineId);
 }
 
 /* 小字字体优化 */
-:v-deep(.text-caption) {
+:deep(.text-caption) {
   font-weight: 400 !important;
   font-size: 0.8rem !important;
   line-height: 1.4 !important;
@@ -1444,13 +1422,13 @@ provide('machineId', machineId);
 }
 
 /* 列表项字体优化 */
-:v-deep(.v-list-item-title) {
+:deep(.v-list-item-title) {
   font-weight: 500 !important;
   font-size: 0.9rem !important;
   line-height: 1.4 !important;
 }
 
-:v-deep(.v-list-item-subtitle) {
+:deep(.v-list-item-subtitle) {
   font-weight: 400 !important;
   font-size: 0.8rem !important;
   line-height: 1.4 !important;
@@ -1458,7 +1436,7 @@ provide('machineId', machineId);
 }
 
 /* 按钮字体优化 */
-:v-deep(.v-btn) {
+:deep(.v-btn) {
   font-weight: 500 !important;
   font-size: 0.875rem !important;
   letter-spacing: 0.02em !important;
@@ -1466,27 +1444,27 @@ provide('machineId', machineId);
 }
 
 /* 标签字体优化 */
-:v-deep(.v-tab) {
+:deep(.v-tab) {
   font-weight: 500 !important;
   font-size: 0.875rem !important;
   letter-spacing: 0.01em !important;
 }
 
 /* 输入框字体优化 */
-:v-deep(.v-field__input) {
+:deep(.v-field__input) {
   font-weight: 400 !important;
   font-size: 0.9rem !important;
   letter-spacing: 0 !important;
 }
 
-:v-deep(.v-label) {
+:deep(.v-label) {
   font-weight: 500 !important;
   font-size: 0.85rem !important;
   letter-spacing: 0.01em !important;
 }
 
 /* 警告/提示字体优化 */
-:v-deep(.v-alert) {
+:deep(.v-alert) {
   font-weight: 400 !important;
   font-size: 0.85rem !important;
   line-height: 1.5 !important;
@@ -1494,146 +1472,169 @@ provide('machineId', machineId);
 
 /* 卡片入场动画 */
 .plugin-config :deep(.v-card) {
-  animation: cardEnter 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  animation: cardEnter 0.5s cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
 /* 配置卡片悬停动画优化 */
 .config-card {
-  transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
-  will-change: transform, box-shadow;
+  transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.35s cubic-bezier(0.22, 1, 0.36, 1) !important;
 }
 
 .config-card:hover {
-  transform: translateY(-6px) scale(1.015);
+  transform: translateY(-3px);
   box-shadow:
-    0 16px 40px rgba(91, 207, 250, 0.35),
-    0 6px 16px rgba(245, 171, 185, 0.25),
-    inset 0 1px 0 rgba(var(--v-theme-on-surface), 0.1) !important;
+    0 12px 28px rgba(91, 207, 250, 0.25),
+    0 4px 12px rgba(245, 171, 185, 0.18),
+    inset 0 1px 0 rgba(var(--v-theme-on-surface), 0.08) !important;
 }
 
 /* 按钮动画优化 */
-:v-deep(.v-btn) {
-  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
-  will-change: transform, box-shadow;
+:deep(.v-btn) {
+  transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.25s cubic-bezier(0.22, 1, 0.36, 1), background-color 0.2s ease !important;
 }
 
-:v-deep(.v-btn:hover) {
-  transform: translateY(-3px) scale(1.05);
-  box-shadow: 0 8px 20px rgba(91, 207, 250, 0.35) !important;
+:deep(.v-btn:hover) {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(91, 207, 250, 0.25) !important;
 }
 
-:v-deep(.v-btn:active) {
-  transform: scale(0.98) translateY(-1px);
-  transition: all 0.1s ease !important;
-}
-
-/* 主要按钮脉冲效果 */
-:v-deep(.v-btn.color-primary:not(:hover)) {
-  animation: buttonPulse 2s ease-in-out infinite;
+:deep(.v-btn:active) {
+  transform: scale(0.97);
+  transition: transform 0.1s ease !important;
 }
 
 /* 图标动画优化 */
-:v-deep(.v-icon) {
-  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
-  will-change: transform;
+:deep(.v-icon) {
+  transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1), color 0.2s ease !important;
 }
 
-:v-deep(.v-btn:hover .v-icon) {
-  transform: scale(1.15) rotate(5deg);
+:deep(.v-btn:hover .v-icon) {
+  transform: scale(1.1);
 }
 
-:v-deep(.v-tab:hover .v-icon) {
-  animation: iconBounce 0.5s ease;
+:deep(.v-tab:hover .v-icon) {
+  animation: iconBounce 0.4s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 /* 标签页动画优化 */
 .main-category-tabs {
-  animation: tabSlideIn 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  animation: tabSlideIn 0.4s cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
-:v-deep(.main-category-tabs .v-tab) {
-  transition: all 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
-  will-change: transform, background;
+:deep(.main-category-tabs .v-tab) {
+  transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1), background 0.25s ease, color 0.25s ease, box-shadow 0.3s ease !important;
 }
 
-:v-deep(.main-category-tabs .v-tab:hover) {
-  transform: translateY(-3px) scale(1.02);
-}
-
-:v-deep(.main-category-tabs .v-tab--selected) {
-  animation: buttonPulse 2s ease-in-out infinite;
+:deep(.main-category-tabs .v-tab:hover) {
+  transform: translateY(-2px);
 }
 
 /* 子标签页动画 */
-:v-deep(.sub-category-tabs .v-tab) {
-  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
+:deep(.sub-category-tabs .v-tab) {
+  transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1), background 0.2s ease, color 0.2s ease !important;
 }
 
-:v-deep(.sub-category-tabs .v-tab:hover) {
-  transform: translateY(-2px);
+:deep(.sub-category-tabs .v-tab:hover) {
+  transform: translateY(-1px);
+}
+
+/* v-window 标签页内容切换动画 */
+.tab-window :deep(.v-window__container) {
+  transition: none !important;
+}
+
+.tab-window :deep(.v-window-item--active) {
+  animation: tabContentEnter 0.3s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+@keyframes tabContentEnter {
+  0% {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 /* 输入框动画优化 */
-:v-deep(.v-field) {
-  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
-  will-change: box-shadow, border-color;
-}
-
-:v-deep(.v-field--focused) {
-  animation: inputGlow 1.5s ease-in-out infinite;
+:deep(.v-field) {
+  transition: box-shadow 0.25s ease, border-color 0.25s ease !important;
 }
 
 /* 开关动画优化 */
-:v-deep(.v-switch__track) {
-  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
+:deep(.v-switch__track) {
+  transition: background-color 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
 }
 
-:v-deep(.v-switch__thumb) {
-  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
+:deep(.v-switch__thumb) {
+  transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
 }
 
 /* 列表项动画优化 */
-:v-deep(.v-list-item) {
-  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
-  will-change: transform, background;
+:deep(.v-list-item) {
+  transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1), background 0.2s ease !important;
 }
 
-:v-deep(.v-list-item:hover) {
-  transform: translateX(5px);
+:deep(.v-list-item:hover) {
+  transform: translateX(3px);
 }
 
 /* 芯片动画优化 */
-:v-deep(.v-chip) {
-  transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
-  will-change: transform, box-shadow;
+:deep(.v-chip) {
+  transition: transform 0.2s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.2s ease !important;
 }
 
-:v-deep(.v-chip:hover) {
-  transform: scale(1.08) translateY(-2px);
-  box-shadow: 0 4px 12px rgba(91, 207, 250, 0.25) !important;
+:deep(.v-chip:hover) {
+  transform: scale(1.05) translateY(-1px);
+  box-shadow: 0 3px 8px rgba(91, 207, 250, 0.2) !important;
 }
 
 /* 对话框动画优化 */
-:v-deep(.v-dialog .v-overlay__content) {
-  animation: cardEnter 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+:deep(.v-dialog .v-overlay__content) {
+  animation: cardEnter 0.35s cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
 /* 警告框动画优化 */
-:v-deep(.v-alert) {
-  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
+:deep(.v-alert) {
+  transition: opacity 0.3s ease, transform 0.3s ease !important;
 }
 
-:v-deep(.v-alert:hover) {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 20px rgba(91, 207, 250, 0.2) !important;
+/* alert-fade 过渡动画 */
+.alert-fade-enter-active {
+  transition: opacity 0.3s cubic-bezier(0.22, 1, 0.36, 1), transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.alert-fade-leave-active {
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+.alert-fade-enter-from {
+  opacity: 0;
+  transform: translateY(-8px) scale(0.98);
+}
+.alert-fade-leave-to {
+  opacity: 0;
+  transform: translateY(-4px) scale(0.98);
+}
+
+/* content-fade 加载过渡动画 */
+.content-fade-enter-active {
+  transition: opacity 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.content-fade-leave-active {
+  transition: opacity 0.15s ease;
+}
+.content-fade-enter-from,
+.content-fade-leave-to {
+  opacity: 0;
 }
 
 /* 展开面板动画优化 */
-:v-deep(.v-expansion-panel-title) {
-  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
+:deep(.v-expansion-panel-title) {
+  transition: background 0.25s ease !important;
 }
 
-:v-deep(.v-expansion-panel-title:hover) {
+:deep(.v-expansion-panel-title:hover) {
   background: linear-gradient(135deg,
       rgba(91, 207, 250, 0.1) 0%,
       rgba(245, 171, 185, 0.08) 100%) !important;
@@ -1641,49 +1642,56 @@ provide('machineId', machineId);
 
 /* 路径组动画优化 */
 .path-group {
-  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
-  will-change: transform, box-shadow;
+  transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.25s ease !important;
 }
 
 .path-group:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 8px 20px rgba(91, 207, 250, 0.15) !important;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(91, 207, 250, 0.12) !important;
 }
 
 /* 进度条动画优化 */
-:v-deep(.v-progress-linear) {
-  transition: all 0.3s ease !important;
-}
-
-:v-deep(.v-progress-linear__determinate) {
-  transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
+:deep(.v-progress-linear__determinate) {
+  transition: width 0.4s cubic-bezier(0.22, 1, 0.36, 1) !important;
 }
 
 /* 选择器动画优化 */
-:v-deep(.v-select__selection) {
-  transition: all 0.2s ease !important;
+:deep(.v-select__selection) {
+  transition: opacity 0.2s ease !important;
 }
 
 /* 菜单动画优化 */
-:v-deep(.v-menu .v-overlay__content) {
-  animation: cardEnter 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+:deep(.v-menu .v-overlay__content) {
+  animation: cardEnter 0.25s cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
 /* 滚动条动画优化 */
-:v-deep(::-webkit-scrollbar-thumb) {
-  transition: all 0.3s ease !important;
+:deep(::-webkit-scrollbar-thumb) {
+  transition: background 0.3s ease !important;
 }
 
-:v-deep(::-webkit-scrollbar-thumb:hover) {
+:deep(::-webkit-scrollbar-thumb:hover) {
   background: linear-gradient(135deg, rgba(91, 207, 250, 0.9), rgba(245, 171, 185, 0.9)) !important;
 }
 
 :deep(.v-expansion-panel-text__wrapper) {
-  transition: all 0.2s ease !important;
+  transition: padding 0.2s ease !important;
 }
 
 :deep(.v-expansion-panel__shadow) {
-  transition: all 0.2s ease !important;
+  transition: box-shadow 0.2s ease !important;
+}
+
+/* 无障碍：尊重用户减少动画偏好 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 /* 统一字体 - Inspired by Page.vue */
@@ -1758,7 +1766,7 @@ provide('machineId', machineId);
     0 2px 8px rgba(245, 171, 185, 0.2),
     inset 0 1px 0 rgba(var(--v-theme-on-surface), 0.05) !important;
   border: 1px solid rgba(var(--v-theme-on-surface), 0.12) !important;
-  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  transition: box-shadow 0.35s ease, border-color 0.25s ease !important;
 }
 
 /* 主卡片高度设置：桌面用 vh，移动端填满父级由内部滚动 */
@@ -1794,7 +1802,7 @@ provide('machineId', machineId);
   -webkit-backdrop-filter: blur(15px) saturate(180%) !important;
   border: 1px solid rgba(var(--v-theme-on-surface), 0.12) !important;
   overflow: hidden;
-  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.35s ease, border-color 0.25s ease, background 0.25s ease !important;
   margin-bottom: 16px !important;
   box-shadow:
     0 4px 16px rgba(91, 207, 250, 0.2),
@@ -1855,7 +1863,7 @@ provide('machineId', machineId);
   font-size: 0.875rem !important;
   font-weight: 500 !important;
   text-transform: none !important;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1), background 0.25s ease, color 0.25s ease, box-shadow 0.3s ease !important;
   min-height: 44px !important;
   color: rgba(var(--v-theme-on-surface), 0.7) !important;
   display: flex;
@@ -1868,10 +1876,9 @@ provide('machineId', machineId);
       rgba(91, 207, 250, 0.15) 0%,
       rgba(245, 171, 185, 0.12) 100%) !important;
   color: rgba(var(--v-theme-primary), 0.95) !important;
-  transform: translateY(-2px);
+  transform: translateY(-1px);
   box-shadow: 0 2px 8px rgba(91, 207, 250, 0.2),
     0 1px 3px rgba(245, 171, 185, 0.15) !important;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
 }
 
 :deep(.main-category-tabs .v-tab--selected) {
@@ -1896,7 +1903,7 @@ provide('machineId', machineId);
 
 :deep(.main-category-tabs .v-tab .v-icon) {
   margin-right: 8px;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1), color 0.2s ease;
   color: rgba(var(--v-theme-on-surface), 0.6);
 }
 
@@ -1944,7 +1951,7 @@ provide('machineId', machineId);
   margin: 0 4px !important;
   text-transform: none !important;
   font-weight: 500 !important;
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1), background 0.2s ease, color 0.2s ease, box-shadow 0.25s ease !important;
   color: rgba(var(--v-theme-on-surface), 0.65) !important;
   position: relative;
   overflow: visible !important;
@@ -1960,7 +1967,6 @@ provide('machineId', machineId);
       rgba(245, 171, 185, 0.1) 100%) !important;
   color: rgba(var(--v-theme-primary), 0.9) !important;
   transform: translateY(-1px);
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
 }
 
 :deep(.sub-category-tabs .v-tab--selected) {
@@ -1986,7 +1992,7 @@ provide('machineId', machineId);
 :deep(.sub-category-tabs .v-tab .v-icon) {
   margin-right: 6px;
   flex-shrink: 0;
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: transform 0.2s cubic-bezier(0.22, 1, 0.36, 1), color 0.2s ease;
   color: rgba(var(--v-theme-on-surface), 0.55);
 }
 
@@ -2111,7 +2117,6 @@ provide('machineId', machineId);
   box-shadow:
     0 2px 8px rgba(91, 207, 250, 0.15),
     inset 0 1px 0 rgba(var(--v-theme-on-surface), 0.05) !important;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
 }
 
 .path-group:hover {
@@ -2216,7 +2221,7 @@ provide('machineId', machineId);
 
 :deep(.v-tab) {
   font-weight: 500;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1), background 0.2s ease, color 0.2s ease, box-shadow 0.25s ease !important;
   border-radius: 12px 12px 0 0 !important;
   margin: 0 2px;
   color: rgba(var(--v-theme-on-surface), 0.7) !important;
@@ -2331,14 +2336,14 @@ provide('machineId', machineId);
 /* Switch 样式调整 - 动态适配主题 */
 :deep(.v-switch .v-selection-control__input > .v-icon) {
   color: rgba(var(--v-theme-medium-emphasis));
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  transition: color 0.25s ease !important;
 }
 
 :deep(.v-switch .v-track) {
   background-color: rgba(var(--v-theme-medium-emphasis), 0.3) !important;
   border-radius: 12px !important;
   opacity: 1 !important;
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  transition: background-color 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
 }
 
 /* 暗色模式下的开关轨道 */
@@ -2381,7 +2386,7 @@ provide('machineId', machineId);
   background: rgba(var(--v-theme-surface), 0.6) !important;
   backdrop-filter: blur(8px) !important;
   border: 1px solid rgba(var(--v-theme-on-surface), 0.12) !important;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  transition: box-shadow 0.25s ease, border-color 0.25s ease, background 0.25s ease !important;
   box-shadow:
     0 2px 4px rgba(91, 207, 250, 0.15),
     inset 0 1px 0 rgba(var(--v-theme-on-surface), 0.05) !important;
@@ -2444,7 +2449,7 @@ provide('machineId', machineId);
 /* 优化按钮样式 - 镜面效果 */
 :deep(.v-btn) {
   border-radius: 12px !important;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.25s ease, background-color 0.2s ease !important;
   font-weight: 500 !important;
   text-transform: none !important;
   backdrop-filter: blur(10px) !important;
@@ -2486,7 +2491,7 @@ provide('machineId', machineId);
   box-shadow:
     0 4px 12px rgba(91, 207, 250, 0.2),
     inset 0 1px 0 rgba(var(--v-theme-on-surface), 0.05) !important;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  transition: opacity 0.3s ease, transform 0.3s ease !important;
 }
 
 /* 暗色模式下的警告框 */
@@ -2503,7 +2508,7 @@ provide('machineId', machineId);
 :deep(.v-list-item) {
   border-radius: 10px;
   margin: 2px 4px;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1), background 0.2s ease, box-shadow 0.25s ease !important;
   background: rgba(255, 255, 255, 0.3) !important;
   backdrop-filter: blur(5px) !important;
 }

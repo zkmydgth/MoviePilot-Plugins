@@ -19,7 +19,7 @@
       </v-tab>
     </v-tabs>
     <v-divider></v-divider>
-    <v-window v-model="strmSubTab" :touch="false">
+    <v-window v-model="strmSubTab" :touch="false" class="tab-window">
       <v-window-item value="tab-transfer">
         <v-card-text>
           <v-row>

@@ -12,7 +12,7 @@
       </v-tab>
     </v-tabs>
     <v-divider></v-divider>
-    <v-window v-model="panSubTab" :touch="false">
+    <v-window v-model="panSubTab" :touch="false" class="tab-window">
       <v-window-item value="tab-pan-transfer">
         <v-card-text>
           <v-row>
