@@ -74,7 +74,7 @@ from p115client.util import share_extract_payload
 
 from app.chain.transfer import TransferChain
 from app.log import logger
-from app.schemas import FileItem, NotificationType
+from app.schemas import FileItem
 
 from ...core.config import configer
 from ...core.i18n import i18n
@@ -856,12 +856,6 @@ class ShareInteractiveGenStrmQueue:
             title=i18n.translate("p115_share_strm_done_title"),
             text=detail,
         )
-        if configer.get_config("notify"):
-            post_message(
-                mtype=NotificationType.Plugin,
-                title=i18n.translate("p115_share_strm_done_title"),
-                text=detail,
-            )
 
     def enqueue(
         self,
