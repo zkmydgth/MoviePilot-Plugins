@@ -631,20 +631,25 @@ class FFprobeNamingSupplement(_PluginBase):
 
     @classmethod
     def _extract_video_bit_depth(cls, video_s: Dict[str, Any]) -> Optional[str]:
-        """从 ffprobe 视频流提取位深，如 8bit、10bit"""
-        bps = (video_s.get("bits_per_raw_sample") or "").strip()
+        """
+        从 ffprobe 视频流提取位深，如 8bit、10bit
+
+        :param video_s: ffprobe 视频流字典
+        :return: 位深字符串或 None
+        """
+        bps = str(video_s.get("bits_per_raw_sample") or "").strip()
         if bps and bps.isdigit():
             return f"{bps}bit"
-        pix = (video_s.get("pix_fmt") or "").strip().lower()
+        pix = str(video_s.get("pix_fmt") or "").strip().lower()
         if pix:
             m = re_search(r"(\d+)(le|be)", pix)
             if m:
                 n = int(m.group(1))
                 if n > 0:
                     return f"{n}bit"
-        prof = (video_s.get("profile") or "").strip()
+        prof = str(video_s.get("profile") or "").strip()
         if prof:
-            m = re_search(r"main\s*(\d+)", prof, IGNORECASE)
+            m = re_search(r"(?:main|high)\s*(\d+)", prof, IGNORECASE)
             if m:
                 return f"{m.group(1)}bit"
         return None
