@@ -1620,9 +1620,16 @@ class P115StrmHelper(_PluginBase):
             if not media_info:
                 logger.error(f"【媒体数据补充】获取媒体信息失败: {error_message}")
                 return
+        overwrite_mode = configer.rename_dict_supplement_overwrite_mode
+        if overwrite_mode not in ("fill_missing", "always"):
+            overwrite_mode = "fill_missing"
         for key, value in media_info.items():
-            if data.rename_dict.get(key, None):
+            if not value:
                 continue
+            if overwrite_mode == "fill_missing":
+                cur = data.rename_dict.get(key)
+                if cur is not None and not (isinstance(cur, str) and cur.strip() == ""):
+                    continue
             data.rename_dict[key] = value
             changed = True
         if not changed:

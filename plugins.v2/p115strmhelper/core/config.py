@@ -551,6 +551,10 @@ class ConfigManager(BaseModel):
         default=False,
         description="媒体元数据补充",
     )
+    rename_dict_supplement_overwrite_mode: Literal["fill_missing", "always"] = Field(
+        default="fill_missing",
+        description="媒体元数据补充写入策略：仅补全缺失或空值 / 始终用探测结果覆盖",
+    )
     native_emby_mediainfo_enabled: bool = Field(
         default=False,
         description="原生 Emby 媒体信息提取",

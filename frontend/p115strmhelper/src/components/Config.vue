@@ -413,6 +413,7 @@ const config = reactive({
   transfer_module_enhancement: false,
   pan_transfer_takeover: false,
   rename_dict_supplement_enabled: false,
+  rename_dict_supplement_overwrite_mode: 'fill_missing',
   native_emby_mediainfo_enabled: false,
   strm_url_template_enabled: false,
   strm_url_template: '',

@@ -25,8 +25,7 @@
                   </v-card-title>
                 </v-card-item>
                 <v-card-text>
-                  <v-alert type="info" variant="tonal" density="compact" class="mb-4"
-                    icon="mdi-information">
+                  <v-alert type="info" variant="tonal" density="compact" class="mb-4" icon="mdi-information">
                     <div class="text-caption">缓存清理功能可以帮助您清理插件运行过程中产生的缓存数据，解决部分因缓存导致的问题。</div>
                   </v-alert>
 
@@ -56,9 +55,8 @@
                         <p class="text-body-2 text-grey-darken-1 mb-3 flex-grow-1">
                           清理增量同步跳过路径缓存，重置增量同步的跳过路径记录，用于重新处理之前跳过的文件。
                         </p>
-                        <v-btn color="warning" variant="outlined"
-                          :loading="clearIncrementSkipCacheLoading" @click="clearIncrementSkipCache"
-                          prepend-icon="mdi-skip-next" block>
+                        <v-btn color="warning" variant="outlined" :loading="clearIncrementSkipCacheLoading"
+                          @click="clearIncrementSkipCache" prepend-icon="mdi-skip-next" block>
                           清理增量同步跳过路径缓存
                         </v-btn>
                       </v-card>
@@ -73,8 +71,7 @@
                         <p class="text-body-2 text-grey-darken-1 mb-3 flex-grow-1">
                           清理302跳转链接缓存，强制重新获取最新下载跳转地址。
                         </p>
-                        <v-btn color="info" variant="outlined"
-                          :loading="clearR302CacheLoading" @click="clearR302Cache"
+                        <v-btn color="info" variant="outlined" :loading="clearR302CacheLoading" @click="clearR302Cache"
                           prepend-icon="mdi-link-off" block>
                           清理302跳转缓存
                         </v-btn>
@@ -91,45 +88,47 @@
         <v-card-text>
           <v-row>
             <v-col cols="12" md="3">
-              <v-switch v-model="config.error_info_upload" label="错误信息上传" color="info"
-                density="compact"></v-switch>
+              <v-switch v-model="config.error_info_upload" label="错误信息上传" color="info" density="compact"></v-switch>
             </v-col>
             <v-col cols="12" md="3">
               <v-switch v-model="config.upload_module_enhancement" label="上传模块增强" color="info"
                 density="compact"></v-switch>
             </v-col>
             <v-col cols="12" md="3">
-              <v-switch v-model="config.transfer_module_enhancement" label="整理模块增强" color="info"
-                density="compact" :disabled="isTransferModuleEnhancementLocked" hint="此功能已废弃"
-                persistent-hint></v-switch>
+              <v-switch v-model="config.transfer_module_enhancement" label="整理模块增强" color="info" density="compact"
+                :disabled="isTransferModuleEnhancementLocked" hint="此功能已废弃" persistent-hint></v-switch>
             </v-col>
             <v-col cols="12" md="3">
-              <v-switch v-model="config.pan_transfer_takeover" label="接管网盘整理" color="info"
-                density="compact" hint="接管 115 → 115 整理任务进行批量处理，需要存储模块为 115网盘Plus"
-                persistent-hint></v-switch>
+              <v-switch v-model="config.pan_transfer_takeover" label="接管网盘整理" color="info" density="compact"
+                hint="接管 115 → 115 整理任务进行批量处理，需要存储模块为 115网盘Plus" persistent-hint></v-switch>
             </v-col>
           </v-row>
           <v-row>
-            <v-col cols="12" md="3">
-              <v-switch v-model="config.upload_share_info" label="上传分享链接" color="info"
-                density="compact"></v-switch>
+            <v-col cols="12" md="4">
+              <v-switch v-model="config.rename_dict_supplement_enabled" label="媒体元数据补充" color="info" density="compact"
+                hint="整理重命名时用 ffprobe 或中心化信息补全模板中未填的分辨率、编码等字段" persistent-hint></v-switch>
             </v-col>
-            <v-col cols="12" md="3">
-              <v-switch v-model="config.upload_offline_info" label="上传离线下载链接" color="info"
-                density="compact"></v-switch>
+            <v-col cols="12" md="8">
+              <v-select v-model="config.rename_dict_supplement_overwrite_mode" label="媒体元数据写入策略" :items="[
+                { title: '仅补全缺失或空值', value: 'fill_missing' },
+                { title: '始终用探测结果覆盖上述键', value: 'always' },
+              ]" density="compact" color="info" :disabled="!config.rename_dict_supplement_enabled"
+                hint="针对 videoFormat、videoCodec、audioCodec、fps、effect 等：仅补全＝缺或空才写入；始终覆盖＝以 ffprobe/中心化结果为准覆盖"
+                persistent-hint></v-select>
             </v-col>
-            <v-col cols="12" md="3">
-              <v-switch v-model="config.rename_dict_supplement_enabled" label="媒体元数据补充"
-                color="info" density="compact"
-                hint="整理重命名时用 ffprobe 或中心化信息补全模板中未填的分辨率、编码等字段"
-                persistent-hint></v-switch>
+          </v-row>
+          <v-row>
+            <v-col cols="12" md="4">
+              <v-switch v-model="config.upload_share_info" label="上传分享链接" color="info" density="compact"></v-switch>
             </v-col>
-            <v-col cols="12" md="3">
+            <v-col cols="12" md="4">
+              <v-switch v-model="config.upload_offline_info" label="上传离线下载链接" color="info" density="compact"></v-switch>
+            </v-col>
+            <v-col cols="12" md="4">
               <v-select v-model="config.storage_module" label="存储模块选择" :items="[
                 { title: '115网盘', value: 'u115' },
                 { title: '115网盘Plus', value: '115网盘Plus' }
-              ]" chips closable-chips
-                :hint="config.pan_transfer_takeover ? '接管网盘整理功能必须使用 115网盘Plus' : '选择使用的存储模块'"
+              ]" chips closable-chips :hint="config.pan_transfer_takeover ? '接管网盘整理功能必须使用 115网盘Plus' : '选择使用的存储模块'"
                 persistent-hint></v-select>
             </v-col>
           </v-row>
@@ -165,8 +164,8 @@
 
           <v-row v-if="machineId">
             <v-col cols="12">
-              <v-text-field v-model="machineId" label="Machine ID" readonly density="compact"
-                variant="outlined" hide-details="auto"></v-text-field>
+              <v-text-field v-model="machineId" label="Machine ID" readonly density="compact" variant="outlined"
+                hide-details="auto"></v-text-field>
             </v-col>
           </v-row>
 
@@ -180,8 +179,8 @@
               <v-expansion-panel-text class="pa-4">
                 <v-row>
                   <v-col cols="12" md="4">
-                    <v-switch v-model="config.upload_module_skip_slow_upload" label="秒传失败直接退出"
-                      color="info" density="compact"></v-switch>
+                    <v-switch v-model="config.upload_module_skip_slow_upload" label="秒传失败直接退出" color="info"
+                      density="compact"></v-switch>
                   </v-col>
                   <v-col cols="12" md="4">
                     <v-switch v-model="config.upload_module_notify" label="秒传等待发送通知" color="info"
@@ -194,35 +193,34 @@
                 </v-row>
                 <v-row>
                   <v-col cols="12" md="6">
-                    <v-text-field v-model.number="config.upload_module_wait_time" label="秒传休眠等待时间（单位秒）"
-                      type="number" hint="秒传休眠等待时间（单位秒）" persistent-hint density="compact"></v-text-field>
+                    <v-text-field v-model.number="config.upload_module_wait_time" label="秒传休眠等待时间（单位秒）" type="number"
+                      hint="秒传休眠等待时间（单位秒）" persistent-hint density="compact"></v-text-field>
                   </v-col>
                   <v-col cols="12" md="6">
-                    <v-text-field v-model.number="config.upload_module_wait_timeout" label="秒传最长等待时间（单位秒）"
-                      type="number" hint="秒传最长等待时间（单位秒）" persistent-hint density="compact"></v-text-field>
+                    <v-text-field v-model.number="config.upload_module_wait_timeout" label="秒传最长等待时间（单位秒）" type="number"
+                      hint="秒传最长等待时间（单位秒）" persistent-hint density="compact"></v-text-field>
                   </v-col>
                 </v-row>
                 <v-row>
                   <v-col cols="12" md="6">
                     <v-text-field v-model="skipUploadWaitSizeFormattedRef" label="跳过等待秒传的文件大小阈值"
-                      hint="文件小于此值将跳过等待秒传（单位支持K，M，G）" persistent-hint density="compact"
-                      placeholder="例如: 5M, 1.5G (可为空)" clearable></v-text-field>
+                      hint="文件小于此值将跳过等待秒传（单位支持K，M，G）" persistent-hint density="compact" placeholder="例如: 5M, 1.5G (可为空)"
+                      clearable></v-text-field>
                   </v-col>
                   <v-col cols="12" md="6">
                     <v-text-field v-model="forceUploadWaitSizeFormattedRef" label="强制等待秒传的文件大小阈值"
-                      hint="文件大于此值将强制等待秒传（单位支持K，M，G）" persistent-hint density="compact"
-                      placeholder="例如: 5M, 1.5G (可为空)" clearable></v-text-field>
+                      hint="文件大于此值将强制等待秒传（单位支持K，M，G）" persistent-hint density="compact" placeholder="例如: 5M, 1.5G (可为空)"
+                      clearable></v-text-field>
                   </v-col>
                 </v-row>
                 <v-row v-if="config.upload_module_skip_slow_upload">
                   <v-col cols="12" md="6">
                     <v-text-field v-model="skipSlowUploadSizeFormattedRef" label="秒传失败后跳过上传的文件大小阈值"
-                      hint="秒传失败后，大于等于此值的文件将跳过上传，小于此值的文件将继续上传（单位支持K，M，G）" persistent-hint
-                      density="compact" placeholder="例如: 100M, 1G (可为空)" clearable></v-text-field>
+                      hint="秒传失败后，大于等于此值的文件将跳过上传，小于此值的文件将继续上传（单位支持K，M，G）" persistent-hint density="compact"
+                      placeholder="例如: 100M, 1G (可为空)" clearable></v-text-field>
                   </v-col>
                 </v-row>
-                <v-alert type="info" variant="tonal" density="compact" class="mt-3"
-                  icon="mdi-information">
+                <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
                   <div class="text-body-2 mb-1"><strong>秒传失败直接退出：</strong></div>
                   <div class="text-caption">此功能开启后，对于无法秒传或者秒传等待超时的文件将直接跳过上传步骤，整理返回失败。</div>
                   <div class="text-caption mt-1">
@@ -241,8 +239,8 @@
           <v-alert type="warning" variant="tonal" density="compact" class="mt-3" icon="mdi-alert">
             <div class="text-body-2 mb-1"><strong>风险与免责声明</strong></div>
             <div class="text-caption">
-              <div class="mb-1">• 插件程序内包含可选的Sentry分析组件，详见<a href="https://sentry.io/privacy/"
-                  target="_blank" style="color: inherit; text-decoration: underline;">Sentry Privacy
+              <div class="mb-1">• 插件程序内包含可选的Sentry分析组件，详见<a href="https://sentry.io/privacy/" target="_blank"
+                  style="color: inherit; text-decoration: underline;">Sentry Privacy
                   Policy</a></div>
               <div class="mb-1">• 插件程序将在必要时上传错误信息及运行环境信息</div>
               <div>• 插件程序将记录程序运行重要节点并保存追踪数据至少72小时</div>
@@ -254,10 +252,8 @@
         <v-card-text>
           <v-row>
             <v-col cols="12">
-              <v-switch v-model="config.native_emby_mediainfo_enabled" label="原生 Emby 媒体信息提取"
-                color="primary" density="compact"
-                hint="开启后各处的「Emby 媒体信息提取」将仅通过 Emby API 触发，不依赖神医助手PRO"
-                persistent-hint></v-switch>
+              <v-switch v-model="config.native_emby_mediainfo_enabled" label="原生 Emby 媒体信息提取" color="primary"
+                density="compact" hint="开启后各处的「Emby 媒体信息提取」将仅通过 Emby API 触发，不依赖神医助手PRO" persistent-hint></v-switch>
             </v-col>
           </v-row>
 
@@ -266,16 +262,14 @@
           <!-- STRM URL 自定义模板 -->
           <v-row>
             <v-col cols="12">
-              <v-switch v-model="config.strm_url_template_enabled" label="启用 STRM URL 自定义模板 (Jinja2)"
-                color="primary" density="compact" hint="启用后可以使用 Jinja2 模板语法自定义 STRM 文件的 URL 格式"
-                persistent-hint></v-switch>
+              <v-switch v-model="config.strm_url_template_enabled" label="启用 STRM URL 自定义模板 (Jinja2)" color="primary"
+                density="compact" hint="启用后可以使用 Jinja2 模板语法自定义 STRM 文件的 URL 格式" persistent-hint></v-switch>
             </v-col>
           </v-row>
 
           <v-expand-transition>
             <div v-if="config.strm_url_template_enabled">
-              <v-alert type="info" variant="tonal" density="compact" class="mt-2 mb-3"
-                icon="mdi-information">
+              <v-alert type="info" variant="tonal" density="compact" class="mt-2 mb-3" icon="mdi-information">
                 <div class="text-body-2 mb-1"><strong>STRM URL 生成优先级：</strong></div>
                 <div class="text-caption">
                   <div class="mb-1">1. <strong>URL 自定义模板</strong>（如果启用）：优先使用 Jinja2 模板渲染</div>
@@ -286,8 +280,7 @@
               <v-row class="mt-2">
                 <v-col cols="12">
                   <v-textarea v-model="config.strm_url_template" label="STRM URL 基础模板 (Jinja2)"
-                    hint="支持 Jinja2 语法，可用变量和过滤器见下方说明" persistent-hint rows="4" variant="outlined"
-                    density="compact"
+                    hint="支持 Jinja2 语法，可用变量和过滤器见下方说明" persistent-hint rows="4" variant="outlined" density="compact"
                     placeholder="{{ base_url }}?pickcode={{ pickcode }}{% if file_name %}&file_name={{ file_name | urlencode }}{% endif %}"
                     clearable></v-textarea>
                 </v-col>
@@ -296,8 +289,8 @@
               <v-row class="mt-2">
                 <v-col cols="12">
                   <v-textarea v-model="config.strm_url_template_custom" label="STRM URL 扩展名特定模板 (Jinja2)"
-                    hint="为特定文件扩展名指定 URL 模板，优先级高于基础模板。格式：ext1,ext2 => template（每行一个）" persistent-hint
-                    rows="5" variant="outlined" density="compact"
+                    hint="为特定文件扩展名指定 URL 模板，优先级高于基础模板。格式：ext1,ext2 => template（每行一个）" persistent-hint rows="5"
+                    variant="outlined" density="compact"
                     placeholder="例如：&#10;mkv,mp4 => {{ base_url }}?pickcode={{ pickcode }}&file_name={{ file_name | urlencode }}&file_path={{ file_path | path_encode }}&#10;iso => {{ base_url }}?pickcode={{ pickcode }}&file_name={{ file_name | urlencode }}"
                     clearable></v-textarea>
                 </v-col>
@@ -337,8 +330,7 @@
                           class="text-caption">{{ file_path | path_encode }}</code>）</div>
                       <div class="mb-1"><code class="text-caption">upper</code> - 转大写</div>
                       <div class="mb-1"><code class="text-caption">lower</code> - 转小写</div>
-                      <div class="mb-1"><code class="text-caption">default</code> - 默认值（如：<code
-                          class="text-caption">{{
+                      <div class="mb-1"><code class="text-caption">default</code> - 默认值（如：<code class="text-caption">{{
                     file_name | default('unknown') }}</code>）</div>
                     </div>
                   </div>
@@ -389,17 +381,16 @@
               <v-row class="mt-2">
                 <v-col cols="12">
                   <v-textarea v-model="config.strm_filename_template" label="STRM 文件名基础模板 (Jinja2)"
-                    hint="支持 Jinja2 语法，可用变量和过滤器见下方说明" persistent-hint rows="3" variant="outlined"
-                    density="compact" placeholder="{{ file_stem }}.strm" clearable></v-textarea>
+                    hint="支持 Jinja2 语法，可用变量和过滤器见下方说明" persistent-hint rows="3" variant="outlined" density="compact"
+                    placeholder="{{ file_stem }}.strm" clearable></v-textarea>
                 </v-col>
               </v-row>
 
               <v-row class="mt-2">
                 <v-col cols="12">
-                  <v-textarea v-model="config.strm_filename_template_custom"
-                    label="STRM 文件名扩展名特定模板 (Jinja2)"
-                    hint="为特定文件扩展名指定文件名模板，优先级高于基础模板。格式：ext1,ext2 => template（每行一个）" persistent-hint
-                    rows="4" variant="outlined" density="compact"
+                  <v-textarea v-model="config.strm_filename_template_custom" label="STRM 文件名扩展名特定模板 (Jinja2)"
+                    hint="为特定文件扩展名指定文件名模板，优先级高于基础模板。格式：ext1,ext2 => template（每行一个）" persistent-hint rows="4"
+                    variant="outlined" density="compact"
                     placeholder="例如：&#10;iso => {{ file_stem }}.iso.strm&#10;mkv,mp4 => {{ file_stem | upper }}.strm"
                     clearable></v-textarea>
                 </v-col>
@@ -428,16 +419,13 @@
                       <strong class="text-body-2">可用过滤器</strong>
                     </div>
                     <div class="ml-6">
-                      <div class="mb-1"><code class="text-caption">upper</code> - 转大写（如：<code
-                          class="text-caption">{{
+                      <div class="mb-1"><code class="text-caption">upper</code> - 转大写（如：<code class="text-caption">{{
                     file_stem | upper }}</code>）</div>
-                      <div class="mb-1"><code class="text-caption">lower</code> - 转小写（如：<code
-                          class="text-caption">{{
+                      <div class="mb-1"><code class="text-caption">lower</code> - 转小写（如：<code class="text-caption">{{
                     file_stem | lower }}</code>）</div>
                       <div class="mb-1"><code class="text-caption">sanitize</code> - 清理文件名中的非法字符（如：<code
                           class="text-caption">{{ file_name | sanitize }}</code>）</div>
-                      <div class="mb-1"><code class="text-caption">default</code> - 默认值（如：<code
-                          class="text-caption">{{
+                      <div class="mb-1"><code class="text-caption">default</code> - 默认值（如：<code class="text-caption">{{
                     file_stem | default('unknown') }}</code>）</div>
                     </div>
                   </div>
@@ -475,8 +463,7 @@
 
                   <div>
                     <div class="d-flex align-center mb-2">
-                      <v-icon icon="mdi-alert-circle-outline" size="small" class="mr-2"
-                        color="warning"></v-icon>
+                      <v-icon icon="mdi-alert-circle-outline" size="small" class="mr-2" color="warning"></v-icon>
                       <strong class="text-body-2">注意事项</strong>
                     </div>
                     <div class="ml-6">
@@ -495,8 +482,8 @@
           <v-row class="mt-4">
             <v-col cols="12">
               <v-combobox v-model="config.strm_generate_blacklist" label="STRM文件关键词过滤黑名单"
-                hint="输入关键词后按回车确认，可添加多个。包含这些词的视频文件将不会生成STRM文件。" persistent-hint multiple chips
-                closable-chips variant="outlined" density="compact"></v-combobox>
+                hint="输入关键词后按回车确认，可添加多个。包含这些词的视频文件将不会生成STRM文件。" persistent-hint multiple chips closable-chips
+                variant="outlined" density="compact"></v-combobox>
             </v-col>
           </v-row>
 
@@ -520,8 +507,7 @@
 
           <v-row class="mt-4">
             <v-col cols="12" md="4">
-              <v-switch v-model="config.strm_url_encode" label="STRM URL 文件名称编码" color="info"
-                density="compact"
+              <v-switch v-model="config.strm_url_encode" label="STRM URL 文件名称编码" color="info" density="compact"
                 :hint="config.strm_url_template_enabled ? '已启用自定义模板时优先使用模板，模板渲染失败时将使用此设置作为后备方案。在模板中可使用 urlencode 过滤器进行编码。' : '启用后，STRM文件中的URL会对文件名进行编码处理'"
                 persistent-hint></v-switch>
             </v-col>
