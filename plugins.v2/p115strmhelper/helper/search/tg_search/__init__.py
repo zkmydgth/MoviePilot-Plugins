@@ -1,4 +1,5 @@
 import re
+import unicodedata
 from typing import List, Optional
 
 import httpx
@@ -8,10 +9,10 @@ from app.log import logger
 from app.core.config import settings
 from app.utils.http import AsyncRequestUtils
 
-from ...core.config import configer
-from ...schemas.tg_search import ResourceItem
-from ...utils.string import StringUtils
-from ...utils.sentry import sentry_manager
+from ....core.config import configer
+from ....schemas.tg_search import ResourceItem
+from ....utils.string import StringUtils
+from ....utils.sentry import sentry_manager
 
 
 @sentry_manager.capture_all_class_exceptions
@@ -26,6 +27,8 @@ class TgSearcher:
         - LICENSE: https://github.com/Cp0204/quark-auto-save/blob/main/LICENSE
     """
 
+    _PUNCT_GAP_RE = re.compile(r"[\s\u3000:：·•.,，。!！?？（）【】\[\]/／\\＼-]+")
+
     def __init__(self):
         proxies = (
             AsyncRequestUtils._convert_proxies_for_httpx(settings.PROXY)
@@ -37,6 +40,59 @@ class TgSearcher:
             proxy=proxies,
             follow_redirects=True,
         )
+
+    @staticmethod
+    def _normalize_for_match(text: str) -> str:
+        """
+        统一空白、NFKC 与常见全角标点，便于做「关键词是否出现在标题中」的判断
+        """
+        if not text:
+            return ""
+        t = unicodedata.normalize("NFKC", text)
+        for old, new in (
+            ("：", ":"),
+            ("，", ","),
+            ("（", "("),
+            ("）", ")"),
+            ("【", "["),
+            ("】", "]"),
+            ("！", "!"),
+            ("？", "?"),
+            ("–", "-"),
+            ("—", "-"),
+            ("…", "..."),
+        ):
+            t = t.replace(old, new)
+        t = re.sub(r"[\s\u3000]+", " ", t).strip()
+        return t.casefold()
+
+    @classmethod
+    def _compact_for_match(cls, text: str) -> str:
+        """
+        在规范化基础上去掉标点与空白，使「复仇者联盟3：无限战争」与「复仇者联盟3: 无限战争」可比
+        """
+        base = cls._normalize_for_match(text)
+        return cls._PUNCT_GAP_RE.sub("", base)
+
+    @classmethod
+    def _title_matches_search_key(cls, key: str, title: str) -> bool:
+        """
+        判断标题是否包含搜索关键词：先原串子串，再规范化子串，再紧凑子串（短关键词不用紧凑路径以免误伤）
+        """
+        if not key:
+            return True
+        t = title or ""
+        if key in t:
+            return True
+        nk = cls._normalize_for_match(key)
+        nt = cls._normalize_for_match(t)
+        if nk and nk in nt:
+            return True
+        ck = cls._compact_for_match(key)
+        ct = cls._compact_for_match(t)
+        if len(ck) < 2:
+            return False
+        return ck in ct
 
     @staticmethod
     def extract_cloud_links(text: str) -> tuple[List[str], str]:
@@ -216,7 +272,7 @@ class TgSearcher:
                 [
                     i
                     for i in self.get_channel(url, channel_id)
-                    if key in i.get("title", "")
+                    if self._title_matches_search_key(key, i.get("title", ""))
                 ]
             )
 

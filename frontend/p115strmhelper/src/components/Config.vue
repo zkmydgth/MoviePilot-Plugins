@@ -421,8 +421,6 @@ const config = reactive({
   directory_upload_copyext: 'srt,ssa,ass',
   directory_upload_path: [],
   directory_upload_clouddrive2_config: { enabled: false, prefix: '' },
-  nullbr_app_id: '',
-  nullbr_api_key: '',
   tg_search_channels: [],
   same_playback: false,
   error_info_upload: false,

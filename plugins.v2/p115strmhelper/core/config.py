@@ -138,18 +138,6 @@ class ConfigManager(BaseModel):
             ]
         return []
 
-    @field_validator("nullbr_app_id", "nullbr_api_key", mode="before")
-    @classmethod
-    def _empty_to_none_nullbr(cls, v: Any) -> Optional[str]:
-        """
-        将空字符串转为 None，允许用户清空/删除 nullbr 配置。
-        """
-        if v is None:
-            return None
-        if isinstance(v, str) and not v.strip():
-            return None
-        return v
-
     @model_validator(mode="before")
     @classmethod
     def _validate_cron_fields_before(cls, data: Dict[str, Any]) -> Dict[str, Any]:
@@ -485,13 +473,6 @@ class ConfigManager(BaseModel):
     tg_search_channels: Optional[List[Dict]] = Field(
         default=None, description="TG 搜索频道"
     )
-    nullbr_app_id: Optional[str] = Field(
-        default=None, min_length=1, description="Nullbr APP ID"
-    )
-    nullbr_api_key: Optional[str] = Field(
-        default=None, min_length=1, description="Nullbr API KEY"
-    )
-
     same_playback: bool = Field(default=False, description="多端播放同一个文件")
 
     error_info_upload: bool = Field(default=True, description="上传错误信息")

@@ -932,14 +932,7 @@ class P115StrmHelper(_PluginBase):
 
             search_keyword = args.strip()
 
-            if configer.nullbr_app_id and configer.nullbr_api_key:
-                command = "search"
-                view = "search_list"
-            else:
-                command = "resource"
-                view = "resource_list"
-
-            action = Action(command=command, view=view, value=search_keyword)
+            action = Action(command="search", view="search_list", value=search_keyword)
 
             immediate_messages = self.action_handler.process(session, action)
             # 报错，截断后续运行
@@ -949,7 +942,7 @@ class P115StrmHelper(_PluginBase):
                 return
 
             # 设置页面
-            session.go_to(view)
+            session.go_to(action.view)
             self._render_and_send(session)
         except Exception as e:
             logger.error(f"处理 search 命令失败: {e}", exc_info=True)

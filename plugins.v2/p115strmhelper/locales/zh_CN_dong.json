@@ -8,6 +8,8 @@
     "full_sync_done_title": "✅【115网盘】全量STRM砖块搬完啦！",
     "p115_search_config_error": "砖头没摆好...要先配置频道搜索",
     "p115_search_parameter_error": "啊？砖头标签贴错了...要 /sh 加关键词",
+    "p115_media_search_failed": "媒体搜索塌了...晚点再砌或看日志",
+    "p115_media_search_empty": "没砌到合适的片，换个词试试",
     "p115_add_share_parameter_error": "砖头放反了...要用 /p115_add_share 加链接",
     "p115_add_offline_parameter_error": "砖头放错位置...要用 /ol 加链接",
     "p115_add_offline_success": "咚咚咚！离线任务砖块搬好了！",

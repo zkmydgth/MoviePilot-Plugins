@@ -197,15 +197,6 @@ class ActionHandler(BaseActionHandler):
             raise ValueError("搜索关键词不能为空。")
         resource_key = action.value
         session.business.resource_key = resource_key
-        if not configer.get_config("nullbr_app_id") or not configer.get_config(
-            "nullbr_api_key"
-        ):
-            session.business.resource_key = 0
-            session.business.resource_key_list = [
-                {
-                    "name": resource_key,
-                }
-            ]
         session.view.refresh = True
         session.go_to("resource_list")
 

@@ -4,8 +4,8 @@ from typing import Dict, Any, Tuple, Optional, List
 
 from app.schemas.message import ChannelCapabilityManager
 
-from ..helper.tg_search import TgSearcher
-from ..helper.nullbr import NullbrHelper
+from ..helper.search import TgSearcher, MediaSearcher
+from ..core.i18n import i18n
 from .framework.callbacks import Action
 from .framework.registry import view_registry
 from .framework.views import BaseViewRenderer
@@ -102,9 +102,28 @@ class ViewRenderer(BaseViewRenderer):
         """
         获取搜索数据
         """
-        nullbr_client = NullbrHelper()
-        data = nullbr_client.get_media_list(session.business.search_keyword)
-        session.business.search_info = {"data": data, "datatime": self.__now_date()}
+        keyword = (session.business.search_keyword or "").strip()
+        if not keyword:
+            session.business.search_info = {
+                "data": [],
+                "datatime": self.__now_date(),
+                "fetch_error": False,
+            }
+            return
+        try:
+            count = 100
+            data = MediaSearcher.search_like_api(keyword, count=count)
+            session.business.search_info = {
+                "data": data,
+                "datatime": self.__now_date(),
+                "fetch_error": False,
+            }
+        except Exception:
+            session.business.search_info = {
+                "data": [],
+                "datatime": self.__now_date(),
+                "fetch_error": True,
+            }
 
     def get_resource_data(self, session: Session):
         """
@@ -114,26 +133,14 @@ class ViewRenderer(BaseViewRenderer):
             int(session.business.resource_key)
         ]
 
-        nullbr_data = []
-        if configer.get_config("nullbr_app_id") and configer.get_config(
-            "nullbr_api_key"
-        ):
-            # Nullbr
-            nullbr_client = NullbrHelper()
-            nullbr_data = nullbr_client.search_resource(
-                resource_dict.get("tmdb_id"),
-                resource_dict.get("type"),
-            )
-
-        cs_data = []
+        cs_data: List[Dict[str, Any]] = []
         if configer.tg_search_channels:
-            # TG Searcher
             searcher = TgSearcher()
             cs_data = searcher.search(
                 key=resource_dict.get("name"), channels=configer.tg_search_channels
             )
 
-        data = nullbr_data + cs_data
+        data = cs_data
 
         # 记录到session，待渲染使用
         session.business.resource_info = {"data": data, "datatime": self.__now_date()}
@@ -271,88 +278,91 @@ class ViewRenderer(BaseViewRenderer):
         """
         渲染搜索
         """
-        title, buttons, text_lines = "搜索列表", [], ["请选择具体资源类型：\n"]
+        title, buttons, text_lines = "搜索列表", [], ["请选择要搜索的影视条目：\n"]
 
         if not session.business.search_info or session.view.refresh:
             self.get_search_data(session=session)
             session.view.refresh = False
 
-        if not (search_info := session.business.search_info):
-            text = "当前没有搜索结果。"
+        search_info = session.business.search_info or {}
+        if search_info.get("fetch_error"):
+            text = i18n.translate("p115_media_search_failed")
             buttons.append(
                 self.get_navigation_buttons(session, refresh=True, close=True)
             )
             return {"title": title, "text": text, "buttons": buttons}
 
-        else:
-            search_data = search_info.get("data", [])
-            # 获取频道能力，是否渲染按钮
-            supports_buttons = ChannelCapabilityManager.supports_buttons(
-                session.message.channel
+        if not search_info:
+            text = i18n.translate("p115_media_search_empty")
+            buttons.append(
+                self.get_navigation_buttons(session, refresh=True, close=True)
             )
-            # 最大行数，每行最大按钮数
-            page_size, max_buttons_per_row = self.__get_page_size(session=session)
-            # 当前页的数据，当前页的索引起点
-            paged_items, start_index = self.__get_paged_items_and_start_index(
-                session=session, page_size=page_size, data=search_data
-            )
+            return {"title": title, "text": text, "buttons": buttons}
 
-            button_row = []
-            session.business.resource_key_list = []
-            for i, data in enumerate(paged_items):
-                d_title = (
-                    StringUtils.replace_markdown_with_space(text=data.title)
-                    if data.title
-                    else "未知资源名"
+        search_data = search_info.get("data", [])
+        if not search_data:
+            text = i18n.translate("p115_media_search_empty")
+            buttons.append(
+                self.get_navigation_buttons(session, refresh=True, close=True)
+            )
+            return {"title": title, "text": text, "buttons": buttons}
+
+        supports_buttons = ChannelCapabilityManager.supports_buttons(
+            session.message.channel
+        )
+        page_size, max_buttons_per_row = self.__get_page_size(session=session)
+        paged_items, start_index = self.__get_paged_items_and_start_index(
+            session=session, page_size=page_size, data=search_data
+        )
+
+        button_row = []
+        session.business.resource_key_list = []
+        for i, item in enumerate(paged_items):
+            if not isinstance(item, dict):
+                continue
+            media_type = item.get("type")
+            line = StringUtils.format_sh_search_media_line(start_index + i + 1, item)
+            text_lines.append(line)
+
+            if supports_buttons:
+                button_row.append(
+                    self._build_button(
+                        session,
+                        text=StringUtils.to_emoji_number(start_index + i + 1),
+                        action=Action(
+                            command="resource",
+                            view="resource_list",
+                            value=i,
+                        ),
+                    )
                 )
 
-                text_lines.append(
-                    f"{StringUtils.to_emoji_number(start_index + i + 1)}. {d_title} ({StringUtils.media_type_i18n(data.media_type)})"
+                session.business.resource_key_list.append(
+                    {
+                        "type": media_type,
+                        "tmdb_id": item.get("tmdb_id"),
+                        "name": (item.get("title") or "").strip(),
+                    }
                 )
 
-                # 支持按钮时，生成按钮
-                if supports_buttons:
-                    button_row.append(
-                        self._build_button(
-                            session,
-                            text=StringUtils.to_emoji_number(start_index + i + 1),
-                            action=Action(
-                                command="resource",
-                                view="resource_list",
-                                value=i,
-                            ),
-                        )
-                    )
+                if len(button_row) == max_buttons_per_row:
+                    buttons.append(button_row)
+                    button_row = []
 
-                    session.business.resource_key_list.append(
-                        {
-                            "type": data.media_type,
-                            "tmdb_id": data.tmdbid,
-                            "name": data.title,
-                        }
-                    )
+        if button_row:
+            buttons.append(button_row)
 
-                    # 如果当前行已满，添加到按钮列表
-                    if len(button_row) == max_buttons_per_row:
-                        buttons.append(button_row)
-                        button_row = []
+        text_lines.append(
+            f"\n页码: {session.view.page + 1} / {session.view.total_pages}"
+        )
+        text_lines.append(
+            f"\n数据刷新时间：{session.business.search_info.get('datatime', self.__now_date())}"
+        )
 
-            if button_row:
-                buttons.append(button_row)
-
-            text_lines.append(
-                f"\n页码: {session.view.page + 1} / {session.view.total_pages}"
-            )
-            text_lines.append(
-                f"\n数据刷新时间：{session.business.search_info.get('datatime', self.__now_date())}"
-            )
-
-            # 添加分页行
-            if page_nav := self.get_page_switch_buttons(session):
-                buttons.append(page_nav)
+        if page_nav := self.get_page_switch_buttons(session):
+            buttons.append(page_nav)
 
         text = "\n".join(text_lines)
-        # 添加刷新与关闭行
         buttons.append(self.get_navigation_buttons(session, refresh=True, close=True))
 
         return {"title": title, "text": text, "buttons": buttons}
@@ -425,19 +435,11 @@ class ViewRenderer(BaseViewRenderer):
                 buttons.append(page_nav)
 
         text = "\n".join(text_lines)
-        # 添加刷新与关闭行
-        if configer.get_config("nullbr_app_id") and configer.get_config(
-            "nullbr_api_key"
-        ):
-            buttons.append(
-                self.get_navigation_buttons(
-                    session, go_back="search_list", refresh=True, close=True
-                )
+        buttons.append(
+            self.get_navigation_buttons(
+                session, go_back="search_list", refresh=True, close=True
             )
-        else:
-            buttons.append(
-                self.get_navigation_buttons(session, refresh=True, close=True)
-            )
+        )
 
         return {"title": title, "text": text, "buttons": buttons}
 
