@@ -26,6 +26,8 @@ from ...utils.path import PathUtils
 from ...utils.sentry import sentry_manager
 from ...utils.strm import StrmUrlGetter, StrmGenerater
 from ...utils.tree import DirectoryTree
+from ...utils.automaton import AutomatonUtils
+from ...utils.mediainfo_download import MediainfoDownloadMiddleware
 
 
 class IncrementSyncStrmHelper:
@@ -77,6 +79,13 @@ class IncrementSyncStrmHelper:
         self.strm_url_format = configer.strm_url_format
         self.databasehelper = FileDbHelper()
         self.download_mediainfo_list = []
+
+        self.mdaw = AutomatonUtils.build_automaton(
+            configer.mediainfo_download_whitelist
+        )
+        self.mdab = AutomatonUtils.build_automaton(
+            configer.mediainfo_download_blacklist
+        )
 
         self.strmurlgetter = StrmUrlGetter()
         self.mediaserver_helper = MediaServerRefresh(
@@ -315,6 +324,20 @@ class IncrementSyncStrmHelper:
 
             if self.auto_download_mediainfo:
                 if pan_path_obj.suffix.lower() in self.download_mediaext:
+                    if not (
+                        result := MediainfoDownloadMiddleware.should_download(
+                            filename=pan_path_obj.name,
+                            blacklist_automaton=self.mdab,
+                            whitelist_automaton=self.mdaw,
+                        )
+                    )[1]:
+                        logger.warning(
+                            "【增量STRM生成】%s，跳过网盘路径: %s",
+                            result[0],
+                            pan_path,
+                        )
+                        return
+
                     pickcode = self.__get_pickcode(pan_path)
                     if not pickcode:
                         logger.error(

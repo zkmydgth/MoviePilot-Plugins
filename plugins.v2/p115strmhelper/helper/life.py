@@ -14,6 +14,8 @@ from ..core.i18n import i18n
 from ..utils.path import PathUtils, PathRemoveUtils
 from ..utils.sentry import sentry_manager
 from ..utils.strm import StrmUrlGetter, StrmGenerater
+from ..utils.automaton import AutomatonUtils
+from ..utils.mediainfo_download import MediainfoDownloadMiddleware
 from ..db_manager.oper import FileDbHelper
 from ..helper.mediainfo_download import MediaInfoDownloader
 from ..helper.mediasyncdel import MediaSyncDelHelper
@@ -74,6 +76,13 @@ class MonitorLife:
         self.rmt_mediaext: List = []
         self.rmt_mediaext_set: Set = set()
         self.download_mediaext_set: Set = set()
+
+        self.mdaw = AutomatonUtils.build_automaton(
+            configer.mediainfo_download_whitelist
+        )
+        self.mdab = AutomatonUtils.build_automaton(
+            configer.mediainfo_download_blacklist
+        )
 
         self.mediaserver_helper = MediaServerRefresh(
             func_name="【监控生活事件】",
@@ -326,6 +335,21 @@ class MonitorLife:
                             "monitor_life_auto_download_mediainfo_enabled"
                         ):
                             if file_path.suffix.lower() in self.download_mediaext_set:
+                                if not (
+                                    result
+                                    := MediainfoDownloadMiddleware.should_download(
+                                        filename=original_file_name,
+                                        blacklist_automaton=self.mdab,
+                                        whitelist_automaton=self.mdaw,
+                                    )
+                                )[1]:
+                                    logger.warning(
+                                        "【监控生活事件】%s，跳过网盘路径: %s",
+                                        result[0],
+                                        item["path"],
+                                    )
+                                    continue
+
                                 pickcode = item["pickcode"]
                                 if not pickcode:
                                     logger.error(
@@ -445,6 +469,20 @@ class MonitorLife:
 
                 if configer.get_config("monitor_life_auto_download_mediainfo_enabled"):
                     if file_path.suffix.lower() in self.download_mediaext_set:
+                        if not (
+                            result := MediainfoDownloadMiddleware.should_download(
+                                filename=original_file_name,
+                                blacklist_automaton=self.mdab,
+                                whitelist_automaton=self.mdaw,
+                            )
+                        )[1]:
+                            logger.warning(
+                                "【监控生活事件】%s，跳过网盘路径: %s",
+                                result[0],
+                                str(file_path).replace(str(target_dir), "", 1),
+                            )
+                            return
+
                         if not pickcode:
                             logger.error(
                                 f"【监控生活事件】{original_file_name} 不存在 pickcode 值，无法下载该文件"
@@ -545,7 +583,8 @@ class MonitorLife:
                         )
                 # 刷新媒体服务器
                 self.mediaserver_helper.refresh_mediaserver(
-                    file_path=new_file_path.as_posix(), file_name=str(original_file_name)
+                    file_path=new_file_path.as_posix(),
+                    file_name=str(original_file_name),
                 )
 
     def remove_strm(self, event):
