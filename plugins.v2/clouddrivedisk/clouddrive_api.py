@@ -1,8 +1,9 @@
 from enum import IntEnum
 from pathlib import Path
+from queue import Empty, Queue
 from threading import Thread
 from time import monotonic
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple
 from uuid import uuid4
 
 from grpc import RpcError, StatusCode
@@ -578,6 +579,40 @@ class CloudDriveApi:
                         progress_callback(bytes_hashed, total_bytes)
         return file_md5.finalize().hex(), blocks
 
+    @staticmethod
+    def _iter_stream_with_timeout(stream, timeout: int = 300) -> Iterator:
+        """
+        包装 gRPC 服务端流，为每条消息添加超时。
+        如果超过 timeout 秒没有收到新消息，抛出 TimeoutError。
+
+        :param stream: gRPC 服务端流迭代器
+        :param timeout: 每条消息的超时秒数，默认 300 秒
+        """
+        q: Queue = Queue()
+        _SENTINEL = object()
+
+        def _reader() -> None:
+            try:
+                for msg in stream:
+                    q.put(msg)
+                q.put(_SENTINEL)
+            except Exception as e:
+                q.put(e)
+
+        t = Thread(target=_reader, daemon=True, name="cd2-stream-reader")
+        t.start()
+
+        while True:
+            try:
+                item = q.get(timeout=timeout)
+            except Empty:
+                raise TimeoutError(f"gRPC 流超时：{timeout} 秒内未收到服务端消息")
+            if item is _SENTINEL:
+                return
+            if isinstance(item, BaseException):
+                raise item
+            yield item
+
     def _cancel_upload(self, upload_id: str) -> None:
         """
         安全取消远程上传会话，忽略取消过程中的异常。
@@ -632,7 +667,7 @@ class CloudDriveApi:
             )
             upload_id = started.upload_id
             with open(local_path, "rb") as f:
-                for reply in stream:
+                for reply in self._iter_stream_with_timeout(stream, timeout=300):
                     if global_vars.is_transfer_stopped(target_path):
                         logger.info("【CloudDrive】上传已取消: %s", target_path)
                         self._cancel_upload(upload_id)
