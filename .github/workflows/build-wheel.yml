@@ -37,16 +37,14 @@ jobs:
     runs-on: ubuntu-latest
     # 任务输出
     outputs:
-      # 输出一个包含完整 matrix 配置的、原始的 JSON 字符串
       matrix: ${{ steps.generate_matrix.outputs.matrix }}
     steps:
       # 步骤1：将输入的字符串转换为一个完整的 matrix JSON 对象
       - name: 从输入字符串生成矩阵 JSON
         id: generate_matrix
         run: |
-          # 关键修正：使用 -c (compact) 参数确保输出为单行。
-          # 关键修正：移除了错误的 `| tojson`，以避免双重编码。
-          # 这将生成一个原始的 JSON 对象字符串，例如：{"target":["windows-amd64","linux-x86_64"]}
+          # 使用 jq -c (compact) 和 -R (raw-input) 将空格分隔的字符串转换为单行的原始 JSON 对象
+          # 例如：{"target":["windows-amd64","linux-x86_64"]}
           JSON_OBJECT=$(echo '${{ inputs.platforms }}' | jq -c -R '{target: split(" ")}')
           echo "matrix=${JSON_OBJECT}" >> $GITHUB_OUTPUT
           echo "生成的矩阵对象: ${JSON_OBJECT}"
@@ -93,7 +91,6 @@ jobs:
     # 构建矩阵策略
     strategy:
       fail-fast: false
-      # 现在 fromJSON 可以正确解析来自 prepare_matrix 的原始 JSON 对象字符串
       matrix: ${{ fromJSON(needs.prepare_matrix.outputs.matrix) }}
 
     steps:
@@ -103,6 +100,8 @@ jobs:
 
       # 步骤2：下载并解压源码包
       - name: 下载并解压源码包
+        # 关键修正：为所有平台的 run 步骤统一指定 bash，以确保脚本兼容性
+        shell: bash
         run: |
           SDIST_URL="${{ needs.get_source_info.outputs.sdist_url }}"
           echo "正在下载源码: ${SDIST_URL}"
@@ -113,6 +112,8 @@ jobs:
       # 步骤3：准备 cibuildwheel 所需的环境变量
       - name: 准备构建变量
         id: vars
+        # 关键修正：为所有平台的 run 步骤统一指定 bash
+        shell: bash
         run: |
           PY_VERSION_SHORT=$(echo "${{ inputs.python_version }}" | cut -d. -f1,2 | tr -d .)
           echo "cibw_build_version=cp${PY_VERSION_SHORT}-*" >> $GITHUB_OUTPUT
