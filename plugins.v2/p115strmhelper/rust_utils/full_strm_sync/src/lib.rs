@@ -34,6 +34,8 @@ impl PyProcessor {
 
 #[pymodule]
 fn full_strm_sync(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add("__version__", env!("CARGO_PKG_VERSION"))?;
+    
     m.add_class::<PyProcessor>()?;
     m.add_class::<StrmInfo>()?;
     m.add_class::<DownloadInfo>()?;
