@@ -1601,6 +1601,15 @@
                     </div>
                   </v-expand-transition>
 
+                  <v-alert type="warning" variant="tonal" density="compact" class="mt-3" icon="mdi-alert">
+                    <div class="text-body-2 mb-1"><strong>平台限制说明：</strong></div>
+                    <div class="text-caption">
+                      <div class="mb-1">• <strong>Windows 系统不支持：</strong>FUSE 功能基于 Linux 文件系统，无法在 Windows 环境下运行</div>
+                      <div class="mb-1">• <strong>Linux 裸机：</strong>理论上支持，需要安装 libfuse（libfuse2 或 libfuse3）</div>
+                      <div class="mb-1">• <strong>macOS 裸机：</strong>理论上支持，需要安装 macFUSE</div>
+                      <div>• <strong>推荐使用 Docker 容器：</strong>目前仅对 Docker 容器环境有较好的支持和测试，建议在 Docker 容器中使用此功能</div>
+                    </div>
+                  </v-alert>
                   <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
                     <div class="text-body-2 mb-1"><strong>功能说明：</strong></div>
                     <div class="text-caption mb-2">启用后，115网盘将挂载为容器内的文件系统，可通过文件管理器直接访问。配合上方的"STRM 文件生成内容接管"功能，可以让生成的 STRM
@@ -1611,7 +1620,9 @@
                         <code>/data/115</code>）
                       </div>
                       <div class="mb-1">• <strong>目录读取缓存 TTL：</strong>目录列表缓存时间，默认60秒</div>
-                      <div class="mb-1">• <strong>文件所有者 UID/GID：</strong>设置挂载文件的用户和组ID，留空则自动使用当前运行用户（Docker 容器中建议设置为非 root 用户）</div>
+                      <div class="mb-1">• <strong>文件所有者 UID/GID：</strong>设置挂载文件的用户和组ID，留空则自动使用当前运行用户（Docker 容器中建议设置为非
+                        root 用户）
+                      </div>
                       <div class="mb-1">• <strong>容器权限：</strong>需要容器以 <code>--privileged</code> 或
                         <code>--cap-add SYS_ADMIN</code>
                         权限运行
@@ -2366,7 +2377,7 @@
                         size="small" class="mr-2"></v-icon>
                       <span class="text-caption">MonitorLife初始化:
                         <strong>{{ lifeEventCheckDialog.result.data?.summary?.monitorlife_initialized ? '是' : '否'
-                          }}</strong>
+                        }}</strong>
                       </span>
                     </div>
                   </v-col>

@@ -25,6 +25,20 @@ from ...core.cache import IntKeyCacheAdapter
 from ...utils.sentry import sentry_manager
 
 
+def _safe_repr(obj: Any) -> Any:
+    """
+    安全地表示对象
+    """
+    if isinstance(obj, bytes):
+        return f"<bytes: {len(obj)} bytes>"
+    elif isinstance(obj, (list, tuple)):
+        return type(obj)(_safe_repr(item) for item in obj)
+    elif isinstance(obj, dict):
+        return {k: _safe_repr(v) for k, v in obj.items()}
+    else:
+        return obj
+
+
 def log(func=None, *, level=None):
     """
     访问日志装饰器
@@ -36,12 +50,19 @@ def log(func=None, *, level=None):
             try:
                 result = f(*args, **kwargs)
                 if level is None:
+                    safe_args = _safe_repr(args)
+                    safe_kwargs = _safe_repr(kwargs)
+                    safe_result = _safe_repr(result)
                     logger.debug(
-                        f"{f.__name__} called with args={args}, kwargs={kwargs}, result={result}"
+                        f"{f.__name__} called with args={safe_args}, kwargs={safe_kwargs}, result={safe_result}"
                     )
                 return result
             except Exception as e:
-                logger.error(f"{f.__name__} failed: {e}", exc_info=True)
+                try:
+                    error_msg = str(e)
+                except (UnicodeDecodeError, UnicodeError):
+                    error_msg = f"<Exception: {type(e).__name__}>"
+                logger.error(f"{f.__name__} failed: {error_msg}", exc_info=True)
                 sentry_manager.sentry_hub.capture_exception(e)
                 raise
 
@@ -127,7 +148,7 @@ class P115FuseOperations(Operations):
 
     @log
     def open(self, /, path: str, flags: int) -> int:
-        file = self.fs.open(path)
+        file = self.fs.open(path, mode="rb")
         fh = self._get_id()
         self._opened[fh] = file
         return fh
