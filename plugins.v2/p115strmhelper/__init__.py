@@ -363,6 +363,13 @@ class P115StrmHelper(_PluginBase):
                 "auth": "bear",
                 "summary": "添加离线下载任务",
             },
+            {
+                "path": "/check_feature",
+                "endpoint": self.api.check_feature_api,
+                "methods": ["GET"],
+                "auth": "bear",
+                "summary": "判断是否有权限使用此增强功能",
+            },
         ]
 
     def get_service(self) -> List[Dict[str, str | Dict[Any, Any] | Any]] | None:

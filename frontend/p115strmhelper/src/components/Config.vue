@@ -956,7 +956,8 @@
                     </v-col>
                     <v-col cols="12" md="4">
                       <v-switch v-model="config.transfer_module_enhancement" label="整理模块增强" color="info"
-                        density="compact"></v-switch>
+                        density="compact" :disabled="isTransferModuleEnhancementLocked" hint="此功能需要授权才能开启"
+                        persistent-hint></v-switch>
                     </v-col>
                   </v-row>
                   <v-row>
@@ -1335,6 +1336,7 @@ const activeTab = ref('tab-transfer');
 const mediaservers = ref([]);
 const isCookieVisible = ref(false);
 const isAliTokenVisible = ref(false);
+const isTransferModuleEnhancementLocked = ref(true);
 const config = reactive({
   language: "zh_CN",
   enabled: false,
@@ -1908,6 +1910,22 @@ const generatePathsConfig = (paths, key) => {
   }).join('\n');
 
   return configText;
+};
+
+const checkTransferModuleEnhancement = async () => {
+  try {
+    const result = await props.api.get(`plugin/${PLUGIN_ID}/check_feature?name=transfer_module_enhancement`);
+    if (result && result.enabled === true) {
+      isTransferModuleEnhancementLocked.value = false;
+    } else {
+      isTransferModuleEnhancementLocked.value = true;
+      config.transfer_module_enhancement = false;
+    }
+  } catch (err) {
+    isTransferModuleEnhancementLocked.value = true;
+    config.transfer_module_enhancement = false;
+    console.error('检查 "整理模块增强" 功能授权失败:', err);
+  }
 };
 
 // 加载配置
@@ -2877,8 +2895,9 @@ const closeQrDialog = () => {
 };
 
 // 组件生命周期
-onMounted(() => {
-  loadConfig();
+onMounted(async () => {
+  await loadConfig();
+  await checkTransferModuleEnhancement();
 });
 
 // 组件销毁时清理资源
