@@ -239,7 +239,9 @@ class TgSearcher:
             if not str(name_raw or "").strip():
                 continue
             channel_name = str(name_raw).strip()
-            url = UrlUtils.encode_url_fully(f"https://t.me/s/{channel_id}?q={key}")
+            url = UrlUtils.encode_url_fully(
+                f"https://telegram.me/s/{channel_id}?q={key}"
+            )
             results.extend(
                 [
                     i
