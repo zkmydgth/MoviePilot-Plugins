@@ -40,14 +40,20 @@ class P115Api:
         self._get_pid_by_path_call_counter = 0
 
         self._get_item_rate_limiter = RateLimiter(
-            max_calls=2, time_window=1.0, name="get_item"
+            max_calls=2, time_window=2.0, name="get_item"
         )
         self._delete_rate_limiter = RateLimiter(
-            max_calls=1, time_window=1.0, name="delete"
+            max_calls=1, time_window=3.0, name="delete"
         )
         self._get_pid_by_path_rate_limiter = RateLimiter(
             max_calls=1, time_window=1.0, name="get_pid_by_path"
         )
+        self._rename_rate_limiter = RateLimiter(
+            max_calls=1, time_window=3.0, name="rename"
+        )
+        self._move_rate_limiter = RateLimiter(max_calls=1, time_window=3.0, name="move")
+        self._copy_rate_limiter = RateLimiter(max_calls=1, time_window=3.0, name="copy")
+        self._list_rate_limiter = RateLimiter(max_calls=1, time_window=3.0, name="list")
 
         self._get_item_fail_records: Dict[str, Dict[str, float]] = {}
         self._get_item_blacklist: Dict[str, float] = {}
@@ -163,6 +169,7 @@ class P115Api:
 
         :return: 文件项列表，如果是文件则返回包含该文件的列表，如果是目录则返回目录下的所有文件和子目录
         """
+        self._list_rate_limiter.acquire()
         if fileitem.type == "file":
             item = self.detail(fileitem)
             if item:
@@ -551,6 +558,7 @@ class P115Api:
 
         :return: 重命名成功返回True，失败返回False
         """
+        self._rename_rate_limiter.acquire()
         try:
             self._rename_call_counter = (self._rename_call_counter + 1) % 2
             if self._rename_call_counter == 0:
@@ -653,6 +661,7 @@ class P115Api:
 
         :return: 复制成功返回True，失败返回False
         """
+        self._copy_rate_limiter.acquire()
         try:
             parent_id = self.get_pid_by_path(path)
             if parent_id == -1:
@@ -682,6 +691,7 @@ class P115Api:
 
         :return: 移动成功返回True，失败返回False
         """
+        self._move_rate_limiter.acquire()
         try:
             parent_id = self.get_pid_by_path(path)
             if parent_id == -1:
