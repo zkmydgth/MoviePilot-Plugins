@@ -332,6 +332,10 @@ class ConfigManager(BaseModel):
     full_sync_remove_unless_stable_threshold: int = Field(
         default=5, ge=0, description="清理无效 STRM 稳定阈值"
     )
+    full_sync_cleanup_confirm_mode: Literal["none", "plugin_ui", "telegram"] = Field(
+        default="none",
+        description="清理无效 STRM 二次验证：none 立即删除，plugin_ui 插件内确认，telegram 通知按钮确认",
+    )
     timing_full_sync_strm: bool = Field(default=False, description="定期全量同步开关")
     full_sync_auto_download_mediainfo_enabled: bool = Field(
         default=False, description="下载媒体信息文件开关"
@@ -714,7 +718,7 @@ class ConfigManager(BaseModel):
         """
         返回 p115center 许可证
         """
-        return "a2b1500d9ec669d7f8e857579f074ce02e70bf5560e55aa4273e51a511d752a8"
+        return "4293e535c8fb55503f12061d76a88af6ea79f1210cd7166a8f29e39852e9dd5a"
 
     @property
     def PLUGIN_ALIGO_PATH(self) -> Path:

@@ -43,6 +43,7 @@ from .helper.strm import (
     ShareInteractiveGenStrmQueue,
     TransferStrmHelper,
 )
+from .helper.strm.full import strm_cleanup_interaction
 from .helper.mediasyncdel import MediaSyncDelHelper
 from .helper.mediasyncdel.webhook_queue import (
     SyncDelWebhookTask,
@@ -401,6 +402,27 @@ class P115StrmHelper(_PluginBase):
                 "methods": ["POST"],
                 "auth": "bear",
                 "summary": "执行全量同步",
+            },
+            {
+                "path": "/strm_cleanup_pending",
+                "endpoint": self.api.strm_cleanup_pending_api,
+                "methods": ["GET"],
+                "auth": "bear",
+                "summary": "列出待二次确认的 STRM 清理批次",
+            },
+            {
+                "path": "/strm_cleanup_execute",
+                "endpoint": self.api.strm_cleanup_execute_api,
+                "methods": ["POST"],
+                "auth": "bear",
+                "summary": "确认执行一批 STRM 清理",
+            },
+            {
+                "path": "/strm_cleanup_cancel",
+                "endpoint": self.api.strm_cleanup_cancel_api,
+                "methods": ["POST"],
+                "auth": "bear",
+                "summary": "取消一批待确认的 STRM 清理",
             },
             {
                 "path": "/share_sync",
@@ -813,7 +835,7 @@ class P115StrmHelper(_PluginBase):
             )
         if k == "full_sync_actions":
             return (
-                {"cols": 12, "sm": 6, "md": 4, "lg": 3},
+                {"cols": 12, "sm": 12, "md": 6, "lg": 6},
                 {
                     "title": "全量同步",
                     "subtitle": self.plugin_name,
@@ -988,6 +1010,7 @@ class P115StrmHelper(_PluginBase):
             strm_fail_count,
             mediainfo_fail_count,
             remove_unless_strm_count,
+            strm_cleanup_deferred_count,
         ) = strm_helper.get_generate_total()
         text = f"""
 📂 网盘路径：{args}
@@ -998,6 +1021,8 @@ class P115StrmHelper(_PluginBase):
 """
         if remove_unless_strm_count != 0:
             text += f"🗑️ 清理无效STRM文件 {remove_unless_strm_count} 个"
+        if strm_cleanup_deferred_count != 0:
+            text += f"\n⏳ 待二次确认清理无效 STRM {strm_cleanup_deferred_count} 个"
         post_message(
             channel=event.event_data.get("channel"),
             source=event.event_data.get("source"),
@@ -1094,6 +1119,9 @@ class P115StrmHelper(_PluginBase):
         try:
             event_data = event.event_data
             callback_text = event_data.get("text", "")
+
+            if strm_cleanup_interaction.try_handle_message_action(event_data):
+                return
 
             # 1. 解码 Action callback_text = c:xxx|w:xxx|v|xxx
             session_id, action = decode_action(callback_text=callback_text)

@@ -420,6 +420,7 @@ class ServiceHelper:
             strm_fail_count,
             mediainfo_fail_count,
             remove_unless_strm_count,
+            strm_cleanup_deferred_count,
         ) = strm_helper.get_generate_total()
         if configer.get_config("notify"):
             text = f"""
@@ -430,6 +431,8 @@ class ServiceHelper:
 """
             if remove_unless_strm_count != 0:
                 text += f"🗑️ 清理无效STRM文件 {remove_unless_strm_count} 个"
+            if strm_cleanup_deferred_count != 0:
+                text += f"\n⏳ 待二次确认清理无效 STRM {strm_cleanup_deferred_count} 个"
             post_message(
                 mtype=NotificationType.Plugin,
                 title=i18n.translate("full_sync_done_title"),

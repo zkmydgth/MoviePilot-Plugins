@@ -50,7 +50,9 @@ from .schemas.plugin import (
     LifeEventCheckData,
     LifeEventCheckSummary,
     PluginStatusData,
+    StrmCleanupRequestIdPayload,
 )
+from .helper.strm.full import strm_cleanup_interaction
 from .schemas.api import ApiResponse
 from .schemas.share import ShareApiData, ShareResponseData, ShareSaveParent
 from .schemas.strm_api import (
@@ -1018,6 +1020,76 @@ class Api:
             return ApiResponse(msg="全量同步数据库任务已启动")
         except Exception as e:
             return ApiResponse(code=1, msg=f"启动全量同步数据库任务失败: {str(e)}")
+
+    @staticmethod
+    def strm_cleanup_pending_api() -> ApiResponse:
+        """
+        列出待二次确认的 STRM 清理批次
+        """
+        try:
+            batches = strm_cleanup_interaction.list_batches()
+            summaries = []
+            for b in batches:
+                if not isinstance(b, dict):
+                    continue
+                paths = b.get("paths") or []
+                n = len(paths) if isinstance(paths, list) else 0
+                previews = paths[:5] if isinstance(paths, list) else []
+                summaries.append(
+                    {
+                        "request_id": b.get("request_id"),
+                        "created_at": b.get("created_at"),
+                        "path_count": n,
+                        "path_preview": previews,
+                    }
+                )
+            return ApiResponse(data={"batches": summaries})
+        except Exception as e:
+            logger.error(f"【STRM清理】列出待确认批次失败: {e}", exc_info=True)
+            return ApiResponse(code=1, msg=str(e))
+
+    @staticmethod
+    def strm_cleanup_execute_api(
+        payload: StrmCleanupRequestIdPayload,
+    ) -> ApiResponse:
+        """
+        执行一批待确认的 STRM 删除
+        """
+        try:
+            rid = (payload.request_id or "").strip()
+            if not rid:
+                return ApiResponse(code=1, msg="缺少 request_id")
+            removed, err = strm_cleanup_interaction.execute_batch(rid)
+            if err == "batch_not_found":
+                return ApiResponse(code=1, msg="未找到该批次或已处理")
+            if err == "invalid_batch":
+                return ApiResponse(code=1, msg="批次数据无效")
+            if err:
+                return ApiResponse(code=1, msg=f"执行失败: {err}")
+            return ApiResponse(
+                msg=f"已删除 {removed} 个文件", data={"removed": removed}
+            )
+        except Exception as e:
+            logger.error(f"【STRM清理】执行批次失败: {e}", exc_info=True)
+            return ApiResponse(code=1, msg=str(e))
+
+    @staticmethod
+    def strm_cleanup_cancel_api(
+        payload: StrmCleanupRequestIdPayload,
+    ) -> ApiResponse:
+        """
+        取消一批待确认的 STRM 删除（不删文件）
+        """
+        try:
+            rid = (payload.request_id or "").strip()
+            if not rid:
+                return ApiResponse(code=1, msg="缺少 request_id")
+            if not strm_cleanup_interaction.cancel_batch(rid):
+                return ApiResponse(code=1, msg="未找到该批次或已处理")
+            return ApiResponse(msg="已取消该批次")
+        except Exception as e:
+            logger.error(f"【STRM清理】取消批次失败: {e}", exc_info=True)
+            return ApiResponse(code=1, msg=str(e))
 
     @staticmethod
     def trigger_share_sync_api() -> ApiResponse:

@@ -1,9 +1,13 @@
+__all__ = ["FullSyncStrmHelper", "strm_cleanup_interaction"]
+
+
 from collections import namedtuple
 from concurrent.futures import as_completed, ThreadPoolExecutor
 from itertools import batched
 from pathlib import Path
 from os import makedirs
 from queue import Empty, Queue
+from secrets import token_hex
 from threading import Thread
 from time import perf_counter, sleep
 from typing import Any, Dict, List, Optional, Set, Tuple
@@ -21,24 +25,26 @@ from app.log import logger
 from full_strm_sync import Processor, PackedResult
 from full_strm_sync import __version__ as rust_core_version
 
-from ...core.config import configer
-from ...core.history import StrmExecHistoryManager
-from ...core.p115 import get_pid_by_path
-from ...db_manager.oper import FileDbHelper
-from ...helper.mediainfo_download import MediaInfoDownloader
-from ...utils.automaton import AutomatonUtils
-from ...utils.exception import (
+from ....core.config import configer
+from ....core.history import StrmExecHistoryManager
+from ....core.p115 import get_pid_by_path
+from ....db_manager.oper import FileDbHelper
+from ....helper.mediainfo_download import MediaInfoDownloader
+from ....utils.automaton import AutomatonUtils
+from ....utils.exception import (
     FileItemKeyMiss,
 )
-from ...utils.mediainfo_download import MediainfoDownloadMiddleware
-from ...utils.path import PathUtils, PathRemoveUtils
-from ...utils.sentry import sentry_manager
-from ...utils.strm import StrmUrlGetter, StrmGenerater
-from ...utils.tree import DirectoryTree
-from ...utils.http import check_iter_path_data
-from ...utils.base64 import CBase64
-from ...utils.math import MathUtils
-from ...helper.mediaserver import MediaServerRefresh
+from ....utils.mediainfo_download import MediainfoDownloadMiddleware
+from ....utils.path import PathUtils, PathRemoveUtils
+from ....utils.sentry import sentry_manager
+from ....utils.strm import StrmUrlGetter, StrmGenerater
+from ....utils.tree import DirectoryTree
+from ....utils.http import check_iter_path_data
+from ....utils.base64 import CBase64
+from ....utils.math import MathUtils
+from ....helper.mediaserver import MediaServerRefresh
+
+from .interaction import strm_cleanup_interaction
 
 
 ProcessResult = namedtuple(
@@ -85,6 +91,10 @@ class FullSyncStrmHelper:
         self.pan_transfer_paths = configer.pan_transfer_paths
         self.overwrite_mode = configer.full_sync_overwrite_mode
         self.remove_unless_strm = configer.full_sync_remove_unless_strm
+        self.cleanup_confirm_mode = configer.full_sync_cleanup_confirm_mode
+        self._deferred_cleanup_paths: List[str] = []
+        self._deferred_cleanup_flags: Optional[Tuple[bool, bool]] = None
+        self.strm_cleanup_deferred_count = 0
         self.databasehelper = FileDbHelper()
         self.download_mediainfo_list = []
 
@@ -167,6 +177,72 @@ class FullSyncStrmHelper:
         else:
             data = {path_base64: value}
         configer.save_plugin_data("full_remove_unless_strm", data)
+
+    def __apply_remove_unless_strm_path(self, remove_path: str) -> None:
+        """
+        立即删除单个无效 STRM（无二次验证或已确认）
+        """
+        logger.info(f"【全量STRM生成】清理无效 STRM 文件: {remove_path}")
+        Path(remove_path).unlink(missing_ok=True)
+        if configer.full_sync_remove_unless_file:
+            PathRemoveUtils.clean_related_files(
+                file_path=Path(remove_path),
+                func_type="【全量STRM生成】",
+            )
+        if configer.full_sync_remove_unless_dir:
+            PathRemoveUtils.remove_parent_dir(
+                file_path=Path(remove_path),
+                mode=["strm"],
+                func_type="【全量STRM生成】",
+            )
+        self.remove_unless_strm_count += 1
+
+    def __defer_remove_unless_strm_path(self, remove_path: str) -> None:
+        """
+        二次验证：仅记录待删路径，由插件界面或 Telegram 确认后执行
+        """
+        if self._deferred_cleanup_flags is None:
+            self._deferred_cleanup_flags = (
+                bool(configer.full_sync_remove_unless_file),
+                bool(configer.full_sync_remove_unless_dir),
+            )
+        self._deferred_cleanup_paths.append(remove_path)
+
+    def _flush_deferred_strm_cleanup_batch(self) -> None:
+        """
+        全量同步一轮结束后将待删路径写入插件数据并可发 Telegram
+        """
+        if not self._deferred_cleanup_paths:
+            return
+        flags = self._deferred_cleanup_flags or (
+            bool(configer.full_sync_remove_unless_file),
+            bool(configer.full_sync_remove_unless_dir),
+        )
+        request_id = token_hex(8)
+        paths_copy = list(self._deferred_cleanup_paths)
+        self.strm_cleanup_deferred_count = len(paths_copy)
+        self._deferred_cleanup_paths.clear()
+        self._deferred_cleanup_flags = None
+        strm_cleanup_interaction.append_batch(
+            request_id=request_id,
+            paths=paths_copy,
+            remove_unless_file=flags[0],
+            remove_unless_dir=flags[1],
+        )
+        logger.info(
+            f"【全量STRM生成】已排队待确认清理 STRM {len(paths_copy)} 个，批次 {request_id}"
+        )
+        if self.cleanup_confirm_mode == "telegram":
+            if configer.notify:
+                strm_cleanup_interaction.notify_telegram_pending(
+                    request_id=request_id,
+                    path_count=len(paths_copy),
+                    sample_paths=paths_copy[:5],
+                )
+            else:
+                logger.warning(
+                    "【全量STRM生成】清理二次验证为 Telegram 但通知开关关闭，未发送按钮消息；请在插件界面处理待删队列"
+                )
 
     def __remove_unless_strm_local(self, target_dir: str) -> Thread:
         """
@@ -1035,22 +1111,10 @@ class FullSyncStrmHelper:
                             for remove_path in self.local_tree.compare_trees(
                                 self.pan_tree
                             ):
-                                logger.info(
-                                    f"【全量STRM生成】清理无效 STRM 文件: {remove_path}"
-                                )
-                                Path(remove_path).unlink(missing_ok=True)
-                                if configer.full_sync_remove_unless_file:
-                                    PathRemoveUtils.clean_related_files(
-                                        file_path=Path(remove_path),
-                                        func_type="【全量STRM生成】",
-                                    )
-                                if configer.full_sync_remove_unless_dir:
-                                    PathRemoveUtils.remove_parent_dir(
-                                        file_path=Path(remove_path),
-                                        mode=["strm"],
-                                        func_type="【全量STRM生成】",
-                                    )
-                                self.remove_unless_strm_count += 1
+                                if self.cleanup_confirm_mode == "none":
+                                    self.__apply_remove_unless_strm_path(remove_path)
+                                else:
+                                    self.__defer_remove_unless_strm_path(remove_path)
                         except Exception as e:
                             sentry_manager.sentry_hub.capture_exception(e)
                             logger.error(f"【全量STRM生成】清理无效 STRM 文件失败: {e}")
@@ -1058,6 +1122,8 @@ class FullSyncStrmHelper:
                         logger.warn(
                             "【全量STRM生成】存在生成失败的 STRM 文件或扫描本地文件出错，跳过清理无效 STRM 文件"
                         )
+
+        self._flush_deferred_strm_cleanup_batch()
 
         logger.info("【全量STRM生成】所有文件处理任务已提交，等待文件写入完成...")
         self.write_queue.join()
@@ -1109,6 +1175,10 @@ class FullSyncStrmHelper:
             logger.warn(
                 f"【全量STRM生成】清理 {self.remove_unless_strm_count} 个失效 STRM 文件"
             )
+        if self.strm_cleanup_deferred_count != 0:
+            logger.warn(
+                f"【全量STRM生成】另有 {self.strm_cleanup_deferred_count} 个失效 STRM 已排队待二次确认后删除"
+            )
 
     def get_generate_total(self):
         """
@@ -1120,6 +1190,7 @@ class FullSyncStrmHelper:
             self.strm_fail_count,
             self.mediainfo_fail_count,
             self.remove_unless_strm_count,
+            self.strm_cleanup_deferred_count,
         )
         kind = self.strm_exec_history_kind
         if kind:
@@ -1132,6 +1203,7 @@ class FullSyncStrmHelper:
                     "strm_fail_count": self.strm_fail_count,
                     "mediainfo_fail_count": self.mediainfo_fail_count,
                     "remove_unless_strm_count": self.remove_unless_strm_count,
+                    "strm_cleanup_deferred_count": self.strm_cleanup_deferred_count,
                 },
                 elapsed_sec=float(self.elapsed_time),
                 total_iterated=int(self.total_count),

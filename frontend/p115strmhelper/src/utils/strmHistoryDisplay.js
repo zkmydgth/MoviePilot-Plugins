@@ -16,6 +16,7 @@ export const STAT_FIELD_META = [
   { key: "strm_fail_count", label: "STRM 失败" },
   { key: "mediainfo_fail_count", label: "下载媒体数据失败" },
   { key: "remove_unless_strm_count", label: "清理失效 STRM" },
+  { key: "strm_cleanup_deferred_count", label: "待二次确认清理" },
 ];
 
 const KINDS_WITH_REMOVE_UNLESS_STRM = new Set(["full", "full_partial"]);
@@ -54,6 +55,7 @@ export function parseStatsEntries(stats, kind) {
   const ordered = [];
   for (const { key, label } of STAT_FIELD_META) {
     if (key === "remove_unless_strm_count" && !showRemoveUnless) continue;
+    if (key === "strm_cleanup_deferred_count" && !showRemoveUnless) continue;
     if (Object.prototype.hasOwnProperty.call(stats, key)) {
       seen.add(key);
       ordered.push({ key, label, value: stats[key] });
@@ -62,6 +64,7 @@ export function parseStatsEntries(stats, kind) {
   for (const [key, value] of Object.entries(stats)) {
     if (seen.has(key)) continue;
     if (key === "remove_unless_strm_count" && !showRemoveUnless) continue;
+    if (key === "strm_cleanup_deferred_count" && !showRemoveUnless) continue;
     ordered.push({ key, label: key, value });
   }
   return ordered;
@@ -73,6 +76,7 @@ export function statChipColor(s) {
     return "error";
   }
   if (s.key === "remove_unless_strm_count" && !Number.isNaN(n) && n > 0) return "warning";
+  if (s.key === "strm_cleanup_deferred_count" && !Number.isNaN(n) && n > 0) return "warning";
   return "primary";
 }
 

@@ -334,6 +334,7 @@ const config = reactive({
   full_sync_process_rust: false,
   full_sync_remove_unless_max_threshold: 10,
   full_sync_remove_unless_stable_threshold: 5,
+  full_sync_cleanup_confirm_mode: "none",
   increment_sync_strm_enabled: false,
   increment_sync_auto_download_mediainfo_enabled: false,
   increment_sync_cron: "0 * * * *",

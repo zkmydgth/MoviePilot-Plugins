@@ -437,6 +437,7 @@ export function usePathManagement(config) {
     if (!newVal) {
       config.full_sync_remove_unless_dir = false;
       config.full_sync_remove_unless_file = false;
+      config.full_sync_cleanup_confirm_mode = "none";
     }
   });
 

@@ -32,6 +32,14 @@ class LifeEventCheckSummary(BaseModel):
     config_valid: bool = Field(..., description="配置是否有效")
 
 
+class StrmCleanupRequestIdPayload(BaseModel):
+    """
+    待确认 STRM 清理批次操作（执行或取消）
+    """
+
+    request_id: str = Field(..., min_length=8, description="批次 request_id")
+
+
 class LifeEventCheckData(BaseModel):
     """
     生活事件检查数据

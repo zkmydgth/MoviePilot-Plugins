@@ -207,6 +207,17 @@
             </v-row>
 
             <v-row>
+              <v-col cols="12" md="12">
+                <v-select v-model="config.full_sync_cleanup_confirm_mode" label="清理失效 STRM 二次验证" :items="[
+                  { title: '无（通过稳定性检查后立即删除）', value: 'none' },
+                  { title: '插件界面确认', value: 'plugin_ui' },
+                  { title: 'Telegram 通知按钮确认', value: 'telegram' },
+                ]" hint="需开启「清理失效STRM文件」；选择后待删文件先入队，确认后再物理删除" persistent-hint density="compact"
+                  :disabled="!config.full_sync_remove_unless_strm"></v-select>
+              </v-col>
+            </v-row>
+
+            <v-row>
               <v-col cols="12" md="3">
                 <v-switch v-model="config.timing_full_sync_strm" label="定期全量同步" color="info"></v-switch>
               </v-col>
@@ -498,9 +509,8 @@
                       color="primary"></v-switch>
                   </v-col>
                   <v-col cols="12" md="6">
-                    <v-text-field v-model.number="config.increment_sync_itertree_timeout_seconds"
-                      label="目录树导出超时（秒）" type="number" min="0" hide-spin-buttons
-                      hint="115 云端导出目录树任务的最大等待时间；0 表示不限制"
+                    <v-text-field v-model.number="config.increment_sync_itertree_timeout_seconds" label="目录树导出超时（秒）"
+                      type="number" min="0" hide-spin-buttons hint="115 云端导出目录树任务的最大等待时间；0 表示不限制"
                       persistent-hint></v-text-field>
                   </v-col>
                 </v-row>
