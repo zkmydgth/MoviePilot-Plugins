@@ -11,6 +11,7 @@ from os.path import exists
 from posixpath import split as splitpath
 from shutil import rmtree
 from stat import S_IFDIR, S_IFREG
+from time import sleep
 from typing import Any
 from uuid import uuid4
 
@@ -152,20 +153,25 @@ class P115FuseOperations(Operations):
         self._get_id: Callable[[], int] = count(1).__next__
 
     def getattr(self, /, path: str, fh: int = 0) -> dict[str, Any]:
-        try:
-            return attr_to_stat(
-                self.fs.get_attr(path, **configer.get_ios_ua_app(app=False)),
-                uid=self.uid,
-                gid=self.gid,
-            )
-        except FileNotFoundError:
-            raise OSError(ENOENT, path)
-        except OSError:
-            raise
-        except Exception as e:
-            sentry_manager.sentry_hub.capture_exception(e)
-            logger.error(f"【FUSE】getattr failed ({path}): {e}", exc_info=True)
-            raise OSError(EIO, str(e))
+        max_retries = 2
+        for attempt in range(max_retries + 1):
+            try:
+                return attr_to_stat(
+                    self.fs.get_attr(path, **configer.get_ios_ua_app(app=False)),
+                    uid=self.uid,
+                    gid=self.gid,
+                )
+            except FileNotFoundError:
+                raise OSError(ENOENT, path)
+            except OSError:
+                raise
+            except Exception as e:
+                if attempt < max_retries:
+                    sleep(1)
+                    continue
+                sentry_manager.sentry_hub.capture_exception(e)
+                logger.error(f"【FUSE】getattr failed ({path}): {e}", exc_info=True)
+                raise OSError(EIO, str(e))
 
     @log
     def getxattr(self, /, path: str, name: str, position: int = 0) -> bytes:
@@ -204,15 +210,20 @@ class P115FuseOperations(Operations):
 
     @log
     def readdir(self, /, path: str, fh: int = 0) -> list[str]:
-        try:
-            children = self.fs.readdir(path, **configer.get_ios_ua_app(app=False))
-            return [".", "..", *(a["name"] for a in children)]
-        except FileNotFoundError:
-            raise OSError(ENOENT, path)
-        except OSError:
-            raise
-        except Exception as e:
-            raise OSError(EIO, str(e))
+        max_retries = 2
+        for attempt in range(max_retries + 1):
+            try:
+                children = self.fs.readdir(path, **configer.get_ios_ua_app(app=False))
+                return [".", "..", *(a["name"] for a in children)]
+            except FileNotFoundError:
+                raise OSError(ENOENT, path)
+            except OSError:
+                raise
+            except Exception as e:
+                if attempt < max_retries:
+                    sleep(1)
+                    continue
+                raise OSError(EIO, str(e))
 
     @log
     def release(self, /, path: str, fh: int) -> int:
