@@ -18,7 +18,7 @@ from ...core.scrape import media_scrape_metadata
 from ...core.p115 import get_pid_by_path
 from ...db_manager.oper import FileDbHelper
 from ...helper.mediainfo_download import MediaInfoDownloader
-from ...helper.mediaserver import MediaServerRefresh
+from ...helper.mediaserver import MediaServerRefresh, EmbyMediaInfoOperate
 from ...utils.exception import (
     PanPathNotFound,
     PanDataNotInDb,
@@ -68,6 +68,7 @@ class IncrementSyncStrmHelper:
             "increment_sync_media_server_refresh_enabled"
         )
         self.mediaservers = configer.increment_sync_mediaservers
+        self.emby_mediainfo_enabled = configer.increment_sync_emby_mediainfo_enabled
         self.strm_count = 0
         self.mediainfo_count = 0
         self.strm_fail_count = 0
@@ -431,7 +432,7 @@ class IncrementSyncStrmHelper:
                 )
                 return
 
-            pickcode = self.__get_pickcode_sha1(pan_path)[0]
+            pickcode, sha1 = self.__get_pickcode_sha1(pan_path)
 
             if not (
                 result := StrmGenerater.not_min_limit(
@@ -503,6 +504,21 @@ class IncrementSyncStrmHelper:
             file_path=local_path,
             file_name=new_file_path.name,
         )
+
+        if self.emby_mediainfo_enabled and sha1:
+
+            def _fetch_emby_mediainfo() -> None:
+                try:
+                    helper = EmbyMediaInfoOperate(
+                        func_name="【增量STRM生成】",
+                        mp_mediaserver=self.mp_mediaserver_paths,
+                        mediaservers=self.mediaservers,
+                    )
+                    helper.get_mediainfo(sha1, Path(local_path))
+                except Exception as e:
+                    logger.error(f"【增量STRM生成】提取媒体信息失败: {e}")
+
+            Thread(target=_fetch_emby_mediainfo, daemon=True).start()
 
     def generate_strm_files(self, sync_strm_paths):
         """

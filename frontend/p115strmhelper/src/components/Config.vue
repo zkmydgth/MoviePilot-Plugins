@@ -481,7 +481,7 @@
                             <v-switch v-model="config.increment_sync_strm_enabled" label="启用"
                               color="warning"></v-switch>
                           </v-col>
-                          <v-col cols="12" md="6">
+                          <v-col cols="12" md="3">
                             <VCronField v-model="config.increment_sync_cron" label="运行增量同步周期" hint="设置增量同步的执行周期"
                               persistent-hint density="compact"></VCronField>
                           </v-col>
@@ -490,12 +490,12 @@
                               hint="小于此值的文件将不生成STRM(单位K,M,G)" persistent-hint density="compact"
                               placeholder="例如: 100M (可为空)" clearable></v-text-field>
                           </v-col>
-                        </v-row>
-                        <v-row>
                           <v-col cols="12" md="3">
                             <v-switch v-model="config.increment_sync_auto_download_mediainfo_enabled" label="下载媒体数据文件"
                               color="warning"></v-switch>
                           </v-col>
+                        </v-row>
+                        <v-row>
                           <v-col cols="12" md="3">
                             <v-switch v-model="config.increment_sync_scrape_metadata_enabled" label="STRM自动刮削"
                               color="primary"></v-switch>
@@ -505,8 +505,22 @@
                               color="warning"></v-switch>
                           </v-col>
                           <v-col cols="12" md="3">
+                            <v-switch v-model="config.increment_sync_emby_mediainfo_enabled" label="Emby 媒体信息提取"
+                              color="warning"></v-switch>
+                          </v-col>
+                          <v-col cols="12" md="3">
                             <v-select v-model="config.increment_sync_mediaservers" label="媒体服务器" :items="mediaservers"
                               multiple chips closable-chips></v-select>
+                          </v-col>
+                        </v-row>
+
+                        <v-row v-if="config.increment_sync_emby_mediainfo_enabled">
+                          <v-col cols="12">
+                            <v-alert type="warning" variant="tonal" density="compact" icon="mdi-alert-circle-outline">
+                              <div class="text-caption">
+                                此功能需配合<strong>神医助手PRO</strong>使用，请确保神医助手PRO版本为 <strong>v3.0.0.40</strong> 及以上。
+                              </div>
+                            </v-alert>
                           </v-col>
                         </v-row>
 
@@ -601,7 +615,7 @@
                             <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
                               <div class="text-body-2 mb-1"><strong>配置说明：</strong></div>
                               <div class="text-caption">
-                                <div class="mb-1">• 媒体服务器映射路径和MP映射路径不一样时请配置此项，如果不配置则无法正常刷新。</div>
+                                <div class="mb-1">• 媒体服务器映射路径和MP映射路径不一样时请配置此项，如果不配置则无法正常刷新或 Emby 提取媒体信息。</div>
                                 <div>• 当映射路径一样时可省略此配置。</div>
                               </div>
                             </v-alert>
@@ -633,13 +647,27 @@
                         </v-row>
 
                         <v-row>
-                          <v-col cols="12" md="4">
+                          <v-col cols="12" md="3">
                             <v-switch v-model="config.monitor_life_media_server_refresh_enabled" label="媒体服务器刷新"
                               color="warning"></v-switch>
                           </v-col>
-                          <v-col cols="12" md="8">
+                          <v-col cols="12" md="3">
+                            <v-switch v-model="config.monitor_life_emby_mediainfo_enabled" label="Emby 媒体信息提取"
+                              color="warning"></v-switch>
+                          </v-col>
+                          <v-col cols="12" md="6">
                             <v-select v-model="config.monitor_life_mediaservers" label="媒体服务器" :items="mediaservers"
                               multiple chips closable-chips></v-select>
+                          </v-col>
+                        </v-row>
+
+                        <v-row v-if="config.monitor_life_emby_mediainfo_enabled">
+                          <v-col cols="12">
+                            <v-alert type="warning" variant="tonal" density="compact" icon="mdi-alert-circle-outline">
+                              <div class="text-caption">
+                                此功能需配合<strong>神医助手PRO</strong>使用，请确保神医助手PRO版本为 <strong>v3.0.0.40</strong> 及以上。
+                              </div>
+                            </v-alert>
                           </v-col>
                         </v-row>
 
@@ -756,7 +784,7 @@
                             <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
                               <div class="text-body-2 mb-1"><strong>配置说明：</strong></div>
                               <div class="text-caption">
-                                <div class="mb-1">• 媒体服务器映射路径和MP映射路径不一样时请配置此项，如果不配置则无法正常刷新。</div>
+                                <div class="mb-1">• 媒体服务器映射路径和MP映射路径不一样时请配置此项，如果不配置则无法正常刷新或 Emby 提取媒体信息。</div>
                                 <div>• 当映射路径一样时可省略此配置。</div>
                               </div>
                             </v-alert>
@@ -2858,6 +2886,7 @@ const config = reactive({
   increment_sync_scrape_metadata_exclude_paths: '',
   increment_sync_media_server_refresh_enabled: false,
   increment_sync_mediaservers: [],
+  increment_sync_emby_mediainfo_enabled: false,
   increment_sync_min_file_size: 0,
   monitor_life_enabled: false,
   monitor_life_auto_download_mediainfo_enabled: false,
@@ -2865,6 +2894,7 @@ const config = reactive({
   monitor_life_mp_mediaserver_paths: '',
   monitor_life_media_server_refresh_enabled: false,
   monitor_life_mediaservers: [],
+  monitor_life_emby_mediainfo_enabled: false,
   monitor_life_event_modes: [],
   monitor_life_scrape_metadata_enabled: false,
   monitor_life_scrape_metadata_exclude_paths: '',

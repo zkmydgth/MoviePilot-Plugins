@@ -22,7 +22,7 @@ from ...utils.exception import FileItemKeyMiss
 from ...db_manager.oper import FileDbHelper, LifeEventDbHelper
 from ...helper.mediainfo_download import MediaInfoDownloader
 from ...helper.mediasyncdel import MediaSyncDelHelper
-from ...helper.mediaserver import MediaServerRefresh
+from ...helper.mediaserver import MediaServerRefresh, EmbyMediaInfoOperate
 from ...helper.life.queue import LifeTasksQueue
 
 from p115client import P115Client, check_response
@@ -486,6 +486,26 @@ class MonitorLife:
                             file_path=str(new_file_path),
                             file_name=str(original_file_name),
                         )
+                        if configer.monitor_life_emby_mediainfo_enabled and item.get(
+                            "sha1"
+                        ):
+
+                            def _fetch_emby_mediainfo() -> None:
+                                try:
+                                    helper = EmbyMediaInfoOperate(
+                                        func_name="【监控生活事件】",
+                                        mp_mediaserver=configer.monitor_life_mp_mediaserver_paths,
+                                        mediaservers=configer.monitor_life_mediaservers,
+                                    )
+                                    helper.get_mediainfo(
+                                        item["sha1"], Path(new_file_path)
+                                    )
+                                except Exception as e:
+                                    logger.error(
+                                        f"【监控生活事件】提取媒体信息失败: {e}"
+                                    )
+
+                            Thread(target=_fetch_emby_mediainfo, daemon=True).start()
                 _databasehelper.upsert_batch(processed)
             if configer.get_config("notify"):
                 if strm_count > 0 or mediainfo_count > 0:
@@ -632,6 +652,20 @@ class MonitorLife:
                     file_path=new_file_path.as_posix(),
                     file_name=str(original_file_name),
                 )
+                if configer.monitor_life_emby_mediainfo_enabled and event.get("sha1"):
+
+                    def _fetch_emby_mediainfo() -> None:
+                        try:
+                            helper = EmbyMediaInfoOperate(
+                                func_name="【监控生活事件】",
+                                mp_mediaserver=configer.monitor_life_mp_mediaserver_paths,
+                                mediaservers=configer.monitor_life_mediaservers,
+                            )
+                            helper.get_mediainfo(event["sha1"], Path(new_file_path))
+                        except Exception as e:
+                            logger.error(f"【监控生活事件】提取媒体信息失败: {e}")
+
+                    Thread(target=_fetch_emby_mediainfo, daemon=True).start()
 
     def remove_strm(self, event: Dict):
         """

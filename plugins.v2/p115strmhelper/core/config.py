@@ -299,6 +299,9 @@ class ConfigManager(BaseModel):
     increment_sync_mediaservers: Optional[List[str]] = Field(
         default=None, description="刷新媒体服务器"
     )
+    increment_sync_emby_mediainfo_enabled: bool = Field(
+        default=False, description="Emby 媒体信息提取开关"
+    )
     increment_sync_min_file_size: Optional[int] = Field(
         default=None, ge=0, description="增量生成最小文件大小"
     )
@@ -318,6 +321,9 @@ class ConfigManager(BaseModel):
     )
     monitor_life_mediaservers: Optional[List[str]] = Field(
         default=None, description="刷新媒体服务器"
+    )
+    monitor_life_emby_mediainfo_enabled: bool = Field(
+        default=False, description="Emby 媒体信息提取开关"
     )
     monitor_life_event_modes: Optional[List[str]] = Field(
         default=None, description="监控事件类型"
