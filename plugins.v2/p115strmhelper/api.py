@@ -3,7 +3,7 @@ from io import BytesIO
 from datetime import datetime
 from dataclasses import asdict
 from time import time, sleep
-from typing import Dict, Optional
+from typing import Any, Dict, Iterator, Optional, cast
 from pathlib import Path
 from urllib.parse import quote, unquote
 
@@ -91,8 +91,8 @@ class Api:
 
         mediaserver_helper = MediaServerHelper()
         config["mediaservers"] = [
-            {"title": config.name, "value": config.name, "type": config.type}
-            for config in mediaserver_helper.get_configs().values()
+            {"title": conf.name, "value": conf.name, "type": conf.type}
+            for conf in mediaserver_helper.get_configs().values()
         ]
 
         return config
@@ -403,9 +403,16 @@ class Api:
                     return ApiResponse(code=1, msg=f"获取目录ID失败: {path}")
 
                 items = []
-                for batch in iter_fs_files(
-                    self._client, cid, cooldown=2, **configer.get_ios_ua_app(app=False)
-                ):
+                fs_batches = cast(
+                    Iterator[Dict[str, Any]],
+                    iter_fs_files(
+                        self._client,
+                        cid,
+                        cooldown=2,
+                        **configer.get_ios_ua_app(app=False),
+                    ),
+                )
+                for batch in fs_batches:
                     for item in batch.get("data", []):
                         if "fid" not in item:
                             full_path = f"{path.as_posix().rstrip('/')}/{item.get('n')}"
@@ -463,6 +470,8 @@ class Api:
             _time = str(resp_info.get("time", ""))
             _sign = str(resp_info.get("sign", ""))
             resp = P115Client.login_qrcode(_uid)
+            if not isinstance(resp, (bytes, bytearray)):
+                return ApiResponse(code=-1, msg="获取二维码失败: 返回内容类型异常")
             qrcode_base64 = b64encode(resp).decode("utf-8")
 
             return ApiResponse(
@@ -495,6 +504,8 @@ class Api:
                 "sign": sign,
             }
             resp = P115Client.login_qrcode_scan_status(payload)
+            if not isinstance(resp, dict):
+                return ApiResponse(code=-1, msg="检查二维码状态异常: 返回数据类型异常")
             check_response(resp)
             status_code = resp.get("data").get("status")
         except Exception as e:
@@ -518,6 +529,10 @@ class Api:
         if status_code == 2:
             try:
                 resp = P115Client.login_qrcode_scan_result(uid, app=client_type)
+                if not isinstance(resp, dict):
+                    return ApiResponse(
+                        code=-1, msg="获取登录结果失败: 返回数据类型异常"
+                    )
                 check_response(resp)
             except Exception as e:
                 return ApiResponse(code=-1, msg=f"获取登录结果请求失败: {e}")
@@ -872,6 +887,8 @@ class Api:
         )
         if error_response:
             return error_response
+        if not resolved_pickcode:
+            return Api._create_error_response("Missing pickcode parameter")
         return await Api._redirect_url_impl(
             request, resolved_pickcode, file_name, id, share_code, receive_code
         )
@@ -894,6 +911,8 @@ class Api:
         )
         if error_response:
             return error_response
+        if not resolved_pickcode:
+            return Api._create_error_response("Missing pickcode parameter")
         return await Api._redirect_url_impl(
             request, resolved_pickcode, file_name, id, share_code, receive_code
         )
@@ -916,6 +935,8 @@ class Api:
         )
         if error_response:
             return error_response
+        if not resolved_pickcode:
+            return Api._create_error_response("Missing pickcode parameter")
         return await Api._redirect_url_impl(
             request, resolved_pickcode, file_name, id, share_code, receive_code
         )
@@ -1333,6 +1354,8 @@ class Api:
         """
         API 请求生成 STRM
         """
+        if not self._client:
+            return ApiResponse(code=-1, msg="115客户端未初始化")
         strm_helper = ApiSyncStrmHelper(
             client=self._client, mediainfo_downloader=servicer.mediainfodownloader
         )
@@ -1345,6 +1368,8 @@ class Api:
         """
         API 请求生成 STRM（by_path）
         """
+        if not self._client:
+            return ApiResponse(code=-1, msg="115客户端未初始化")
         strm_helper = ApiSyncStrmHelper(
             client=self._client, mediainfo_downloader=servicer.mediainfodownloader
         )
@@ -1355,6 +1380,8 @@ class Api:
         """
         API 请求删除无效 STRM 文件
         """
+        if not self._client:
+            return ApiResponse(code=-1, msg="115客户端未初始化")
         strm_helper = ApiSyncStrmHelper(
             client=self._client, mediainfo_downloader=servicer.mediainfodownloader
         )

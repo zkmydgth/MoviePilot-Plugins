@@ -699,7 +699,10 @@ class P115StrmHelper(_PluginBase):
         """
         if not event_data:
             return None
-        return str(event_data.get("userid") or event_data.get("user"))
+        userid = event_data.get("userid") or event_data.get("user")
+        if userid is None:
+            return None
+        return str(userid)
 
     @eventmanager.register(EventType.TransferComplete)
     def delete_top_pan_transfer_path(self, event: Event):
@@ -720,8 +723,12 @@ class P115StrmHelper(_PluginBase):
         item_transfer = item.get("transferinfo")
         if isinstance(item_transfer, dict):
             item_transfer = TransferInfo(**item_transfer)
+        if not item_transfer or not item_transfer.target_item:
+            return
         dest_fileitem: FileItem = item_transfer.target_item
         src_fileitem: FileItem = item.get("fileitem")
+        if not src_fileitem:
+            return
 
         if item_transfer.transfer_type != "move":
             return
@@ -964,6 +971,9 @@ class P115StrmHelper(_PluginBase):
                 return
 
             # 设置页面
+            if not action.view:
+                logger.error("处理 search 命令失败: 视图为空")
+                return
             session.go_to(action.view)
             self._render_and_send(session)
         except Exception as e:
@@ -1253,8 +1263,14 @@ class P115StrmHelper(_PluginBase):
             """
             重命名
             """
-            if not fileitem:
+            if (
+                not fileitem
+                or not fileitem.path
+                or not fileitem.name
+                or fileitem.fileid is None
+            ):
                 return
+            file_name = str(fileitem.name)
             target_path = Path(fileitem.path).parent
             file_item = lifeeventcacher.create_strm_file_dict.get(
                 str(fileitem.fileid), None
@@ -1263,7 +1279,7 @@ class P115StrmHelper(_PluginBase):
                 return
             if fileitem.name != file_item[0]:
                 # 文件名称不一致，表明网盘文件被重命名，需要将本地文件重命名
-                target_path_obj = Path(target_path / fileitem.name).relative_to(
+                target_path_obj = Path(target_path / file_name).relative_to(
                     file_item[2]
                 )
                 target_file_path = (
@@ -1286,7 +1302,7 @@ class P115StrmHelper(_PluginBase):
                     life_path.rename(target_file_path)
                     _databasehelper.update_path_by_id(
                         id=int(fileitem.fileid),
-                        new_path=Path(target_path / fileitem.name).as_posix(),
+                        new_path=Path(target_path / file_name).as_posix(),
                     )
                     _databasehelper.update_name_by_id(
                         id=int(fileitem.fileid),
@@ -1332,6 +1348,8 @@ class P115StrmHelper(_PluginBase):
         item_transfer = item.get("transferinfo")
         if isinstance(item_transfer, dict):
             item_transfer = TransferInfo(**item_transfer)
+        if not item_transfer or not item_transfer.target_item:
+            return
         # 目的地文件 fileitem
         dest_fileitem: FileItem = item_transfer.target_item
 
