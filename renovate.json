@@ -27,6 +27,13 @@
         "protobuf"
       ],
       "enabled": false
+    },
+    {
+      "matchDepNames": [
+        "node-version"
+      ],
+      "matchCurrentVersion": "20",
+      "enabled": false
     }
   ]
 }
