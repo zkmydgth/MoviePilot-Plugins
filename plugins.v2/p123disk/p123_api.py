@@ -476,7 +476,7 @@ class P123Api:
                         logger.debug(f"{upload_url_resp} {upload_data}")
 
                         # 上传分片，失败时重试5次，每次重新获取上传URL
-                        max_retries = 5
+                        max_retries = 6
                         retry_count = 0
                         upload_success = False
                         current_upload_url_resp = upload_url_resp
@@ -530,8 +530,8 @@ class P123Api:
                 )
                 check_response(resp)
                 
-                # 上传文件，失败时重试5次，每次重新获取上传URL
-                max_retries = 5
+                # 上传文件，失败时重试6次，每次重新获取上传URL
+                max_retries = 6
                 retry_count = 0
                 upload_success = False
                 current_resp = resp
