@@ -2471,7 +2471,7 @@ class P115StrmHelper(_PluginBase):
                 __remove_parent_dir(Path(file_path))
             logger.info(f"【监控生活事件】{file_path} 已删除")
 
-        logger.info("【监控生活事件】上传事件监控启动中...")
+        logger.info("【监控生活事件】生活事件监控启动中...")
         try:
             delete_list = []
             for events_batch in iter_life_behavior_list(self._client, cooldown=int(10)):
@@ -2522,9 +2522,11 @@ class P115StrmHelper(_PluginBase):
                             remove_strm(event=event)
 
         except Exception as e:
-            logger.error(f"【监控生活事件】上传事件监控运行失败: {e}")
-            return
-        logger.info("【监控生活事件】已退出上传事件监控")
+            logger.error(f"【监控生活事件】生活事件监控运行失败: {e}")
+            logger.info("【监控生活事件】30s 后尝试重新启动生活事件监控")
+            time.sleep(30)
+            self.monitor_life_strm_files()
+        logger.info("【监控生活事件】已退出生活事件监控")
         return
 
     def main_cleaner(self):
