@@ -161,11 +161,14 @@ class IncrementSyncStrmHelper:
             if file_item:
                 return file_item.get("pickcode")
             file_path = Path(path)
+            temp_path = None
             for part in file_path.parents:
                 cid = self.__get_cid_by_path(str(part))
                 if cid:
                     temp_path = part
                     break
+            if not temp_path:
+                raise ValueError(f"无法找到路径 {path} 对应的 cid")
             for batch in batched(self.__iterdir(cid=cid, path=str(temp_path)), 7_000):
                 processed: List = []
                 for item in batch:
