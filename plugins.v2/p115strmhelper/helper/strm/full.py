@@ -17,6 +17,8 @@ from p115client.tool.iterdir import (
 from app.core.config import settings
 from app.log import logger
 
+from full_strm_sync import process_batch, PackedResult
+
 from ...core.config import configer
 from ...core.p115 import get_pid_by_path
 from ...db_manager.oper import FileDbHelper
@@ -596,7 +598,7 @@ class FullSyncStrmHelper:
             f"【全量STRM生成】全量更新数据库完成，时间 {self.elapsed_time:.6f} 秒，数据库写入量 {self.total_db_write_count} 条"
         )
 
-    def generate_strm_files(self, full_sync_strm_paths):
+    def generate_strm_files(self, full_sync_strm_paths, rust: bool = False):
         """
         生成 STRM 文件
         """
@@ -643,6 +645,20 @@ class FullSyncStrmHelper:
 
                 if self.remove_unless_strm:
                     local_tree_task_thread = self.__remove_unless_strm_local(target_dir)
+
+                config_for_rust = {
+                    "pan_transfer_enabled": self.pan_transfer_enabled,
+                    "pan_transfer_paths": self.pan_transfer_paths.split('\n') if self.pan_transfer_paths else [],
+                    "auto_download_mediainfo": self.auto_download_mediainfo,
+                    "rmt_mediaext_set": list(self.rmt_mediaext_set),
+                    "download_mediaext_set": list(self.download_mediaext_set),
+                    "strm_generate_blacklist": configer.strm_generate_blacklist or [],
+                    "mediainfo_download_whitelist": configer.mediainfo_download_whitelist or [],
+                    "mediainfo_download_blacklist": configer.mediainfo_download_blacklist or [],
+                    "full_sync_min_file_size": configer.full_sync_min_file_size or 0,
+                    "pan_media_dir": pan_media_dir,
+                }
+                config_json = dumps(config_for_rust)
 
                 try:
                     parent_id = get_pid_by_path(
@@ -691,41 +707,93 @@ class FullSyncStrmHelper:
                             seen_file_ids,
                         )
 
-                        target_dir_path = Path(target_dir)
+                        if rust:
+                            input_batch = [
+                                {
+                                    "name": item.get("name"), "path": item.get("path"),
+                                    "is_dir": item.get("is_dir"), "size": item.get("size"),
+                                    "pickcode": item.get("pickcode", item.get("pick_code")),
+                                    "sha1": item.get("sha1")
+                                }
+                                for item in batch if item.get("name") and item.get("path")
+                            ]
 
-                        future_to_item = {
-                            executor.submit(
-                                self.__process_single_item,
-                                item,
-                                target_dir_path,
-                                pan_media_dir,
-                            ): item
-                            for item in batch
-                        }
+                            self.total_count += len(input_batch)
 
-                        self.total_count += len(future_to_item)
+                            results: PackedResult = process_batch(config_json, input_batch)
 
-                        for future in as_completed(future_to_item):
-                            item = future_to_item[future]
-                            try:
-                                result = future.result()
-                                if not result:
+                            for fail_info in results.fail_results:
+                                self.strm_fail_count += 1
+                                self.strm_fail_dict[fail_info.path_in_pan] = fail_info.reason
+
+                            for download_info in results.download_results:
+                                local_path = target_dir / Path(download_info.path_in_pan).relative_to(pan_media_dir)
+                                if local_path.exists() and self.overwrite_mode == "never":
+                                    self.__base_logger(
+                                        "warn",
+                                        f"【全量STRM生成】媒体文件 {local_path} 已存在，覆盖模式为 'never'，跳过下载。",
+                                    )
                                     continue
+                                self.download_mediainfo_list.append({
+                                    "type": "local", "pickcode": download_info.pickcode,
+                                    "path": local_path, "sha1": download_info.sha1,
+                                })
 
-                                if result.status == "fail":
-                                    self.strm_fail_count += 1
-                                    self.strm_fail_dict[result.path] = result.message
-                                elif result.status == "download":
-                                    self.download_mediainfo_list.append(result.data)
+                            for strm_info in results.strm_results:
+                                local_path = target_dir / Path(strm_info.path_in_pan).relative_to(pan_media_dir)
+                                new_file_path = local_path.with_name(f"{local_path.stem}.strm")
+                                if self.remove_unless_strm:
+                                    path_list.append(str(new_file_path))
+                                if new_file_path.exists():
+                                    if self.overwrite_mode == "never":
+                                        self.__base_logger(
+                                            "warn",
+                                            f"【全量STRM生成】STRM 文件 {new_file_path} 已存在，覆盖模式为 'never'，跳过生成。",
+                                        )
+                                        continue
+                                    self.__base_logger(
+                                        "warn", f"【全量STRM生成】{new_file_path} 已存在，将进行覆盖。")
+                                strm_url = self.strmurlgetter.get_strm_url(strm_info.pickcode, strm_info.original_file_name)
+                                self.write_queue.put((new_file_path, strm_url, strm_info.original_file_name))
 
-                                if result.path_entry:
-                                    path_list.append(result.path_entry)
+                            # for skip_info in results.skip_results:
+                            #     self.__base_logger("debug", f"Skipped {skip_info.path_in_pan}: {skip_info.reason}")
+                        else:
+                            target_dir_path = Path(target_dir)
 
-                            except Exception as e:
-                                sentry_manager.sentry_hub.capture_exception(e)
-                                logger.error(
-                                    f"【全量STRM生成】并发处理出错: {item} - {str(e)}"
-                                )
+                            future_to_item = {
+                                executor.submit(
+                                    self.__process_single_item,
+                                    item,
+                                    target_dir_path,
+                                    pan_media_dir,
+                                ): item
+                                for item in batch
+                            }
+
+                            self.total_count += len(future_to_item)
+
+                            for future in as_completed(future_to_item):
+                                item = future_to_item[future]
+                                try:
+                                    result = future.result()
+                                    if not result:
+                                        continue
+
+                                    if result.status == "fail":
+                                        self.strm_fail_count += 1
+                                        self.strm_fail_dict[result.path] = result.message
+                                    elif result.status == "download":
+                                        self.download_mediainfo_list.append(result.data)
+
+                                    if result.path_entry:
+                                        path_list.append(result.path_entry)
+
+                                except Exception as e:
+                                    sentry_manager.sentry_hub.capture_exception(e)
+                                    logger.error(
+                                        f"【全量STRM生成】并发处理出错: {item} - {str(e)}"
+                                    )
 
                         try:
                             seen_folder_ids, seen_file_ids = db_task_future.result()
