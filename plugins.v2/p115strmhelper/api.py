@@ -1,4 +1,5 @@
 import base64
+import time
 from datetime import datetime
 from dataclasses import asdict
 from typing import Dict, Any, Optional, cast
@@ -37,6 +38,8 @@ class Api:
     def __init__(self, client: P115Client):
         self._client = client
         self.u115openhelper = U115OpenHelper()
+
+        self.browse_dir_pan_api_last = 0
 
     def get_config_api(self) -> Dict:
         """
@@ -207,6 +210,10 @@ class Api:
             if not self._client or not configer.get_config("cookies"):
                 return {"code": 1, "msg": "未配置cookie或客户端初始化失败"}
 
+            if time.time() - self.browse_dir_pan_api_last < 2:
+                logger.warn("浏览网盘目录 API 限流，等待 2s 后继续")
+                time.sleep(2)
+
             try:
                 dir_info = self._client.fs_dir_getid(path.as_posix())
                 if not dir_info:
@@ -214,7 +221,7 @@ class Api:
                 cid = int(dir_info["id"])
 
                 items = []
-                for batch in iter_fs_files(self._client, cid):
+                for batch in iter_fs_files(self._client, cid, cooldown=2):
                     for item in batch.get("data", []):
                         if "fid" not in item:
                             items.append(
@@ -224,6 +231,7 @@ class Api:
                                     "is_dir": True,
                                 }
                             )
+                self.browse_dir_pan_api_last = time.time()
                 return {
                     "code": 0,
                     "path": path.as_posix(),
