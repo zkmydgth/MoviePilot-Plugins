@@ -137,12 +137,6 @@ class ShareTransferHelper:
                 "cid": int(parent_id),
                 "is_check": 0,
             }
-            logger.info(f"【分享转存】开始转存：{share_code}")
-            post_message(
-                channel=channel,
-                title=f"开始转存：{share_code}",
-                userid=userid,
-            )
 
             # 尝试识别媒体信息
             file_mediainfo = self.add_share_recognize_mediainfo(
@@ -155,14 +149,21 @@ class ShareTransferHelper:
                 if not file_mediainfo:
                     post_message(
                         channel=channel,
-                        title=f"转存 {share_code} 到 {parent_path} 成功！",
+                        title="【115网盘】转存成功",
+                        text=f"""
+分享链接：https://115cdn.com/s/{share_code}?password={receive_code}
+转存目录：{parent_path}
+""",
                         userid=userid,
                     )
                 else:
                     post_message(
                         channel=channel,
                         title=f"转存 {file_mediainfo.title}（{file_mediainfo.year}）成功",
-                        text=f"\n简介: {file_mediainfo.overview}",
+                        text=f"""
+链接：https://115cdn.com/s/{share_code}?password={receive_code}
+简介：{file_mediainfo.overview}
+""",
                         image=file_mediainfo.poster_path,
                         userid=userid,
                     )
@@ -170,7 +171,12 @@ class ShareTransferHelper:
                 logger.info(f"【分享转存】转存 {share_code} 失败：{resp['error']}")
                 post_message(
                     channel=channel,
-                    title=f"转存 {share_code} 失败：{resp['error']}",
+                    title="【115网盘】转存失败",
+                    text=f"""
+分享链接：https://115cdn.com/s/{share_code}?password={receive_code}
+转存目录：{parent_path}
+失败原因：{resp["error"]}
+""",
                     userid=userid,
                 )
             return
