@@ -1230,7 +1230,7 @@ const openShareDialog = () => {
     shareDialog.panPath = props.initialConfig.user_share_pan_path || '/';
     shareDialog.localPath = props.initialConfig.user_share_local_path || '';
     shareDialog.downloadMediaInfo = props.initialConfig.share_strm_auto_download_mediainfo_enabled || false;
-    shareDialog.shareMinFileSizeFormatted = formatBytes(props.initialConfig.share_min_file_size || 0);
+    shareDialog.shareMinFileSizeFormatted = formatBytes(props.initialConfig.share_strm_min_file_size || 0);
   }
 };
 
@@ -1449,7 +1449,7 @@ const executeShareSync = async () => {
       props.initialConfig.user_share_pan_path = shareDialog.panPath;
       props.initialConfig.user_share_local_path = shareDialog.localPath;
       props.initialConfig.share_strm_auto_download_mediainfo_enabled = shareDialog.downloadMediaInfo;
-      props.initialConfig.share_min_file_size = parseSize(shareDialog.shareMinFileSizeFormatted);
+      props.initialConfig.share_strm_min_file_size = parseSize(shareDialog.shareMinFileSizeFormatted);
 
       // 保存配置
       await props.api.post(`plugin/${pluginId}/save_config`, props.initialConfig);
