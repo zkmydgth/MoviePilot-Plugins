@@ -112,291 +112,329 @@ class ConfigManager(BaseModel):
                 data[field] = CronUtils.get_default_cron()
         return data
 
-    # 插件名称
     PLUSIN_NAME: str = Field(
         default="P115StrmHelper", min_length=1, description="插件名称"
     )
-    # 是否开启数据库WAL模式
-    DB_WAL_ENABLE: bool = True
-    # 插件配置目录
+    DB_WAL_ENABLE: bool = Field(default=True, description="是否开启数据库WAL模式")
     PLUGIN_CONFIG_PATH: Path = Field(
-        default_factory=_get_default_plugin_config_path, description="插件配置目录"
+        default_factory=lambda: ConfigManager._get_default_plugin_config_path(),
+        description="插件配置目录",
     )
-    # 插件数据库目录
     PLUGIN_DB_PATH: Path = Field(
-        default_factory=_get_default_plugin_db_path, description="插件数据库目录"
+        default_factory=lambda: ConfigManager._get_default_plugin_db_path(),
+        description="插件数据库目录",
     )
-    # 插件数据库表目录
     PLUGIN_DATABASE_SCRIPT_LOCATION: Path = Field(
-        default_factory=_get_default_plugin_database_script_location,
+        default_factory=lambda: ConfigManager._get_default_plugin_database_script_location(),
         description="插件数据库表目录",
     )
-    PLUGIN_DATABASE_VERSION_LOCATIONS: List[str] = [
-        str(_get_default_plugin_config_path() / "database/versions")
-    ]
-    # 插件临时目录
+    PLUGIN_DATABASE_VERSION_LOCATIONS: List[str] = Field(
+        default_factory=lambda: [
+            str(ConfigManager._get_default_plugin_config_path() / "database/versions")
+        ],
+        description="插件数据库版本目录列表",
+    )
     PLUGIN_TEMP_PATH: Path = Field(
-        default_factory=_get_default_plugin_temp_path, description="插件临时目录"
+        default_factory=lambda: ConfigManager._get_default_plugin_temp_path(),
+        description="插件临时目录",
     )
 
-    # 插件语言
     language: str = Field(default="zh_CN", min_length=1, description="插件语言")
 
-    # 插件总开关
-    enabled: bool = False
-    # 通知开关
-    notify: bool = False
-    # 生成 STRM URL 格式
+    enabled: bool = Field(default=False, description="插件总开关")
+    notify: bool = Field(default=False, description="通知开关")
     strm_url_format: str = Field(
         default="pickcode", min_length=1, description="生成 STRM URL 格式"
     )
-    # 302 跳转方式
     link_redirect_mode: str = Field(
         default="cookie", min_length=1, description="302 跳转方式"
     )
-    # 115 Cookie
-    cookies: Optional[str] = None
-    # 阿里云盘 Token
-    aliyundrive_token: Optional[str] = None
-    # 115 安全码
-    password: Optional[str] = None
-    # MoviePilot 地址
+    cookies: Optional[str] = Field(default=None, description="115 Cookie")
+    aliyundrive_token: Optional[str] = Field(default=None, description="阿里云盘 Token")
+    password: Optional[str] = Field(default=None, description="115 安全码")
     moviepilot_address: Optional[str] = Field(
         default=None, min_length=1, description="MoviePilot 地址"
     )
-    # 可识别媒体后缀
     user_rmt_mediaext: str = Field(
         default="mp4,mkv,ts,iso,rmvb,avi,mov,mpeg,mpg,wmv,3gp,asf,m4v,flv,m2ts,tp,f4v",
         min_length=1,
         description="可识别媒体后缀",
     )
-    # 可识别下载后缀
     user_download_mediaext: str = Field(
         default="srt,ssa,ass", min_length=1, description="可识别下载后缀"
     )
 
-    # 整理事件监控开关
-    transfer_monitor_enabled: bool = False
-    # 刮削 STRM 开关
-    transfer_monitor_scrape_metadata_enabled: bool = False
-    # 刮削排除目录
-    transfer_monitor_scrape_metadata_exclude_paths: Optional[str] = None
-    # 监控目录
-    transfer_monitor_paths: Optional[str] = None
-    # MP-媒体库 目录转换
-    transfer_mp_mediaserver_paths: Optional[str] = None
-    # 刷新媒体服务器
-    transfer_monitor_mediaservers: Optional[List[str]] = None
-    # 刷新媒体服务器开关
-    transfer_monitor_media_server_refresh_enabled: bool = False
+    transfer_monitor_enabled: bool = Field(
+        default=False, description="整理事件监控开关"
+    )
+    transfer_monitor_scrape_metadata_enabled: bool = Field(
+        default=False, description="刮削 STRM 开关"
+    )
+    transfer_monitor_scrape_metadata_exclude_paths: Optional[str] = Field(
+        default=None, description="刮削排除目录"
+    )
+    transfer_monitor_paths: Optional[str] = Field(default=None, description="监控目录")
+    transfer_mp_mediaserver_paths: Optional[str] = Field(
+        default=None, description="MP-媒体库 目录转换"
+    )
+    transfer_monitor_mediaservers: Optional[List[str]] = Field(
+        default=None, description="刷新媒体服务器"
+    )
+    transfer_monitor_media_server_refresh_enabled: bool = Field(
+        default=False, description="刷新媒体服务器开关"
+    )
 
-    # 全量同步覆盖模式
-    full_sync_overwrite_mode: str = "never"
-    # 清理无效 STRM 文件
-    full_sync_remove_unless_strm: bool = False
-    # 清理无效 STRM 目录（即无 STRM 文件的目录）
-    full_sync_remove_unless_dir: bool = False
-    # 清理无效 STRM 文件关联的媒体信息文件
-    full_sync_remove_unless_file: bool = False
-    # 清理无效 STRM 最大删除阈值
-    full_sync_remove_unless_max_threshold: int = 10
-    # 清理无效 STRM 稳定阈值
-    full_sync_remove_unless_stable_threshold: int = 5
-    # 定期全量同步开关
-    timing_full_sync_strm: bool = False
-    # 下载媒体信息文件开关
-    full_sync_auto_download_mediainfo_enabled: bool = False
-    # 定期全量同步周期
-    cron_full_sync_strm: Optional[str] = "0 */12 * * *"
-    # 全量生成最小文件大小
-    full_sync_min_file_size: Optional[int] = None
-    # 全量同步刷新媒体服务器开关
-    full_sync_media_server_refresh_enabled: bool = False
-    # 全量同步刷新媒体服务器列表
-    full_sync_mediaservers: Optional[List[str]] = None
-    # 全量同步路径
-    full_sync_strm_paths: Optional[str] = None
-    # 全量生成输出详细日志
-    full_sync_strm_log: bool = True
-    # 全量同步单次批处理量
-    full_sync_batch_num: Union[int, str] = 5_000
-    # 全量同步文件处理线程数
-    full_sync_process_num: Union[int, str] = 128
-    # 全量同步使用的函数
+    full_sync_overwrite_mode: str = Field(
+        default="never", min_length=1, description="全量同步覆盖模式"
+    )
+    full_sync_remove_unless_strm: bool = Field(
+        default=False, description="清理无效 STRM 文件"
+    )
+    full_sync_remove_unless_dir: bool = Field(
+        default=False, description="清理无效 STRM 目录（即无 STRM 文件的目录）"
+    )
+    full_sync_remove_unless_file: bool = Field(
+        default=False, description="清理无效 STRM 文件关联的媒体信息文件"
+    )
+    full_sync_remove_unless_max_threshold: int = Field(
+        default=10, ge=0, description="清理无效 STRM 最大删除阈值"
+    )
+    full_sync_remove_unless_stable_threshold: int = Field(
+        default=5, ge=0, description="清理无效 STRM 稳定阈值"
+    )
+    timing_full_sync_strm: bool = Field(default=False, description="定期全量同步开关")
+    full_sync_auto_download_mediainfo_enabled: bool = Field(
+        default=False, description="下载媒体信息文件开关"
+    )
+    cron_full_sync_strm: Optional[str] = Field(
+        default="0 */12 * * *", description="定期全量同步周期"
+    )
+    full_sync_min_file_size: Optional[int] = Field(
+        default=None, ge=0, description="全量生成最小文件大小"
+    )
+    full_sync_media_server_refresh_enabled: bool = Field(
+        default=False, description="全量同步刷新媒体服务器开关"
+    )
+    full_sync_mediaservers: Optional[List[str]] = Field(
+        default=None, description="全量同步刷新媒体服务器列表"
+    )
+    full_sync_strm_paths: Optional[str] = Field(
+        default=None, description="全量同步路径"
+    )
+    full_sync_strm_log: bool = Field(default=True, description="全量生成输出详细日志")
+    full_sync_batch_num: Union[int, str] = Field(
+        default=5_000, description="全量同步单次批处理量"
+    )
+    full_sync_process_num: Union[int, str] = Field(
+        default=128, description="全量同步文件处理线程数"
+    )
     full_sync_iter_function: str = Field(
         default="iter_files_with_path_skim",
         min_length=1,
         description="全量同步使用的函数",
     )
-    # 全量同步处理数据使用 rust 模块
-    full_sync_process_rust: bool = False
+    full_sync_process_rust: bool = Field(
+        default=False, description="全量同步处理数据使用 rust 模块"
+    )
 
-    # 增量同步开关
-    increment_sync_strm_enabled: bool = False
-    # 下载媒体信息文件开关
-    increment_sync_auto_download_mediainfo_enabled: bool = False
-    # 运行周期
-    increment_sync_cron: Optional[str] = "0 */2 * * *"
-    # 增量同步目录
-    increment_sync_strm_paths: Optional[str] = None
-    # MP-媒体库 目录转换
-    increment_sync_mp_mediaserver_paths: Optional[str] = None
-    # 刮削 STRM 开关
-    increment_sync_scrape_metadata_enabled: bool = False
-    # 刮削排除目录
-    increment_sync_scrape_metadata_exclude_paths: Optional[str] = None
-    # 刷新媒体服务器开关
-    increment_sync_media_server_refresh_enabled: bool = False
-    # 刷新媒体服务器
-    increment_sync_mediaservers: Optional[List[str]] = None
-    # 增量生成最小文件大小
-    increment_sync_min_file_size: Optional[int] = None
+    increment_sync_strm_enabled: bool = Field(default=False, description="增量同步开关")
+    increment_sync_auto_download_mediainfo_enabled: bool = Field(
+        default=False, description="下载媒体信息文件开关"
+    )
+    increment_sync_cron: Optional[str] = Field(
+        default="0 */2 * * *", description="运行周期"
+    )
+    increment_sync_strm_paths: Optional[str] = Field(
+        default=None, description="增量同步目录"
+    )
+    increment_sync_mp_mediaserver_paths: Optional[str] = Field(
+        default=None, description="MP-媒体库 目录转换"
+    )
+    increment_sync_scrape_metadata_enabled: bool = Field(
+        default=False, description="刮削 STRM 开关"
+    )
+    increment_sync_scrape_metadata_exclude_paths: Optional[str] = Field(
+        default=None, description="刮削排除目录"
+    )
+    increment_sync_media_server_refresh_enabled: bool = Field(
+        default=False, description="刷新媒体服务器开关"
+    )
+    increment_sync_mediaservers: Optional[List[str]] = Field(
+        default=None, description="刷新媒体服务器"
+    )
+    increment_sync_min_file_size: Optional[int] = Field(
+        default=None, ge=0, description="增量生成最小文件大小"
+    )
 
-    # 监控生活事件开关
-    monitor_life_enabled: bool = False
-    # 下载媒体信息文件开关
-    monitor_life_auto_download_mediainfo_enabled: bool = False
-    # 生活事件监控目录
-    monitor_life_paths: Optional[str] = None
-    # MP-媒体库 目录转换
-    monitor_life_mp_mediaserver_paths: Optional[str] = None
-    # 刷新媒体服务器开关
-    monitor_life_media_server_refresh_enabled: bool = False
-    # 刷新媒体服务器
-    monitor_life_mediaservers: Optional[List[str]] = None
-    # 监控事件类型
-    monitor_life_event_modes: Optional[List[str]] = None
-    # 刮削 STRM 开关
-    monitor_life_scrape_metadata_enabled: bool = False
-    # 刮削排除目录
-    monitor_life_scrape_metadata_exclude_paths: Optional[str] = None
-    # 同步删除本地STRM时是否删除MP整理记录
-    monitor_life_remove_mp_history: bool = False
-    # 同上方情况时是否删除源文件
-    monitor_life_remove_mp_source: bool = False
-    # 生活事件生成最小文件大小
-    monitor_life_min_file_size: Optional[int] = None
-    # 生活事件启动拉取模式
+    monitor_life_enabled: bool = Field(default=False, description="监控生活事件开关")
+    monitor_life_auto_download_mediainfo_enabled: bool = Field(
+        default=False, description="下载媒体信息文件开关"
+    )
+    monitor_life_paths: Optional[str] = Field(
+        default=None, description="生活事件监控目录"
+    )
+    monitor_life_mp_mediaserver_paths: Optional[str] = Field(
+        default=None, description="MP-媒体库 目录转换"
+    )
+    monitor_life_media_server_refresh_enabled: bool = Field(
+        default=False, description="刷新媒体服务器开关"
+    )
+    monitor_life_mediaservers: Optional[List[str]] = Field(
+        default=None, description="刷新媒体服务器"
+    )
+    monitor_life_event_modes: Optional[List[str]] = Field(
+        default=None, description="监控事件类型"
+    )
+    monitor_life_scrape_metadata_enabled: bool = Field(
+        default=False, description="刮削 STRM 开关"
+    )
+    monitor_life_scrape_metadata_exclude_paths: Optional[str] = Field(
+        default=None, description="刮削排除目录"
+    )
+    monitor_life_remove_mp_history: bool = Field(
+        default=False, description="同步删除本地STRM时是否删除MP整理记录"
+    )
+    monitor_life_remove_mp_source: bool = Field(
+        default=False, description="同上方情况时是否删除源文件"
+    )
+    monitor_life_min_file_size: Optional[int] = Field(
+        default=None, ge=0, description="生活事件生成最小文件大小"
+    )
     monitor_life_first_pull_mode: str = Field(
         default="latest", min_length=1, description="生活事件启动拉取模式"
     )
-    # 生活事件事件等待时间
-    monitor_life_event_wait_time: int = 0
+    monitor_life_event_wait_time: int = Field(
+        default=0, ge=0, description="生活事件事件等待时间"
+    )
 
-    # 分享 STRM 生成配置
-    share_strm_config: List[ShareStrmConfig] = []
-    # 刷新媒体服务器
-    share_strm_mediaservers: Optional[List[str]] = None
-    # MP-媒体库 目录转换
-    share_strm_mp_mediaserver_paths: Optional[str] = None
+    share_strm_config: List[ShareStrmConfig] = Field(
+        default_factory=list, description="分享 STRM 生成配置"
+    )
+    share_strm_mediaservers: Optional[List[str]] = Field(
+        default=None, description="刷新媒体服务器"
+    )
+    share_strm_mp_mediaserver_paths: Optional[str] = Field(
+        default=None, description="MP-媒体库 目录转换"
+    )
 
-    # API STRM 生成配置
-    api_strm_config: List[StrmApiConfig] = []
-    # 刷新媒体服务器
-    api_strm_mediaservers: Optional[List[str]] = None
-    # MP-媒体库 目录转换
-    api_strm_mp_mediaserver_paths: Optional[str] = None
-    # 刮削 STRM 开关
-    api_strm_scrape_metadata_enabled: bool = False
-    # 刷新媒体服务器开关
-    api_strm_media_server_refresh_enabled: bool = False
+    api_strm_config: List[StrmApiConfig] = Field(
+        default_factory=list, description="API STRM 生成配置"
+    )
+    api_strm_mediaservers: Optional[List[str]] = Field(
+        default=None, description="刷新媒体服务器"
+    )
+    api_strm_mp_mediaserver_paths: Optional[str] = Field(
+        default=None, description="MP-媒体库 目录转换"
+    )
+    api_strm_scrape_metadata_enabled: bool = Field(
+        default=False, description="刮削 STRM 开关"
+    )
+    api_strm_media_server_refresh_enabled: bool = Field(
+        default=False, description="刷新媒体服务器开关"
+    )
 
-    # 清理回收站开关
-    clear_recyclebin_enabled: bool = False
-    # 清理 最近接收 目录开关
-    clear_receive_path_enabled: bool = False
-    # 清理周期
-    cron_clear: Optional[str] = "0 */7 * * *"
+    clear_recyclebin_enabled: bool = Field(default=False, description="清理回收站开关")
+    clear_receive_path_enabled: bool = Field(
+        default=False, description="清理 最近接收 目录开关"
+    )
+    cron_clear: Optional[str] = Field(default="0 */7 * * *", description="清理周期")
 
-    # 网盘整理开关
-    pan_transfer_enabled: bool = False
-    # 网盘整理目录
-    pan_transfer_paths: Optional[str] = None
-    # 网盘整理未识别目录
-    pan_transfer_unrecognized_path: Optional[str] = None
-    # 分享转存目录
-    share_recieve_paths: Optional[List] = []
-    # 离线下载目录
-    offline_download_paths: Optional[List] = []
+    pan_transfer_enabled: bool = Field(default=False, description="网盘整理开关")
+    pan_transfer_paths: Optional[str] = Field(default=None, description="网盘整理目录")
+    pan_transfer_unrecognized_path: Optional[str] = Field(
+        default=None, description="网盘整理未识别目录"
+    )
+    share_recieve_paths: Optional[List] = Field(
+        default_factory=list, description="分享转存目录"
+    )
+    offline_download_paths: Optional[List] = Field(
+        default_factory=list, description="离线下载目录"
+    )
 
-    # 监控目录上传开关
-    directory_upload_enabled: bool = False
-    # 监控目录模式
+    directory_upload_enabled: bool = Field(
+        default=False, description="监控目录上传开关"
+    )
     directory_upload_mode: str = Field(
         default="compatibility", min_length=1, description="监控目录模式"
     )
-    # 可上传文件后缀
     directory_upload_uploadext: str = Field(
         default="mp4,mkv,ts,iso,rmvb,avi,mov,mpeg,mpg,wmv,3gp,asf,m4v,flv,m2ts,tp,f4v",
         min_length=1,
         description="可上传文件后缀",
     )
-    # 可本地操作文件后缀
     directory_upload_copyext: str = Field(
         default="srt,ssa,ass", min_length=1, description="可本地操作文件后缀"
     )
-    # 监控目录信息
-    directory_upload_path: Optional[List[Dict]] = None
+    directory_upload_path: Optional[List[Dict]] = Field(
+        default=None, description="监控目录信息"
+    )
 
-    # TG 搜索频道
-    tg_search_channels: Optional[List[Dict]] = None
-    # Nullbr APP ID
+    tg_search_channels: Optional[List[Dict]] = Field(
+        default=None, description="TG 搜索频道"
+    )
     nullbr_app_id: Optional[str] = Field(
         default=None, min_length=1, description="Nullbr APP ID"
     )
-    # Nullbr API KEY
     nullbr_api_key: Optional[str] = Field(
         default=None, min_length=1, description="Nullbr API KEY"
     )
 
-    # 多端播放同一个文件
-    same_playback: bool = False
+    same_playback: bool = Field(default=False, description="多端播放同一个文件")
 
-    # 上传错误信息
-    error_info_upload: bool = True
-    # 115 上传增强
-    upload_module_enhancement: bool = False
-    # 115 上传秒传失败时跳过上传返回失败
-    upload_module_skip_slow_upload: bool = False
-    # 115 上传增强开启通知
-    upload_module_notify: bool = True
-    # 115 上传增强休眠等待时间
-    upload_module_wait_time: int = 5 * 60
-    # 115 上传增强最长等待时间
-    upload_module_wait_timeout: int = 60 * 60
-    # 115 上传增强跳过等待秒传的文件大小阈值
-    upload_module_skip_upload_wait_size: Optional[int] = None
-    # 115 上传增强强制等待秒传的文件大小阈值
-    upload_module_force_upload_wait_size: Optional[int] = None
-    # 上传分享链接
-    upload_share_info: bool = True
-    # 上传离线下载链接
-    upload_offline_info: bool = True
-    # 115 整理增强
-    transfer_module_enhancement: bool = False
-    # 存储模块选择
-    storage_module: Literal["u115", "115网盘Plus"] = "u115"
+    error_info_upload: bool = Field(default=True, description="上传错误信息")
+    upload_module_enhancement: bool = Field(default=False, description="115 上传增强")
+    upload_module_skip_slow_upload: bool = Field(
+        default=False, description="115 上传秒传失败时跳过上传返回失败"
+    )
+    upload_module_notify: bool = Field(default=True, description="115 上传增强开启通知")
+    upload_module_wait_time: int = Field(
+        default=5 * 60, ge=0, description="115 上传增强休眠等待时间"
+    )
+    upload_module_wait_timeout: int = Field(
+        default=60 * 60, ge=0, description="115 上传增强最长等待时间"
+    )
+    upload_module_skip_upload_wait_size: Optional[int] = Field(
+        default=None, ge=0, description="115 上传增强跳过等待秒传的文件大小阈值"
+    )
+    upload_module_force_upload_wait_size: Optional[int] = Field(
+        default=None, ge=0, description="115 上传增强强制等待秒传的文件大小阈值"
+    )
+    upload_share_info: bool = Field(default=True, description="上传分享链接")
+    upload_offline_info: bool = Field(default=True, description="上传离线下载链接")
+    transfer_module_enhancement: bool = Field(default=False, description="115 整理增强")
+    storage_module: Literal["u115", "115网盘Plus"] = Field(
+        default="u115", description="存储模块选择"
+    )
 
-    # STRM URL 自定义模板是否启用
-    strm_url_template_enabled: bool = False
-    # STRM URL 基础模板
-    strm_url_template: Optional[str] = None
-    # STRM URL 扩展名特定模板，格式：ext1,ext2 => template
-    strm_url_template_custom: Optional[str] = None
-    # STRM 文件名自定义模板是否启用
-    strm_filename_template_enabled: bool = False
-    # STRM 文件名基础模板
-    strm_filename_template: Optional[str] = None
-    # STRM 文件名扩展名特定模板，格式：ext1,ext2 => template
-    strm_filename_template_custom: Optional[str] = None
-    # STRM 文件生成黑名单
-    strm_generate_blacklist: Optional[List] = None
-    # 媒体信息文件下载白名单
-    mediainfo_download_whitelist: Optional[List] = None
-    # 媒体信息文件下载黑名单
-    mediainfo_download_blacklist: Optional[List] = None
-    # STRM URL 文件名称编码
-    strm_url_encode: bool = False
+    strm_url_template_enabled: bool = Field(
+        default=False, description="STRM URL 自定义模板是否启用"
+    )
+    strm_url_template: Optional[str] = Field(
+        default=None, description="STRM URL 基础模板"
+    )
+    strm_url_template_custom: Optional[str] = Field(
+        default=None, description="STRM URL 扩展名特定模板，格式：ext1,ext2 => template"
+    )
+    strm_filename_template_enabled: bool = Field(
+        default=False, description="STRM 文件名自定义模板是否启用"
+    )
+    strm_filename_template: Optional[str] = Field(
+        default=None, description="STRM 文件名基础模板"
+    )
+    strm_filename_template_custom: Optional[str] = Field(
+        default=None,
+        description="STRM 文件名扩展名特定模板，格式：ext1,ext2 => template",
+    )
+    strm_generate_blacklist: Optional[List] = Field(
+        default=None, description="STRM 文件生成黑名单"
+    )
+    mediainfo_download_whitelist: Optional[List] = Field(
+        default=None, description="媒体信息文件下载白名单"
+    )
+    mediainfo_download_blacklist: Optional[List] = Field(
+        default=None, description="媒体信息文件下载黑名单"
+    )
+    strm_url_encode: bool = Field(default=False, description="STRM URL 文件名称编码")
 
     @field_serializer(
         "PLUGIN_CONFIG_PATH",
