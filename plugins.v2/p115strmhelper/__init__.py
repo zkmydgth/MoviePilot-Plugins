@@ -477,16 +477,6 @@ class FullSyncStrmHelper:
                         file_name = file_path.stem + ".strm"
                         new_file_path = file_target_dir / file_name
                         try:
-                            if new_file_path.exists():
-                                if self.overwrite_mode == "never":
-                                    logger.warn(
-                                        f"【全量STRM生成】{new_file_path} 已存在，覆盖模式 {self.overwrite_mode}，跳过此路径"
-                                    )
-                                    continue
-                                else:
-                                    logger.warn(
-                                        f"【全量STRM生成】{new_file_path} 已存在，覆盖模式 {self.overwrite_mode}"
-                                    )
                             if self.pan_transfer_enabled and self.pan_transfer_paths:
                                 if self.pathmatchinghelper.get_run_transfer_path(
                                     paths=self.pan_transfer_paths,
@@ -499,6 +489,16 @@ class FullSyncStrmHelper:
 
                             if self.auto_download_mediainfo:
                                 if file_path.suffix in self.download_mediaext:
+                                    if file_path.exists():
+                                        if self.overwrite_mode == "never":
+                                            logger.warn(
+                                                f"【全量STRM生成】{file_path} 已存在，覆盖模式 {self.overwrite_mode}，跳过此路径"
+                                            )
+                                            continue
+                                        else:
+                                            logger.warn(
+                                                f"【全量STRM生成】{file_path} 已存在，覆盖模式 {self.overwrite_mode}"
+                                            )
                                     pickcode = item["pickcode"]
                                     if not pickcode:
                                         logger.error(
@@ -520,6 +520,17 @@ class FullSyncStrmHelper:
                                     str(file_path).replace(str(target_dir), "", 1),
                                 )
                                 continue
+
+                            if new_file_path.exists():
+                                if self.overwrite_mode == "never":
+                                    logger.warn(
+                                        f"【全量STRM生成】{new_file_path} 已存在，覆盖模式 {self.overwrite_mode}，跳过此路径"
+                                    )
+                                    continue
+                                else:
+                                    logger.warn(
+                                        f"【全量STRM生成】{new_file_path} 已存在，覆盖模式 {self.overwrite_mode}"
+                                    )
 
                             pickcode = item["pickcode"]
                             if not pickcode:
@@ -802,7 +813,7 @@ class P115StrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png"
     # 插件版本
-    plugin_version = "1.7.2"
+    plugin_version = "1.7.3"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
