@@ -25,7 +25,7 @@ from .core.aliyunpan import AliyunPanLogin
 from .utils.sentry import sentry_manager
 
 from app.log import logger
-from app.core.cache import cached
+from app.core.cache import cached, TTLCache
 from app.helper.mediaserver import MediaServerHelper
 from app.schemas import NotificationType
 
@@ -39,6 +39,9 @@ class Api:
     def __init__(self, client: P115Client):
         self._client = client
 
+        self.browse_dir_pan_api_cache = TTLCache(
+            maxsize=1024, ttl=120, region="p115strmhelper_api_browse_dir_api"
+        )
         self.browse_dir_pan_api_last = 0
 
     def get_config_api(self) -> Dict:
@@ -93,7 +96,7 @@ class Api:
 
             # 获取用户信息
             user_info_resp = _temp_client.user_my_info()
-            user_details: Dict = None
+            user_details: Dict = {}
             if user_info_resp.get("state"):
                 data = user_info_resp.get("data", {})
                 vip_data = data.get("vip", {})
@@ -185,7 +188,6 @@ class Api:
             }
             return result_to_return
 
-    @cached(region="p115strmhelper_api_browse_dir_api", ttl=2 * 60, skip_none=True)
     def browse_dir_api(self, request: Request) -> Dict:
         """
         浏览目录
@@ -223,6 +225,10 @@ class Api:
                 time.sleep(2)
 
             try:
+                items = self.browse_dir_pan_api_cache.get(key=path.as_posix())
+                if items:
+                    return items
+
                 if path.as_posix() == "/":
                     cid = 0
                 else:
@@ -243,11 +249,13 @@ class Api:
                                 }
                             )
                 self.browse_dir_pan_api_last = time.time()
-                return {
+                items = {
                     "code": 0,
                     "path": path.as_posix(),
                     "items": sorted(items, key=lambda x: x["name"]),
                 }
+                self.browse_dir_pan_api_cache.set(key=path.as_posix(), value=items)
+                return items
             except Exception as e:
                 logger.error(f"浏览网盘目录 API 原始错误: {str(e)}")
                 return {"code": 1, "msg": f"浏览网盘目录失败: {str(e)}"}
