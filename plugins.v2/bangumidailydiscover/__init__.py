@@ -142,7 +142,7 @@ class BangumiDailyDiscover(_PluginBase):
             rating_info = series_info.get("rating", None)
             if rating_info is not None:
                 vote_average = rating_info.get("score", None)
-            logger.info(series_info.get("name_cn"))
+
             if series_info.get("name_cn"):
                 title = series_info.get("name_cn")
             else:
