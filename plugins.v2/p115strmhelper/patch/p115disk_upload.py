@@ -59,7 +59,7 @@ class P115DiskPatcher:
         P115Disk.upload_file = cls._patch_upload_file
         cls._patched_class = P115Disk
         cls._active = True
-        logger.info("【P115Disk】上传增强补丁已应用")
+        logger.info("【P115Disk】上传接口补丁应用成功")
 
     @classmethod
     def disable(cls) -> None:
@@ -76,4 +76,4 @@ class P115DiskPatcher:
         cls._original_upload_file = None
         cls._patched_class = None
         cls._active = False
-        logger.info("【P115Disk】上传增强补丁已恢复")
+        logger.info("【P115Disk】上传接口恢复原始状态成功")
