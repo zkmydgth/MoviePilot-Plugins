@@ -8,7 +8,8 @@
       </v-card-title>
 
       <!-- 通知区域 -->
-      <v-card-text class="px-3 py-2" style="flex-grow: 1; min-height: 0; overflow-y: auto; padding-bottom: 56px; -webkit-overflow-scrolling: touch;">
+      <v-card-text class="px-3 py-2"
+        style="flex-grow: 1; min-height: 0; overflow-y: auto; padding-bottom: 56px; -webkit-overflow-scrolling: touch;">
         <v-alert v-if="message.text" :type="message.type" density="compact" class="mb-2 text-caption" variant="tonal"
           closable>{{ message.text }}</v-alert>
 
@@ -193,6 +194,16 @@
                           <v-col cols="12" md="8">
                             <v-select v-model="config.transfer_monitor_mediaservers" label="媒体服务器" :items="mediaservers"
                               multiple chips closable-chips></v-select>
+                          </v-col>
+                        </v-row>
+
+                        <v-row v-if="config.transfer_monitor_emby_mediainfo_enabled">
+                          <v-col cols="12">
+                            <v-alert type="warning" variant="tonal" density="compact" icon="mdi-alert-circle-outline">
+                              <div class="text-caption">
+                                此功能需配合<strong>神医助手PRO</strong>使用，请确保神医助手PRO版本为 <strong>v3.0.0.40</strong> 及以上。
+                              </div>
+                            </v-alert>
                           </v-col>
                         </v-row>
 
@@ -2585,22 +2596,10 @@
           <div class="mb-3">
             <div class="text-caption text-grey mb-1">拉取指定时间内的全部数据（可选）</div>
             <div class="life-event-check-start-time-wrapper">
-              <input
-                ref="lifeEventStartTimeInputRef"
-                v-model="lifeEventCheckDialog.startTime"
-                type="datetime-local"
-                class="life-event-check-datetime-input"
-                aria-label="开始时间"
-              />
-              <v-btn
-                v-if="lifeEventCheckDialog.startTime"
-                icon
-                size="x-small"
-                variant="text"
-                class="life-event-check-clear-btn"
-                aria-label="清除时间"
-                @click="lifeEventCheckDialog.startTime = ''"
-              >
+              <input ref="lifeEventStartTimeInputRef" v-model="lifeEventCheckDialog.startTime" type="datetime-local"
+                class="life-event-check-datetime-input" aria-label="开始时间" />
+              <v-btn v-if="lifeEventCheckDialog.startTime" icon size="x-small" variant="text"
+                class="life-event-check-clear-btn" aria-label="清除时间" @click="lifeEventCheckDialog.startTime = ''">
                 <v-icon icon="mdi-close" size="small" />
               </v-btn>
             </div>
@@ -4709,10 +4708,12 @@ const removeExcludePathEntry = (index, type) => {
   background: rgb(var(--v-theme-surface));
   min-height: 40px;
 }
+
 .life-event-check-start-time-wrapper:focus-within {
   border-color: rgb(var(--v-theme-primary));
   box-shadow: 0 0 0 1px rgb(var(--v-theme-primary));
 }
+
 .life-event-check-datetime-input {
   width: 100%;
   height: 100%;
@@ -4728,6 +4729,7 @@ const removeExcludePathEntry = (index, type) => {
   -webkit-appearance: none;
   appearance: none;
 }
+
 .life-event-check-datetime-input::-webkit-calendar-picker-indicator {
   position: absolute;
   left: 0;
@@ -4741,6 +4743,7 @@ const removeExcludePathEntry = (index, type) => {
   opacity: 0;
   cursor: pointer;
 }
+
 .life-event-check-clear-btn {
   position: absolute;
   right: 2px;
