@@ -17,6 +17,7 @@ from tgsignin.core.config import (
     LOGIN_ACTION_CONFIRM,
     LOGIN_ACTION_NONE,
     LOGIN_ACTION_SEND,
+    LOGIN_ACTION_LOGOUT,
     SIGN_TYPE_BUTTON,
     SIGN_TYPE_COMMAND,
     account_login_fields,
@@ -299,6 +300,13 @@ class TestSlotConfig(unittest.TestCase):
     def test_login_action_none_not_dispatched(self) -> None:
         """默认配置（全是不操作）不派发任何登录动作。"""
         self.assertEqual(login_actions(default_slot_config()), [])
+
+    def test_login_actions_includes_logout(self) -> None:
+        """「退出登录」也会被收集为待执行动作（不需要验证码/密码）。"""
+        config = default_slot_config()
+        config["account_1_login_action"] = LOGIN_ACTION_LOGOUT
+        actions = login_actions(config)
+        self.assertEqual(actions, [("acc1", LOGIN_ACTION_LOGOUT, "", "")])
 
 
 class TestParseKeywords(unittest.TestCase):

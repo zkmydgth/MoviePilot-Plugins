@@ -40,6 +40,7 @@ __all__ = [
     "LOGIN_ACTION_NONE",
     "LOGIN_ACTION_SEND",
     "LOGIN_ACTION_CONFIRM",
+    "LOGIN_ACTION_LOGOUT",
     "NOTIFY_MODE_NONE",
     "NOTIFY_MODE_FAILURE",
     "NOTIFY_MODE_SUCCESS",
@@ -104,6 +105,8 @@ PROXY_MODE_DIRECT = "direct"
 LOGIN_ACTION_NONE = "不操作"
 LOGIN_ACTION_SEND = "发送验证码"
 LOGIN_ACTION_CONFIRM = "确认登录"
+# 退出登录：删除该账号的 session 与登录记录（配置页按钮带原生确认弹窗，2026-10-11 加）
+LOGIN_ACTION_LOGOUT = "退出登录"
 
 # 通知方式：不通知 / 仅失败时 / 仅成功时 / 成功与失败都通知
 NOTIFY_MODE_NONE = "none"
@@ -580,8 +583,8 @@ def login_actions(
     """
     收集需要执行的登录动作（保存配置时由插件入口派发）。
 
-    只返回「槽位启用且动作是发送验证码/确认登录」的条目；每个条目形如
-    ``(账号标识, 动作, 验证码, 两步验证密码)``。
+    只返回「槽位启用且动作是发送验证码/确认登录/退出登录」的条目；每个条目形如
+    ``(账号标识, 动作, 验证码, 两步验证密码)``（退出登录不用后两项）。
 
     :param config: 插件配置字典
     :return List[Sequence[str]]: 待执行动作列表
@@ -592,7 +595,11 @@ def login_actions(
         if not config.get(f"account_{index}_enabled"):
             continue
         action = coerce_scalar(config.get(f"account_{index}_login_action"))
-        if action not in (LOGIN_ACTION_SEND, LOGIN_ACTION_CONFIRM):
+        if action not in (
+            LOGIN_ACTION_SEND,
+            LOGIN_ACTION_CONFIRM,
+            LOGIN_ACTION_LOGOUT,
+        ):
             continue
         actions.append(
             (

@@ -88,8 +88,8 @@ MUTANTS = [
     ),
     (
         "core/config.py",
-        "        if action not in (LOGIN_ACTION_SEND, LOGIN_ACTION_CONFIRM):",
-        "        if False:",
+        "        if action not in (\n            LOGIN_ACTION_SEND,\n            LOGIN_ACTION_CONFIRM,\n            LOGIN_ACTION_LOGOUT,\n        ):",
+        "        if False:  # 变异：不再筛选登录动作",
         "「不操作」也被当成待执行登录动作",
     ),
     (

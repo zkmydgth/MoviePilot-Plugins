@@ -19,6 +19,7 @@ TgSignin —— Telegram 多账号自动签到（MoviePilot V3 插件）。
 from __future__ import annotations
 
 import asyncio
+import json
 import threading
 from datetime import datetime
 from pathlib import Path
@@ -43,6 +44,7 @@ from .core.config import (
     LOGIN_ACTION_CONFIRM,
     LOGIN_ACTION_NONE,
     LOGIN_ACTION_SEND,
+    LOGIN_ACTION_LOGOUT,
     NOTIFY_MODE_ALL,
     NOTIFY_MODE_FAILURE,
     NOTIFY_MODE_NONE,
@@ -100,6 +102,7 @@ from .core.store import (
     record_login,
     record_login_event,
     record_run,
+    save_state,
 )
 from .version import VERSION
 
@@ -509,6 +512,9 @@ class TgSignin(_PluginBase):
                 continue
             if action == LOGIN_ACTION_SEND:
                 result = await send_code(self.get_data_path(), account, proxy)
+            elif action == LOGIN_ACTION_LOGOUT:
+                # 退出登录：删除 session 与登录记录（配置页按钮带原生确认弹窗）
+                result = self._logout_account(account)
             else:
                 result = await confirm_login(
                     self.get_data_path(), account, code, password, proxy
@@ -591,6 +597,7 @@ class TgSignin(_PluginBase):
             {"title": LOGIN_ACTION_NONE, "value": LOGIN_ACTION_NONE},
             {"title": LOGIN_ACTION_SEND, "value": LOGIN_ACTION_SEND},
             {"title": LOGIN_ACTION_CONFIRM, "value": LOGIN_ACTION_CONFIRM},
+            {"title": LOGIN_ACTION_LOGOUT, "value": LOGIN_ACTION_LOGOUT},
         ]
         proxy_items = [
             {"title": "跟随 MoviePilot 代理", "value": PROXY_MODE_MP},
@@ -915,8 +922,22 @@ class TgSignin(_PluginBase):
                                         "type": "info",
                                         "variant": "tonal",
                                         "show": enabled_expr,
-                                        "text": "① 选「发送验证码」保存 → ② 填验证码、选「确认登录」再保存",
+                                        "text": "① 选「发送验证码」保存 → ② 填验证码、选「确认登录」再保存"
+                                                "；点下方按钮可直接退出该账号登录",
                                     },
+                                },
+                                {
+                                    "component": "VBtn",
+                                    "props": {
+                                        "color": "warning",
+                                        "variant": "tonal",
+                                        "size": "small",
+                                        "class": "mt-2",
+                                        "prepend-icon": "mdi-logout",
+                                        "show": enabled_expr,
+                                        "onClick": self._logout_button_js(index),
+                                    },
+                                    "text": "退出登录",
                                 }
                             ],
                         },
@@ -1241,23 +1262,6 @@ class TgSignin(_PluginBase):
                         {"component": "td", "text": account.display()},
                         {"component": "td", "text": account.phone or "-"},
                         {"component": "td", "text": status},
-                        {
-                            "component": "td",
-                            "content": [
-                                self._button(
-                                    "退出",
-                                    "/logout",
-                                    color="warning",
-                                    params={"account": account.key},
-                                ),
-                                self._button(
-                                    "确认退出",
-                                    "/logout",
-                                    color="error",
-                                    params={"account": account.key, "confirm": "true"},
-                                ),
-                            ],
-                        },
                     ],
                 }
             )
@@ -1266,7 +1270,7 @@ class TgSignin(_PluginBase):
                 {
                     "component": "tr",
                     "content": [
-                        {"component": "td", "props": {"colspan": 4}, "text": "尚未配置账号"},
+                        {"component": "td", "props": {"colspan": 3}, "text": "尚未配置账号"},
                     ],
                 }
             )
@@ -1695,10 +1699,7 @@ class TgSignin(_PluginBase):
                 + [actions_block]
                 + [
                     self._group_header("账号登录状态"),
-                    _table(
-                        ["账号", "手机号", "状态", "操作"],
-                        self._login_status_rows(),
-                    ),
+                    _table(["账号", "手机号", "状态"], self._login_status_rows()),
                     self._group_header("今日签到状态（按目标）"),
                     _table(
                         [
@@ -1976,6 +1977,58 @@ class TgSignin(_PluginBase):
         logger.info("【TgSignin】确认登录：%s → %s", account.key, message)
         if not ok:
             self._notify_login_failure(account, LOGIN_ACTION_CONFIRM, message)
+
+    def _logout_account(self, account: AccountConfig) -> Dict[str, Any]:
+        """
+        删除某个账号的 session 与登录记录（配置页「退出登录」动作与详情页 API 共用）。
+
+        :param account: 账号配置
+        :return Dict[str, Any]: ``{ok, message}``
+        """
+
+        removed = delete_session(self.get_data_path(), account.key)
+        clear_pending(self.get_data_path(), account.key)
+        state = load_state(self.get_data_path())
+        (state.get("accounts") or {}).pop(account.key, None)
+        save_state(self.get_data_path(), state)
+        return {
+            "ok": True,
+            "message": f"已退出 {account.display()}"
+            f"（{'已删除 session' if removed else '本就没有 session'}）",
+        }
+
+    @staticmethod
+    def _logout_button_js(index: int) -> str:
+        """
+        生成配置表单「退出登录」按钮的前端脚本（原生确认弹窗 + 回填「登录动作」）。
+
+        配置表单渲染器只认 ``props.on*`` 字符串脚本，且在 ``with(model)`` 作用域内以
+        ``(value)(event)`` 求值（``events`` 在配置表单里不生效，只有详情页按钮支持），
+        所以这里用浏览器原生 ``confirm`` 做二次确认，再把该账号槽的「登录动作」填成
+        「退出登录」——**点完仍需按「保存」才会真正执行**。
+
+        :param index: 账号槽序号（1 起）
+        :return str: 可直接放进 ``props.onClick`` 的 JS 函数源码
+        """
+
+        guard = json.dumps(
+            f"将退出「账号 {index}」（acc{index}）：\n"
+            "删除该账号的 Telegram 登录态，之后需要重新登录才能签到。\n"
+            "（这一步只是把「登录动作」填成「退出登录」，点完仍需按「保存」才会执行）\n"
+            "确定退出？",
+            ensure_ascii=False,
+        )
+        value = json.dumps(LOGIN_ACTION_LOGOUT, ensure_ascii=False)
+        model = f"model.account_{index}_login_action"
+        return (
+            "function () { if (!confirm("
+            + guard
+            + ")) { return; } "
+            + model
+            + " = "
+            + value
+            + "; }"
+        )
 
     def _clear_login_slot(self, account_key: str) -> None:
         """
@@ -2256,16 +2309,10 @@ class TgSignin(_PluginBase):
                            f"确认请带 confirm=true 再调用一次。",
                 "data": {"need_confirm": True, "account": account.key},
             }
-        removed = delete_session(self.get_data_path(), account.key)
-        clear_pending(self.get_data_path(), account.key)
-        state = load_state(self.get_data_path())
-        (state.get("accounts") or {}).pop(account.key, None)
-        from .core.store import save_state  # pylint: disable=import-outside-toplevel
-
-        save_state(self.get_data_path(), state)
+        result = self._logout_account(account)
         return {
             "success": True,
-            "message": f"已退出 {account.display()}（{'已删除 session' if removed else '本就没有 session'}）",
+            "message": str(result.get("message") or ""),
             "data": {"account": account.key},
         }
 

@@ -19,8 +19,10 @@ import tests  # noqa: F401  触发宿主桩与插件路径注入
 
 from tgsignin import TgSignin
 from tgsignin.core.config import (
+    LOGIN_ACTION_LOGOUT,
     LOGIN_ACTION_NONE,
     LOGIN_ACTION_SEND,
+    MAX_ACCOUNT_SLOTS,
     NOTIFY_MODE_ALL,
     NOTIFY_MODE_FAILURE,
     NOTIFY_MODE_NONE,
@@ -30,6 +32,7 @@ from tgsignin.core.config import (
 from tgsignin.core.store import (
     load_state,
     record_ai_keywords,
+    record_login,
     record_run,
     save_state,
 )
@@ -685,17 +688,48 @@ class TestPageExtras(unittest.TestCase):
         expected = datetime.fromtimestamp(stamp, TZ).strftime("%Y-%m-%d %H:%M:%S")
         self.assertIn(expected, blob)
 
-    def test_logout_buttons_are_two_stage(self) -> None:
-        """账号行有「退出 / 确认退出」两阶段按钮（后者带 confirm=true）。"""
-        page = self._plugin().get_page()
-        buttons = {
-            node.get("text"): node["events"]["click"]["params"]
-            for node in _walk(page)
+    def test_logout_moved_to_config_form(self) -> None:
+        """
+        退出登录挪到配置表单：按钮带原生确认脚本，详情页不再有退出按钮。
+
+        配置表单渲染器只认 ``props.on*`` 字符串脚本（``events`` 不生效），
+        所以用 ``confirm`` 弹窗 + 回填「登录动作」的方式实现（2026-10-11 用户定案）。
+        """
+        plugin = self._plugin()
+        page_texts = {
+            node.get("text")
+            for node in _walk(plugin.get_page())
             if node.get("component") == "VBtn"
         }
-        self.assertIn("退出", buttons)
-        self.assertIn("确认退出", buttons)
-        self.assertEqual(buttons["确认退出"].get("confirm"), "true")
+        self.assertNotIn("退出", page_texts)
+        self.assertNotIn("确认退出", page_texts)
+        form, _ = plugin.get_form()
+        buttons = [
+            node
+            for node in _walk(form)
+            if node.get("component") == "VBtn" and node.get("text") == "退出登录"
+        ]
+        self.assertEqual(len(buttons), MAX_ACCOUNT_SLOTS, "每个账号槽一枚「退出登录」")
+        script = buttons[0]["props"]["onClick"]
+        self.assertTrue(script.startswith("function ()"))
+        self.assertIn("confirm(", script)
+        self.assertIn("model.account_1_login_action", script)
+        self.assertIn(f'"{LOGIN_ACTION_LOGOUT}"', script)
+        self.assertIn("show", buttons[0]["props"])
+
+    def test_logout_action_deletes_session(self) -> None:
+        """配置页选「退出登录」保存后：session 与登录记录都被清掉。"""
+        plugin = self._plugin()
+        data_dir = plugin.get_data_path()
+        sessions = data_dir / "sessions"
+        sessions.mkdir(parents=True, exist_ok=True)
+        (sessions / "acc_acc1.session").write_bytes(b"x")
+        record_login(data_dir, "acc1", {"name": "t", "username": "u"})
+        asyncio.run(
+            plugin._execute_login_actions([("acc1", LOGIN_ACTION_LOGOUT, "", "")])
+        )
+        self.assertFalse((sessions / "acc_acc1.session").exists())
+        self.assertNotIn("acc1", load_state(data_dir).get("accounts") or {})
 
     def test_result_rows_have_retry_buttons(self) -> None:
         """结果表行内「重试」按钮带 apikey 与 account/bot。"""
