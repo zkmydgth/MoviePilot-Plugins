@@ -189,6 +189,24 @@ class ConfigManager:
                         f"【配置管理器】配置项 {field_name} 的值 {value} 不是布尔类型，已替换为默认值 {default_value}"
                     )
                     fixed_dict[field_name] = default_value
+            elif (
+                field.type_ is str
+                and field_name in fixed_dict
+                and field_name
+                in [
+                    "PLUGIN_CONFIG_PATH",
+                    "PLUGIN_TEMP_PATH",
+                    "PLUGIN_DB_PATH",
+                    "PLUGIN_DATABASE_PATH",
+                ]
+            ):
+                value = fixed_dict[field_name]
+                if not isinstance(value, str):
+                    default_value = field.default
+                    logger.warning(
+                        f"【配置管理器】配置项 {field_name} 的值 {value} 不是字符串类型，已替换为默认值 {default_value}"
+                    )
+                    fixed_dict[field_name] = default_value
         return fixed_dict
 
     def load_from_dict(self, config_dict: Dict[str, Any]) -> bool:
