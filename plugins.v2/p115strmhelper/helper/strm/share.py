@@ -673,7 +673,7 @@ class ShareStrmHelper:
             )
 
         logger.debug(
-            f"【全量STRM生成】时间 {self.elapsed_time:.6f} 秒，总迭代文件数量 {self.total_count}"
+            f"【分享STRM生成】时间 {self.elapsed_time:.6f} 秒，总迭代文件数量 {self.total_count}"
         )
 
         return (
