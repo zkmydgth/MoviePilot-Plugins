@@ -25,6 +25,7 @@ from .db_manager import ct_db_manager
 from .db_manager.init import init_db, migration_db, init_migration_scripts
 from .db_manager.oper import FileDbHelper
 from .patch.u115_open import U115Patcher
+from .patch.p115disk_upload import P115DiskPatcher
 from .interactive.framework.callbacks import decode_action, Action
 from .interactive.framework.manager import BaseSessionManager
 from .interactive.framework.schemas import TSession
@@ -137,6 +138,7 @@ class P115StrmHelper(_PluginBase):
                 self.api = Api(client=servicer.client)
 
             U115Patcher().enable()
+            P115DiskPatcher().enable()
 
             # 目录上传监控服务
             servicer.start_directory_upload()
@@ -1320,6 +1322,7 @@ class P115StrmHelper(_PluginBase):
         servicer.stop()
         ct_db_manager.close_database()
         U115Patcher().disable()
+        P115DiskPatcher().disable()
 
     async def _save_config_api(self, request: Request) -> Dict:
         """
