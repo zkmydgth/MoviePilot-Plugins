@@ -11,10 +11,13 @@ from app.log import logger
 from app.plugins import _PluginBase
 from app.schemas import (
     FileItem,
+    NotificationType,
     TransferRenameEventData,
     TransferOverwriteCheckEventData,
 )
 from app.schemas.types import EventType, MessageChannel, ChainEventType
+from app.chain.storage import StorageChain
+from app.helper.directory import DirectoryHelper
 
 from apscheduler.triggers.cron import CronTrigger
 from jinja2 import Template
@@ -52,7 +55,7 @@ from .helper.mediasyncdel.webhook_queue import (
     SyncDelWebhookTask,
     sync_del_webhook_queue,
 )
-from .utils.path import PathUtils
+from .utils.path import PathUtils, PathRemoveUtils
 from .utils.offline_link import OfflineLinkResolver
 from .utils.sentry import sentry_manager
 from .helper.share.share_links import ShareLinkResolver
@@ -1871,6 +1874,74 @@ class P115StrmHelper(_PluginBase):
                 logger.warning(
                     f"【分享STRM覆盖检查】ffprobe探测失败: {error_message} for {url}"
                 )
+
+    @eventmanager.register(EventType.TransferFailed)
+    def auto_delete_inferior_source(self, event: Event) -> None:
+        """
+        按文件大小整理失败时自动删除低质量源文件
+        """
+        if not configer.enabled or not configer.auto_delete_inferior_source_enabled:
+            return
+
+        event_data = event.event_data
+        if not event_data:
+            return
+
+        transferinfo = event_data.get("transferinfo")
+        if not transferinfo:
+            return
+
+        message = transferinfo.message or ""
+        if "质量更好" not in message and "同名文件" not in message:
+            return
+
+        fileitem = event_data.get("fileitem")
+        if not fileitem:
+            return
+        source_path = fileitem.path
+        if not source_path:
+            return
+
+        try:
+            if fileitem.storage == "local":
+                Path(source_path).unlink(missing_ok=True)
+                logger.info(f"【自动删除低质量源文件】已删除本地源文件: {source_path}")
+                stop_paths = [
+                    p
+                    for d in DirectoryHelper().get_dirs()
+                    for p in (d.download_path, d.library_path)
+                    if p
+                ]
+                PathRemoveUtils.remove_parent_dir(
+                    file_path=Path(source_path),
+                    mode=settings.RMT_MEDIAEXT,
+                    func_type="【自动删除低质量源文件】",
+                    stop_at_paths=stop_paths,
+                )
+            else:
+                storage_chain = StorageChain()
+                if storage_chain.delete_media_file(fileitem=fileitem):
+                    logger.info(
+                        f"【自动删除低质量源文件】已删除 {fileitem.storage} 源文件: {source_path}"
+                    )
+                else:
+                    logger.error(
+                        f"【自动删除低质量源文件】删除 {fileitem.storage} 源文件失败: {source_path}"
+                    )
+                    return
+
+            # 发送通知
+            if configer.notify:
+                post_message(
+                    mtype=NotificationType.Plugin,
+                    title="【自动删除低质量源文件】源文件已删除",
+                    text=f"\n因媒体库已存在更高质量文件，已自动删除源文件:\n{source_path}",
+                )
+        except Exception as e:
+            logger.error(
+                f"【自动删除低质量源文件】删除源文件失败: {source_path} - {e}",
+                exc_info=True,
+            )
 
     def stop_service(self):
         """

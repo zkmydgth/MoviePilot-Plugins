@@ -764,6 +764,9 @@ class ConfigManager(BaseModel):
     share_strm_overwrite_check_enabled: bool = Field(
         default=False, description="分享STRM覆盖大小检查"
     )
+    auto_delete_inferior_source_enabled: bool = Field(
+        default=False, description="自动删除低质量源文件（按大小整理失败时）"
+    )
 
     @field_serializer(
         "PLUGIN_CONFIG_PATH",

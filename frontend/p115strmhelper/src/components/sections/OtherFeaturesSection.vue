@@ -250,23 +250,52 @@
         </v-card-text>
       </v-window-item>
       <v-window-item value="tab-utility">
-        <v-card-text>
-          <v-row class="pl-4">
-            <v-col cols="12" md="6">
-              <v-switch v-model="config.share_strm_overwrite_check_enabled"
-                label="分享STRM覆盖大小检查" color="primary" density="compact"
-                hint="启用后，整理时对比分享STRM指向的实际媒体文件大小，而非STRM文件本身大小"
-                persistent-hint></v-switch>
-            </v-col>
-          </v-row>
-          <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
-            <div class="text-body-2 mb-1"><strong>分享STRM覆盖大小检查</strong></div>
-            <div class="text-caption">
-              <div class="mb-1">• 解决按大小覆盖时 STRM 文件被误判为小文件的问题</div>
-              <div class="mb-1">• 优先使用生成时的缓存数据，未命中时使用 ffprobe 探测</div>
-              <div>• 仅对本插件生成的标准格式分享 STRM 有效</div>
-            </div>
-          </v-alert>
+        <v-card-text class="px-2">
+          <!-- 功能 1: 分享STRM覆盖大小检查 -->
+          <v-card variant="outlined" class="mb-4" density="compact">
+            <v-card-title class="d-flex align-center py-2 px-4 bg-primary-lighten-5">
+              <v-icon size="small" color="primary" class="mr-2">mdi-file-compare</v-icon>
+              <span class="text-subtitle-2 font-weight-medium">分享STRM覆盖大小检查</span>
+            </v-card-title>
+            <v-divider></v-divider>
+            <v-card-text class="py-3 px-4">
+              <v-row align="center">
+                <v-col cols="12" md="4">
+                  <v-switch v-model="config.share_strm_overwrite_check_enabled" label="启用功能" color="primary"
+                    density="compact" hide-details></v-switch>
+                </v-col>
+                <v-col cols="12" md="8">
+                  <v-alert type="info" variant="tonal" density="compact" class="text-caption">
+                    解决按大小覆盖时 STRM 文件被误判为小文件的问题<br>
+                    优先使用生成时的缓存数据，未命中时使用 ffprobe 探测实际大小
+                  </v-alert>
+                </v-col>
+              </v-row>
+            </v-card-text>
+          </v-card>
+
+          <!-- 功能 2: 自动删除低质量源文件 -->
+          <v-card variant="outlined" class="mb-4" density="compact">
+            <v-card-title class="d-flex align-center py-2 px-4 bg-warning-lighten-5">
+              <v-icon size="small" color="warning" class="mr-2">mdi-delete-alert</v-icon>
+              <span class="text-subtitle-2 font-weight-medium">自动删除低质量源文件</span>
+            </v-card-title>
+            <v-divider></v-divider>
+            <v-card-text class="py-3 px-4">
+              <v-row align="center">
+                <v-col cols="12" md="4">
+                  <v-switch v-model="config.auto_delete_inferior_source_enabled" label="启用功能" color="warning"
+                    density="compact" hide-details></v-switch>
+                </v-col>
+                <v-col cols="12" md="8">
+                  <v-alert type="warning" variant="tonal" density="compact" class="text-caption">
+                    <strong>注意：</strong>按文件大小整理失败时（媒体库已存在更高质量文件），自动删除源文件<br>
+                    支持所有存储类型：本地、115网盘、CloudDrive
+                  </v-alert>
+                </v-col>
+              </v-row>
+            </v-card-text>
+          </v-card>
         </v-card-text>
       </v-window-item>
     </v-window>
