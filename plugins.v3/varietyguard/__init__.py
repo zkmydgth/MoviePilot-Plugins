@@ -32,6 +32,9 @@
 - **失败即放行**（fail-open）：补丁失配、正则非法、内部异常都只记日志并返回宿主
   的原始计划，绝不阻断正常整理。
 - 支持**试运行**：只记录「本应跳过」的文件，不真正过滤，便于先观察再启用。
+- **可选词表同步**（配置 ``sync_rule_id``）：插件在加载与保存配置时，把生效词表**整条镜像**
+  写入指定的自定义过滤规则 —— 新增与删减都同步、即时生效、不额外消耗模型额度；
+  留空即关闭；目标规则不存在或词表异常时只记日志、绝不改动规则。
 """
 
 import dataclasses
@@ -44,6 +47,21 @@ from app.plugins import _PluginBase
 from app.runtime.log import logger
 from app.schemas.types import EventType, MessageType
 from app.sdk.events import Event, eventmanager
+
+# 可选能力（词表同步）的宿主依赖：缺失时仅关闭该能力，不影响过滤主链。
+try:  # pragma: no cover - 宿主版本差异分支
+    from app.application.configuration import get_configured_system_config
+    from app.application.rules import RuleHelper
+    from app.schemas.types import SystemConfigKey
+except Exception:  # noqa: BLE001 - 兼容不提供该应用服务的宿主
+    get_configured_system_config = None  # type: ignore[assignment]
+    RuleHelper = None  # type: ignore[assignment]
+    SystemConfigKey = None  # type: ignore[assignment]
+
+try:  # pragma: no cover - 宿主版本差异分支
+    from app.sdk.scheduler import add_plugin_once_job
+except Exception:  # noqa: BLE001 - 兼容不提供该调度门面的宿主
+    add_plugin_once_job = None  # type: ignore[assignment]
 
 from .version import VERSION
 
@@ -165,6 +183,12 @@ DEFAULT_SCOPE_CATEGORIES: str = "综艺"
 # 插件数据键
 DATA_KEY_STATS = "stats"
 DATA_KEY_RECORDS = "records"
+DATA_KEY_RULE_SYNC = "rule_sync"
+
+# 词表同步（可选能力）：一次性任务 ID 与写入前的安全闸区间
+RULE_SYNC_JOB_ID = "sync_rule_keywords"
+RULE_SYNC_MIN_ITEMS = 10
+RULE_SYNC_MAX_ITEMS = 200
 
 # 补丁安装失败时的提示（供详情页显示）
 PATCH_STATE_OK = "installed"
@@ -194,6 +218,7 @@ class VarietyGuard(_PluginBase):
     _match_full_path: bool = False
     _notify: bool = False
     _keep_records: int = 200
+    _sync_rule_id: str = ""
 
     # 补丁状态
     _patch_state: str = ""
@@ -226,6 +251,9 @@ class VarietyGuard(_PluginBase):
         self._match_full_path = bool(config.get("match_full_path", False))
         self._notify = bool(config.get("notify", False))
         self._keep_records = self._coerce_int(config.get("keep_records"), 200, 0, 5000)
+        self._sync_rule_id = str(config.get("sync_rule_id") or "").strip()
+        # 词表同步与「是否启用」无关：规则是过滤链的前置条件，两份词表应始终一致。
+        self._schedule_rule_sync()
 
         if not self._enabled:
             logger.info("【综艺正片守卫】插件未启用，不做任何拦截")
@@ -555,6 +583,110 @@ class VarietyGuard(_PluginBase):
             return default
         return max(minimum, min(maximum, number))
 
+    # ==================== 词表同步（可选能力） ====================
+
+    def _schedule_rule_sync(self) -> None:
+        """安排一次词表镜像同步；未配置规则 ID 或宿主无调度门面时只记日志。"""
+        if not self._sync_rule_id:
+            return
+        if add_plugin_once_job is None:
+            logger.warning(
+                "【综艺正片守卫】宿主未提供调度门面，无法同步词表到 %s", self._sync_rule_id
+            )
+            return
+        scheduled = add_plugin_once_job(
+            self.__class__.__name__,
+            RULE_SYNC_JOB_ID,
+            self._sync_rule_keywords,
+            "同步非正片词表到自定义过滤规则",
+            0,
+        )
+        if not scheduled:
+            logger.warning(
+                "【综艺正片守卫】调度器未运行，本次跳过词表同步（下次保存配置会自动重试）"
+            )
+
+    async def _sync_rule_keywords(self) -> None:
+        """把生效词表整条镜像写入目标自定义过滤规则（任何异常都只记日志）。"""
+        rule_id = self._sync_rule_id
+        if not rule_id:
+            return
+        try:
+            desired = "|".join(self._exclude_keywords)
+            rejected = self._rule_sync_guard(desired)
+            if rejected:
+                logger.error("【综艺正片守卫】词表同步已跳过（安全闸）：%s", rejected)
+                return
+            if RuleHelper is None or SystemConfigKey is None or get_configured_system_config is None:
+                logger.warning(
+                    "【综艺正片守卫】宿主未提供规则服务，无法同步词表到 %s", rule_id
+                )
+                return
+            rules = [rule.model_dump(exclude_none=True) for rule in RuleHelper.get_custom_rules()]
+            target = next((rule for rule in rules if rule.get("id") == rule_id), None)
+            if target is None:
+                logger.warning(
+                    "【综艺正片守卫】自定义过滤规则 %s 不存在，词表同步已跳过", rule_id
+                )
+                return
+            current = str(target.get("exclude") or "")
+            if current == desired:
+                return  # 已一致：静默
+            updated = [
+                dict(rule, exclude=desired) if rule.get("id") == rule_id else rule
+                for rule in rules
+            ]
+            await get_configured_system_config().async_set_with_normalized_value(
+                SystemConfigKey.CustomFilterRules, updated
+            )
+            added, removed = self._diff_rule_keywords(current, desired)
+            self.save_data(
+                DATA_KEY_RULE_SYNC,
+                {
+                    "time": time.strftime("%Y-%m-%d %H:%M:%S"),
+                    "rule_id": rule_id,
+                    "count": len(self._exclude_keywords),
+                    "added": added,
+                    "removed": removed,
+                },
+            )
+            logger.info(
+                "【综艺正片守卫】已同步 %d 项非正片词到过滤规则 %s（新增 %d、删除 %d）",
+                len(self._exclude_keywords),
+                rule_id,
+                len(added),
+                len(removed),
+            )
+        except Exception as err:  # noqa: BLE001 - 同步失败必须 fail-open
+            logger.error(
+                "【综艺正片守卫】词表同步失败（已忽略，不影响过滤）：%s", err, exc_info=True
+            )
+
+    def _rule_sync_guard(self, desired: str) -> str:
+        """校验待写入的规则文本；返回非空字符串表示应当跳过本次同步。"""
+        items = self._exclude_keywords
+        if not RULE_SYNC_MIN_ITEMS <= len(items) <= RULE_SYNC_MAX_ITEMS:
+            return (
+                f"词表项数 {len(items)} 超出安全区间 "
+                f"[{RULE_SYNC_MIN_ITEMS}, {RULE_SYNC_MAX_ITEMS}]"
+            )
+        if any("|" in item or "\n" in item for item in items):
+            return "词表存在含 | 或换行的条目（会破坏规则的单个正则结构）"
+        try:
+            re.compile(desired)
+        except re.error as err:
+            return f"拼接后的正则不合法：{err}"
+        return ""
+
+    @staticmethod
+    def _diff_rule_keywords(current: str, desired: str) -> Tuple[List[str], List[str]]:
+        """比较规则前后文本，返回（新增项、删除项）。"""
+        before = {item for item in current.split("|") if item}
+        after = {item for item in desired.split("|") if item}
+        added = [item for item in after if item not in before]
+        removed = [item for item in before if item not in after]
+        return added, removed
+
     # ==================== 命令 ====================
 
     @staticmethod
@@ -823,6 +955,41 @@ class VarietyGuard(_PluginBase):
                             },
                         ],
                     },
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12},
+                                "content": [
+                                    {
+                                        "component": "VAlert",
+                                        "props": {
+                                            "type": "success",
+                                            "variant": "tonal",
+                                            "class": "mb-3",
+                                            "text": "词表同步（可选）",
+                                        },
+                                    }
+                                ],
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12},
+                                "content": [
+                                    {
+                                        "component": "VTextField",
+                                        "props": {
+                                            "model": "sync_rule_id",
+                                            "label": "同步到自定义过滤规则（rule_id，留空=关闭）",
+                                            "persistent-hint": True,
+                                            "hint": "填写自定义过滤规则的 ID（如 RULE4）：插件在加载与保存配置时，把自己的非正片词表（含内置默认）整条镜像写入该规则的「排除」项 —— 新增与删减都会同步、即时生效、不消耗模型额度。留空则完全不动作；规则不存在、词表项数超出 10~200、或拼接后的正则不合法时，只记日志、不改动规则。",
+                                        },
+                                    }
+                                ],
+                            },
+                        ],
+                    },
                 ],
             }
         ], {
@@ -835,6 +1002,7 @@ class VarietyGuard(_PluginBase):
             "scope_categories": DEFAULT_SCOPE_CATEGORIES,
             "match_full_path": False,
             "keep_records": 200,
+            "sync_rule_id": "",
         }
 
     # ==================== 详情页 ====================

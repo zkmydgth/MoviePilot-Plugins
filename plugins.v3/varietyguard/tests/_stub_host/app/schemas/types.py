@@ -24,3 +24,9 @@ class MessageType(Enum):
 
     Plugin = "插件"
     Other = "其它"
+
+
+class SystemConfigKey(Enum):
+    """系统配置键替身：只用得到自定义过滤规则这一项。"""
+
+    CustomFilterRules = "CustomFilterRules"

@@ -8,15 +8,20 @@
   B. 判定：排除词命中才跳过；白名单优先；坏正则不得崩
   C. 静默语义：全为非正片时改写成宿主的「无候选」跳过（不产生失败记录）
   D. 安全边界：试运行不过滤、异常放行、补丁可装可卸、失配不抛
+  E. 词表同步：镜像写入目标规则、已一致时不写、缺配置/缺规则/词表异常/写入失败都不得动规则
 """
 
+import asyncio
 import re
 import unittest
 
 import tests  # noqa: F401  触发宿主桩路径注入
 
+from app.application import configuration as stub_configuration
+from app.application import rules as stub_rules
 from app.modules.filemanager import transhandler as stub_transhandler
-from app.schemas.types import MediaType
+from app.schemas.types import MediaType, SystemConfigKey
+from app.sdk import scheduler as stub_scheduler
 from varietyguard import VarietyGuard
 
 
@@ -552,6 +557,80 @@ class VarietyGuardTestCase(unittest.TestCase):
         self.assertIs(
             self.plugin._filter_checkpoint(raw, (), {"mediainfo": FakeMedia()}), raw
         )
+
+    # ---------------- E. 词表同步（可选能力） ----------------
+
+    def test_rule_sync_mirrors_keywords_into_rule(self):
+        """填了 sync_rule_id：词表被整条镜像写入目标规则，并留档同步记录。"""
+        stub_rules.RULES[:] = [{"id": "RULE4", "name": "排除综艺非正片", "exclude": "旧词|Plus"}]
+        stub_configuration.SERVICE.writes.clear()
+        stub_scheduler.JOBS.clear()
+        self._enable(enabled=False, sync_rule_id="RULE4", exclude_keywords=None)
+        # 未启用也应安排同步：词表一致性与「是否过滤」无关
+        self.assertEqual(len(stub_scheduler.JOBS), 1)
+        self.assertEqual(stub_scheduler.JOBS[0]["func"].__name__, "_sync_rule_keywords")
+        asyncio.run(self.plugin._sync_rule_keywords())
+        self.assertEqual(len(stub_configuration.SERVICE.writes), 1)
+        key, value = stub_configuration.SERVICE.writes[0]
+        self.assertEqual(key, SystemConfigKey.CustomFilterRules)
+        mirror = next(rule for rule in value if rule["id"] == "RULE4")
+        self.assertEqual(mirror["exclude"], "|".join(self.plugin._exclude_keywords))
+        record = self.plugin.get_data("rule_sync")
+        self.assertEqual(record["rule_id"], "RULE4")
+        self.assertEqual(record["count"], len(self.plugin._exclude_keywords))
+        self.assertIn("直播", record["added"])
+        self.assertIn("旧词", record["removed"])
+
+    def test_rule_sync_noop_when_rule_already_matches(self):
+        """规则文本已与词表一致时不写入（不产生无谓的配置变更事件）。"""
+        self._enable(enabled=False, sync_rule_id="RULE4", exclude_keywords=None)
+        mirror = "|".join(self.plugin._exclude_keywords)
+        stub_rules.RULES[:] = [{"id": "RULE4", "name": "排除综艺非正片", "exclude": mirror}]
+        stub_configuration.SERVICE.writes.clear()
+        asyncio.run(self.plugin._sync_rule_keywords())
+        self.assertEqual(stub_configuration.SERVICE.writes, [])
+
+    def test_rule_sync_disabled_without_rule_id(self):
+        """未填写 rule_id：不安排任务、也不写入任何配置。"""
+        stub_scheduler.JOBS.clear()
+        stub_configuration.SERVICE.writes.clear()
+        self._enable(enabled=False)
+        self.assertEqual(stub_scheduler.JOBS, [])
+        asyncio.run(self.plugin._sync_rule_keywords())
+        self.assertEqual(stub_configuration.SERVICE.writes, [])
+
+    def test_rule_sync_ignores_missing_target_rule(self):
+        """目标规则不存在时只跳过：不新建规则、不写入。"""
+        stub_rules.RULES[:] = [{"id": "RULE1", "name": "!HQ", "exclude": "HQ"}]
+        stub_configuration.SERVICE.writes.clear()
+        self._enable(enabled=False, sync_rule_id="RULE9", exclude_keywords=None)
+        asyncio.run(self.plugin._sync_rule_keywords())
+        self.assertEqual(stub_configuration.SERVICE.writes, [])
+
+    def test_rule_sync_guard_rejects_abnormal_keywords(self):
+        """词表项数过少时触发安全闸：绝不把异常词表写进目标规则。"""
+        stub_rules.RULES[:] = [{"id": "RULE4", "name": "排除综艺非正片", "exclude": "旧词"}]
+        stub_configuration.SERVICE.writes.clear()
+        self._enable(enabled=False, sync_rule_id="RULE4", exclude_keywords="先导\n花絮")
+        asyncio.run(self.plugin._sync_rule_keywords())
+        self.assertEqual(stub_configuration.SERVICE.writes, [])
+
+    def test_rule_sync_failure_is_fail_open(self):
+        """写入抛错时不得向上抛（fail-open），且不改变插件自身状态。"""
+        stub_rules.RULES[:] = [{"id": "RULE4", "name": "排除综艺非正片", "exclude": "旧词"}]
+        self._enable(enabled=False, sync_rule_id="RULE4", exclude_keywords=None)
+        stub_configuration.SERVICE.fail_on_write = True
+        try:
+            asyncio.run(self.plugin._sync_rule_keywords())
+        finally:
+            stub_configuration.SERVICE.fail_on_write = False
+
+    def test_form_exposes_sync_rule_id(self):
+        """配置表单与默认模型都暴露 sync_rule_id（留空=关闭）。"""
+        form, model = self.plugin.get_form()
+        self.assertTrue(form)
+        self.assertIn("sync_rule_id", model)
+        self.assertEqual(model["sync_rule_id"], "")
 
 
 if __name__ == "__main__":

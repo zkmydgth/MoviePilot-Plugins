@@ -96,6 +96,12 @@ MUTANTS = [
             raise""",
         "应导致 test_fail_open_on_internal_error 失败",
     ),
+    (
+        "词表同步安全闸失效：词表异常（项数越界/含 | 或换行/正则非法）也照写目标规则",
+        """        if not RULE_SYNC_MIN_ITEMS <= len(items) <= RULE_SYNC_MAX_ITEMS:""",
+        """        if False:""",
+        "应导致 test_rule_sync_guard_rejects_abnormal_keywords 失败",
+    ),
 ]
 
 
