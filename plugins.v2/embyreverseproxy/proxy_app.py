@@ -91,9 +91,22 @@ def create_app(emby_host: str) -> FastAPI:
 
     @app.middleware("http")
     async def path_to_lower_middleware(request: Request, call_next):
-        path = request.scope["path"].lower()
-        if path.startswith(("/emby/", "/items/", "/audio/", "/videos/", "/sync/")):
-            request.scope["path"] = path
+        path = request.scope["path"]
+        lower = path.lower()
+        _api_prefixes = (
+            "/emby/videos/",
+            "/emby/audio/",
+            "/emby/items/",
+            "/emby/sync/",
+            "/emby/system/",
+            "/videos/",
+            "/audio/",
+            "/items/",
+            "/sync/",
+            "/system/",
+        )
+        if lower.startswith(_api_prefixes):
+            request.scope["path"] = lower
         return await call_next(request)
 
     def _extract_api_key(request: Request) -> str | None:
