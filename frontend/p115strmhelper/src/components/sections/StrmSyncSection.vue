@@ -560,9 +560,8 @@
 
           <v-row>
             <v-col cols="12" md="6">
-              <v-switch v-model="config.monitor_life_rename_auto_related_files"
-                label="重命名事件时同步重命名 STRM 关联文件" color="primary" density="compact"
-                hide-details></v-switch>
+              <v-switch v-model="config.monitor_life_rename_auto_related_files" label="重命名事件时同步重命名 STRM 关联文件"
+                color="primary" density="compact" hide-details></v-switch>
             </v-col>
           </v-row>
 
@@ -770,6 +769,18 @@
 
           <v-alert type="warning" variant="tonal" density="compact" class="mt-3" icon="mdi-alert">
             <div class="text-caption">注意：当 MoviePilot 主程序运行整理任务时 115生活事件 监控会自动暂停，整理运行完成后会继续监控。</div>
+          </v-alert>
+
+          <v-alert type="error" variant="tonal" density="compact" class="mt-3" icon="mdi-alert-circle-outline">
+            <div class="text-body-2 mb-1"><strong>已知限制（无法修复）：</strong></div>
+            <div class="text-caption d-flex align-start mb-1">
+              <v-icon icon="mdi-circle-small" size="small" class="mt-0 mr-1 flex-shrink-0"></v-icon>
+              <span>若在 115 中先移动文件后立即重命名，115 只会上报重命名事件而不会上报移动事件，导致该操作无法触发移动事件处理策略。</span>
+            </div>
+            <div class="text-caption d-flex align-start">
+              <v-icon icon="mdi-circle-small" size="small" class="mt-0 mr-1 flex-shrink-0"></v-icon>
+              <span>对文件夹执行重命名或移动操作时，插件不会校验文件夹内已有 STRM 文件的内容，其中的 <code>file_path</code> 路径可能因此失效。</span>
+            </div>
           </v-alert>
 
           <v-row class="mt-4">
