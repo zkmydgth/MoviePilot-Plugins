@@ -254,13 +254,7 @@ class ConfigManager:
         每次更改或者获取配置都需要获得最新的 Aligo 的 Token
         """
         self._configs["aliyundrive_token"] = AliyunPanLogin.get_token(
-            Path(
-                self._configs.get("PLUGIN_CONFIG_PATH")
-                + "/"
-                + "aligo"
-                + "/"
-                + "aligo.json"
-            )
+            self.get_config("PLUGIN_ALIGO_PATH") / "aligo.json"
         ) or self._configs.get("aliyundrive_token")
 
     def load_from_dict(self, config_dict: Dict[str, Any]) -> bool:
@@ -298,19 +292,15 @@ class ConfigManager:
             "PLUGIN_DATABASE_PATH",
         ]:
             return Path(self._configs.get(key))
+        elif key == "PLUGIN_ALIGO_PATH":
+            return Path(self._configs.get("PLUGIN_CONFIG_PATH") + "/" + "aligo")
         elif key == "MACHINE_ID":
             return MachineID.get_or_generate_machine_id(
                 self.get_config("PLUGIN_CONFIG_PATH") / "machine_id.txt"
             )
         elif key == "aliyundrive_token":
             return AliyunPanLogin.get_token(
-                Path(
-                    self._configs.get("PLUGIN_CONFIG_PATH")
-                    + "/"
-                    + "aligo"
-                    + "/"
-                    + "aligo.json"
-                )
+                self.get_config("PLUGIN_ALIGO_PATH") / "aligo.json"
             ) or self._configs.get("aliyundrive_token")
         return self._configs.get(key)
 
@@ -336,13 +326,9 @@ class ConfigManager:
                 self.update_aliyun_token()
             else:
                 if not updates.get("aliyundrive_token"):
-                    Path(
-                        self._configs.get("PLUGIN_CONFIG_PATH")
-                        + "/"
-                        + "aligo"
-                        + "/"
-                        + "aligo.json"
-                    ).unlink(missing_ok=True)
+                    Path(self.get_config("PLUGIN_ALIGO_PATH") / "aligo.json").unlink(
+                        missing_ok=True
+                    )
             return True
         except ValidationError as e:
             logger.error(f"【配置管理器】配置更新失败: {e.json()}")

@@ -21,6 +21,7 @@
     "share_add_success_2": "成功帮主人转存 {title}（{year}）啦喵 ~(=^･ω･^=)",
     "share_add_fail": "【115网盘】呜...转存失败了喵",
     "share_add_fail_2": "转存失败喵... {e} 主人要不要再试一次喵？",
+    "share_url_aligo_error": "配置出问题了喵 ~~ 主人要先配置阿里云盘 Token 喵 ~",
     "media_type_movie": "电影喵",
     "media_type_tv": "电视剧喵",
     "media_type_collection": "合集喵",

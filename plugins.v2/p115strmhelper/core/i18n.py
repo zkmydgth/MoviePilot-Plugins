@@ -32,6 +32,7 @@ class I18N:
 
     def __init__(self):
         self.translations: Dict[str, str] = {}
+        self.default_translations: Dict[str, str] = {}
         self.formatter = NestedFormatter()
 
     def load_translations(self) -> None:
@@ -40,15 +41,25 @@ class I18N:
         """
         locales_dir = settings.ROOT_PATH / "app/plugins" / "p115strmhelper" / "locales"
         lang = configer.get_config("language") or "zh_CN"
+        default_lang = "zh_CN"
+
         lang_file = locales_dir / f"{lang}.json"
 
         try:
             with open(lang_file, "r", encoding="utf-8") as f:
                 self.translations = json.load(f)
-        except FileNotFoundError:
+        except (FileNotFoundError, json.JSONDecodeError):
             self.translations = {}
-        except json.JSONDecodeError:
-            self.translations = {}
+
+        if lang == default_lang:
+            self.default_translations = self.translations
+        else:
+            default_lang_file = locales_dir / f"{default_lang}.json"
+            try:
+                with open(default_lang_file, "r", encoding="utf-8") as f:
+                    self.default_translations = json.load(f)
+            except (FileNotFoundError, json.JSONDecodeError):
+                self.default_translations = {}
 
     def translate(self, key: str, default: Optional[str] = None, **kwargs: Any) -> str:
         """
@@ -56,15 +67,23 @@ class I18N:
 
         Args:
             key: 翻译键名
-            default: 如果找不到键时返回的默认值
+            default: 如果所有语言包都找不到键时返回的默认值
             **kwargs: 格式化参数
 
         Returns:
             格式化后的字符串
         """
-        template = self.translations.get(key, default or key)
+        template = self.translations.get(key)
+
+        if template is None:
+            template = self.default_translations.get(key)
+
+        if template is None:
+            template = default or key
+
         if not template:
             return key
+
         try:
             return self.formatter.format(template, **kwargs)
         except (KeyError, AttributeError):

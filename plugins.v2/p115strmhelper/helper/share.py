@@ -31,7 +31,7 @@ class ShareTransferHelper:
     分享链接转存
     """
 
-    def __init__(self, client: P115Client, aligo: BAligo):
+    def __init__(self, client: P115Client, aligo: Optional[BAligo]):
         self.client = client
         self.aligo = aligo
         self._add_share_queue = Queue()
@@ -108,6 +108,71 @@ class ShareTransferHelper:
         """
         return share_extract_payload(url)
 
+    def __add_share_aliyunpan(self, url, channel, userid):
+        """
+        添加阿里云盘分享任务
+        """
+        ali2115 = Ali2115Helper(self.client, self.aligo)
+        share_id = ali2115.extract_share_code_from_url(url)
+        logger.info(f"【Ali2115】解析分享链接 share_id={share_id}")
+        if not share_id:
+            logger.error(f"【Ali2115】解析分享链接失败：{url}")
+            post_message(
+                channel=channel,
+                title=f"{i18n.translate('share_url_extract_error', url=url)}",
+                userid=userid,
+            )
+            return
+        parent_path = configer.get_config("pan_transfer_paths").split("\n")[0]
+        parent_id = idpathcacher.get_id_by_dir(directory=str(parent_path))
+        if not parent_id:
+            parent_id = self.client.fs_dir_getid(parent_path)["id"]
+            logger.info(f"【Ali2115】获取到转存目录 ID：{parent_id}")
+            idpathcacher.add_cache(id=int(parent_id), directory=str(parent_path))
+
+        share_token = ali2115.get_ali_share_token(share_id)
+
+        # 尝试识别媒体信息
+        file_mediainfo = ali2115.share_recognize_mediainfo(share_token)
+
+        ali2115.share_upload(
+            share_token,
+            parent_id,
+            [
+                f".{ext.strip()}"
+                for ext in configer.get_config("user_rmt_mediaext")
+                .replace("，", ",")
+                .split(",")
+            ],
+        )
+
+        logger.info(f"【Ali2115】秒传 {share_id} 到 {parent_path} 完成")
+        if not file_mediainfo:
+            post_message(
+                channel=channel,
+                title=i18n.translate("share_add_success"),
+                text=f"""
+分享链接：https://www.alipan.com/s/{share_id}
+秒传目录：{parent_path}
+""",
+                userid=userid,
+            )
+        else:
+            post_message(
+                channel=channel,
+                title=i18n.translate(
+                    "share_add_success_2",
+                    title=file_mediainfo.title,
+                    year=file_mediainfo.year,
+                ),
+                text=f"""
+链接：https://www.alipan.com/s/{share_id}
+简介：{file_mediainfo.overview}
+""",
+                image=file_mediainfo.poster_path,
+                userid=userid,
+            )
+
     def __add_share(self, url, channel, userid):
         """
         分享转存
@@ -127,8 +192,14 @@ class ShareTransferHelper:
                     r"^https?://(.*\.)?(alipan|aliyundrive)\.[a-zA-Z]{2,}(?:\/|$)", url
                 )
             ):
-                ali2115 = Ali2115Helper(self.client, self.aligo)
-                ali2115.add_share(url, channel, userid)
+                if not self.aligo:
+                    post_message(
+                        channel=channel,
+                        title=f"{i18n.translate('share_url_aligo_error', url=url)}",
+                        userid=userid,
+                    )
+                    return
+                self.__add_share_aliyunpan(url, channel, userid)
                 return
 
             data = self.share_url_extract(url)

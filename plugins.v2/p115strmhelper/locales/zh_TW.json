@@ -21,6 +21,7 @@
     "share_add_success_2": "轉存 {title}（{year}）成功",
     "share_add_fail": "【115網盤】轉存失敗",
     "share_add_fail_2": "轉存失敗：{e}",
+    "share_url_aligo_error": "設定錯誤！ 請先進入插件介面設定阿里雲盤 Token",
     "media_type_movie": "電影",
     "media_type_tv": "電視劇",
     "media_type_collection": "合輯"
