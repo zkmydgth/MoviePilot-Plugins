@@ -1,5 +1,4 @@
 import concurrent.futures
-import shutil
 import threading
 import time
 from itertools import batched
@@ -24,7 +23,7 @@ from ...utils.exception import (
     FileItemKeyMiss,
 )
 from ...utils.mediainfo_download import MediainfoDownloadMiddleware
-from ...utils.path import PathUtils
+from ...utils.path import PathUtils, PathRemoveUtils
 from ...utils.sentry import sentry_manager
 from ...utils.strm import StrmUrlGetter, StrmGenerater
 from ...utils.tree import DirectoryTree
@@ -103,27 +102,6 @@ class FullSyncStrmHelper:
         """
         log_method = getattr(logger, level)
         log_method(msg, *args)
-
-    @staticmethod
-    def __remove_parent_dir(file_path: Path):
-        """
-        删除父目录
-        """
-        # 删除空目录
-        # 判断当前媒体父路径下是否有文件，如有则无需遍历父级
-        if not any(file_path.parent.iterdir()):
-            # 判断父目录是否为空, 为空则删除
-            i = 0
-            for parent_path in file_path.parents:
-                i += 1
-                if i > 3:
-                    break
-                if str(parent_path.parent) != str(file_path.root):
-                    # 父目录非根目录，才删除父目录
-                    if not any(parent_path.iterdir()):
-                        # 当前路径下没有媒体文件则删除
-                        shutil.rmtree(parent_path)
-                        logger.warn(f"【全量STRM生成】本地空目录 {parent_path} 已删除")
 
     def __remove_unless_strm_local(self, target_dir: str) -> threading.Thread:
         """
@@ -605,7 +583,11 @@ class FullSyncStrmHelper:
                         ):
                             logger.info(f"【全量STRM生成】清理无效 STRM 文件: {path}")
                             Path(path).unlink(missing_ok=True)
-                            self.__remove_parent_dir(file_path=Path(path))
+                            PathRemoveUtils.remove_parent_dir(
+                                file_path=Path(path),
+                                mode="all",
+                                func_type="【全量STRM生成】",
+                            )
                             self.remove_unless_strm_count += 1
                     except Exception as e:
                         sentry_manager.sentry_hub.capture_exception(e)

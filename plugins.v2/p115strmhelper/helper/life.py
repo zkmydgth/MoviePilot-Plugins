@@ -11,7 +11,7 @@ from ..core.message import post_message
 from ..core.scrape import media_scrape_metadata
 from ..core.cache import idpathcacher, pantransfercacher, lifeeventcacher
 from ..core.i18n import i18n
-from ..utils.path import PathUtils
+from ..utils.path import PathUtils, PathRemoveUtils
 from ..utils.sentry import sentry_manager
 from ..utils.strm import StrmUrlGetter, StrmGenerater
 from ..db_manager.oper import FileDbHelper
@@ -32,7 +32,6 @@ from app.log import logger
 from app.helper.mediaserver import MediaServerHelper
 from app.core.config import settings
 from app.core.metainfo import MetaInfoPath
-from app.utils.system import SystemUtils
 from app.chain.storage import StorageChain
 from app.chain.transfer import TransferChain
 from app.chain.media import MediaChain
@@ -624,28 +623,6 @@ class MonitorLife:
         删除 STRM 文件
         """
 
-        def __remove_parent_dir(file_path: Path):
-            """
-            删除父目录
-            """
-            # 删除空目录
-            # 判断当前媒体父路径下是否有媒体文件，如有则无需遍历父级
-            if not SystemUtils.exits_files(file_path.parent, ["strm"]):
-                # 判断父目录是否为空, 为空则删除
-                i = 0
-                for parent_path in file_path.parents:
-                    i += 1
-                    if i > 3:
-                        break
-                    if str(parent_path.parent) != str(file_path.root):
-                        # 父目录非根目录，才删除父目录
-                        if not SystemUtils.exits_files(parent_path, ["strm"]):
-                            # 当前路径下没有媒体文件则删除
-                            shutil.rmtree(parent_path)
-                            logger.warn(
-                                f"【监控生活事件】本地空目录 {parent_path} 已删除"
-                            )
-
         # def __get_file_path(
         #     file_name: str, file_size: str, file_id: str, file_category: int
         # ):
@@ -746,7 +723,11 @@ class MonitorLife:
                 # 删除文件
                 Path(file_path).unlink(missing_ok=True)
                 # 判断父目录是否需要删除
-                __remove_parent_dir(Path(file_path))
+                PathRemoveUtils.remove_parent_dir(
+                    file_path=Path(file_path),
+                    mode=["strm"],
+                    func_type="【监控生活事件】"
+                )
             # 清理数据库所有路径
             _databasehelper.remove_by_path_batch(
                 path=str(pan_file_path), only_file=False
