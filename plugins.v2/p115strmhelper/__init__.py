@@ -35,6 +35,7 @@ from p115client.tool.life import iter_life_behavior_once, life_show
 from p115client.tool.util import share_extract_payload
 from p115rsacipher import encrypt, decrypt
 
+from .core.config import configer
 from .core.cache import IdPathCache
 from .core.u115_open import U115OpenHelper
 from .core.scrape_metadata import media_scrape_metadata
@@ -164,66 +165,6 @@ class P115StrmHelper(_PluginBase):
     monitor_stop_event = None
     monitor_life_thread = None
 
-    # 配置项
-    __default_config = {
-        "enabled": False,
-        "notify": False,
-        "strm_url_format": "pickcode",
-        "link_redirect_mode": "cookie",
-        "cookies": None,
-        "password": None,
-        "moviepilot_address": None,
-        "user_rmt_mediaext": "mp4,mkv,ts,iso,rmvb,avi,mov,mpeg,mpg,wmv,3gp,asf,m4v,flv,m2ts,tp,f4v",
-        "user_download_mediaext": "srt,ssa,ass",
-        "transfer_monitor_enabled": False,
-        "transfer_monitor_scrape_metadata_enabled": False,
-        "transfer_monitor_scrape_metadata_exclude_paths": None,
-        "transfer_monitor_paths": None,
-        "transfer_mp_mediaserver_paths": None,
-        "transfer_monitor_mediaservers": None,
-        "transfer_monitor_media_server_refresh_enabled": False,
-        "full_sync_overwrite_mode": "never",
-        "full_sync_remove_unless_strm": False,
-        "timing_full_sync_strm": False,
-        "full_sync_auto_download_mediainfo_enabled": False,
-        "cron_full_sync_strm": "0 */7 * * *",
-        "full_sync_strm_paths": None,
-        "increment_sync_strm_enabled": False,
-        "increment_sync_auto_download_mediainfo_enabled": False,
-        "increment_sync_cron": "0 * * * *",
-        "increment_sync_strm_paths": None,
-        "increment_sync_mp_mediaserver_paths": None,
-        "increment_sync_scrape_metadata_enabled": False,
-        "increment_sync_scrape_metadata_exclude_paths": None,
-        "increment_sync_media_server_refresh_enabled": False,
-        "increment_sync_mediaservers": None,
-        "monitor_life_enabled": False,
-        "monitor_life_auto_download_mediainfo_enabled": False,
-        "monitor_life_paths": None,
-        "monitor_life_mp_mediaserver_paths": None,
-        "monitor_life_media_server_refresh_enabled": False,
-        "monitor_life_mediaservers": None,
-        "monitor_life_event_modes": [],
-        "monitor_life_scrape_metadata_enabled": False,
-        "monitor_life_scrape_metadata_exclude_paths": None,
-        "share_strm_auto_download_mediainfo_enabled": False,
-        "user_share_code": None,
-        "user_receive_code": None,
-        "user_share_link": None,
-        "user_share_pan_path": None,
-        "user_share_local_path": None,
-        "clear_recyclebin_enabled": False,
-        "clear_receive_path_enabled": False,
-        "cron_clear": "0 */7 * * *",
-        "pan_transfer_enabled": False,
-        "pan_transfer_paths": None,
-        "directory_upload_enabled": False,
-        "directory_upload_mode": "compatibility",
-        "directory_upload_uploadext": "mp4,mkv,ts,iso,rmvb,avi,mov,mpeg,mpg,wmv,3gp,asf,m4v,flv,m2ts,tp,f4v",
-        "directory_upload_copyext": "srt,ssa,ass",
-        "directory_upload_path": [],
-    }
-
     @staticmethod
     def logs_oper(oper_name: str):
         """
@@ -251,11 +192,15 @@ class P115StrmHelper(_PluginBase):
 
         return decorator
 
-    def __init__(self):
+    def __init__(self, config: dict = None):
         """
         初始化
         """
         super().__init__()
+
+        # 初始化配置项
+        configer.load_from_dict(config or {})
+
         # 类名小写
         class_name = self.__class__.__name__.lower()
         # 插件配置文件路径
@@ -267,23 +212,14 @@ class P115StrmHelper(_PluginBase):
         self.__database_path = (
             settings.ROOT_PATH / "app/plugins" / class_name / "database"
         )
+
         # 临时文件路径
         temp_path = settings.PLUGIN_DATA_PATH / class_name / "temp"
         if not Path(temp_path).exists():
             Path(temp_path).mkdir(parents=True, exist_ok=True)
-        self.init_database()
 
-    def __getattr__(self, key):
-        """
-        动态获取配置项 - 解决IDE警告
-        """
-        if key.startswith("_") and key[1:] in self.__default_config.keys():
-            if key not in self.__dict__:
-                self.__dict__[key] = self.__default_config[key[1:]]
-            return self.__dict__[key]
-        raise AttributeError(
-            f"'{self.__class__.__name__}' object has no attribute '{key}'"
-        )
+        # 初始化数据库
+        self.init_database()
 
     def init_plugin(self, config: dict = None):
         """
@@ -310,35 +246,37 @@ class P115StrmHelper(_PluginBase):
         self._add_share_worker_lock = threading.Lock()
 
         if config:
-            default_config_keys = self.__default_config.keys()
-            for key in config.keys():
-                if key in default_config_keys:
-                    setattr(self, f"_{key}", config[key])
+            configer.update_config(config)
             self.__update_config()
 
         # 停止现有任务
         self.stop_service()
 
-        if self._enabled:
+        if configer.get_config("enabled"):
             self.init_database()
 
             try:
-                self._client = P115Client(self._cookies)
-                self.mediainfodownloader = MediaInfoDownloader(cookie=self._cookies)
+                self._client = P115Client(configer.get_config("cookies"))
+                self.mediainfodownloader = MediaInfoDownloader(
+                    cookie=configer.get_config("cookies")
+                )
                 self.u115openhelper = U115OpenHelper()
             except Exception as e:
                 logger.error(f"115网盘客户端创建失败: {e}")
 
             # 目录上传监控服务
-            if self._directory_upload_enabled:
-                for item in self._directory_upload_path:
+            if configer.get_config("directory_upload_enabled"):
+                for item in configer.get_config("directory_upload_path"):
                     if not item:
                         continue
                     mon_path = item.get("src", "")
                     if not mon_path:
                         continue
                     try:
-                        if self._directory_upload_mode == "compatibility":
+                        if (
+                            configer.get_config("directory_upload_mode")
+                            == "compatibility"
+                        ):
                             # 兼容模式，目录同步性能降低且NAS不能休眠，但可以兼容挂载的远程共享目录如SMB
                             observer = PollingObserver(timeout=10)
                         else:
@@ -370,10 +308,13 @@ class P115StrmHelper(_PluginBase):
                             )
 
             if (
-                self._monitor_life_enabled
-                and self._monitor_life_paths
-                and self._monitor_life_event_modes
-            ) or (self._pan_transfer_enabled and self._pan_transfer_paths):
+                configer.get_config("monitor_life_enabled")
+                and configer.get_config("monitor_life_paths")
+                and configer.get_config("monitor_life_event_modes")
+            ) or (
+                configer.get_config("pan_transfer_enabled")
+                and configer.get_config("pan_transfer_paths")
+            ):
                 self.monitor_stop_event.clear()
                 if self.monitor_life_thread:
                     if not self.monitor_life_thread.is_alive():
@@ -412,21 +353,21 @@ class P115StrmHelper(_PluginBase):
         """
         插件状态
         """
-        return self._enabled
+        return configer.get_config("enabled")
 
     @property
     def transfer_service_infos(self) -> Optional[Dict[str, ServiceInfo]]:
         """
         监控MP整理 媒体服务器服务信息
         """
-        if not self._transfer_monitor_mediaservers:
+        if not configer.get_config("transfer_monitor_mediaservers"):
             logger.warning("尚未配置媒体服务器，请检查配置")
             return None
 
         mediaserver_helper = MediaServerHelper()
 
         services = mediaserver_helper.get_services(
-            name_filters=self._transfer_monitor_mediaservers
+            name_filters=configer.get_config("transfer_monitor_mediaservers")
         )
         if not services:
             logger.warning("获取媒体服务器实例失败，请检查配置")
@@ -450,14 +391,14 @@ class P115StrmHelper(_PluginBase):
         """
         监控生活事件 媒体服务器服务信息
         """
-        if not self._monitor_life_mediaservers:
+        if not configer.get_config("monitor_life_mediaservers"):
             logger.warning("尚未配置媒体服务器，请检查配置")
             return None
 
         mediaserver_helper = MediaServerHelper()
 
         services = mediaserver_helper.get_services(
-            name_filters=self._monitor_life_mediaservers
+            name_filters=configer.get_config("monitor_life_mediaservers")
         )
         if not services:
             logger.warning("获取媒体服务器实例失败，请检查配置")
@@ -612,37 +553,46 @@ class P115StrmHelper(_PluginBase):
         """
         cron_service = []
         if (
-            self._cron_full_sync_strm
-            and self._timing_full_sync_strm
-            and self._full_sync_strm_paths
+            configer.get_config("cron_full_sync_strm")
+            and configer.get_config("timing_full_sync_strm")
+            and configer.get_config("full_sync_strm_paths")
         ):
             cron_service.append(
                 {
                     "id": "P115StrmHelper_full_sync_strm_files",
                     "name": "定期全量同步115媒体库",
-                    "trigger": CronTrigger.from_crontab(self._cron_full_sync_strm),
+                    "trigger": CronTrigger.from_crontab(
+                        configer.get_config("cron_full_sync_strm")
+                    ),
                     "func": self.full_sync_strm_files,
                     "kwargs": {},
                 }
             )
-        if self._cron_clear and (
-            self._clear_recyclebin_enabled or self._clear_receive_path_enabled
+        if configer.get_config("cron_clear") and (
+            configer.get_config("clear_recyclebin_enabled")
+            or configer.get_config("clear_receive_path_enabled")
         ):
             cron_service.append(
                 {
                     "id": "P115StrmHelper_main_cleaner",
                     "name": "定期清理115空间",
-                    "trigger": CronTrigger.from_crontab(self._cron_clear),
+                    "trigger": CronTrigger.from_crontab(
+                        configer.get_config("cron_clear")
+                    ),
                     "func": self.main_cleaner,
                     "kwargs": {},
                 }
             )
-        if self._increment_sync_strm_enabled and self._increment_sync_strm_paths:
+        if configer.get_config("increment_sync_strm_enabled") and configer.get_config(
+            "increment_sync_strm_paths"
+        ):
             cron_service.append(
                 {
                     "id": "P115StrmHelper_increment_sync_strm",
                     "name": "115网盘定期增量同步",
-                    "trigger": CronTrigger.from_crontab(self._increment_sync_cron),
+                    "trigger": CronTrigger.from_crontab(
+                        configer.get_config("increment_sync_cron")
+                    ),
                     "func": self.increment_sync_strm_files,
                     "kwargs": {},
                 }
@@ -651,15 +601,7 @@ class P115StrmHelper(_PluginBase):
             return cron_service
 
     def __update_config(self):
-        config = {}
-        keys = self.__default_config.keys()
-        for key in keys:
-            config[key] = (
-                getattr(self, f"_{key}")
-                if hasattr(self, f"_{key}")
-                else self.__default_config[key]
-            )
-        self.update_config(config)
+        self.update_config(configer.get_all_configs())
 
     @staticmethod
     def get_render_mode() -> Tuple[str, Optional[str]]:
@@ -853,7 +795,7 @@ class P115StrmHelper(_PluginBase):
                     return
 
                 # 获取此监控目录配置
-                for item in self._directory_upload_path:
+                for item in configer.get_config("directory_upload_path"):
                     if not item:
                         continue
                     if mon_path == item.get("src", ""):
@@ -864,9 +806,9 @@ class P115StrmHelper(_PluginBase):
 
                 if file_path.suffix in [
                     f".{ext.strip()}"
-                    for ext in self._directory_upload_uploadext.replace(
-                        "，", ","
-                    ).split(",")
+                    for ext in configer.get_config("directory_upload_uploadext")
+                    .replace("，", ",")
+                    .split(",")
                 ]:
                     # 处理上传
                     if not dest_remote:
@@ -927,9 +869,9 @@ class P115StrmHelper(_PluginBase):
 
                 elif file_path.suffix in [
                     f".{ext.strip()}"
-                    for ext in self._directory_upload_copyext.replace("，", ",").split(
-                        ","
-                    )
+                    for ext in configer.get_config("directory_upload_copyext")
+                    .replace("，", ",")
+                    .split(",")
                 ]:
                     # 处理非上传文件
                     if dest_local:
@@ -975,7 +917,9 @@ class P115StrmHelper(_PluginBase):
         处理网盘整理MP无法删除的顶层目录
         """
 
-        if not self._pan_transfer_enabled or not self._pan_transfer_paths:
+        if not configer.get_config("pan_transfer_enabled") or not configer.get_config(
+            "pan_transfer_paths"
+        ):
             return
 
         if not self.cache_top_delete_pan_transfer_list:
@@ -996,7 +940,8 @@ class P115StrmHelper(_PluginBase):
             return
 
         if not self.pathmatchinghelper.get_run_transfer_path(
-            paths=self._pan_transfer_paths, transfer_path=src_fileitem.path
+            paths=configer.get_config("pan_transfer_paths"),
+            transfer_path=src_fileitem.path,
         ):
             return
 
@@ -1064,10 +1009,10 @@ class P115StrmHelper(_PluginBase):
                 return False, None
 
         if (
-            not self._enabled
-            or not self._transfer_monitor_enabled
-            or not self._transfer_monitor_paths
-            or not self._moviepilot_address
+            not configer.get_config("enabled")
+            or not configer.get_config("transfer_monitor_enabled")
+            or not configer.get_config("transfer_monitor_paths")
+            or not configer.get_config("moviepilot_address")
         ):
             return
 
@@ -1105,7 +1050,7 @@ class P115StrmHelper(_PluginBase):
 
         __itemdir_dest_path, local_media_dir, pan_media_dir = (
             self.pathmatchinghelper.get_media_path(
-                self._transfer_monitor_paths, itemdir_dest_path
+                configer.get_config("transfer_monitor_paths"), itemdir_dest_path
             )
         )
         if not __itemdir_dest_path:
@@ -1131,8 +1076,8 @@ class P115StrmHelper(_PluginBase):
                 f"【监控整理STRM生成】错误的 pickcode 值 {item_dest_name}，无法生成 STRM 文件"
             )
             return
-        strm_url = f"{self._moviepilot_address.rstrip('/')}/api/v1/plugin/P115StrmHelper/redirect_url?apikey={settings.API_TOKEN}&pickcode={item_dest_pickcode}"
-        if self._strm_url_format == "pickname":
+        strm_url = f"{configer.get_config('moviepilot_address').rstrip('/')}/api/v1/plugin/P115StrmHelper/redirect_url?apikey={settings.API_TOKEN}&pickcode={item_dest_pickcode}"
+        if configer.get_config("strm_url_format") == "pickname":
             strm_url += f"&file_name={item_dest_name}"
 
         _databasehelper = FileDbHelper()
@@ -1207,10 +1152,12 @@ class P115StrmHelper(_PluginBase):
             logger.error(f"【监控整理STRM生成】媒体信息文件下载出现未知错误: {e}")
 
         scrape_metadata = True
-        if self._transfer_monitor_scrape_metadata_enabled:
-            if self._transfer_monitor_scrape_metadata_exclude_paths:
+        if configer.get_config("transfer_monitor_scrape_metadata_enabled"):
+            if configer.get_config("transfer_monitor_scrape_metadata_exclude_paths"):
                 if self.pathmatchinghelper.get_scrape_metadata_exclude_path(
-                    self._transfer_monitor_scrape_metadata_exclude_paths,
+                    configer.get_config(
+                        "transfer_monitor_scrape_metadata_exclude_paths"
+                    ),
                     str(strm_target_path),
                 ):
                     logger.debug(
@@ -1225,16 +1172,17 @@ class P115StrmHelper(_PluginBase):
                     meta=meta,
                 )
 
-        if self._transfer_monitor_media_server_refresh_enabled:
+        if configer.get_config("transfer_monitor_media_server_refresh_enabled"):
             if not self.transfer_service_infos:
                 return
 
             logger.info(f"【监控整理STRM生成】 {item_dest_name} 开始刷新媒体服务器")
 
-            if self._transfer_mp_mediaserver_paths:
+            if configer.get_config("transfer_mp_mediaserver_paths"):
                 status, mediaserver_path, moviepilot_path = (
                     self.pathmatchinghelper.get_media_path(
-                        self._transfer_mp_mediaserver_paths, strm_target_path
+                        configer.get_config("transfer_mp_mediaserver_paths"),
+                        strm_target_path,
                     )
                 )
                 if status:
@@ -1323,9 +1271,9 @@ class P115StrmHelper(_PluginBase):
             )
             return
         if (
-            not self._full_sync_strm_paths
-            or not self._moviepilot_address
-            or not self._user_download_mediaext
+            not configer.get_config("full_sync_strm_paths")
+            or not configer.get_config("moviepilot_address")
+            or not configer.get_config("user_download_mediaext")
         ):
             self.post_message(
                 channel=event.event_data.get("channel"),
@@ -1334,7 +1282,7 @@ class P115StrmHelper(_PluginBase):
             )
             return
         status, paths = self.pathmatchinghelper.get_p115_strm_path(
-            paths=self._full_sync_strm_paths, media_path=args
+            paths=configer.get_config("full_sync_strm_paths"), media_path=args
         )
         if not status:
             self.post_message(
@@ -1344,17 +1292,19 @@ class P115StrmHelper(_PluginBase):
             )
             return
         strm_helper = FullSyncStrmHelper(
-            user_rmt_mediaext=self._user_rmt_mediaext,
-            user_download_mediaext=self._user_download_mediaext,
-            auto_download_mediainfo=self._full_sync_auto_download_mediainfo_enabled,
+            user_rmt_mediaext=configer.get_config("user_rmt_mediaext"),
+            user_download_mediaext=configer.get_config("user_download_mediaext"),
+            auto_download_mediainfo=configer.get_config(
+                "full_sync_auto_download_mediainfo_enabled"
+            ),
             client=self._client,
             mediainfodownloader=self.mediainfodownloader,
-            server_address=self._moviepilot_address,
-            pan_transfer_enabled=self._pan_transfer_enabled,
-            pan_transfer_paths=self._pan_transfer_paths,
-            strm_url_format=self._strm_url_format,
-            overwrite_mode=self._full_sync_overwrite_mode,
-            remove_unless_strm=self._full_sync_remove_unless_strm,
+            server_address=configer.get_config("moviepilot_address"),
+            pan_transfer_enabled=configer.get_config("pan_transfer_enabled"),
+            pan_transfer_paths=configer.get_config("pan_transfer_paths"),
+            strm_url_format=configer.get_config("strm_url_format"),
+            overwrite_mode=configer.get_config("full_sync_overwrite_mode"),
+            remove_unless_strm=configer.get_config("full_sync_remove_unless_strm"),
         )
         self.post_message(
             channel=event.event_data.get("channel"),
@@ -1454,7 +1404,9 @@ class P115StrmHelper(_PluginBase):
         """
         分享转存
         """
-        if not self._pan_transfer_enabled or not self._pan_transfer_paths:
+        if not configer.get_config("pan_transfer_enabled") or not configer.get_config(
+            "pan_transfer_paths"
+        ):
             self.post_message(
                 channel=channel,
                 title="配置错误！ 请先进入插件界面配置网盘整理",
@@ -1476,7 +1428,7 @@ class P115StrmHelper(_PluginBase):
                     userid=userid,
                 )
                 return
-            parent_path = self._pan_transfer_paths.split("\n")[0]
+            parent_path = configer.get_config("pan_transfer_paths").split("\n")[0]
             parent_id = self.id_path_cache.get_id_by_dir(directory=str(parent_path))
             if not parent_id:
                 parent_id = self._client.fs_dir_getid(parent_path)["id"]
@@ -1546,7 +1498,9 @@ class P115StrmHelper(_PluginBase):
         """
         添加分享转存整理
         """
-        if not self._pan_transfer_enabled or not self._pan_transfer_paths:
+        if not configer.get_config("pan_transfer_enabled") or not configer.get_config(
+            "pan_transfer_paths"
+        ):
             return {
                 "code": -1,
                 "error": "配置错误",
@@ -1578,7 +1532,7 @@ class P115StrmHelper(_PluginBase):
             share_code=share_code, receive_code=receive_code
         )
 
-        parent_path = self._pan_transfer_paths.split("\n")[0]
+        parent_path = configer.get_config("pan_transfer_paths").split("\n")[0]
         parent_id = self.id_path_cache.get_id_by_dir(directory=str(parent_path))
         if not parent_id:
             parent_id = self._client.fs_dir_getid(parent_path)["id"]
@@ -1595,7 +1549,7 @@ class P115StrmHelper(_PluginBase):
         resp = self._client.share_receive(payload)
         if resp["state"]:
             logger.info(f"【分享转存API】转存 {share_code} 到 {parent_path} 成功！")
-            if self._notify:
+            if configer.get_config("notify"):
                 if not file_mediainfo:
                     self.post_message(
                         mtype=NotificationType.Plugin,
@@ -1631,7 +1585,7 @@ class P115StrmHelper(_PluginBase):
         """
         远程分享转存
         """
-        if not self._enabled:
+        if not configer.get_config("enabled"):
             return
         text = event.event_data.get("text")
         userid = event.event_data.get("userid")
@@ -1679,27 +1633,29 @@ class P115StrmHelper(_PluginBase):
         全量同步
         """
         if (
-            not self._full_sync_strm_paths
-            or not self._moviepilot_address
-            or not self._user_download_mediaext
+            not configer.get_config("full_sync_strm_paths")
+            or not configer.get_config("moviepilot_address")
+            or not configer.get_config("user_download_mediaext")
         ):
             return
 
         strm_helper = FullSyncStrmHelper(
-            user_rmt_mediaext=self._user_rmt_mediaext,
-            user_download_mediaext=self._user_download_mediaext,
-            auto_download_mediainfo=self._full_sync_auto_download_mediainfo_enabled,
+            user_rmt_mediaext=configer.get_config("user_rmt_mediaext"),
+            user_download_mediaext=configer.get_config("user_download_mediaext"),
+            auto_download_mediainfo=configer.get_config(
+                "full_sync_auto_download_mediainfo_enabled"
+            ),
             client=self._client,
             mediainfodownloader=self.mediainfodownloader,
-            server_address=self._moviepilot_address,
-            pan_transfer_enabled=self._pan_transfer_enabled,
-            pan_transfer_paths=self._pan_transfer_paths,
-            strm_url_format=self._strm_url_format,
-            overwrite_mode=self._full_sync_overwrite_mode,
-            remove_unless_strm=self._full_sync_remove_unless_strm,
+            server_address=configer.get_config("moviepilot_address"),
+            pan_transfer_enabled=configer.get_config("pan_transfer_enabled"),
+            pan_transfer_paths=configer.get_config("pan_transfer_paths"),
+            strm_url_format=configer.get_config("strm_url_format"),
+            overwrite_mode=configer.get_config("full_sync_overwrite_mode"),
+            remove_unless_strm=configer.get_config("full_sync_remove_unless_strm"),
         )
         strm_helper.generate_strm_files(
-            full_sync_strm_paths=self._full_sync_strm_paths,
+            full_sync_strm_paths=configer.get_config("full_sync_strm_paths"),
         )
         (
             strm_count,
@@ -1708,7 +1664,7 @@ class P115StrmHelper(_PluginBase):
             mediainfo_fail_count,
             remove_unless_strm_count,
         ) = strm_helper.get_generate_total()
-        if self._notify:
+        if configer.get_config("notify"):
             text = f"""
 📄 生成STRM文件 {strm_count} 个
 ⬇️ 下载媒体文件 {mediainfo_count} 个
@@ -1728,31 +1684,41 @@ class P115StrmHelper(_PluginBase):
         增量同步
         """
         if (
-            not self._increment_sync_strm_paths
-            or not self._moviepilot_address
-            or not self._user_download_mediaext
+            not configer.get_config("increment_sync_strm_paths")
+            or not configer.get_config("moviepilot_address")
+            or not configer.get_config("user_download_mediaext")
         ):
             return
 
         strm_helper = IncrementSyncStrmHelper(
-            user_rmt_mediaext=self._user_rmt_mediaext,
-            user_download_mediaext=self._user_download_mediaext,
-            auto_download_mediainfo=self._increment_sync_auto_download_mediainfo_enabled,
+            user_rmt_mediaext=configer.get_config("user_rmt_mediaext"),
+            user_download_mediaext=configer.get_config("user_download_mediaext"),
+            auto_download_mediainfo=configer.get_config(
+                "increment_sync_auto_download_mediainfo_enabled"
+            ),
             client=self._client,
             mediainfodownloader=self.mediainfodownloader,
-            server_address=self._moviepilot_address,
-            pan_transfer_enabled=self._pan_transfer_enabled,
-            pan_transfer_paths=self._pan_transfer_paths,
-            strm_url_format=self._strm_url_format,
+            server_address=configer.get_config("moviepilot_address"),
+            pan_transfer_enabled=configer.get_config("pan_transfer_enabled"),
+            pan_transfer_paths=configer.get_config("pan_transfer_paths"),
+            strm_url_format=configer.get_config("strm_url_format"),
             id_path_cache=self.id_path_cache,
-            mp_mediaserver_paths=self._increment_sync_mp_mediaserver_paths,
-            scrape_metadata_enabled=self._increment_sync_scrape_metadata_enabled,
-            scrape_metadata_exclude_paths=self._increment_sync_scrape_metadata_exclude_paths,
-            media_server_refresh_enabled=self._increment_sync_media_server_refresh_enabled,
-            mediaservers=self._increment_sync_mediaservers,
+            mp_mediaserver_paths=configer.get_config(
+                "increment_sync_mp_mediaserver_paths"
+            ),
+            scrape_metadata_enabled=configer.get_config(
+                "increment_sync_scrape_metadata_enabled"
+            ),
+            scrape_metadata_exclude_paths=configer.get_config(
+                "increment_sync_scrape_metadata_exclude_paths"
+            ),
+            media_server_refresh_enabled=configer.get_config(
+                "increment_sync_media_server_refresh_enabled"
+            ),
+            mediaservers=configer.get_config("increment_sync_mediaservers"),
         )
         strm_helper.generate_strm_files(
-            sync_strm_paths=self._increment_sync_strm_paths,
+            sync_strm_paths=configer.get_config("increment_sync_strm_paths"),
         )
         (
             strm_count,
@@ -1760,7 +1726,7 @@ class P115StrmHelper(_PluginBase):
             strm_fail_count,
             mediainfo_fail_count,
         ) = strm_helper.get_generate_total()
-        if self._notify and (
+        if configer.get_config("notify") and (
             send_msg
             or (
                 strm_count != 0
@@ -1786,35 +1752,39 @@ class P115StrmHelper(_PluginBase):
         分享生成STRM
         """
         if (
-            not self._user_share_pan_path
-            or not self._user_share_local_path
-            or not self._moviepilot_address
+            not configer.get_config("user_share_pan_path")
+            or not configer.get_config("user_share_local_path")
+            or not configer.get_config("moviepilot_address")
         ):
             return
 
-        if self._user_share_link:
-            data = share_extract_payload(self._user_share_link)
+        if configer.get_config("user_share_link"):
+            data = share_extract_payload(configer.get_config("user_share_link"))
             share_code = data["share_code"]
             receive_code = data["receive_code"]
             logger.info(
                 f"【分享STRM生成】解析分享链接 share_code={share_code} receive_code={receive_code}"
             )
         else:
-            if not self._user_share_code or not self._user_receive_code:
+            if not configer.get_config("user_share_code") or not configer.get_config(
+                "user_receive_code"
+            ):
                 return
-            share_code = self._user_share_code
-            receive_code = self._user_receive_code
+            share_code = configer.get_config("user_share_code")
+            receive_code = configer.get_config("user_receive_code")
 
         try:
             strm_helper = ShareStrmHelper(
-                user_rmt_mediaext=self._user_rmt_mediaext,
-                user_download_mediaext=self._user_download_mediaext,
-                auto_download_mediainfo=self._share_strm_auto_download_mediainfo_enabled,
+                user_rmt_mediaext=configer.get_config("user_rmt_mediaext"),
+                user_download_mediaext=configer.get_config("user_download_mediaext"),
+                auto_download_mediainfo=configer.get_config(
+                    "share_strm_auto_download_mediainfo_enabled"
+                ),
                 client=self._client,
-                server_address=self._moviepilot_address,
-                share_media_path=self._user_share_pan_path,
-                local_media_path=self._user_share_local_path,
-                strm_url_format=self._strm_url_format,
+                server_address=configer.get_config("moviepilot_address"),
+                share_media_path=configer.get_config("user_share_pan_path"),
+                local_media_path=configer.get_config("user_share_local_path"),
+                strm_url_format=configer.get_config("strm_url_format"),
                 mediainfodownloader=self.mediainfodownloader,
             )
             strm_helper.get_share_list_creata_strm(
@@ -1826,7 +1796,7 @@ class P115StrmHelper(_PluginBase):
             strm_count, mediainfo_count, strm_fail_count, mediainfo_fail_count = (
                 strm_helper.get_generate_total()
             )
-            if self._notify:
+            if configer.get_config("notify"):
                 self.post_message(
                     mtype=NotificationType.Plugin,
                     title="✅【115网盘】分享生成 STRM 文件完成",
@@ -1850,14 +1820,15 @@ class P115StrmHelper(_PluginBase):
             """
             刷新媒体服务器
             """
-            if self._monitor_life_media_server_refresh_enabled:
+            if configer.get_config("monitor_life_media_server_refresh_enabled"):
                 if not self.monitor_life_service_infos:
                     return
                 logger.info(f"【监控生活事件】 {file_name} 开始刷新媒体服务器")
-                if self._monitor_life_mp_mediaserver_paths:
+                if configer.get_config("monitor_life_mp_mediaserver_paths"):
                     status, mediaserver_path, moviepilot_path = (
                         self.pathmatchinghelper.get_media_path(
-                            self._monitor_life_mp_mediaserver_paths, file_path
+                            configer.get_config("monitor_life_mp_mediaserver_paths"),
+                            file_path,
                         )
                     )
                     if status:
@@ -1932,9 +1903,9 @@ class P115StrmHelper(_PluginBase):
 
         # 生活事件已开启
         if (
-            not self._monitor_life_enabled
-            or not self._monitor_life_paths
-            or not self._monitor_life_event_modes
+            not configer.get_config("monitor_life_enabled")
+            or not configer.get_config("monitor_life_paths")
+            or not configer.get_config("monitor_life_event_modes")
         ):
             return
 
@@ -2023,7 +1994,7 @@ class P115StrmHelper(_PluginBase):
             if counts["mediainfo_count"] > 0:
                 text_parts.append(f"⬇️ 下载媒体文件 {counts['mediainfo_count']} 个")
 
-            if text_parts and self._notify:
+            if text_parts and configer.get_config("notify"):
                 self.post_message(
                     mtype=NotificationType.Plugin,
                     title="✅【115网盘】生活事件生成 STRM 文件",
@@ -2040,14 +2011,15 @@ class P115StrmHelper(_PluginBase):
             """
             刷新媒体服务器
             """
-            if self._monitor_life_media_server_refresh_enabled:
+            if configer.get_config("monitor_life_media_server_refresh_enabled"):
                 if not self.monitor_life_service_infos:
                     return
                 logger.info(f"【监控生活事件】 {file_name} 开始刷新媒体服务器")
-                if self._monitor_life_mp_mediaserver_paths:
+                if configer.get_config("monitor_life_mp_mediaserver_paths"):
                     status, mediaserver_path, moviepilot_path = (
                         self.pathmatchinghelper.get_media_path(
-                            self._monitor_life_mp_mediaserver_paths, file_path
+                            configer.get_config("monitor_life_mp_mediaserver_paths"),
+                            file_path,
                         )
                     )
                     if status:
@@ -2088,7 +2060,7 @@ class P115StrmHelper(_PluginBase):
             file_category = event["file_category"]
             file_id = event["file_id"]
             status, target_dir, pan_media_dir = self.pathmatchinghelper.get_media_path(
-                self._monitor_life_paths, file_path
+                configer.get_config("monitor_life_paths"), file_path
             )
             if not status:
                 return
@@ -2114,7 +2086,7 @@ class P115StrmHelper(_PluginBase):
                             processed.extend(_process_item)
                         if item["is_dir"] or item["is_directory"]:
                             continue
-                        if "creata" in self._monitor_life_event_modes:
+                        if "creata" in configer.get_config("monitor_life_event_modes"):
                             file_path = item["path"]
                             file_path = Path(target_dir) / Path(file_path).relative_to(
                                 pan_media_dir
@@ -2124,7 +2096,9 @@ class P115StrmHelper(_PluginBase):
                             file_name = file_path.stem + ".strm"
                             new_file_path = file_target_dir / file_name
 
-                            if self._monitor_life_auto_download_mediainfo_enabled:
+                            if configer.get_config(
+                                "monitor_life_auto_download_mediainfo_enabled"
+                            ):
                                 if file_path.suffix in download_mediaext:
                                     pickcode = item["pickcode"]
                                     if not pickcode:
@@ -2175,8 +2149,8 @@ class P115StrmHelper(_PluginBase):
                                     f"【监控生活事件】错误的 pickcode 值 {pickcode}，无法生成 STRM 文件"
                                 )
                                 continue
-                            strm_url = f"{self._moviepilot_address.rstrip('/')}/api/v1/plugin/P115StrmHelper/redirect_url?apikey={settings.API_TOKEN}&pickcode={pickcode}"
-                            if self._strm_url_format == "pickname":
+                            strm_url = f"{configer.get_config('moviepilot_address').rstrip('/')}/api/v1/plugin/P115StrmHelper/redirect_url?apikey={settings.API_TOKEN}&pickcode={pickcode}"
+                            if configer.get_config("strm_url_format") == "pickname":
                                 strm_url += f"&file_name={original_file_name}"
 
                             with open(new_file_path, "w", encoding="utf-8") as file:
@@ -2187,10 +2161,16 @@ class P115StrmHelper(_PluginBase):
                             )
                             strm_count += 1
                             scrape_metadata = True
-                            if self._monitor_life_scrape_metadata_enabled:
-                                if self._monitor_life_scrape_metadata_exclude_paths:
+                            if configer.get_config(
+                                "monitor_life_scrape_metadata_enabled"
+                            ):
+                                if configer.get_config(
+                                    "monitor_life_scrape_metadata_exclude_paths"
+                                ):
                                     if self.pathmatchinghelper.get_scrape_metadata_exclude_path(
-                                        self._monitor_life_scrape_metadata_exclude_paths,
+                                        configer.get_config(
+                                            "monitor_life_scrape_metadata_exclude_paths"
+                                        ),
                                         str(new_file_path),
                                     ):
                                         logger.debug(
@@ -2206,7 +2186,7 @@ class P115StrmHelper(_PluginBase):
                                 str(new_file_path), str(original_file_name)
                             )
                     _databasehelper.upsert_batch(processed)
-                if self._notify:
+                if configer.get_config("notify"):
                     if strm_count > 0 or mediainfo_count > 0:
                         self._monitor_life_notification_queue["life"]["strm_count"] += (
                             strm_count
@@ -2221,7 +2201,7 @@ class P115StrmHelper(_PluginBase):
                         event=event, file_path=file_path
                     )
                 )
-                if "creata" in self._monitor_life_event_modes:
+                if "creata" in configer.get_config("monitor_life_event_modes"):
                     # 文件情况，直接生成
                     file_path = Path(target_dir) / Path(file_path).relative_to(
                         pan_media_dir
@@ -2231,7 +2211,9 @@ class P115StrmHelper(_PluginBase):
                     file_name = file_path.stem + ".strm"
                     new_file_path = file_target_dir / file_name
 
-                    if self._monitor_life_auto_download_mediainfo_enabled:
+                    if configer.get_config(
+                        "monitor_life_auto_download_mediainfo_enabled"
+                    ):
                         if file_path.suffix in download_mediaext:
                             if not pickcode:
                                 logger.error(
@@ -2259,7 +2241,7 @@ class P115StrmHelper(_PluginBase):
                                 target_dir,
                                 pan_media_dir,
                             ]
-                            if self._notify:
+                            if configer.get_config("notify"):
                                 self._monitor_life_notification_queue["life"][
                                     "mediainfo_count"
                                 ] += 1
@@ -2285,8 +2267,8 @@ class P115StrmHelper(_PluginBase):
                             f"【监控生活事件】错误的 pickcode 值 {pickcode}，无法生成 STRM 文件"
                         )
                         return
-                    strm_url = f"{self._moviepilot_address.rstrip('/')}/api/v1/plugin/P115StrmHelper/redirect_url?apikey={settings.API_TOKEN}&pickcode={pickcode}"
-                    if self._strm_url_format == "pickname":
+                    strm_url = f"{configer.get_config('moviepilot_address').rstrip('/')}/api/v1/plugin/P115StrmHelper/redirect_url?apikey={settings.API_TOKEN}&pickcode={pickcode}"
+                    if configer.get_config("strm_url_format") == "pickname":
                         strm_url += f"&file_name={original_file_name}"
 
                     with open(new_file_path, "w", encoding="utf-8") as file:
@@ -2300,14 +2282,18 @@ class P115StrmHelper(_PluginBase):
                         target_dir,
                         pan_media_dir,
                     ]
-                    if self._notify:
+                    if configer.get_config("notify"):
                         self._monitor_life_notification_queue["life"]["strm_count"] += 1
                         _schedule_notification()
                     scrape_metadata = True
-                    if self._monitor_life_scrape_metadata_enabled:
-                        if self._monitor_life_scrape_metadata_exclude_paths:
+                    if configer.get_config("monitor_life_scrape_metadata_enabled"):
+                        if configer.get_config(
+                            "monitor_life_scrape_metadata_exclude_paths"
+                        ):
                             if self.pathmatchinghelper.get_scrape_metadata_exclude_path(
-                                self._monitor_life_scrape_metadata_exclude_paths,
+                                configer.get_config(
+                                    "monitor_life_scrape_metadata_exclude_paths"
+                                ),
                                 str(new_file_path),
                             ):
                                 logger.debug(
@@ -2391,9 +2377,12 @@ class P115StrmHelper(_PluginBase):
 
             pan_file_path = file_path
             # 优先匹配待整理目录，如果删除的目录为待整理目录则不进行操作
-            if self._pan_transfer_enabled and self._pan_transfer_paths:
+            if configer.get_config("pan_transfer_enabled") and configer.get_config(
+                "pan_transfer_paths"
+            ):
                 if self.pathmatchinghelper.get_run_transfer_path(
-                    paths=self._pan_transfer_paths, transfer_path=file_path
+                    paths=configer.get_config("pan_transfer_paths"),
+                    transfer_path=file_path,
                 ):
                     logger.debug(
                         f"【监控生活事件】{file_path} 为待整理目录下的路径，不做处理"
@@ -2402,7 +2391,7 @@ class P115StrmHelper(_PluginBase):
 
             # 匹配是否是媒体文件夹目录
             status, target_dir, pan_media_dir = self.pathmatchinghelper.get_media_path(
-                self._monitor_life_paths, file_path
+                configer.get_config("monitor_life_paths"), file_path
             )
             if not status:
                 return
@@ -2440,9 +2429,12 @@ class P115StrmHelper(_PluginBase):
             file_path = Path(dir_path) / file_name
             # 匹配逻辑 整理路径目录 > 生成STRM文件路径目录
             # 2.匹配是否为整理路径目录
-            if self._pan_transfer_enabled and self._pan_transfer_paths:
+            if configer.get_config("pan_transfer_enabled") and configer.get_config(
+                "pan_transfer_paths"
+            ):
                 if self.pathmatchinghelper.get_run_transfer_path(
-                    paths=self._pan_transfer_paths, transfer_path=file_path
+                    paths=configer.get_config("pan_transfer_paths"),
+                    transfer_path=file_path,
                 ):
                     self.media_transfer(
                         event=event,
@@ -2451,11 +2443,13 @@ class P115StrmHelper(_PluginBase):
                     )
                     return
             # 3.匹配是否为生成STRM文件路径目录
-            if self._monitor_life_enabled and self._monitor_life_paths:
+            if configer.get_config("monitor_life_enabled") and configer.get_config(
+                "monitor_life_paths"
+            ):
                 if str(event["file_id"]) in self.cache_creata_pan_transfer_list:
                     # 检查是否命中缓存
                     self.cache_creata_pan_transfer_list.remove(str(event["file_id"]))
-                    if "transfer" in self._monitor_life_event_modes:
+                    if "transfer" in configer.get_config("monitor_life_event_modes"):
                         creata_strm(event=event, file_path=file_path)
                 else:
                     creata_strm(event=event, file_path=file_path)
@@ -2499,13 +2493,15 @@ class P115StrmHelper(_PluginBase):
                 for event in reversed(events_batch):
                     rmt_mediaext = [
                         f".{ext.strip()}"
-                        for ext in self._user_rmt_mediaext.replace("，", ",").split(",")
+                        for ext in configer.get_config("user_rmt_mediaext")
+                        .replace("，", ",")
+                        .split(",")
                     ]
                     download_mediaext = [
                         f".{ext.strip()}"
-                        for ext in self._user_download_mediaext.replace(
-                            "，", ","
-                        ).split(",")
+                        for ext in configer.get_config("user_download_mediaext")
+                        .replace("，", ",")
+                        .split(",")
                     ]
                     if (
                         int(event["type"]) != 1
@@ -2539,9 +2535,10 @@ class P115StrmHelper(_PluginBase):
                             )
                         else:
                             if (
-                                self._monitor_life_enabled
-                                and self._monitor_life_paths
-                                and "remove" in self._monitor_life_event_modes
+                                configer.get_config("monitor_life_enabled")
+                                and configer.get_config("monitor_life_paths")
+                                and "remove"
+                                in configer.get_config("monitor_life_event_modes")
                             ):
                                 remove_strm(event=event)
 
@@ -2569,10 +2566,10 @@ class P115StrmHelper(_PluginBase):
         """
         主清理模块
         """
-        if self._clear_receive_path_enabled:
+        if configer.get_config("clear_receive_path_enabled"):
             self.clear_receive_path()
 
-        if self._clear_recyclebin_enabled:
+        if configer.get_config("clear_recyclebin_enabled"):
             self.clear_recyclebin()
 
     def clear_recyclebin(self):
@@ -2581,7 +2578,7 @@ class P115StrmHelper(_PluginBase):
         """
         try:
             logger.info("【回收站清理】开始清理回收站")
-            self._client.recyclebin_clean(password=self._password)
+            self._client.recyclebin_clean(password=configer.get_config("password"))
             logger.info("【回收站清理】回收站已清空")
         except Exception as e:
             logger.error(f"【回收站清理】清理回收站运行失败: {e}")
@@ -2634,7 +2631,7 @@ class P115StrmHelper(_PluginBase):
         """
         获取115用户基本信息和空间使用情况。
         """
-        if not self._cookies:
+        if not configer.get_config("cookies"):
             return {
                 "success": False,
                 "error_message": "115 Cookies 未配置，无法获取信息。",
@@ -2645,7 +2642,7 @@ class P115StrmHelper(_PluginBase):
         try:
             if not self._client:
                 try:
-                    _temp_client = P115Client(self._cookies)
+                    _temp_client = P115Client(configer.get_config("cookies"))
                     logger.info("【用户存储状态】P115Client 初始化成功")
                 except Exception as e:
                     logger.error(f"【用户存储状态】P115Client 初始化失败: {e}")
@@ -2756,14 +2753,8 @@ class P115StrmHelper(_PluginBase):
         """
         获取配置
         """
-        config = {}
-        keys = self.__default_config.keys()
-        for key in keys:
-            config[key] = (
-                getattr(self, f"_{key}")
-                if hasattr(self, f"_{key}")
-                else self.__default_config[key]
-            )
+        config = configer.get_all_configs()
+
         mediaserver_helper = MediaServerHelper()
         config["mediaservers"] = [
             {"title": config.name, "value": config.name}
@@ -2777,10 +2768,7 @@ class P115StrmHelper(_PluginBase):
         """
         try:
             data = await request.json()
-            default_config_keys = self.__default_config.keys()
-            for key in data.keys():
-                if key in default_config_keys:
-                    setattr(self, f"_{key}", data[key])
+            configer.update_config(data)
 
             # 持久化存储配置
             self.__update_config()
@@ -2799,7 +2787,7 @@ class P115StrmHelper(_PluginBase):
         return {
             "code": 0,
             "data": {
-                "enabled": self._enabled,
+                "enabled": configer.get_config("enabled"),
                 "has_client": bool(self._client),
                 "running": (
                     bool(self._scheduler.get_jobs()) if self._scheduler else False
@@ -2816,7 +2804,7 @@ class P115StrmHelper(_PluginBase):
         触发全量同步
         """
         try:
-            if not self._enabled or not self._cookies:
+            if not configer.get_config("enabled") or not configer.get_config("cookies"):
                 return {"code": 1, "msg": "插件未启用或未配置cookie"}
 
             self._scheduler = BackgroundScheduler(timezone=settings.TZ)
@@ -2840,11 +2828,12 @@ class P115StrmHelper(_PluginBase):
         触发分享同步
         """
         try:
-            if not self._enabled or not self._cookies:
+            if not configer.get_config("enabled") or not configer.get_config("cookies"):
                 return {"code": 1, "msg": "插件未启用或未配置cookie"}
 
-            if not self._user_share_link and not (
-                self._user_share_code and self._user_receive_code
+            if not configer.get_config("user_share_link") and not (
+                configer.get_config("user_share_code")
+                and configer.get_config("user_receive_code")
             ):
                 return {"code": 1, "msg": "未配置分享链接或分享码"}
 
@@ -2894,7 +2883,7 @@ class P115StrmHelper(_PluginBase):
             except Exception as e:
                 return {"code": 1, "msg": f"浏览本地目录失败: {str(e)}"}
         else:
-            if not self._client or not self._cookies:
+            if not self._client or not configer.get_config("cookies"):
                 return {"code": 1, "msg": "未配置cookie或客户端初始化失败"}
 
             try:
@@ -3080,10 +3069,11 @@ class P115StrmHelper(_PluginBase):
                             if name and value:
                                 cookie_string += f"{name}={value}; "
                     if cookie_string:
-                        self._cookies = cookie_string.strip()
+                        _cookies = cookie_string.strip()
+                        configer.update_config({"cookies": _cookies})
                         self.__update_config()
                         try:
-                            self._client = P115Client(self._cookies)
+                            self._client = P115Client(_cookies)
                             result["cookie"] = cookie_string
                         except Exception as ce:
                             return {
@@ -3172,14 +3162,16 @@ class P115StrmHelper(_PluginBase):
             if suffix.isalnum():
                 payload["suffix"] = suffix
             resp = requests.get(
-                f"{api}?{urlencode(payload)}", headers={"Cookie": self._cookies}
+                f"{api}?{urlencode(payload)}",
+                headers={"Cookie": configer.get_config("cookies")},
             )
             check_response(resp)
             json = loads(cast(bytes, resp.content))
             if get_first(json, "errno", "errNo") == 20021:
                 payload.pop("suffix")
                 resp = requests.get(
-                    f"{api}?{urlencode(payload)}", headers={"Cookie": self._cookies}
+                    f"{api}?{urlencode(payload)}",
+                    headers={"Cookie": configer.get_config("cookies")},
                 )
                 check_response(resp)
                 json = loads(cast(bytes, resp.content))
@@ -3194,7 +3186,7 @@ class P115StrmHelper(_PluginBase):
         def get_receive_code(share_code: str) -> str:
             resp = requests.get(
                 f"http://web.api.115.com/share/shareinfo?share_code={share_code}",
-                headers={"Cookie": self._cookies},
+                headers={"Cookie": configer.get_config("cookies")},
             )
             check_response(resp)
             json = loads(cast(bytes, resp.content))
@@ -3217,7 +3209,10 @@ class P115StrmHelper(_PluginBase):
                     data={
                         "data": encrypt(f'{{"pickcode":"{pickcode}"}}').decode("utf-8")
                     },
-                    headers={"User-Agent": user_agent, "Cookie": self._cookies},
+                    headers={
+                        "User-Agent": user_agent,
+                        "Cookie": configer.get_config("cookies"),
+                    },
                 )
             else:
                 resp = requests.post(
@@ -3225,7 +3220,10 @@ class P115StrmHelper(_PluginBase):
                     data={
                         "data": encrypt(f'{{"pick_code":"{pickcode}"}}').decode("utf-8")
                     },
-                    headers={"User-Agent": user_agent, "Cookie": self._cookies},
+                    headers={
+                        "User-Agent": user_agent,
+                        "Cookie": configer.get_config("cookies"),
+                    },
                 )
             check_response(resp)
             json = loads(cast(bytes, resp.content))
@@ -3259,13 +3257,13 @@ class P115StrmHelper(_PluginBase):
             if app:
                 resp = requests.get(
                     f"http://proapi.115.com/{app}/2.0/share/downurl?{urlencode(payload)}",
-                    headers={"Cookie": self._cookies},
+                    headers={"Cookie": configer.get_config("cookies")},
                 )
             else:
                 resp = requests.post(
                     "http://proapi.115.com/app/share/downurl",
                     data={"data": encrypt(dumps(payload)).decode("utf-8")},
-                    headers={"Cookie": self._cookies},
+                    headers={"Cookie": configer.get_config("cookies")},
                 )
             check_response(resp)
             json = loads(cast(bytes, resp.content))
@@ -3319,7 +3317,7 @@ class P115StrmHelper(_PluginBase):
             logger.debug(f"【302跳转服务】获取到客户端UA: {user_agent}")
 
             try:
-                if self._link_redirect_mode == "cookie":
+                if configer.get_config("link_redirect_mode") == "cookie":
                     url = get_downurl(pickcode.lower(), user_agent, app=app)
                 else:
                     resp_url = self.u115openhelper.get_download_url(
