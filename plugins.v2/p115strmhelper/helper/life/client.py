@@ -516,12 +516,15 @@ class MonitorLife:
                 transferchain.do_transfer(fileitem=fileitem)
                 logger.info(f"【网盘整理】{file_path} 加入整理列队")
 
-    def _create(self, event: Dict[str, Any], file_path: Path):
+    def _create(
+        self, event: Dict[str, Any], file_path: Path, force_event_mode: bool = False
+    ):
         """
         创建 STRM 文件
 
         :param event (Dict): 事件
         :param file_path (Path): 路径
+        :param force_event_mode (bool): 是否忽略新增事件模式限制
         """
         _databasehelper = FileDbHelper()
 
@@ -570,7 +573,10 @@ class MonitorLife:
                         processed.extend(_process_item)
                     if item["is_dir"]:
                         continue
-                    if "creata" in configer.monitor_life_event_modes:
+                    if (
+                        "creata" in configer.monitor_life_event_modes
+                        or force_event_mode
+                    ):
                         file_path = item["path"]
                         if not PathUtils.has_prefix(file_path, org_file_path):
                             continue
@@ -582,9 +588,10 @@ class MonitorLife:
                         file_name = StrmGenerater.get_strm_filename(file_path)
                         new_file_path = file_target_dir / file_name
 
-                        if configer.get_config(
+                        auto_download_enabled = configer.get_config(
                             "monitor_life_auto_download_mediainfo_enabled"
-                        ):
+                        )
+                        if auto_download_enabled:
                             if file_path.suffix.lower() in self.download_mediaext_set:
                                 if not (
                                     result
@@ -628,10 +635,19 @@ class MonitorLife:
                                 continue
 
                         if file_path.suffix.lower() not in self.rmt_mediaext_set:
-                            logger.warn(
-                                "【监控生活事件】跳过网盘路径: %s",
-                                item["path"],
-                            )
+                            if not auto_download_enabled:
+                                logger.warning(
+                                    "【监控生活事件】非媒体文件未下载，"
+                                    "生活事件下载媒体信息文件开关未开启，网盘路径: %s",
+                                    item["path"],
+                                )
+                            else:
+                                logger.warning(
+                                    "【监控生活事件】非媒体文件未下载，扩展名 %s "
+                                    "不在可下载媒体数据文件扩展名中，网盘路径: %s",
+                                    file_path.suffix.lower(),
+                                    item["path"],
+                                )
                             continue
 
                         if not (
@@ -724,7 +740,7 @@ class MonitorLife:
                     event=event, file_path=file_path_string
                 )
             )
-            if "creata" in configer.monitor_life_event_modes:
+            if "creata" in configer.monitor_life_event_modes or force_event_mode:
                 # 文件情况，直接生成
                 file_path = Path(target_dir) / PathUtils.sanitize_path_parts(
                     Path(file_path).relative_to(pan_media_dir)
@@ -734,7 +750,10 @@ class MonitorLife:
                 file_name = StrmGenerater.get_strm_filename(file_path)
                 new_file_path = file_target_dir / file_name
 
-                if configer.get_config("monitor_life_auto_download_mediainfo_enabled"):
+                auto_download_enabled = configer.get_config(
+                    "monitor_life_auto_download_mediainfo_enabled"
+                )
+                if auto_download_enabled:
                     if file_path.suffix.lower() in self.download_mediaext_set:
                         if not (
                             result := MediainfoDownloadMiddleware.should_download(
@@ -746,7 +765,7 @@ class MonitorLife:
                             logger.warning(
                                 "【监控生活事件】%s，跳过网盘路径: %s",
                                 result[0],
-                                str(file_path).replace(str(target_dir), "", 1),
+                                file_path_string,
                             )
                             return
 
@@ -778,10 +797,19 @@ class MonitorLife:
                         return
 
                 if file_path.suffix.lower() not in self.rmt_mediaext_set:
-                    logger.warn(
-                        "【监控生活事件】跳过网盘路径: %s",
-                        str(file_path).replace(str(target_dir), "", 1),
-                    )
+                    if not auto_download_enabled:
+                        logger.warning(
+                            "【监控生活事件】非媒体文件未下载，"
+                            "生活事件下载媒体信息文件开关未开启，网盘路径: %s",
+                            file_path_string,
+                        )
+                    else:
+                        logger.warning(
+                            "【监控生活事件】非媒体文件未下载，扩展名 %s "
+                            "不在可下载媒体数据文件扩展名中，网盘路径: %s",
+                            file_path.suffix.lower(),
+                            file_path_string,
+                        )
                     return
 
                 if not (
@@ -789,8 +817,10 @@ class MonitorLife:
                         original_file_name, "life", event.get("file_size", None)
                     )
                 )[1]:
-                    logger.warn(
-                        f"【监控生活事件】{result[0]}，跳过网盘路径: {str(file_path).replace(str(target_dir), '', 1)}"
+                    logger.warning(
+                        "【监控生活事件】%s，跳过网盘路径: %s",
+                        result[0],
+                        file_path_string,
                     )
                     return
 
@@ -1188,18 +1218,25 @@ class MonitorLife:
         else:
             # 文件重命名
             if new_path.suffix.lower() not in self.rmt_mediaext_set:
-                if old_path and Path(old_path).parent != Path(new_path).parent:
-                    logger.warning(
-                        "【监控生活事件】旧关联文件路径与新关联文件路径不一致，"
-                        "跳过重命名处理: %s",
-                        event,
-                    )
+                if not configer.monitor_life_rename_auto_related_files:
                     return
-                if old_path and configer.monitor_life_rename_auto_related_files:
+                old_related_exists = bool(old_path and Path(old_path).is_file())
+                if old_related_exists:
                     self._move_local_related_asset(
                         source_path=Path(old_path),
                         target_path=Path(new_path),
-                        scene="关联文件重命名",
+                        scene="关联文件移动重命名",
+                    )
+                elif not old_related_exists and not new_path.is_file():
+                    logger.info(
+                        "【监控生活事件】本地无旧关联文件且新路径不存在，"
+                        "按新路径创建或下载: %s",
+                        event,
+                    )
+                    self._create(
+                        event=event,
+                        file_path=Path(new_pan_path),
+                        force_event_mode=True,
                     )
                 return
 
@@ -1212,7 +1249,11 @@ class MonitorLife:
                         "【监控生活事件】无法获取旧路径且新文件不存在，生成 STRM 文件: %s",
                         event,
                     )
-                    self._create(event=event, file_path=Path(new_pan_path))
+                    self._create(
+                        event=event,
+                        file_path=Path(new_pan_path),
+                        force_event_mode=True,
+                    )
                 else:
                     logger.info(
                         "【监控生活事件】无法获取旧文件路径且新文件存在，跳过重命名处理: %s",
@@ -1229,18 +1270,16 @@ class MonitorLife:
                         "【监控生活事件】本地无旧文件且新路径不存在，生成 STRM 文件: %s",
                         event,
                     )
-                    self._create(event=event, file_path=Path(new_pan_path))
+                    self._create(
+                        event=event,
+                        file_path=Path(new_pan_path),
+                        force_event_mode=True,
+                    )
                 else:
                     logger.info(
                         "【监控生活事件】本地无旧文件但目标已存在，跳过重命名: %s",
                         event,
                     )
-                return
-
-            if Path(old_path).parent != Path(new_path).parent:
-                logger.warning(
-                    f"【监控生活事件】旧文件路径与新文件路径不一致，跳过重命名处理: {event}",
-                )
                 return
 
             same_strm_path = old_strm_path.resolve() == new_strm_path.resolve()
@@ -1282,14 +1321,14 @@ class MonitorLife:
                         if not sibling.name.startswith(old_stem):
                             continue
                         dest_name = new_stem + sibling.name[len(old_stem) :]
-                        dest = sibling.parent / dest_name
+                        dest = new_strm_path.parent / dest_name
                         if dest.exists():
                             logger.info(
                                 "【监控生活事件】关联文件重命名跳过，目标已存在: %s",
                                 dest,
                             )
                             continue
-                        sibling.rename(dest)
+                        shutil_move(str(sibling), str(dest))
                         logger.info(
                             "【监控生活事件】关联文件重命名完成: %s -> %s",
                             sibling,
@@ -1306,7 +1345,8 @@ class MonitorLife:
 
             try:
                 if not same_strm_path:
-                    old_strm_path.rename(new_strm_path)
+                    new_strm_path.parent.mkdir(parents=True, exist_ok=True)
+                    shutil_move(str(old_strm_path), str(new_strm_path))
                     logger.info(
                         "【监控生活事件】本地 STRM 重命名完成: %s -> %s",
                         old_strm_path,
@@ -1333,14 +1373,14 @@ class MonitorLife:
                         if not sibling.name.startswith(old_stem):
                             continue
                         dest_name = new_stem + sibling.name[len(old_stem) :]
-                        dest = sibling.parent / dest_name
+                        dest = new_strm_path.parent / dest_name
                         if dest.exists():
                             logger.info(
                                 "【监控生活事件】关联文件重命名跳过，目标已存在: %s",
                                 dest,
                             )
                             continue
-                        sibling.rename(dest)
+                        shutil_move(str(sibling), str(dest))
                         logger.info(
                             "【监控生活事件】关联文件重命名完成: %s -> %s",
                             sibling,
