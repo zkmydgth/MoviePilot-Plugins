@@ -1,6 +1,6 @@
 __all__ = ["RenameDictUtils"]
 
-from typing import Tuple, Optional, Dict, Any, List
+from typing import Any, Callable, Dict, List, Optional, Tuple
 from pathlib import Path
 from urllib.parse import unquote
 from subprocess import run, TimeoutExpired
@@ -533,10 +533,21 @@ class RenameDictUtils:
 
     @staticmethod
     def ffprobe_get_media_info(
-        source_path: Optional[str] = None, url: Optional[str] = None
+        source_path: Optional[str] = None,
+        url: Optional[str] = None,
+        strm_resolve_media_info: Optional[
+            Callable[[str], Optional[Dict[str, Any]]]
+        ] = None,
     ) -> Tuple[Optional[Dict[str, Any]], str]:
         """
         获取媒体信息
+
+        :param source_path: 本地文件或 STRM 路径
+        :param url: 无本地路径时直接探测的地址
+        :param strm_resolve_media_info: 当 ``source_path`` 为 ``.strm`` 时在 ffprobe 之前调用；
+            入参为 STRM 文件路径，若返回非空字典则作为结果直接返回；
+            返回 ``None`` 或空字典 ``{}`` 则继续 ffprobe
+        :return: (重命名字段字典, 错误信息)；成功时错误信息为空字符串
         """
         if source_path:
             probe_target, error_message = RenameDictUtils._resolve_probe_target(
@@ -544,6 +555,13 @@ class RenameDictUtils:
             )
             if not probe_target:
                 return None, error_message
+            if (
+                strm_resolve_media_info is not None
+                and Path(source_path).suffix.lower() == ".strm"
+            ):
+                resolved = strm_resolve_media_info(probe_target)
+                if resolved:
+                    return resolved, ""
         else:
             probe_target = url
 

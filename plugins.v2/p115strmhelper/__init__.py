@@ -20,7 +20,7 @@ from p115center import P115Center
 from .version import VERSION
 from .api import Api
 from .service import servicer
-from .core.cache import pantransfercacher, lifeeventcacher
+from .core.cache import lifeeventcacher, pantransfercacher, sharestrmcacher
 from .core.config import configer
 from .core.i18n import i18n
 from .core.message import post_message
@@ -52,6 +52,7 @@ from .utils.sentry import sentry_manager
 from .helper.share.share_links import ShareLinkResolver
 from .utils.strm import StrmGenerater
 from .utils.rename_dict import RenameDictUtils
+from .utils.url import UrlUtils
 
 
 # 实例化一个该插件专用的 SessionManager
@@ -1573,10 +1574,38 @@ class P115StrmHelper(_PluginBase):
             logger.debug("【媒体数据补充】文件后缀不是媒体文件，跳过本次重命名补全")
             return
 
+        def share_strm_center(url: str) -> Optional[Dict[str, Any]]:
+            for i in ["P115StrmHelper", "share_code=", "receive_code=", "id="]:
+                if i not in url:
+                    return None
+            try:
+                _params = UrlUtils.parse_query_params(url)
+                cache_key = (
+                    f"{_params['share_code']}:{_params['receive_code']}:{_params['id']}"
+                )
+                if cache_key not in sharestrmcacher.file_item_dict:
+                    return None
+                _client = P115Center()
+                _data_dict = sharestrmcacher.file_item_dict[cache_key]
+                sharestrmcacher.file_item_dict.pop(cache_key)
+                _resp = _client.download_emby_mediainfo_data(
+                    [(_data_dict["sha1"], _data_dict["size"])]
+                )
+                _media_info = RenameDictUtils.emby_mediainfo_to_rename_fields(
+                    _resp[_data_dict["sha1"].upper()]
+                )
+                if _media_info:
+                    logger.info(f"【媒体数据补充】中心化获取媒体信息: {url}")
+                    return _media_info
+                return None
+            except Exception as e:
+                logger.warning(f"【媒体数据补充】{url} 中心化获取媒体信息失败: {e}")
+                return None
+
         changed = False
         media_info: Dict = {}
 
-        params: Dict[str, str] = {}
+        params: Dict[str, Any] = {"strm_resolve_media_info": share_strm_center}
         need_ffprobe = True
         if source_item.storage == "local":
             params["source_path"] = source_path

@@ -2,6 +2,7 @@ __all__ = [
     "idpathcacher",
     "pantransfercacher",
     "lifeeventcacher",
+    "sharestrmcacher",
     "r302cacher",
     "DirectoryCache",
     "OofFastMiCache",
@@ -84,7 +85,7 @@ class PanTransferCache:
     def __init__(self):
         self.delete_pan_transfer_list = []
         self.creata_pan_transfer_list = []
-        self.file_item_dict: Dict[str, Dict] = MemoryTTLCache(
+        self.file_item_dict: MutableMapping[str, Dict[str, Any]] = MemoryTTLCache(
             maxsize=1_000_000, ttl=36000
         )
 
@@ -97,6 +98,17 @@ class LifeEventCache:
     def __init__(self):
         self.create_strm_file_dict: MutableMapping[str, List] = MemoryTTLCache(
             maxsize=1_000_000, ttl=600
+        )
+
+
+class ShareStrmCache:
+    """
+    分享 STRM 缓存
+    """
+
+    def __init__(self):
+        self.file_item_dict: MutableMapping[str, Dict[str, Any]] = MemoryTTLCache(
+            maxsize=1_000_000, ttl=3600
         )
 
 
@@ -415,4 +427,5 @@ class IntKeyCacheAdapter(MutableMapping[int, Any]):
 idpathcacher = IdPathCache(maxsize=4096)
 pantransfercacher = PanTransferCache()
 lifeeventcacher = LifeEventCache()
+sharestrmcacher = ShareStrmCache()
 r302cacher = R302Cache(maxsize=8096)

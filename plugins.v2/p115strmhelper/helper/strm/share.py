@@ -77,6 +77,7 @@ from app.core.config import settings
 from app.log import logger
 from app.schemas import FileItem
 
+from ...core.cache import sharestrmcacher
 from ...core.config import configer
 from ...core.i18n import i18n
 from ...core.message import post_message
@@ -509,6 +510,11 @@ class ShareStrmHelper:
                     self.strm_count += 1
                     self._strm_generated_paths.add(new_file_path_str)
             logger.info("【分享STRM生成】生成 STRM 文件成功: %s", str(new_file_path))
+            cache_key = f"{config.share_code}:{config.share_receive}:{item['id']}"
+            sharestrmcacher.file_item_dict[cache_key] = {
+                "sha1": item["sha1"],
+                "size": item["size"],
+            }
 
             if config.moviepilot_transfer:
                 self.mp_transfer_queue.append(new_file_path)
