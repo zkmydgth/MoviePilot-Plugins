@@ -1646,7 +1646,7 @@
                           </v-col>
                           <v-col cols="12" md="3">
                             <v-switch v-model="config.transfer_module_enhancement" label="整理模块增强" color="info"
-                              density="compact" :disabled="isTransferModuleEnhancementLocked" hint="此功能需要授权才能开启"
+                              density="compact" :disabled="isTransferModuleEnhancementLocked" hint="此功能已废弃"
                               persistent-hint></v-switch>
                           </v-col>
                           <v-col cols="12" md="3">
