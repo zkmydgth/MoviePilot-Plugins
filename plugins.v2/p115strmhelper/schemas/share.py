@@ -1,7 +1,72 @@
 from datetime import datetime
-from typing import Dict, Literal, Optional
+from typing import Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+from ..utils.cron import CronUtils
+
+
+class ShareStrmCleanupConfig(BaseModel):
+    """
+    无效分享 STRM 清理（扫描根目录、定时与删除策略）
+    """
+
+    cleanup_paths: List[str] = Field(
+        default_factory=list,
+        description="参与扫描的本地根目录列表，仅在这些目录下扫描分享 STRM",
+    )
+    timing_share_strm_cleanup: bool = Field(
+        default=False,
+        description="是否按 cron 定时执行清理扫描",
+    )
+    cron_share_strm_cleanup: Optional[str] = Field(
+        default="0 */12 * * *",
+        description="定时清理的 cron 表达式",
+    )
+    delete_mode: Literal["immediate", "plugin_ui"] = Field(
+        default="plugin_ui",
+        description="immediate=扫到后立即删除；plugin_ui=先入队待插件内确认",
+    )
+    remove_related_mediainfo: bool = Field(
+        default=True,
+        description="是否连带删除 nfo/jpg 等关联文件",
+    )
+    remove_empty_parent_dirs: bool = Field(
+        default=True,
+        description="是否清理空父目录（strm 模式）",
+    )
+    remove_stale_transfer_history: bool = Field(
+        default=False,
+        description="删除 STRM 时是否清理匹配的 MP 整理记录",
+    )
+    record_missing_media_from_history: bool = Field(
+        default=True,
+        description="是否从整理记录解析并写入「缺失媒体」列表",
+    )
+
+    @field_validator("cron_share_strm_cleanup", mode="before")
+    @classmethod
+    def _validate_cron_share_strm_cleanup(cls, v: Optional[str]) -> Optional[str]:
+        """
+        校验并必要时修复 cron 表达式
+        """
+        if not v:
+            return v
+        status, msg = CronUtils.validate_cron_expression(v)
+        if status:
+            return v
+        from app.log import logger
+
+        logger.warning(msg)
+        fixed = CronUtils.fix_cron_expression(v)
+        if CronUtils.is_valid_cron(fixed):
+            logger.info(f"自动修复 cron_share_strm_cleanup: '{v}' -> '{fixed}'")
+            return fixed
+        logger.error(
+            f"无法修复无效的 cron_share_strm_cleanup: '{v}'，"
+            f"恢复默认值 '{CronUtils.get_default_cron()}'"
+        )
+        return CronUtils.get_default_cron()
 
 
 class ShareSaveParent(BaseModel):

@@ -33,6 +33,7 @@ from ..helper.strm import (
     ShareInteractiveGenStrmQueue,
     ShareStrmHelper,
 )
+from ..helper.strm.share import share_strm_cleaner
 from ..helper.transfer import TransferTaskManager, TransferHandler
 from ..helper.webdav import WebdavCore
 from ..helper.mediaserver import emby_mediainfo_queue
@@ -487,6 +488,15 @@ class ServiceHelper:
         if self.scheduler.get_jobs():
             self.scheduler.print_jobs()
             self.scheduler.start()
+
+    def share_strm_cleanup_run(self):
+        """
+        定时任务：分享 STRM 失效清理扫描
+        """
+        try:
+            share_strm_cleaner.run_full_cleanup()
+        except Exception as e:
+            logger.error(f"【分享STRM清理】定时任务失败: {e}", exc_info=True)
 
     def share_strm_files(self):
         """

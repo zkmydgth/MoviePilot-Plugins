@@ -40,6 +40,15 @@ class StrmCleanupRequestIdPayload(BaseModel):
     request_id: str = Field(..., min_length=8, description="批次 request_id")
 
 
+class ShareStrmMissingMediaClearPayload(BaseModel):
+    """
+    分享 STRM 缺失媒体列表清空或单条删除
+    """
+
+    uid: Optional[str] = Field(default=None, description="单条记录 uid")
+    clear_all: bool = Field(default=False, description="是否清空全部")
+
+
 class LifeEventCheckData(BaseModel):
     """
     生活事件检查数据

@@ -1,306 +1,267 @@
 <template>
-  <div class="plugin-app-page-content d-flex flex-column gap-4">
-    <div class="d-flex align-center flex-wrap gap-2">
-      <div class="d-flex align-center gap-2 min-w-0">
-        <v-icon icon="mdi-view-dashboard-outline" color="primary" size="28" />
-        <h1 class="text-h6 font-weight-medium text-high-emphasis text-truncate">115助手仪表盘</h1>
-      </div>
-      <v-spacer />
-      <v-btn color="primary" variant="tonal" size="small" prepend-icon="mdi-refresh" :loading="refreshing"
-        @click="refreshAll">
-        刷新
-      </v-btn>
+  <v-container fluid class="app-start pa-4">
+    <div class="d-flex align-center flex-wrap gap-2 mb-3">
+      <v-icon icon="mdi-view-dashboard-outline" color="primary" size="26" />
+      <span class="text-h6 font-weight-medium text-high-emphasis">115 助手仪表盘</span>
     </div>
 
-    <v-alert v-if="error" type="error" variant="tonal" density="comfortable" closable>{{ error }}</v-alert>
-    <v-alert v-if="actionMessage" :type="actionMessageType" variant="tonal" density="comfortable" closable>
+    <v-alert v-if="error" type="error" variant="tonal" density="comfortable" closable class="mb-3"
+      @click:close="error = null">
+      {{ error }}
+    </v-alert>
+    <v-alert v-if="actionMessage" :type="actionMessageType" variant="tonal" density="comfortable" closable class="mb-3"
+      @click:close="actionMessage = null">
       {{ actionMessage }}
     </v-alert>
 
-    <v-skeleton-loader v-if="loading && !initialDataLoaded" type="card, card, article" />
+    <!-- 分享 STRM 清理（对齐媒体整理：单卡 + 顶栏 + 表格区） -->
+    <v-card class="app-start-card mb-4" variant="flat" rounded="0">
+      <v-card-item class="py-3">
+        <v-card-title class="text-subtitle-1 pa-0 font-weight-medium">
+          <v-row align="center" class="ma-n1" no-gutters>
+            <v-col cols="12" lg="7" class="pa-1">
+              <div class="d-flex align-center flex-wrap gap-2">
+                <v-icon icon="mdi-broom" color="primary" size="22" />
+                <span class="text-high-emphasis">无效分享 STRM 清理</span>
+                <v-chip v-if="deleteMode === 'immediate'" size="small" variant="tonal" color="info" label>
+                  立即删除
+                </v-chip>
+                <v-chip v-else size="small" variant="tonal" color="warning" label>待确认</v-chip>
+              </div>
+            </v-col>
+            <v-col cols="12" lg="5" class="pa-1 d-flex align-center justify-lg-end gap-2 flex-wrap">
+              <v-btn-group variant="outlined" divided rounded density="comfortable">
+                <v-btn prepend-icon="mdi-refresh" :loading="refreshing" @click="refreshAll">
+                  刷新
+                </v-btn>
+                <v-btn prepend-icon="mdi-play" color="primary" :loading="scanLoading" :disabled="!canScan"
+                  @click="runScan">
+                  立即扫描
+                </v-btn>
+              </v-btn-group>
+            </v-col>
+          </v-row>
+        </v-card-title>
+      </v-card-item>
 
-    <template v-else>
-      <!-- 优先：系统状态 + 账户信息 -->
-      <v-row class="dashboard-status-row" align="stretch">
-        <v-col cols="12" md="6" class="d-flex flex-column mb-4 mb-md-0">
-          <v-card class="dashboard-status-card w-100 d-flex flex-column flex-grow-1">
-            <v-card-item>
-              <v-card-title class="text-subtitle-1 d-flex align-center">
-                <v-icon icon="mdi-information" class="mr-2" size="small" />
-                系统状态
-              </v-card-title>
-            </v-card-item>
-            <v-divider />
-            <v-card-text class="pa-0 flex-grow-1 d-flex flex-column">
-              <v-list class="bg-transparent pa-0">
-                <v-list-item class="px-4 py-1" style="min-height: 40px;">
-                  <template v-slot:prepend>
-                    <v-icon :color="status.enabled ? 'success' : 'grey'" icon="mdi-power" size="small" />
-                  </template>
-                  <v-list-item-title class="text-body-2">插件状态</v-list-item-title>
-                  <template v-slot:append>
-                    <v-chip :color="status.enabled ? 'success' : 'grey'" size="small" variant="tonal">
-                      {{ status.enabled ? '已启用' : '已禁用' }}
-                    </v-chip>
-                  </template>
-                </v-list-item>
-                <v-divider class="my-0" />
-                <v-list-item class="px-4 py-1" style="min-height: 40px;">
-                  <template v-slot:prepend>
-                    <v-icon :color="status.has_client && initialConfig?.cookies ? 'success' : 'error'"
-                      icon="mdi-account-check" size="small" />
-                  </template>
-                  <v-list-item-title class="text-body-2">115客户端状态</v-list-item-title>
-                  <template v-slot:append>
-                    <v-chip :color="status.has_client && initialConfig?.cookies ? 'success' : 'error'" size="small"
-                      variant="tonal">
-                      {{ status.has_client && initialConfig?.cookies ? '已连接' : '未连接' }}
-                    </v-chip>
-                  </template>
-                </v-list-item>
-                <v-divider class="my-0" />
-                <v-list-item class="px-4 py-1" style="min-height: 40px;">
-                  <template v-slot:prepend>
-                    <v-icon :color="status.running ? 'warning' : 'success'" icon="mdi-play-circle" size="small" />
-                  </template>
-                  <v-list-item-title class="text-body-2">任务状态</v-list-item-title>
-                  <template v-slot:append>
-                    <v-chip :color="status.running ? 'warning' : 'success'" size="small" variant="tonal">
-                      {{ status.running ? '运行中' : '空闲' }}
-                    </v-chip>
-                  </template>
-                </v-list-item>
+      <v-divider />
+
+      <div v-if="deleteMode === 'immediate'" class="pa-4">
+        <v-alert v-if="lastSummary" type="info" variant="tonal" density="comfortable" class="text-body-2">
+          <div class="mb-1">
+            上次扫描：无效 <strong>{{ lastSummary.invalid_strm_count ?? 0 }}</strong> 条 · 已删
+            <strong>{{ lastSummary.deleted_count ?? 0 }}</strong> 条
+          </div>
+          <div v-if="lastSummary.message" class="text-caption text-medium-emphasis">{{ lastSummary.message }}</div>
+        </v-alert>
+        <div v-else class="text-body-2 text-medium-emphasis">暂无扫描摘要，可在插件全页分享同步中配置清理目录并保存后执行「立即扫描」</div>
+      </div>
+
+      <v-data-table v-else :headers="batchHeaders" :items="shareBatches" :loading="pendingLoading"
+        item-value="request_id" density="compact" hover hide-default-footer fixed-header class="app-start-data-table"
+        :height="batchTableHeight">
+        <template #item.path_count="{ item }">
+          <v-chip size="small" variant="tonal" color="primary" label>{{ item.path_count ?? 0 }}</v-chip>
+        </template>
+        <template #item.created_at="{ item }">
+          <span class="text-caption">{{ formatTs(item.created_at) }}</span>
+        </template>
+        <template #item.request_id="{ item }">
+          <code class="text-caption text-medium-emphasis text-break">{{ item.request_id }}</code>
+        </template>
+        <template #item.actions="{ item }">
+          <v-btn icon size="small" variant="text" :disabled="!!execId || !!cancelId">
+            <v-icon icon="mdi-dots-vertical" />
+            <v-menu activator="parent" location="bottom">
+              <v-list density="compact" min-width="180">
+                <v-list-item prepend-icon="mdi-format-list-bulleted" title="查看路径" slim
+                  @click="openBatchPathsDialog(item)" />
+                <v-list-item prepend-icon="mdi-delete-forever" title="确认删除" base-color="error" slim
+                  :disabled="execId === item.request_id" @click="executeBatch(item.request_id)" />
+                <v-list-item prepend-icon="mdi-close" title="取消批次" slim :disabled="cancelId === item.request_id"
+                  @click="cancelBatch(item.request_id)" />
               </v-list>
-            </v-card-text>
-          </v-card>
-        </v-col>
+            </v-menu>
+          </v-btn>
+        </template>
+        <template #no-data>
+          <div class="text-body-2 text-medium-emphasis py-8 text-center">
+            暂无待确认批次，可点击「立即扫描」生成
+          </div>
+        </template>
+        <template #loading>
+          <v-skeleton-loader class="ma-4" type="table" />
+        </template>
+      </v-data-table>
+    </v-card>
 
-        <v-col cols="12" md="6" class="d-flex flex-column mb-4 mb-md-0">
-          <v-card class="dashboard-status-card w-100 d-flex flex-column flex-grow-1">
-            <v-card-item>
-              <v-card-title class="text-subtitle-1 d-flex align-center">
-                <v-icon icon="mdi-account-box" class="mr-2" size="small" />
-                115账户信息
-              </v-card-title>
-            </v-card-item>
-            <v-divider />
-            <v-card-text class="pa-0 flex-grow-1 d-flex flex-column">
-              <v-skeleton-loader v-if="userInfo.loading || storageInfo.loading"
-                type="list-item-avatar-three-line, list-item-three-line" />
-              <div v-else>
-                <v-alert v-if="userInfo.error || storageInfo.error" type="warning" variant="tonal" density="comfortable"
-                  class="ma-4">
-                  {{ userInfo.error || storageInfo.error }}
-                </v-alert>
-                <v-list v-else class="bg-transparent pa-0">
-                  <v-list-item class="px-4 py-2">
-                    <template v-slot:prepend>
-                      <v-avatar size="36" class="mr-2">
-                        <v-img v-if="userInfo.avatar" :src="userInfo.avatar" :alt="userInfo.name" />
-                        <v-icon v-else icon="mdi-account-circle" />
-                      </v-avatar>
-                    </template>
-                    <v-list-item-title class="text-body-1 font-weight-medium">
-                      {{ userInfo.name || '未知用户' }}
-                    </v-list-item-title>
-                  </v-list-item>
-                  <v-divider class="my-0" />
-                  <v-list-item class="px-4 py-2">
-                    <template v-slot:prepend>
-                      <v-icon :color="userInfo.is_vip ? 'amber-darken-2' : 'grey'" icon="mdi-shield-crown"
-                        size="small" />
-                    </template>
-                    <v-list-item-title class="text-body-2">VIP状态</v-list-item-title>
-                    <template v-slot:append>
-                      <v-chip :color="userInfo.is_vip ? 'success' : 'grey'" size="small" variant="tonal">
-                        {{
-                          userInfo.is_vip
-                            ? userInfo.is_forever_vip
-                              ? '永久VIP'
-                              : `VIP (至 ${userInfo.vip_expire_date || 'N/A'})`
-                            : '非VIP'
-                        }}
-                      </v-chip>
-                    </template>
-                  </v-list-item>
-                  <v-divider class="my-0" />
-                  <v-list-item class="px-4 py-3">
-                    <v-list-item-title class="text-body-2 mb-1">存储空间</v-list-item-title>
-                    <v-list-item-subtitle v-if="storageInfo.used && storageInfo.total" class="text-caption">
-                      已用 {{ storageInfo.used }} / 总共 {{ storageInfo.total }} (剩余 {{ storageInfo.remaining }})
-                    </v-list-item-subtitle>
-                    <v-progress-linear v-if="storageInfo.used && storageInfo.total"
-                      :model-value="calculateStoragePercentage(storageInfo.used, storageInfo.total)" color="primary"
-                      height="8" rounded class="mt-2" />
-                    <v-list-item-subtitle v-else class="text-caption text-medium-emphasis">
-                      存储信息不可用
-                    </v-list-item-subtitle>
-                  </v-list-item>
-                </v-list>
+    <!-- 无效分享 STRM 关联媒体缺失 -->
+    <v-card class="app-start-card" variant="flat" rounded="0">
+      <v-card-item class="py-3">
+        <v-card-title class="text-subtitle-1 pa-0 font-weight-medium">
+          <v-row align="center" class="ma-n1" no-gutters>
+            <v-col cols="12" md="8" class="pa-1">
+              <div class="d-flex align-center gap-2">
+                <v-icon icon="mdi-database-off-outline" color="primary" size="22" />
+                <span class="text-high-emphasis">无效分享 STRM 关联媒体缺失</span>
               </div>
-            </v-card-text>
-          </v-card>
-        </v-col>
-      </v-row>
+            </v-col>
+            <v-col cols="12" md="4" class="pa-1 d-flex justify-md-end">
+              <v-btn v-if="missingTotal > 0" size="small" variant="tonal" color="error" prepend-icon="mdi-delete-sweep"
+                :loading="clearAllLoading" @click="clearAllMissing">
+                清空全部
+              </v-btn>
+            </v-col>
+          </v-row>
+        </v-card-title>
+      </v-card-item>
 
-      <!-- 下方：STRM 同步执行记录 -->
-      <v-row class="mt-0 mt-md-2">
-        <v-col cols="12">
-          <v-card class="strm-history-card" variant="flat">
-            <v-card-item class="strm-history-card__header py-3">
-              <v-card-title class="text-subtitle-1 d-flex align-center flex-wrap ps-0">
-                <v-icon icon="mdi-sync" class="mr-2" color="primary" size="small" />
-                STRM 同步状态
-                <v-chip class="ms-2" size="x-small" variant="tonal" color="primary">{{ strmHistoryTotal }} 条</v-chip>
-              </v-card-title>
-              <template v-slot:append>
-                <div class="d-flex align-center flex-shrink-0">
-                  <v-btn v-if="strmHistoryTotal > 0" size="small" variant="text" color="error" class="mr-1"
-                    prepend-icon="mdi-delete-sweep" :loading="deletingAllStrm" @click="confirmDeleteAllStrm">
-                    清空
-                  </v-btn>
-                  <v-btn icon size="small" variant="text" :loading="strmHistoryLoading" @click="loadStrmHistory">
-                    <v-icon>mdi-refresh</v-icon>
-                  </v-btn>
-                </div>
+      <v-divider />
+
+      <div class="missing-media-scroll">
+        <v-data-table :headers="missingHeaders" :items="missingItems" :loading="missingLoading" item-value="uid"
+          density="compact" hover hide-default-footer fixed-header class="app-start-data-table missing-media-table"
+          :height="missingTableHeight">
+          <template #item.share_code="{ item }">
+            <span class="text-caption font-weight-medium text-break d-block">{{ item.share_code || '—' }}</span>
+          </template>
+          <template #item.receive_code="{ item }">
+            <span class="text-caption text-medium-emphasis text-break d-block">{{ item.receive_code || '—' }}</span>
+          </template>
+          <template #item.strm_path="{ item }">
+            <span class="strm-path-cell text-caption text-break d-block">{{ item.strm_path }}</span>
+          </template>
+          <template #item.type="{ item }">
+            <span class="text-caption">{{ item.type || '—' }}</span>
+          </template>
+          <template #item.title="{ item }">
+            <span class="text-caption text-break d-block">{{ item.title || '—' }}</span>
+          </template>
+          <template #item.year="{ item }">
+            <span class="text-caption">{{ item.year != null && item.year !== '' ? item.year : '—' }}</span>
+          </template>
+          <template #item.season_ep="{ item }">
+            <div class="text-caption">
+              <template v-if="item.seasons != null && item.seasons !== ''">
+                <div>{{ item.seasons }}</div>
               </template>
-            </v-card-item>
-            <v-card-text class="strm-history-card__body">
-              <div class="strm-filter-row d-flex flex-wrap align-center gap-2 mb-4">
-                <v-select v-model="strmKindSelected" :items="strmKindSelectItems" item-title="title" item-value="value"
-                  label="任务类型" density="compact" hide-details clearable variant="outlined" class="strm-kind-field"
-                  @update:model-value="applyStrmFilter" />
-              </div>
-              <v-skeleton-loader v-if="strmHistoryLoading" type="card, card, card" />
-              <div v-else-if="strmHistoryItems.length === 0" class="text-center py-10">
-                <v-icon icon="mdi-playlist-remove" size="56" color="grey" class="mb-3 opacity-40" />
-                <div class="text-body-1 text-medium-emphasis">暂无执行记录</div>
-                <div class="text-caption text-medium-emphasis mt-1">完成一次全量、增量或分享同步后将在此展示</div>
-              </div>
-              <div v-else class="strm-history-list">
-                <v-card v-for="(row, idx) in strmHistoryItems" :key="row.unique || idx" variant="outlined"
-                  class="strm-history-item mb-3" :class="{ 'strm-history-item--fail': !row.success }">
-                  <v-card-item class="pb-2">
-                    <div class="flex-grow-1 min-w-0">
-                      <div class="d-flex flex-wrap align-center gap-2 mb-2">
-                        <v-chip size="small" color="primary" variant="flat">{{ kindLabel(row.kind) }}</v-chip>
-                        <v-chip size="small" :color="row.success ? 'success' : 'error'" variant="tonal">
-                          {{ row.success ? '成功' : '失败' }}
-                        </v-chip>
-                      </div>
-                      <div class="text-h6 font-weight-medium text-high-emphasis">
-                        {{ row.finished_at }}
-                      </div>
-                      <div class="text-body-2 text-medium-emphasis mt-2">
-                        耗时 <strong class="text-high-emphasis">{{ formatNum(row.elapsed_sec) }}</strong> 秒 ·
-                        扫描 <strong class="text-high-emphasis">{{ row.total_iterated }}</strong> 项
-                        <template v-if="row.kind === 'increment'">
-                          · API <strong class="text-high-emphasis">{{ row.api_requests }}</strong> 次
-                        </template>
-                      </div>
-                    </div>
-                    <template v-slot:append>
-                      <v-btn icon size="small" variant="text" color="error" :loading="deletingStrmId === row.unique"
-                        :disabled="!row.unique" @click="confirmDeleteStrm(row)">
-                        <v-icon size="small">mdi-delete-outline</v-icon>
-                      </v-btn>
-                    </template>
-                  </v-card-item>
-                  <v-card-text class="pt-0">
-                    <div class="text-caption text-medium-emphasis strm-section-label mb-2">生成统计</div>
-                    <div class="d-flex flex-wrap gap-1 mb-1">
-                      <v-chip v-for="s in parseStatsEntries(row.stats, row.kind)" :key="s.key" size="small"
-                        :color="statChipColor(s)" variant="tonal">
-                        {{ s.label }} {{ formatStatValue(s.value) }}
-                      </v-chip>
-                    </div>
-                    <div v-if="parseExtraEntries(row.extra).length" class="mt-3">
-                      <div class="text-caption text-medium-emphasis strm-section-label mb-2">补充信息</div>
-                      <div v-for="(ex, ei) in parseExtraEntries(row.extra)" :key="ei"
-                        class="text-body-2 strm-extra-line">
-                        <span class="text-medium-emphasis">{{ ex.label }}</span>
-                        <a v-if="ex.href" :href="ex.href" target="_blank" rel="noopener noreferrer"
-                          class="text-primary ms-1">{{ ex.display }}</a>
-                        <span v-else class="ms-1 text-high-emphasis" :title="ex.full">{{ ex.display }}</span>
-                      </div>
-                    </div>
-                    <v-alert v-if="!row.success && row.error" type="error" variant="tonal" density="compact"
-                      class="mt-3" border="start">
-                      {{ row.error }}
-                    </v-alert>
-                  </v-card-text>
-                </v-card>
-              </div>
-              <div v-if="strmHistoryTotal > 0" class="d-flex flex-wrap align-center justify-space-between mt-2 gap-2">
-                <div class="text-caption text-medium-emphasis">
-                  第 {{ (strmHistoryPage - 1) * strmHistoryLimit + 1 }} –
-                  {{ Math.min(strmHistoryPage * strmHistoryLimit, strmHistoryTotal) }} 条，共 {{ strmHistoryTotal }} 条
-                </div>
-                <v-pagination v-model="strmHistoryPage" :length="Math.ceil(strmHistoryTotal / strmHistoryLimit)"
-                  :total-visible="7" density="comfortable" @update:model-value="loadStrmHistory" />
-              </div>
-            </v-card-text>
-          </v-card>
-        </v-col>
-      </v-row>
-    </template>
+              <template v-if="item.episodes != null && item.episodes !== ''">
+                <div class="text-medium-emphasis">{{ item.episodes }}</div>
+              </template>
+              <span v-if="seasonEpEmpty(item)">—</span>
+            </div>
+          </template>
+          <template #item.external_ids="{ item }">
+            <div class="text-caption missing-id-stack">
+              <div v-if="item.tmdbid != null && item.tmdbid !== ''">TMDB: {{ item.tmdbid }}</div>
+              <div v-if="item.tvdbid != null && item.tvdbid !== ''">TVDB: {{ item.tvdbid }}</div>
+              <div v-if="item.imdbid != null && item.imdbid !== ''">IMDB: {{ item.imdbid }}</div>
+              <div v-if="item.doubanid != null && item.doubanid !== ''">豆瓣: {{ item.doubanid }}</div>
+              <span v-if="!hasAnyExternalId(item)">—</span>
+            </div>
+          </template>
+          <template #item.history_id="{ item }">
+            <span class="text-caption">{{ item.id != null && item.id !== '' ? item.id : '—' }}</span>
+          </template>
+          <template #item.actions="{ item }">
+            <v-btn icon size="small" variant="text" color="error" :loading="deletingUid === item.uid"
+              @click="deleteOneMissing(item.uid)">
+              <v-icon size="small">mdi-delete-outline</v-icon>
+            </v-btn>
+          </template>
+          <template #no-data>
+            <div class="text-body-2 text-medium-emphasis py-8 text-center">暂无记录</div>
+          </template>
+          <template #loading>
+            <v-skeleton-loader class="ma-4" type="table" />
+          </template>
+        </v-data-table>
+      </div>
 
-    <v-dialog v-model="deleteStrmConfirm.show" max-width="420" persistent>
-      <v-card>
-        <v-card-title class="text-h6 d-flex align-center">
-          <v-icon icon="mdi-alert-circle-outline" color="error" class="mr-2" />
-          删除记录
-        </v-card-title>
-        <v-card-text>确定删除这条 STRM 执行历史吗？</v-card-text>
-        <v-card-actions>
-          <v-spacer />
-          <v-btn color="grey" variant="text" :disabled="deletingStrmId" @click="deleteStrmConfirm.show = false">
-            取消
-          </v-btn>
-          <v-btn color="error" variant="text" :loading="deletingStrmId" @click="handleConfirmDeleteStrm">
-            删除
-          </v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
+      <template v-if="!missingLoading && missingTotal > 0">
+        <v-divider />
+        <div
+          class="app-start-page-footer d-flex flex-column flex-md-row align-stretch align-md-center justify-space-between gap-2 gap-md-3 px-2 px-md-3 py-2">
+          <div class="d-flex align-center justify-center justify-md-start gap-2 app-start-page-footer__select">
+            <v-select v-model="missingLimit" :items="missingPageSizes" item-title="title" item-value="value"
+              density="compact" variant="plain" hide-details class="missing-per-page"
+              @update:model-value="onMissingLimitChange" />
+          </div>
+          <div
+            class="text-caption text-medium-emphasis text-center text-md-center flex-grow-1 order-3 order-md-2 px-1 app-start-page-footer__tip">
+            {{ missingPageTip }}
+          </div>
+          <div class="app-start-pagination-scroll order-2 order-md-3 w-100 w-md-auto">
+            <v-pagination v-model="missingPage" :length="missingTotalPages" :total-visible="paginationTotalVisible"
+              :show-first-last-page="paginationShowFirstLast" first-aria-label="第一页" last-aria-label="最后一页"
+              prev-aria-label="上一页" next-aria-label="下一页" :density="paginationDensity" size="small"
+              @update:model-value="loadMissing" />
+          </div>
+        </div>
+      </template>
+    </v-card>
 
-    <v-dialog v-model="deleteAllStrmConfirm" max-width="450" persistent>
-      <v-card>
-        <v-card-title class="text-h6 d-flex align-center">
-          <v-icon icon="mdi-alert-circle-outline" color="error" class="mr-2" />
-          清空历史
-        </v-card-title>
-        <v-card-text>
-          <div class="mb-2">确定清空全部 <strong>{{ strmHistoryTotal }}</strong> 条 STRM 执行历史吗？</div>
-          <v-alert type="error" variant="tonal" density="compact" class="mt-2" icon="mdi-alert">
-            <div class="text-caption">此操作不可恢复</div>
-          </v-alert>
+    <!-- 待删路径（表格 + 底栏分页，与下方列表分页一致） -->
+    <v-dialog v-model="batchPathsDialog.show" max-width="900">
+      <v-card class="batch-paths-dialog-card" rounded="lg">
+        <v-card-item class="py-3">
+          <v-card-title class="text-subtitle-1 pa-0 d-flex align-center flex-wrap gap-2">
+            <v-icon icon="mdi-file-tree-outline" color="primary" size="22" />
+            <span class="text-high-emphasis">待删 STRM 路径</span>
+            <v-chip size="small" variant="tonal" color="primary" label>共 {{ batchPathsDialog.total }} 条</v-chip>
+            <v-spacer />
+            <v-btn icon size="small" variant="text" aria-label="关闭" @click="batchPathsDialog.show = false">
+              <v-icon>mdi-close</v-icon>
+            </v-btn>
+          </v-card-title>
+        </v-card-item>
+        <v-divider />
+        <v-card-text class="pa-0">
+          <v-data-table :headers="batchPathsHeaders" :items="batchPathsTableItems" :loading="batchPathsDialog.loading"
+            item-value="rowKey" density="compact" hover hide-default-footer fixed-header class="app-start-data-table"
+            :height="batchPathsTableHeight">
+            <template #item.path="{ item }">
+              <span class="text-body-2 text-break">{{ item.path }}</span>
+            </template>
+            <template #no-data>
+              <div class="text-body-2 text-medium-emphasis py-8 text-center">
+                暂无路径或批次已失效，请关闭后刷新
+              </div>
+            </template>
+            <template #loading>
+              <v-skeleton-loader class="ma-4" type="table" />
+            </template>
+          </v-data-table>
+          <template v-if="!batchPathsDialog.loading && batchPathsDialog.total > 0">
+            <v-divider />
+            <div
+              class="app-start-page-footer d-flex flex-column flex-md-row align-stretch align-md-center justify-space-between gap-2 gap-md-3 px-2 px-md-3 py-2">
+              <div class="d-flex align-center justify-center justify-md-start gap-2 app-start-page-footer__select">
+                <v-select v-model="batchPathsDialog.limit" :items="missingPageSizes" item-title="title"
+                  item-value="value" density="compact" variant="plain" hide-details class="missing-per-page"
+                  @update:model-value="onBatchPathsLimitChange" />
+              </div>
+              <div
+                class="text-caption text-medium-emphasis text-center text-md-center flex-grow-1 order-3 order-md-2 px-1 app-start-page-footer__tip">
+                {{ batchPathsPageTip }}
+              </div>
+              <div class="app-start-pagination-scroll order-2 order-md-3 w-100 w-md-auto">
+                <v-pagination v-model="batchPathsDialog.page" :length="batchPathsTotalPages"
+                  :total-visible="paginationTotalVisible" :show-first-last-page="paginationShowFirstLast"
+                  first-aria-label="第一页" last-aria-label="最后一页" prev-aria-label="上一页" next-aria-label="下一页"
+                  :density="paginationDensity" size="small" @update:model-value="loadBatchPathsPage" />
+              </div>
+            </div>
+          </template>
         </v-card-text>
-        <v-card-actions>
-          <v-spacer />
-          <v-btn color="grey" variant="text" :disabled="deletingAllStrm" @click="deleteAllStrmConfirm = false">
-            取消
-          </v-btn>
-          <v-btn color="error" variant="text" :loading="deletingAllStrm" @click="handleConfirmDeleteAllStrm">
-            确认清空
-          </v-btn>
-        </v-card-actions>
       </v-card>
     </v-dialog>
-  </div>
+  </v-container>
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue';
-import {
-  KIND_LABELS,
-  kindLabel,
-  parseStatsEntries,
-  parseExtraEntries,
-  statChipColor,
-  formatStatValue,
-  formatNum,
-} from '../utils/strmHistoryDisplay.js';
+import { ref, reactive, computed, onMounted } from 'vue';
+import { useDisplay } from 'vuetify';
 import { P115_STRM_HELPER_PLUGIN_ID } from '../utils/pluginId.js';
 
 const props = defineProps({
@@ -312,372 +273,505 @@ const props = defineProps({
     type: String,
     default: P115_STRM_HELPER_PLUGIN_ID,
   },
-  navKey: {
-    type: String,
-    default: '',
-  },
 });
 
-const loading = ref(true);
+const display = useDisplay();
+
+/** 窄屏少显页码按钮；xs 仅 5 个槽位，sm/md 以下7，md+ 与桌面一致 */
+const paginationTotalVisible = computed(() => {
+  if (display.mdAndUp.value) return 11;
+  if (display.smAndUp.value) return 7;
+  return 5;
+});
+
+const paginationShowFirstLast = computed(() => display.smAndUp.value);
+
+const paginationDensity = computed(() => (display.xs.value ? 'compact' : 'comfortable'));
+
 const refreshing = ref(false);
-const initialDataLoaded = ref(false);
 const error = ref(null);
 const actionMessage = ref(null);
 const actionMessageType = ref('info');
 
 const initialConfig = reactive({});
+const deleteMode = computed(() =>
+  (initialConfig.share_strm_cleanup_config && initialConfig.share_strm_cleanup_config.delete_mode) || 'plugin_ui',
+);
+const canScan = computed(
+  () =>
+    !!(initialConfig.enabled && initialConfig.cookies && String(initialConfig.cookies).trim()),
+);
 
-const status = reactive({
-  enabled: false,
-  has_client: false,
-  running: false,
-});
+const pendingLoading = ref(true);
+const shareBatches = ref([]);
+const lastSummary = ref(null);
 
-const userInfo = reactive({
-  name: null,
-  is_vip: null,
-  is_forever_vip: null,
-  vip_expire_date: null,
-  avatar: null,
-  error: null,
-  loading: true,
-});
+const missingLoading = ref(true);
+const missingItems = ref([]);
+const missingTotal = ref(0);
+const missingPage = ref(1);
+const missingLimit = ref(25);
 
-const storageInfo = reactive({
-  total: null,
-  used: null,
-  remaining: null,
-  error: null,
-  loading: true,
-});
-
-/** 任务类型筛选：与后端 kind 一致，空字符串表示不筛选 */
-const strmKindSelected = ref('');
-const strmKindApplied = ref('');
-const strmHistoryPage = ref(1);
-const strmHistoryLimit = ref(20);
-const strmHistoryTotal = ref(0);
-const strmHistoryItems = ref([]);
-const strmHistoryLoading = ref(false);
-const deletingStrmId = ref(null);
-const deletingAllStrm = ref(false);
-const deleteStrmConfirm = reactive({ show: false, row: null });
-const deleteAllStrmConfirm = ref(false);
-
-const calculateStoragePercentage = (used, total) => {
-  if (!used || !total) return 0;
-  const parseSize = (sizeStr) => {
-    if (!sizeStr || typeof sizeStr !== 'string') return 0;
-    const value = parseFloat(sizeStr);
-    if (isNaN(value)) return 0;
-    if (sizeStr.toUpperCase().includes('TB')) return value * 1024 * 1024;
-    if (sizeStr.toUpperCase().includes('GB')) return value * 1024;
-    if (sizeStr.toUpperCase().includes('MB')) return value;
-    return value;
-  };
-  const usedValue = parseSize(used);
-  const totalValue = parseSize(total);
-  if (totalValue === 0) return 0;
-  return Math.min(Math.max((usedValue / totalValue) * 100, 0), 100);
-};
-
-const strmKindSelectItems = [
-  { title: '全部类型', value: '' },
-  ...Object.entries(KIND_LABELS).map(([value, title]) => ({ title, value })),
+const missingPageSizes = [
+  { title: '15', value: 15 },
+  { title: '25', value: 25 },
+  { title: '50', value: 50 },
+  { title: '100', value: 100 },
 ];
 
-const getStatus = async () => {
-  loading.value = true;
-  error.value = null;
+const batchHeaders = [
+  { title: '路径数', key: 'path_count', sortable: false, width: '100px' },
+  { title: '创建时间', key: 'created_at', sortable: false },
+  { title: '批次 ID', key: 'request_id', sortable: false },
+  { title: '', key: 'actions', sortable: false, align: 'end', width: '56px' },
+];
+
+const missingHeaders = [
+  { title: '分享码', key: 'share_code', sortable: false, minWidth: '96px' },
+  { title: '接收码', key: 'receive_code', sortable: false, minWidth: '96px' },
+  { title: 'STRM 路径', key: 'strm_path', sortable: false, minWidth: '200px' },
+  { title: '类型', key: 'type', sortable: false, width: '88px' },
+  { title: '标题', key: 'title', sortable: false, minWidth: '140px' },
+  { title: '年份', key: 'year', sortable: false, width: '64px' },
+  { title: '季 / 集', key: 'season_ep', sortable: false, minWidth: '88px' },
+  { title: '外部 ID', key: 'external_ids', sortable: false, minWidth: '112px' },
+  { title: '整理记录', key: 'history_id', sortable: false, width: '80px' },
+  { title: '', key: 'actions', sortable: false, align: 'end', width: '52px' },
+];
+
+const batchPathsHeaders = [
+  { title: 'STRM 路径', key: 'path', sortable: false, minWidth: '320px' },
+];
+
+/** 固定表头需要高度；数据少时用较小高度，多行时可滚动（对齐媒体整理列表） */
+const batchTableHeight = computed(() => (shareBatches.value.length > 8 ? 360 : 280));
+
+const missingTableHeight = computed(() => (missingItems.value.length > 12 ? 520 : 360));
+
+const missingTotalPages = computed(() =>
+  Math.max(1, Math.ceil(missingTotal.value / missingLimit.value)),
+);
+
+const missingPageTip = computed(() => {
+  const t = missingTotal.value;
+  if (t <= 0) return '共 0 条';
+  const per = missingLimit.value;
+  const page = missingPage.value;
+  const from = (page - 1) * per + 1;
+  const to = Math.min(page * per, t);
+  return `第 ${from}–${to} 条，共 ${t} 条`;
+});
+
+const batchPathsPageTip = computed(() => {
+  const t = batchPathsDialog.total;
+  const per = batchPathsDialog.limit;
+  const page = batchPathsDialog.page;
+  if (t <= 0) return '共 0 条';
+  const from = (page - 1) * per + 1;
+  const to = Math.min(page * per, t);
+  return `第 ${from}–${to} 条，共 ${t} 条`;
+});
+
+const batchPathsTotalPages = computed(() =>
+  Math.max(1, Math.ceil(batchPathsDialog.total / batchPathsDialog.limit)),
+);
+
+const batchPathsTableItems = computed(() =>
+  batchPathsDialog.paths.map((path, i) => ({
+    rowKey: `${batchPathsDialog.page}-${i}`,
+    path,
+  })),
+);
+
+const batchPathsTableHeight = computed(() =>
+  batchPathsDialog.paths.length > 12 ? 420 : 320,
+);
+
+const scanLoading = ref(false);
+const execId = ref(null);
+const cancelId = ref(null);
+const deletingUid = ref(null);
+const clearAllLoading = ref(false);
+
+const batchPathsDialog = reactive({
+  show: false,
+  requestId: '',
+  page: 1,
+  limit: 25,
+  paths: [],
+  total: 0,
+  loading: false,
+});
+
+const formatTs = (t) => {
+  if (t == null) return '';
+  const d = typeof t === 'number' ? new Date(t * 1000) : new Date(t);
+  return Number.isNaN(d.getTime()) ? String(t) : d.toLocaleString();
+};
+
+const hasAnyExternalId = (item) =>
+  (item.tmdbid != null && item.tmdbid !== '') ||
+  (item.tvdbid != null && item.tvdbid !== '') ||
+  (item.imdbid != null && item.imdbid !== '') ||
+  (item.doubanid != null && item.doubanid !== '');
+
+const seasonEpEmpty = (item) =>
+  (item.seasons == null || item.seasons === '') &&
+  (item.episodes == null || item.episodes === '');
+
+const loadConfig = async () => {
   try {
-    const result = await props.api.get(`plugin/${props.pluginId}/get_status`);
-    if (result && result.code === 0 && result.data) {
-      status.enabled = Boolean(result.data.enabled);
-      status.has_client = Boolean(result.data.has_client);
-      status.running = Boolean(result.data.running);
-      try {
-        const configData = await props.api.get(`plugin/${props.pluginId}/get_config`);
-        if (configData) {
-          Object.assign(initialConfig, configData);
-        }
-      } catch (configErr) {
-        console.error('获取配置失败:', configErr);
-      }
-      initialDataLoaded.value = true;
-    } else {
-      status.enabled = Boolean(initialConfig.enabled);
-      status.has_client = Boolean(initialConfig.cookies && initialConfig.cookies.trim() !== '');
-      status.running = false;
-      initialDataLoaded.value = true;
-      try {
-        const configData = await props.api.get(`plugin/${props.pluginId}/get_config`);
-        if (configData) {
-          Object.assign(initialConfig, configData);
-        }
-      } catch (configErr) {
-        console.error('获取配置失败:', configErr);
-      }
-      throw new Error(result?.msg || '获取状态失败');
+    const configData = await props.api.get(`plugin/${props.pluginId}/get_config`);
+    if (configData && typeof configData === 'object') {
+      Object.assign(initialConfig, configData);
     }
-  } catch (err) {
-    error.value = `获取状态失败: ${err.message || '未知错误'}`;
-    console.error('获取状态失败:', err);
-    initialDataLoaded.value = true;
-  } finally {
-    loading.value = false;
+  } catch (e) {
+    console.error(e);
   }
 };
 
-async function fetchUserStorageStatus() {
-  userInfo.loading = true;
-  userInfo.error = null;
-  storageInfo.loading = true;
-  storageInfo.error = null;
+const loadPending = async () => {
+  pendingLoading.value = true;
   try {
-    const response = await props.api.get(`plugin/${props.pluginId}/user_storage_status`);
-    if (response && response.success) {
-      if (response.user_info) {
-        Object.assign(userInfo, response.user_info);
-      } else {
-        userInfo.error = '未能获取有效的用户信息。';
-      }
-      if (response.storage_info) {
-        Object.assign(storageInfo, response.storage_info);
-      } else {
-        storageInfo.error = '未能获取有效的存储空间信息。';
-      }
+    const res = await props.api.get(`plugin/${props.pluginId}/share_strm_cleanup_pending`);
+    if (res && res.code === 0 && res.data && Array.isArray(res.data.batches)) {
+      shareBatches.value = res.data.batches;
     } else {
-      const errMsg = response?.error_message || '获取用户和存储信息失败。';
-      userInfo.error = errMsg;
-      storageInfo.error = errMsg;
-      if (errMsg.includes('Cookie') || errMsg.includes('未配置')) {
-        status.has_client = false;
-      }
+      shareBatches.value = [];
     }
-  } catch (err) {
-    console.error('获取用户/存储状态失败:', err);
-    const msg = `请求用户/存储状态时出错: ${err.message || '未知网络错误'}`;
-    userInfo.error = msg;
-    storageInfo.error = msg;
+  } catch (e) {
+    console.error(e);
+    shareBatches.value = [];
   } finally {
-    userInfo.loading = false;
-    storageInfo.loading = false;
+    pendingLoading.value = false;
   }
-}
+};
 
-const loadStrmHistory = async () => {
-  strmHistoryLoading.value = true;
+const loadSummary = async () => {
+  try {
+    const res = await props.api.get(`plugin/${props.pluginId}/share_strm_cleanup_last_summary`);
+    if (res && res.code === 0 && res.data) {
+      lastSummary.value = res.data.summary || null;
+    } else {
+      lastSummary.value = null;
+    }
+  } catch (e) {
+    lastSummary.value = null;
+  }
+};
+
+const openBatchPathsDialog = (b) => {
+  if (!b?.request_id) return;
+  batchPathsDialog.requestId = b.request_id;
+  batchPathsDialog.page = 1;
+  batchPathsDialog.paths = [];
+  batchPathsDialog.total = b.path_count ?? 0;
+  batchPathsDialog.limit = missingLimit.value;
+  batchPathsDialog.show = true;
+  loadBatchPathsPage();
+};
+
+const onBatchPathsLimitChange = () => {
+  batchPathsDialog.page = 1;
+  loadBatchPathsPage();
+};
+
+const loadBatchPathsPage = async () => {
+  if (!batchPathsDialog.requestId) return;
+  batchPathsDialog.loading = true;
   try {
     const qs = new URLSearchParams({
-      page: String(strmHistoryPage.value),
-      limit: String(strmHistoryLimit.value),
+      request_id: batchPathsDialog.requestId,
+      page: String(batchPathsDialog.page),
+      limit: String(batchPathsDialog.limit),
     });
-    const k = strmKindApplied.value?.trim();
-    if (k) {
-      qs.set('kind', k);
-    }
-    const response = await props.api.get(
-      `plugin/${props.pluginId}/get_strm_sync_history?${qs.toString()}`,
+    const res = await props.api.get(
+      `plugin/${props.pluginId}/share_strm_cleanup_batch_paths?${qs.toString()}`,
     );
-    if (response && response.code === 0 && response.data) {
-      strmHistoryItems.value = Array.isArray(response.data.items) ? response.data.items : [];
-      strmHistoryTotal.value = response.data.total || 0;
+    if (res && res.code === 0 && res.data) {
+      batchPathsDialog.paths = Array.isArray(res.data.paths) ? res.data.paths : [];
+      batchPathsDialog.total = Number(res.data.total) || 0;
     } else {
-      strmHistoryItems.value = [];
-      strmHistoryTotal.value = 0;
-    }
-  } catch (err) {
-    console.error('加载 STRM 执行历史失败:', err);
-    strmHistoryItems.value = [];
-    strmHistoryTotal.value = 0;
-    actionMessage.value = `加载 STRM 历史失败: ${err.message || '未知错误'}`;
-    actionMessageType.value = 'error';
-  } finally {
-    strmHistoryLoading.value = false;
-  }
-};
-
-const applyStrmFilter = () => {
-  const v = strmKindSelected.value;
-  strmKindApplied.value = v != null && v !== '' ? String(v).trim() : '';
-  strmHistoryPage.value = 1;
-  loadStrmHistory();
-};
-
-const confirmDeleteStrm = (row) => {
-  if (!row?.unique) return;
-  deleteStrmConfirm.row = row;
-  deleteStrmConfirm.show = true;
-};
-
-const handleConfirmDeleteStrm = async () => {
-  const unique = deleteStrmConfirm.row?.unique;
-  if (!unique) return;
-  deleteStrmConfirm.show = false;
-  deletingStrmId.value = unique;
-  try {
-    const response = await props.api.post(
-      `plugin/${props.pluginId}/delete_strm_sync_history`,
-      { key: unique },
-    );
-    if (response && response.code === 0) {
-      actionMessage.value = response.msg || '删除成功';
-      actionMessageType.value = 'success';
-      if (strmHistoryItems.value.length === 1 && strmHistoryPage.value > 1) {
-        strmHistoryPage.value--;
+      batchPathsDialog.paths = [];
+      if (res?.msg) {
+        error.value = res.msg;
       }
-      await loadStrmHistory();
-    } else {
-      actionMessage.value = response?.msg || '删除失败';
-      actionMessageType.value = 'error';
     }
-  } catch (err) {
-    console.error('删除 STRM 历史失败:', err);
-    actionMessage.value = `删除失败: ${err.message || '未知错误'}`;
-    actionMessageType.value = 'error';
+  } catch (e) {
+    batchPathsDialog.paths = [];
+    error.value = e.message || '加载路径失败';
   } finally {
-    deletingStrmId.value = null;
-    deleteStrmConfirm.row = null;
+    batchPathsDialog.loading = false;
   }
 };
 
-const confirmDeleteAllStrm = () => {
-  if (strmHistoryTotal.value === 0) return;
-  deleteAllStrmConfirm.value = true;
-};
-
-const handleConfirmDeleteAllStrm = async () => {
-  deleteAllStrmConfirm.value = false;
-  deletingAllStrm.value = true;
+const loadMissing = async () => {
+  missingLoading.value = true;
   try {
-    const response = await props.api.post(`plugin/${props.pluginId}/delete_all_strm_sync_history`);
-    if (response && response.code === 0) {
-      actionMessage.value = response.msg || '已清空';
-      actionMessageType.value = 'success';
-      strmHistoryPage.value = 1;
-      await loadStrmHistory();
+    const qs = new URLSearchParams({
+      page: String(missingPage.value),
+      limit: String(missingLimit.value),
+    });
+    const res = await props.api.get(
+      `plugin/${props.pluginId}/share_strm_missing_media_list?${qs.toString()}`,
+    );
+    if (res && res.code === 0 && res.data) {
+      missingItems.value = Array.isArray(res.data.items) ? res.data.items : [];
+      missingTotal.value = res.data.total || 0;
     } else {
-      actionMessage.value = response?.msg || '清空失败';
-      actionMessageType.value = 'error';
+      missingItems.value = [];
+      missingTotal.value = 0;
     }
-  } catch (err) {
-    console.error('清空 STRM 历史失败:', err);
-    actionMessage.value = `清空失败: ${err.message || '未知错误'}`;
-    actionMessageType.value = 'error';
+  } catch (e) {
+    missingItems.value = [];
+    missingTotal.value = 0;
   } finally {
-    deletingAllStrm.value = false;
+    missingLoading.value = false;
   }
+};
+
+const onMissingLimitChange = () => {
+  missingPage.value = 1;
+  loadMissing();
 };
 
 const refreshAll = async () => {
   refreshing.value = true;
   error.value = null;
-  await getStatus();
-  if (status.has_client && initialConfig?.cookies) {
-    await fetchUserStorageStatus();
-  } else {
-    userInfo.loading = false;
-    storageInfo.loading = false;
-    if (!initialConfig?.cookies) {
-      userInfo.error = '请先配置115 Cookie。';
-      storageInfo.error = '请先配置115 Cookie。';
-    } else if (!status.has_client) {
-      userInfo.error = '115客户端未连接或Cookie无效。';
-      storageInfo.error = '115客户端未连接或Cookie无效。';
-    }
+  try {
+    await loadConfig();
+    await Promise.all([loadPending(), loadSummary(), loadMissing()]);
+    actionMessage.value = '已刷新';
+    actionMessageType.value = 'success';
+    setTimeout(() => {
+      actionMessage.value = null;
+    }, 2000);
+  } catch (e) {
+    error.value = e.message || '刷新失败';
+  } finally {
+    refreshing.value = false;
   }
-  await loadStrmHistory();
-  refreshing.value = false;
-  actionMessage.value = '已刷新';
-  actionMessageType.value = 'success';
-  setTimeout(() => {
-    actionMessage.value = null;
-  }, 2500);
+};
+
+const runScan = async () => {
+  scanLoading.value = true;
+  try {
+    const res = await props.api.post(`plugin/${props.pluginId}/share_strm_cleanup_scan`);
+    if (res && res.code === 0) {
+      actionMessage.value = res.msg || '扫描已启动';
+      actionMessageType.value = 'success';
+      setTimeout(() => {
+        loadSummary();
+        loadPending();
+      }, 1500);
+    } else {
+      throw new Error(res?.msg || '启动失败');
+    }
+  } catch (e) {
+    error.value = e.message || '启动扫描失败';
+  } finally {
+    scanLoading.value = false;
+  }
+};
+
+const executeBatch = async (requestId) => {
+  execId.value = requestId;
+  try {
+    const res = await props.api.post(`plugin/${props.pluginId}/share_strm_cleanup_execute`, {
+      request_id: requestId,
+    });
+    if (res && res.code === 0) {
+      actionMessage.value = res.msg || '已执行';
+      actionMessageType.value = 'success';
+      if (batchPathsDialog.show && batchPathsDialog.requestId === requestId) {
+        batchPathsDialog.show = false;
+      }
+      await loadPending();
+    } else {
+      throw new Error(res?.msg || '执行失败');
+    }
+  } catch (e) {
+    error.value = e.message || '执行失败';
+  } finally {
+    execId.value = null;
+  }
+};
+
+const cancelBatch = async (requestId) => {
+  cancelId.value = requestId;
+  try {
+    const res = await props.api.post(`plugin/${props.pluginId}/share_strm_cleanup_cancel`, {
+      request_id: requestId,
+    });
+    if (res && res.code === 0) {
+      actionMessage.value = res.msg || '已取消';
+      actionMessageType.value = 'success';
+      if (batchPathsDialog.show && batchPathsDialog.requestId === requestId) {
+        batchPathsDialog.show = false;
+      }
+      await loadPending();
+    } else {
+      throw new Error(res?.msg || '取消失败');
+    }
+  } catch (e) {
+    error.value = e.message || '取消失败';
+  } finally {
+    cancelId.value = null;
+  }
+};
+
+const deleteOneMissing = async (uid) => {
+  deletingUid.value = uid;
+  try {
+    const res = await props.api.post(`plugin/${props.pluginId}/share_strm_missing_media_clear`, {
+      uid,
+      clear_all: false,
+    });
+    if (res && res.code === 0) {
+      await loadMissing();
+    } else {
+      throw new Error(res?.msg || '删除失败');
+    }
+  } catch (e) {
+    error.value = e.message || '删除失败';
+  } finally {
+    deletingUid.value = null;
+  }
+};
+
+const clearAllMissing = async () => {
+  if (!confirm('确定清空全部缺失媒体记录？')) return;
+  clearAllLoading.value = true;
+  try {
+    const res = await props.api.post(`plugin/${props.pluginId}/share_strm_missing_media_clear`, {
+      clear_all: true,
+    });
+    if (res && res.code === 0) {
+      missingPage.value = 1;
+      await loadMissing();
+      actionMessage.value = res.msg || '已清空';
+      actionMessageType.value = 'success';
+    } else {
+      throw new Error(res?.msg || '清空失败');
+    }
+  } catch (e) {
+    error.value = e.message || '清空失败';
+  } finally {
+    clearAllLoading.value = false;
+  }
 };
 
 onMounted(async () => {
-  await getStatus();
-  if (status.has_client && initialConfig?.cookies) {
-    await fetchUserStorageStatus();
-  } else {
-    userInfo.loading = false;
-    storageInfo.loading = false;
-    if (!initialConfig?.cookies) {
-      userInfo.error = '请先配置115 Cookie。';
-      storageInfo.error = '请先配置115 Cookie。';
-    } else if (!status.has_client) {
-      userInfo.error = '115客户端未连接或Cookie无效。';
-      storageInfo.error = '115客户端未连接或Cookie无效。';
-    }
-  }
-  await loadStrmHistory();
+  await loadConfig();
+  await Promise.all([loadPending(), loadSummary(), loadMissing()]);
 });
 </script>
 
 <style scoped>
-.plugin-app-page-content {
+.app-start {
+  max-inline-size: none;
   inline-size: 100%;
-  max-inline-size: 100%;
 }
 
-/* 系统状态 / 账户：同列等高，底部对齐 */
-.dashboard-status-row :deep(.v-col.d-flex) {
-  align-self: stretch;
-}
-
-.dashboard-status-card {
-  min-block-size: 100%;
-}
-
-.strm-history-card {
-  border-radius: 12px;
-  border: 1px solid rgba(var(--v-theme-on-surface), 0.1);
+.app-start-card {
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.08);
   background: rgb(var(--v-theme-surface));
 }
 
-.strm-history-card__header {
-  border-bottom: 1px solid rgba(var(--v-theme-on-surface), 0.08);
+.strm-path-cell {
+  max-width: min(48rem, 70vw);
+  vertical-align: top;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.35;
 }
 
-/* 与标题区分割线留出间距，避免 outlined 输入框浮动标签与顶线视觉重合 */
-.strm-history-card__body {
-  padding-block-start: 20px !important;
+.missing-media-scroll {
+  overflow-x: auto;
+  max-inline-size: 100%;
 }
 
-.strm-filter-row {
-  padding-block-start: 4px;
+.missing-media-table {
+  min-inline-size: 800px;
 }
 
-.strm-kind-field {
-  max-width: 280px;
-  flex: 1 1 200px;
-  min-width: 0;
+.missing-id-stack {
+  line-height: 1.35;
 }
 
-.strm-history-list {
-  max-block-size: none;
+.batch-paths-dialog-card {
+  overflow: hidden;
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.08);
+  background: rgb(var(--v-theme-surface));
 }
 
-.strm-history-item {
-  border-inline-start: 3px solid rgb(var(--v-theme-primary));
-  transition: box-shadow 0.2s ease;
+.missing-per-page {
+  flex: 0 1 auto;
+  inline-size: 8.5rem;
+  max-inline-size: 8.5rem;
+  min-inline-size: 0;
 }
 
-.strm-history-item:hover {
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.07);
+.missing-per-page :deep(.v-field) {
+  padding-inline-start: 4px;
 }
 
-.strm-history-item--fail {
-  border-inline-start-color: rgb(var(--v-theme-error));
+/* 分页底栏：窄屏不挤出视口，分页可横向滑动 */
+.app-start-page-footer {
+  min-inline-size: 0;
+  box-sizing: border-box;
 }
 
-.strm-section-label {
-  letter-spacing: 0.04em;
-  opacity: 0.85;
-}
-
-.strm-extra-line {
+.app-start-page-footer__tip {
   word-break: break-word;
-  line-height: 1.45;
+  line-height: 1.35;
+}
+
+.app-start-pagination-scroll {
+  min-inline-size: 0;
+  max-inline-size: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  display: flex;
+  justify-content: center;
+  padding-block: 2px;
+  box-sizing: border-box;
+}
+
+.app-start-pagination-scroll :deep(.v-pagination) {
+  flex: 0 0 auto;
+}
+
+.app-start-pagination-scroll :deep(.v-pagination__list) {
+  flex-wrap: nowrap;
+}
+
+@media (max-width: 959px) {
+  .app-start-page-footer__select {
+    inline-size: 100%;
+    max-inline-size: 12rem;
+    margin-inline: auto;
+  }
+
+  .app-start-page-footer__select .missing-per-page {
+    flex: 1 1 auto;
+    max-inline-size: none;
+  }
+}
+
+/* 与媒体整理 history 页表格视觉对齐 */
+.app-start-data-table :deep(.v-table__wrapper) {
+  border-radius: 0;
+}
+
+.app-start-data-table :deep(.v-table th) {
+  white-space: nowrap;
+  font-weight: 600;
+  font-size: 0.75rem;
+}
+
+.app-start-data-table :deep(.v-data-table__td) {
+  vertical-align: top;
 }
 </style>

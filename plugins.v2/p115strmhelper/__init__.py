@@ -425,6 +425,62 @@ class P115StrmHelper(_PluginBase):
                 "summary": "取消一批待确认的 STRM 清理",
             },
             {
+                "path": "/share_strm_cleanup_pending",
+                "endpoint": self.api.share_strm_cleanup_pending_api,
+                "methods": ["GET"],
+                "auth": "bear",
+                "summary": "列出待确认的分享 STRM 清理批次",
+            },
+            {
+                "path": "/share_strm_cleanup_batch_paths",
+                "endpoint": self.api.share_strm_cleanup_batch_paths_api,
+                "methods": ["GET"],
+                "auth": "bear",
+                "summary": "分页获取待确认批次内的 STRM 路径",
+            },
+            {
+                "path": "/share_strm_cleanup_execute",
+                "endpoint": self.api.share_strm_cleanup_execute_api,
+                "methods": ["POST"],
+                "auth": "bear",
+                "summary": "确认执行一批分享 STRM 清理",
+            },
+            {
+                "path": "/share_strm_cleanup_cancel",
+                "endpoint": self.api.share_strm_cleanup_cancel_api,
+                "methods": ["POST"],
+                "auth": "bear",
+                "summary": "取消一批待确认的分享 STRM 清理",
+            },
+            {
+                "path": "/share_strm_cleanup_scan",
+                "endpoint": self.api.share_strm_cleanup_scan_api,
+                "methods": ["POST"],
+                "auth": "bear",
+                "summary": "立即执行分享 STRM 清理扫描",
+            },
+            {
+                "path": "/share_strm_cleanup_last_summary",
+                "endpoint": self.api.share_strm_cleanup_last_summary_api,
+                "methods": ["GET"],
+                "auth": "bear",
+                "summary": "上次分享 STRM 清理扫描摘要",
+            },
+            {
+                "path": "/share_strm_missing_media_list",
+                "endpoint": self.api.share_strm_missing_media_list_api,
+                "methods": ["GET"],
+                "auth": "bear",
+                "summary": "分页列出分享 STRM 缺失媒体",
+            },
+            {
+                "path": "/share_strm_missing_media_clear",
+                "endpoint": self.api.share_strm_missing_media_clear_api,
+                "methods": ["POST"],
+                "auth": "bear",
+                "summary": "清空或删除分享 STRM 缺失媒体记录",
+            },
+            {
                 "path": "/share_sync",
                 "endpoint": self.api.trigger_share_sync_api,
                 "methods": ["POST"],
@@ -710,6 +766,21 @@ class P115StrmHelper(_PluginBase):
                     "name": "定期全量同步115媒体库",
                     "trigger": CronTrigger.from_crontab(configer.cron_full_sync_strm),
                     "func": servicer.full_sync_strm_files,
+                    "kwargs": {},
+                }
+            )
+        if (
+            configer.share_strm_cleanup_config.timing_share_strm_cleanup
+            and configer.share_strm_cleanup_config.cron_share_strm_cleanup
+        ):
+            cron_service.append(
+                {
+                    "id": "P115StrmHelper_share_strm_cleanup",
+                    "name": "定时分享STRM失效清理扫描",
+                    "trigger": CronTrigger.from_crontab(
+                        configer.share_strm_cleanup_config.cron_share_strm_cleanup
+                    ),
+                    "func": servicer.share_strm_cleanup_run,
                     "kwargs": {},
                 }
             )

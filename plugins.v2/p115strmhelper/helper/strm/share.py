@@ -51,7 +51,7 @@
 - 数据上传仅在成功处理所有文件且无异常时执行
 """
 
-__all__ = ["ShareInteractiveGenStrmQueue", "ShareStrmHelper"]
+__all__ = ["ShareInteractiveGenStrmQueue", "ShareStrmHelper", "share_strm_cleaner"]
 
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -60,7 +60,8 @@ from itertools import batched
 from pathlib import Path
 from queue import Empty, Queue
 from threading import Lock, Thread
-from time import perf_counter, sleep
+from time import perf_counter, sleep, time as time_unix
+from uuid import uuid4
 from typing import Any, Dict, Deque, Iterable, List, Optional, Set, Tuple
 from os import remove as os_remove
 from os.path import exists as path_exists, getsize as path_getsize, join as path_join
@@ -70,11 +71,14 @@ from httpx import HTTPStatusError
 from orjson import dumps, loads
 from p115center import P115Center
 
+from share_strm_scan import ShareStrmScanCache, Pair
+
 from p115client import check_response
 from p115client.util import share_extract_payload
 
 from app.chain.transfer import TransferChain
 from app.core.config import settings
+from app.db.transferhistory_oper import TransferHistoryOper
 from app.log import logger
 from app.schemas import FileItem
 
@@ -85,11 +89,13 @@ from ...core.i18n import i18n
 from ...core.message import post_message
 from ...core.p115 import ShareP115Client, iter_share_files_with_path
 from ...core.scrape import media_scrape_metadata
+from ...helper.mediasyncdel import MediaSyncDelHelper
 from ...helper.mediainfo_download import MediaInfoDownloader
 from ...helper.mediaserver import MediaServerRefresh
 from ...schemas.share import ShareStrmConfig
 from ...schemas.size import CompareMinSize
-from ...utils.path import PathUtils
+from ...utils.path import PathRemoveUtils, PathUtils
+from ...utils.sharded_list import ShardedPluginListStore
 from ...utils.sentry import sentry_manager
 from ...utils.strm import StrmUrlGetter, StrmGenerater
 
@@ -155,6 +161,16 @@ class ShareOOPServerHelper:
     """
 
     @staticmethod
+    def get_client() -> P115Center:
+        """
+        获取 P115Center 客户端
+        """
+        return P115Center(
+            license=configer.p115center_license,
+            file_path=str(Path(__file__).resolve().parent.parent.parent / "api.py"),
+        )
+
+    @staticmethod
     def delete_share_files(batch_id: str) -> Dict[str, Any]:
         """
         删除分享文件数据
@@ -163,10 +179,7 @@ class ShareOOPServerHelper:
 
         :return: 删除结果响应数据
         """
-        client = P115Center(
-            license=configer.p115center_license,
-            file_path=str(Path(__file__).resolve().parent.parent.parent / "api.py"),
-        )
+        client = ShareOOPServerHelper.get_client()
         resp = client.delete_share_file_iter(
             batch_id,
             headers={"user-agent": configer.get_user_agent()},
@@ -246,10 +259,7 @@ class ShareOOPServerHelper:
         logger.info(f"【分享STRM生成】开始上传，batch_id: {batch_id}")
 
         try:
-            client = P115Center(
-                license=configer.p115center_license,
-                file_path=str(Path(__file__).resolve().parent.parent.parent / "api.py"),
-            )
+            client = ShareOOPServerHelper.get_client()
             resp = client.upload_share_file_iter(
                 batch_id, temp_file, headers={"user-agent": configer.get_user_agent()}
             )
@@ -1023,3 +1033,536 @@ class ShareInteractiveGenStrmQueue:
             userid=userid,
         )
         return pending
+
+
+class ShareStrmCleaner:
+    """
+    分享 STRM 清理器
+    """
+
+    _SHARE_VALIDATE_SNAP_BATCH = 2000
+    _PENDING_KEY = "pending_share_strm_cleanup_batches"
+    _LAST_SUMMARY_KEY = "share_strm_cleanup_last_summary"
+    _MISSING_IDX = "share_strm_missing_media__idx"
+    _MISSING_SHARD_PREFIX = "share_strm_missing_media__s"
+
+    def __init__(self) -> None:
+        self.scaner = ShareStrmScanCache()
+        self._run_lock = Lock()
+        self._missing_store = ShardedPluginListStore(
+            self._MISSING_IDX,
+            self._MISSING_SHARD_PREFIX,
+            max_per_shard=200,
+        )
+
+    def __del__(self) -> None:
+        self.scaner.invalidate()
+
+    def cleaner(self, path: Path) -> Tuple[bool, Dict[Pair, List[str]]]:
+        """
+        扫描目录，校验分享有效性并返回失效 Pair 对应的 STRM 路径映射
+
+        :param path: 本地扫描根目录
+        :return: 成功时为 ``(True, { (share_code, receive_code): [strm_paths...] })``，失败为 ``(False, {})``
+        """
+        try:
+            client = ShareOOPServerHelper.get_client()
+            valid_total = 0
+            invalid_pairs: List[Tuple[str, str]] = []
+            for batch in batched(
+                self.scaner.scan(path), self._SHARE_VALIDATE_SNAP_BATCH
+            ):
+                chunk = [
+                    [share_code, receive_code] for share_code, receive_code in batch
+                ]
+                resp = client.share_validate_snap(chunk)
+                valid_total += resp.valid_count
+                for i in resp.invalid:
+                    logger.warn(
+                        f"【分享STRM清理】无效分享: {i.share_code} {i.receive_code} {i.error}"
+                    )
+                    invalid_pairs.append((i.share_code, i.receive_code))
+            logger.info(
+                f"【分享STRM清理】验证分享有效性成功，有效分享数量: {valid_total}，无效分享数量: {len(invalid_pairs)}"
+            )
+        except Exception as e:
+            logger.error(
+                f"【分享STRM清理】扫描目录或验证分享有效性失败: {e}",
+                exc_info=True,
+            )
+            return False, {}
+        try:
+            invalid_paths = self.scaner.paths_for_many(path, invalid_pairs)
+        except Exception as e:
+            logger.error(f"【分享STRM清理】获取无效分享路径失败: {e}")
+            return False, {}
+        return True, invalid_paths
+
+    @staticmethod
+    def _normalize_cleanup_roots(paths: List[str]) -> List[str]:
+        """
+        将配置中的路径转为绝对路径、去重并跳过非目录
+
+        :param paths: 原始路径字符串列表
+        :return: 规范化后的绝对路径字符串列表（顺序保留首次出现）
+        """
+        seen: set[str] = set()
+        out: List[str] = []
+        for raw in paths or []:
+            s = (raw or "").strip()
+            if not s:
+                continue
+            try:
+                p = Path(s).expanduser().resolve()
+            except Exception:
+                continue
+            if not p.is_dir():
+                logger.warning(f"【分享STRM清理】跳过不存在的目录: {s}")
+                continue
+            key = str(p)
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(key)
+        return out
+
+    def _merge_invalid_maps(
+        self, maps: List[Dict[Pair, List[str]]]
+    ) -> Dict[Pair, List[str]]:
+        """
+        合并多次根目录扫描得到的失效路径字典（相同 Pair 的路径列表拼接）
+
+        :param maps: 各根目录扫描返回的 ``invalid_paths`` 列表
+        :return: 合并后的 ``Pair -> strm路径列表``
+        """
+        merged: Dict[Pair, List[str]] = {}
+        for m in maps:
+            for pair, pths in m.items():
+                merged.setdefault(pair, []).extend(pths)
+        return merged
+
+    def _flatten_pairs(self, inv: Dict[Pair, List[str]]) -> List[Tuple[str, str, str]]:
+        """
+        将 Pair 到路径列表的映射展平为元组列表
+
+        :param inv: ``(share_code, receive_code)`` 到 STRM 路径列表
+        :return: ``(strm_path, share_code, receive_code)`` 列表
+        """
+        flat: List[Tuple[str, str, str]] = []
+        for (sc, rc), paths in inv.items():
+            for p in paths:
+                flat.append((p, sc, rc))
+        return flat
+
+    def _pick_transfer_row(self, strm_path: str) -> Optional[Any]:
+        """
+        按 MoviePilot 整理记录 ``dest`` 与 STRM 路径精确匹配查询一行
+
+        :param strm_path: 本地 STRM 绝对路径
+        :return: ``TransferHistory`` 模型实例，无匹配则为 ``None``
+        """
+        return TransferHistoryOper().get_by_dest(strm_path)
+
+    def _transfer_to_missing_row(
+        self,
+        th: Any,
+        strm_path: str,
+        share_code: str,
+        receive_code: str,
+    ) -> Dict[str, Any]:
+        """
+        组装写入分片存储的「缺失媒体」字典（含固定字段与整理记录子集）
+
+        :param th: ``TransferHistory`` 模型实例
+        :param strm_path: STRM 路径
+        :param share_code: 分享码
+        :param receive_code: 接收码（提取码）
+        :return: 含 ``uid``、``reason``、``detected_at`` 及 ``id``/``title`` 等 API 字段的字典
+        """
+        uid = str(uuid4())
+        base: Dict[str, Any] = {
+            "uid": uid,
+            "strm_path": strm_path,
+            "share_code": share_code,
+            "receive_code": receive_code,
+            "detected_at": time_unix(),
+            "reason": "invalid_share",
+            "id": getattr(th, "id", None),
+            "type": getattr(th, "type", None),
+            "title": getattr(th, "title", None),
+            "year": getattr(th, "year", None),
+            "tmdbid": getattr(th, "tmdbid", None),
+            "tvdbid": getattr(th, "tvdbid", None),
+            "imdbid": getattr(th, "imdbid", None),
+            "doubanid": getattr(th, "doubanid", None),
+            "seasons": getattr(th, "seasons", None),
+            "episodes": getattr(th, "episodes", None),
+            "image": getattr(th, "image", None),
+        }
+        return base
+
+    def _execute_paths_physical(
+        self,
+        paths: List[str],
+        remove_related_mediainfo: bool,
+        remove_empty_parent_dirs: bool,
+    ) -> Tuple[int, Optional[str]]:
+        """
+        物理删除 STRM 并按配置清理关联媒体文件与空父目录
+
+        :param paths: 待删除 STRM 绝对路径列表
+        :param remove_related_mediainfo: 是否调用 ``clean_related_files``
+        :param remove_empty_parent_dirs: 是否 ``remove_parent_dir``（strm 模式）
+        :return: ``(成功删除条数, 最后一则错误信息；全部成功为 None)``
+        """
+        ok = 0
+        last_err: Optional[str] = None
+        for remove_path in paths:
+            try:
+                logger.info(f"【分享STRM清理】删除无效 STRM: {remove_path}")
+                Path(remove_path).unlink(missing_ok=True)
+                if remove_related_mediainfo:
+                    PathRemoveUtils.clean_related_files(
+                        file_path=Path(remove_path),
+                        func_type="【分享STRM清理】",
+                    )
+                if remove_empty_parent_dirs:
+                    PathRemoveUtils.remove_parent_dir(
+                        file_path=Path(remove_path),
+                        mode=["strm"],
+                        func_type="【分享STRM清理】",
+                    )
+                ok += 1
+            except Exception as e:
+                sentry_manager.sentry_hub.capture_exception(e)
+                last_err = str(e)
+                logger.error(
+                    f"【分享STRM清理】删除失败: {remove_path} {e}",
+                    exc_info=True,
+                )
+        return ok, last_err
+
+    def _save_last_summary(self, summary: Dict[str, Any]) -> None:
+        """
+        将最近一次扫描摘要写入 ``plugin_data``
+
+        :param summary: 摘要字典，供仪表盘等读取
+        """
+        configer.save_plugin_data(self._LAST_SUMMARY_KEY, summary)
+
+    def run_full_cleanup(self) -> Dict[str, Any]:
+        """
+        执行完整清理流程：多根扫描、可选缺失媒体写入、立即删除或入队待确认
+
+        结束时释放扫描缓存与运行锁；若已有实例在跑则返回 ``message=already_running``
+
+        :return: 摘要字典，常见键含 ``ok``、``roots_scanned``、``invalid_strm_count``、
+            ``deleted_count``、``queued_batch``、``request_id``、``delete_mode``、``message``
+        """
+        cfg = configer.share_strm_cleanup_config
+        roots = self._normalize_cleanup_roots(list(cfg.cleanup_paths or []))
+        summary: Dict[str, Any] = {
+            "ok": True,
+            "roots_scanned": 0,
+            "invalid_strm_count": 0,
+            "deleted_count": 0,
+            "queued_batch": False,
+            "request_id": None,
+            "delete_mode": cfg.delete_mode,
+            "message": "",
+        }
+        if not self._run_lock.acquire(blocking=False):
+            summary["ok"] = False
+            summary["message"] = "already_running"
+            return summary
+        try:
+            if not roots:
+                logger.info("【分享STRM清理】cleanup_paths 为空或无效，跳过")
+                summary["message"] = "no_cleanup_paths"
+                self._save_last_summary(summary)
+                return summary
+
+            invalid_maps: List[Dict[Pair, List[str]]] = []
+            for root in roots:
+                ok, inv = self.cleaner(Path(root))
+                summary["roots_scanned"] += 1
+                if ok and inv:
+                    invalid_maps.append(inv)
+
+            merged = self._merge_invalid_maps(invalid_maps)
+            flat = self._flatten_pairs(merged)
+            summary["invalid_strm_count"] = len(flat)
+
+            if cfg.record_missing_media_from_history:
+                for strm_path, sc, rc in flat:
+                    th = self._pick_transfer_row(strm_path)
+                    if th is None:
+                        continue
+                    row = self._transfer_to_missing_row(th, strm_path, sc, rc)
+                    self._missing_store.append(row)
+
+            paths_only = [x[0] for x in flat]
+
+            if cfg.delete_mode == "immediate":
+                deleted, last_err = self._execute_paths_physical(
+                    paths_only,
+                    cfg.remove_related_mediainfo,
+                    cfg.remove_empty_parent_dirs,
+                )
+                summary["deleted_count"] = deleted
+                if cfg.remove_stale_transfer_history and paths_only:
+                    helper = MediaSyncDelHelper()
+                    for p in paths_only:
+                        try:
+                            helper.remove_by_path(p, del_source=False)
+                        except Exception as e:
+                            logger.error(
+                                f"【分享STRM清理】整理记录删除失败: {p} {e}",
+                                exc_info=True,
+                            )
+                if last_err:
+                    summary["message"] = last_err
+            elif paths_only:
+                rid = uuid4().hex[:16]
+                self._append_pending_batch(
+                    rid,
+                    paths_only,
+                    cfg.remove_related_mediainfo,
+                    cfg.remove_empty_parent_dirs,
+                    cfg.remove_stale_transfer_history,
+                )
+                summary["queued_batch"] = True
+                summary["request_id"] = rid
+
+            self._save_last_summary(summary)
+            return summary
+        finally:
+            self.scaner.invalidate()
+            self._run_lock.release()
+
+    def _load_pending_store(self) -> Dict[str, Any]:
+        """
+        读取待确认删除批次的 ``plugin_data`` 结构
+
+        :return: 至少含 ``batches`` 列表的字典
+        """
+        raw = configer.get_plugin_data(self._PENDING_KEY)
+        if not raw or not isinstance(raw, dict):
+            return {"batches": []}
+        batches = raw.get("batches")
+        if not isinstance(batches, list):
+            raw["batches"] = []
+        return raw
+
+    def _save_pending_store(self, data: Dict[str, Any]) -> None:
+        """
+        持久化待确认批次存储
+
+        :param data: 含 ``batches`` 的完整存储对象
+        """
+        configer.save_plugin_data(self._PENDING_KEY, data)
+
+    def _append_pending_batch(
+        self,
+        request_id: str,
+        paths: List[str],
+        remove_related_mediainfo: bool,
+        remove_empty_parent_dirs: bool,
+        remove_stale_transfer_history: bool,
+    ) -> None:
+        """
+        追加一批待用户确认的删除任务
+
+        :param request_id: 批次唯一标识
+        :param paths: 待删 STRM 路径列表
+        :param remove_related_mediainfo: 确认执行时是否清理关联媒体信息文件
+        :param remove_empty_parent_dirs: 确认执行时是否清理无效 STRM 目录
+        :param remove_stale_transfer_history: 确认执行时是否删除 MP 整理记录
+        """
+        store = self._load_pending_store()
+        batches: List[Dict[str, Any]] = store.get("batches") or []
+        batches.append(
+            {
+                "request_id": request_id,
+                "created_at": time_unix(),
+                "paths": paths,
+                "remove_related_mediainfo": bool(remove_related_mediainfo),
+                "remove_empty_parent_dirs": bool(remove_empty_parent_dirs),
+                "remove_stale_transfer_history": bool(remove_stale_transfer_history),
+            }
+        )
+        store["batches"] = batches
+        self._save_pending_store(store)
+
+    def list_pending_batches(self) -> List[Dict[str, Any]]:
+        """
+        返回当前所有待确认批次（原始字典列表）
+
+        :return: 批次字典列表，每项含 ``request_id``、``paths``、标志位等
+        """
+        store = self._load_pending_store()
+        batches = store.get("batches") or []
+        if not isinstance(batches, list):
+            return []
+        return list(batches)
+
+    def pending_batch_paths_page(
+        self, request_id: str, page: int, limit: int
+    ) -> Tuple[bool, List[str], int]:
+        """
+        分页返回某待确认批次内的 STRM 路径（服务端切片，避免一次返回数万条）
+
+        :param request_id: 批次 ID
+        :param page: 页码，从 1 开始
+        :param limit: 每页条数，上限 500
+        :return: ``(是否找到批次, 当前页路径字符串列表, 路径总条数)``
+        """
+        rid = (request_id or "").strip()
+        if not rid:
+            return False, [], 0
+        store = self._load_pending_store()
+        batches: List[Dict[str, Any]] = store.get("batches") or []
+        for b in batches:
+            if not isinstance(b, dict) or b.get("request_id") != rid:
+                continue
+            paths = b.get("paths") or []
+            if not isinstance(paths, list):
+                return True, [], 0
+            total = len(paths)
+            p = max(1, page)
+            lim = min(max(1, limit), 500)
+            offset = (p - 1) * lim
+            if offset >= total:
+                return True, [], total
+            chunk = [str(x) for x in paths[offset : offset + lim]]
+            return True, chunk, total
+        return False, [], 0
+
+    def cancel_pending_batch(self, request_id: str) -> bool:
+        """
+        从队列移除指定批次，不删除磁盘文件
+
+        :param request_id: 批次 ID
+        :return: 是否找到并移除
+        """
+        store = self._load_pending_store()
+        batches: List[Dict[str, Any]] = store.get("batches") or []
+        for i, b in enumerate(batches):
+            if isinstance(b, dict) and b.get("request_id") == request_id:
+                batches.pop(i)
+                store["batches"] = batches
+                self._save_pending_store(store)
+                return True
+        return False
+
+    def claim_pending_batch(
+        self, request_id: str
+    ) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+        """
+        从待确认队列中原子取出批次并持久化，供后续在后台执行删除
+
+        :param request_id: 批次 ID
+        :return: ``(批次字典, None)`` 表示已取出；``(None, 错误码)`` 为 ``batch_not_found`` 或 ``invalid_batch``
+        """
+        store = self._load_pending_store()
+        batches: List[Dict[str, Any]] = store.get("batches") or []
+        idx: Optional[int] = None
+        batch: Optional[Dict[str, Any]] = None
+        for i, b in enumerate(batches):
+            if isinstance(b, dict) and b.get("request_id") == request_id:
+                batch = b
+                idx = i
+                break
+        if batch is None or idx is None:
+            return None, "batch_not_found"
+        paths = batch.get("paths") or []
+        if not isinstance(paths, list) or len(paths) == 0:
+            batches.pop(idx)
+            store["batches"] = batches
+            self._save_pending_store(store)
+            return None, "invalid_batch"
+        batches.pop(idx)
+        store["batches"] = batches
+        self._save_pending_store(store)
+        return batch, None
+
+    def execute_claimed_batch(self, batch: Dict[str, Any]) -> Tuple[int, Optional[str]]:
+        """
+        对已脱离队列的批次执行物理删除及可选整理记录清理
+
+        :param batch: ``claim_pending_batch`` 返回的字典
+        :return: ``(删除成功条数, 最后一则物理删除错误；全部成功为 None)``
+        """
+        paths = batch.get("paths") or []
+        if not isinstance(paths, list) or len(paths) == 0:
+            return 0, "invalid_batch"
+        ok, err = self._execute_paths_physical(
+            [str(p) for p in paths],
+            bool(batch.get("remove_related_mediainfo")),
+            bool(batch.get("remove_empty_parent_dirs")),
+        )
+        if bool(batch.get("remove_stale_transfer_history")):
+            helper = MediaSyncDelHelper()
+            for p in paths:
+                try:
+                    helper.remove_by_path(str(p), del_source=False)
+                except Exception as e:
+                    logger.error(
+                        f"【分享STRM清理】整理记录删除失败: {p} {e}",
+                        exc_info=True,
+                    )
+        return ok, err
+
+    def execute_pending_batch(self, request_id: str) -> Tuple[int, Optional[str]]:
+        """
+        从队列取出批次并同步执行物理删除（claim + execute_claimed_batch）
+
+        :param request_id: 批次 ID
+        :return: ``(删除成功条数, 错误码或错误信息)``
+        """
+        batch, cerr = self.claim_pending_batch(request_id)
+        if cerr:
+            return 0, cerr
+        assert batch is not None
+        return self.execute_claimed_batch(batch)
+
+    def missing_media_page(
+        self, page: int, limit: int
+    ) -> Tuple[List[Dict[str, Any]], int]:
+        """
+        分页读取缺失媒体分片列表（仅加载当前页涉及分片）
+
+        :param page: 页码，从 1 开始
+        :param limit: 每页条数
+        :return: ``(当前页条目列表, 总条数)``
+        """
+        return self._missing_store.page(page, limit)
+
+    def missing_media_clear(self, uid: Optional[str], clear_all: bool) -> bool:
+        """
+        清空全部分片或按 ``uid`` 删除单条
+
+        :param uid: 记录 ``uid``，与 ``clear_all`` 互斥时生效
+        :param clear_all: 为真时删除索引及全部分片
+        :return: 清空全量恒为 ``True``；按 ``uid`` 删除时是否找到并删除
+        """
+        if clear_all:
+            self._missing_store.clear_all()
+            return True
+        if uid:
+            return self._missing_store.delete_by_uid(uid)
+        return False
+
+    def get_last_summary(self) -> Optional[Dict[str, Any]]:
+        """
+        读取最近一次 ``run_full_cleanup`` 写入的摘要
+
+        :return: 摘要字典，不存在或格式不对则为 ``None``
+        """
+        raw = configer.get_plugin_data(self._LAST_SUMMARY_KEY)
+        if isinstance(raw, dict):
+            return raw
+        return None
+
+
+share_strm_cleaner = ShareStrmCleaner()

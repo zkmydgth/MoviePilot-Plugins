@@ -5,6 +5,7 @@ from dataclasses import asdict
 from time import time, sleep
 from typing import Any, Dict, Iterator, Optional, cast
 from pathlib import Path
+from threading import Thread
 from urllib.parse import quote, unquote
 
 from p115center import P115Center
@@ -50,9 +51,11 @@ from .schemas.plugin import (
     LifeEventCheckData,
     LifeEventCheckSummary,
     PluginStatusData,
+    ShareStrmMissingMediaClearPayload,
     StrmCleanupRequestIdPayload,
 )
 from .helper.strm.full import strm_cleanup_interaction
+from .helper.strm.share import share_strm_cleaner
 from .schemas.api import ApiResponse
 from .schemas.share import ShareApiData, ShareResponseData, ShareSaveParent
 from .schemas.strm_api import (
@@ -1089,6 +1092,194 @@ class Api:
             return ApiResponse(msg="已取消该批次")
         except Exception as e:
             logger.error(f"【STRM清理】取消批次失败: {e}", exc_info=True)
+            return ApiResponse(code=1, msg=str(e))
+
+    @staticmethod
+    def share_strm_cleanup_pending_api() -> ApiResponse:
+        """
+        列出待确认的分享 STRM 清理批次
+        """
+        try:
+            batches = share_strm_cleaner.list_pending_batches()
+            summaries = []
+            for b in batches:
+                if not isinstance(b, dict):
+                    continue
+                paths = b.get("paths") or []
+                n = len(paths) if isinstance(paths, list) else 0
+                summaries.append(
+                    {
+                        "request_id": b.get("request_id"),
+                        "created_at": b.get("created_at"),
+                        "path_count": n,
+                    }
+                )
+            return ApiResponse(data={"batches": summaries})
+        except Exception as e:
+            logger.error(f"【分享STRM清理】列出待确认批次失败: {e}", exc_info=True)
+            return ApiResponse(code=1, msg=str(e))
+
+    @staticmethod
+    def share_strm_cleanup_batch_paths_api(
+        request_id: str = Query(..., min_length=8, description="批次 request_id"),
+        page: int = Query(default=1, ge=1, description="页码"),
+        limit: int = Query(default=50, ge=1, le=500, description="每页条数"),
+    ) -> ApiResponse:
+        """
+        分页返回待确认批次内的 STRM 路径列表
+        """
+        try:
+            rid = (request_id or "").strip()
+            if not rid:
+                return ApiResponse(code=1, msg="缺少 request_id")
+            found, paths, total = share_strm_cleaner.pending_batch_paths_page(
+                rid, page, limit
+            )
+            if not found:
+                return ApiResponse(code=1, msg="未找到该批次或已处理")
+            return ApiResponse(
+                data={"paths": paths, "total": total, "page": page, "limit": limit}
+            )
+        except Exception as e:
+            logger.error(f"【分享STRM清理】批次路径分页失败: {e}", exc_info=True)
+            return ApiResponse(code=1, msg=str(e))
+
+    @staticmethod
+    def share_strm_cleanup_execute_api(
+        payload: StrmCleanupRequestIdPayload,
+    ) -> ApiResponse:
+        """
+        执行一批待确认的分享 STRM 删除（先同步 claim 队列，再在后台线程中删文件）
+        """
+        try:
+            rid = (payload.request_id or "").strip()
+            if not rid:
+                return ApiResponse(code=1, msg="缺少 request_id")
+            batch, cerr = share_strm_cleaner.claim_pending_batch(rid)
+            if cerr == "batch_not_found":
+                return ApiResponse(code=1, msg="未找到该批次或已处理")
+            if cerr == "invalid_batch":
+                return ApiResponse(code=1, msg="批次数据无效")
+            if cerr:
+                return ApiResponse(code=1, msg=f"执行失败: {cerr}")
+            assert batch is not None
+
+            def _run() -> None:
+                try:
+                    removed, err = share_strm_cleaner.execute_claimed_batch(batch)
+                    if err:
+                        logger.error(
+                            f"【分享STRM清理】后台执行批次失败 request_id={rid}: {err}",
+                        )
+                    else:
+                        logger.info(
+                            f"【分享STRM清理】后台批次执行完成 request_id={rid} removed={removed}",
+                        )
+                except Exception as ex:
+                    logger.error(
+                        f"【分享STRM清理】后台执行批次异常 request_id={rid}: {ex}",
+                        exc_info=True,
+                    )
+
+            Thread(
+                target=_run,
+                daemon=True,
+                name="share-strm-cleanup-exec",
+            ).start()
+            return ApiResponse(
+                msg="删除任务已在后台执行，请稍后刷新列表确认",
+                data={"request_id": rid},
+            )
+        except Exception as e:
+            logger.error(f"【分享STRM清理】执行批次失败: {e}", exc_info=True)
+            return ApiResponse(code=1, msg=str(e))
+
+    @staticmethod
+    def share_strm_cleanup_cancel_api(
+        payload: StrmCleanupRequestIdPayload,
+    ) -> ApiResponse:
+        """
+        取消一批待确认的分享 STRM 删除
+        """
+        try:
+            rid = (payload.request_id or "").strip()
+            if not rid:
+                return ApiResponse(code=1, msg="缺少 request_id")
+            if not share_strm_cleaner.cancel_pending_batch(rid):
+                return ApiResponse(code=1, msg="未找到该批次或已处理")
+            return ApiResponse(msg="已取消该批次")
+        except Exception as e:
+            logger.error(f"【分享STRM清理】取消批次失败: {e}", exc_info=True)
+            return ApiResponse(code=1, msg=str(e))
+
+    @staticmethod
+    def share_strm_cleanup_scan_api() -> ApiResponse:
+        """
+        立即启动分享 STRM 清理扫描（后台线程）
+        """
+        try:
+            if not configer.get_config("enabled") or not configer.get_config("cookies"):
+                return ApiResponse(code=1, msg="插件未启用或未配置cookie")
+
+            def _run() -> None:
+                try:
+                    share_strm_cleaner.run_full_cleanup()
+                except Exception as ex:
+                    logger.error(
+                        f"【分享STRM清理】后台扫描失败: {ex}",
+                        exc_info=True,
+                    )
+
+            Thread(target=_run, daemon=True, name="share-strm-cleanup-scan").start()
+            return ApiResponse(msg="分享 STRM 清理扫描已启动")
+        except Exception as e:
+            return ApiResponse(code=1, msg=str(e))
+
+    @staticmethod
+    def share_strm_cleanup_last_summary_api() -> ApiResponse:
+        """
+        上次分享 STRM 清理扫描摘要
+        """
+        try:
+            s = share_strm_cleaner.get_last_summary()
+            return ApiResponse(data={"summary": s})
+        except Exception as e:
+            return ApiResponse(code=1, msg=str(e))
+
+    @staticmethod
+    def share_strm_missing_media_list_api(
+        page: int = Query(default=1, ge=1, description="页码"),
+        limit: int = Query(default=20, ge=1, le=500, description="每页条数"),
+    ) -> ApiResponse:
+        """
+        分页列出缺失媒体条目（分片读取）
+        """
+        try:
+            items, total = share_strm_cleaner.missing_media_page(page, limit)
+            return ApiResponse(data={"items": items, "total": total, "page": page})
+        except Exception as e:
+            logger.error(f"【分享STRM清理】缺失媒体列表失败: {e}", exc_info=True)
+            return ApiResponse(code=1, msg=str(e))
+
+    @staticmethod
+    def share_strm_missing_media_clear_api(
+        payload: ShareStrmMissingMediaClearPayload,
+    ) -> ApiResponse:
+        """
+        清空或按 uid 删除缺失媒体记录
+        """
+        try:
+            if payload.clear_all:
+                share_strm_cleaner.missing_media_clear(None, True)
+                return ApiResponse(msg="已清空缺失媒体列表")
+            uid = (payload.uid or "").strip()
+            if not uid:
+                return ApiResponse(code=1, msg="缺少 uid 或未设置 clear_all")
+            if not share_strm_cleaner.missing_media_clear(uid, False):
+                return ApiResponse(code=1, msg="未找到该记录")
+            return ApiResponse(msg="已删除")
+        except Exception as e:
+            logger.error(f"【分享STRM清理】缺失媒体删除失败: {e}", exc_info=True)
             return ApiResponse(code=1, msg=str(e))
 
     @staticmethod

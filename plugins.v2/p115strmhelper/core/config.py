@@ -1,7 +1,7 @@
 from pathlib import Path
 from platform import system, release
 from re import fullmatch as re_fullmatch
-from typing import Dict, Any, Optional, List, Union, Literal
+from typing import Any, Dict, List, Literal, Optional, Union
 
 from orjson import loads, JSONDecodeError
 from pydantic import (
@@ -24,7 +24,11 @@ from ..sidebar_nav import sidebar_nav_keys_known
 from ..version import VERSION
 from ..core.aliyunpan import AliyunPanLogin
 from ..schemas.cookie import U115Cookie
-from ..schemas.share import ShareInteractiveGenStrmConfig, ShareStrmConfig
+from ..schemas.share import (
+    ShareInteractiveGenStrmConfig,
+    ShareStrmCleanupConfig,
+    ShareStrmConfig,
+)
 from ..schemas.strm_api import StrmApiConfig
 from ..utils.cron import CronUtils
 from ..utils.machineid import MachineID
@@ -122,6 +126,18 @@ class ConfigManager(BaseModel):
             return ShareInteractiveGenStrmConfig()
         if isinstance(v, dict):
             return ShareInteractiveGenStrmConfig.model_validate(v)
+        return v
+
+    @field_validator("share_strm_cleanup_config", mode="before")
+    @classmethod
+    def _validate_share_strm_cleanup_config(cls, v: Any) -> ShareStrmCleanupConfig:
+        """
+        验证并转换 share_strm_cleanup_config
+        """
+        if v is None:
+            return ShareStrmCleanupConfig()
+        if isinstance(v, dict):
+            return ShareStrmCleanupConfig.model_validate(v)
         return v
 
     @field_validator("share_strm_config", mode="before")
@@ -490,6 +506,10 @@ class ConfigManager(BaseModel):
         default_factory=ShareInteractiveGenStrmConfig,
         description="分享交互生成 STRM 专用配置",
     )
+    share_strm_cleanup_config: ShareStrmCleanupConfig = Field(
+        default_factory=ShareStrmCleanupConfig,
+        description="无效分享 STRM 清理配置",
+    )
 
     api_strm_config: List[StrmApiConfig] = Field(
         default_factory=list, description="API STRM 生成配置"
@@ -718,7 +738,7 @@ class ConfigManager(BaseModel):
         """
         返回 p115center 许可证
         """
-        return "4293e535c8fb55503f12061d76a88af6ea79f1210cd7166a8f29e39852e9dd5a"
+        return "09dfacf7d2722afd430a25b3ea5bf173e04aa561d3de03e414565e6c70bd9269"
 
     @property
     def PLUGIN_ALIGO_PATH(self) -> Path:

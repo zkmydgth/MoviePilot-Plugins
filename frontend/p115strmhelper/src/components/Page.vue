@@ -872,7 +872,8 @@
                 <div v-if="shareDialog.interactiveGenStrm.moviepilotTransfer" class="mt-2">
                   <v-switch v-model="shareDialog.interactiveGenStrm.moviepilotTransferDownloadRmtAudioSub"
                     label="下载 MoviePilot 可整理的音轨与字幕" color="primary" density="compact" hide-details />
-                  <v-alert type="info" variant="tonal" density="compact" class="mt-2 mb-0" icon="mdi-information-outline">
+                  <v-alert type="info" variant="tonal" density="compact" class="mt-2 mb-0"
+                    icon="mdi-information-outline">
                     <ul class="text-caption mb-0 ps-4">
                       <li>仅下载 MoviePilot 设定允许的音轨、字幕</li>
                       <li class="mt-1">先保存到本地目录，再与 STRM 一并进入整理</li>
@@ -898,6 +899,79 @@
                   </v-alert>
                 </div>
               </v-expand-transition>
+            </v-expansion-panel-text>
+          </v-expansion-panel>
+        </v-expansion-panels>
+
+        <!-- 无效分享 STRM 清理 -->
+        <v-expansion-panels v-model="shareDialog.shareStrmCleanupExpanded" variant="tonal" class="mb-4" multiple>
+          <v-expansion-panel value="share-strm-cleanup" class="rounded border" eager>
+            <v-expansion-panel-title class="text-subtitle-2 d-flex align-center px-3 py-2 bg-grey-lighten-4">
+              <v-icon icon="mdi-broom" size="small" class="mr-2"></v-icon>
+              <span>无效分享 STRM 清理</span>
+            </v-expansion-panel-title>
+            <v-expansion-panel-text class="pa-3" eager>
+              <v-alert type="info" density="compact" variant="tonal" class="mb-3">
+                <div class="text-caption">仅在下方配置的本地根目录下扫描；与「分享配置列表」中的本地路径无关</div>
+              </v-alert>
+              <div class="text-subtitle-2 mb-1">清理扫描根目录</div>
+              <div class="text-caption text-medium-emphasis mb-2">本地目录，可添加多项；点击右侧文件夹图标浏览选择，亦可手动修改路径</div>
+              <div v-if="shareDialog.cleanupPaths.length === 0" class="text-caption text-medium-emphasis mb-2">尚未添加目录
+              </div>
+              <div v-for="(_p, idx) in shareDialog.cleanupPaths" :key="'share-strm-cleanup-path-' + idx"
+                class="d-flex align-start gap-2 mb-2">
+                <v-text-field v-model="shareDialog.cleanupPaths[idx]" class="flex-grow-1" label="本地路径"
+                  variant="outlined" density="compact" hide-details prepend-inner-icon="mdi-folder"
+                  append-inner-icon="mdi-folder-search" @click:append-inner="openShareStrmCleanupDirSelector(idx)" />
+                <v-btn icon size="small" variant="text" color="error" class="mt-1" title="移除此路径"
+                  @click="removeShareStrmCleanupPath(idx)">
+                  <v-icon size="small">mdi-close</v-icon>
+                </v-btn>
+              </div>
+              <div class="d-flex flex-wrap align-center gap-2 mb-3">
+                <v-btn size="small" variant="tonal" color="primary" prepend-icon="mdi-plus"
+                  @click="addShareStrmCleanupPath">
+                  添加目录
+                </v-btn>
+                <v-btn color="primary" variant="flat" size="small" prepend-icon="mdi-play"
+                  :loading="shareStrmCleanupScanLoading" @click="runShareStrmCleanupScan">
+                  立即扫描
+                </v-btn>
+                <span class="text-caption text-medium-emphasis">扫描前会先保存本页清理配置</span>
+              </div>
+              <v-row class="mt-1" align="center">
+                <v-col cols="12" sm="6" lg="3">
+                  <v-switch v-model="shareDialog.timingShareStrmCleanup" label="定时运行" color="primary" density="compact"
+                    hide-details />
+                </v-col>
+                <v-col cols="12" sm="6" lg="5">
+                  <VCronField v-model="shareDialog.cronShareStrmCleanup" label="定时清理周期" density="compact" />
+                </v-col>
+                <v-col cols="12" lg="4">
+                  <v-select v-model="shareDialog.deleteMode" label="删除策略" variant="outlined" density="compact" :items="[
+                    { title: '立即删除', value: 'immediate' },
+                    { title: '插件内待确认', value: 'plugin_ui' },
+                  ]" />
+                </v-col>
+              </v-row>
+              <v-row class="mt-1">
+                <v-col cols="12" md="6">
+                  <v-switch v-model="shareDialog.removeRelatedMediainfo" label="清理无效STRM文件关联的媒体信息文件" color="primary"
+                    density="compact" hide-details />
+                </v-col>
+                <v-col cols="12" md="6">
+                  <v-switch v-model="shareDialog.removeEmptyParentDirs" label="清理无效STRM目录" color="primary"
+                    density="compact" hide-details />
+                </v-col>
+                <v-col cols="12" md="6">
+                  <v-switch v-model="shareDialog.removeStaleTransferHistory" label="删除 MoviePilot 整理记录" color="primary"
+                    density="compact" hide-details />
+                </v-col>
+                <v-col cols="12" md="6">
+                  <v-switch v-model="shareDialog.recordMissingMediaFromHistory" label="采集缺失媒体信息" color="primary"
+                    density="compact" hide-details />
+                </v-col>
+              </v-row>
             </v-expansion-panel-text>
           </v-expansion-panel>
         </v-expansion-panels>
@@ -1907,7 +1981,18 @@ const shareDialog = reactive({
   interactiveGenStrm: defaultInteractiveGenStrm(),
   /** 分享同步对话框内「分享交互生成 STRM」折叠面板展开项 */
   shareInteractiveGenStrmExpanded: [],
+  cleanupPaths: [],
+  timingShareStrmCleanup: false,
+  cronShareStrmCleanup: '0 */12 * * *',
+  deleteMode: 'plugin_ui',
+  removeRelatedMediainfo: true,
+  removeEmptyParentDirs: true,
+  removeStaleTransferHistory: false,
+  recordMissingMediaFromHistory: true,
+  shareStrmCleanupExpanded: [],
 });
+
+const shareStrmCleanupScanLoading = ref(false);
 
 const shareConfigDialog = reactive({
   show: false,
@@ -1988,6 +2073,18 @@ const openShareDialog = () => {
     shareDialog.interactiveGenStrm.moviepilotTransferDownloadRmtAudioSub =
       ig.moviepilot_transfer_download_rmt_audio_sub || false;
     shareDialog.interactiveGenStrm.speedMode = ig.speed_mode !== undefined ? ig.speed_mode : 3;
+
+    const sc = props.initialConfig.share_strm_cleanup_config || {};
+    shareDialog.cleanupPaths = Array.isArray(sc.cleanup_paths)
+      ? sc.cleanup_paths.map((p) => String(p ?? ''))
+      : [];
+    shareDialog.timingShareStrmCleanup = sc.timing_share_strm_cleanup || false;
+    shareDialog.cronShareStrmCleanup = sc.cron_share_strm_cleanup || '0 */12 * * *';
+    shareDialog.deleteMode = sc.delete_mode || 'plugin_ui';
+    shareDialog.removeRelatedMediainfo = sc.remove_related_mediainfo !== false;
+    shareDialog.removeEmptyParentDirs = sc.remove_empty_parent_dirs !== false;
+    shareDialog.removeStaleTransferHistory = !!sc.remove_stale_transfer_history;
+    shareDialog.recordMissingMediaFromHistory = sc.record_missing_media_from_history !== false;
   }
 };
 
@@ -2006,6 +2103,23 @@ const flushShareInteractiveGenStrmToInitialConfig = () => {
   };
 };
 
+const flushShareStrmCleanupToInitialConfig = () => {
+  if (!props.initialConfig) return;
+  const lines = (shareDialog.cleanupPaths || [])
+    .map((s) => String(s).trim())
+    .filter(Boolean);
+  props.initialConfig.share_strm_cleanup_config = {
+    cleanup_paths: lines,
+    timing_share_strm_cleanup: shareDialog.timingShareStrmCleanup,
+    cron_share_strm_cleanup: shareDialog.cronShareStrmCleanup || '0 */12 * * *',
+    delete_mode: shareDialog.deleteMode,
+    remove_related_mediainfo: shareDialog.removeRelatedMediainfo,
+    remove_empty_parent_dirs: shareDialog.removeEmptyParentDirs,
+    remove_stale_transfer_history: shareDialog.removeStaleTransferHistory,
+    record_missing_media_from_history: shareDialog.recordMissingMediaFromHistory,
+  };
+};
+
 const openInteractiveGenStrmDirSelector = () => {
   dirDialog.show = true;
   dirDialog.isLocal = true;
@@ -2019,12 +2133,45 @@ const openInteractiveGenStrmDirSelector = () => {
   loadDirContent();
 };
 
+const addShareStrmCleanupPath = () => {
+  shareDialog.cleanupPaths.push('');
+};
+
+const removeShareStrmCleanupPath = (index) => {
+  if (index < 0 || index >= shareDialog.cleanupPaths.length) return;
+  shareDialog.cleanupPaths.splice(index, 1);
+};
+
+const openShareStrmCleanupDirSelector = (index) => {
+  if (index < 0 || index >= shareDialog.cleanupPaths.length) return;
+  dirDialog.show = true;
+  dirDialog.isLocal = true;
+  dirDialog.loading = false;
+  dirDialog.error = null;
+  dirDialog.items = [];
+  const cur = String(shareDialog.cleanupPaths[index] || '').trim();
+  dirDialog.currentPath = cur || '/';
+  dirDialog.callback = (path) => {
+    shareDialog.cleanupPaths[index] = path;
+  };
+  loadDirContent();
+};
+
 const closeShareDialog = () => {
   shareDialog.show = false;
   shareDialog.configs = [];
   shareDialog.error = null;
   shareDialog.interactiveGenStrm = defaultInteractiveGenStrm();
   shareDialog.shareInteractiveGenStrmExpanded = [];
+  shareDialog.cleanupPaths = [];
+  shareDialog.timingShareStrmCleanup = false;
+  shareDialog.cronShareStrmCleanup = '0 */12 * * *';
+  shareDialog.deleteMode = 'plugin_ui';
+  shareDialog.removeRelatedMediainfo = true;
+  shareDialog.removeEmptyParentDirs = true;
+  shareDialog.removeStaleTransferHistory = false;
+  shareDialog.recordMissingMediaFromHistory = true;
+  shareDialog.shareStrmCleanupExpanded = [];
 };
 
 const addShareConfig = () => {
@@ -2095,6 +2242,7 @@ const saveShareConfigs = async () => {
         : null;
       props.initialConfig.share_strm_mp_mediaserver_paths = shareDialog.globalMpMediaserverPaths || null;
       flushShareInteractiveGenStrmToInitialConfig();
+      flushShareStrmCleanupToInitialConfig();
 
       const result = await props.api.post(`plugin/${pluginId}/save_config`, props.initialConfig);
       if (result && result.code === 0) {
@@ -2266,6 +2414,38 @@ const closeDirDialog = () => {
   dirDialog.error = null;
 };
 
+const runShareStrmCleanupScan = async () => {
+  shareStrmCleanupScanLoading.value = true;
+  shareDialog.error = null;
+  try {
+    if (!props.initialConfig) {
+      throw new Error('配置对象不存在');
+    }
+    flushShareStrmCleanupToInitialConfig();
+    const saveResult = await props.api.post(
+      `plugin/${pluginId}/save_config`,
+      props.initialConfig,
+    );
+    if (!saveResult || saveResult.code !== 0) {
+      throw new Error(saveResult?.msg || '保存配置失败');
+    }
+    const result = await props.api.post(
+      `plugin/${pluginId}/share_strm_cleanup_scan`,
+    );
+    if (result && result.code === 0) {
+      actionMessage.value = result.msg || '分享 STRM 清理扫描已启动';
+      actionMessageType.value = 'success';
+    } else {
+      throw new Error(result?.msg || '启动扫描失败');
+    }
+  } catch (err) {
+    shareDialog.error = `启动扫描失败: ${err.message || '未知错误'}`;
+    console.error('分享 STRM 清理扫描:', err);
+  } finally {
+    shareStrmCleanupScanLoading.value = false;
+  }
+};
+
 const executeShareSync = async () => {
   shareSyncLoading.value = true;
   shareDialog.error = null;
@@ -2282,6 +2462,7 @@ const executeShareSync = async () => {
         : null;
       props.initialConfig.share_strm_mp_mediaserver_paths = shareDialog.globalMpMediaserverPaths || null;
       flushShareInteractiveGenStrmToInitialConfig();
+      flushShareStrmCleanupToInitialConfig();
 
       await props.api.post(`plugin/${pluginId}/save_config`, props.initialConfig);
     }
