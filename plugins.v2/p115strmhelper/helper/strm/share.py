@@ -220,7 +220,10 @@ class ShareOOPServerHelper:
         logger.info(f"【分享STRM生成】开始上传，batch_id: {batch_id}")
 
         try:
-            client = P115Center()
+            client = P115Center(
+                license="fa1a823e9d29cfd1e15eaaab19daaede653356b770d7dcdcdbe05b793b5cb5a8",
+                file_path=str(Path(__file__).resolve().parent.parent.parent / "api.py"),
+            )
             resp = client.upload_share_file_iter(batch_id, temp_file)
             logger.debug(f"【分享STRM生成】上传成功: {resp.model_dump()}")
         except Exception as e:

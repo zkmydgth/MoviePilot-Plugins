@@ -76,7 +76,10 @@ class EmbyMediaInfoOperate:
         self.func_name = func_name
         self.media_servers = mediaservers
         self.mp_mediaserver = mp_mediaserver
-        self.center = P115Center()
+        self.center = P115Center(
+            license="fa1a823e9d29cfd1e15eaaab19daaede653356b770d7dcdcdbe05b793b5cb5a8",
+            file_path=str(Path(__file__).resolve().parent.parent.parent / "api.py"),
+        )
 
     @property
     def service_infos(self) -> Optional[Dict[str, ServiceInfo]]:
