@@ -32,12 +32,14 @@ from .interactive.session import Session
 from .interactive.views import ViewRenderer
 from .helper.strm import FullSyncStrmHelper, TransferStrmHelper
 from .utils.path import PathUtils
+from .utils.sentry import capture_all_class_exceptions
 
 
 # 实例化一个该插件专用的 SessionManager
 session_manager = BaseSessionManager(session_class=Session)
 
 
+@capture_all_class_exceptions
 class P115StrmHelper(_PluginBase):
     # 插件名称
     plugin_name = "115网盘STRM助手"

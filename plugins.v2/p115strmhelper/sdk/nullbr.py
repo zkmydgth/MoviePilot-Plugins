@@ -1,8 +1,10 @@
 from nullbr import NullbrSDK
 
 from ..core.config import configer
+from ..utils.sentry import capture_all_class_exceptions
 
 
+@capture_all_class_exceptions
 class NullbrHelper:
     """
     Nullbr 资源搜索
