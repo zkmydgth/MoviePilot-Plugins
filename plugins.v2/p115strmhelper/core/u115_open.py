@@ -638,7 +638,7 @@ class U115OpenHelper:
         except Exception as e:
             logger.error(f"【P115Open】{target_name} 分块生成出现未知错误: {e}")
             return None
-        finally:
+        else:
             # 完成上传
             progress_callback(100)
 
