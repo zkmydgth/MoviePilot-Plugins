@@ -33,6 +33,7 @@ from .interactive.handler import ActionHandler
 from .interactive.session import Session
 from .interactive.views import ViewRenderer
 from .helper.strm import FullSyncStrmHelper, TransferStrmHelper
+from .helper.share import U115_SHARE_URL_MATCH, ALIYUN_SHARE_URL_MATCH
 from .utils.path import PathUtils
 from .utils.sentry import sentry_manager
 
@@ -818,12 +819,8 @@ class P115StrmHelper(_PluginBase):
             return
         if not text.startswith("http"):
             return
-        if not bool(
-            re.match(r"^https?://(.*\.)?115[^/]*\.[a-zA-Z]{2,}(?:\/|$)", text)
-        ) and not bool(
-            re.match(
-                r"^https?://(.*\.)?(alipan|aliyundrive)\.[a-zA-Z]{2,}(?:\/|$)", text
-            )
+        if not bool(re.match(U115_SHARE_URL_MATCH, text)) and not bool(
+            re.match(ALIYUN_SHARE_URL_MATCH, text)
         ):
             return
         servicer.sharetransferhelper.add_share(

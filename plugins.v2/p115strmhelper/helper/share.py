@@ -14,6 +14,7 @@ from app.log import logger
 from app.core.metainfo import MetaInfo
 from app.core.context import MediaInfo
 from app.chain.media import MediaChain
+from app.schemas import NotificationType
 
 from ..core.config import configer
 from ..core.message import post_message
@@ -23,6 +24,10 @@ from ..core.aliyunpan import BAligo
 from ..helper.ali2115 import Ali2115Helper
 from ..utils.sentry import sentry_manager
 from ..utils.oopserver import OOPServerRequest
+
+
+U115_SHARE_URL_MATCH = r"^https?://(.*\.)?115[^/]*\.[a-zA-Z]{2,}(?:/|$)"
+ALIYUN_SHARE_URL_MATCH = r"^https?://(.*\.)?(alipan|aliyundrive)\.[a-zA-Z]{2,}(?:/|$)"
 
 
 @sentry_manager.capture_all_class_exceptions
@@ -78,12 +83,40 @@ class ShareTransferHelper:
                 logger.error(f"【分享转存】任务处理异常: {e}")
                 time.sleep(5)
 
+    @staticmethod
+    def send_notify(
+        title: str,
+        text: Optional[str] = None,
+        image: Optional[str] = None,
+        channel: Optional[str | int] = None,
+        userid: Optional[str | int] = None,
+    ):
+        """
+        统一消息发送接口，自动选择全局或者指定用户发送
+        """
+        if channel and userid:
+            post_message(
+                channel=channel,
+                title=title,
+                image=image,
+                text=text,
+                userid=userid,
+            )
+        else:
+            post_message(
+                mtype=NotificationType.Plugin,
+                title=title,
+                text=text,
+                image=image,
+            )
+
     def add_share_recognize_mediainfo(self, share_code: str, receive_code: str):
         """
         分享转存识别媒体信息
         """
         file_num = 0
         file_mediainfo = None
+        item_name = None
         for item in share_iterdir(
             self.client,
             receive_code=receive_code,
@@ -108,7 +141,12 @@ class ShareTransferHelper:
         """
         return share_extract_payload(url)
 
-    def __add_share_aliyunpan(self, url, channel, userid):
+    def add_share_aliyunpan(
+        self,
+        url,
+        channel: Optional[str | int] = None,
+        userid: Optional[str | int] = None,
+    ):
         """
         添加阿里云盘分享任务
         """
@@ -117,7 +155,7 @@ class ShareTransferHelper:
         logger.info(f"【Ali2115】解析分享链接 share_id={share_id}")
         if not share_id:
             logger.error(f"【Ali2115】解析分享链接失败：{url}")
-            post_message(
+            self.send_notify(
                 channel=channel,
                 title=f"{i18n.translate('share_url_extract_error', url=url)}",
                 userid=userid,
@@ -162,7 +200,7 @@ class ShareTransferHelper:
         if status:
             logger.info(f"【Ali2115】秒传 {share_id} 完成")
             if not file_mediainfo:
-                post_message(
+                self.send_notify(
                     channel=channel,
                     title=i18n.translate("share_add_success"),
                     text=f"""
@@ -175,7 +213,7 @@ class ShareTransferHelper:
                     userid=userid,
                 )
             else:
-                post_message(
+                self.send_notify(
                     channel=channel,
                     title=i18n.translate(
                         "share_add_success_2",
@@ -194,7 +232,7 @@ class ShareTransferHelper:
 
         else:
             logger.info(f"【分享转存】秒传失败：{msg}")
-            post_message(
+            self.send_notify(
                 channel=channel,
                 title=i18n.translate("share_add_fail"),
                 text=f"""
@@ -204,90 +242,67 @@ class ShareTransferHelper:
                 userid=userid,
             )
 
-    def __add_share(self, url, channel, userid):
+    def add_share_115(
+        self,
+        url,
+        channel: Optional[str | int] = None,
+        userid: Optional[str | int] = None,
+        notify: bool = True,
+    ):
         """
-        分享转存
+        添加115分享任务
         """
-        if not configer.get_config("pan_transfer_enabled") or not configer.get_config(
-            "pan_transfer_paths"
-        ):
-            post_message(
-                channel=channel,
-                title=i18n.translate("add_share_config_error"),
-                userid=userid,
-            )
-            return
-        try:
-            if bool(
-                re.match(
-                    r"^https?://(.*\.)?(alipan|aliyundrive)\.[a-zA-Z]{2,}(?:\/|$)", url
-                )
-            ):
-                if not configer.pan_transfer_unrecognized_path:
-                    post_message(
-                        channel=channel,
-                        title=i18n.translate("add_share_config_error"),
-                        userid=userid,
-                    )
-                    return
-                if not self.aligo:
-                    post_message(
-                        channel=channel,
-                        title=f"{i18n.translate('share_url_aligo_error', url=url)}",
-                        userid=userid,
-                    )
-                    return
-                self.__add_share_aliyunpan(url, channel, userid)
-                return
-
-            data = self.share_url_extract(url)
-            share_code = data["share_code"]
-            receive_code = data["receive_code"]
-            logger.info(
-                f"【分享转存】解析分享链接 share_code={share_code} receive_code={receive_code}"
-            )
-            if not share_code or not receive_code:
-                logger.error(f"【分享转存】解析分享链接失败：{url}")
-                post_message(
+        data = self.share_url_extract(url)
+        share_code = data["share_code"]
+        receive_code = data["receive_code"]
+        logger.info(
+            f"【分享转存】解析分享链接 share_code={share_code} receive_code={receive_code}"
+        )
+        if not share_code or not receive_code:
+            logger.error(f"【分享转存】解析分享链接失败：{url}")
+            if notify:
+                self.send_notify(
                     channel=channel,
                     title=f"{i18n.translate('share_url_extract_error', url=url)}",
                     userid=userid,
                 )
-                return
-            parent_path = configer.get_config("pan_transfer_paths").split("\n")[0]
-            parent_id = idpathcacher.get_id_by_dir(directory=str(parent_path))
-            if not parent_id:
-                parent_id = self.client.fs_dir_getid(parent_path)["id"]
-                logger.info(f"【分享转存】获取到转存目录 ID：{parent_id}")
-                idpathcacher.add_cache(id=int(parent_id), directory=str(parent_path))
-            payload = {
-                "share_code": share_code,
-                "receive_code": receive_code,
-                "file_id": 0,
-                "cid": int(parent_id),
-                "is_check": 0,
-            }
+            return False, "解析分享链接失败"
+        parent_path = configer.get_config("pan_transfer_paths").split("\n")[0]
+        parent_id = idpathcacher.get_id_by_dir(directory=str(parent_path))
+        if not parent_id:
+            parent_id = self.client.fs_dir_getid(parent_path)["id"]
+            logger.info(f"【分享转存】获取到转存目录 ID：{parent_id}")
+            idpathcacher.add_cache(id=int(parent_id), directory=str(parent_path))
+        payload = {
+            "share_code": share_code,
+            "receive_code": receive_code,
+            "file_id": 0,
+            "cid": int(parent_id),
+            "is_check": 0,
+        }
 
-            # 尝试识别媒体信息
-            file_mediainfo = self.add_share_recognize_mediainfo(
-                share_code=share_code, receive_code=receive_code
-            )
+        # 尝试识别媒体信息
+        file_mediainfo = self.add_share_recognize_mediainfo(
+            share_code=share_code, receive_code=receive_code
+        )
 
-            resp = self.client.share_receive(payload)
-            if resp["state"]:
-                logger.info(f"【分享转存】转存 {share_code} 到 {parent_path} 成功！")
-                if not file_mediainfo:
-                    post_message(
+        resp = self.client.share_receive(payload)
+        if resp["state"]:
+            logger.info(f"【分享转存】转存 {share_code} 到 {parent_path} 成功！")
+            if not file_mediainfo:
+                if notify:
+                    self.send_notify(
                         channel=channel,
                         title=i18n.translate("share_add_success"),
                         text=f"""
-分享链接：https://115cdn.com/s/{share_code}?password={receive_code}
-转存目录：{parent_path}
-""",
+    分享链接：https://115cdn.com/s/{share_code}?password={receive_code}
+    转存目录：{parent_path}
+    """,
                         userid=userid,
                     )
-                else:
-                    post_message(
+            else:
+                if notify:
+                    self.send_notify(
                         channel=channel,
                         title=i18n.translate(
                             "share_add_success_2",
@@ -295,29 +310,64 @@ class ShareTransferHelper:
                             year=file_mediainfo.year,
                         ),
                         text=f"""
-链接：https://115cdn.com/s/{share_code}?password={receive_code}
-简介：{file_mediainfo.overview}
-""",
+    链接：https://115cdn.com/s/{share_code}?password={receive_code}
+    简介：{file_mediainfo.overview}
+    """,
                         image=file_mediainfo.poster_path,
                         userid=userid,
                     )
-                self.post_share_info("115", share_code, receive_code, file_mediainfo)
-            else:
-                logger.info(f"【分享转存】转存 {share_code} 失败：{resp['error']}")
-                post_message(
-                    channel=channel,
-                    title=i18n.translate("share_add_fail"),
-                    text=f"""
+            self.post_share_info("115", share_code, receive_code, file_mediainfo)
+            return True, file_mediainfo, parent_path, parent_id
+
+        logger.info(f"【分享转存】转存 {share_code} 失败：{resp['error']}")
+        if notify:
+            self.send_notify(
+                channel=channel,
+                title=i18n.translate("share_add_fail"),
+                text=f"""
 分享链接：https://115cdn.com/s/{share_code}?password={receive_code}
 转存目录：{parent_path}
 失败原因：{resp["error"]}
 """,
-                    userid=userid,
-                )
+                userid=userid,
+            )
+        return False, "转存失败", resp["error"]
+
+    def __add_share(self, url, channel, userid):
+        """
+        分享转存
+        """
+        if not configer.get_config("pan_transfer_enabled") or not configer.get_config(
+            "pan_transfer_paths"
+        ):
+            self.send_notify(
+                channel=channel,
+                title=i18n.translate("add_share_config_error"),
+                userid=userid,
+            )
             return
+        try:
+            if bool(re.match(ALIYUN_SHARE_URL_MATCH, url)):
+                if not configer.pan_transfer_unrecognized_path:
+                    self.send_notify(
+                        channel=channel,
+                        title=i18n.translate("add_share_config_error"),
+                        userid=userid,
+                    )
+                    return
+                if not self.aligo:
+                    self.send_notify(
+                        channel=channel,
+                        title=f"{i18n.translate('share_url_aligo_error', url=url)}",
+                        userid=userid,
+                    )
+                    return
+                self.add_share_aliyunpan(url, channel, userid)
+            else:
+                self.add_share_115(url, channel, userid, True)
         except Exception as e:
             logger.error(f"【分享转存】运行失败: {e}")
-            post_message(
+            self.send_notify(
                 channel=channel,
                 title=i18n.translate("share_add_fail_2", e=e),
                 userid=userid,

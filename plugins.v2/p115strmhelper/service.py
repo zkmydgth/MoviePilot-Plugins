@@ -3,6 +3,7 @@ from time import time, sleep
 from threading import Event, Thread
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Optional, List
 
 import pytz
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -39,22 +40,22 @@ class ServiceHelper:
 
     def __init__(self):
         self.client = None
-        self.mediainfodownloader = None
-        self.monitorlife = None
-        self.aligo = None
+        self.mediainfodownloader: Optional[MediaInfoDownloader] = None
+        self.monitorlife: Optional[MonitorLife] = None
+        self.aligo: Optional[BAligo] = None
 
-        self.sharetransferhelper = None
+        self.sharetransferhelper: Optional[ShareTransferHelper] = None
 
         self.monitor_stop_event = Event()
-        self.monitor_life_thread = None
+        self.monitor_life_thread: Optional[Thread] = None
 
-        self.offlinehelper = None
+        self.offlinehelper: Optional[OfflineDownloadHelper] = None
 
-        self.redirect = None
+        self.redirect: Optional[Redirect] = None
 
-        self.scheduler = None
+        self.scheduler: Optional[BackgroundScheduler] = None
 
-        self.service_observer = []
+        self.service_observer: List = []
 
     def init_service(self):
         """

@@ -19,8 +19,6 @@ from fastapi.responses import JSONResponse
 from .service import servicer
 from .core.config import configer
 from .core.cache import idpathcacher, DirectoryCache
-from .core.message import post_message
-from .core.i18n import i18n
 from .core.aliyunpan import AliyunPanLogin
 from .schemas.offline import (
     OfflineTasksPayload,
@@ -45,13 +43,13 @@ from .schemas.u115 import (
 )
 from .schemas.plugin import PluginStatusData
 from .schemas.base import ApiResponse
+from .schemas.share import ShareApiData, ShareResponseData, ShareSaveParent
 from .utils.sentry import sentry_manager
 from .utils.oopserver import OOPServerHelper
 
 from app.log import logger
 from app.core.cache import cached, TTLCache
 from app.helper.mediaserver import MediaServerHelper
-from app.schemas import NotificationType
 
 
 @sentry_manager.capture_all_class_exceptions
@@ -720,105 +718,40 @@ class Api:
         )
 
     @staticmethod
-    def add_transfer_share(share_url: str = "") -> Dict:
+    def add_transfer_share(share_url: str = "") -> ShareApiData:
         """
         添加分享转存整理
         """
         if not configer.get_config("pan_transfer_enabled") or not configer.get_config(
             "pan_transfer_paths"
         ):
-            return {
-                "code": -1,
-                "error": "配置错误",
-                "message": "用户未配置网盘整理",
-            }
+            return ShareApiData(code=-1, msg="用户未配置网盘整理")
 
         if not share_url:
-            return {
-                "code": -1,
-                "error": "参数错误",
-                "message": "未传入分享链接",
-            }
+            return ShareApiData(code=-1, msg="未传入分享链接")
 
-        data = servicer.sharetransferhelper.share_url_extract(share_url)
-        share_code = data["share_code"]
-        receive_code = data["receive_code"]
-        logger.info(
-            f"【分享转存API】解析分享链接 share_code={share_code} receive_code={receive_code}"
-        )
-        if not share_code or not receive_code:
-            logger.error(f"【分享转存API】解析分享链接失败：{share_url}")
-            return {
-                "code": -1,
-                "error": "解析失败",
-                "message": "解析分享链接失败",
-            }
-
-        file_mediainfo = servicer.sharetransferhelper.add_share_recognize_mediainfo(
-            share_code=share_code, receive_code=receive_code
-        )
-
-        parent_path = configer.get_config("pan_transfer_paths").split("\n")[0]
-        parent_id = idpathcacher.get_id_by_dir(directory=str(parent_path))
-        if not parent_id:
-            parent_id = servicer.client.fs_dir_getid(parent_path)["id"]
-            logger.info(f"【分享转存API】获取到转存目录 ID：{parent_id}")
-            idpathcacher.add_cache(id=int(parent_id), directory=str(parent_path))
-
-        payload = {
-            "share_code": share_code,
-            "receive_code": receive_code,
-            "file_id": 0,
-            "cid": int(parent_id),
-            "is_check": 0,
-        }
-        resp = servicer.client.share_receive(payload)
-        if resp["state"]:
-            logger.info(f"【分享转存API】转存 {share_code} 到 {parent_path} 成功！")
-            if configer.get_config("notify"):
-                if not file_mediainfo:
-                    post_message(
-                        mtype=NotificationType.Plugin,
-                        title=i18n.translate("share_add_success"),
-                        text=f"""
-分享链接：https://115cdn.com/s/{share_code}?password={receive_code}
-转存目录：{parent_path}
-""",
-                    )
-                else:
-                    post_message(
-                        mtype=NotificationType.Plugin,
-                        title=i18n.translate(
-                            "share_add_success_2",
-                            title=file_mediainfo.title,
-                            year=file_mediainfo.year,
-                        ),
-                        text=f"""
-链接：https://115cdn.com/s/{share_code}?password={receive_code}
-简介：{file_mediainfo.overview}
-""",
-                        image=file_mediainfo.poster_path,
-                    )
-            servicer.sharetransferhelper.post_share_info(
-                "115", share_code, receive_code, file_mediainfo
+        try:
+            result = servicer.sharetransferhelper.add_share_115(
+                share_url, notify=configer.notify
             )
-            return {
-                "code": 0,
-                "success": True,
-                "message": "转存成功",
-                "data": {
-                    "media_info": asdict(file_mediainfo) if file_mediainfo else None,
-                    "save_parent": {"path": parent_path, "id": parent_id},
-                },
-                "timestamp": datetime.now().isoformat(),
-            }
+        except Exception as e:
+            return ShareApiData(code=-1, msg=str(e))
 
-        logger.info(f"【分享转存API】转存 {share_code} 失败：{resp['error']}")
-        return {
-            "code": -1,
-            "error": "转存失败",
-            "message": resp["error"],
-        }
+        if not result[0]:
+            if result[1] == "解析分享链接失败":
+                return ShareApiData(code=-1, msg="解析分享链接失败")
+            else:
+                return ShareApiData(code=-1, msg=result[2])
+        else:
+            return ShareApiData(
+                code=0,
+                msg="转存成功",
+                data=ShareResponseData(
+                    media_info=asdict(result[1]) if result[1] else None,
+                    save_parent=ShareSaveParent(path=result[2], id=result[3]),
+                ),
+                timestamp=datetime.now(),
+            )
 
     @staticmethod
     def offline_tasks_api(
