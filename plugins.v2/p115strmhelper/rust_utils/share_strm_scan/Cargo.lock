@@ -379,7 +379,7 @@ dependencies = [
 
 [[package]]
 name = "share_strm_scan"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "ahash",
  "memchr",
