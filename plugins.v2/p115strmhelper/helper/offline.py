@@ -67,33 +67,45 @@ class OfflineDownloadHelper:
         """
         添加整理任务
         """
-        parent_path = self.__remove_transfer_list_by_hash(item[0])
-        if not item[1].get("data", None):
-            logger.error(f"【离线下载】{item[0]} 下载失败，无法添加到网盘整理队列")
-            return
-        logger.info(f"【离线下载】{item[0]} 下载完成，添加到网盘整理队列")
-        data = get_attr(self.client, id=int(item[1].get("data").get("file_id")))
-        event = {
-            "file_id": int(data["id"]),
-            "file_category": 0 if data["is_dir"] else 1,
-            "parent_id": int(data["parent_id"]),
-            "file_size": int(data["size"]),
-            "pick_code": data["pickcode"],
-            "update_time": data["user_utime"],
-        }
-        file_path = Path(parent_path) / str(item[1].get("data").get("name"))
-        rmt_mediaext = [
-            f".{ext.strip()}"
-            for ext in configer.get_config("user_rmt_mediaext")
-            .replace("，", ",")
-            .split(",")
-        ]
-        # 直接传入网盘整理
-        self.monitorlife.media_transfer(
-            event=event,
-            file_path=file_path,
-            rmt_mediaext=rmt_mediaext,
-        )
+        try:
+            if not item[1].get("data", None):
+                if item[1].get("count", None):
+                    logger.error(
+                        f"【离线下载】{item[0]} 下载失败，无法添加到网盘整理队列"
+                    )
+                    self.__remove_transfer_list_by_hash(item[0])
+                else:
+                    item[1]["count"] = 1
+                    logger.warn(f"【离线下载】{item[0]} 下载任务二次检测")
+                return
+            parent_path = self.__remove_transfer_list_by_hash(item[0])
+            logger.info(f"【离线下载】{item[0]} 下载完成，添加到网盘整理队列")
+            data = get_attr(
+                self.client, id=int(item[1].get("data").get("delete_file_id"))
+            )
+            event = {
+                "file_id": int(data["id"]),
+                "file_category": 0 if data["is_dir"] else 1,
+                "parent_id": int(data["parent_id"]),
+                "file_size": int(data["size"]),
+                "pick_code": data["pickcode"],
+                "update_time": data["user_utime"],
+            }
+            file_path = Path(parent_path) / str(item[1].get("data").get("name"))
+            rmt_mediaext = [
+                f".{ext.strip()}"
+                for ext in configer.get_config("user_rmt_mediaext")
+                .replace("，", ",")
+                .split(",")
+            ]
+            # 直接传入网盘整理
+            self.monitorlife.media_transfer(
+                event=event,
+                file_path=file_path,
+                rmt_mediaext=rmt_mediaext,
+            )
+        except Exception as e:
+            logger.error(f"【离线下载】{item[0]} 无法添加到网盘整理队列: {e}")
 
     def add_urls(self, url_list: List, cid: int):
         """

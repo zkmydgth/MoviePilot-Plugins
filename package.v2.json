@@ -98,11 +98,12 @@
         "name": "115网盘STRM助手",
         "description": "115网盘STRM生成一条龙服务",
         "labels": "云盘",
-        "version": "1.9.8",
+        "version": "1.9.9",
         "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png",
         "author": "DDSRem",
         "level": 1,
         "history": {
+            "v1.9.9": "修复离线下载添加的整理任务文件会误删文件夹",
             "v1.9.8": "增加离线下载功能；将 /search 命令缩减为 /sh；修复Safari主界面显示错误；修复windows下增量同步错误",
             "v1.9.7": "全量同步添加三项高级配置，提升生成速度；最近接受文件夹清理改成删除内部文件",
             "v1.9.6": "修复Windows网盘路径选择器错误",
