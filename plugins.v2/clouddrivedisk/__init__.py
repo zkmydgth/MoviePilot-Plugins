@@ -184,7 +184,7 @@ class CloudDriveDisk(_PluginBase):
                                         "props": {
                                             "model": "password",
                                             "label": "密码",
-                                            "type": "password",
+                                            "type": "{{ 'password' }}",
                                             "hint": "CloudDrive 登录密码",
                                             "persistent-hint": True,
                                         },
