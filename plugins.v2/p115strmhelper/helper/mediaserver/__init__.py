@@ -1,6 +1,5 @@
-from .emby import EmbyOperate, EmbyMediaInfoOperate
+from .emby import EmbyOperate, EmbyMediaInfoOperate, emby_mediainfo_queue
 from .refresh import MediaServerRefresh
-from .task.emby_mediainfo_queue import emby_mediainfo_queue
 
 
 __all__ = [
