@@ -102,9 +102,11 @@ class ShareStrmHelper:
             )
 
         def _scrape_media_data(file_path: Path) -> None:
+            logger.info(f"【分享STRM生成】{file_path.as_posix()} 开始刮削...")
             media_scrape_metadata(file_path.as_posix())
 
         def _scrape_and_refresh(file_path: Path) -> None:
+            logger.info(f"【分享STRM生成】{file_path.as_posix()} 开始刮削...")
             _scrape_media_data(file_path)
             _refresh_media_server(file_path)
 
