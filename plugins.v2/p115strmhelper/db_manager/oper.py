@@ -75,6 +75,22 @@ class FileDbHelper(DbOper):
             }
         ]
 
+    def process_life_dir_item(self, event, file_path: str) -> List[Dict]:
+        """
+        处理115生活事件文件夹 event
+        """
+        return [
+            {
+                "table": "folders",
+                "data": {
+                    "id": event["file_id"],
+                    "parent_id": event["parent_id"],
+                    "name": event["file_name"],
+                    "path": str(file_path),
+                },
+            }
+        ]
+
     def upsert_batch(self, batch: List[Dict]):
         """
         批量写入或更新数据

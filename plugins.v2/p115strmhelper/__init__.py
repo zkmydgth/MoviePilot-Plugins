@@ -2301,6 +2301,11 @@ class P115StrmHelper(_PluginBase):
                 # 文件夹情况，遍历文件夹
                 mediainfo_count = 0
                 strm_count = 0
+                _databasehelper.upsert_batch(
+                    _databasehelper.process_life_dir_item(
+                        event=event, file_path=file_path
+                    )
+                )
                 for batch in batched(
                     iter_files_with_path(self._client, cid=int(file_id), cooldown=2),
                     7_000,
