@@ -194,7 +194,7 @@ class FileDbHelper(DbOper):
 
     def get_by_id(self, id: int) -> Optional[Dict]:
         """
-        通过ID获取项目
+        通过路径获取项目
         """
         file = File.get_by_id(self._db, id)
         if file:
@@ -236,13 +236,12 @@ class FileDbHelper(DbOper):
             },
         }
 
-    def remove_by_path_batch(self, path: str, only_file: bool = False):
+    def remove_by_path_batch(self, path: str):
         """
         通过路径批量删除
         """
         File.remove_by_path_batch(self._db, path)
-        if not only_file:
-            Folder.remove_by_path_batch(self._db, path)
+        Folder.remove_by_path_batch(self._db, path)
         return True
 
     def update_path_by_id(self, id: int, new_path: str) -> bool:
