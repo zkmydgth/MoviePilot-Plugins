@@ -1,11 +1,12 @@
 import sqlite3
 import subprocess
 import threading
+from collections.abc import Mapping
 from datetime import datetime, timedelta
 from threading import Event as ThreadEvent
 from typing import Any, List, Dict, Tuple, Self, cast
 from errno import EIO, ENOENT
-from urllib.parse import quote, unquote, urlsplit
+from urllib.parse import quote, unquote, urlsplit, urlencode
 from pathlib import Path
 
 import pytz
@@ -261,7 +262,17 @@ class P115StrmHelper(_PluginBase):
 
     def get_api(self) -> List[Dict[str, Any]]:
         """
-        url: {server_url}/api/v1/plugin/P115StrmHelper/redirect_url?apikey={APIKEY}&pickcode={PICKCODE}
+        BASE_URL: {server_url}/api/v1/plugin/P115StrmHelper/redirect_url?apikey={APIKEY}
+        0. 查询 pickcode
+            url: ${BASE_URL}&pickcode=ecjq9ichcb40lzlvx
+        1. 带（任意）名字查询 pickcode
+            url: ${BASE_URL}&file_name=Novembre.2022.FRENCH.2160p.BluRay.DV.HEVC.DTS-HD.MA.5.1.mkv&pickcode=ecjq9ichcb40lzlvx
+        2. 查询分享文件（如果是你自己的分享，则无须提供密码 receive_code）
+            url: ${BASE_URL}&share_code=sw68md23w8m&receive_code=q353&id=2580033742990999218
+            url: ${BASE_URL}&share_code=sw68md23w8m&id=2580033742990999218
+        3. 用 file_name 查询分享文件（直接以路径作为 file_name，且不要有 id 查询参数。如果是你自己的分享，则无须提供密码 receive_code）
+            url: ${BASE_URL}&file_name=Cosmos.S01E01.1080p.AMZN.WEB-DL.DD%2B5.1.H.264-iKA.mkv&share_code=sw68md23w8m&receive_code=q353
+            url: ${BASE_URL}&file_name=Cosmos.S01E01.1080p.AMZN.WEB-DL.DD%2B5.1.H.264-iKA.mkv&share_code=sw68md23w8m
         """
         return [
             {
@@ -406,11 +417,20 @@ class P115StrmHelper(_PluginBase):
         request: Request,
         pickcode: str = "",
         file_name: str = "",
+        id: int = 0,
+        share_code: str = "",
+        receive_code: str = "",
         app: str = "",
     ):
         """
         115网盘302跳转
         """
+
+        def get_first(m: Mapping, *keys, default=None):
+            for k in keys:
+                if k in m:
+                    return m[k]
+            return default
 
         def check_response(resp: requests.Response) -> requests.Response:
             """
@@ -421,6 +441,56 @@ class P115StrmHelper(_PluginBase):
                     f"HTTP Error {resp.status_code}: {resp.text}", response=resp
                 )
             return resp
+
+        def share_get_id_for_name(
+            share_code: str,
+            receive_code: str,
+            name: str,
+            parent_id: int = 0,
+        ) -> int:
+            api = "http://web.api.115.com/share/search"
+            payload = {
+                "share_code": share_code,
+                "receive_code": receive_code,
+                "search_value": name,
+                "cid": parent_id,
+                "limit": 1,
+                "type": 99,
+            }
+            suffix = name.rpartition(".")[-1]
+            if suffix.isalnum():
+                payload["suffix"] = suffix
+            resp = requests.get(
+                f"{api}?{urlencode(payload)}", headers={"Cookie": self.cookies}
+            )
+            check_response(resp)
+            json = loads(cast(bytes, resp.content))
+            if get_first(json, "errno", "errNo") == 20021:
+                payload.pop("suffix")
+                resp = requests.get(
+                    f"{api}?{urlencode(payload)}", headers={"Cookie": self.cookies}
+                )
+                check_response(resp)
+                json = loads(cast(bytes, resp.content))
+            if not json["state"] or not json["data"]["count"]:
+                raise FileNotFoundError(ENOENT, json)
+            info = json["data"]["list"][0]
+            if info["n"] != name:
+                raise FileNotFoundError(ENOENT, f"name not found: {name!r}")
+            id = int(info["fid"])
+            return id
+
+        def get_receive_code(share_code: str) -> str:
+            resp = requests.get(
+                f"http://web.api.115.com/share/shareinfo?share_code={share_code}",
+                headers={"Cookie": self.cookies},
+            )
+            check_response(resp)
+            json = loads(cast(bytes, resp.content))
+            if not json["state"]:
+                raise FileNotFoundError(ENOENT, json)
+            receive_code = json["data"]["receive_code"]
+            return receive_code
 
         def get_downurl(
             pickcode: str,
@@ -464,22 +534,85 @@ class P115StrmHelper(_PluginBase):
                 url = Url.of(data["url"], data)
             return url
 
-        if not pickcode:
-            logger.debug("Missing pickcode parameter")
-            return "Missing pickcode parameter"
+        def get_share_downurl(
+            share_code: str,
+            receive_code: str,
+            file_id: int,
+            app: str = "",
+        ) -> Url:
+            payload = {
+                "share_code": share_code,
+                "receive_code": receive_code,
+                "file_id": file_id,
+            }
+            if app:
+                resp = requests.get(
+                    f"http://proapi.115.com/{app}/2.0/share/downurl?{urlencode(payload)}",
+                    headers={"Cookie": self.cookies},
+                )
+            else:
+                resp = requests.post(
+                    "http://proapi.115.com/app/share/downurl",
+                    data={"data": encrypt(dumps(payload)).decode("utf-8")},
+                    headers={"Cookie": self.cookies},
+                )
+            check_response(resp)
+            json = loads(cast(bytes, resp.content))
+            if not json["state"]:
+                if json.get("errno") == 4100008:
+                    receive_code = get_receive_code(share_code)
+                    return get_share_downurl(share_code, receive_code, file_id, app=app)
+                raise OSError(EIO, json)
+            if app:
+                data = json["data"]
+            else:
+                data = json["data"] = loads(decrypt(json["data"]))
+            if not (data and (url_info := data["url"])):
+                raise FileNotFoundError(ENOENT, json)
+            data["file_id"] = data.pop("fid")
+            data["file_name"] = data.pop("fn")
+            data["file_size"] = int(data.pop("fs"))
+            url = Url.of(url_info["url"], data)
+            return url
 
-        if not (len(pickcode) == 17 and pickcode.isalnum()):
-            logger.debug(f"Bad pickcode: {pickcode} {file_name}")
-            return f"Bad pickcode: {pickcode} {file_name}"
+        if share_code:
+            try:
+                if not receive_code:
+                    receive_code = get_receive_code(share_code)
+                elif len(receive_code) != 4:
+                    return f"Bad receive_code: {receive_code}"
+                if not id:
+                    if file_name:
+                        id = share_get_id_for_name(
+                            share_code,
+                            receive_code,
+                            file_name,
+                        )
+                if not id:
+                    return f"Please specify id or name: share_code={share_code!r}"
+                url = get_share_downurl(share_code, receive_code, id, app=app)
+                logger.info(f"获取 115 下载地址成功: {url}")
+            except Exception as e:
+                logger.error(f"获取 115 下载地址失败: {e}")
+                return f"获取 115 下载地址失败: {e}"
+        else:
+            if not pickcode:
+                logger.debug("Missing pickcode parameter")
+                return "Missing pickcode parameter"
 
-        user_agent = request.headers.get("User-Agent") or b""
-        logger.debug(f"获取到客户端UA: {user_agent}")
+            if not (len(pickcode) == 17 and pickcode.isalnum()):
+                logger.debug(f"Bad pickcode: {pickcode} {file_name}")
+                return f"Bad pickcode: {pickcode} {file_name}"
 
-        try:
-            url = get_downurl(pickcode.lower(), user_agent, app=app)
-            logger.info(f"获取 115 下载地址成功: {url}")
-        except Exception as e:
-            logger.error(f"获取 115 下载地址失败: {e}")
+            user_agent = request.headers.get("User-Agent") or b""
+            logger.debug(f"获取到客户端UA: {user_agent}")
+
+            try:
+                url = get_downurl(pickcode.lower(), user_agent, app=app)
+                logger.info(f"获取 115 下载地址成功: {url}")
+            except Exception as e:
+                logger.error(f"获取 115 下载地址失败: {e}")
+                return f"获取 115 下载地址失败: {e}"
 
         return Response(
             status_code=302,
