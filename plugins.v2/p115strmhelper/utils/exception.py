@@ -8,6 +8,7 @@ __all__ = [
     "PathNotInKey",
     "DownloadValidationFail",
     "FileItemKeyMiss",
+    "ItertreeInternalError",
     "NotifyExceptionFormatter",
 ]
 
@@ -135,6 +136,14 @@ class DownloadValidationFail(Exception):
 class FileItemKeyMiss(Exception):
     """
     文件数据不完整
+    """
+
+    pass
+
+
+class ItertreeInternalError(Exception):
+    """
+    网盘目录树迭代（__itertree）内部错误
     """
 
     pass

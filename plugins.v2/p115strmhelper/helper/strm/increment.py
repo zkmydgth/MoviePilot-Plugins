@@ -1,3 +1,4 @@
+from collections import deque
 from itertools import batched
 from pathlib import Path
 from threading import Thread
@@ -20,9 +21,10 @@ from ...db_manager.oper import FileDbHelper
 from ...helper.mediainfo_download import MediaInfoDownloader
 from ...helper.mediaserver import MediaServerRefresh, EmbyMediaInfoOperate
 from ...utils.exception import (
-    PanPathNotFound,
-    PanDataNotInDb,
     CanNotFindPathToCid,
+    ItertreeInternalError,
+    PanDataNotInDb,
+    PanPathNotFound,
 )
 from ...utils.path import PathUtils
 from ...utils.sentry import sentry_manager
@@ -283,6 +285,8 @@ class IncrementSyncStrmHelper:
     def __generate_local_tree(self, target_dir: str):
         """
         生成本地目录树
+
+        :param target_dir: 本地目录
         """
         self.local_tree.clear()
 
@@ -319,6 +323,8 @@ class IncrementSyncStrmHelper:
     def __wait_generate_local_tree(thread):
         """
         等待生成本地目录树运行完成
+
+        :param thread: 本地目录树线程
         """
         while thread.is_alive():
             logger.info("【增量STRM生成】扫描本地媒体库运行中...")
@@ -327,7 +333,13 @@ class IncrementSyncStrmHelper:
     def __generate_pan_tree(self, pan_media_dir: str, target_dir: str):
         """
         生成网盘目录树
+
+        :param pan_media_dir: 网盘目录
+        :param target_dir: 本地目录
+
+        :raise: ItertreeInternalError: 网盘目录树生成失败
         """
+        last_error: Optional[Exception] = None
         for i in range(1, 4):
             self.pan_tree.clear()
             self.pan_to_local_tree.clear()
@@ -342,23 +354,33 @@ class IncrementSyncStrmHelper:
                     self.pan_tree.generate_tree_from_list([path2], append=True)
 
                 logger.info(f"【增量STRM生成】网盘目录树生成完成: {pan_media_dir}")
-                break
+                return
             except Exception as e:
+                last_error = e
                 sentry_manager.sentry_hub.capture_exception(e)
                 if "Broken pipe" in str(e):
                     logger.warning(
                         f"【增量STRM生成】网盘目录树生成 {pan_media_dir} 错误: {e}，第 {i} 次自动重试..."
                     )
-                    sleep(10 + 2**i)
+                    sleep(30 + 2**i)
                 else:
                     logger.error(
                         f"【增量STRM生成】网盘目录树生成 {pan_media_dir} 错误: {e}"
                     )
-                    break
+                    raise ItertreeInternalError(
+                        f"网盘目录树生成失败: {pan_media_dir}"
+                    ) from e
+        if last_error is not None:
+            raise ItertreeInternalError(
+                f"网盘目录树生成失败: {pan_media_dir}"
+            ) from last_error
 
     def __handle_addition_path(self, pan_path: str, local_path: str):
         """
         处理新增路径
+
+        :param pan_path: 网盘路径
+        :param local_path: 本地路径
         """
         pan_path_obj = Path(pan_path)
         new_file_path = Path(local_path)
@@ -523,19 +545,26 @@ class IncrementSyncStrmHelper:
     def generate_strm_files(self, sync_strm_paths):
         """
         生成 STRM 文件
+
+        :param sync_strm_paths: 同步 STRM 路径
         """
         media_paths = sync_strm_paths.split("\n")
-        for path in media_paths:
-            if not path:
+        queue: deque[Tuple[str, int]] = deque(
+            (path.strip(), 0) for path in media_paths if path and path.strip()
+        )
+        while queue:
+            path, retry_count = queue.popleft()
+            if retry_count > 2:
                 continue
             parts = path.split("#", 1)
-            pan_media_dir = parts[1]
-            target_dir = parts[0]
+            target_dir = parts[0].strip()
+            pan_media_dir = parts[1].strip()
 
             if pan_media_dir == "/" or target_dir == "/":
                 logger.error(
                     f"【增量STRM生成】网盘目录或本地生成目录不能为根目录: {path}"
                 )
+                continue
 
             pan_media_dir = pan_media_dir.rstrip("/")
             target_dir = target_dir.rstrip("/")
@@ -559,25 +588,37 @@ class IncrementSyncStrmHelper:
                     or not self.local_tree_path.exists()
                 ) and settings.CACHE_BACKEND_TYPE != "redis":
                     logger.error(f"【增量STRM生成】{path} 目录树生成错误")
-                    return
-
-                # 生成或者下载文件
-                for line in self.pan_to_local_tree.compare_trees_lines(self.local_tree):
-                    pan_path_str = self.pan_tree.get_path_by_line_number(line)
-                    local_path_str = self.pan_to_local_tree.get_path_by_line_number(
-                        line
-                    )
-                    if pan_path_str and local_path_str:
-                        self.__handle_addition_path(
-                            pan_path=pan_path_str,
-                            local_path=local_path_str,
+                else:
+                    # 生成或者下载文件
+                    for line in self.pan_to_local_tree.compare_trees_lines(
+                        self.local_tree
+                    ):
+                        pan_path_str = self.pan_tree.get_path_by_line_number(line)
+                        local_path_str = self.pan_to_local_tree.get_path_by_line_number(
+                            line
                         )
+                        if pan_path_str and local_path_str:
+                            self.__handle_addition_path(
+                                pan_path=pan_path_str,
+                                local_path=local_path_str,
+                            )
+            except ItertreeInternalError as e:
+                if retry_count < 2:
+                    queue.append((path, retry_count + 1))
+                    logger.warning(
+                        f"【增量STRM生成】目录同步错误，已加入队尾重试（剩余重试次数 {2 - retry_count}）: {path}，错误: {e}"
+                    )
+                else:
+                    logger.error(
+                        f"【增量STRM生成】目录同步错误，已达重试上限: {path}，错误: {e}"
+                    )
             except Exception as e:
                 sentry_manager.sentry_hub.capture_exception(e)
                 logger.error(f"【增量STRM生成】增量同步 STRM 文件失败: {e}")
                 return
 
-            sleep(20)
+            wait_seconds = 20 + 10 * retry_count
+            sleep(wait_seconds)
 
         # 下载媒体信息文件
         self.mediainfo_count, self.mediainfo_fail_count, self.mediainfo_fail_dict = (
