@@ -46,7 +46,7 @@ class CCTVDiscover(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/DDS-Derek/MoviePilot-Plugins/main/icons/CCTV_A.png"
     # 插件版本
-    plugin_version = "1.2.2"
+    plugin_version = "1.2.3"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -117,7 +117,8 @@ class CCTVDiscover(_PluginBase):
     def get_page(self) -> List[dict]:
         pass
 
-    def _parse_response(self, data: Dict[str, Any]) -> VideoAlbumList:
+    @staticmethod
+    def _parse_response(data: Dict[str, Any]) -> VideoAlbumList:
         """
         解析API响应数据
         """
@@ -145,7 +146,7 @@ class CCTVDiscover(_PluginBase):
     @cached(region="cctv_discover", ttl=1800, skip_none=True)
     def __request(
         self, page_num: int, page_size: int, **kwargs
-    ) -> List[schemas.MediaInfo]:
+    ) -> VideoAlbumList:
         """
         请求CCTV API
         """
@@ -187,7 +188,7 @@ class CCTVDiscover(_PluginBase):
         获取CCTV探索数据
         """
 
-        def __movie_to_media(movie_info) -> schemas.MediaInfo:
+        def __movie_to_media(movie_info: VideoAlbum) -> schemas.MediaInfo:
             return schemas.MediaInfo(
                 type="电影",
                 title=re.sub("[《》]", "", movie_info.title),
@@ -196,7 +197,7 @@ class CCTVDiscover(_PluginBase):
                 poster_path=movie_info.image,
             )
 
-        def __series_to_media(series_info: dict) -> schemas.MediaInfo:
+        def __series_to_media(series_info: VideoAlbum) -> schemas.MediaInfo:
             return schemas.MediaInfo(
                 type="电视剧",
                 title=re.sub("[《》]", "", series_info.title),

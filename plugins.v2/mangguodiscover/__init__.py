@@ -93,7 +93,7 @@ class MangGuoDiscover(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/DDS-Derek/MoviePilot-Plugins/main/icons/mangguo_A.jpg"
     # 插件版本
-    plugin_version = "1.0.3"
+    plugin_version = "1.0.4"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -168,7 +168,7 @@ class MangGuoDiscover(_PluginBase):
         pass
 
     @cached(region="mangguo_discover", ttl=1800, skip_none=True)
-    def __request(self, **kwargs) -> List[schemas.MediaInfo]:
+    def __request(self, **kwargs) -> Dict:
         """
         请求芒果TV API
         """

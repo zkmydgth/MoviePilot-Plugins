@@ -45,7 +45,7 @@ class BangumiDailyDiscover(_PluginBase):
     # 插件图标
     plugin_icon = "Bangumi_A.png"
     # 插件版本
-    plugin_version = "1.0.5"
+    plugin_version = "1.0.6"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -208,8 +208,8 @@ class BangumiDailyDiscover(_PluginBase):
             source="bangumi",
             title=title,
             mediaid_prefix="bangumidaily",
-            media_id=series_info.get("id", ""),
-            bangumi_id=series_info.get("id", ""),
+            media_id=str(series_info.get("id", "")),
+            bangumi_id=series_info.get("id", None),
             poster_path=images.get("large", ""),
             vote_average=rating_info.get("score", 0),
             first_air_date=series_info.get("air_date", ""),
