@@ -813,7 +813,8 @@ class FullSyncStrmHelper:
 
                             self.total_count += len(input_batch)
 
-                            results: PackedResult = processor.process_batch(input_batch)
+                            batch_json = dumps(input_batch).decode("utf-8")
+                            results: PackedResult = processor.process_batch(batch_json)
 
                             for fail_info in results.fail_results:
                                 self.strm_fail_count += 1
