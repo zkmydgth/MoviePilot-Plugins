@@ -410,11 +410,14 @@ class P115StrmHelper(_PluginBase):
         ):
             return
 
-        eventmanager.send_event(EventType.MetadataScrape, {
-            'meta': item.meta,
-            'mediainfo': item.mediainfo,
-            'fileitem': item_transfer.target_diritem
-        })
+        eventmanager.send_event(
+            EventType.MetadataScrape,
+            {
+                "meta": item.meta,
+                "mediainfo": item.mediainfo,
+                "fileitem": item_transfer.target_diritem,
+            },
+        )
 
     def stop_service(self):
         """
