@@ -27,6 +27,12 @@ on:
         required: true
         default: 'windows-amd64 linux-x86_64 linux-i686 linux-aarch64 macos-x86_64 macos-arm64'
         type: string
+      commit_directory:
+        description: '构建好的 wheels 最终提交到仓库的目录'
+        required: false
+        # 默认值会使用其他输入参数来构造，保持原有逻辑
+        default: 'wheels/${{ github.event.inputs.package_name }}/${{ github.event.inputs.package_version }}'
+        type: string
 
 jobs:
   # 任务0：准备构建矩阵
@@ -100,7 +106,6 @@ jobs:
 
       # 步骤2：下载并解压源码包
       - name: 下载并解压源码包
-        # 关键修正：为所有平台的 run 步骤统一指定 bash，以确保脚本兼容性
         shell: bash
         run: |
           SDIST_URL="${{ needs.get_source_info.outputs.sdist_url }}"
@@ -112,12 +117,14 @@ jobs:
       # 步骤3：准备 cibuildwheel 所需的环境变量
       - name: 准备构建变量
         id: vars
-        # 关键修正：为所有平台的 run 步骤统一指定 bash
         shell: bash
         run: |
           PY_VERSION_SHORT=$(echo "${{ inputs.python_version }}" | cut -d. -f1,2 | tr -d .)
           echo "cibw_build_version=cp${PY_VERSION_SHORT}-*" >> $GITHUB_OUTPUT
           ARCH=$(echo "${{ matrix.target }}" | cut -d- -f2-)
+          if [[ "${{ runner.os }}" == "Windows" && "${ARCH}" == "amd64" ]]; then
+            ARCH="AMD64"
+          fi
           echo "cibw_arch=${ARCH}" >> $GITHUB_OUTPUT
 
       # 步骤4：为 Linux 平台设置 QEMU
@@ -136,19 +143,12 @@ jobs:
         with:
           package-dir: ${{ needs.get_source_info.outputs.source_dir }}
 
-      - name: Dir List
-        shell: bash
-        run: |
-          ls -al
-          pwd
-          tree
-
       # 步骤6：将构建好的 wheel 文件作为产物上传
       - name: 上传构建产物
         uses: actions/upload-artifact@v4
         with:
           name: wheel-${{ matrix.target }}
-          path: ./wheels/*.whl
+          path: ./wheelhouse/*.whl
 
   # 任务3：提交 wheel 文件到仓库
   commit_wheels:
@@ -166,7 +166,7 @@ jobs:
       # 步骤2：创建用于存放 wheel 的目录
       - name: 创建目标目录
         run: |
-          mkdir -p wheels/${{ inputs.package_name }}/${{ inputs.package_version }}
+          mkdir -p ${{ inputs.commit_directory }}
 
       # 步骤3：下载所有构建任务上传的产物
       - name: 下载所有 Wheels 产物
@@ -177,16 +177,16 @@ jobs:
       # 步骤4：整理所有 wheel 文件到最终目录
       - name: 整理 Wheel 文件
         run: |
-          find temp-wheels -name "*.whl" -exec mv {} wheels/${{ inputs.package_name }}/${{ inputs.package_version }}/ \;
+          find temp-wheels -name "*.whl" -exec mv {} ${{ inputs.commit_directory }}/ \;
           echo "所有 wheel 文件已整理到目标目录:"
-          ls -R wheels
+          ls -R ${{ inputs.commit_directory }}
 
       # 步骤5：提交并推送到代码仓库
       - name: 提交并推送文件
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add wheels/${{ inputs.package_name }}/${{ inputs.package_version }}/*.whl
+          git add ${{ inputs.commit_directory }}/*.whl
           if git diff --staged --quiet; then
             echo "没有新的 wheel 文件需要提交。"
           else
