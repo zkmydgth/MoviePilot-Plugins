@@ -4,6 +4,7 @@ from time import time
 from ...core.config import configer
 from ...core.message import post_message
 from ...helper.life import MonitorLife
+from ...utils.exception import NotifyExceptionFormatter
 from ...utils.sentry import sentry_manager
 
 from app.log import logger
@@ -69,8 +70,10 @@ def monitor_life_thread_worker(
                     post_message(
                         mtype=NotificationType.Plugin,
                         title="【监控生活事件】运行异常",
-                        text=f"\n生活事件监控出现异常，将在30秒后自动重启\n"
-                        f"错误信息: {str(e)}\n",
+                        text=(
+                            "生活事件监控出现异常，将在 30 秒后自动重启。\n"
+                            f"错误摘要：{NotifyExceptionFormatter.format_exception_for_notify(e)}"
+                        ),
                     )
                 logger.info("【监控生活事件】30s 后尝试重新启动生活事件监控")
                 if stop_event.wait(timeout=30):
@@ -84,8 +87,9 @@ def monitor_life_thread_worker(
             post_message(
                 mtype=NotificationType.Plugin,
                 title="【监控生活事件】线程异常退出",
-                text=f"\n生活事件监控线程因异常退出\n"
-                f"错误信息: {str(e)}\n"
-                f"守护线程将在检测到线程停止后自动重启\n",
+                text=(
+                    "生活事件监控线程因异常退出，守护线程将在检测到停止后自动重启。\n"
+                    f"错误摘要：{NotifyExceptionFormatter.format_exception_for_notify(e)}"
+                ),
             )
         raise
