@@ -89,6 +89,16 @@ class RenameDictUtils:
         (120, 12),
     )
 
+    _WIDTH_FORMAT_BUCKETS: Tuple[Tuple[int, str], ...] = (
+        (7680, "4320p"),
+        (3840, "2160p"),
+        (2560, "1440p"),
+        (1920, "1080p"),
+        (1280, "720p"),
+        (854, "480p"),
+        (640, "360p"),
+    )
+
     _HEIGHT_FORMAT_BUCKETS: Tuple[Tuple[int, str], ...] = tuple(
         (height, f"{height}p") for height, _ in _HEIGHT_SNAP_TIERS
     )
@@ -138,10 +148,27 @@ class RenameDictUtils:
         return height
 
     @staticmethod
-    def _height_to_video_format(height: Optional[int]) -> Optional[str]:
+    def _height_to_video_format(
+        height: Optional[int], width: Optional[int] = None
+    ) -> Optional[str]:
         """
-        根据视频高度生成分辨率标签：先吸附再按降序分档，未命中则用「{height}p」
+        根据视频宽/高生成分辨率标签：
+
+        先按 width 优先匹配标准档（兼容 21:9、2.39:1 等信箱比宽屏片源），
+        否则回退到按 height 吸附后降序分档，未命中则用「{height}p」
         """
+        w_int: Optional[int] = None
+        if width is not None:
+            try:
+                w_int = int(width)
+            except (TypeError, ValueError):
+                w_int = None
+            if w_int is not None and w_int <= 0:
+                w_int = None
+        if w_int is not None:
+            for min_w, label in RenameDictUtils._WIDTH_FORMAT_BUCKETS:
+                if w_int >= min_w:
+                    return label
         if height is None:
             return None
         try:
@@ -394,7 +421,12 @@ class RenameDictUtils:
                 h_int = int(height) if height is not None else None
             except (TypeError, ValueError):
                 h_int = None
-            vf = RenameDictUtils._height_to_video_format(h_int)
+            width = video_s.get("width")
+            try:
+                w_int = int(width) if width is not None else None
+            except (TypeError, ValueError):
+                w_int = None
+            vf = RenameDictUtils._height_to_video_format(h_int, w_int)
             if vf:
                 out["videoFormat"] = vf
             vc = RenameDictUtils._map_video_codec(video_s.get("codec_name"))
@@ -662,7 +694,12 @@ class RenameDictUtils:
                 h_int = int(height) if height is not None else None
             except (TypeError, ValueError):
                 h_int = None
-            vf = RenameDictUtils._height_to_video_format(h_int)
+            width = video_s.get("Width")
+            try:
+                w_int = int(width) if width is not None else None
+            except (TypeError, ValueError):
+                w_int = None
+            vf = RenameDictUtils._height_to_video_format(h_int, w_int)
             if vf:
                 out["videoFormat"] = vf
             vc = RenameDictUtils._map_video_codec(video_s.get("Codec"))
