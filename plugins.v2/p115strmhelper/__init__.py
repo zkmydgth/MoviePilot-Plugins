@@ -2,6 +2,7 @@ import threading
 import time
 import shutil
 import base64
+import re
 from collections.abc import Mapping
 from datetime import datetime, timedelta
 from threading import Event as ThreadEvent
@@ -736,7 +737,7 @@ class P115StrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png"
     # 插件版本
-    plugin_version = "1.6.5"
+    plugin_version = "1.6.6"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -1851,44 +1852,30 @@ class P115StrmHelper(_PluginBase):
                 userid=event.event_data.get("user"),
             )
 
-    @eventmanager.register(EventType.PluginAction)
-    def p115_add_share(self, event: Event):
+    def add_share(self, url, channel, userid):
         """
-        远程分享转存
+        分享转存
         """
-        if event:
-            event_data = event.event_data
-            if not event_data or event_data.get("action") != "p115_add_share":
-                return
-            args = event_data.get("arg_str")
-            if not args:
-                logger.error(f"【分享转存】缺少参数：{event_data}")
-                self.post_message(
-                    channel=event.event_data.get("channel"),
-                    title="参数错误！ /p115_add_share 分享链接",
-                    userid=event.event_data.get("user"),
-                )
-                return
         if not self._pan_transfer_enabled or not self._pan_transfer_paths:
             self.post_message(
-                channel=event.event_data.get("channel"),
+                channel=channel,
                 title="配置错误！ 请先进入插件界面配置网盘整理",
-                userid=event.event_data.get("user"),
+                userid=userid,
             )
             return
         try:
-            data = share_extract_payload(args)
+            data = share_extract_payload(url)
             share_code = data["share_code"]
             receive_code = data["receive_code"]
             logger.info(
                 f"【分享转存】解析分享链接 share_code={share_code} receive_code={receive_code}"
             )
             if not share_code or not receive_code:
-                logger.error(f"【分享转存】解析分享链接失败：{args}")
+                logger.error(f"【分享转存】解析分享链接失败：{url}")
                 self.post_message(
-                    channel=event.event_data.get("channel"),
-                    title=f"解析分享链接失败：{args}",
-                    userid=event.event_data.get("user"),
+                    channel=channel,
+                    title=f"解析分享链接失败：{url}",
+                    userid=userid,
                 )
                 return
             parent_path = self._pan_transfer_paths.split("\n")[0]
@@ -1908,29 +1895,77 @@ class P115StrmHelper(_PluginBase):
             }
             logger.info(f"【分享转存】开始转存：{share_code}")
             self.post_message(
-                channel=event.event_data.get("channel"),
+                channel=channel,
                 title=f"开始转存：{share_code}",
-                userid=event.event_data.get("user"),
+                userid=userid,
             )
             resp = self._client.share_receive(payload)
             if resp["state"]:
                 logger.info(f"【分享转存】转存 {share_code} 到 {parent_path} 成功！")
                 self.post_message(
-                    channel=event.event_data.get("channel"),
+                    channel=channel,
                     title=f"转存 {share_code} 到 {parent_path} 成功！",
-                    userid=event.event_data.get("user"),
+                    userid=userid,
                 )
             else:
                 logger.info(f"【分享转存】转存 {share_code} 失败：{resp['error']}")
                 self.post_message(
-                    channel=event.event_data.get("channel"),
+                    channel=channel,
                     title=f"转存 {share_code} 失败：{resp['error']}",
-                    userid=event.event_data.get("user"),
+                    userid=userid,
                 )
             return
         except Exception as e:
             logger.error(f"【分享转存】运行失败: {e}")
             return
+
+    @eventmanager.register(EventType.UserMessage)
+    def user_add_share(self, event: Event):
+        """
+        远程分享转存
+        """
+        if not self._enabled:
+            return
+        text = event.event_data.get("text")
+        userid = event.event_data.get("userid")
+        channel = event.event_data.get("channel")
+        if not text:
+            return
+        if not text.startswith("http"):
+            return
+        if not bool(re.match(r"^https?://(.*\.)?115[^/]*\.[a-zA-Z]{2,}(?:\/|$)", text)):
+            return
+        self.add_share(
+            url=text,
+            channel=channel,
+            userid=userid,
+        )
+        return
+
+    @eventmanager.register(EventType.PluginAction)
+    def p115_add_share(self, event: Event):
+        """
+        远程分享转存
+        """
+        if event:
+            event_data = event.event_data
+            if not event_data or event_data.get("action") != "p115_add_share":
+                return
+            args = event_data.get("arg_str")
+            if not args:
+                logger.error(f"【分享转存】缺少参数：{event_data}")
+                self.post_message(
+                    channel=event.event_data.get("channel"),
+                    title="参数错误！ /p115_add_share 分享链接",
+                    userid=event.event_data.get("user"),
+                )
+                return
+        self.add_share(
+            url=args,
+            channel=event.event_data.get("channel"),
+            userid=event.event_data.get("user"),
+        )
+        return
 
     def full_sync_strm_files(self):
         """
