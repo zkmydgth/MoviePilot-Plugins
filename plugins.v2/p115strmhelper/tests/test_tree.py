@@ -72,53 +72,6 @@ class TestDirectoryTreeBackendSwitch(TestCase):
             self.assertIs(tree._storage, original_storage)
 
 
-class TestCleanupRedisTrees(TestCase):
-    """测试 cleanup_redis_trees 清理逻辑"""
-
-    @patch("utils.tree.settings")
-    @patch("utils.tree.RedisHelper")
-    def test_returns_cleaned_names(self, mock_redis_helper, mock_settings):
-        """应返回被清理的 tree_name 列表"""
-        mock_settings.CACHE_BACKEND_TYPE = "redis"
-        mock_client = MagicMock()
-        mock_client.scan_iter.return_value = [
-            b"dirtree:set:tree_a",
-            b"dirtree:set:tree_b",
-            b"dirtree:set:tree_c",
-        ]
-        mock_redis_helper.return_value.client = mock_client
-
-        cleaned = DirectoryTree.cleanup_redis_trees(keep_names={"tree_a", "tree_c"})
-        self.assertEqual(sorted(cleaned), ["tree_b"])
-        mock_client.delete.assert_called_once_with(
-            "dirtree:set:tree_b", "dirtree:list:tree_b"
-        )
-
-    @patch("utils.tree.settings")
-    @patch("utils.tree.RedisHelper")
-    def test_returns_empty_when_all_kept(self, mock_redis_helper, mock_settings):
-        """当所有 tree 都在保留列表中时，应返回空列表"""
-        mock_settings.CACHE_BACKEND_TYPE = "redis"
-        mock_client = MagicMock()
-        mock_client.scan_iter.return_value = [
-            b"dirtree:set:tree_a",
-            b"dirtree:set:tree_c",
-        ]
-        mock_redis_helper.return_value.client = mock_client
-
-        cleaned = DirectoryTree.cleanup_redis_trees(keep_names={"tree_a", "tree_c"})
-        self.assertEqual(cleaned, [])
-        mock_client.delete.assert_not_called()
-
-    @patch("utils.tree.settings")
-    def test_skips_when_not_redis_backend(self, mock_settings):
-        """非 Redis 模式下应直接返回空列表，不操作 Redis"""
-        mock_settings.CACHE_BACKEND_TYPE = "txt"
-
-        cleaned = DirectoryTree.cleanup_redis_trees(keep_names={"tree_a"})
-        self.assertEqual(cleaned, [])
-
-
 class TestRedisStorageAddPaths(TestCase):
     """测试 RedisStorage.add_paths 的 OOM 捕获与 TTL"""
 
@@ -169,18 +122,6 @@ class TestRedisStorageAddPaths(TestCase):
             storage.add_paths(["/a/b/c.mkv"])
 
         self.assertEqual(str(ctx.exception), "random connection error")
-
-
-class TestDirectoryTreeCleanupWithMockSettings(TestCase):
-    """端到端：验证 cleanup_redis_trees 在非 redis 设置下不执行删除"""
-
-    @patch("utils.tree.settings")
-    def test_no_redis_no_delete(self, mock_settings):
-        """CACHE_BACKEND_TYPE 为 txt 时，cleanup_redis_trees 不应连接 Redis"""
-        mock_settings.CACHE_BACKEND_TYPE = "txt"
-
-        cleaned = DirectoryTree.cleanup_redis_trees(keep_names=None)
-        self.assertEqual(cleaned, [])
 
 
 if __name__ == "__main__":

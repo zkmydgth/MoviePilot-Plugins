@@ -474,15 +474,6 @@ class IncrementSyncStrmHelper:
 
         :raise: ItertreeInternalError: 网盘目录树生成失败
         """
-        keep_names = {
-            self.pan_tree_path.stem,
-            self.pan_to_local_tree_path.stem,
-            self.pan_to_local_strm_tree_path.stem,
-        }
-        cleaned = DirectoryTree.cleanup_redis_trees(keep_names=keep_names)
-        for name in cleaned:
-            logger.info(f"【增量STRM生成】清理 Redis 中的无效 tree: {name}")
-
         last_error: Optional[Exception] = None
         for i in range(1, 4):
             self.pan_tree.clear()

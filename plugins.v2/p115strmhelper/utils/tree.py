@@ -410,29 +410,3 @@ class DirectoryTree:
             self._storage = RedisStorage(self._file_path.stem)
         else:
             self._storage = TxtFileStorage(self._file_path)
-
-    @classmethod
-    def cleanup_redis_trees(
-        cls, keep_names: Optional[Iterable[str]] = None
-    ) -> List[str]:
-        """
-        清理 Redis 中不属于当前任务的无效应 tree 键
-
-        :param keep_names (Iterable): 需要保留的 tree_name 集合；不在此集合中的 dirtree:* 键会被删除
-        :return List: 被清理的 tree_name 列表
-        """
-        cleaned: List[str] = []
-        if settings.CACHE_BACKEND_TYPE != "redis":
-            return cleaned
-        keep_names_set = set(keep_names) if keep_names else set()
-        redis_helper = RedisHelper()
-        redis_helper._connect()
-        client = redis_helper.client
-        for key in client.scan_iter(match="dirtree:set:*"):
-            key_str = key.decode("utf-8") if isinstance(key, bytes) else key
-            tree_name = key_str.split(":", 2)[2]
-            if tree_name not in keep_names_set:
-                list_key = f"dirtree:list:{tree_name}"
-                client.delete(key_str, list_key)
-                cleaned.append(tree_name)
-        return cleaned
