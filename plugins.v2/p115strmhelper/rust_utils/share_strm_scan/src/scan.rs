@@ -2,7 +2,7 @@ use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
-use ahash::AHashSet;
+use ahash::{AHashMap, AHashSet};
 use rayon::prelude::*;
 use rayon::ThreadPoolBuilder;
 use walkdir::WalkDir;
@@ -60,25 +60,49 @@ pub fn process_file_contents(bytes: &[u8]) -> AHashSet<(String, String)> {
     out
 }
 
-pub fn process_file(path: &Path, max_file_bytes: usize) -> AHashSet<(String, String)> {
+pub fn process_file_pair_paths(
+    path: &Path,
+    max_file_bytes: usize,
+) -> AHashMap<(String, String), Vec<PathBuf>> {
     let buf = match read_bounded(path, max_file_bytes) {
         Ok(b) => b,
-        Err(_) => return AHashSet::new(),
+        Err(_) => return AHashMap::new(),
     };
-    process_file_contents(&buf)
+    let pairs = process_file_contents(&buf);
+    let mut out: AHashMap<(String, String), Vec<PathBuf>> = AHashMap::new();
+    for pair in pairs {
+        out.entry(pair).or_default().push(path.to_path_buf());
+    }
+    out
 }
 
-fn merge_sets(
-    mut a: AHashSet<(String, String)>,
-    b: AHashSet<(String, String)>,
-) -> AHashSet<(String, String)> {
+fn merge_path_maps(
+    mut a: AHashMap<(String, String), Vec<PathBuf>>,
+    b: AHashMap<(String, String), Vec<PathBuf>>,
+) -> AHashMap<(String, String), Vec<PathBuf>> {
     if a.len() < b.len() {
-        return merge_sets(b, a);
+        return merge_path_maps(b, a);
     }
-    for x in b {
-        a.insert(x);
+    for (k, v) in b {
+        a.entry(k).or_default().extend(v);
     }
     a
+}
+
+fn finalize_pair_paths_map(
+    mut map: AHashMap<(String, String), Vec<PathBuf>>,
+) -> AHashMap<(String, String), Vec<String>> {
+    let mut out: AHashMap<(String, String), Vec<String>> = AHashMap::with_capacity(map.len());
+    for (pair, mut paths) in map.drain() {
+        paths.sort();
+        paths.dedup();
+        let strings: Vec<String> = paths
+            .into_iter()
+            .map(|p| p.to_string_lossy().into_owned())
+            .collect();
+        out.insert(pair, strings);
+    }
+    out
 }
 
 pub fn collect_strm_paths(root: &Path) -> std::io::Result<Vec<PathBuf>> {
@@ -99,13 +123,23 @@ pub fn collect_strm_paths(root: &Path) -> std::io::Result<Vec<PathBuf>> {
     Ok(paths)
 }
 
-pub fn scan_share_strm_pairs_inner(
+fn scan_pool_error() -> std::io::Error {
+    std::io::Error::new(std::io::ErrorKind::Other, "thread pool build failed")
+}
+
+pub fn scan_share_strm_index_inner(
     root: &Path,
     max_file_bytes: usize,
     num_threads: Option<usize>,
-) -> Result<Vec<(String, String)>, std::io::Error> {
+) -> Result<
+    (
+        Vec<(String, String)>,
+        AHashMap<(String, String), Vec<String>>,
+    ),
+    std::io::Error,
+> {
     let paths = collect_strm_paths(root)?;
-    let merged = if let Some(n) = num_threads {
+    let merged_map = if let Some(n) = num_threads {
         if n < 1 {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
@@ -115,32 +149,76 @@ pub fn scan_share_strm_pairs_inner(
         let pool = ThreadPoolBuilder::new()
             .num_threads(n)
             .build()
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+            .map_err(|_| scan_pool_error())?;
         pool.install(|| {
             paths
                 .par_iter()
-                .map(|p| process_file(p, max_file_bytes))
-                .reduce(AHashSet::new, merge_sets)
+                .map(|p| process_file_pair_paths(p, max_file_bytes))
+                .reduce(AHashMap::new, merge_path_maps)
         })
     } else {
         paths
             .par_iter()
-            .map(|p| process_file(p, max_file_bytes))
-            .reduce(AHashSet::new, merge_sets)
+            .map(|p| process_file_pair_paths(p, max_file_bytes))
+            .reduce(AHashMap::new, merge_path_maps)
     };
-    let mut v: Vec<_> = merged.into_iter().collect();
-    v.sort();
-    Ok(v)
+    let map = finalize_pair_paths_map(merged_map);
+    let mut pairs: Vec<_> = map.keys().cloned().collect();
+    pairs.sort();
+    Ok((pairs, map))
+}
+
+pub fn scan_share_strm_pairs_inner(
+    root: &Path,
+    max_file_bytes: usize,
+    num_threads: Option<usize>,
+) -> Result<Vec<(String, String)>, std::io::Error> {
+    let (pairs, _) = scan_share_strm_index_inner(root, max_file_bytes, num_threads)?;
+    Ok(pairs)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
 
     #[test]
     fn process_multiline_dedup_in_file() {
         let s = b"http://x/P115StrmHelper?share_code=a&receive_code=b\nhttp://x/P115StrmHelper?share_code=a&receive_code=b\n";
         let set = process_file_contents(s);
         assert_eq!(set.len(), 1);
+    }
+
+    #[test]
+    fn merge_path_maps_two_files_same_pair() {
+        let mut a = AHashMap::new();
+        a.insert(("sc".into(), "rc".into()), vec![PathBuf::from("/a/x.strm")]);
+        let mut b = AHashMap::new();
+        b.insert(("sc".into(), "rc".into()), vec![PathBuf::from("/b/y.strm")]);
+        let m = merge_path_maps(a, b);
+        let paths = m.get(&("sc".into(), "rc".into())).unwrap();
+        assert_eq!(paths.len(), 2);
+    }
+
+    #[test]
+    fn scan_index_nested_two_strm_one_pair() {
+        let root = std::env::temp_dir().join(format!(
+            "share_strm_scan_test_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        let sub = root.join("media").join("a");
+        fs::create_dir_all(&sub).unwrap();
+        let url = "http://127.0.0.1:3000/api/v1/plugin/P115StrmHelper/redirect_url?share_code=sc1&receive_code=r1&id=99";
+        fs::write(sub.join("a.strm"), format!("{url}\n")).unwrap();
+        fs::write(sub.join("dup.strm"), format!("{url}\n")).unwrap();
+        let (pairs, map) = scan_share_strm_index_inner(&root, 262_144, None).expect("scan");
+        let _ = fs::remove_dir_all(&root);
+        assert_eq!(pairs, vec![("sc1".into(), "r1".into())]);
+        let paths = map.get(&("sc1".into(), "r1".into())).unwrap();
+        assert_eq!(paths.len(), 2);
     }
 }
