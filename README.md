@@ -60,7 +60,7 @@ https://github.com/zkmydgth/MoviePilot-Plugins
 
 | 项目 | 说明 |
 | --- | --- |
-| 版本 | v1.3.1 |
+| 版本 | v1.3.2 |
 | 标签 | 系统工具, 备份 |
 | 适用版本 | MoviePilot >= 2.0.0 |
 | 数据库要求 | MoviePilot 需使用 **PostgreSQL**（10+，含最新 18.x） |
