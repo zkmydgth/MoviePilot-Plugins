@@ -20,7 +20,7 @@
     "description": "定时备份 MoviePilot 系统配置、数据库及插件配置到指定目录，支持保留数量自动清理和手动触发。",
     "labels": "系统工具,备份",
     "version": "1.3.0",
-    "author": "local",
+    "author": "zkmydgth",
     "level": 1,
     "system_version": ">=2.0.0",
     "history": {
