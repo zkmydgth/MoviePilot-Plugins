@@ -30,7 +30,7 @@ class SaMediaSyncDel(_PluginBase):
     # 插件图标
     plugin_icon = "mediasyncdel.png"
     # 插件版本
-    plugin_version = "1.0.5"
+    plugin_version = "1.0.6"
     # 插件作者
     plugin_author = "DDSRem,thsrite"
     # 作者主页
@@ -241,7 +241,7 @@ class SaMediaSyncDel(_PluginBase):
                     "variant": "tonal",
                     "density": "compact",
                     "class": "mt-2",
-                    "text": "注意：本地同步删除功能需要使用神医助手PRO且版本在v3.0.0.3及以上！",
+                    "text": "注意：本地同步删除功能需要使用神医助手PRO且版本在v3.0.0.3及以上或神医助手社区版且版本在v2.0.0.27及以上！",
                 },
             },
         ]
