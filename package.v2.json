@@ -87,11 +87,12 @@
         "name": "115网盘STRM助手",
         "description": "115网盘STRM生成一条龙服务",
         "labels": "云盘",
-        "version": "1.6.0",
+        "version": "1.6.1",
         "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png",
         "author": "DDSRem",
         "level": 1,
         "history": {
+            "v1.6.1": "刮削增加排除目录",
             "v1.6.0": "重构UI界面，修复已知问题",
             "v1.5.7": "修复刮削失败",
             "v1.5.6": "修复已知问题，全面优化代码逻辑，增加更多缓存",

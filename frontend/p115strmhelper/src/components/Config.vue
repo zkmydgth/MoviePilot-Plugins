@@ -113,6 +113,32 @@
                     </v-col>
                   </v-row>
 
+                  <!-- Transfer Monitor Exclude Paths -->
+                  <v-row v-if="config.transfer_monitor_scrape_metadata_enabled" class="mt-2 mb-2">
+                    <v-col cols="12">
+                      <div class="d-flex flex-column">
+                        <div v-for="(item, index) in transferExcludePaths" :key="`transfer-exclude-${index}`"
+                          class="mb-2 d-flex align-center">
+                          <v-text-field v-model="item.path" label="排除的本地目录" density="compact" variant="outlined"
+                            readonly hide-details class="flex-grow-1 mr-2">
+                          </v-text-field>
+                          <v-btn icon size="small" color="error" class="ml-2"
+                            @click="removeExcludePathEntry(index, 'transfer_exclude')" :disabled="!item.path">
+                            <v-icon>mdi-delete</v-icon>
+                          </v-btn>
+                        </div>
+                        <v-btn size="small" prepend-icon="mdi-folder-plus-outline" variant="tonal"
+                          class="mt-1 align-self-start"
+                          @click="openExcludeDirSelector('transfer_monitor_scrape_metadata_exclude_paths')">
+                          添加本地排除目录
+                        </v-btn>
+                      </div>
+                      <v-alert density="compact" variant="text" color="info" class="text-caption pa-0 mt-1">
+                        此处添加的本地目录，在STRM文件生成后将不会自动触发刮削。
+                      </v-alert>
+                    </v-col>
+                  </v-row>
+
                   <v-row>
                     <v-col cols="12">
                       <div class="d-flex flex-column">
@@ -258,6 +284,32 @@
                     <v-col cols="12" md="8">
                       <v-select v-model="config.monitor_life_mediaservers" label="媒体服务器" :items="mediaservers" multiple
                         chips closable-chips></v-select>
+                    </v-col>
+                  </v-row>
+
+                  <!-- Monitor Life Exclude Paths -->
+                  <v-row v-if="config.monitor_life_scrape_metadata_enabled" class="mt-2 mb-2">
+                    <v-col cols="12">
+                      <div class="d-flex flex-column">
+                        <div v-for="(item, index) in monitorLifeExcludePaths" :key="`life-exclude-${index}`"
+                          class="mb-2 d-flex align-center">
+                          <v-text-field v-model="item.path" label="排除的本地目录" density="compact" variant="outlined"
+                            readonly hide-details class="flex-grow-1 mr-2">
+                          </v-text-field>
+                          <v-btn icon size="small" color="error" class="ml-2"
+                            @click="removeExcludePathEntry(index, 'life_exclude')" :disabled="!item.path">
+                            <v-icon>mdi-delete</v-icon>
+                          </v-btn>
+                        </div>
+                        <v-btn size="small" prepend-icon="mdi-folder-plus-outline" variant="tonal"
+                          class="mt-1 align-self-start"
+                          @click="openExcludeDirSelector('monitor_life_scrape_metadata_exclude_paths')">
+                          添加本地排除目录
+                        </v-btn>
+                      </div>
+                      <v-alert density="compact" variant="text" color="info" class="text-caption pa-0 mt-1">
+                        此处添加的本地目录，在115生活事件监控生成STRM后将不会自动触发刮削。
+                      </v-alert>
                     </v-col>
                   </v-row>
 
@@ -574,7 +626,7 @@ const syncLoading = ref(false);
 const shareSyncLoading = ref(false);
 const activeTab = ref('tab-transfer');
 const mediaservers = ref([]);
-const isCookieVisible = ref(false); // <-- 新增状态变量
+const isCookieVisible = ref(false);
 const config = reactive({
   enabled: false,
   cookies: '',
@@ -584,6 +636,7 @@ const config = reactive({
   user_download_mediaext: 'srt,ssa,ass',
   transfer_monitor_enabled: false,
   transfer_monitor_scrape_metadata_enabled: false,
+  transfer_monitor_scrape_metadata_exclude_paths: '',
   transfer_monitor_paths: '',
   transfer_mp_mediaserver_paths: '',
   transfer_monitor_media_server_refresh_enabled: false,
@@ -600,6 +653,7 @@ const config = reactive({
   monitor_life_mediaservers: [],
   monitor_life_auto_remove_local_enabled: false,
   monitor_life_scrape_metadata_enabled: false,
+  monitor_life_scrape_metadata_exclude_paths: '',
   share_strm_auto_download_mediainfo_enabled: false,
   user_share_code: '',
   user_receive_code: '',
@@ -626,6 +680,8 @@ const fullSyncPaths = ref([{ local: '', remote: '' }]);
 const monitorLifePaths = ref([{ local: '', remote: '' }]);
 const monitorLifeMpPaths = ref([{ local: '', remote: '' }]);
 const panTransferPaths = ref([{ path: '' }]);
+const transferExcludePaths = ref([{ path: '' }]);
+const monitorLifeExcludePaths = ref([{ path: '' }]);
 
 // 目录选择器对话框
 const dirDialog = reactive({
@@ -638,7 +694,10 @@ const dirDialog = reactive({
   selectedPath: '',
   callback: null,
   type: '',
-  index: -1
+  index: -1,
+  targetConfigKeyForExclusion: null,
+  originalPathTypeBackup: '',
+  originalIndexBackup: -1
 });
 
 // 二维码登录对话框
@@ -675,7 +734,7 @@ watch(() => config.transfer_monitor_paths, (newVal) => {
   }
 
   try {
-    const paths = newVal.split('\n').filter(line => line.trim());
+    const paths = newVal.split('\\n').filter(line => line.trim());
     transferPaths.value = paths.map(path => {
       const parts = path.split('#');
       return { local: parts[0] || '', remote: parts[1] || '' };
@@ -697,7 +756,7 @@ watch(() => config.transfer_mp_mediaserver_paths, (newVal) => {
   }
 
   try {
-    const paths = newVal.split('\n').filter(line => line.trim());
+    const paths = newVal.split('\\n').filter(line => line.trim());
     transferMpPaths.value = paths.map(path => {
       const parts = path.split('#');
       return { local: parts[0] || '', remote: parts[1] || '' };
@@ -719,7 +778,7 @@ watch(() => config.full_sync_strm_paths, (newVal) => {
   }
 
   try {
-    const paths = newVal.split('\n').filter(line => line.trim());
+    const paths = newVal.split('\\n').filter(line => line.trim());
     fullSyncPaths.value = paths.map(path => {
       const parts = path.split('#');
       return { local: parts[0] || '', remote: parts[1] || '' };
@@ -741,7 +800,7 @@ watch(() => config.monitor_life_paths, (newVal) => {
   }
 
   try {
-    const paths = newVal.split('\n').filter(line => line.trim());
+    const paths = newVal.split('\\n').filter(line => line.trim());
     monitorLifePaths.value = paths.map(path => {
       const parts = path.split('#');
       return { local: parts[0] || '', remote: parts[1] || '' };
@@ -763,7 +822,7 @@ watch(() => config.monitor_life_mp_mediaserver_paths, (newVal) => {
   }
 
   try {
-    const paths = newVal.split('\n').filter(line => line.trim());
+    const paths = newVal.split('\\n').filter(line => line.trim());
     monitorLifeMpPaths.value = paths.map(path => {
       const parts = path.split('#');
       return { local: parts[0] || '', remote: parts[1] || '' };
@@ -785,7 +844,7 @@ watch(() => config.pan_transfer_paths, (newVal) => {
   }
 
   try {
-    const paths = newVal.split('\n').filter(line => line.trim());
+    const paths = newVal.split('\\n').filter(line => line.trim());
     panTransferPaths.value = paths.map(path => {
       return { path };
     });
@@ -798,6 +857,63 @@ watch(() => config.pan_transfer_paths, (newVal) => {
     panTransferPaths.value = [{ path: '' }];
   }
 }, { immediate: true });
+
+// 新增：监视 exclude_paths 字符串与数组之间的同步
+watch(() => config.transfer_monitor_scrape_metadata_exclude_paths, (newVal) => {
+  if (typeof newVal !== 'string' || !newVal.trim()) {
+    transferExcludePaths.value = [{ path: '' }];
+    return;
+  }
+  try {
+    const paths = newVal.split('\\n').filter(line => line.trim());
+    transferExcludePaths.value = paths.map(p => ({ path: p }));
+    if (transferExcludePaths.value.length === 0) {
+      transferExcludePaths.value = [{ path: '' }];
+    }
+  } catch (e) {
+    console.error('解析 transfer_monitor_scrape_metadata_exclude_paths 出错:', e);
+    transferExcludePaths.value = [{ path: '' }];
+  }
+}, { immediate: true });
+
+watch(transferExcludePaths, (newVal) => {
+  if (!Array.isArray(newVal)) return;
+  const pathsString = newVal
+    .map(item => item.path?.trim())
+    .filter(p => p)
+    .join('\\n');
+  if (config.transfer_monitor_scrape_metadata_exclude_paths !== pathsString) {
+    config.transfer_monitor_scrape_metadata_exclude_paths = pathsString;
+  }
+}, { deep: true });
+
+watch(() => config.monitor_life_scrape_metadata_exclude_paths, (newVal) => {
+  if (typeof newVal !== 'string' || !newVal.trim()) {
+    monitorLifeExcludePaths.value = [{ path: '' }];
+    return;
+  }
+  try {
+    const paths = newVal.split('\\n').filter(line => line.trim());
+    monitorLifeExcludePaths.value = paths.map(p => ({ path: p }));
+    if (monitorLifeExcludePaths.value.length === 0) {
+      monitorLifeExcludePaths.value = [{ path: '' }];
+    }
+  } catch (e) {
+    console.error('解析 monitor_life_scrape_metadata_exclude_paths 出错:', e);
+    monitorLifeExcludePaths.value = [{ path: '' }];
+  }
+}, { immediate: true });
+
+watch(monitorLifeExcludePaths, (newVal) => {
+  if (!Array.isArray(newVal)) return;
+  const pathsString = newVal
+    .map(item => item.path?.trim())
+    .filter(p => p)
+    .join('\\n');
+  if (config.monitor_life_scrape_metadata_exclude_paths !== pathsString) {
+    config.monitor_life_scrape_metadata_exclude_paths = pathsString;
+  }
+}, { deep: true });
 
 // 从路径对象列表生成配置字符串
 const generatePathsConfig = (paths, key) => {
@@ -1065,6 +1181,9 @@ const openDirSelector = (index, locationType, pathType) => {
   dirDialog.items = [];
   dirDialog.index = index;
   dirDialog.type = pathType;
+  dirDialog.targetConfigKeyForExclusion = null;
+  dirDialog.originalPathTypeBackup = '';
+  dirDialog.originalIndexBackup = -1;
 
   // 设置初始路径
   if (dirDialog.isLocal) {
@@ -1190,8 +1309,42 @@ const confirmDirSelection = () => {
     processedPath = processedPath.slice(0, -1);
   }
 
-  if (dirDialog.index >= 0) {
-    // 根据类型设置路径
+  // Handle exclusion path selection by adding to the respective array
+  if (dirDialog.type === 'excludePath' && dirDialog.targetConfigKeyForExclusion) {
+    const targetKey = dirDialog.targetConfigKeyForExclusion;
+    let targetArrayRef;
+
+    if (targetKey === 'transfer_monitor_scrape_metadata_exclude_paths') {
+      targetArrayRef = transferExcludePaths;
+    } else if (targetKey === 'monitor_life_scrape_metadata_exclude_paths') {
+      targetArrayRef = monitorLifeExcludePaths;
+    }
+
+    if (targetArrayRef) {
+      // If the array contains only one empty path, replace it. Otherwise, add a new path.
+      if (targetArrayRef.value.length === 1 && !targetArrayRef.value[0].path) {
+        targetArrayRef.value[0] = { path: processedPath };
+      } else {
+        // Prevent adding duplicate paths
+        if (!targetArrayRef.value.some(item => item.path === processedPath)) {
+          targetArrayRef.value.push({ path: processedPath });
+        } else {
+          message.text = '该排除路径已存在。';
+          message.type = 'warning';
+          setTimeout(() => { message.text = ''; }, 3000);
+        }
+      }
+    }
+
+    // Restore original dialog type and index from backup, then clear them
+    dirDialog.type = dirDialog.originalPathTypeBackup;
+    dirDialog.index = dirDialog.originalIndexBackup;
+    dirDialog.targetConfigKeyForExclusion = null;
+    dirDialog.originalPathTypeBackup = '';
+    dirDialog.originalIndexBackup = -1;
+  }
+  // Handle original path selection logic for path mappings
+  else if (dirDialog.index >= 0 && dirDialog.type !== 'excludePath') {
     switch (dirDialog.type) {
       case 'transfer':
         if (dirDialog.isLocal) {
@@ -1496,6 +1649,44 @@ const setMoviePilotAddressToCurrentOrigin = () => {
       message.text = '';
     }
   }, 3000);
+};
+
+// 新增：打开排除目录选择器的方法 (专用于本地目录选择)
+const openExcludeDirSelector = (configKeyToUpdate) => {
+  dirDialog.show = true;
+  dirDialog.isLocal = true; // Always local for exclusion paths
+  dirDialog.loading = false;
+  dirDialog.error = null;
+  dirDialog.items = [];
+  dirDialog.currentPath = '/'; // 默认起始路径
+
+  // Backup original type and index before overriding for exclusion path selection
+  dirDialog.originalPathTypeBackup = dirDialog.type;
+  dirDialog.originalIndexBackup = dirDialog.index;
+
+  dirDialog.targetConfigKeyForExclusion = configKeyToUpdate;
+  dirDialog.type = 'excludePath'; // Special type for this operation
+  dirDialog.index = -1;           // Index is not relevant for appending to a textarea
+
+  loadDirContent();
+};
+
+// 新增：移除排除目录条目
+const removeExcludePathEntry = (index, type) => {
+  let targetArrayRef;
+  if (type === 'transfer_exclude') {
+    targetArrayRef = transferExcludePaths;
+  } else if (type === 'life_exclude') {
+    targetArrayRef = monitorLifeExcludePaths;
+  }
+
+  if (targetArrayRef && targetArrayRef.value && index < targetArrayRef.value.length) {
+    targetArrayRef.value.splice(index, 1);
+    if (targetArrayRef.value.length === 0) {
+      // 保留一个空条目以触发 watcher 更新为空字符串，并为UI提供添加按钮的基础
+      targetArrayRef.value = [{ path: '' }];
+    }
+  }
 };
 </script>
 
