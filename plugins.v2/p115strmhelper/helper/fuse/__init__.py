@@ -90,10 +90,10 @@ def attr_to_stat(attr: Mapping, /, uid: int = 0, gid: int = 0) -> dict:
         "st_nlink": 1,
         "st_uid": uid,
         "st_gid": gid,
-        "st_size": attr.get("size", 0),
-        "st_atime": attr.get("atime") or attr.get("mtime", 0),
-        "st_mtime": attr.get("mtime", 0),
-        "st_ctime": attr.get("ctime", 0),
+        "st_size": attr.get("size") or 0,
+        "st_atime": attr.get("atime") or attr.get("mtime") or 1.0,
+        "st_mtime": attr.get("mtime") or 1.0,
+        "st_ctime": attr.get("ctime") or 1.0,
         "xattr": attr,
     }
 
