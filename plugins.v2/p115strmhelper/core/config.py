@@ -1,5 +1,6 @@
 import json
 import platform
+import machineid
 from typing import Dict, Any, Optional, List, Union
 from pathlib import Path
 
@@ -184,6 +185,11 @@ class BaseConfig(BaseModel):
     # 多端播放同一个文件
     same_playback: bool = False
 
+    # 上传错误信息
+    error_info_upload: bool = True
+    # 115 上传增强
+    upload_module_enhancement: bool = False
+
 
 class ConfigManager:
     """
@@ -261,6 +267,8 @@ class ConfigManager:
             "PLUGIN_DATABASE_PATH",
         ]:
             return Path(self._configs.get(key))
+        elif key == "MACHINE_ID":
+            return machineid.hashed_id(self._configs.get("PLUSIN_NAME"))
         return self._configs.get(key)
 
     def get_all_configs(self) -> Dict[str, Any]:

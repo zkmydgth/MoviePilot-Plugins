@@ -50,6 +50,12 @@ class Api:
         ]
         return config
 
+    def get_machine_id_api(self) -> Dict:
+        """
+        获取 Machine ID
+        """
+        return {"machine_id": configer.get_config("MACHINE_ID")}
+
     @cached(cache=TTLCache(maxsize=1, ttl=60 * 60))
     def get_user_storage_status(self) -> Dict[str, Any]:
         """

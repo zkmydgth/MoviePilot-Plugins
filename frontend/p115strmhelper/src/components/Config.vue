@@ -129,6 +129,9 @@
               <v-tab value="tab-same-playback" class="text-caption">
                 <v-icon size="small" start>mdi:code-block-parentheses</v-icon>多端播放
               </v-tab>
+              <v-tab value="tab-data-enhancement" class="text-caption">
+                <v-icon size="small" start>mdi-database-eye-outline</v-icon>数据增强
+              </v-tab>
             </v-tabs>
             <v-divider></v-divider>
 
@@ -857,6 +860,46 @@
                 </v-card-text>
               </v-window-item>
 
+              <!-- 数据增强 -->
+              <v-window-item value="tab-data-enhancement">
+                <v-card-text>
+                  <v-row>
+                    <v-col cols="12" md="4">
+                      <v-switch v-model="config.error_info_upload" label="错误信息上传" color="info"
+                        density="compact"></v-switch>
+                    </v-col>
+                    <v-col cols="12" md="4">
+                      <v-switch v-model="config.upload_module_enhancement" label="上传模块增强" color="info"
+                        density="compact"></v-switch>
+                    </v-col>
+                    <v-col cols="12" md="4" class="d-flex align-center">
+                      <v-btn @click="getMachineId" size="small" prepend-icon="mdi-identifier">显示设备ID</v-btn>
+                    </v-col>
+                  </v-row>
+
+                  <v-row v-if="machineId">
+                    <v-col cols="12">
+                      <v-text-field v-model="machineId" label="Machine ID" readonly density="compact" variant="outlined"
+                        hide-details="auto"></v-text-field>
+                    </v-col>
+                  </v-row>
+
+                  <v-alert type="info" variant="tonal" density="compact" class="mt-3 text-caption">
+                    <strong>115上传增强有效范围：</strong><br>
+                    此功能开启后，将对整个MoviePilot系统内所有调用115网盘上传的功能生效。
+                  </v-alert>
+
+                  <v-alert type="warning" variant="tonal" density="compact" class="mt-3 text-caption">
+                    <strong>风险与免责声明</strong><br>
+                    - 插件程序内包含可选的Sentry分析组件，详见<a href="https://sentry.io/privacy/" target="_blank"
+                      style="color: inherit; text-decoration: underline;">Sentry Privacy Policy</a>。<br>
+                    - 插件程序将在必要时上传错误信息及运行环境信息。<br>
+                    - 插件程序将记录程序运行重要节点并保存追踪数据至少72小时。
+                  </v-alert>
+
+                </v-card-text>
+              </v-window-item>
+
             </v-window>
           </v-card>
 
@@ -1122,7 +1165,9 @@ const config = reactive({
   cloudsaver_password: '',
   nullbr_app_id: '',
   nullbr_api_key: '',
-  same_playback: false
+  same_playback: false,
+  error_info_upload: false,
+  upload_module_enhancement: false
 });
 
 // 消息提示
@@ -1145,6 +1190,7 @@ const incrementSyncExcludePaths = ref([{ local: '', remote: '' }]);
 const monitorLifeExcludePaths = ref([{ path: '' }]);
 const directoryUploadPaths = ref([{ src: '', dest_remote: '', dest_local: '', delete: false }]);
 const fullSyncConfirmDialog = ref(false);
+const machineId = ref('');
 
 // 目录选择器对话框
 const dirDialog = reactive({
@@ -1557,6 +1603,30 @@ const saveConfig = async () => {
       }
     }, 5000);
   }
+};
+
+const getMachineId = async () => {
+  machineId.value = '正在获取...';
+  try {
+    const result = await props.api.get(`plugin/${PLUGIN_ID}/get_machine_id`);
+    if (result && result.machine_id) {
+      machineId.value = result.machine_id;
+      message.text = '设备ID获取成功！';
+      message.type = 'success';
+    } else {
+      throw new Error(result?.msg || '未能获取设备ID');
+    }
+  } catch (err) {
+    machineId.value = '获取失败，请重试';
+    message.text = `获取设备ID失败: ${err.message || '未知错误'}`;
+    message.type = 'error';
+  }
+  setTimeout(() => {
+    // 只清除成功或提示类消息，保留错误消息供用户查看
+    if (message.type === 'success' || message.type === 'info') {
+      message.text = '';
+    }
+  }, 3000);
 };
 
 const handleConfirmFullSync = async () => {

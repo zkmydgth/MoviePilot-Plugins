@@ -10,46 +10,83 @@ from sentry_sdk.integrations.excepthook import ExcepthookIntegration
 from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
 from sentry_sdk.integrations.dedupe import DedupeIntegration
 
-
-sentry_hub = Hub(
-    Client(
-        dsn=base64.b64decode(
-            "aHR0cHM6Ly82YTk0ZjI2N2NjOTY0Y2ZiOTk5ZjQyNDgwNGIyMTE1M0BnbGl0Y2h0aXAuZGRzcmVtLmNvbS80"
-        ).decode("utf-8"),
-        release="p115strmhelper@v2.0.0",
-        # 禁用所有默认集成
-        default_integrations=False,
-        # 启用集成
-        integrations=[
-            DedupeIntegration(),
-            StdlibIntegration(),
-            ExcepthookIntegration(always_run=True),
-            SqlalchemyIntegration(),
-        ],
-    )
-)
+from ..core.config import configer
 
 
-_original_capture_exception = sentry_sdk.capture_exception
-
-
-def _patched_capture_exception(*args, **kwargs):
-    """
-    当前 Hub 是插件 sentry_hub 时才真正执行上报
-    """
-    if Hub.current is sentry_hub:
-        _original_capture_exception(*args, **kwargs)
-    else:
+class NoopSentryHub(Hub):
+    def capture_event(self, event, hint=None, scope=None):
         pass
 
+    def capture_exception(self, error=None, **kwargs):
+        pass
 
-sentry_sdk.capture_exception = _patched_capture_exception
+    def capture_message(self, message, **kwargs):
+        pass
+
+    def configure_scope(self, callback=None):
+        pass
+
+    def add_breadcrumb(self, crumb=None, hint=None, **kwargs):
+        pass
+
+    def push_scope(self, callback=None):
+        pass
+
+    def pop_scope(self, *args, **kwargs):
+        pass
+
+    def flush(self, timeout=None, callback=None):
+        pass
+
+    def __getattr__(self, name):
+        def method(*args, **kwargs):
+            pass
+
+        return method
+
+
+sentry_hub = NoopSentryHub()
+
+if configer.get_config("error_info_upload"):
+    sentry_hub = Hub(
+        Client(
+            dsn=base64.b64decode(
+                "aHR0cHM6Ly82YTk0ZjI2N2NjOTY0Y2ZiOTk5ZjQyNDgwNGIyMTE1M0BnbGl0Y2h0aXAuZGRzcmVtLmNvbS80"
+            ).decode("utf-8"),
+            release="p115strmhelper@v2.0.1",
+            # 禁用所有默认集成
+            default_integrations=False,
+            # 启用集成
+            integrations=[
+                DedupeIntegration(),
+                StdlibIntegration(),
+                ExcepthookIntegration(always_run=True),
+                SqlalchemyIntegration(),
+            ],
+        )
+    )
+
+    _original_capture_exception = sentry_sdk.capture_exception
+
+    def _patched_capture_exception(*args, **kwargs):
+        """
+        当前 Hub 是插件 sentry_hub 时才真正执行上报
+        """
+        if Hub.current is sentry_hub:
+            _original_capture_exception(*args, **kwargs)
+        else:
+            pass
+
+    sentry_sdk.capture_exception = _patched_capture_exception
 
 
 def capture_plugin_exceptions(func):
     """
     函数装饰器
     """
+    if not configer.get_config("error_info_upload"):
+        return func
+
     if getattr(func, "_sentry_captured", False):
         return func
 

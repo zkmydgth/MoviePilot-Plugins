@@ -24,6 +24,7 @@ from .core.message import post_message
 from .db_manager import ct_db_manager
 from .db_manager.init import init_db, update_db
 from .db_manager.oper import FileDbHelper
+from .patch.u115_open import U115Patcher
 from .interactive.framework.callbacks import decode_action, Action
 from .interactive.framework.manager import BaseSessionManager
 from .interactive.framework.schemas import TSession
@@ -48,7 +49,7 @@ class P115StrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png"
     # 插件版本
-    plugin_version = "2.0.0"
+    plugin_version = "2.0.1"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -132,6 +133,9 @@ class P115StrmHelper(_PluginBase):
 
             if servicer.init_service():
                 self.api = Api(client=servicer.client)
+
+            if configer.get_config("upload_module_enhancement"):
+                U115Patcher().enable()
 
             # 目录上传监控服务
             servicer.start_directory_upload()
@@ -259,6 +263,13 @@ class P115StrmHelper(_PluginBase):
                 "methods": ["GET"],
                 "auth": "bear",
                 "summary": "获取配置",
+            },
+            {
+                "path": "/get_machine_id",
+                "endpoint": self.api.get_machine_id_api,
+                "methods": ["GET"],
+                "auth": "bear",
+                "summary": "获取 Machine ID",
             },
             {
                 "path": "/save_config",
@@ -990,6 +1001,7 @@ class P115StrmHelper(_PluginBase):
         """
         servicer.stop()
         ct_db_manager.close_database()
+        U115Patcher().disable()
 
     async def _save_config_api(self, request: Request) -> Dict:
         """
