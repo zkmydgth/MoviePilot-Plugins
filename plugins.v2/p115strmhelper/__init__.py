@@ -733,6 +733,67 @@ class P115StrmHelper(_PluginBase):
         """
         return None
 
+    def get_dashboard_meta(self) -> Optional[List[Dict[str, str]]]:
+        """
+        多仪表盘：STRM 执行记录、运行状态与账户、同步删除历史
+        """
+        return [
+            {"key": "strm", "name": "STRM 同步执行记录"},
+            {"key": "status", "name": "运行状态与账户"},
+            {"key": "sync_del", "name": "同步删除历史"},
+            {"key": "manual_transfer", "name": "网盘整理"},
+        ]
+
+    def get_dashboard(
+        self,
+        key: str = "",
+        **kwargs: Any,
+    ) -> Tuple[Dict[str, Any], Dict[str, Any], Optional[List[dict]]]:
+        """
+        按 key 返回栅格与标题
+        """
+        _ = kwargs
+        k = (key or "").strip()
+        if k == "status":
+            return (
+                {"cols": 12},
+                {
+                    "title": "运行状态与 115 账户",
+                    "subtitle": self.plugin_name,
+                    "border": True,
+                },
+                None,
+            )
+        if k == "sync_del":
+            return (
+                {"cols": 12},
+                {
+                    "title": "同步删除历史",
+                    "subtitle": self.plugin_name,
+                    "border": True,
+                },
+                None,
+            )
+        if k == "manual_transfer":
+            return (
+                {"cols": 12, "sm": 6, "md": 4, "lg": 3},
+                {
+                    "title": "手动网盘整理",
+                    "subtitle": self.plugin_name,
+                    "border": True,
+                },
+                None,
+            )
+        return (
+            {"cols": 12},
+            {
+                "title": "STRM 同步执行记录",
+                "subtitle": self.plugin_name,
+                "border": True,
+            },
+            None,
+        )
+
     @staticmethod
     def get_sidebar_nav() -> List[Dict[str, Any]]:
         """
