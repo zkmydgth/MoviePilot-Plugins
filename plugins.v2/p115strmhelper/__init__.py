@@ -122,6 +122,29 @@ def get_download_url(pickcode: str, cookie: str):
     return Url.of(data["url"], data)
 
 
+def save_mediainfo_file(
+    file_path: Path, file_name: str, download_url: str, cookie: str
+):
+    """
+    保存媒体信息文件
+    """
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+    with requests.get(
+        download_url,
+        stream=True,
+        timeout=30,
+        headers={
+            "User-Agent": settings.USER_AGENT,
+            "Cookie": cookie,
+        },
+    ) as response:
+        response.raise_for_status()
+        with open(file_path, "wb") as f:
+            for chunk in response.iter_content(chunk_size=8192):
+                f.write(chunk)
+    logger.info(f"【媒体信息文件】保存 {file_name} 文件成功: {file_path}")
+
+
 class FullSyncStrmHelper:
     """
     全量生成 STRM 文件
@@ -202,24 +225,11 @@ class FullSyncStrmHelper:
                                 )
                                 continue
 
-                            file_path.parent.mkdir(parents=True, exist_ok=True)
-
-                            with requests.get(
-                                download_url,
-                                stream=True,
-                                timeout=30,
-                                headers={
-                                    "User-Agent": settings.USER_AGENT,
-                                    "Cookie": self.cookie,
-                                },
-                            ) as response:
-                                response.raise_for_status()
-                                with open(file_path, "wb") as f:
-                                    for chunk in response.iter_content(chunk_size=8192):
-                                        f.write(chunk)
-
-                            logger.info(
-                                f"【全量STRM生成】保存 {original_file_name} 文件成功: {file_path}"
+                            save_mediainfo_file(
+                                file_path=Path(file_path),
+                                file_name=original_file_name,
+                                download_url=download_url,
+                                cookie=self.cookie,
                             )
                             self.mediainfo_count += 1
                             continue
@@ -365,24 +375,11 @@ class ShareStrmHelper:
                     )
                     return
 
-                file_path.parent.mkdir(parents=True, exist_ok=True)
-
-                with requests.get(
-                    download_url,
-                    stream=True,
-                    timeout=30,
-                    headers={
-                        "User-Agent": settings.USER_AGENT,
-                        "Cookie": self.cookie,
-                    },
-                ) as response:
-                    response.raise_for_status()
-                    with open(file_path, "wb") as f:
-                        for chunk in response.iter_content(chunk_size=8192):
-                            f.write(chunk)
-
-                logger.info(
-                    f"【分享STRM生成】保存 {original_file_name} 文件成功: {file_path}"
+                save_mediainfo_file(
+                    file_path=Path(file_path),
+                    file_name=original_file_name,
+                    download_url=download_url,
+                    cookie=self.cookie,
                 )
                 self.mediainfo_count += 1
                 logger.info("【分享STRM生成】休眠 1s 后继续生成")
@@ -510,6 +507,9 @@ class P115StrmHelper(_PluginBase):
     _monitor_life_enabled = False
     _monitor_life_auto_download_mediainfo_enabled = False
     _monitor_life_paths = None
+    _monitor_life_mp_mediaserver_paths = None
+    _monitor_life_media_server_refresh_enabled = False
+    _monitor_life_mediaservers = None
     _share_strm_enabled = False
     _share_strm_auto_download_mediainfo_enabled = False
     _user_share_code = None
@@ -562,6 +562,15 @@ class P115StrmHelper(_PluginBase):
                 "monitor_life_auto_download_mediainfo_enabled"
             )
             self._monitor_life_paths = config.get("monitor_life_paths")
+            self._monitor_life_mp_mediaserver_paths = config.get(
+                "monitor_life_mp_mediaserver_paths"
+            )
+            self._monitor_life_media_server_refresh_enabled = config.get(
+                "monitor_life_media_server_refresh_enabled"
+            )
+            self._monitor_life_mediaservers = (
+                config.get("monitor_life_mediaservers") or []
+            )
             self._share_strm_enabled = config.get("share_strm_enabled")
             self._share_strm_auto_download_mediainfo_enabled = config.get(
                 "share_strm_auto_download_mediainfo_enabled"
@@ -629,11 +638,7 @@ class P115StrmHelper(_PluginBase):
                 self._scheduler.print_jobs()
                 self._scheduler.start()
 
-        if (
-            self._enabled
-            and self._monitor_life_enabled
-            and self._monitor_life_paths
-        ):
+        if self._enabled and self._monitor_life_enabled and self._monitor_life_paths:
             self.monitor_stop_event.clear()
             if self.monitor_life_thread:
                 if not self.monitor_life_thread.is_alive():
@@ -651,9 +656,9 @@ class P115StrmHelper(_PluginBase):
         return self._enabled
 
     @property
-    def service_infos(self) -> Optional[Dict[str, ServiceInfo]]:
+    def transfer_service_infos(self) -> Optional[Dict[str, ServiceInfo]]:
         """
-        服务信息
+        监控MP整理 媒体服务器服务信息
         """
         if not self._transfer_monitor_mediaservers:
             logger.warning("尚未配置媒体服务器，请检查配置")
@@ -661,6 +666,35 @@ class P115StrmHelper(_PluginBase):
 
         services = self.mediaserver_helper.get_services(
             name_filters=self._transfer_monitor_mediaservers
+        )
+        if not services:
+            logger.warning("获取媒体服务器实例失败，请检查配置")
+            return None
+
+        active_services = {}
+        for service_name, service_info in services.items():
+            if service_info.instance.is_inactive():
+                logger.warning(f"媒体服务器 {service_name} 未连接，请检查配置")
+            else:
+                active_services[service_name] = service_info
+
+        if not active_services:
+            logger.warning("没有已连接的媒体服务器，请检查配置")
+            return None
+
+        return active_services
+
+    @property
+    def monitor_life_service_infos(self) -> Optional[Dict[str, ServiceInfo]]:
+        """
+        监控生活事件 媒体服务器服务信息
+        """
+        if not self._monitor_life_mediaservers:
+            logger.warning("尚未配置媒体服务器，请检查配置")
+            return None
+
+        services = self.mediaserver_helper.get_services(
+            name_filters=self._monitor_life_mediaservers
         )
         if not services:
             logger.warning("获取媒体服务器实例失败，请检查配置")
@@ -994,7 +1028,7 @@ class P115StrmHelper(_PluginBase):
                 "content": [
                     {
                         "component": "VCol",
-                        "props": {"cols": 12, "md": 4},
+                        "props": {"cols": 12, "md": 3},
                         "content": [
                             {
                                 "component": "VSwitch",
@@ -1007,13 +1041,46 @@ class P115StrmHelper(_PluginBase):
                     },
                     {
                         "component": "VCol",
-                        "props": {"cols": 12, "md": 4},
+                        "props": {"cols": 12, "md": 3},
                         "content": [
                             {
                                 "component": "VSwitch",
                                 "props": {
                                     "model": "monitor_life_auto_download_mediainfo_enabled",
                                     "label": "下载媒体数据文件",
+                                },
+                            }
+                        ],
+                    },
+                    {
+                        "component": "VCol",
+                        "props": {"cols": 12, "md": 3},
+                        "content": [
+                            {
+                                "component": "VSwitch",
+                                "props": {
+                                    "model": "monitor_life_media_server_refresh_enabled",
+                                    "label": "媒体服务器刷新",
+                                },
+                            }
+                        ],
+                    },
+                    {
+                        "component": "VCol",
+                        "props": {"cols": 12, "md": 3},
+                        "content": [
+                            {
+                                "component": "VSelect",
+                                "props": {
+                                    "multiple": True,
+                                    "chips": True,
+                                    "clearable": True,
+                                    "model": "monitor_life_mediaservers",
+                                    "label": "媒体服务器",
+                                    "items": [
+                                        {"title": config.name, "value": config.name}
+                                        for config in self.mediaserver_helper.get_configs().values()
+                                    ],
                                 },
                             }
                         ],
@@ -1057,6 +1124,47 @@ class P115StrmHelper(_PluginBase):
                                         "component": "div",
                                         "props": {"class": "ml-2"},
                                         "text": "本地路径2#网盘路径2",
+                                    },
+                                ],
+                            },
+                        ],
+                    }
+                ],
+            },
+            {
+                "component": "VRow",
+                "content": [
+                    {
+                        "component": "VCol",
+                        "props": {"cols": 12},
+                        "content": [
+                            {
+                                "component": "VTextarea",
+                                "props": {
+                                    "model": "monitor_life_mp_mediaserver_paths",
+                                    "label": "媒体服务器映射替换",
+                                    "rows": 2,
+                                    "placeholder": "一行一个，格式：媒体库服务器映射目录#MP映射目录\n例如：\n/media#/data",
+                                    "hint": "用于媒体服务器映射路径和MP映射路径不一样时自动刷新媒体服务器入库",
+                                    "persistent-hint": True,
+                                },
+                            },
+                            {
+                                "component": "VAlert",
+                                "props": {
+                                    "type": "info",
+                                    "variant": "tonal",
+                                    "density": "compact",
+                                    "class": "mt-2",
+                                },
+                                "content": [
+                                    {
+                                        "component": "div",
+                                        "text": "媒体服务器映射路径和MP映射路径不一样时请配置此项，如果不配置则无法正常刷新",
+                                    },
+                                    {
+                                        "component": "div",
+                                        "text": "当映射路径一样时可省略此配置",
                                     },
                                 ],
                             },
@@ -1539,6 +1647,9 @@ class P115StrmHelper(_PluginBase):
             "monitor_life_enabled": False,
             "monitor_life_auto_download_mediainfo_enabled": False,
             "monitor_life_paths": "",
+            "monitor_life_mp_mediaserver_paths": "",
+            "monitor_life_media_server_refresh_enabled": False,
+            "monitor_life_mediaservers": [],
             "share_strm_enabled": False,
             "share_strm_auto_download_mediainfo_enabled": False,
             "user_share_code": "",
@@ -1577,6 +1688,9 @@ class P115StrmHelper(_PluginBase):
                 "monitor_life_enabled": self._monitor_life_enabled,
                 "monitor_life_auto_download_mediainfo_enabled": self._monitor_life_auto_download_mediainfo_enabled,
                 "monitor_life_paths": self._monitor_life_paths,
+                "monitor_life_mp_mediaserver_paths": self._monitor_life_mp_mediaserver_paths,
+                "monitor_life_media_server_refresh_enabled": self._monitor_life_media_server_refresh_enabled,
+                "monitor_life_mediaservers": self._monitor_life_mediaservers,
                 "share_strm_enabled": self._share_strm_enabled,
                 "share_strm_auto_download_mediainfo_enabled": self._share_strm_auto_download_mediainfo_enabled,
                 "user_share_code": self._user_share_code,
@@ -1939,17 +2053,19 @@ class P115StrmHelper(_PluginBase):
             return
 
         if self._transfer_monitor_media_server_refresh_enabled:
-            if not self.service_infos:
+            if not self.transfer_service_infos:
                 return
 
-            logger.info("【监控整理STRM生成】开始刷新媒体服务器")
+            logger.info(f"【监控整理STRM生成】 {item_dest_name} 开始刷新媒体服务器")
 
             if self._transfer_mp_mediaserver_paths:
                 status, mediaserver_path, moviepilot_path = self.__get_media_path(
                     self._transfer_mp_mediaserver_paths, strm_target_path
                 )
                 if status:
-                    logger.info("【监控整理STRM生成】刷新媒体服务器目录替换中...")
+                    logger.info(
+                        f"【监控整理STRM生成】 {item_dest_name} 刷新媒体服务器目录替换中..."
+                    )
                     strm_target_path = strm_target_path.replace(
                         moviepilot_path, mediaserver_path
                     ).replace("\\", "/")
@@ -1959,8 +2075,6 @@ class P115StrmHelper(_PluginBase):
                     logger.info(
                         f"【监控整理STRM生成】刷新媒体服务器目录: {strm_target_path}"
                     )
-
-            time.sleep(2)
             mediainfo: MediaInfo = item.get("mediainfo")
             items = [
                 RefreshMediaItem(
@@ -1971,14 +2085,15 @@ class P115StrmHelper(_PluginBase):
                     target_path=Path(strm_target_path),
                 )
             ]
-
-            for name, service in self.service_infos.items():
+            for name, service in self.transfer_service_infos.items():
                 if hasattr(service.instance, "refresh_library_by_items"):
                     service.instance.refresh_library_by_items(items)
                 elif hasattr(service.instance, "refresh_root_library"):
                     service.instance.refresh_root_library()
                 else:
-                    logger.warning(f"【监控整理STRM生成】{name} 不支持刷新")
+                    logger.warning(
+                        f"【监控整理STRM生成】 {item_dest_name} {name} 不支持刷新"
+                    )
 
     def full_sync_strm_files(self):
         """
@@ -2074,6 +2189,46 @@ class P115StrmHelper(_PluginBase):
         注意: 目前没有重命名文件，复制文件的操作事件
         """
 
+        def refresh_mediaserver(file_path: str, file_name: str):
+            """
+            刷新媒体服务器
+            """
+            if self._monitor_life_media_server_refresh_enabled:
+                if not self.monitor_life_service_infos:
+                    return
+                logger.info(f"【监控生活事件】 {file_name} 开始刷新媒体服务器")
+                if self._monitor_life_mp_mediaserver_paths:
+                    status, mediaserver_path, moviepilot_path = self.__get_media_path(
+                        self._monitor_life_mp_mediaserver_paths, file_path
+                    )
+                    if status:
+                        logger.info(
+                            f"【监控生活事件】 {file_name} 刷新媒体服务器目录替换中..."
+                        )
+                        file_path = file_path.replace(
+                            moviepilot_path, mediaserver_path
+                        ).replace("\\", "/")
+                        logger.info(
+                            f"【监控生活事件】刷新媒体服务器目录替换: {moviepilot_path} --> {mediaserver_path}"
+                        )
+                        logger.info(f"【监控生活事件】刷新媒体服务器目录: {file_path}")
+                items = [
+                    RefreshMediaItem(
+                        title=None,
+                        year=None,
+                        type=None,
+                        category=None,
+                        target_path=Path(file_path),
+                    )
+                ]
+                for name, service in self.monitor_life_service_infos.items():
+                    if hasattr(service.instance, "refresh_library_by_items"):
+                        service.instance.refresh_library_by_items(items)
+                    elif hasattr(service.instance, "refresh_root_library"):
+                        service.instance.refresh_root_library()
+                    else:
+                        logger.warning(f"【监控生活事件】{file_name} {name} 不支持刷新")
+
         def creata_strm(event):
             """
             创建 STRM 文件
@@ -2128,24 +2283,11 @@ class P115StrmHelper(_PluginBase):
                                 )
                                 continue
 
-                            file_path.parent.mkdir(parents=True, exist_ok=True)
-
-                            with requests.get(
-                                download_url,
-                                stream=True,
-                                timeout=30,
-                                headers={
-                                    "User-Agent": settings.USER_AGENT,
-                                    "Cookie": self._cookies,
-                                },
-                            ) as response:
-                                response.raise_for_status()
-                                with open(file_path, "wb") as f:
-                                    for chunk in response.iter_content(chunk_size=8192):
-                                        f.write(chunk)
-
-                            logger.info(
-                                f"【监控生活事件】保存 {original_file_name} 文件成功: {file_path}"
+                            save_mediainfo_file(
+                                file_path=Path(file_path),
+                                file_name=original_file_name,
+                                download_url=download_url,
+                                cookie=self._cookies,
                             )
                             continue
 
@@ -2179,6 +2321,8 @@ class P115StrmHelper(_PluginBase):
                     logger.info(
                         "【监控生活事件】生成 STRM 文件成功: %s", str(new_file_path)
                     )
+                    # 刷新媒体服务器
+                    refresh_mediaserver(str(new_file_path), str(original_file_name))
             else:
                 # 文件情况，直接生成
                 file_path = Path(target_dir) / Path(file_path).relative_to(
@@ -2206,24 +2350,11 @@ class P115StrmHelper(_PluginBase):
                             )
                             return
 
-                        file_path.parent.mkdir(parents=True, exist_ok=True)
-
-                        with requests.get(
-                            download_url,
-                            stream=True,
-                            timeout=30,
-                            headers={
-                                "User-Agent": settings.USER_AGENT,
-                                "Cookie": self._cookies,
-                            },
-                        ) as response:
-                            response.raise_for_status()
-                            with open(file_path, "wb") as f:
-                                for chunk in response.iter_content(chunk_size=8192):
-                                    f.write(chunk)
-
-                        logger.info(
-                            f"【监控生活事件】保存 {original_file_name} 文件成功: {file_path}"
+                        save_mediainfo_file(
+                            file_path=Path(file_path),
+                            file_name=original_file_name,
+                            download_url=download_url,
+                            cookie=self._cookies,
                         )
                         return
 
@@ -2253,6 +2384,8 @@ class P115StrmHelper(_PluginBase):
                 logger.info(
                     "【监控生活事件】生成 STRM 文件成功: %s", str(new_file_path)
                 )
+                # 刷新媒体服务器
+                refresh_mediaserver(str(new_file_path), str(original_file_name))
 
         def remove_strm(event):
             """
@@ -2338,14 +2471,6 @@ class P115StrmHelper(_PluginBase):
                 __remove_parent_dir(Path(file_path))
             logger.info(f"【监控生活事件】{file_path} 已删除")
 
-        rmt_mediaext = [
-            f".{ext.strip()}"
-            for ext in self._user_rmt_mediaext.replace("，", ",").split(",")
-        ]
-        download_mediaext = [
-            f".{ext.strip()}"
-            for ext in self._user_download_mediaext.replace("，", ",").split(",")
-        ]
         logger.info("【监控生活事件】上传事件监控启动中...")
         try:
             delete_list = []
@@ -2357,6 +2482,16 @@ class P115StrmHelper(_PluginBase):
                     time.sleep(10)
                     continue
                 for event in events_batch:
+                    rmt_mediaext = [
+                        f".{ext.strip()}"
+                        for ext in self._user_rmt_mediaext.replace("，", ",").split(",")
+                    ]
+                    download_mediaext = [
+                        f".{ext.strip()}"
+                        for ext in self._user_download_mediaext.replace(
+                            "，", ","
+                        ).split(",")
+                    ]
                     if (
                         int(event["type"]) != 1
                         and int(event["type"]) != 2
