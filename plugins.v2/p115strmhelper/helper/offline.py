@@ -1,14 +1,17 @@
 import time
 from typing import List
+from pathlib import Path
 from datetime import datetime, timezone
 
 from p115client import P115Client
 from p115client.tool.offline import offline_iter
+from p115client.tool.attr import get_attr
 
 from app.log import logger
 
 from ..core.config import configer
 from ..core.cache import idpathcacher
+from ..helper.life import MonitorLife
 from ..utils.string import StringUtils
 from ..utils.sentry import sentry_manager
 from ..utils.oopserver import OOPServerRequest
@@ -20,8 +23,10 @@ class OfflineDownloadHelper:
     离线下载
     """
 
-    def __init__(self, client: P115Client):
+    def __init__(self, client: P115Client, monitorlife: MonitorLife):
         self.client = client
+        self.monitorlife = monitorlife
+        self.transfer_list: List = []
 
         self.offline_list_cache = {"data": None, "timestamp": 0}
 
@@ -41,6 +46,71 @@ class OfflineDownloadHelper:
 
         return payload
 
+    def __remove_transfer_list_by_hash(self, target_hash):
+        """
+        通过 hash 删除指定字典
+        """
+        i = 0
+        while i < len(self.transfer_list):
+            if self.transfer_list[i]["hash"] == target_hash:
+                target_path = self.transfer_list[i]["path"]
+                del self.transfer_list[i]
+                return target_path
+            i += 1
+        return None
+
+    def __exists_in_transfer_list(self, target_hash):
+        """
+        判断 hash 是否在 transfer_list 中
+        """
+        if any(d.get("hash") == target_hash for d in self.transfer_list):
+            return True
+        return False
+
+    def __add_transfer_task(self, item):
+        """
+        添加整理任务
+        """
+        try:
+            if not item[1].get("data", None):
+                if item[1].get("count", None):
+                    logger.error(
+                        f"【离线下载】{item[0]} 下载失败，无法添加到网盘整理队列"
+                    )
+                    self.__remove_transfer_list_by_hash(item[0])
+                else:
+                    item[1]["count"] = 1
+                    logger.warn(f"【离线下载】{item[0]} 下载任务二次检测")
+                return
+            parent_path = self.__remove_transfer_list_by_hash(item[0])
+            logger.info(f"【离线下载】{item[0]} 下载完成，添加到网盘整理队列")
+            data = get_attr(
+                self.client, id=int(item[1].get("data").get("delete_file_id"))
+            )
+            event = {
+                "file_id": int(data["id"]),
+                "file_category": 0 if data["is_dir"] else 1,
+                "parent_id": int(data["parent_id"]),
+                "file_size": int(data["size"]),
+                "pick_code": data["pickcode"],
+                "update_time": data["user_utime"],
+            }
+            file_path = Path(parent_path) / str(item[1].get("data").get("name"))
+            rmt_mediaext = [
+                f".{ext.strip()}"
+                for ext in configer.get_config("user_rmt_mediaext")
+                .replace("，", ",")
+                .split(",")
+            ]
+            # 直接传入网盘整理
+            self.monitorlife.media_transfer(
+                event=event,
+                file_path=file_path,
+                rmt_mediaext=rmt_mediaext,
+            )
+        except Exception as e:
+            logger.error(f"【离线下载】{item[0]} 无法添加到网盘整理队列: {e}")
+
     def add_urls(self, url_list: List, cid: int):
         """
         添加一组任务
@@ -53,6 +123,21 @@ class OfflineDownloadHelper:
         获取当前所有任务
         """
         return offline_iter(self.client, cooldown=2, type="web")
+
+    def get_tasks_status(self, info_hash: List):
+        """
+        获取一组任务的状态和信息
+        """
+        for item in self.get_tasks():
+            item_hash = item.get("info_hash", None)
+            if item_hash in info_hash:
+                # 0 进行中、1 下载失败、2 下载成功、3 重试中
+                if int(item.get("status", -1)) == 2:
+                    yield [item_hash, {"status": True, "data": item}]
+                elif int(item.get("status", -1)) == 1:
+                    yield [item_hash, {"status": True, "data": ""}]
+                else:
+                    yield [item_hash, {"status": False, "data": item}]
 
     def add_urls_to_transfer(self, url_list: List) -> bool:
         """
@@ -70,6 +155,12 @@ class OfflineDownloadHelper:
             if not resp.get("state", None):
                 logger.error(f"【离线下载】下载任务添加失败: {url_list} {resp}")
                 return False
+
+            # 获取所有任务的 hash，添加到待整理列表中
+            for item in resp.get("data", {}).get("result"):
+                self.transfer_list.append(
+                    {"hash": str(item.get("info_hash")), "path": str(parent_path)}
+                )
 
             for url in url_list:
                 self.post_offline_info(url)
@@ -102,6 +193,23 @@ class OfflineDownloadHelper:
         except Exception as e:
             logger.error(f"【离线下载】未知错误：{e}")
             return False
+
+    def pull_status_to_task(self):
+        """
+        等待下载完成运行指定任务
+        """
+        if not self.transfer_list:
+            return
+        # 获取待整理的 hash 列表
+        hash_list = list(map(lambda x: x["hash"], self.transfer_list))
+        for item in self.get_tasks_status(hash_list):
+            # 判断是否是中止状态
+            if item[1].get("status"):
+                # 判断是否属于整理队列
+                if self.__exists_in_transfer_list(item[0]):
+                    self.__add_transfer_task(item)
+        if self.transfer_list:
+            logger.info(f"【离线下载】等待任务下载完成：{hash_list}")
 
     def get_cached_data(self):
         """

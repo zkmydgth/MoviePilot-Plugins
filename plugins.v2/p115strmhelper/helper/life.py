@@ -781,7 +781,7 @@ class MonitorLife:
         except Exception as e:
             logger.error(f"【监控生活事件】{file_path} 删除失败: {e}")
 
-    def new_creata_path(self, event, is_history: bool = False):
+    def new_creata_path(self, event):
         """
         处理新出现的路径
         """
@@ -814,13 +814,9 @@ class MonitorLife:
                 if "transfer" in configer.get_config("monitor_life_event_modes"):  # pylint: disable=E1135
                     self.creata_strm(event=event, file_path=file_path)
             else:
-                if is_history:
-                    if "offline" in configer.get_config("monitor_life_event_modes"):  # pylint: disable=E1135
-                        self.creata_strm(event=event, file_path=file_path)
-                else:
-                    self.creata_strm(event=event, file_path=file_path)
+                self.creata_strm(event=event, file_path=file_path)
 
-    def once_pull(self, from_time, from_id, history_list: Optional[List] = None):
+    def once_pull(self, from_time, from_id):
         """
         单次拉取
         """
@@ -914,25 +910,6 @@ class MonitorLife:
                         event=event, file_path=file_path
                     )
                 )
-
-        if history_list:
-            for event in reversed(history_list):
-                self.rmt_mediaext = [
-                    f".{ext.strip()}"
-                    for ext in configer.get_config("user_rmt_mediaext")
-                    .replace("，", ",")
-                    .split(",")
-                ]
-                self.download_mediaext = [
-                    f".{ext.strip()}"
-                    for ext in configer.get_config("user_download_mediaext")
-                    .replace("，", ",")
-                    .split(",")
-                ]
-
-                if int(event["type"]) == 2:
-                    self.new_creata_path(event=event, is_history=True)
-
         return from_time, from_id
 
     def check_status(self):
