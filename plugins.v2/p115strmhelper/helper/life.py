@@ -211,7 +211,7 @@ class MonitorLife:
                     logger.debug(f"获取 {cid} 路径（数据库）: {dir_path}")
                     idpathcacher.add_cache(id=cid, directory=str(dir_path))
                     return Path(dir_path)
-            dir_path = get_path(client=self._client, cid=cid, root_id=None)
+            dir_path = get_path(client=self._client, attr=cid, root_id=None)
             idpathcacher.add_cache(id=cid, directory=str(dir_path))
             if not dir_path:
                 logger.error(f"获取 {cid} 路径失败")
