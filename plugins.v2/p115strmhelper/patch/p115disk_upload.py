@@ -5,12 +5,12 @@ from app.log import logger
 from app.schemas import FileItem
 
 try:
-    from app.plugins.p115disk import P115Disk  # noqa: F401
+    from app.plugins.p115disk.p115_api import P115Api  # noqa: F401
 
-    P115DISK_AVAILABLE = True
+    P115API_AVAILABLE = True
 except (ImportError, Exception):
-    P115DISK_AVAILABLE = False
-    P115Disk = Any
+    P115API_AVAILABLE = False
+    P115Api = Any
 
 
 from ..core.config import configer
@@ -22,41 +22,43 @@ class P115DiskPatcher:
     P115Disk 上传增强补丁
     """
 
-    _original_upload_file: Optional[Callable[..., Any]] = None
+    _original_upload: Optional[Callable[..., Any]] = None
     _patched_class: Optional[Any] = None
     _active: bool = False
 
     @staticmethod
-    def _patch_upload_file(
+    def _patch_upload(
         self_instance: Any,
-        fileitem: FileItem,
-        path: Path,
+        target_dir: FileItem,
+        local_path: Path,
         new_name: Optional[str] = None,
     ) -> Optional[FileItem]:
         """
-        使用 P115DiskHelper 上传
+        使用 P115DiskCore 上传
         """
-        p115_api = getattr(self_instance, "_p115_api", None)
-        if not p115_api or not getattr(p115_api, "client", None):
+        client = getattr(self_instance, "client", None)
+        if not client:
             return None
-        helper = P115DiskCore(client=p115_api.client)
+        helper = P115DiskCore(client=client)
         logger.debug("【P115Disk】调用补丁接口上传")
-        return helper.upload(target_dir=fileitem, local_path=path, new_name=new_name)
+        return helper.upload(
+            target_dir=target_dir, local_path=local_path, new_name=new_name
+        )
 
     @classmethod
     def enable(cls) -> None:
         """
         应用补丁
         """
-        if not P115DISK_AVAILABLE:
+        if not P115API_AVAILABLE:
             return
         if not configer.upload_module_enhancement:
             return
         if cls._active:
             return
-        cls._original_upload_file = P115Disk.upload_file
-        P115Disk.upload_file = cls._patch_upload_file
-        cls._patched_class = P115Disk
+        cls._original_upload = P115Api.upload
+        P115Api.upload = cls._patch_upload
+        cls._patched_class = P115Api
         cls._active = True
         logger.info("【P115Disk】上传接口补丁应用成功")
 
@@ -67,12 +69,12 @@ class P115DiskPatcher:
         """
         if (
             not cls._active
-            or cls._original_upload_file is None
+            or cls._original_upload is None
             or cls._patched_class is None
         ):
             return
-        cls._patched_class.upload_file = cls._original_upload_file
-        cls._original_upload_file = None
+        cls._patched_class.upload = cls._original_upload
+        cls._original_upload = None
         cls._patched_class = None
         cls._active = False
         logger.info("【P115Disk】上传接口恢复原始状态成功")
