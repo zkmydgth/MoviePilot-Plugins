@@ -7,7 +7,6 @@ from datetime import datetime
 from functools import wraps
 from pathlib import Path
 from queue import Queue, Empty
-from threading import Event as ThreadEvent
 from typing import Any, List, Dict, Tuple, Optional, Union
 
 from app.chain.media import MediaChain
@@ -96,9 +95,6 @@ class P115StrmHelper(_PluginBase):
     _add_share_queue = None
     _add_share_worker_thread = None
     _add_share_worker_lock = None
-
-    # 退出事件
-    _event = ThreadEvent()
 
     @staticmethod
     def logs_oper(oper_name: str):
@@ -1516,9 +1512,7 @@ class P115StrmHelper(_PluginBase):
             if servicer.scheduler:
                 servicer.scheduler.remove_all_jobs()
                 if servicer.scheduler.running:
-                    self._event.set()
                     servicer.scheduler.shutdown()
-                    self._event.clear()
                 servicer.scheduler = None
             servicer.monitor_stop_event.set()
         except Exception as e:

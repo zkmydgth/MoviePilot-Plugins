@@ -1,5 +1,5 @@
-import threading
-import time
+from time import time, sleep
+from threading import Event, Thread
 from datetime import datetime, timedelta
 
 import pytz
@@ -32,7 +32,7 @@ class ServiceHelper:
         self.mediainfodownloader = None
         self.monitorlife = None
 
-        self.monitor_stop_event = threading.Event()
+        self.monitor_stop_event = Event()
         self.monitor_life_thread = None
 
         self.scheduler = None
@@ -64,7 +64,7 @@ class ServiceHelper:
             return
         logger.info("【监控生活事件】生活事件监控启动中...")
         try:
-            from_time = time.time()
+            from_time = time()
             from_id = 0
             while True:
                 if servicer.monitor_stop_event.is_set():
@@ -76,7 +76,7 @@ class ServiceHelper:
         except Exception as e:
             logger.error(f"【监控生活事件】生活事件监控运行失败: {e}")
             logger.info("【监控生活事件】30s 后尝试重新启动生活事件监控")
-            time.sleep(30)
+            sleep(30)
             self.monitor_life_strm_files()
         logger.info("【监控生活事件】已退出生活事件监控")
         return
@@ -96,12 +96,12 @@ class ServiceHelper:
             self.monitor_stop_event.clear()
             if self.monitor_life_thread:
                 if not self.monitor_life_thread.is_alive():
-                    self.monitor_life_thread = threading.Thread(
+                    self.monitor_life_thread = Thread(
                         target=self.monitor_life_strm_files, daemon=True
                     )
                     self.monitor_life_thread.start()
             else:
-                self.monitor_life_thread = threading.Thread(
+                self.monitor_life_thread = Thread(
                     target=self.monitor_life_strm_files, daemon=True
                 )
                 self.monitor_life_thread.start()
