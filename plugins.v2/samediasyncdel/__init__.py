@@ -219,8 +219,15 @@ class SaMediaSyncDel(_PluginBase):
                                 "props": {
                                     "type": "info",
                                     "variant": "tonal",
-                                    "text": "路径映射填：/data#/mnt/link。"
-                                    "不正确配置会导致查询不到转移记录！",
+                                    "text": "路径映射填：/data#/mnt/link。",
+                                },
+                            },
+                            {
+                                "component": "VAlert",
+                                "props": {
+                                    "type": "info",
+                                    "variant": "tonal",
+                                    "text": "不正确配置会导致查询不到转移记录！",
                                 },
                             },
                         ],
@@ -298,8 +305,15 @@ class SaMediaSyncDel(_PluginBase):
                                 "props": {
                                     "type": "info",
                                     "variant": "tonal",
-                                    "text": "路径映射填：/media/strm#/mnt/strm#/影视"
-                                    "不正确配置会导致查询不到转移记录！",
+                                    "text": "路径映射填：/media/strm#/mnt/strm#/影视",
+                                },
+                            },
+                            {
+                                "component": "VAlert",
+                                "props": {
+                                    "type": "info",
+                                    "variant": "tonal",
+                                    "text": "不正确配置会导致查询不到转移记录！",
                                 },
                             },
                         ],
