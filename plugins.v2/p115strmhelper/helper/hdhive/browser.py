@@ -1299,18 +1299,36 @@ class HDHivePlaywrightClient:
                             debug.log("  Token 已存在，直接进入结果轮询")
                         else:
                             debug.log(
-                                "  Widget 已初始化但 token 为空，"
-                                "Turnstile 可能无法连接 Cloudflare（建议为 MoviePilot 配置代理）"
+                                "  Widget 已初始化但 token 为空，Turnstile 验证请求静默挂起，"
+                                "尝试 JS reset 触发重新验证"
                             )
                             try:
                                 page.click("div#cf-turnstile", force=True)
-                                debug.log("  已点击 Turnstile 容器，等待响应")
-                                sleep(1)
+                                debug.log("  已点击 Turnstile 容器")
+                                sleep(0.5)
                                 debug.screenshot(
                                     page, "cf_container_nudge", "Turnstile容器点击后"
                                 )
                             except Exception as e:
                                 debug.log(f"  容器点击失败: {e}")
+
+                            try:
+                                reset_result = page.evaluate(
+                                    """() => {
+                                        if (window.turnstile) {
+                                            turnstile.reset('#cf-turnstile');
+                                            return 'reset called';
+                                        }
+                                        return 'turnstile not available';
+                                    }"""
+                                )
+                                debug.log(f"  Turnstile JS reset: {reset_result}")
+                                sleep(1)
+                                debug.screenshot(
+                                    page, "cf_after_js_reset", "Turnstile JS reset后"
+                                )
+                            except Exception as e:
+                                debug.log(f"  Turnstile JS reset 失败: {e}")
 
                             debug.log("等待 Turnstile token 写入（验证通过），超时 30s")
                             token_set = False
@@ -1333,8 +1351,8 @@ class HDHivePlaywrightClient:
 
                             if not token_set:
                                 debug.log(
-                                    "  30s 内 token 未写入，Cloudflare 验证无法完成。"
-                                    "请为 MoviePilot 配置代理后重试。"
+                                    "  30s 内 token 未写入，Cloudflare Turnstile 验证无法完成。"
+                                    "可能原因：浏览器指纹被识别为机器人、代理未正确路由 challenges.cloudflare.com 流量。"
                                 )
                                 debug.screenshot(
                                     page, "cf_mode_c_timeout", "ModeC超时无token"
