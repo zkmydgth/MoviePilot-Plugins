@@ -652,6 +652,7 @@ class IncrementSyncStrmHelper:
                 for item in batch:
                     processed.extend(self.databasehelper.process_fs_files_item(item))
                 self.databasehelper.upsert_batch(processed)
+            time.sleep(2)
 
     @property
     def service_infos(self) -> Optional[Dict[str, ServiceInfo]]:
@@ -1522,7 +1523,7 @@ class P115StrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png"
     # 插件版本
-    plugin_version = "1.8.11"
+    plugin_version = "1.8.12"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
