@@ -1163,6 +1163,7 @@ class P115StrmHelper(_PluginBase):
         退出插件
         """
         servicer.stop()
+        ct_db_manager.close_database()
 
     async def _save_config_api(self, request: Request) -> Dict:
         """
