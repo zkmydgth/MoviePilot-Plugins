@@ -132,7 +132,7 @@ def process_package_file(filepath, plugins_base_dir):
                     draft=False,
                     prerelease=False,
                 )
-                release.upload_asset(zip_filename, label=f"{plugin_id} Plugin Archive")
+                release.upload_asset(zip_filename)
                 print(
                     f"  Successfully created release and uploaded asset for '{plugin_id}'."
                 )
