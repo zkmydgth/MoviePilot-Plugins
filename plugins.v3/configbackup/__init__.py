@@ -350,6 +350,8 @@ class ConfigBackup(_PluginBase):
         backup_files = self.__list_backups(bk_path)
         # 当前待确认还原的备份
         pending = self.__get_pending_restore()
+        # 当前待确认删除的备份
+        pending_del = self.__get_pending_delete()
 
         # 顶部操作按钮
         actions = [
@@ -421,6 +423,56 @@ class ConfigBackup(_PluginBase):
                 }
             )
 
+        # 「确认删除」仅在已选中待删除备份时出现：
+        # 与还原一致采用两阶段交互，避免列表里误点【删除】直接抹掉备份。
+        if pending_del:
+            actions.append(
+                {
+                    "component": "VBtn",
+                    "props": {
+                        "color": "error",
+                        "variant": "flat",
+                        "size": "small",
+                        "class": "ml-2",
+                        "prependIcon": "mdi-delete-forever",
+                    },
+                    "text": "确认删除",
+                    "events": {
+                        "click": {
+                            "api": "plugin/ConfigBackup/delete",
+                            "method": "get",
+                            "params": {
+                                "apikey": settings.API_TOKEN,
+                                "confirm": "1",
+                            },
+                        },
+                    },
+                }
+            )
+            actions.append(
+                {
+                    "component": "VBtn",
+                    "props": {
+                        "color": "grey",
+                        "variant": "tonal",
+                        "size": "small",
+                        "class": "ml-2",
+                        "prependIcon": "mdi-close",
+                    },
+                    "text": "取消删除",
+                    "events": {
+                        "click": {
+                            "api": "plugin/ConfigBackup/delete",
+                            "method": "get",
+                            "params": {
+                                "apikey": settings.API_TOKEN,
+                                "confirm": "cancel",
+                            },
+                        }
+                    },
+                }
+            )
+
         header = [
             {
                 "component": "div",
@@ -460,6 +512,22 @@ class ConfigBackup(_PluginBase):
                         "class": "mt-2",
                         "text": "还原操作分两步：先在下表点击目标备份行的【还原】按钮选中它，"
                                 "然后点击上方出现的【确认还原】执行。",
+                    },
+                }
+            )
+
+        # 待删除提示
+        if pending_del:
+            header.append(
+                {
+                    "component": "VAlert",
+                    "props": {
+                        "type": "error",
+                        "variant": "tonal",
+                        "class": "mt-2",
+                        "text": f"已选中待删除备份：{pending_del.get('filename', '')}。"
+                                f"该文件将被永久删除且不可恢复，"
+                                f"请点击上方【确认删除】执行，或点击【取消删除】放弃本次操作。",
                     },
                 }
             )
@@ -556,7 +624,7 @@ class ConfigBackup(_PluginBase):
                                         "variant": "text",
                                         "size": "x-small",
                                         "prependIcon": "mdi-delete",
-                                        "title": "删除该备份",
+                                        "title": "选择该备份，然后在顶部点【确认删除】执行",
                                         "class": "ml-2",
                                     },
                                     "text": "删除",
@@ -615,35 +683,71 @@ class ConfigBackup(_PluginBase):
     def api_backup(self) -> Dict[str, Any]:
         """API：手动触发配置备份。"""
         success, msg = self.__backup()
-        return {"success": success, "message": msg}
+        return {"success": success, "message": msg, "data": None}
 
     def api_list(self) -> Dict[str, Any]:
         """API：获取备份文件列表。"""
         bk_path = Path(self._backup_dir) if self._backup_dir else self.get_data_path()
-        return {"success": True, "data": self.__list_backups(bk_path)}
+        return {"success": True, "message": "获取成功", "data": self.__list_backups(bk_path)}
 
-    def api_delete(self, filename: str = "") -> Dict[str, Any]:
-        """API：按文件名删除备份文件。"""
+    def api_delete(self, filename: str = "", confirm: str = "") -> Dict[str, Any]:
+        """
+        API：删除备份文件（两阶段确认）。
+
+        - filename 非空且 confirm 为空：选中待删除备份（写入待确认状态）
+        - confirm=1：执行删除
+        - confirm=cancel：取消待确认删除
+        """
+        # 取消删除
+        if confirm == "cancel":
+            self.__set_pending_delete(None)
+            return {"success": True, "message": "已取消删除操作", "data": None}
+
+        # 执行删除
+        if confirm == "1":
+            pending = self.__get_pending_delete()
+            if not pending or not pending.get("filename"):
+                return {"success": False, "message": "没有待删除的备份，请先在列表中选择备份文件", "data": None}
+            safe_name = pending["filename"]
+            target = self.__resolve_backup_path(safe_name)
+            if not target or not target.exists():
+                self.__set_pending_delete(None)
+                return {"success": False, "message": f"待删除的备份文件不存在：{safe_name}", "data": None}
+            try:
+                if target.is_file():
+                    target.unlink()
+                elif target.is_dir():
+                    shutil.rmtree(target)
+                self.__set_pending_delete(None)
+                logger.info(f"删除备份文件 {target} 成功")
+                return {"success": True, "message": f"删除备份 {safe_name} 成功", "data": None}
+            except Exception as e:
+                self.__set_pending_delete(None)
+                logger.error(f"删除备份文件 {target} 失败: {e}")
+                return {"success": False, "message": f"删除失败: {e}", "data": None}
+
+        # 选择待删除备份
         if not filename:
-            return {"success": False, "message": "缺少文件名参数"}
-        # 防止路径穿越
+            return {"success": False, "message": "缺少文件名参数", "data": None}
+        # 防止路径穿越：与 __resolve_backup_path 保持同一套命名约定
+        # （bk_ 前缀 + .zip 后缀），避免出现"删除比还原更宽松"的口子。
         safe_name = Path(filename).name
-        if safe_name != filename or not safe_name.startswith(self._prefix):
-            return {"success": False, "message": "非法文件名"}
+        if safe_name != filename or not safe_name.startswith(self._prefix) \
+                or not safe_name.endswith(".zip"):
+            return {"success": False, "message": "非法文件名", "data": None}
         bk_path = Path(self._backup_dir) if self._backup_dir else self.get_data_path()
         target = bk_path / safe_name
         if not target.exists():
-            return {"success": False, "message": "备份文件不存在"}
-        try:
-            if target.is_file():
-                target.unlink()
-            elif target.is_dir():
-                shutil.rmtree(target)
-            logger.info(f"删除备份文件 {target} 成功")
-            return {"success": True, "message": f"删除备份 {safe_name} 成功"}
-        except Exception as e:
-            logger.error(f"删除备份文件 {target} 失败: {e}")
-            return {"success": False, "message": f"删除失败: {e}"}
+            return {"success": False, "message": "备份文件不存在", "data": None}
+        # 选中删除时，清掉待还原状态，避免两个确认按钮同时出现造成误操作
+        self.__set_pending_restore(None)
+        self.__set_pending_delete({"filename": safe_name})
+        logger.info(f"已选择待删除备份 {safe_name}")
+        return {
+            "success": True,
+            "message": f"已选择备份 {safe_name}，请点击页面顶部的【确认删除】按钮执行删除",
+            "data": None,
+        }
 
     def api_restore(self, filename: str = "", confirm: str = "") -> Dict[str, Any]:
         """
@@ -657,20 +761,20 @@ class ConfigBackup(_PluginBase):
             # 取消还原
             if confirm == "cancel":
                 self.__set_pending_restore(None)
-                return {"success": True, "message": "已取消还原操作"}
+                return {"success": True, "message": "已取消还原操作", "data": None}
 
             # 执行还原
             if confirm == "1":
                 if not self._restore_lock.acquire(blocking=False):
-                    return {"success": False, "message": "已有还原操作正在进行，请稍后再试"}
+                    return {"success": False, "message": "已有还原操作正在进行，请稍后再试", "data": None}
                 try:
                     pending = self.__get_pending_restore()
                     if not pending or not pending.get("filename"):
-                        return {"success": False, "message": "没有待还原的备份，请先在列表中选择备份文件"}
+                        return {"success": False, "message": "没有待还原的备份，请先在列表中选择备份文件", "data": None}
                     zip_path = self.__resolve_backup_path(pending["filename"])
                     if not zip_path or not zip_path.exists():
                         self.__set_pending_restore(None)
-                        return {"success": False, "message": f"待还原的备份文件不存在：{pending['filename']}"}
+                        return {"success": False, "message": f"待还原的备份文件不存在：{pending['filename']}", "data": None}
                     # 还原前自动备份当前状态（安全网）
                     bk_ok, bk_msg = self.__backup()
                     # 执行还原
@@ -684,38 +788,41 @@ class ConfigBackup(_PluginBase):
                             text=msg,
                         )
                     full_msg = f"还原前已自动备份当前状态（{bk_msg}）。{msg}" if bk_ok else msg
-                    return {"success": ok, "message": full_msg}
+                    return {"success": ok, "message": full_msg, "data": None}
                 finally:
                     self._restore_lock.release()
 
             # 选择待还原备份
             if not filename:
-                return {"success": False, "message": "缺少文件名参数"}
+                return {"success": False, "message": "缺少文件名参数", "data": None}
             safe_name = Path(filename).name
-            if safe_name != filename or not safe_name.startswith(self._prefix):
-                return {"success": False, "message": "非法文件名"}
+            if safe_name != filename or not safe_name.startswith(self._prefix) \
+                    or not safe_name.endswith(".zip"):
+                return {"success": False, "message": "非法文件名", "data": None}
             zip_path = self.__resolve_backup_path(safe_name)
             if not zip_path or not zip_path.exists():
-                return {"success": False, "message": "备份文件不存在"}
+                return {"success": False, "message": "备份文件不存在", "data": None}
             # 校验 zip 完整性
             try:
                 with zipfile.ZipFile(zip_path, "r") as zf:
                     bad = zf.testzip()
                 if bad:
-                    return {"success": False, "message": f"备份文件已损坏（{bad}）"}
+                    return {"success": False, "message": f"备份文件已损坏（{bad}）", "data": None}
             except Exception as e:
-                return {"success": False, "message": f"无法读取备份文件: {e}"}
+                return {"success": False, "message": f"无法读取备份文件: {e}", "data": None}
             ctime = datetime.fromtimestamp(os.path.getctime(zip_path)).strftime("%Y-%m-%d %H:%M:%S")
+            # 选中还原时，清掉待删除状态，避免两个确认按钮同时出现造成误操作
+            self.__set_pending_delete(None)
             self.__set_pending_restore({
                 "filename": safe_name,
                 "time": ctime,
                 "size": os.path.getsize(zip_path),
             })
             logger.info(f"已选择待还原备份 {safe_name}")
-            return {"success": True, "message": f"已选择备份 {safe_name}，请点击页面顶部的【确认还原】按钮执行还原"}
+            return {"success": True, "message": f"已选择备份 {safe_name}，请点击页面顶部的【确认还原】按钮执行还原", "data": None}
         except Exception as e:
             logger.error(f"还原操作失败: {e}")
-            return {"success": False, "message": f"还原操作失败: {e}"}
+            return {"success": False, "message": f"还原操作失败: {e}", "data": None}
 
     def __resolve_backup_path(self, filename: str) -> Optional[Path]:
         """
@@ -734,6 +841,35 @@ class ConfigBackup(_PluginBase):
     def __pending_file(self) -> Path:
         """待确认还原状态文件路径。"""
         return self.get_data_path() / "pending_restore.json"
+
+    def __pending_delete_file(self) -> Path:
+        """待确认删除状态文件路径。"""
+        return self.get_data_path() / "pending_delete.json"
+
+    def __get_pending_delete(self) -> Optional[Dict[str, Any]]:
+        """读取待确认删除状态。"""
+        try:
+            f = self.__pending_delete_file()
+            if f.exists():
+                data = json.loads(f.read_text(encoding="utf-8"))
+                if data and data.get("filename"):
+                    return data
+        except Exception as e:
+            logger.debug(f"读取待删除状态失败: {e}")
+        return None
+
+    def __set_pending_delete(self, data: Optional[Dict[str, Any]]):
+        """写入或清除待确认删除状态。"""
+        try:
+            f = self.__pending_delete_file()
+            if not data:
+                if f.exists():
+                    f.unlink()
+                return
+            f.parent.mkdir(parents=True, exist_ok=True)
+            f.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        except Exception as e:
+            logger.error(f"写入待删除状态失败: {e}")
 
     def __get_pending_restore(self) -> Optional[Dict[str, Any]]:
         """读取待确认还原状态。"""

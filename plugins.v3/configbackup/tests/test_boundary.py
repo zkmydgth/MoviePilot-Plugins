@@ -90,6 +90,15 @@ class _BoundaryBase(unittest.TestCase):
     def pending_file(self) -> Path:
         return self.plugin._ConfigBackup__pending_file()
 
+    def get_pending_delete(self):
+        return self.plugin._ConfigBackup__get_pending_delete()
+
+    def set_pending_delete(self, data):
+        self.plugin._ConfigBackup__set_pending_delete(data)
+
+    def pending_delete_file(self) -> Path:
+        return self.plugin._ConfigBackup__pending_delete_file()
+
 
 # ======================================================================
 # 1. 路径穿越防护
@@ -179,7 +188,29 @@ class TestPathTraversal(_BoundaryBase):
                     result.get("success"), f"【{label}】删除应被拒绝：{result}"
                 )
 
-        self.assertTrue(outsider.exists(), "备份目录外的文件被误删（严重）")
+        self.assertTrue(outsider.exists(), "备份目录外的文件被删了！")
+
+    def test_delete_select_rejects_illegal_name_before_any_io(self):
+        """
+        删除选择阶段的文件名校验必须**独立生效**，不能依赖下游兜底。
+
+        选中阶段的第一道闸就是前缀校验：它必须直接把非法名挡在门外，
+        而不是先写 pending、再靠 __resolve_backup_path 或 exists() 拦下。
+        若这道闸被摘掉，穿越名虽仍可能因下游防御而失败，
+        但"非法文件名"这一明确语义会丢失，且会留下脏 pending 状态。
+        """
+        for label, name in self.MALICIOUS:
+            with self.subTest(case=label, name=name):
+                result = self.plugin.api_delete(filename=name)
+                self.assertFalse(result.get("success"), f"【{label}】应被拒绝：{result}")
+                self.assertIn(
+                    "非法文件名", result.get("message", ""),
+                    f"【{label}】应由前置前缀校验直接拒绝（而非下游兜底），实际：{result}",
+                )
+                self.assertIsNone(
+                    self.get_pending_delete(),
+                    f"【{label}】被拒后不得残留待删除状态",
+                )
 
     def test_delete_rejects_basename_collision(self):
         """
@@ -459,23 +490,64 @@ class TestDeleteSafety(_BoundaryBase):
     """删除接口的边界行为。"""
 
     def test_empty_filename_rejected(self):
-        """空文件名应被拒绝。"""
+        """空文件名且未带 confirm 应被拒绝（不得误判为"确认删除"）。"""
         result = self.plugin.api_delete(filename="")
 
         self.assertFalse(result.get("success"))
         self.assertIn("缺少文件名", result.get("message", ""))
+        self.assertIn("data", result, "响应必须包含 data 键（宿主 envelope 三键契约）")
 
-    def test_delete_twice_is_idempotent(self):
-        """重复删除：第二次应报"不存在"，且不影响其它备份。"""
+    def test_delete_two_stage(self):
+        """两阶段删除：首次仅选中、不落盘；确认后才真正删除。"""
         target = self.make_backup("20260918_070000")
         other = self.make_backup("20260918_070001")
         name = target.name
 
-        first = self.plugin.api_delete(filename=name)
-        second = self.plugin.api_delete(filename=name)
+        select = self.plugin.api_delete(filename=name)
+        self.assertTrue(select.get("success"), select)
+        self.assertTrue(target.exists(), "仅选中阶段不得删除文件")
+        self.assertIsNotNone(self.get_pending_delete(), "选中后应写入待删除状态")
+
+        confirm = self.plugin.api_delete(filename="", confirm="1")
+        self.assertTrue(confirm.get("success"), confirm)
+        self.assertFalse(target.exists(), "确认后应删除文件")
+        self.assertTrue(other.exists(), "其它备份不应受影响")
+        self.assertIsNone(self.get_pending_delete(), "确认后应清除待删除状态")
+
+    def test_delete_confirm_without_selection_rejected(self):
+        """未经选中直接确认删除应被拒绝（防止误触确认按钮）。"""
+        self.make_backup("20260918_070004")
+
+        result = self.plugin.api_delete(filename="", confirm="1")
+
+        self.assertFalse(result.get("success"), result)
+        self.assertIn("没有待删除", result.get("message", ""))
+
+    def test_delete_cancel(self):
+        """取消删除：清除待删除状态，且文件必须完好无损。"""
+        target = self.make_backup("20260918_070005")
+
+        self.plugin.api_delete(filename=target.name)
+        self.assertIsNotNone(self.get_pending_delete())
+
+        result = self.plugin.api_delete(filename="", confirm="cancel")
+
+        self.assertTrue(result.get("success"), result)
+        self.assertIsNone(self.get_pending_delete(), "取消后应清除待删除状态")
+        self.assertTrue(target.exists(), "取消删除不得动文件")
+
+    def test_delete_confirm_twice_is_idempotent(self):
+        """确认删除后再确认：第二次应报"不存在"，且不影响其它备份。"""
+        target = self.make_backup("20260918_070006")
+        other = self.make_backup("20260918_070007")
+        name = target.name
+
+        self.plugin.api_delete(filename=name)
+        first = self.plugin.api_delete(filename="", confirm="1")
+        second = self.plugin.api_delete(filename="", confirm="1")
 
         self.assertTrue(first.get("success"), first)
-        self.assertFalse(second.get("success"), f"重复删除应报不存在：{second}")
+        self.assertFalse(second.get("success"), f"重复确认应报无待删除：{second}")
         self.assertFalse(target.exists())
         self.assertTrue(other.exists(), "其它备份不应受影响")
 
@@ -485,6 +557,7 @@ class TestDeleteSafety(_BoundaryBase):
         lookalike = self.make_backup("20260918_070003")
 
         self.plugin.api_delete(filename=target.name)
+        self.plugin.api_delete(filename="", confirm="1")
 
         self.assertFalse(target.exists())
         self.assertTrue(lookalike.exists(), "相似名备份被误删")

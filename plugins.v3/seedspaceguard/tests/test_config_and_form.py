@@ -290,23 +290,66 @@ class TestStatusAndPage(unittest.TestCase):
     """状态展示与 API 返回。"""
 
     def test_api_status_includes_dirs(self):
-        """状态 API 应返回多目录列表。"""
+        """状态 API 应在 data 内返回多目录列表。"""
         import asyncio
 
         plugin = SeedSpaceGuard()
         plugin.init_plugin({"enabled": True, "target_dirs": "/vol/a\n/vol/b"})
         result = asyncio.run(plugin.api_status(request=None))
         self.assertTrue(result["success"])
-        self.assertEqual(result["target_dirs"], ["/vol/a", "/vol/b"])
+        self.assertEqual(result["data"]["target_dirs"], ["/vol/a", "/vol/b"])
 
     def test_api_status_keeps_legacy_field(self):
-        """状态 API 应保留单目录字段（向后兼容老调用方）。"""
+        """状态 API 应在 data 内保留单目录字段（向后兼容老调用方）。"""
         import asyncio
 
         plugin = SeedSpaceGuard()
         plugin.init_plugin({"enabled": True, "target_dirs": "/vol/a\n/vol/b"})
         result = asyncio.run(plugin.api_status(request=None))
-        self.assertEqual(result["target_dir"], "/vol/a")
+        self.assertEqual(result["data"]["target_dir"], "/vol/a")
+
+    def test_api_status_satisfies_host_envelope(self):
+        """
+        状态 API 必须满足宿主 envelope 三键契约。
+
+        业务字段若平铺在顶层，顶层键数会超过 3，前端 isApiResponse()
+        判定失败并弹出「服务器返回了无效响应」。
+        """
+        import asyncio
+
+        plugin = SeedSpaceGuard()
+        plugin.init_plugin({"enabled": True, "target_dirs": "/vol/a"})
+        result = asyncio.run(plugin.api_status(request=None))
+
+        self.assertEqual(
+            sorted(result.keys()), ["data", "message", "success"],
+            f"顶层只能是 success/message/data 三键，实际：{sorted(result.keys())}",
+        )
+        self.assertIsInstance(result["success"], bool)
+        self.assertIsInstance(result["message"], str)
+        self.assertIsInstance(result["data"], dict)
+
+    def test_api_run_satisfies_host_envelope(self):
+        """手动触发 API 同样必须满足三键契约。"""
+        import asyncio
+
+        plugin = SeedSpaceGuard()
+        plugin.init_plugin({"enabled": True, "target_dirs": "/vol/a"})
+
+        class _Req:
+            query_params = {}
+
+            async def json(self):
+                return {}
+
+        result = asyncio.run(plugin.api_run(request=_Req()))
+
+        self.assertEqual(
+            sorted(result.keys()), ["data", "message", "success"],
+            f"顶层只能是 success/message/data 三键，实际：{sorted(result.keys())}",
+        )
+        self.assertIsInstance(result["success"], bool)
+        self.assertIsInstance(result["message"], str)
 
     def test_api_status_legacy_field_empty_when_no_dirs(self):
         """无目录时兼容字段应为空字符串。"""
@@ -315,7 +358,7 @@ class TestStatusAndPage(unittest.TestCase):
         plugin = SeedSpaceGuard()
         plugin.init_plugin({"enabled": True})
         result = asyncio.run(plugin.api_status(request=None))
-        self.assertEqual(result["target_dir"], "")
+        self.assertEqual(result["data"]["target_dir"], "")
 
     def test_page_none_when_disabled(self):
         """插件未启用时详情页应返回 None。"""
