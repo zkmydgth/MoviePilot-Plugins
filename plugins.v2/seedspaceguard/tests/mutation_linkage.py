@@ -187,7 +187,20 @@ def run_tests():
 
 
 def main():
-    shutil.copy(BACKUP, TARGET)
+    # 必须先把**当前源码**备份下来，而不是假定 BACKUP 已存在。
+    # 原实现在这里直接 ``shutil.copy(BACKUP, TARGET)``，一旦 ``/tmp`` 里没有
+    # 备份文件（新机器、清理过 /tmp、或上次异常退出），就会在本行抛
+    # FileNotFoundError 并导致流程中断；若目录中已存在半成品备份，
+    # 更会把**变异状态**的源码回写到插件目录，等于永久损坏源码。
+    # 改为主动备份 + finally 无条件还原。
+    shutil.copy(TARGET, BACKUP)
+    try:
+        return _run()
+    finally:
+        shutil.copy(BACKUP, TARGET)
+
+
+def _run():
     base_ok, base_tail = run_tests()
     print(f"基线：{'✅ 全部通过' if base_ok else '❌ 基线即失败'}")
     if not base_ok:
@@ -217,7 +230,6 @@ def main():
             detail = fails.group(0) if fails else "有失败"
             print(f"[{idx:2d}] ✅ 捕获：{name} → {detail}")
 
-    shutil.copy(BACKUP, TARGET)
     print(f"\\n{'='*70}")
     print(f"结果：捕获 {caught} / 逃逸 {escaped} / 合计 {caught + escaped}")
     if escaped_names:
