@@ -47,7 +47,7 @@ class CCTVDiscover(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/DDS-Derek/MoviePilot-Plugins/main/icons/CCTV_A.png"
     # 插件版本
-    plugin_version = "1.1"
+    plugin_version = "1.2"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -694,6 +694,13 @@ class CCTVDiscover(_PluginBase):
                 "channel": None,
             },
             filter_ui=self.cctv_filter_ui(),
+            depends={
+                "area": ["fc"],
+                "sc": ["fc"],
+                "year": ["fc"],
+                "fl": ["fc"],
+                "channel": ["fc"],
+            },
         )
         if not event_data.extra_sources:
             event_data.extra_sources = [cctv_source]

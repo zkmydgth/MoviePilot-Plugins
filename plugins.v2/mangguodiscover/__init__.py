@@ -94,7 +94,7 @@ class MangGuoDiscover(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/DDS-Derek/MoviePilot-Plugins/main/icons/mangguo_A.jpg"
     # 插件版本
-    plugin_version = "1.0.0"
+    plugin_version = "1.0.1"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -326,6 +326,16 @@ class MangGuoDiscover(_PluginBase):
                 "feature": None,
             },
             filter_ui=self.mangguo_filter_ui(),
+            depends={
+                "chargeInfo": ["mtype"],
+                "sort": ["mtype"],
+                "kind": ["mtype"],
+                "edition": ["mtype"],
+                "area": ["mtype"],
+                "fitAge": ["mtype"],
+                "year": ["mtype"],
+                "feature": ["mtype"],
+            },
         )
         if not event_data.extra_sources:
             event_data.extra_sources = [mangguo_source]

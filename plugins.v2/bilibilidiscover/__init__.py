@@ -730,7 +730,7 @@ class BilibiliDiscover(_PluginBase):
     # 插件图标
     plugin_icon = "Bilibili_E.png"
     # 插件版本
-    plugin_version = "1.0.1"
+    plugin_version = "1.0.2"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -1224,6 +1224,22 @@ class BilibiliDiscover(_PluginBase):
                 "producer_id": None,
             },
             filter_ui=self.bilibili_filter_ui(),
+            depends={
+                "release_date": ["mtype"],
+                "year": ["mtype"],
+                "sort": ["mtype"],
+                "season_status": ["mtype"],
+                "style_id": ["mtype"],
+                "season_month": ["mtype"],
+                "_copyright": ["mtype"],
+                "is_finish": ["mtype"],
+                "area": ["mtype"],
+                "spoken_language_type": ["mtype"],
+                "season_version": ["mtype"],
+                "edition": ["mtype"],
+                "order": ["mtype"],
+                "producer_id": ["mtype"],
+            },
         )
         if not event_data.extra_sources:
             event_data.extra_sources = [bilibili_source]
