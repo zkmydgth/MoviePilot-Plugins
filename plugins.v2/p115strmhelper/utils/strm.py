@@ -7,6 +7,7 @@ from app.core.config import settings
 from ahocorasick import Automaton
 
 from ..core.config import configer
+from ..schemas.size import CompareMinSize
 
 
 class StrmUrlGetter:
@@ -122,7 +123,7 @@ class StrmGenerater:
     def should_generate_strm(
         filename: str,
         mode: str,
-        filesize: Optional[int] = None,
+        filesize: Optional[int] | CompareMinSize = None,
         blacklist_automaton: Optional[Automaton] = None,
     ) -> tuple[str, bool]:
         """
@@ -177,19 +178,20 @@ class StrmGenerater:
         return "", True
 
     @staticmethod
-    def not_min_limit(mode: str, filesize: Optional[int] = None) -> tuple[str, bool]:
+    def not_min_limit(mode: str, filesize: Optional[int] | CompareMinSize = None) -> tuple[str, bool]:
         """
         判断文件大小是否低于最低限制
         """
         min_size = None
+        if isinstance(filesize, CompareMinSize):
+            min_size = filesize.min_size
+            filesize = filesize.file_size
         if mode == "full":
             min_size = configer.full_sync_min_file_size
         elif mode == "life":
             min_size = configer.monitor_life_min_file_size
         elif mode == "increment":
             min_size = configer.increment_sync_min_file_size
-        elif mode == "share":
-            min_size = configer.share_strm_min_file_size
 
         if not min_size or min_size == 0:
             return "", True

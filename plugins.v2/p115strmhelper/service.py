@@ -8,7 +8,6 @@ from typing import Optional, List
 import pytz
 from apscheduler.schedulers.background import BackgroundScheduler
 from p115client import P115Client
-from p115client.util import share_extract_payload
 from watchdog.observers import Observer
 from watchdog.observers.polling import PollingObserver
 from aligo.core import set_config_folder
@@ -282,37 +281,14 @@ class ServiceHelper:
         """
         分享生成STRM
         """
-        if (
-            not configer.get_config("user_share_pan_path")
-            or not configer.get_config("user_share_local_path")
-            or not configer.get_config("moviepilot_address")
-        ):
+        if not configer.share_strm_config or not configer.moviepilot_address:
             return
-
-        if configer.get_config("user_share_link"):
-            data = share_extract_payload(configer.get_config("user_share_link"))
-            share_code = data["share_code"]
-            receive_code = data["receive_code"]
-            logger.info(
-                f"【分享STRM生成】解析分享链接 share_code={share_code} receive_code={receive_code}"
-            )
-        else:
-            if not configer.get_config("user_share_code") or not configer.get_config(
-                "user_receive_code"
-            ):
-                return
-            share_code = configer.get_config("user_share_code")
-            receive_code = configer.get_config("user_receive_code")
 
         try:
             strm_helper = ShareStrmHelper(
                 client=self.client, mediainfodownloader=self.mediainfodownloader
             )
-            strm_helper.generate_strm_files(
-                cid=0,
-                share_code=share_code,
-                receive_code=receive_code,
-            )
+            strm_helper.generate_strm_files()
             strm_count, mediainfo_count, strm_fail_count, mediainfo_fail_count = (
                 strm_helper.get_generate_total()
             )

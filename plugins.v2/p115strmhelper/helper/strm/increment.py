@@ -75,10 +75,8 @@ class IncrementSyncStrmHelper:
         self.api_count = 0
         self.strm_fail_dict: Dict[str, str] = {}
         self.mediainfo_fail_dict: List = []
-        self.server_address = configer.moviepilot_address.rstrip("/")
         self.pan_transfer_enabled = configer.pan_transfer_enabled
         self.pan_transfer_paths = configer.pan_transfer_paths
-        self.strm_url_format = configer.strm_url_format
         self.databasehelper = FileDbHelper()
         self.directory_cache = DirectoryCache(
             configer.PLUGIN_TEMP_PATH / "increment_skip"

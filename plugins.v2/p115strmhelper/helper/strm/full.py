@@ -76,10 +76,8 @@ class FullSyncStrmHelper:
         self.remove_unless_strm_count = 0
         self.strm_fail_dict: Dict[str, str] = {}
         self.mediainfo_fail_dict: List = []
-        self.server_address = configer.moviepilot_address.rstrip("/")
         self.pan_transfer_enabled = configer.pan_transfer_enabled
         self.pan_transfer_paths = configer.pan_transfer_paths
-        self.strm_url_format = configer.strm_url_format
         self.overwrite_mode = configer.full_sync_overwrite_mode
         self.remove_unless_strm = configer.full_sync_remove_unless_strm
         self.databasehelper = FileDbHelper()
@@ -668,12 +666,14 @@ class FullSyncStrmHelper:
                         "auto_download_mediainfo": self.auto_download_mediainfo,
                         "rmt_mediaext_set": list(self.rmt_mediaext_set),
                         "download_mediaext_set": list(self.download_mediaext_set),
-                        "strm_generate_blacklist": configer.strm_generate_blacklist or [],
+                        "strm_generate_blacklist": configer.strm_generate_blacklist
+                        or [],
                         "mediainfo_download_whitelist": configer.mediainfo_download_whitelist
                         or [],
                         "mediainfo_download_blacklist": configer.mediainfo_download_blacklist
                         or [],
-                        "full_sync_min_file_size": configer.full_sync_min_file_size or 0,
+                        "full_sync_min_file_size": configer.full_sync_min_file_size
+                        or 0,
                         "pan_media_dir": pan_media_dir,
                     }
                     config_json = dumps(config_for_rust).decode("utf-8")
@@ -684,7 +684,9 @@ class FullSyncStrmHelper:
                         logger.error(f"【全量STRM生成】初始化 Rust 核心失败: {e}")
                         return False
 
-                    logger.info(f"【全量STRM生成】Full Sync STRM Rust Core Version：v{rust_core_version}")
+                    logger.info(
+                        f"【全量STRM生成】Full Sync STRM Rust Core Version：v{rust_core_version}"
+                    )
 
                 try:
                     parent_id = get_pid_by_path(

@@ -654,20 +654,16 @@
           </v-card-title>
           <v-card-text class="pa-3">
             <v-row>
-              <v-col cols="12" md="6">
-                <v-text-field v-model="shareDialog.globalMinFileSizeFormatted" label="STRM最小文件大小" 
-                  hint="小于此值不生成STRM(K,M,G)" persistent-hint variant="outlined" density="compact" 
-                  placeholder="例如: 100M" clearable></v-text-field>
-              </v-col>
-              <v-col cols="12" md="6">
+              <v-col cols="12">
                 <v-select v-model="shareDialog.globalMediaservers" label="刷新媒体服务器" 
+                  hint="应用于所有分享配置的媒体服务器刷新设置" persistent-hint
                   :items="mediaservers" multiple chips closable-chips variant="outlined" density="compact"></v-select>
               </v-col>
             </v-row>
-            <v-row>
+            <v-row class="mt-2">
               <v-col cols="12">
                 <v-textarea v-model="shareDialog.globalMpMediaserverPaths" label="MP-媒体库 目录转换" 
-                  hint="格式：媒体库路径#MP路径，多个用换行分隔。例如：/media#/mp" persistent-hint 
+                  hint="格式：媒体库路径#MP路径，多个用换行分隔。应用于所有分享配置" persistent-hint 
                   variant="outlined" density="compact" rows="3" auto-grow placeholder="例如:&#10;/media#/mp&#10;/nas#/movie"></v-textarea>
               </v-col>
             </v-row>
@@ -700,10 +696,19 @@
                         本地路径: {{ config.local_path }}
                       </span>
                       <span v-else class="text-grey">未配置本地路径</span>
-                      <span v-if="config.share_path && config.share_path !== '/'" class="mt-1">
-                        <v-icon icon="mdi-folder-network" size="x-small" class="mr-1"></v-icon>
-                        分享路径: {{ config.share_path }}
-                      </span>
+                      <div class="d-flex flex-wrap ga-2 mt-1">
+                        <span v-if="config.share_path && config.share_path !== '/'">
+                          <v-icon icon="mdi-folder-network" size="x-small" class="mr-1"></v-icon>
+                          分享路径: {{ config.share_path }}
+                        </span>
+                        <span v-if="config.min_file_size">
+                          <v-icon icon="mdi-file-size" size="x-small" class="mr-1"></v-icon>
+                          最小文件: {{ formatBytes(config.min_file_size) }}
+                        </span>
+                        <v-chip v-if="config.moviepilot_transfer" size="x-small" color="primary" variant="tonal">
+                          MP整理
+                        </v-chip>
+                      </div>
                     </div>
                   </v-list-item-subtitle>
                   <template v-slot:append>
@@ -782,6 +787,14 @@
             <v-text-field v-model="shareConfigDialog.localPath" label="本地路径" hint="本地生成STRM文件的路径" persistent-hint
               variant="outlined" density="compact" prepend-inner-icon="mdi-folder" append-icon="mdi-folder-search"
               @click:append="openShareConfigDirSelector('local')"></v-text-field>
+          </v-col>
+        </v-row>
+
+        <v-row class="mb-2">
+          <v-col cols="12" md="6">
+            <v-text-field v-model="shareConfigDialog.minFileSizeFormatted" label="分享生成最小文件大小" 
+              hint="小于此值不生成STRM(K,M,G)" persistent-hint variant="outlined" density="compact" 
+              placeholder="例如: 100M" clearable prepend-inner-icon="mdi-file-document"></v-text-field>
           </v-col>
         </v-row>
 
@@ -1348,7 +1361,6 @@ const shareDialog = reactive({
   show: false,
   error: null,
   configs: [],
-  globalMinFileSizeFormatted: '',
   globalMediaservers: [],
   globalMpMediaserverPaths: '',
 });
@@ -1362,6 +1374,7 @@ const shareConfigDialog = reactive({
   shareReceive: '',
   sharePath: '/',
   localPath: '',
+  minFileSizeFormatted: '',
   moviepilotTransfer: false,
   autoDownloadMediainfo: false,
   mediaServerRefresh: false,
@@ -1407,7 +1420,6 @@ const openShareDialog = () => {
       : [];
     
     // 加载全局配置
-    shareDialog.globalMinFileSizeFormatted = formatBytes(props.initialConfig.share_strm_min_file_size || 0);
     shareDialog.globalMediaservers = Array.isArray(props.initialConfig.share_strm_mediaservers)
       ? [...props.initialConfig.share_strm_mediaservers]
       : [];
@@ -1428,6 +1440,7 @@ const addShareConfig = () => {
   shareConfigDialog.shareReceive = '';
   shareConfigDialog.sharePath = '/';
   shareConfigDialog.localPath = '';
+  shareConfigDialog.minFileSizeFormatted = '';
   shareConfigDialog.moviepilotTransfer = false;
   shareConfigDialog.autoDownloadMediainfo = false;
   shareConfigDialog.mediaServerRefresh = false;
@@ -1445,6 +1458,7 @@ const editShareConfig = (index) => {
   shareConfigDialog.shareReceive = config.share_receive || '';
   shareConfigDialog.sharePath = config.share_path || '/';
   shareConfigDialog.localPath = config.local_path || '';
+  shareConfigDialog.minFileSizeFormatted = formatBytes(config.min_file_size || 0);
   shareConfigDialog.moviepilotTransfer = config.moviepilot_transfer || false;
   shareConfigDialog.autoDownloadMediainfo = config.auto_download_mediainfo || false;
   shareConfigDialog.mediaServerRefresh = config.media_server_refresh || false;
@@ -1478,6 +1492,7 @@ const saveShareConfig = () => {
     share_receive: shareConfigDialog.shareReceive || null,
     share_path: shareConfigDialog.sharePath || null,
     local_path: shareConfigDialog.localPath,
+    min_file_size: parseSize(shareConfigDialog.minFileSizeFormatted) || null,
     moviepilot_transfer: shareConfigDialog.moviepilotTransfer,
     auto_download_mediainfo: shareConfigDialog.moviepilotTransfer ? false : shareConfigDialog.autoDownloadMediainfo,
     media_server_refresh: shareConfigDialog.moviepilotTransfer ? false : shareConfigDialog.mediaServerRefresh,
@@ -1615,7 +1630,6 @@ const executeShareSync = async () => {
     if (props.initialConfig) {
       // 更新配置
       props.initialConfig.share_strm_config = shareDialog.configs;
-      props.initialConfig.share_strm_min_file_size = parseSize(shareDialog.globalMinFileSizeFormatted) || null;
       props.initialConfig.share_strm_mediaservers = shareDialog.globalMediaservers.length > 0 
         ? [...shareDialog.globalMediaservers] 
         : null;

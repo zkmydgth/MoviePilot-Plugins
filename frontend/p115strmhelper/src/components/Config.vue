@@ -1587,7 +1587,6 @@ const config = reactive({
   monitor_life_min_file_size: 0,
   monitor_life_event_wait_time: 0,
   share_strm_config: [],
-  share_strm_min_file_size: null,
   share_strm_mediaservers: [],
   share_strm_mp_mediaserver_paths: '',
   clear_recyclebin_enabled: false,

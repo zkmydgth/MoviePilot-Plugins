@@ -92,7 +92,7 @@ class Api:
     )
     def get_user_storage_status(self) -> UserStorageStatusResponse:
         """
-        获取115用户基本信息和空间使用情况。
+        获取 115 用户基本信息和空间使用情况。
         """
         if not configer.get_config("cookies"):
             return UserStorageStatusResponse(
@@ -400,6 +400,7 @@ class Api:
                     configer.update_plugin_config()
                     try:
                         self._client = P115Client(_cookies)
+                        self.get_user_storage_status.cache_clear()
                         return ApiResponse(
                             data=CheckQRCodeData(
                                 status="success", msg="登录成功", cookie=_cookies
@@ -413,9 +414,7 @@ class Api:
                 else:
                     return ApiResponse(code=-1, msg="登录成功但未能正确解析Cookie")
             else:
-                specific_error = resp.get(
-                    "message", resp.get("error", "未知错误")
-                )
+                specific_error = resp.get("message", resp.get("error", "未知错误"))
                 return ApiResponse(
                     code=-1, msg=f"获取登录会话数据失败: {specific_error}"
                 )
@@ -525,7 +524,7 @@ class Api:
         receive_code: str = "",
     ) -> Response:
         """
-        115网盘302跳转
+        115 网盘 302 跳转
         """
         user_agent = request.headers.get("User-Agent") or b""
         logger.debug(f"【302跳转服务】获取到客户端UA: {user_agent}")
@@ -641,11 +640,8 @@ class Api:
         try:
             if not configer.get_config("enabled") or not configer.get_config("cookies"):
                 return ApiResponse(code=1, msg="插件未启用或未配置cookie")
-            if not configer.get_config("user_share_link") and not (
-                configer.get_config("user_share_code")
-                and configer.get_config("user_receive_code")
-            ):
-                return ApiResponse(code=1, msg="未配置分享链接或分享码")
+            if not configer.share_strm_config:
+                return ApiResponse(code=1, msg="分享同步未配置")
             servicer.start_share_sync()
             return ApiResponse(msg="分享同步任务已启动")
         except Exception as e:

@@ -256,8 +256,6 @@ class ConfigManager(BaseModel):
 
     # 分享 STRM 生成配置
     share_strm_config: List[ShareStrmConfig] = []
-    # 分享生成最小文件大小
-    share_strm_min_file_size: Optional[int] = None
     # 刷新媒体服务器
     share_strm_mediaservers: Optional[List[str]] = None
     # MP-媒体库 目录转换
