@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from hashlib import sha256
 from re import sub as re_sub
 from time import monotonic
+from typing import List, Tuple
 from urllib.parse import urlparse
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
@@ -64,14 +65,19 @@ MEDIA_ROUTES = [
 CROSS_ORIGIN_PATTERN = r"&&\s*\(elem\.crossOrigin\s*=\s*initialSubtitleStream\)"
 
 
-def create_app(emby_host: str) -> FastAPI:
+def create_app(
+    emby_host: str,
+    pin_rules: List[Tuple[str, str]] | None = None,
+) -> FastAPI:
     """
     创建 Emby 反向代理 FastAPI 应用。
 
     :param emby_host: Emby 服务器根地址。
+    :param pin_rules: 顶置路径规则列表 (路径前缀, 目标URL)；命中时先替换再 302。
     :return: 配置好的 FastAPI 应用实例。
     """
     emby_host = emby_host.rstrip("/")
+    pin_rules = pin_rules or []
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -194,6 +200,39 @@ def create_app(emby_host: str) -> FastAPI:
             logger.warning("解析重定向失败，使用原始 URL: %s", url, exc_info=True)
             return url
 
+    def _apply_pin_rules(url_or_path: str, rules: List[Tuple[str, str]]) -> str:
+        """
+        对 PlaybackInfo 返回的 Path（URL 或路径）应用顶置规则：匹配前缀则替换为目标 URL。
+
+        :param url_or_path: 完整 URL 或路径字符串。
+        :param rules: 顶置规则列表 (路径前缀, 目标URL)。
+        :return: 替换后的 URL，未命中则返回原串。
+        """
+        if not url_or_path or not rules:
+            return url_or_path
+        path_component: str
+        original_query: str = ""
+        if url_or_path.startswith(("http://", "https://")):
+            parsed = urlparse(url_or_path)
+            path_component = parsed.path or "/"
+            original_query = parsed.query or ""
+        else:
+            path_component = (
+                url_or_path if url_or_path.startswith("/") else "/" + url_or_path
+            )
+        for path_prefix, target_url in rules:
+            if path_component != path_prefix and not path_component.startswith(
+                path_prefix + "/"
+            ):
+                continue
+            suffix = path_component[len(path_prefix) :].lstrip("/")
+            base = target_url.rstrip("/")
+            new_url = base + ("/" + suffix if suffix else "")
+            if original_query:
+                new_url += "?" + original_query
+            return new_url
+        return url_or_path
+
     async def _try_media_response(
         item_id: str, api_key: str, request: Request
     ) -> RedirectResponse | StreamingResponse | JSONResponse | None:
@@ -242,6 +281,7 @@ def create_app(emby_host: str) -> FastAPI:
             if media_source_id and sid != media_source_id:
                 continue
             path = source.get("Path", "")
+            path = _apply_pin_rules(path, pin_rules)
             if path.startswith(("http://", "https://")):
                 fwd_headers = _build_forward_headers(request)
                 final_url = await _resolve_redirect(client_follow, path, fwd_headers)

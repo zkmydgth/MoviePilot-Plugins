@@ -9,6 +9,44 @@ from app.plugins import _PluginBase
 from .proxy_app import create_app
 
 
+PIN_RULES_SEP = " => "
+
+
+def _parse_pin_rules(raw: str) -> List[Tuple[str, str]]:
+    """
+    解析顶置路径规则字符串为 (路径前缀, 目标URL) 列表。
+
+    :param raw: 多行文本，每行「路径前缀 => 目标URL」（用 " => " 分隔，两侧可含空格）。
+    :return: 合法规则列表；非法行忽略并打日志。
+    """
+    result: List[Tuple[str, str]] = []
+    for line in (raw or "").strip().splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        if PIN_RULES_SEP not in line:
+            logger.warning(
+                '顶置规则格式错误，已忽略（需用 " => " 分隔路径前缀与目标URL）: %s',
+                line,
+            )
+            continue
+        parts = line.split(PIN_RULES_SEP, 1)
+        path_prefix = parts[0].strip()
+        target_url = parts[1].strip()
+        if not path_prefix or not target_url:
+            logger.warning("顶置规则路径或目标为空，已忽略: %s", line)
+            continue
+        if not target_url.startswith(("http://", "https://")):
+            logger.warning(
+                "顶置规则目标需以 http:// 或 https:// 开头，已忽略: %s => %s",
+                path_prefix,
+                target_url,
+            )
+            continue
+        result.append((path_prefix, target_url))
+    return result
+
+
 class EmbyReverseProxy(_PluginBase):
     """
     Emby 302 反向代理
@@ -30,6 +68,8 @@ class EmbyReverseProxy(_PluginBase):
     _emby_host = ""
     _host = "0.0.0.0"
     _port = 8099
+    _pin_rules: List[Tuple[str, str]] = []
+    _pin_rules_raw = ""
     _server = None
     _thread = None
 
@@ -47,6 +87,8 @@ class EmbyReverseProxy(_PluginBase):
                 self._port = int(config.get("port") or 8099)
             except (TypeError, ValueError):
                 self._port = 8099
+            self._pin_rules_raw = (config.get("pin_rules") or "").strip()
+            self._pin_rules = _parse_pin_rules(self._pin_rules_raw)
             self._update_config()
 
         self.stop_service()
@@ -54,7 +96,7 @@ class EmbyReverseProxy(_PluginBase):
         if self._enabled and self._emby_host:
             if not self._emby_host.startswith(("http://", "https://")):
                 self._emby_host = "http://" + self._emby_host
-            app = create_app(self._emby_host)
+            app = create_app(self._emby_host, pin_rules=self._pin_rules)
             try:
                 uv_config = Config(
                     app=app,
@@ -88,6 +130,7 @@ class EmbyReverseProxy(_PluginBase):
                 "emby_host": self._emby_host,
                 "host": self._host,
                 "port": self._port,
+                "pin_rules": self._pin_rules_raw,
             }
         )
 
@@ -200,9 +243,32 @@ class EmbyReverseProxy(_PluginBase):
                     },
                 ],
             },
+            {
+                "component": "VRow",
+                "content": [
+                    {
+                        "component": "VCol",
+                        "props": {"cols": 12},
+                        "content": [
+                            {
+                                "component": "VTextarea",
+                                "props": {
+                                    "model": "pin_rules",
+                                    "label": "顶置路径规则",
+                                    "rows": 4,
+                                    "placeholder": "每行一条：路径前缀 => 目标URL",
+                                    "hint": '用 " => " 分隔，路径匹配前缀时先替换为目标 URL 再 302。例如：/strm/cd2 => http://192.168.31.99:4567/d',
+                                    "persistent-hint": True,
+                                },
+                            }
+                        ],
+                    },
+                ],
+            },
         ], {
             "enabled": False,
             "emby_host": "",
             "host": "0.0.0.0",
             "port": 8099,
+            "pin_rules": "",
         }
