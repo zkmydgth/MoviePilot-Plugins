@@ -2,7 +2,7 @@ from shutil import move as shutil_move, rmtree
 from collections import defaultdict
 from threading import Timer, Event, Thread
 from time import sleep, strftime, localtime, time
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional, Set, Any
 from pathlib import Path
 from itertools import batched
 
@@ -70,10 +70,10 @@ class MonitorLife:
         17: "new_folder",        创建新目录 写入数据库
         18: "copy_folder",       复制文件夹 生成 STRM;写入数据库
         19: "folder_label",      标签文件夹 无操作
-        20: "folder_rename",     重命名文件夹 无操作
+        20: "folder_rename",     重命名文件夹 重命名本地文件夹;更新数据库
         22: "delete_file",       删除文件/文件夹 删除 STRM;移除数据库
         23: "copy_file",         复制文件 生成 STRM;写入数据库
-        24: "rename_file",       重命名文件 无操作
+        24: "rename_file",       重命名文件 重命名本地文件/生成新STRM;更新数据库
     }
     """
 
@@ -962,6 +962,223 @@ class MonitorLife:
             remove_local=configer.monitor_life_move_out_media_remove_local_strm,
         )
 
+    def rename(self, event: Dict[str, Any]):
+        """
+        重命名事件处理
+
+        :param event: 事件对象
+        """
+        if "rename" not in configer.monitor_life_event_modes:
+            return
+
+        _databasehelper = FileDbHelper()
+
+        # 获取旧路径
+        old_pan_path = None
+        file_item = _databasehelper.get_by_id(int(event["file_id"]))
+        if file_item:
+            old_pan_path = file_item.get("path", "")
+
+        new_parent_path = self._get_path_by_cid(int(event["parent_id"]))
+        if new_parent_path is None:
+            logger.warning(
+                f"【监控生活事件】无法获取父目录路径，跳过重命名处理: {event}"
+            )
+            return
+        new_name = event["file_name"]
+        new_pan_path = (Path(new_parent_path) / new_name).as_posix()
+
+        old_path = None
+        if old_pan_path:
+            _, old_target_dir, old_pan_media_dir = PathUtils.get_media_path(
+                configer.monitor_life_paths, old_pan_path
+            )
+            old_path = Path(old_target_dir) / Path(old_pan_path).relative_to(
+                old_pan_media_dir
+            )
+
+        new_is_media, new_target_dir, new_pan_media_dir = PathUtils.get_media_path(
+            configer.monitor_life_paths, new_pan_path
+        )
+        if not new_is_media:
+            logger.debug(
+                f"【监控生活事件】{new_pan_path} 非媒体库路径，跳过重命名处理: {event}"
+            )
+            return
+        new_path = Path(new_target_dir) / Path(new_pan_path).relative_to(
+            new_pan_media_dir
+        )
+
+        if int(event["type"]) == 20:
+            # 文件夹重命名
+            if not old_path:
+                logger.warning(
+                    f"【监控生活事件】无法获取旧文件夹名称，跳过重命名处理: {event}"
+                )
+                return
+
+            if Path(old_path).parent != Path(new_path).parent:
+                logger.warning(
+                    f"【监控生活事件】旧文件夹路径与新文件夹路径不一致，跳过重命名处理: {event}",
+                )
+                return
+
+            if not Path(old_path).is_dir():
+                logger.warning(
+                    f"【监控生活事件】{old_path} 本地文件夹不存在，跳过重命名处理: {event}",
+                )
+                return
+
+            if old_pan_path and new_pan_path:
+                _databasehelper.update_path_prefix_batch(
+                    old_pan_path, new_pan_path, False
+                )
+                logger.info(
+                    "【监控生活事件】目录重命名数据库路径批量同步完成: %s -> %s",
+                    old_pan_path,
+                    new_pan_path,
+                )
+
+            if Path(new_path).exists():
+                logger.warning(
+                    "【监控生活事件】重命名目标已存在，跳过: %s",
+                    new_path,
+                )
+                return
+
+            try:
+                shutil_move(old_path, new_path)
+                logger.info(
+                    "【监控生活事件】本地文件夹重命名完成: %s -> %s",
+                    old_path,
+                    new_path,
+                )
+            except Exception as e:
+                logger.error(
+                    "【监控生活事件】本地文件夹重命名失败: %s",
+                    e,
+                    exc_info=True,
+                )
+                return
+        else:
+            # 文件重命名
+            new_strm_path = new_path.parent / StrmGenerater.get_strm_filename(new_path)
+            new_strm_exists = new_strm_path.is_file()
+
+            if not old_path:
+                if not new_strm_exists:
+                    logger.info(
+                        "【监控生活事件】无法获取旧路径且新文件不存在，生成 STRM 文件: %s",
+                        event,
+                    )
+                    self._create(event=event, file_path=Path(new_pan_path))
+                else:
+                    logger.info(
+                        "【监控生活事件】无法获取旧文件路径且新文件存在，跳过重命名处理: %s",
+                        event,
+                    )
+                return
+
+            if Path(old_path).parent != Path(new_path).parent:
+                logger.warning(
+                    f"【监控生活事件】旧文件路径与新文件路径不一致，跳过重命名处理: {event}",
+                )
+                return
+
+            old_strm_path = old_path.parent / StrmGenerater.get_strm_filename(old_path)
+            old_strm_exists = old_strm_path.is_file()
+
+            if not old_strm_exists:
+                if not new_strm_exists:
+                    logger.info(
+                        "【监控生活事件】本地无旧文件且新路径不存在，生成 STRM 文件: %s",
+                        event,
+                    )
+                    self._create(event=event, file_path=Path(new_pan_path))
+                else:
+                    logger.info(
+                        "【监控生活事件】本地无旧文件但目标已存在，跳过重命名: %s",
+                        event,
+                    )
+                return
+
+            if old_pan_path and new_pan_path:
+                _databasehelper.update_path_prefix_batch(
+                    old_pan_path, new_pan_path, True
+                )
+                logger.info(
+                    "【监控生活事件】文件重命名数据库路径批量同步完成: %s -> %s",
+                    old_pan_path,
+                    new_pan_path,
+                )
+            elif new_pan_path:
+                if _databasehelper.update_path_by_id(
+                    int(event["file_id"]), new_pan_path
+                ):
+                    logger.info(
+                        "【监控生活事件】文件重命名数据库按 id 更新路径: %s -> %s",
+                        event["file_id"],
+                        new_pan_path,
+                    )
+
+            if old_strm_path.resolve() == new_strm_path.resolve():
+                logger.debug(
+                    "【监控生活事件】STRM 已为正确路径，仅已同步数据库: %s",
+                    new_strm_path,
+                )
+                return
+
+            if new_strm_exists:
+                if not new_strm_path.samefile(old_strm_path):
+                    logger.warning(
+                        "【监控生活事件】重命名目标 STRM 已存在，跳过: %s",
+                        new_strm_path,
+                    )
+                    return
+
+            related_entries: List[Path] = []
+            if configer.monitor_life_rename_auto_related_files:
+                for sibling in old_strm_path.parent.glob(f"{old_path.stem}*"):
+                    if sibling.suffix.lower() == ".strm" or not sibling.is_file():
+                        continue
+                    related_entries.append(sibling)
+
+            try:
+                old_strm_path.rename(new_strm_path)
+                logger.info(
+                    "【监控生活事件】本地 STRM 重命名完成: %s -> %s",
+                    old_strm_path,
+                    new_strm_path,
+                )
+
+                if related_entries:
+                    old_stem = old_path.stem
+                    new_stem = new_path.stem
+                    for sibling in related_entries:
+                        if not sibling.name.startswith(old_stem):
+                            continue
+                        dest_name = new_stem + sibling.name[len(old_stem) :]
+                        dest = sibling.parent / dest_name
+                        if dest.exists():
+                            logger.info(
+                                "【监控生活事件】关联文件重命名跳过，目标已存在: %s",
+                                dest,
+                            )
+                            continue
+                        sibling.rename(dest)
+                        logger.info(
+                            "【监控生活事件】关联文件重命名完成: %s -> %s",
+                            sibling,
+                            dest,
+                        )
+            except Exception as e:
+                logger.error(
+                    "【监控生活事件】本地文件重命名失败: %s",
+                    e,
+                    exc_info=True,
+                )
+                return
+
     def remove(self, event: Dict, remove_local: bool = True):
         """
         删除 STRM 文件
@@ -1279,7 +1496,7 @@ class MonitorLife:
             )
 
         if configer.monitor_life_move_media_local_move_related_files:
-            for sibling in old_strm_path.parent.glob(f"{old_strm_path.stem}*"):
+            for sibling in old_strm_path.parent.glob(f"{old_local_path.stem}*"):
                 if sibling.suffix.lower() == ".strm" or not sibling.is_file():
                     continue
                 target_sibling = new_strm_path.parent / sibling.name
@@ -1464,17 +1681,7 @@ class MonitorLife:
             return_from_id = int(event["id"])
             return_from_time = int(event["update_time"])
 
-            if (
-                int(event["type"]) != 1
-                and int(event["type"]) != 2
-                and int(event["type"]) != 5
-                and int(event["type"]) != 6
-                and int(event["type"]) != 14
-                and int(event["type"]) != 17
-                and int(event["type"]) != 18
-                and int(event["type"]) != 22
-                and int(event["type"]) != 23
-            ):
+            if int(event["type"]) not in {1, 2, 5, 6, 14, 17, 18, 20, 22, 23, 24}:
                 continue
 
             if (
@@ -1490,6 +1697,10 @@ class MonitorLife:
             if int(event["type"]) == 5 or int(event["type"]) == 6:
                 # 移动事件处理
                 self.move(event=event)
+
+            if int(event["type"]) == 20 or int(event["type"]) == 24:
+                # 重命名事件处理
+                self.rename(event=event)
 
             if int(event["type"]) == 22:
                 # 删除文件/文件夹事件处理

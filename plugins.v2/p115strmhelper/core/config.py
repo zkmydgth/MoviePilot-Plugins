@@ -483,6 +483,10 @@ class ConfigManager(BaseModel):
         default=True,
         description="媒体目录内移动为 local_move 模式时，是否迁移 STRM 关联文件",
     )
+    monitor_life_rename_auto_related_files: bool = Field(
+        default=True,
+        description="生活事件重命名文件时，是否同步重命名 STRM 同 stem 的关联文件",
+    )
     monitor_life_min_file_size: Optional[int] = Field(
         default=None, ge=0, description="生活事件生成最小文件大小"
     )

@@ -559,6 +559,14 @@
           </v-row>
 
           <v-row>
+            <v-col cols="12" md="6">
+              <v-switch v-model="config.monitor_life_rename_auto_related_files"
+                label="重命名事件时同步重命名 STRM 关联文件" color="primary" density="compact"
+                hide-details></v-switch>
+            </v-col>
+          </v-row>
+
+          <v-row>
             <v-col cols="12">
               <v-card variant="outlined" class="pa-3 life-move-strategy-card">
                 <div class="d-flex align-center mb-2 life-move-title">
