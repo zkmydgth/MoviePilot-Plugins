@@ -1,3 +1,0 @@
-p115nano302
-p115updatedb
-uvicorn
