@@ -37,16 +37,17 @@ jobs:
     runs-on: ubuntu-latest
     # 任务输出
     outputs:
-      # 输出一个包含完整 matrix 配置的 JSON 字符串
+      # 输出一个包含完整 matrix 配置的、原始的 JSON 字符串
       matrix: ${{ steps.generate_matrix.outputs.matrix }}
     steps:
       # 步骤1：将输入的字符串转换为一个完整的 matrix JSON 对象
       - name: 从输入字符串生成矩阵 JSON
         id: generate_matrix
         run: |
-          # 将空格分隔的字符串转换为一个 JSON 对象 {"target": ["item1", "item2", ...]}
-          # tojson 会确保输出的是一个格式正确的、单行的 JSON 字符串，便于后续步骤使用
-          JSON_OBJECT=$(echo '${{ inputs.platforms }}' | jq -R '{target: split(" ")} | tojson')
+          # 关键修正：使用 -c (compact) 参数确保输出为单行。
+          # 关键修正：移除了错误的 `| tojson`，以避免双重编码。
+          # 这将生成一个原始的 JSON 对象字符串，例如：{"target":["windows-amd64","linux-x86_64"]}
+          JSON_OBJECT=$(echo '${{ inputs.platforms }}' | jq -c -R '{target: split(" ")}')
           echo "matrix=${JSON_OBJECT}" >> $GITHUB_OUTPUT
           echo "生成的矩阵对象: ${JSON_OBJECT}"
 
@@ -92,7 +93,7 @@ jobs:
     # 构建矩阵策略
     strategy:
       fail-fast: false
-      # 关键改动：直接从上一个任务的输出中注入整个 matrix 配置
+      # 现在 fromJSON 可以正确解析来自 prepare_matrix 的原始 JSON 对象字符串
       matrix: ${{ fromJSON(needs.prepare_matrix.outputs.matrix) }}
 
     steps:
