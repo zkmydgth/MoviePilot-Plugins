@@ -979,11 +979,54 @@
 
       <v-card-text class="pa-0">
         <v-tabs v-model="offlineDownloadDialog.activeTab" bg-color="primary-gradient" grow>
-          <v-tab value="tasks">任务列表</v-tab>
           <v-tab value="add">添加任务</v-tab>
+          <v-tab value="tasks">任务列表</v-tab>
         </v-tabs>
 
         <v-window v-model="offlineDownloadDialog.activeTab" touchless>
+          <!-- 添加任务 -->
+          <v-window-item value="add">
+            <div class="pa-3">
+              <v-alert v-if="offlineDownloadDialog.addError" type="error" density="compact" class="mb-3"
+                variant="tonal">
+                {{ offlineDownloadDialog.addError }}
+              </v-alert>
+              <v-textarea v-model="offlineDownloadDialog.links" label="下载链接" hint="每行一个链接，支持 http(s)/ftp/magnet/ed2k"
+                persistent-hint variant="outlined" rows="5" clearable></v-textarea>
+              
+              <!-- 路径选择：下拉列表 + 手动输入 -->
+              <v-combobox v-model="offlineDownloadDialog.destPath" 
+                :items="offlineDownloadDialog.availablePathStrings" 
+                label="网盘保存路径 (可选)" 
+                hint="可选，默认为网盘待整理目录。可从缓存路径或配置路径中选择，也可手动输入"
+                persistent-hint 
+                variant="outlined" 
+                density="compact"
+                class="mt-3"
+                clearable>
+                  <template v-slot:prepend-inner>
+                    <v-icon icon="mdi-folder-network-outline" size="small"></v-icon>
+                  </template>
+                  <template v-slot:append-inner>
+                    <v-btn icon="mdi-folder-network" variant="text" size="x-small" 
+                      @click.stop="openOfflineDestDirSelector" 
+                      class="mr-n2"></v-btn>
+                  </template>
+                  <template v-slot:item="{ props: itemProps, item }">
+                    <v-list-item v-bind="itemProps" :title="getPathLabel(item.raw)">
+                    </v-list-item>
+                  </template>
+                </v-combobox>
+
+              <div class="d-flex justify-end mt-3">
+                <v-btn color="primary" @click="addOfflineTask" :loading="offlineDownloadDialog.adding"
+                  :disabled="!offlineDownloadDialog.links || offlineDownloadDialog.adding" prepend-icon="mdi-plus">
+                  添加任务
+                </v-btn>
+              </div>
+            </div>
+          </v-window-item>
+
           <!-- 任务列表 -->
           <v-window-item value="tasks">
             <div style="overflow-x: auto;" @touchstart.stop @touchmove.stop @touchend.stop>
@@ -1012,29 +1055,6 @@
                   </v-chip>
                 </template>
               </v-data-table-server>
-            </div>
-          </v-window-item>
-
-          <!-- 添加任务 -->
-          <v-window-item value="add">
-            <div class="pa-3">
-              <v-alert v-if="offlineDownloadDialog.addError" type="error" density="compact" class="mb-3"
-                variant="tonal">
-                {{ offlineDownloadDialog.addError }}
-              </v-alert>
-              <v-textarea v-model="offlineDownloadDialog.links" label="下载链接" hint="每行一个链接，支持 http(s)/ftp/magnet/ed2k"
-                persistent-hint variant="outlined" rows="5" clearable></v-textarea>
-              <v-text-field v-model="offlineDownloadDialog.destPath" label="网盘保存路径 (可选)" hint="可选，默认为网盘待整理目录"
-                persistent-hint variant="outlined" density="compact" class="mt-3"
-                append-inner-icon="mdi-folder-network-outline" @click:append-inner="openOfflineDestDirSelector"
-                clearable></v-text-field>
-
-              <div class="d-flex justify-end mt-3">
-                <v-btn color="primary" @click="addOfflineTask" :loading="offlineDownloadDialog.adding"
-                  :disabled="!offlineDownloadDialog.links || offlineDownloadDialog.adding" prepend-icon="mdi-plus">
-                  添加任务
-                </v-btn>
-              </div>
             </div>
           </v-window-item>
         </v-window>
@@ -1314,9 +1334,43 @@ const storageInfo = reactive({
   loading: true
 });
 
+// 路径缓存管理
+const OFFLINE_PATH_CACHE_KEY = 'p115strmhelper_offline_paths_cache';
+const MAX_CACHED_PATHS = 20; // 最多缓存20个路径
+
+const getCachedPaths = () => {
+  try {
+    const cached = localStorage.getItem(OFFLINE_PATH_CACHE_KEY);
+    if (cached) {
+      const paths = JSON.parse(cached);
+      return Array.isArray(paths) ? paths.filter(p => p && typeof p === 'string') : [];
+    }
+  } catch (e) {
+    console.error('读取路径缓存失败:', e);
+  }
+  return [];
+};
+
+const addPathToCache = (path) => {
+  if (!path || !path.trim()) return;
+  const trimmedPath = path.trim();
+  let cached = getCachedPaths();
+  // 移除重复项
+  cached = cached.filter(p => p !== trimmedPath);
+  // 添加到开头
+  cached.unshift(trimmedPath);
+  // 限制数量
+  cached = cached.slice(0, MAX_CACHED_PATHS);
+  try {
+    localStorage.setItem(OFFLINE_PATH_CACHE_KEY, JSON.stringify(cached));
+  } catch (e) {
+    console.error('保存路径缓存失败:', e);
+  }
+};
+
 const offlineDownloadDialog = reactive({
   show: false,
-  activeTab: 'tasks',
+  activeTab: 'add', // 默认显示添加任务标签页
   loading: false,
   adding: false,
   error: null,
@@ -1332,6 +1386,8 @@ const offlineDownloadDialog = reactive({
   ],
   links: '',
   destPath: '',
+  availablePaths: [], // 可用路径列表（缓存路径 + 配置路径）- 对象数组
+  availablePathStrings: [], // 可用路径字符串数组，用于 v-combobox
 });
 
 const calculateStoragePercentage = (used, total) => {
@@ -1861,11 +1917,54 @@ const executeShareSync = async () => {
   }
 };
 
+const buildAvailablePaths = () => {
+  const paths = [];
+  const pathSet = new Set();
+  
+  // 1. 添加缓存的路径
+  const cachedPaths = getCachedPaths();
+  cachedPaths.forEach(path => {
+    if (path && !pathSet.has(path)) {
+      paths.push({ label: `📁 ${path}`, path: path, type: 'cached' });
+      pathSet.add(path);
+    }
+  });
+  
+  // 2. 添加配置的离线下载路径
+  if (props.initialConfig?.offline_download_paths && Array.isArray(props.initialConfig.offline_download_paths)) {
+    props.initialConfig.offline_download_paths.forEach(path => {
+      if (path && typeof path === 'string' && path.trim() && !pathSet.has(path.trim())) {
+        paths.push({ label: `⚙️ ${path.trim()}`, path: path.trim(), type: 'config' });
+        pathSet.add(path.trim());
+      }
+    });
+  }
+  
+  offlineDownloadDialog.availablePaths = paths;
+  // 同时生成字符串数组供 v-combobox 使用
+  offlineDownloadDialog.availablePathStrings = paths.map(p => p.path);
+};
+
+const handlePathSelect = (item) => {
+  if (item && item.path) {
+    offlineDownloadDialog.destPath = item.path;
+  } else {
+    offlineDownloadDialog.destPath = '';
+  }
+};
+
+const getPathLabel = (path) => {
+  if (!path) return '';
+  const found = offlineDownloadDialog.availablePaths.find(p => p.path === path);
+  return found ? found.label : path;
+};
+
 const openOfflineDownloadDialog = () => {
   offlineDownloadDialog.show = true;
-  offlineDownloadDialog.activeTab = 'tasks';
+  offlineDownloadDialog.activeTab = 'add'; // 默认显示添加任务标签页
   offlineDownloadDialog.error = null;
   offlineDownloadDialog.addError = null;
+  buildAvailablePaths(); // 构建可用路径列表
 };
 
 const closeOfflineDownloadDialog = () => {
@@ -1918,6 +2017,11 @@ const addOfflineTask = async () => {
     if (result && result.code === 0) {
       actionMessage.value = result.msg || '离线任务添加成功';
       actionMessageType.value = 'success';
+      // 缓存选择的路径
+      if (offlineDownloadDialog.destPath && offlineDownloadDialog.destPath.trim()) {
+        addPathToCache(offlineDownloadDialog.destPath);
+        buildAvailablePaths(); // 更新可用路径列表
+      }
       offlineDownloadDialog.links = '';
       offlineDownloadDialog.destPath = '';
       offlineDownloadDialog.activeTab = 'tasks';
