@@ -245,6 +245,19 @@ class FileDbHelper(DbOper):
             Folder.remove_by_path_batch(self._db, path)
         return True
 
+    def remove_by_id_batch(self, id: int, only_file: bool = False):
+        """
+        通过文件夹 ID 批量删除
+        """
+        folder = Folder.get_by_id(self._db, id)
+        if not folder:
+            return True
+        path = folder.path
+        File.remove_by_path_batch(self._db, path)
+        if not only_file:
+            Folder.remove_by_path_batch(self._db, path)
+        return True
+
     def remove_by_path(self, path_type: str, path: str):
         """
         删除指定路径的记录

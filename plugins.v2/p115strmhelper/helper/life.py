@@ -231,6 +231,7 @@ class MonitorLife:
             cache_top_path = False
             cache_file_id_list = []
             logger.info(f"【网盘整理】开始处理 {file_path} 文件夹中...")
+            _databasehelper.remove_by_id_batch(int(event["file_id"]), False)
             # 文件夹情况，遍历文件夹，获取整理文件
             # 缓存顶层文件夹ID
             if str(event["file_id"]) not in pantransfercacher.delete_pan_transfer_list:
@@ -248,7 +249,6 @@ class MonitorLife:
                         str(item["parent_id"])
                     )
                 if file_path.suffix.lower() in rmt_mediaext:
-                    _databasehelper.remove_by_id("file", item["id"])
                     # 缓存文件ID
                     if (
                         str(item["id"])
@@ -282,7 +282,6 @@ class MonitorLife:
                     file_path.suffix.lower() in settings.RMT_AUDIOEXT
                     or file_path.suffix.lower() in settings.RMT_SUBEXT
                 ):
-                    _databasehelper.remove_by_id("file", item["id"])
                     # 如果是MP可处理的音轨或字幕文件，则缓存文件ID
                     if (
                         str(item["id"])
