@@ -8,6 +8,7 @@ from typing import Optional
 from time import sleep
 
 from p115client import P115Client
+from p115client.tool import get_attr, get_id_to_path
 
 from app.chain.storage import StorageChain
 from app.log import logger
@@ -154,6 +155,32 @@ def handle_file(client: P115Client, event_path: str, mon_path: str):
                     )
                     if uploaded_file_item:
                         break
+                if not uploaded_file_item and upload_storage != "CloudDrive储存":
+                    try:
+                        fid = get_id_to_path(
+                            client,
+                            target_file_path.as_posix(),
+                            **configer.get_ios_ua_app(app=False),
+                        )
+                        attr = get_attr(
+                            client, fid, **configer.get_ios_ua_app(app=False)
+                        )
+                        uploaded_file_item = FileItem(
+                            storage=upload_storage,
+                            fileid=str(attr["id"]),
+                            path=target_file_path.as_posix(),
+                            type="file",
+                            name=attr["name"],
+                            basename=Path(attr["name"]).stem,
+                            extension=Path(attr["name"]).suffix[1:]
+                            if Path(attr["name"]).suffix
+                            else None,
+                            pickcode=attr["pickcode"],
+                            size=attr["size"],
+                            modify_time=attr["mtime"],
+                        )
+                    except Exception:
+                        pass
                 if uploaded_file_item:
                     logger.info(
                         f"【目录上传】{file_path} 上传到网盘 {target_file_path} 成功 "
