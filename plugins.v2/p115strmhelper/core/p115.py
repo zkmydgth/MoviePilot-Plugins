@@ -16,7 +16,7 @@ from itertools import cycle
 from os import PathLike
 from pathlib import Path
 from time import time, sleep
-from typing import Literal, List, Tuple, Dict, Any, Set, Optional
+from typing import Literal, List, Tuple, Dict, Any, Set, Optional, Union
 from concurrent.futures import ThreadPoolExecutor, Future, as_completed
 
 from iterutils import Yield, run_gen_step_iter
@@ -275,6 +275,7 @@ def get_pid_by_path(
     mkdir: bool = True,
     update_cache: bool = True,
     by_cache: bool = True,
+    request_timeout: Optional[Union[int, float]] = None,
 ) -> int:
     """
     通过文件夹路径获取 ID
@@ -284,6 +285,7 @@ def get_pid_by_path(
     :param mkdir: 不存在则创建文件夹
     :param update_cache: 更新文件路径 ID 到缓存中
     :param by_cache: 通过缓存获取
+    :param request_timeout: 单次 API 请求超时秒数，None 表示不限制
 
     :return int: 文件夹 ID，0 为根目录，-1 为获取失败
     """
@@ -296,7 +298,10 @@ def get_pid_by_path(
         pid = idpathcacher.get_id_by_dir(directory=path)
         if pid:
             return pid
-    resp = client.fs_dir_getid(path, **configer.get_ios_ua_app(app=False))
+    kwargs = configer.get_ios_ua_app(app=False)
+    if request_timeout is not None:
+        kwargs["timeout"] = request_timeout
+    resp = client.fs_dir_getid(path, **kwargs)
     check_response(resp)
     pid = resp.get("id", -1)
     if pid == -1:
