@@ -22,12 +22,16 @@ __all__ = [
     "record_login_event",
     "record_run",
     "recent_results",
+    "record_ai_keywords",
+    "AI_KEYWORD_LOG_LIMIT",
 ]
 
 # 每个 bot 保留的历史结果条数上限
 MAX_HISTORY_PER_BOT = 10
 # 页面展示的最近结果条数
 PAGE_RESULT_LIMIT = 30
+# AI 归纳关键词的审计日志保留条数
+AI_KEYWORD_LOG_LIMIT = 100
 
 
 def state_path(data_dir: Path) -> Path:
@@ -57,6 +61,7 @@ def load_state(data_dir: Path) -> Dict[str, Any]:
         "accounts": {},
         "history": [],
         "results": [],
+        "ai_keyword_log": [],
     }
     if not path.exists():
         return default
@@ -197,3 +202,27 @@ def recent_results(state: Dict[str, Any], limit: int = PAGE_RESULT_LIMIT) -> Lis
 
     history: Sequence[Dict[str, Any]] = state.get("history") or []
     return list(reversed(list(history)))[:limit]
+
+
+def record_ai_keywords(
+    data_dir: Path,
+    entries: Sequence[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """
+    记录本次 AI 归纳**实际新增**的关键词（审计用，供详情页回看）。
+
+    只记录真正写进词表的新词；被查重跳过的候选不在此列（那属于「已存在，未重复添加」）。
+
+    :param data_dir: 插件数据目录
+    :param entries: 每条形如 ``{time, account, bot, verdict, keyword}``
+    :return Dict[str, Any]: 更新后的状态字典；无新增时原样返回
+    """
+
+    if not entries:
+        return load_state(data_dir)
+    state = load_state(data_dir)
+    log: List[Dict[str, Any]] = list(state.get("ai_keyword_log") or [])
+    log.extend(dict(item) for item in entries)
+    state["ai_keyword_log"] = log[-AI_KEYWORD_LOG_LIMIT:]
+    save_state(data_dir, state)
+    return state

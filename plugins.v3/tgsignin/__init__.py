@@ -56,7 +56,11 @@ from .core.config import (
     AccountConfig,
     BotTarget,
     accounts_to_text,
+    DEFAULT_AI_KEYWORD_AUTOFILL,
+    DEFAULT_CONCURRENCY,
     DEFAULT_FAILURE_KEYWORDS,
+    KEYWORD_LIST_LIMIT,
+    MAX_CONCURRENCY,
     account_login_fields,
     accounts_from_slots,
     coerce_scalar,
@@ -71,6 +75,7 @@ from .core.config import (
 )
 from .core.login import clear_pending, confirm_login, load_pending, send_code
 from .core.ai import AiSigninJudge
+from .core.autofill import merge_keywords
 from .core.session import (
     connection_selftest,
     delete_session,
@@ -154,6 +159,9 @@ class TgSignin(_PluginBase):
         self._failure_keywords = list(DEFAULT_FAILURE_KEYWORDS)
         # AI 复核器：默认关闭；开启后仅对「未确认」结果调用 MP 内置智能助手
         self._ai_judge = AiSigninJudge(enabled=False, logger=logger)
+        # 并发上限（1 = 串行，默认）与 AI 自动归纳关键词（默认关闭）
+        self._concurrency = DEFAULT_CONCURRENCY
+        self._ai_keyword_autofill = DEFAULT_AI_KEYWORD_AUTOFILL
         self._use_text_mode = False
         self._accounts_text = DEFAULT_ACCOUNTS_TEXT
         self._targets_text = DEFAULT_TARGETS_TEXT
@@ -207,7 +215,22 @@ class TgSignin(_PluginBase):
             self._failure_keywords = parse_keywords(
                 config.get("failure_keywords"), DEFAULT_FAILURE_KEYWORDS
             )
-            self._ai_judge.enabled = bool(config.get("ai_confirm_enabled"))
+            # 并发上限：1 = 串行（默认，行为与 1.0.x 一致）；2-4 = 同账号内「每 bot 一路」并发
+            self._concurrency = max(
+                1,
+                min(
+                    MAX_CONCURRENCY,
+                    self._safe_int(
+                        coerce_scalar(config.get("concurrency")), DEFAULT_CONCURRENCY
+                    ),
+                ),
+            )
+            # AI 自动归纳关键词（默认关闭）：开启后与 AI 复核**复用同一次调用**
+            self._ai_keyword_autofill = bool(config.get("ai_keyword_autofill"))
+            # 两个 AI 开关任一开启都要启用复核器（归纳本身必须依赖 AI 调用）
+            self._ai_judge.enabled = (
+                bool(config.get("ai_confirm_enabled")) or self._ai_keyword_autofill
+            )
             self._use_text_mode = bool(config.get("use_text_mode"))
             self._accounts_text = str(config.get("accounts_text") or DEFAULT_ACCOUNTS_TEXT)
             self._targets_text = str(config.get("targets_text") or DEFAULT_TARGETS_TEXT)
@@ -633,6 +656,46 @@ class TgSignin(_PluginBase):
                     },
                 ],
             },
+            {
+                "component": "VRow",
+                "content": [
+                    {
+                        "component": "VCol",
+                        "props": {"cols": 12, "md": 6},
+                        "content": [
+                            {
+                                "component": "VTextField",
+                                "props": {
+                                    "model": "concurrency",
+                                    "label": "并发签到上限",
+                                    "type": "number",
+                                    "persistent-hint": True,
+                                    "hint": "1 = 串行（默认，行为与旧版一致）；2-4 = 同一账号内「每个 bot 一路」"
+                                    "同时触发（账号之间仍串行，避免同账号多连接风控）。建议 3",
+                                    "placeholder": f"默认 {DEFAULT_CONCURRENCY}",
+                                },
+                            }
+                        ],
+                    },
+                    {
+                        "component": "VCol",
+                        "props": {"cols": 12, "md": 6},
+                        "content": [
+                            {
+                                "component": "VSwitch",
+                                "props": {
+                                    "model": "ai_keyword_autofill",
+                                    "label": "AI 自动归纳关键词",
+                                    "persistent-hint": True,
+                                    "hint": "签到后用 AI 判定回复属于成功/已签到/失败，并把它逐字摘取的短语自动补进对应关键词栏。"
+                                    "只增不删、写入前查重（已存在的词不会重复添加），每栏上限 "
+                                    f"{KEYWORD_LIST_LIMIT} 条；新增记录可在详情页回看。需配置 MP 智能助手。默认关闭",
+                                },
+                            }
+                        ],
+                    },
+                ],
+            },
             self._group_header(
                 "账号", f"最多 {MAX_ACCOUNT_SLOTS} 个；打开左侧开关即可编辑该账号"
             ),
@@ -1033,6 +1096,8 @@ class TgSignin(_PluginBase):
             "repeated_keywords": "|".join(DEFAULT_REPEATED_KEYWORDS),
             "failure_keywords": "|".join(DEFAULT_FAILURE_KEYWORDS),
             "ai_confirm_enabled": False,
+            "concurrency": DEFAULT_CONCURRENCY,
+            "ai_keyword_autofill": DEFAULT_AI_KEYWORD_AUTOFILL,
             "use_text_mode": False,
             "accounts_text": DEFAULT_ACCOUNTS_TEXT,
             "targets_text": DEFAULT_TARGETS_TEXT,
@@ -1087,6 +1152,33 @@ class TgSignin(_PluginBase):
             )
         return rows
 
+    @staticmethod
+    def _ai_note(item: Dict[str, Any]) -> str:
+        """
+        返回结果行里的「AI 复核」说明（含本次归纳出的词）。
+
+        :param item: 一条签到结果（含 ai_state / ai_verdict / ai_keywords / ai_message）
+        :return str: 中文短说明；AI 未参与时返回空串
+        """
+
+        state = str(item.get("ai_state") or "")
+        verdict_names = {"success": "成功", "repeated": "已签到", "failure": "失败"}
+        verdict = verdict_names.get(str(item.get("ai_verdict") or ""), "")
+        keywords = item.get("ai_keywords") or []
+        if state == "judged":
+            text = f"AI 判定{verdict}"
+        elif state == "unknown":
+            text = "AI 无法判定"
+        elif state == "unconfigured":
+            text = "AI 未配置"
+        elif state == "timeout":
+            text = "AI 超时"
+        elif state == "error":
+            text = f"AI 异常：{str(item.get('ai_message') or '')[:40]}"
+        else:
+            return ""
+        return f"{text}｜词={'/'.join(str(w) for w in keywords)}" if keywords else text
+
     def _result_rows(self) -> List[Dict[str, Any]]:
         """
         构造最近签到结果行（详情页表格用）。
@@ -1103,6 +1195,7 @@ class TgSignin(_PluginBase):
             alert = str(item.get("alert") or "")
             if alert:
                 detail = f"弹窗：{alert}｜{detail}" if detail else f"弹窗：{alert}"
+            ai_note = self._ai_note(item)
             rows.append(
                 {
                     "component": "tr",
@@ -1115,6 +1208,7 @@ class TgSignin(_PluginBase):
                             "text": f"{'✅' if ok else '❌'} {status}",
                         },
                         {"component": "td", "text": str(detail)[:120]},
+                        {"component": "td", "text": ai_note},
                     ],
                 }
             )
@@ -1123,11 +1217,41 @@ class TgSignin(_PluginBase):
                 {
                     "component": "tr",
                     "content": [
-                        {"component": "td", "props": {"colspan": 5}, "text": "还没有签到记录"},
+                        {"component": "td", "props": {"colspan": 6}, "text": "还没有签到记录"},
                     ],
                 }
             )
         return rows
+
+    def _ai_keyword_block(self) -> List[Dict[str, Any]]:
+        """
+        构造「AI 归纳关键词」详情页区块（没有记录时返回空列表）。
+
+        :return List[Dict[str, Any]]: Vuetify JSON 组件列表
+        """
+
+        state = load_state(self.get_data_path())
+        log = list(state.get("ai_keyword_log") or [])
+        if not log:
+            return []
+        rows: List[Dict[str, Any]] = []
+        for item in reversed(log[-30:]):
+            rows.append(
+                {
+                    "component": "tr",
+                    "content": [
+                        {"component": "td", "text": item.get("time", "")},
+                        {"component": "td", "text": item.get("account", "")},
+                        {"component": "td", "text": item.get("bot", "")},
+                        {"component": "td", "text": item.get("verdict", "")},
+                        {"component": "td", "text": item.get("keyword", "")},
+                    ],
+                }
+            )
+        return [
+            self._group_header("AI 归纳关键词（只增不删、已查重）"),
+            table(["时间", "账号", "bot", "档位", "新增词"], rows),
+        ]
 
     def _button(
         self,
@@ -1333,8 +1457,12 @@ class TgSignin(_PluginBase):
                     self._group_header("账号登录状态"),
                     table(["账号", "手机号", "状态"], self._login_status_rows()),
                     self._group_header(f"最近 {PAGE_RESULT_LIMIT} 条签到结果"),
-                    table(["时间", "账号", "bot", "状态", "回复/错误"], self._result_rows()),
-                ],
+                    table(
+                        ["时间", "账号", "bot", "状态", "回复/错误", "AI 复核"],
+                        self._result_rows(),
+                    ),
+                ]
+                + self._ai_keyword_block(),
             }
         ]
 
@@ -1609,6 +1737,8 @@ class TgSignin(_PluginBase):
                 "repeated_keywords": "|".join(self._repeated_keywords),
                 "failure_keywords": "|".join(self._failure_keywords),
                 "ai_confirm_enabled": self._ai_judge.enabled,
+                "concurrency": self._concurrency,
+                "ai_keyword_autofill": self._ai_keyword_autofill,
                 "use_text_mode": self._use_text_mode,
             }
         )
@@ -1761,6 +1891,14 @@ class TgSignin(_PluginBase):
             only_account or "全部",
             proxy_desc(proxy),
         )
+        # AI 复核/归纳：两个开关任一开启才传入（都关时完全不走 AI，零开销）
+        from functools import partial  # pylint: disable=import-outside-toplevel
+
+        ai_judge = (
+            partial(self._ai_judge.judge, want_keywords=self._ai_keyword_autofill)
+            if self._ai_judge.enabled
+            else None
+        )
         results = await run_all(
             self._accounts,
             self._targets,
@@ -1772,10 +1910,13 @@ class TgSignin(_PluginBase):
             success_keywords=self._success_keywords,
             repeated_keywords=self._repeated_keywords,
             failure_keywords=self._failure_keywords,
-            ai_judge=self._ai_judge.judge,
+            ai_judge=ai_judge,
+            concurrency=self._concurrency,
         )
         summary = summarize_results(results)
         record_run(self.get_data_path(), results, source, summary)
+        # AI 自动归纳关键词：写回词表（只增不删、写入前查重）并记审计
+        self._apply_ai_keywords(results)
         for item in results:
             logger.info(
                 "【TgSignin】%s %s → %s %s｜状态=%s%s",
@@ -1788,6 +1929,109 @@ class TgSignin(_PluginBase):
             )
         self._notify_results(results, source)
         return {"success": True, "message": summary, "data": {"results": results}}
+
+    def _apply_ai_keywords(self, results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        把 AI 归纳出的关键词写回词表（**只增不删**，写入前查重）。
+
+        规则（2026-10-08 用户定案）：
+
+        - 只处理本轮**真的判出档位**（``ai_verdict``）的结果；
+        - 候选词先与**本栏及另外两栏**的现有词查重，已存在则跳过 —— 绝不重复添加；
+        - 长度/纯数字/过泛词/「必须逐字出现在回复里」的校验由 AI 解析层负责；
+        - 有新增时立刻持久化配置并热更新内存词表，新增记录写进状态文件备查（详情页可回看）。
+
+        :param results: 本次签到结果（含 ai_verdict / ai_keywords）
+        :return List[Dict[str, Any]]: 本次实际新增的审计记录（无新增则为空列表）
+        """
+
+        from .core.store import (  # pylint: disable=import-outside-toplevel
+            record_ai_keywords,
+        )
+
+        if not self._ai_keyword_autofill or not results:
+            return []
+        current = {
+            "success": list(self._success_keywords),
+            "repeated": list(self._repeated_keywords),
+            "failure": list(self._failure_keywords),
+        }
+        candidates: Dict[str, List[Dict[str, Any]]] = {
+            "success": [],
+            "repeated": [],
+            "failure": [],
+        }
+        for item in results:
+            verdict = str(item.get("ai_verdict") or "")
+            if verdict not in candidates:
+                continue
+            for word in item.get("ai_keywords") or []:
+                candidates[verdict].append(
+                    {
+                        "word": str(word),
+                        "account": item.get("account"),
+                        "bot": item.get("bot"),
+                    }
+                )
+        if not any(candidates.values()):
+            return []
+
+        stamp = now_text()
+        audit: List[Dict[str, Any]] = []
+        for verdict, items in candidates.items():
+            words = [entry["word"] for entry in items]
+            if not words:
+                continue
+            # 查重：本栏既有词 + 另外两栏的全部词（避免同词跨档位重复）
+            blocked = [
+                word
+                for key, values in current.items()
+                if key != verdict
+                for word in values
+            ]
+            merged, added = merge_keywords(
+                current[verdict], words, KEYWORD_LIST_LIMIT, blocked
+            )
+            if not added:
+                continue
+            current[verdict] = merged
+            for word in added:
+                entry = next(
+                    (candidate for candidate in items if candidate["word"] == word), {}
+                )
+                audit.append(
+                    {
+                        "time": stamp,
+                        "account": entry.get("account"),
+                        "bot": entry.get("bot"),
+                        "verdict": verdict,
+                        "keyword": word,
+                    }
+                )
+        if not audit:
+            return []
+
+        self._success_keywords = current["success"]
+        self._repeated_keywords = current["repeated"]
+        self._failure_keywords = current["failure"]
+        # 持久化：沿用本插件既有的「整份 payload + 局部覆盖」写法（含热更新 _raw_config）
+        payload = dict(self._raw_config)
+        payload.update(
+            {
+                "success_keywords": "|".join(self._success_keywords),
+                "repeated_keywords": "|".join(self._repeated_keywords),
+                "failure_keywords": "|".join(self._failure_keywords),
+            }
+        )
+        self._raw_config = payload
+        self.update_config(payload)
+        record_ai_keywords(self.get_data_path(), audit)
+        logger.info(
+            "【TgSignin】AI 归纳关键词新增 %d 个：%s",
+            len(audit),
+            "、".join(f"{item['verdict']}·{item['keyword']}" for item in audit),
+        )
+        return audit
 
     def _notify_results(self, results: List[Dict[str, Any]], source: str) -> None:
         """

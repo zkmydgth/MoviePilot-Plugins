@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
@@ -29,7 +30,15 @@ from .config import (
     AccountConfig,
     BotTarget,
 )
-from .ai import AI_VERDICT_FAILURE, AI_VERDICT_SUCCESS
+from .ai import (
+    AI_STATE_ERROR,
+    AI_STATE_JUDGED,
+    AI_STATE_UNKNOWN,
+    AI_VERDICT_FAILURE,
+    AI_VERDICT_REPEATED,
+    AI_VERDICT_SUCCESS,
+    AiReview,
+)
 from .retry import signed_today
 from .session import build_client
 from .store import load_state
@@ -58,6 +67,21 @@ STATUS_SUCCESS = "签到成功"
 STATUS_REPEATED = "今日已签到"
 STATUS_UNCONFIRMED = "未确认"
 STATUS_FAILED = "失败"
+
+# AI 复核结论 → 签到状态（repeated 也必须认，否则「今天已签到」会被算成成功）
+_AI_VERDICT_TO_STATUS = {
+    AI_VERDICT_SUCCESS: STATUS_SUCCESS,
+    AI_VERDICT_REPEATED: STATUS_REPEATED,
+    AI_VERDICT_FAILURE: STATUS_FAILED,
+}
+
+# 并发签到：每路启动抖动与 FloodWait 退避上限
+_JITTER_STEP_SECONDS = 0.05
+_JITTER_MAX_SECONDS = 0.3
+_FLOOD_WAIT_CAP_SECONDS = 60
+_FLOOD_WAIT_RE = re.compile(
+    r"(?:FloodWait|Flood|FLOOD_WAIT)[^0-9]{0,20}(\d{1,5})", re.IGNORECASE
+)
 
 # 读取 bot 消息的条数上限（够覆盖菜单与回复）
 _MSG_SCAN_LIMIT = 5
@@ -185,6 +209,23 @@ def _matches_keywords(text: str, keywords: Sequence[str]) -> bool:
     return any(str(word).lower() in lowered for word in keywords if word)
 
 
+def _coerce_review(value: Any) -> AiReview:
+    """
+    把 AI 复核协程的返回值统一成 :class:`AiReview`。
+
+    兼容两种写法：新版协程返回 ``AiReview``；自定义/旧版协程可能只返回结论字符串。
+
+    :param value: 复核协程返回值（AiReview / 结论字符串 / None）
+    :return AiReview: 统一后的复核记录
+    """
+
+    if isinstance(value, AiReview):
+        return value
+    if isinstance(value, str) and value in _AI_VERDICT_TO_STATUS:
+        return AiReview(state=AI_STATE_JUDGED, verdict=value)
+    return AiReview(state=AI_STATE_UNKNOWN, message="AI 未给出结论")
+
+
 def classify_result(
     reply: str,
     ok: bool,
@@ -284,16 +325,17 @@ async def signin_one(
     )
     if status == STATUS_UNCONFIRMED and ai_judge is not None:
         # 「未确认」时才用 MP 内置 AI 复核（默认关闭）：
-        # AI 不可用 / 超时 / 输出无法解析 → 一律保持「未确认」，不影响其它判定
+        # 未开启 / 未配置 / 超时 / 模型判不出 —— 一律保持「未确认」，不影响其它判定。
+        # 复核记录（三态 + 模型原文 + 归纳词）一并写进结果，便于回溯（2026-10-08）。
         try:
-            verdict = await ai_judge(result)
-        except Exception:  # pylint: disable=broad-except
-            verdict = None
-        if verdict in (AI_VERDICT_SUCCESS, AI_VERDICT_FAILURE):
-            result["ai_verdict"] = verdict
-            status = (
-                STATUS_SUCCESS if verdict == AI_VERDICT_SUCCESS else STATUS_FAILED
+            review = _coerce_review(await ai_judge(result))
+        except Exception as error:  # pylint: disable=broad-except
+            review = AiReview(
+                state=AI_STATE_ERROR, message=f"{type(error).__name__}: {error}"
             )
+        result.update(review.as_result_fields())
+        if review.verdict in _AI_VERDICT_TO_STATUS:
+            status = _AI_VERDICT_TO_STATUS[review.verdict]
     result["status"] = status
     if status == STATUS_FAILED and result.get("ok"):
         # 失败不能计入成功：失败会进失败重试窗口
@@ -393,6 +435,7 @@ async def run_account(
     repeated_keywords: Optional[Sequence[str]] = None,
     failure_keywords: Optional[Sequence[str]] = None,
     ai_judge: Optional[Any] = None,
+    concurrency: int = 1,
 ) -> Tuple[List[Dict[str, Any]], str]:
     """
     对单个账号执行它名下所有启用的签到目标。
@@ -405,6 +448,7 @@ async def run_account(
     :param repeated_keywords: 自定义「已签到」关键词（None 用内置默认）
     :param failure_keywords: 自定义「签到失败」关键词（None 用内置默认）
     :param ai_judge: 可选的 AI 复核协程（仅「未确认」时调用）
+    :param concurrency: 并发上限（1 = 串行，与 1.0.x 行为一致；2-4 = 同账号内「每 bot 一路」并发）
     :return Tuple[List[Dict[str, Any]], str]: ``(结果列表, 账号级错误)``；
         账号级错误非空时结果列表为空
     """
@@ -418,20 +462,35 @@ async def run_account(
         await client.connect()
         if not await client.is_user_authorized():
             return [], f"账号 {account.key} 未登录或 session 已失效，请重新登录"
-        results: List[Dict[str, Any]] = []
-        for target in targets:
-            item = await signin_one(
-                client,
-                target,
-                already_signed_today=signed_today(load_state(data_dir), target),
-                success_keywords=success_keywords,
-                repeated_keywords=repeated_keywords,
-                failure_keywords=failure_keywords,
-                ai_judge=ai_judge,
-            )
-            # 带上显示名：通知正文里显示「账号1(acc1)」比纯标识好认
-            item["account_label"] = account.display()
-            results.append(item)
+        if max(1, int(concurrency)) <= 1:
+            # 串行：与 1.0.x 完全一致的行为（默认路径）
+            results: List[Dict[str, Any]] = []
+            for target in targets:
+                results.append(
+                    await _signin_target(
+                        client,
+                        target,
+                        data_dir,
+                        account,
+                        success_keywords,
+                        repeated_keywords,
+                        failure_keywords,
+                        ai_judge,
+                    )
+                )
+            return results, ""
+        # 并发：同一账号内「每个 bot 一路」；账号之间仍串行（避免同 IP 多账号并发特征）
+        results = await _run_targets_concurrently(
+            client,
+            targets,
+            data_dir,
+            account,
+            concurrency,
+            success_keywords=success_keywords,
+            repeated_keywords=repeated_keywords,
+            failure_keywords=failure_keywords,
+            ai_judge=ai_judge,
+        )
         return results, ""
     except Exception as error:  # pylint: disable=broad-except
         return [], f"账号 {account.key} 执行异常：{type(error).__name__}: {error}"
@@ -440,6 +499,142 @@ async def run_account(
             await client.disconnect()
         except Exception:  # pylint: disable=broad-except
             pass
+
+
+async def _signin_target(
+    client: Any,
+    target: BotTarget,
+    data_dir: Path,
+    account: AccountConfig,
+    success_keywords: Optional[Sequence[str]],
+    repeated_keywords: Optional[Sequence[str]],
+    failure_keywords: Optional[Sequence[str]],
+    ai_judge: Optional[Any],
+) -> Dict[str, Any]:
+    """
+    跑单个签到目标并补上账号显示名（串行与并发路径共用）。
+
+    :param client: 已登录的 TelegramClient
+    :param target: 签到目标
+    :param data_dir: 插件数据目录（用于读「今天是否已成功过」）
+    :param account: 目标所属账号
+    :param success_keywords: 自定义「签到成功」关键词
+    :param repeated_keywords: 自定义「已签到」关键词
+    :param failure_keywords: 自定义「签到失败」关键词
+    :param ai_judge: 可选的 AI 复核协程
+    :return Dict[str, Any]: 单条签到结果
+    """
+
+    item = await signin_one(
+        client,
+        target,
+        already_signed_today=signed_today(load_state(data_dir), target),
+        success_keywords=success_keywords,
+        repeated_keywords=repeated_keywords,
+        failure_keywords=failure_keywords,
+        ai_judge=ai_judge,
+    )
+    # 带上显示名：通知正文里显示「账号1(acc1)」比纯标识好认
+    item["account_label"] = account.display()
+    return item
+
+
+def _jitter_seconds(index: int) -> float:
+    """
+    返回第 index 路的启动抖动秒数（用于错开同秒并发特征）。
+
+    :param index: 该目标在账号内的序号（从 0 开始）
+    :return float: 抖动秒数，上限为 ``_JITTER_MAX_SECONDS``
+    """
+
+    return min(_JITTER_MAX_SECONDS, _JITTER_STEP_SECONDS * max(0, int(index)))
+
+
+def _flood_wait_seconds(text: str) -> Optional[int]:
+    """
+    从错误文本里提取 Telegram FloodWait 要求的等待秒数。
+
+    :param text: 结果里的 error 文本
+    :return Optional[int]: 需要等待的秒数；没命中返回 None
+    """
+
+    match = _FLOOD_WAIT_RE.search(str(text or ""))
+    if not match:
+        return None
+    try:
+        return max(1, int(match.group(1)))
+    except (TypeError, ValueError):
+        return None
+
+
+async def _run_targets_concurrently(
+    client: Any,
+    targets: Sequence[BotTarget],
+    data_dir: Path,
+    account: AccountConfig,
+    concurrency: int,
+    *,
+    success_keywords: Optional[Sequence[str]] = None,
+    repeated_keywords: Optional[Sequence[str]] = None,
+    failure_keywords: Optional[Sequence[str]] = None,
+    ai_judge: Optional[Any] = None,
+) -> List[Dict[str, Any]]:
+    """
+    并发跑同一账号下的多个目标（每 bot 一路）。
+
+    - 并发上限由 ``concurrency`` 对应的信号量控制；
+    - 每路启动加 ≤300ms 抖动，降低同秒并发特征；
+    - 命中 Telegram FloodWait 时按提示退避（上限 60 秒）并**重试一次**，不影响其它路；
+    - 结果按**原始目标顺序**返回，保证通知与状态文件内容稳定。
+
+    :param client: 已登录的 TelegramClient（同一账号共用）
+    :param targets: 该账号下启用的目标
+    :param data_dir: 插件数据目录
+    :param account: 账号配置
+    :param concurrency: 并发上限
+    :param success_keywords: 自定义「签到成功」关键词
+    :param repeated_keywords: 自定义「已签到」关键词
+    :param failure_keywords: 自定义「签到失败」关键词
+    :param ai_judge: 可选的 AI 复核协程
+    :return List[Dict[str, Any]]: 结果列表（与 targets 同序）
+    """
+
+    semaphore = asyncio.Semaphore(max(1, int(concurrency)))
+
+    async def _one(target: BotTarget, index: int) -> Dict[str, Any]:
+        """跑一路：限流 + 抖动，命中 FloodWait 时退避重试一次。"""
+
+        async with semaphore:
+            await asyncio.sleep(_jitter_seconds(index))
+            item = await _signin_target(
+                client,
+                target,
+                data_dir,
+                account,
+                success_keywords,
+                repeated_keywords,
+                failure_keywords,
+                ai_judge,
+            )
+            wait_seconds = _flood_wait_seconds(str(item.get("error") or ""))
+            if wait_seconds is not None:
+                await asyncio.sleep(min(wait_seconds, _FLOOD_WAIT_CAP_SECONDS))
+                item = await _signin_target(
+                    client,
+                    target,
+                    data_dir,
+                    account,
+                    success_keywords,
+                    repeated_keywords,
+                    failure_keywords,
+                    ai_judge,
+                )
+            return item
+
+    gathered = await asyncio.gather(
+        *(_one(target, index) for index, target in enumerate(targets))
+    )
+    return list(gathered)
 
 
 async def run_all(
@@ -454,6 +649,7 @@ async def run_all(
     repeated_keywords: Optional[Sequence[str]] = None,
     failure_keywords: Optional[Sequence[str]] = None,
     ai_judge: Optional[Any] = None,
+    concurrency: int = 1,
 ) -> List[Dict[str, Any]]:
     """
     按账号维度依次签到（同一时刻只连一个账号，避免并发触发风控）。
@@ -469,6 +665,7 @@ async def run_all(
     :param repeated_keywords: 自定义「已签到」关键词（None 用内置默认）
     :param failure_keywords: 自定义「签到失败」关键词（None 用内置默认）
     :param ai_judge: 可选的 AI 复核协程（仅「未确认」时调用）
+    :param concurrency: 并发上限（1 = 串行；2-4 = 同账号内「每 bot 一路」并发）
     :return List[Dict[str, Any]]: 扁平的结果列表
     """
 
@@ -503,6 +700,7 @@ async def run_all(
             repeated_keywords=repeated_keywords,
             failure_keywords=failure_keywords,
             ai_judge=ai_judge,
+            concurrency=concurrency,
         )
         if account_error:
             results.append(

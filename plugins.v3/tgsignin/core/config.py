@@ -46,6 +46,11 @@ __all__ = [
     "NOTIFY_MODE_ALL",
     "DEFAULT_RETRY_INTERVAL_HOURS",
     "MAX_RETRY_INTERVAL_HOURS",
+    "DEFAULT_CONCURRENCY",
+    "MAX_CONCURRENCY",
+    "RECOMMENDED_CONCURRENCY",
+    "DEFAULT_AI_KEYWORD_AUTOFILL",
+    "KEYWORD_LIST_LIMIT",
     "DEFAULT_SUCCESS_KEYWORDS",
     "DEFAULT_REPEATED_KEYWORDS",
     "DEFAULT_FAILURE_KEYWORDS",
@@ -109,6 +114,21 @@ NOTIFY_MODE_ALL = "all"
 # 失败重试间隔（小时）：失败后每隔这么久重试一次；0 = 不重试；窗口到次日 0 点重置（2026-10-07 定案）
 DEFAULT_RETRY_INTERVAL_HOURS = 6
 MAX_RETRY_INTERVAL_HOURS = 24
+
+# 并发签到（2026-10-08 定案）：1 = 串行（默认，行为与 1.0.x 完全一致）；
+# 2-4 = 「每个 bot 一路」的并发上限，账号内并发、账号之间仍串行（避免同 IP 多账号并发特征）。
+# 实现用 asyncio 任务（等价并发，不启真线程）。
+DEFAULT_CONCURRENCY = 1
+MAX_CONCURRENCY = 4
+# 打开并发时表单里的建议值（仅用于提示文案）
+RECOMMENDED_CONCURRENCY = 3
+
+# AI 自动归纳关键词（2026-10-08 定案）：默认关闭。
+# 开启后，凡落到「未确认」的结果会用 AI 复核，并把回复里可复用的短语按档位补进词表；
+# 该开关本身即意味着「会调用 AI」（与 ai_confirm_enabled 复用同一次调用）。
+DEFAULT_AI_KEYWORD_AUTOFILL = False
+# 每栏词表最多保留条数：AI 只增不删，靠上限兜住长期污染
+KEYWORD_LIST_LIMIT = 40
 
 # 签到结果关键词（内置默认，可在配置里覆盖；分档判据见 core/signin.classify_result）
 DEFAULT_SUCCESS_KEYWORDS = (

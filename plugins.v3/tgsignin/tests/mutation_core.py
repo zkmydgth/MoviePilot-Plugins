@@ -46,7 +46,7 @@ MUTANTS = [
     ),
     (
         "core/signin.py",
-        "        if verdict in (AI_VERDICT_SUCCESS, AI_VERDICT_FAILURE):",
+        "        if review.verdict in _AI_VERDICT_TO_STATUS:",
         "        if False:  # 变异：忽略复核结论",
         "AI 复核结论被忽略（判定不生效）",
     ),
@@ -58,14 +58,14 @@ MUTANTS = [
     ),
     (
         "core/ai.py",
-        "        if not self.enabled:\n            return None",
-        "        if False:  # 变异：忽略启用开关\n            return None",
+        '        if not self.enabled:\n            return AiReview(state=AI_STATE_NOT_CALLED, message="未开启 AI 复核/归纳")',
+        '        if False:  # 变异：忽略启用开关\n            return AiReview(state=AI_STATE_NOT_CALLED, message="未开启 AI 复核/归纳")',
         "AI 启用开关失效：关闭时仍会调用模型",
     ),
     (
         "core/ai.py",
-        '            if value in {"failure", "fail", "false", "失败"}:\n                return AI_VERDICT_FAILURE',
-        '            if value in {"failure", "fail", "false", "失败"}:\n                return AI_VERDICT_SUCCESS',
+        '        if value in {"failure", "fail", "false", "失败"}:\n            return AI_VERDICT_FAILURE',
+        '        if value in {"failure", "fail", "false", "失败"}:\n            return AI_VERDICT_SUCCESS',
         "复核结论翻转：失败被判成成功",
     ),
     (
@@ -187,6 +187,48 @@ MUTANTS = [
         "    if time.time() - float(pending.get(\"ts\") or 0) > PENDING_TTL_SECONDS:",
         "    if False:",
         "过期验证码不再失效",
+    ),
+    (
+        "core/signin.py",
+        "        if max(1, int(concurrency)) <= 1:",
+        "        if True:  # 变异：并发失效，永远串行",
+        "并发失效：配置了并发仍逐条串行",
+    ),
+    (
+        "core/signin.py",
+        "            if wait_seconds is not None:",
+        "            if False:  # 变异：FloodWait 不再重试",
+        "FloodWait 不再退避重试",
+    ),
+    (
+        "core/signin.py",
+        "    AI_VERDICT_REPEATED: STATUS_REPEATED,",
+        "    AI_VERDICT_REPEATED: STATUS_SUCCESS,",
+        "AI 判「已签到」被当成「签到成功」",
+    ),
+    (
+        "core/autofill.py",
+        "        if key in seen or key in blocked_keys:",
+        "        if False:  # 变异：不再查重",
+        "关键词查重失效：重复词被反复写入",
+    ),
+    (
+        "core/autofill.py",
+        "        if len(merged) >= max(1, int(limit)):",
+        "        if False:  # 变异：上限失效",
+        "词表上限失效：无限追加",
+    ),
+    (
+        "core/ai.py",
+        "            if not is_acceptable_keyword(word, source_text, blacklist):",
+        "            if False:  # 变异：不再校验候选词",
+        "候选词校验失效：黑名单/非原文词被采纳",
+    ),
+    (
+        "core/store.py",
+        "    state[\"ai_keyword_log\"] = log[-AI_KEYWORD_LOG_LIMIT:]",
+        "    state[\"ai_keyword_log\"] = []",
+        "AI 归纳审计日志丢失",
     ),
 ]
 
