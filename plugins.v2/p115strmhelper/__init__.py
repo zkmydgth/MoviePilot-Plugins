@@ -320,7 +320,7 @@ class P115StrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png"
     # 插件版本
-    plugin_version = "1.3.0"
+    plugin_version = "1.3.1"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -1578,9 +1578,10 @@ class P115StrmHelper(_PluginBase):
                     continue
                 for event in events_batch:
                     if (
-                        int(event["type"]) != 1
-                        and int(event["type"]) != 2
-                        and int(event["type"]) != 6
+                        int(event["type"]) != 1  # upload_image_file
+                        and int(event["type"]) != 2  # upload_file
+                        and int(event["type"]) != 6  # move_file
+                        and int(event["type"]) != 14  # receive_files
                     ):
                         continue
                     pickcode = event["pick_code"]
