@@ -27,31 +27,47 @@ BACKUP = "/tmp/ssg_backup.py"
 # (名称, 原文, 变异后, 期望被捕获的说明)
 MUTANTS = [
     (
-        "删种判定放宽：忽略文件存在性，直接删种",
-        """        for record in records:
-            fullpath = str(getattr(record, "fullpath", "") or "")
-            if not fullpath:
-                continue
-            if os.path.exists(fullpath):
-                return False
-        return True""",
-        """        return True""",
-        "应导致「仍有文件却删种」的测试失败",
+        # 更新锚点：代码后来引入了 records_checked / record_paths 计数与
+        # 第 2 级物理复核，旧锚点已失配（V2/V3 同受影响，属于历史遗留）
+        "删种判定放宽：第 1 级记录复核的存在性判定失效",
+        """                records_checked += 1
+                record_paths.append(fullpath)
+                if os.path.exists(fullpath):
+                    return False""",
+        """                records_checked += 1
+                record_paths.append(fullpath)
+                if False:
+                    return False""",
+        "应导致「记录里仍有文件却删种」的测试失败",
     ),
     (
-        "删种判定放宽：把存在性判断反转",
-        """            if os.path.exists(fullpath):
-                return False""",
-        """            if not os.path.exists(fullpath):
-                return False""",
+        "删种判定放宽：把第 1 级存在性判断反转",
+        """                records_checked += 1
+                record_paths.append(fullpath)
+                if os.path.exists(fullpath):
+                    return False""",
+        """                records_checked += 1
+                record_paths.append(fullpath)
+                if not os.path.exists(fullpath):
+                    return False""",
         "应导致 all_files_gone / one_file_remains 测试失败",
     ),
     (
-        "删种判定反向：无记录时返回 True（危险的乐观默认）",
-        """        if not records:
-            # 无文件记录：无从判定，保守起见不删种
+        "删种判定放宽：第 2 级物理复核被移除（只剩记录复核）",
+        """        if cand is not None:
+            content_path = str(cand.get("path") or "").strip()
+            if content_path and os.path.exists(content_path):""",
+        """        if False:
+            content_path = str(cand.get("path") or "").strip()
+            if content_path and os.path.exists(content_path):""",
+        "应导致「记录路径失效但磁盘仍有文件却被误删」的测试失败",
+    ),
+    (
+        "保守原则失效：无任何复核依据时也允许删种（危险的乐观默认）",
+        """        if records_checked == 0 and not (cand and cand.get("path")):
+            # 完全没有任何可复核的依据：无从判定，保守保留种子
             return False""",
-        """        if not records:
+        """        if records_checked == 0 and not (cand and cand.get("path")):
             return True""",
         "应导致 empty_records_returns_false 失败",
     ),
