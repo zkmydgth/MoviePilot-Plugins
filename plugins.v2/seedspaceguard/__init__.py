@@ -157,14 +157,26 @@ class SeedSpaceGuard(_PluginBase):
                 "component": "VForm",
                 "content": [
                     {
-                        "component": "VAlert",
-                        "props": {
-                            "type": "info",
-                            "text": "使用说明：卷剩余空间低于阈值时，按「保种最久」优先自动清理下载目录中的资源，"
-                                    "直到空间恢复到阈值以上。种子级=删除下载器中最旧的已完成种子（连带文件）；"
-                                    "仅文件=只删文件（可配合源文件联动插件）。建议先试运行预览将删内容，确认后再正式启用；"
-                                    "清理目录本身不会被删除。",
-                        },
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12},
+                                "content": [
+                                    {
+                                        "component": "VAlert",
+                                        "props": {
+                                            "type": "info",
+                                            "variant": "tonal",
+                                            "text": "使用说明：卷剩余空间低于阈值时，按「保种最久」优先自动清理下载目录中的资源，"
+                                                    "直到空间恢复到阈值以上。种子级=删除下载器中最旧的已完成种子（连带文件）；"
+                                                    "仅文件=只删文件（可配合源文件联动插件）。建议先试运行预览将删内容，确认后再正式启用；"
+                                                    "清理目录本身不会被删除。",
+                                        },
+                                    }
+                                ],
+                            }
+                        ],
                     },
                     {
                         "component": "VSelect",
