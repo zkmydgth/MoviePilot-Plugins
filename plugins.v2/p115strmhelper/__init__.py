@@ -49,6 +49,7 @@ from app.plugins import _PluginBase
 from app.chain.transfer import TransferChain
 from app.chain.media import MediaChain
 from app.helper.mediaserver import MediaServerHelper
+from app.chain.storage import StorageChain
 from app.utils.system import SystemUtils
 
 
@@ -778,7 +779,7 @@ class P115StrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png"
     # 插件版本
-    plugin_version = "1.6.12"
+    plugin_version = "1.6.13"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -796,6 +797,7 @@ class P115StrmHelper(_PluginBase):
     mediachain = None
     pathmatchinghelper = None
     mediainfodownloader = None
+    storagechain = None
 
     # 目录ID缓存
     id_path_cache = None
@@ -862,6 +864,7 @@ class P115StrmHelper(_PluginBase):
         self.mediaserver_helper = MediaServerHelper()
         self.transferchain = TransferChain()
         self.mediachain = MediaChain()
+        self.storagechain = StorageChain()
         self.pathmatchinghelper = PathMatchingHelper()
         self.monitor_stop_event = threading.Event()
 
@@ -1777,6 +1780,10 @@ class P115StrmHelper(_PluginBase):
         item_dest_pickcode: FileItem = item_transfer.target_item.pickcode
         # 是否蓝光原盘
         item_bluray = SystemUtils.is_bluray_dir(Path(itemdir_dest_path))
+        # 目标字幕文件清单
+        subtitle_list = getattr(item_transfer, "subtitle_list_new", [])
+        # 目标音频文件清单
+        audio_list = getattr(item_transfer, "audio_list_new", [])
 
         __itemdir_dest_path, local_media_dir, pan_media_dir = (
             self.pathmatchinghelper.get_media_path(
@@ -1819,6 +1826,55 @@ class P115StrmHelper(_PluginBase):
         )
         if not status:
             return
+
+        try:
+            if subtitle_list:
+                logger.info("【监控整理STRM生成】开始下载字幕文件")
+                for _path in subtitle_list:
+                    fileitem = self.storagechain.get_file_item(
+                        storage="u115", path=Path(_path)
+                    )
+                    download_url = self.mediainfodownloader.get_download_url(
+                        pickcode=fileitem.pickcode
+                    )
+                    if not download_url:
+                        logger.error(
+                            f"【监控整理STRM生成】{Path(_path).name} 下载链接获取失败，无法下载该文件"
+                        )
+                        continue
+                    _file_path = Path(local_media_dir) / Path(_path).relative_to(
+                        pan_media_dir
+                    )
+                    self.mediainfodownloader.save_mediainfo_file(
+                        file_path=Path(_file_path),
+                        file_name=_file_path.name,
+                        download_url=download_url,
+                    )
+
+            if audio_list:
+                logger.info("【监控整理STRM生成】开始下载音频文件")
+                for _path in audio_list:
+                    fileitem = self.storagechain.get_file_item(
+                        storage="u115", path=Path(_path)
+                    )
+                    download_url = self.mediainfodownloader.get_download_url(
+                        pickcode=fileitem.pickcode
+                    )
+                    if not download_url:
+                        logger.error(
+                            f"【监控整理STRM生成】{Path(_path).name} 下载链接获取失败，无法下载该文件"
+                        )
+                        continue
+                    _file_path = Path(local_media_dir) / Path(_path).relative_to(
+                        pan_media_dir
+                    )
+                    self.mediainfodownloader.save_mediainfo_file(
+                        file_path=Path(_file_path),
+                        file_name=_file_path.name,
+                        download_url=download_url,
+                    )
+        except Exception as e:
+            logger.error(f"【监控整理STRM生成】媒体信息文件下载出现未知错误: {e}")
 
         scrape_metadata = True
         if self._transfer_monitor_scrape_metadata_enabled:
