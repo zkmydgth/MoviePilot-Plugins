@@ -16,6 +16,7 @@ from app.core.config import settings
 from app.log import logger
 
 from ...core.config import configer
+from ...core.p115 import get_pid_by_path
 from ...db_manager.oper import FileDbHelper
 from ...helper.mediainfo_download import MediaInfoDownloader
 from ...utils.automaton import AutomatonUtils
@@ -419,10 +420,9 @@ class FullSyncStrmHelper:
             pan_media_dir = parts[1]
 
             try:
-                if pan_media_dir == "/":
-                    parent_id = 0
-                else:
-                    parent_id = int(self.client.fs_dir_getid(pan_media_dir)["id"])
+                parent_id = get_pid_by_path(
+                    self.client, pan_media_dir, True, False, False
+                )
                 logger.info(
                     f"【全量STRM生成】网盘媒体目录 ID 获取成功: {pan_media_dir} {parent_id}"
                 )
@@ -494,10 +494,9 @@ class FullSyncStrmHelper:
                 local_tree_task_thread = self.__remove_unless_strm_local(target_dir)
 
             try:
-                if pan_media_dir == "/":
-                    parent_id = 0
-                else:
-                    parent_id = int(self.client.fs_dir_getid(pan_media_dir)["id"])
+                parent_id = get_pid_by_path(
+                    self.client, pan_media_dir, True, False, False
+                )
                 logger.info(
                     f"【全量STRM生成】网盘媒体目录 ID 获取成功: {pan_media_dir} {parent_id}"
                 )

@@ -14,6 +14,7 @@ from watchdog.observers.polling import PollingObserver
 from aligo.core import set_config_folder
 
 from .core.i18n import i18n
+from .core.p115 import get_pid_by_path
 from .helper.mediainfo_download import MediaInfoDownloader
 from .helper.life import MonitorLife
 from .helper.strm import FullSyncStrmHelper, ShareStrmHelper, IncrementSyncStrmHelper
@@ -112,10 +113,7 @@ class ServiceHelper:
             # 多端播放初始化
             pid = None
             if configer.get_config("same_playback"):
-                pid = self.client.fs_dir_getid("/多端播放")["id"]
-                if pid == 0:
-                    payload = {"cname": "多端播放", "pid": 0}
-                    pid = self.client.fs_mkdir(payload)["file_id"]
+                pid = get_pid_by_path(self.client, "/多端播放", True, False, False)
 
             # 302跳转初始化
             self.redirect = Redirect(client=self.client, pid=pid)

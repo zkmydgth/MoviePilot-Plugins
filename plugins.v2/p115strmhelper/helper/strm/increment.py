@@ -15,6 +15,7 @@ from app.log import logger
 from ...core.cache import idpathcacher, DirectoryCache
 from ...core.config import configer
 from ...core.scrape import media_scrape_metadata
+from ...core.p115 import get_pid_by_path
 from ...db_manager.oper import FileDbHelper
 from ...helper.mediainfo_download import MediaInfoDownloader
 from ...helper.mediaserver import MediaServerRefresh
@@ -124,11 +125,9 @@ class IncrementSyncStrmHelper:
         迭代目录树
         """
         relative_path = None
-        if pan_path == "/":
-            cid = 0
-        else:
-            cid = int(self.client.fs_dir_getid(pan_path).get("id", -1))
-        if not cid or cid == -1:
+
+        cid = get_pid_by_path(self.client, pan_path, True, False, False)
+        if cid == -1:
             raise PanPathNotFound(f"网盘路径不存在: {pan_path}")
         self.api_count += 4
         cnt = 0

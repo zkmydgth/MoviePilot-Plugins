@@ -20,6 +20,7 @@ from .service import servicer
 from .core.config import configer
 from .core.cache import idpathcacher, DirectoryCache
 from .core.aliyunpan import AliyunPanLogin
+from .core.p115 import get_pid_by_path
 from .schemas.offline import (
     OfflineTasksPayload,
     AddOfflineTaskPayload,
@@ -254,12 +255,15 @@ class Api:
                 if cached_result:
                     return cached_result
 
-                cid = 0
-                if path.as_posix() != "/":
-                    dir_info = self._client.fs_dir_getid(path.as_posix())
-                    if not dir_info:
-                        return ApiResponse(code=1, msg=f"获取目录ID失败: {path}")
-                    cid = int(dir_info["id"])
+                cid = get_pid_by_path(
+                    client=self._client,
+                    path=path,
+                    mkdir=False,
+                    update_cache=False,
+                    by_cache=False,
+                )
+                if cid == -1:
+                    return ApiResponse(code=1, msg=f"获取目录ID失败: {path}")
 
                 items = []
                 for batch in iter_fs_files(self._client, cid, cooldown=2):
