@@ -132,6 +132,8 @@ class PathRemoveUtils:
         """
         根据一个文件的路径，清理同一文件夹下文件名包含此文件名的其他文件。
 
+        对于 .strm 后缀文件进行保护，不做删除操作
+
         :param file_path: 基准文件路径
         :param func_type: 日志输出函数名称
         """
@@ -142,6 +144,7 @@ class PathRemoveUtils:
                 item_to_check.is_file()
                 and item_to_check != file_path
                 and file_stem in item_to_check.stem
+                and item_to_check.suffix.lower() != ".strm"
             ):
                 logger.warn(f"{func_type}删除文件 {item_to_check}")
                 item_to_check.unlink(missing_ok=True)

@@ -828,7 +828,9 @@ class Api:
         """
         API 请求生成 STRM
         """
-        strm_helper = ApiSyncStrmHelper(client=self._client)
+        strm_helper = ApiSyncStrmHelper(
+            client=self._client, mediainfo_downloader=servicer.mediainfodownloader
+        )
         code, msg, data = strm_helper.generate_strm_files(payload)
         return ApiResponse(code=code, msg=msg, data=data)
 
@@ -838,7 +840,9 @@ class Api:
         """
         API 请求生成 STRM（by_path）
         """
-        strm_helper = ApiSyncStrmHelper(client=self._client)
+        strm_helper = ApiSyncStrmHelper(
+            client=self._client, mediainfo_downloader=servicer.mediainfodownloader
+        )
         code, msg, data = strm_helper.generate_strm_paths(payload)
         return ApiResponse(code=code, msg=msg, data=data)
 
@@ -846,6 +850,8 @@ class Api:
         """
         API 请求删除无效 STRM 文件
         """
-        strm_helper = ApiSyncStrmHelper(client=self._client)
+        strm_helper = ApiSyncStrmHelper(
+            client=self._client, mediainfo_downloader=servicer.mediainfodownloader
+        )
         code, msg, data = strm_helper.remove_unless_strm(payload)
         return ApiResponse(code=code, msg=msg, data=data)

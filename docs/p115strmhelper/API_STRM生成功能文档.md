@@ -57,7 +57,8 @@ POST {server_url}/api/v1/plugin/P115StrmHelper/api_strm_sync_creata?apikey={APIK
       "local_path": "/media/movies/电影名称.mkv",
       "pan_media_path": "/我的资源/电影",
       "scrape_metadata": true,
-      "media_server_refresh": true
+      "media_server_refresh": true,
+      "auto_download_mediainfo": true
     },
     {
       "pan_path": "/我的资源/电影/另一个电影.mkv"
@@ -85,6 +86,7 @@ POST {server_url}/api/v1/plugin/P115StrmHelper/api_strm_sync_creata?apikey={APIK
 - `pan_media_path` (string, 可选): 网盘媒体库根路径。如果不提供，将根据 `api_strm_config` 配置自动匹配
 - `scrape_metadata` (boolean, 可选): 是否刮削元数据。如果不提供，使用插件配置中的 `api_strm_scrape_metadata_enabled` 默认值
 - `media_server_refresh` (boolean, 可选): 是否刷新媒体服务器。如果不提供，使用插件配置中的 `api_strm_media_server_refresh_enabled` 默认值
+- `auto_download_mediainfo` (boolean, 可选): 是否自动下载媒体元数据（如 .nfo, .jpg 等）。默认为 `false`。只有文件扩展名在 `user_download_mediaext` 配置中的文件才会下载元数据
 
 ### 路径映射机制
 
@@ -132,8 +134,11 @@ POST {server_url}/api/v1/plugin/P115StrmHelper/api_strm_sync_creata?apikey={APIK
       }
     ],
     "fail": [],
+    "download_fail": [],
     "success_count": 1,
-    "fail_count": 0
+    "fail_count": 0,
+    "download_success_count": 0,
+    "download_fail_count": 0
   }
 }
 ```
@@ -147,8 +152,11 @@ POST {server_url}/api/v1/plugin/P115StrmHelper/api_strm_sync_creata?apikey={APIK
   "data": {
     "success": [],
     "fail": [],
+    "download_fail": [],
     "success_count": 0,
-    "fail_count": 0
+    "fail_count": 0,
+    "download_success_count": 0,
+    "download_fail_count": 0
   }
 }
 ```
@@ -182,23 +190,26 @@ POST {server_url}/api/v1/plugin/P115StrmHelper/api_strm_sync_creata?apikey={APIK
         "reason": "文件扩展名不属于可整理媒体文件扩展名"
       }
     ],
+    "download_fail": [],
     "success_count": 1,
-    "fail_count": 1
+    "fail_count": 1,
+    "download_success_count": 0,
+    "download_fail_count": 0
   }
 }
 ```
 
 ## 状态码说明
 
-| 状态码 | 说明 |
-|--------|------|
-| 10200 | 成功 |
-| 10400 | 未传有效参数（请求体为空或 data 为空） |
-| 10422 | 缺失必要参数（pick_code、id 或 pan_path 参数） |
-| 10600 | 文件扩展名不属于可整理媒体文件扩展名 |
-| 10601 | 无法获取本地生成 STRM 路径 |
-| 10602 | 无法获取网盘媒体库路径或文件信息 |
-| 10911 | STRM 文件生成失败 |
+| 状态码 | 说明                                           |
+| ------ | ---------------------------------------------- |
+| 10200  | 成功                                           |
+| 10400  | 未传有效参数（请求体为空或 data 为空）         |
+| 10422  | 缺失必要参数（pick_code、id 或 pan_path 参数） |
+| 10600  | 文件扩展名不属于可整理媒体文件扩展名           |
+| 10601  | 无法获取本地生成 STRM 路径                     |
+| 10602  | 无法获取网盘媒体库路径或文件信息               |
+| 10911  | STRM 文件生成失败                              |
 
 ---
 
@@ -246,7 +257,8 @@ POST {server_url}/api/v1/plugin/P115StrmHelper/api_strm_sync_create_by_path?apik
     }
   ],
   "scrape_metadata": true,
-  "media_server_refresh": true
+  "media_server_refresh": true,
+  "auto_download_mediainfo": true
 }
 ```
 
@@ -270,8 +282,11 @@ POST {server_url}/api/v1/plugin/P115StrmHelper/api_strm_sync_create_by_path?apik
   "data": {
     "success": [...],
     "fail": [...],
+    "download_fail": [],
     "success_count": 10,
     "fail_count": 0,
+    "download_success_count": 5,
+    "download_fail_count": 0,
     "paths_info": [
       {
         "local_path": "/media/movies",
@@ -287,8 +302,11 @@ POST {server_url}/api/v1/plugin/P115StrmHelper/api_strm_sync_create_by_path?apik
 
 - `success`: 成功生成的 STRM 文件列表（与端点 1 相同）
 - `fail`: 生成失败的 STRM 文件列表（与端点 1 相同）
+- `download_fail`: 下载失败的媒体元数据文件路径列表（与端点 1 相同）
 - `success_count`: 成功数量（与端点 1 相同）
 - `fail_count`: 失败数量（与端点 1 相同）
+- `download_success_count`: 媒体元数据下载成功数量（与端点 1 相同）
+- `download_fail_count`: 媒体元数据下载失败数量（与端点 1 相同）
 - `paths_info`: 每个文件夹路径的生成信息列表，包含：
   - `local_path`: 本地路径
   - `pan_media_path`: 网盘媒体库路径
@@ -321,7 +339,8 @@ payload = {
         }
     ],
     "scrape_metadata": True,
-    "media_server_refresh": True
+    "media_server_refresh": True,
+    "auto_download_mediainfo": True
 }
 
 # 发送请求
@@ -347,6 +366,8 @@ if result.get("code") == 10200:
     data = result.get("data", {})
     print(f"成功生成: {data.get('success_count', 0)} 个文件")
     print(f"失败: {data.get('fail_count', 0)} 个文件")
+    print(f"媒体元数据下载成功: {data.get('download_success_count', 0)} 个文件")
+    print(f"媒体元数据下载失败: {data.get('download_fail_count', 0)} 个文件")
     
     # 处理路径信息和 UUID 缓存
     for path_info in data.get("paths_info", []):
@@ -373,7 +394,8 @@ curl -X POST \
       }
     ],
     "scrape_metadata": true,
-    "media_server_refresh": true
+    "media_server_refresh": true,
+    "auto_download_mediainfo": true
   }'
 ```
 
@@ -588,7 +610,8 @@ payload = {
             "name": "电影名称.mkv",
             "pan_path": "/我的资源/电影/电影名称.mkv",
             "scrape_metadata": True,
-            "media_server_refresh": True
+            "media_server_refresh": True,
+            "auto_download_mediainfo": True
         },
         {
             "id": 9876543210,
@@ -644,7 +667,8 @@ curl -X POST \
         "name": "电影名称.mkv",
         "pan_path": "/我的资源/电影/电影名称.mkv",
         "scrape_metadata": true,
-        "media_server_refresh": true
+        "media_server_refresh": true,
+        "auto_download_mediainfo": true
       },
       {
         "pan_path": "/我的资源/电影/另一个电影.mkv"
@@ -669,7 +693,8 @@ const payload = {
       name: '电影名称.mkv',
       pan_path: '/我的资源/电影/电影名称.mkv',
       scrape_metadata: true,
-      media_server_refresh: true
+      media_server_refresh: true,
+      auto_download_mediainfo: true
     }
   ]
 };
@@ -683,6 +708,8 @@ axios.post(apiEndpoint, payload, {
     if (result.code === 10200) {
       console.log(`成功生成: ${result.data.success_count} 个文件`);
       console.log(`失败: ${result.data.fail_count} 个文件`);
+      console.log(`媒体元数据下载成功: ${result.data.download_success_count} 个文件`);
+      console.log(`媒体元数据下载失败: ${result.data.download_fail_count} 个文件`);
     } else {
       console.error('请求失败:', result.msg);
     }
@@ -709,6 +736,8 @@ axios.post(apiEndpoint, payload, {
 4. **自动刮削元数据** (`api_strm_scrape_metadata_enabled`): 是否自动刮削生成的 STRM 文件元数据（默认值）
 
 5. **自动刷新媒体服务器** (`api_strm_media_server_refresh_enabled`): 是否自动刷新媒体服务器（默认值）
+
+6. **可下载媒体后缀** (`user_download_mediaext`): 配置哪些文件扩展名支持自动下载媒体元数据（如 .nfo, .jpg 等）。只有在此配置中的文件扩展名，且 `auto_download_mediainfo` 为 `true` 时，才会自动下载媒体元数据
 
 ### 配置示例
 
@@ -851,3 +880,16 @@ A:
 - **`remove_unless_parent`**: 如果启用，会删除空的父文件夹（当文件夹中的所有文件都被删除后）
 
 这两个选项可以帮助您保持本地文件系统的整洁。
+
+### Q: `auto_download_mediainfo` 参数的作用是什么？
+
+A: `auto_download_mediainfo` 参数用于控制是否自动下载媒体元数据文件（如 .nfo, .jpg, .png, .srt, .ass 等）。当设置为 `true` 时：
+- 系统会检查文件扩展名是否在 `user_download_mediaext` 配置中
+- 只有符合条件的文件才会自动下载媒体元数据
+- 下载结果会在响应中的 `download_success_count`、`download_fail_count` 和 `download_fail` 字段中返回
+- 下载失败的文件路径会记录在 `download_fail` 列表中
+
+**注意**：
+- 此功能仅对文件扩展名在 `user_download_mediaext` 配置中的文件生效
+- 默认值为 `false`，需要显式设置为 `true` 才会启用
+- 下载操作是异步的，不会阻塞 STRM 文件的生成

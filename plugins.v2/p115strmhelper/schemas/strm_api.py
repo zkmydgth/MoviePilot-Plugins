@@ -29,6 +29,9 @@ class StrmApiData(BaseModel):
         default=None, description="是否刷新媒体服务器"
     )
     scrape_metadata: Optional[bool] = Field(default=None, description="是否刮削元数据")
+    auto_download_mediainfo: bool = Field(
+        default=False, description="是否自动下载媒体元数据"
+    )
 
 
 class StrmApiResponseFail(StrmApiData):
@@ -74,6 +77,9 @@ class StrmApiPayloadByPathData(BaseModel):
         default=None, description="是否刷新媒体服务器"
     )
     scrape_metadata: Optional[bool] = Field(default=None, description="是否刮削元数据")
+    auto_download_mediainfo: bool = Field(
+        default=False, description="是否自动下载媒体元数据"
+    )
 
 
 class StrmApiResponseData(BaseModel):
@@ -87,8 +93,13 @@ class StrmApiResponseData(BaseModel):
     fail: List[StrmApiResponseFail] = Field(
         default_factory=list, description="生成失败的STRM列表"
     )
+    download_fail: List[str] = Field(
+        default_factory=list, description="下载失败文件列表"
+    )
     success_count: int = Field(default=0, description="成功数量")
     fail_count: int = Field(default=0, description="失败数量")
+    download_success_count: int = Field(default=0, description="下载成功数量")
+    download_fail_count: int = Field(default=0, description="下载失败数量")
 
 
 class StrmApiResponseByPathItem(BaseModel):

@@ -1,6 +1,6 @@
 from pathlib import Path
 from time import sleep
-from typing import Tuple, List, Optional
+from typing import Tuple, List, Optional, Dict
 from uuid import uuid4
 
 from p115client import P115Client
@@ -11,6 +11,7 @@ from ...core.u115_open import U115OpenHelper
 from ...core.p115 import get_pid_by_path
 from ...core.config import configer
 from ...core.scrape import media_scrape_metadata
+from ...helper.mediainfo_download import MediaInfoDownloader
 from ...helper.mediaserver import MediaServerRefresh
 from ...schemas.strm_api import (
     StrmApiPayloadData,
@@ -40,15 +41,20 @@ class ApiSyncStrmHelper:
 
     cooldown: int | float = 1
 
-    def __init__(self, client: P115Client):
+    def __init__(self, client: P115Client, mediainfo_downloader: MediaInfoDownloader):
         self.client = client
         self.open_client = U115OpenHelper()
+        self.mediainfo_downloader = mediainfo_downloader
 
         self.strm_url_getter = StrmUrlGetter()
 
         self.rmt_mediaext = {
             f".{ext.strip()}"
             for ext in configer.user_rmt_mediaext.replace("，", ",").split(",")
+        }
+        self.download_mediaext_set = {
+            f".{ext.strip()}"
+            for ext in configer.user_download_mediaext.replace("，", ",").split(",")
         }
 
     def generate_strm_files(
@@ -65,6 +71,8 @@ class ApiSyncStrmHelper:
 
         success_data: List[StrmApiData] = []
         fail_data: List[StrmApiResponseFail] = []
+
+        download_list: List[Dict] = []
 
         for item in payload.data:
             if not item.pick_code and not item.id and not item.pan_path:
@@ -181,6 +189,8 @@ class ApiSyncStrmHelper:
             else:
                 media_server_refresh = item.media_server_refresh
 
+            auto_download_mediainfo = item.auto_download_mediainfo
+
             local_path_obj = Path(local_path)
             pan_path_obj = Path(pan_path)
             try:
@@ -201,6 +211,20 @@ class ApiSyncStrmHelper:
             new_file_path = file_path.parent / StrmGenerater.get_strm_filename(
                 file_path
             )
+
+            if (
+                pan_path_obj.suffix.lower() in self.download_mediaext_set
+                and auto_download_mediainfo
+            ):
+                download_list.append(
+                    {
+                        "type": "local",
+                        "pickcode": pick_code,
+                        "path": file_path.as_posix(),
+                        "sha1": sha1,
+                    }
+                )
+                continue
 
             if pan_path_obj.suffix.lower() not in self.rmt_mediaext:
                 fail_data.append(
@@ -224,6 +248,7 @@ class ApiSyncStrmHelper:
                 pan_media_path=pan_media_path,
                 scrape_metadata=scrape_metadata,
                 media_server_refresh=media_server_refresh,
+                auto_download_mediainfo=auto_download_mediainfo,
             )
 
             strm_url = self.strm_url_getter.get_strm_url(pick_code, name, pan_path)
@@ -265,14 +290,33 @@ class ApiSyncStrmHelper:
                     file_path=new_file_path.as_posix(), file_name=new_file_path.name
                 )
 
+        mediainfo_count = 0
+        mediainfo_fail_count = 0
+        mediainfo_fail_dict: List[str] = []
+        if download_list:
+            logger.info(
+                f"【API_STRM生成】开始批量下载媒体信息文件，共 {len(download_list)} 个文件"
+            )
+            mediainfo_count, mediainfo_fail_count, mediainfo_fail_dict = (
+                self.mediainfo_downloader.batch_auto_downloader(
+                    downloads_list=download_list,
+                )
+            )
+            logger.info(
+                f"【API_STRM生成】媒体信息文件下载完成，成功: {mediainfo_count}, 失败: {mediainfo_fail_count}"
+            )
+
         return (
             StrmApiStatusCode.Success,
             "生成完成",
             StrmApiResponseData(
                 success=success_data,
                 fail=fail_data,
+                download_fail=mediainfo_fail_dict,
                 success_count=success_strm_count,
                 fail_count=fail_strm_count,
+                download_success_count=mediainfo_count,
+                download_fail_count=mediainfo_fail_count,
             ),
         )
 
@@ -291,9 +335,12 @@ class ApiSyncStrmHelper:
 
         success_strm_count = 0
         fail_strm_count = 0
+        download_success_count = 0
+        download_fail_count = 0
 
         success_data: List[StrmApiData] = []
         fail_data: List[StrmApiResponseFail] = []
+        download_fail: List[str] = []
         paths_info: List[StrmApiResponseByPathItem] = []
 
         for path in payload.data:
@@ -343,6 +390,7 @@ class ApiSyncStrmHelper:
                             pan_path=item["path"],
                             media_server_refresh=payload.media_server_refresh,
                             scrape_metadata=payload.scrape_metadata,
+                            auto_download_mediainfo=payload.auto_download_mediainfo,
                             **path_payload,
                         )
                     )
@@ -362,9 +410,12 @@ class ApiSyncStrmHelper:
 
             success_strm_count += result[2].success_count
             fail_strm_count += result[2].fail_count
+            download_success_count += result[2].download_success_count
+            download_fail_count += result[2].download_fail_count
 
             success_data.extend(result[2].success)
             fail_data.extend(result[2].fail)
+            download_fail.extend(result[2].download_fail)
 
             if path.remove_strm_uuid:
                 lst: List[str] = []
@@ -396,8 +447,11 @@ class ApiSyncStrmHelper:
             StrmApiResponseByPathData(
                 success=success_data,
                 fail=fail_data,
+                download_fail=download_fail,
                 success_count=success_strm_count,
                 fail_count=fail_strm_count,
+                download_success_count=download_success_count,
+                download_fail_count=download_fail_count,
                 paths_info=paths_info,
             ),
         )
