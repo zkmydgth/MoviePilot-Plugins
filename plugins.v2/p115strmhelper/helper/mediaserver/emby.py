@@ -469,6 +469,7 @@ class EmbyMediainfoQueue:
     """
 
     _SENTINEL = object()
+    _TASK_SLEEP_AFTER_SEC: float = 4.0
 
     def __init__(self) -> None:
         self._queue: Optional[Queue] = None
@@ -508,6 +509,7 @@ class EmbyMediainfoQueue:
             finally:
                 if self._queue is not None:
                     self._queue.task_done()
+                sleep(self._TASK_SLEEP_AFTER_SEC)
 
     def start(self) -> None:
         """
