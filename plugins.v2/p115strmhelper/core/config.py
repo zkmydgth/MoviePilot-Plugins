@@ -1,6 +1,6 @@
+from pathlib import Path
 from platform import system, release
 from typing import Dict, Any, Optional, List, Union, Literal
-from pathlib import Path
 
 from orjson import loads, JSONDecodeError
 from pydantic import (
@@ -24,8 +24,9 @@ from ..core.aliyunpan import AliyunPanLogin
 from ..schemas.cookie import U115Cookie
 from ..schemas.share import ShareStrmConfig
 from ..schemas.strm_api import StrmApiConfig
-from ..utils.machineid import MachineID
 from ..utils.cron import CronUtils
+from ..utils.machineid import MachineID
+from ..utils.user_agent import UserAgentUtils
 
 
 class ConfigManager(BaseModel):
@@ -655,11 +656,11 @@ class ConfigManager(BaseModel):
         根据类型获取指定的User-Agent
         """
         user_agents = {
-            0: "Mozilla/5.0 (iPhone; CPU iPhone OS 16_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 UDown/37.0.4",
             1: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
             2: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
             3: settings.USER_AGENT,
             4: "Mozilla/5.0 (Linux; Android 11; Redmi Note 8 Pro Build/RP1A.200720.011; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/89.0.4389.72 MQQBrowser/6.2 TBS/045913 Mobile Safari/537.36 V1_AND_SQ_8.8.68_2538_YYB_D A_8086800 QQ/8.8.68.7265 NetType/WIFI WebP/0.3.0 Pixel/1080 StatusBarHeight/76 SimpleUISwitch/1 QQTheme/2971 InMagicWin/0 StudyMode/0 CurrentMode/1 CurrentFontScale/1.0 GlobalDensityScale/0.9818182 AppId/537112567 Edg/98.0.4758.102",
+            5: UserAgentUtils.generate_u115_ios(),
         }
         if utype in user_agents:
             return user_agents[utype]
@@ -674,7 +675,7 @@ class ConfigManager(BaseModel):
         获取 IOS 设备的 header（UA）和 APP
         """
         kwargs: Dict[str, Any] = {
-            "headers": {"user-agent": self.get_user_agent(0)},
+            "headers": {"user-agent": self.get_user_agent(5)},
         }
         if app:
             kwargs["app"] = "ios"

@@ -16,7 +16,7 @@ from ..core.aliyunpan import BAligo
 from ..core.config import configer
 from ..core.i18n import i18n
 from ..core.message import post_message
-from ..core.p115 import get_pid_by_path, pickcode_stable_point
+from ..core.p115 import get_pid_by_path
 from ..helper.clean import Cleaner
 from ..helper.life import MonitorLife
 from ..helper.mediainfo_download import MediaInfoDownloader
@@ -80,9 +80,6 @@ class ServiceHelper:
         try:
             # 115 网盘客户端初始化
             self.client = P115Client(configer.cookies)
-
-            # 初始化获取 pickcode 的不动点
-            pickcode_stable_point(client=self.client)
 
             # 阿里云盘登入
             aligo_config = configer.get_config("PLUGIN_ALIGO_PATH")
