@@ -754,18 +754,21 @@ class FullSyncStrmHelper:
                 logger.error(f"【全量STRM生成】全量生成 STRM 文件失败: {e}")
                 return False
 
-            if self.remove_unless_strm and not self.strm_fail_dict:
+            if self.remove_unless_strm:
                 while local_tree_task_thread.is_alive():
                     logger.info("【全量STRM生成】扫描本地媒体库运行中...")
                     time.sleep(10)
-                try:
-                    for path in tree.compare_trees(self.local_tree, self.pan_tree):
-                        logger.info(f"【全量STRM生成】清理无效 STRM 文件: {path}")
-                        Path(path).unlink(missing_ok=True)
-                        self.__remove_parent_dir(file_path=Path(path))
-                        self.remove_unless_strm_count += 1
-                except Exception as e:
-                    logger.error(f"【全量STRM生成】清理无效 STRM 文件失败: {e}")
+                if not self.strm_fail_dict:
+                    try:
+                        for path in tree.compare_trees(self.local_tree, self.pan_tree):
+                            logger.info(f"【全量STRM生成】清理无效 STRM 文件: {path}")
+                            Path(path).unlink(missing_ok=True)
+                            self.__remove_parent_dir(file_path=Path(path))
+                            self.remove_unless_strm_count += 1
+                    except Exception as e:
+                        logger.error(f"【全量STRM生成】清理无效 STRM 文件失败: {e}")
+                else:
+                    logger.warn("【全量STRM生成】存在生成失败的 STRM 文件，跳过清理无效 STRM 文件")
 
         self.mediainfo_count, self.mediainfo_fail_count, self.mediainfo_fail_dict = (
             self.mediainfodownloader.auto_downloader(
