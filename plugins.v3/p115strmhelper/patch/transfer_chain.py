@@ -6,13 +6,13 @@ from typing import Callable, Optional, Tuple, TYPE_CHECKING
 
 from app.sdk.logging import logger
 
-from ..utils.host_compat import (
-    get_notification_class,
-    get_notification_type_enum,
-)
 from ..utils.patch_guard import PatchTargetError, check_patch_target
 from ..utils.transfer_compat import (
     JobViewAdapter,
+    abandon_taken_over_admission,
+    checkpoint_planning_rejection,
+    latest_transfer_history,
+    record_uncheckpointed_failure,
     request_durable_transfer_retry,
     resolve_jobview,
     resolve_scrape_batch_finish,
@@ -29,6 +29,15 @@ _TRANSFER_MODULE_HINT = "app.chain.transfer"
 
 # 宿主 __handle_transfer 的期望形参（不含 self）
 _HANDLE_TRANSFER_PARAMS = ["task", "callback"]
+
+# 宿主 durable 收口入口（补丁复制旧流程时最容易漏掉的契约）。
+# 这两处是宿主 V3「失败/提前返回必须结算」的唯一路径，缺失时补丁必须回退原生整理，
+# 否则任务会停在 accepted 状态被恢复调度每 ~15 秒回放一次。
+_DURABLE_SETTLEMENT_TARGETS = (
+    "_TransferChain__checkpoint_planning_rejection",
+    "_TransferChain__record_uncheckpointed_failure",
+)
+_SETTLEMENT_PARAMS = ["task", "error"]
 
 
 class TransferChainPatcher:
@@ -121,6 +130,16 @@ class TransferChainPatcher:
             expected_params=_HANDLE_TRANSFER_PARAMS,
             module_hint=_TRANSFER_MODULE_HINT,
         )
+        # durable 收口依赖：未识别、缺集数、重复投递等提前返回路径必须按宿主语义结算，
+        # 否则宿主恢复调度每 ~15 秒回放同一文件（2026-10-09 实测）。缺失即整体放弃补丁，
+        # 而不是打上补丁后"接管却永不结算"。
+        for name in _DURABLE_SETTLEMENT_TARGETS:
+            check_patch_target(
+                transfer_chain,
+                name,
+                expected_params=_SETTLEMENT_PARAMS,
+                module_hint=_TRANSFER_MODULE_HINT,
+            )
         # finally 分支依赖：每次处理完清理批次 pending 集合。
         # 该方法的宿主名跨版本漂移过（V2 私有名 → V3 单下划线公开名），
         # 按候选名解析，解析不到才报错，避免补丁被"目标缺失"整体放弃。
@@ -261,28 +280,30 @@ class TransferChainPatcher:
         """
         Patched 版本的 __handle_transfer
         """
+        from app.application.directory import DirectoryHelper
         from app.chain.media import MediaChain
         from app.chain.tmdb import TmdbChain
-        from app.application.history import add_transfer_fail
         from app.sdk.config import settings
         from app.sdk.media import MediaInfo
         from app.db.oper.transferhistory import TransferHistoryOper
-        from app.application.directory import DirectoryHelper
-        from app.schemas import TransferInfo
         from app.schemas.types import MediaSource, MediaType
 
         from ..schemas.transfer import TransferTask as PluginTransferTask
-
-        # V3 把 Notification 改名为 Message、NotificationType 改名为 MessageType，
-        # 并只在完整应用启动后由兼容层挂载旧名别名。统一走兼容解析，避免插件
-        # 在单测／离线自检场景下取不到符号。
-        notification_class = get_notification_class()
-        notification_type_enum = get_notification_type_enum()
 
         # 运行期首单复核作业队列接口（补丁前可能拿不到宿主实例）
         cls._verify_jobview_once(chain_self)
 
         try:
+            # 宿主已提交冻结计划的恢复任务（含「settling 中重放」）必须交回宿主原生
+            # 执行：补丁若按当前配置重新识别、重新算目标目录，会与已冻结的 durable
+            # 计划漂移，且宿主终态判定（terminal = plan_checkpoint is not None）依赖
+            # 它，重新规划等于丢掉唯一可结算的快照。
+            if getattr(task, "plan_checkpoint", None) is not None:
+                logger.debug(
+                    f"【整理接管】{task.fileitem.name} 已存在冻结整理计划，交回宿主原生执行"
+                )
+                return cls._call_original(chain_self, task, callback)
+
             ########## 原始方法执行部分 ##########
 
             transferhis = TransferHistoryOper()
@@ -339,60 +360,18 @@ class TransferChainPatcher:
                     # preview 模式下不创建历史记录
                     if task.preview:
                         return False, "未识别到媒体信息"
-                    # 新增整理失败历史记录
-                    his = add_transfer_fail(
-                        fileitem=task.fileitem,
-                        mode=task.transfer_type,
-                        meta=task.meta,
-                        downloader=task.downloader,
-                        download_hash=task.download_hash,
+                    # 未识别属于「确定性规划拒绝」：必须按宿主语义把拒绝冻结成零文件
+                    # 副作用的 durable 计划并交回 callback 结算，否则宿主会认为任务
+                    # 未结算，每 ~15 秒把同一文件重投一次（2026-10-09 实测：同一未
+                    # 识别文件被反复回放，每轮新增/更新一条失败历史）。
+                    settled = cls._settle_planning_rejection(
+                        chain_self, task, callback, "未识别到媒体信息"
                     )
-                    chain_self.post_message(
-                        notification_class(
-                            mtype=notification_type_enum.Manual,
-                            title=f"{task.fileitem.name} 未识别到媒体信息，无法入库！",
-                            text=(
-                                "原因：未识别到媒体信息\n"
-                                "如果按钮不可用，可回复：\n"
-                                f"```\n/redo {his.id}\n/redo {his.id} [tmdbid]|[类型]\n```\n"
-                                "自动重试或手动识别整理。"
-                            ),
-                            username=task.username,
-                            link=settings.MP_DOMAIN("#/history"),
-                            buttons=chain_self.build_failed_transfer_buttons(
-                                his.id if his else None
-                            ),
-                            save_history=False,
-                        )
-                    )
-                    # 任务失败，直接移除task
-                    cls._jobview_of(chain_self).remove_task(task.fileitem)
-
-                    # AI智能体自动重试整理（V3 走宿主 durable 重试入口）
-                    if (
-                        his
-                        and settings.AI_AGENT_ENABLE
-                        and settings.AI_AGENT_RETRY_TRANSFER
-                    ):
-                        retry_result = request_durable_transfer_retry(
-                            chain_self, his, requested_by="p115strmhelper_ai_retry"
-                        )
-                        if retry_result is None:
-                            logger.warning(
-                                f"【整理接管】宿主未受理自动重试，未登记AI智能体重试"
-                                f"（历史 #{his.id}）"
-                            )
-                        elif retry_result[0]:
-                            logger.info(
-                                f"【整理接管】已登记AI智能体重试整理历史记录 #{his.id}"
-                            )
-                        else:
-                            logger.warning(
-                                f"【整理接管】AI智能体重试未受理"
-                                f"（历史 #{his.id}）：{retry_result[1]}"
-                            )
-
-                    return False, "未识别到媒体信息"
+                    if settled is None:
+                        # 宿主缺少收口入口：交回原生流程，绝不自行返回失败，
+                        # 否则任务悬空被恢复调度反复回放。
+                        return cls._call_original(chain_self, task, callback)
+                    return settled
 
                 mediainfo_changed = True
 
@@ -416,6 +395,12 @@ class TransferChainPatcher:
                 if not cls._jobview_of(chain_self).migrate_task(task):
                     logger.info(
                         f"【整理接管】{task.fileitem.name} 已存在整理任务，跳过重复处理"
+                    )
+                    # 宿主语义：重复投递属于 checkpoint 之前的失败，要登记失败原因
+                    # （保留 accepted 任务供后续重新规划），否则恢复调度只看到
+                    # 「无租约的 accepted」并反复回放，却永远读不到原因。
+                    record_uncheckpointed_failure(
+                        chain_self, task, f"{task.fileitem.name} 已在整理队列中"
                     )
                     return False, f"{task.fileitem.name} 已在整理队列中"
 
@@ -460,12 +445,13 @@ class TransferChainPatcher:
 
             ########## 原始方法执行结束 ##########
 
-            # 如果是目录（蓝光原盘），回退到原方法处理
+            # 如果是目录（蓝光原盘），回退到宿主原生方法处理
+            # （原生方法自带 durable 规划与终态结算；补丁不得在此直接返回失败）
             if task.fileitem.type == "dir":
                 logger.debug(
                     f"【整理接管】检测到目录类型任务（可能是蓝光原盘），回退到原方法: {task.fileitem.path}"
                 )
-                return cls._call_original_transfer_part(chain_self, task, callback)
+                return cls._call_original(chain_self, task, callback)
 
             if (
                 cls._should_intercept(source_storage, target_storage)
@@ -487,6 +473,14 @@ class TransferChainPatcher:
                     logger.debug(
                         f"【整理接管】忽略字幕/音频文件（将跟随主文件一起处理）: {task.fileitem.name}"
                     )
+                    # 与主文件接管同一收口：先把宿主对该文件的恢复责任摘除，
+                    # 否则同一字幕/音频文件会被恢复调度每 ~15 秒重新送回整理入口。
+                    if not abandon_taken_over_admission(
+                        chain_self,
+                        task,
+                        reason=f"字幕/音频跟随主文件处理：{task.fileitem.path}",
+                    ):
+                        return cls._call_original(chain_self, task, callback)
                     cls._jobview_of(chain_self).running_task(task)
                     cls._jobview_of(chain_self).finish_task(task)
                     if cls._jobview_of(chain_self).is_done(task):
@@ -512,28 +506,15 @@ class TransferChainPatcher:
                         logger.warn(
                             f"【整理接管】文件 {task.fileitem.path} 整理失败：未识别到文件集数"
                         )
-                        fail_msg = "未识别到文件集数"
-                        src_path = task.fileitem.path
-                        add_transfer_fail(
-                            fileitem=task.fileitem,
-                            mode=task.transfer_type or "",
-                            meta=task.meta,
-                            mediainfo=task.mediainfo,
-                            transferinfo=TransferInfo(
-                                success=False,
-                                fileitem=task.fileitem,
-                                message=fail_msg,
-                                transfer_type=task.transfer_type,
-                                file_list=[src_path],
-                                fail_list=[src_path],
-                                need_notify=need_notify,
-                                need_scrape=need_scrape,
-                            ),
-                            downloader=task.downloader,
-                            download_hash=task.download_hash,
+                        # 与宿主模块抛 TransferPlanningRejectedError 同等语义：冻结为
+                        # 零文件副作用的拒绝计划并交回 callback 结算。不再自行写一条
+                        # 游离的失败历史 —— 那会让任务永不结算，被恢复调度每 ~15 秒回放。
+                        settled = cls._settle_planning_rejection(
+                            chain_self, task, callback, "未识别到文件集数"
                         )
-                        cls._jobview_of(chain_self).remove_task(task.fileitem)
-                        return False, "未识别到文件集数"
+                        if settled is None:
+                            return cls._call_original(chain_self, task, callback)
+                        return settled
 
                     # 文件结束季为空
                     task.meta.end_season = None
@@ -549,8 +530,8 @@ class TransferChainPatcher:
                 target_path = cls._compute_target_path(task, need_rename=need_rename)
                 if not target_path:
                     logger.error(f"【整理接管】计算目标路径失败: {task.fileitem.path}")
-                    # 回退到原方法
-                    return cls._call_original_transfer_part(chain_self, task, callback)
+                    # 交回宿主原生方法（自带 durable 规划与终态结算）
+                    return cls._call_original(chain_self, task, callback)
 
                 # 确定整理方式
                 transfer_type = task.transfer_type
@@ -561,6 +542,15 @@ class TransferChainPatcher:
                 overwrite_mode = None
                 if task.target_directory:
                     overwrite_mode = task.target_directory.overwrite_mode
+
+                # 从宿主 durable 恢复责任中摘除该文件：插件接管后文件流转全部由
+                # 插件负责，宿主 worker 的 terminal 判定（plan_checkpoint is not None）
+                # 对本路径恒为 False，摘不掉就会被恢复调度每 ~15 秒重新投递。
+                # 摘不掉（宿主缺少入口或任务状态已变化）则不接管，交回宿主原生整理。
+                if not abandon_taken_over_admission(
+                    chain_self, task, reason=f"插件接管 115→115 整理：{target_path}"
+                ):
+                    return cls._call_original(chain_self, task, callback)
 
                 # 正在处理
                 cls._jobview_of(chain_self).running_task(task)
@@ -594,17 +584,27 @@ class TransferChainPatcher:
                 return True, "已由插件接管"
 
             # 非 115 -> 115 原方法整理
-            return cls._call_original_transfer_part(chain_self, task, callback)
+            # 必须走宿主原生方法：它自带 durable 规划、执行检查点与终态结算；
+            # 旧版这里只调用「原方法的 transfer 片段」，回调因缺少 execution_checkpoint
+            # 直接抛错，任务永远不结算 → 被恢复调度每 ~15 秒回放。
+            return cls._call_original(chain_self, task, callback)
 
         except Exception as e:
             logger.error(
                 f"【整理接管】Patched handle_transfer 异常: {e}", exc_info=True
             )
             try:
-                return cls._call_original(chain_self, task, callback)
+                result = cls._call_original(chain_self, task, callback)
             except Exception as fallback_error:
                 logger.error(f"【整理接管】回退到原方法也失败: {fallback_error}")
+                result = None
+            if result is None:
+                # 原生方法不可用（补丁期间宿主方法被还原等）：按宿主语义登记
+                # checkpoint 之前的失败，保留 accepted 任务供后续重新规划，
+                # 避免任务悬空且无原因可查。
+                record_uncheckpointed_failure(chain_self, task, e)
                 return False, f"整理异常: {e}"
+            return result
         finally:
             # 与原生 __handle_transfer 一致：每次处理完尝试移除已完成作业，并清理批次 pending 集合
             cls._jobview_of(chain_self).try_remove_job(task)
@@ -881,78 +881,63 @@ class TransferChainPatcher:
         return None
 
     @classmethod
-    def _call_original_transfer_part(
-        cls, chain_self, task, callback: Optional[Callable]
+    def _settle_planning_rejection(
+        cls,
+        chain_self,
+        task,
+        callback: Optional[Callable],
+        message: str,
     ) -> Optional[Tuple[bool, str]]:
         """
-        调用原方法的 transfer 部分
+        按宿主 V3 语义收口「确定性规划拒绝」（未识别媒体信息、未识别文件集数等）。
 
-        :param chain_self: TransferChain 实例
-        :param task: 任务
-        :param callback: 回调
-        :return: 返回值
+        宿主 ``__handle_transfer`` 在这类分支上不是直接返回失败，而是
+        ``__checkpoint_planning_rejection(task, reason)``：把拒绝冻结成 **零文件副作用**
+        的 durable 计划、提交执行检查点，再由 ``callback`` 走统一终态结算。补丁复制的是
+        旧版规划前流程，必须显式补上这一步，否则宿主认为任务未结算并每 ~15 秒回放。
+
+        :param chain_self: 宿主 TransferChain 实例
+        :param task: 宿主整理任务
+        :param callback: 宿主回调（队列默认回调即原子终态结算入口）
+        :param message: 拒绝原因，同时作为失败消息与历史记录原因
+        :return: ``(成功状态, 消息)``；宿主缺少收口入口时返回 ``None``，
+            调用方必须回退宿主原生流程，而不是自行返回失败
         """
-        from app.sdk.events import eventmanager
-        from app.schemas import StorageOperSelectionEventData, TransferInfo
-        from app.schemas.types import ChainEventType
+        result = checkpoint_planning_rejection(chain_self, task, message, callback)
+        if result is None:
+            return None
+        cls._register_ai_retry(chain_self, task)
+        return result
 
-        try:
-            # 正在处理
-            cls._jobview_of(chain_self).running_task(task)
+    @classmethod
+    def _register_ai_retry(cls, chain_self, task) -> None:
+        """
+        失败结算后按配置登记 AI 智能体自动重试（宿主 durable 重试入口）。
 
-            # 获取源存储操作对象
-            source_oper = None
-            source_event_data = StorageOperSelectionEventData(
-                storage=task.fileitem.storage
+        :param chain_self: 宿主 TransferChain 实例
+        :param task: 宿主整理任务（结算后按其 durable 身份回查历史记录）
+        """
+        from app.sdk.config import settings
+
+        if not (settings.AI_AGENT_ENABLE and settings.AI_AGENT_RETRY_TRANSFER):
+            return
+        history = latest_transfer_history(chain_self, task)
+        if history is None:
+            logger.debug("【整理接管】未取到本次失败的历史记录，跳过 AI 智能体重试登记")
+            return
+        retry_result = request_durable_transfer_retry(
+            chain_self, history, requested_by="p115strmhelper_ai_retry"
+        )
+        if retry_result is None:
+            # None 有两种来源：宿主没有该入口（compat 层已告警），或该历史不是
+            # durable 任务（旧记录，无自动重试可言）。
+            logger.info(
+                f"【整理接管】该历史无 durable 整理任务（旧记录或宿主未提供入口），"
+                f"跳过 AI 智能体重试登记（历史 #{history.id}）"
             )
-            source_event = eventmanager.send_event(
-                ChainEventType.StorageOperSelection, source_event_data
+        elif retry_result[0]:
+            logger.info(f"【整理接管】已登记AI智能体重试整理历史记录 #{history.id}")
+        else:
+            logger.warning(
+                f"【整理接管】AI智能体重试未受理（历史 #{history.id}）：{retry_result[1]}"
             )
-            if source_event and source_event.event_data:
-                source_event_data = source_event.event_data
-                if source_event_data.storage_oper:
-                    source_oper = source_event_data.storage_oper
-
-            # 获取目标存储操作对象
-            target_oper = None
-            target_event_data = StorageOperSelectionEventData(
-                storage=task.target_storage
-            )
-            target_event = eventmanager.send_event(
-                ChainEventType.StorageOperSelection, target_event_data
-            )
-            if target_event and target_event.event_data:
-                target_event_data = target_event.event_data
-                if target_event_data.storage_oper:
-                    target_oper = target_event_data.storage_oper
-
-            # 执行整理
-            transferinfo: TransferInfo = chain_self.transfer(
-                fileitem=task.fileitem,
-                meta=task.meta,
-                mediainfo=task.mediainfo,
-                target_directory=task.target_directory,
-                target_storage=task.target_storage,
-                target_path=task.target_path,
-                transfer_type=task.transfer_type,
-                episodes_info=task.episodes_info,
-                scrape=task.scrape,
-                library_type_folder=task.library_type_folder,
-                library_category_folder=task.library_category_folder,
-                source_oper=source_oper,
-                target_oper=target_oper,
-                preview=task.preview,
-            )
-
-            if not transferinfo:
-                logger.error("文件整理模块运行失败")
-                return False, "文件整理模块运行失败"
-
-            if callback:
-                return callback(task, transferinfo)
-
-            return transferinfo.success, transferinfo.message
-
-        except Exception as e:
-            logger.error(f"【整理接管】执行 transfer 失败: {e}", exc_info=True)
-            return False, f"整理失败: {e}"

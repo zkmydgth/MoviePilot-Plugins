@@ -128,6 +128,98 @@ def _check_host_members(transfer_chain_cls: Any, transfer_compat: Any) -> None:
     _check("补丁依赖 transfer 回退入口", lambda: transfer_chain_cls.transfer)
 
 
+def _check_durable_settlement(transfer_chain_cls: Any, transfer_compat: Any) -> None:
+    """工单 F：durable 收口入口必须存在且签名匹配，缺入口时按契约降级。
+
+    补丁复制的是宿主旧版规划前流程；未识别媒体、缺集数、重复投递等提前返回路径
+    必须走 ``__checkpoint_planning_rejection`` / ``__record_uncheckpointed_failure``
+    结算，缺任一个就会「接管却永不结算」——宿主恢复调度每 ~15 秒回放同一文件
+    （2026-10-09 实测 18:45–18:47 每轮新增一条失败历史）。
+    """
+    for name in (
+        "_TransferChain__checkpoint_planning_rejection",
+        "_TransferChain__record_uncheckpointed_failure",
+    ):
+        _check_settlement_entry(transfer_chain_cls, name)
+
+    _check(
+        "缺收口入口时规划拒绝按契约降级（返回 None）",
+        lambda: _check_rejection_degradation(transfer_compat),
+    )
+    _check(
+        "缺登记入口时失败登记按契约降级（返回 False）",
+        lambda: _check_record_degradation(transfer_compat),
+    )
+    _check("整理历史可按 durable 任务查询", _check_history_lookup_entry)
+    _check(
+        "组合根准入仓储提供 abandon_unstarted(task_id, lease_token)",
+        _check_admission_repository,
+    )
+
+
+class _BareChain:
+    """既无收口入口也无准入仓储的空壳链对象（用于验证降级契约）。"""
+
+
+def _check_settlement_entry(transfer_chain_cls: Any, name: str) -> None:
+    """检查单个 durable 收口入口存在、可调用且形参含 task/error。"""
+    target = getattr(transfer_chain_cls, name, None)
+    _check(
+        f"durable 收口入口 {name} 可调用",
+        lambda t=target, n=name: _require(callable(t), n),
+    )
+    if not callable(target):
+        return
+    params = list(inspect.signature(target).parameters)[1:]
+    _check(
+        f"{name} 形参含 task/error",
+        lambda p=params, n=name: _require(
+            "task" in p and "error" in p, f"{n} 实际形参: {p}"
+        ),
+    )
+
+
+def _check_rejection_degradation(transfer_compat: Any) -> None:
+    """宿主缺收口入口时 compat 层必须返回 None，让调用方回退宿主原生整理。"""
+    result = transfer_compat.checkpoint_planning_rejection(
+        _BareChain(), object(), "no-entry"
+    )
+    if result is not None:
+        raise AssertionError(f"缺入口时应返回 None，实际 {result!r}")
+
+
+def _check_record_degradation(transfer_compat: Any) -> None:
+    """宿主缺登记入口时必须报「未登记」，不能假装失败原因已记下。"""
+    if transfer_compat.record_uncheckpointed_failure(_BareChain(), object(), "no-entry"):
+        raise AssertionError("缺入口时应返回 False")
+
+
+def _check_history_lookup_entry() -> None:
+    """失败结算后按 durable 任务查历史的入口（AI 重试登记依赖）。"""
+    from app.db.oper.transferhistory import TransferHistoryOper  # noqa: PLC0415
+
+    if not callable(getattr(TransferHistoryOper, "get_by_transfer_task_id", None)):
+        raise AssertionError("TransferHistoryOper.get_by_transfer_task_id 不可调用")
+
+
+def _check_admission_repository() -> None:
+    """组合根实际注入的准入仓储必须提供 abandon_unstarted（接管注销依赖）。"""
+    from app.db.adapters.transfer.admission import (  # noqa: PLC0415
+        TransactionalTransferAdmissionRepository,
+    )
+
+    method = getattr(
+        TransactionalTransferAdmissionRepository, "abandon_unstarted", None
+    )
+    if not callable(method):
+        raise AssertionError(
+            "TransactionalTransferAdmissionRepository.abandon_unstarted 不可调用"
+        )
+    params = inspect.signature(method).parameters
+    if not {"task_id", "lease_token"} <= set(params):
+        raise AssertionError(f"abandon_unstarted 实际形参: {list(params)}")
+
+
 def _check_class_view_verification(transfer_chain_cls: Any, patcher: Any) -> None:
     """真实插件服务初始化时走类视角校验，必须在真机宿主上通过。"""
     _check(
@@ -175,6 +267,22 @@ def _check_instance_scope(transfer_chain_cls: Any, patcher: Any) -> None:
             "_request_durable_transfer_retry 不可调用",
         ),
     )
+    admissions = getattr(instance, "_transfer_admissions", None)
+    abandon = _check(
+        "实例提供准入注销入口 _transfer_admissions.abandon_unstarted",
+        lambda: _require(
+            callable(getattr(admissions, "abandon_unstarted", None)),
+            "_transfer_admissions.abandon_unstarted 不可调用",
+        ),
+    )
+    if abandon is not None:
+        _check(
+            "abandon_unstarted 形参含 task_id/lease_token",
+            lambda: _require(
+                {"task_id", "lease_token"} <= set(inspect.signature(abandon).parameters),
+                f"实际形参: {list(inspect.signature(abandon).parameters)}",
+            ),
+        )
     _check(
         "补丁目标校验通过（实例视角）",
         lambda: patcher._verify_targets(instance),
@@ -241,6 +349,7 @@ def main() -> int:
     patcher = _load_plugin_module("patch.transfer_chain").TransferChainPatcher
 
     _check_host_members(TransferChain, transfer_compat)
+    _check_durable_settlement(TransferChain, transfer_compat)
     _check_class_view_verification(TransferChain, patcher)
     _check_instance_scope(TransferChain, patcher)
     _check_enable_cycle(TransferChain, patcher)

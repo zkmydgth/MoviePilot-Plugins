@@ -23,12 +23,16 @@ from app.sdk.logging import logger
 
 __all__ = [
     "JobViewAdapter",
+    "abandon_taken_over_admission",
+    "checkpoint_planning_rejection",
     "get_jobview",
     "get_task_lock",
+    "latest_transfer_history",
+    "record_uncheckpointed_failure",
+    "request_durable_transfer_retry",
+    "resolve_jobview",
     "resolve_scrape_batch_finish",
     "scrape_batch_finish_names",
-    "resolve_jobview",
-    "request_durable_transfer_retry",
 ]
 
 # 适配器初始化时要求宿主必须提供的方法；缺失说明宿主接口已变更
@@ -361,9 +365,143 @@ def request_durable_transfer_retry(
         logger.warning("【整理接管】宿主未提供 durable 重试入口，跳过自动重试登记")
         return None
     try:
-        return request(history, requested_by=requested_by)
+        result = request(history, requested_by=requested_by)
     except Exception as err:  # noqa: BLE001 - 重试登记失败不影响整理主流程
         logger.error(f"【整理接管】登记 durable 整理重试失败: {err}")
+        return None
+    if result is None:
+        # 宿主对该历史返回 None = 旧记录没有 durable 任务可重放，并非调用失败。
+        logger.debug(
+            f"【整理接管】历史 #{getattr(history, 'id', None)} 无 durable 整理任务，跳过自动重试"
+        )
+    return result
+
+
+def checkpoint_planning_rejection(
+    chain: Any,
+    task: Any,
+    message: str,
+    callback: Optional[Callable] = None,
+) -> Optional[Tuple[bool, str]]:
+    """
+    按宿主 V3 语义收口「确定性规划拒绝」（未识别到媒体信息、未识别到文件集数等）。
+
+    宿主 ``TransferChain.__handle_transfer`` 在未识别分支不是直接返回失败，而是
+    ``__checkpoint_planning_rejection(task, reason)``：把拒绝冻结成**零文件副作用**的
+    durable 计划、提交执行检查点，再由 ``callback`` 走统一终态结算。补丁复制的是规划前
+    的旧流程，失败/提前返回时若漏掉这一步，宿主 ``__claim_recovery_batch`` 会认为任务
+    未结算并 **每 ~15 秒回放同一文件**（2026-10-09 实测：未识别文件被反复重投、
+    每轮新增/更新一条失败历史）。
+
+    :param chain: 宿主 TransferChain 实例
+    :param task: 宿主整理任务
+    :param message: 拒绝原因（同时作为失败消息与历史记录原因）
+    :param callback: 宿主回调；传了就由它完成 durable 终态结算
+    :return: ``(成功状态, 消息)``；宿主未提供收口入口时返回 ``None``，
+        调用方必须回退宿主原生流程而不是自行返回失败
+    """
+    rejection = getattr(chain, "_TransferChain__checkpoint_planning_rejection", None)
+    if not callable(rejection):
+        logger.warning(
+            "【整理接管】宿主未提供规划拒绝收口入口，无法确认终态；"
+            "本次交回宿主原生整理（避免任务悬空被反复回放）"
+        )
+        return None
+    transferinfo = rejection(task, message)
+    if callback:
+        return callback(task, transferinfo)
+    return bool(transferinfo.success), transferinfo.message or ""
+
+
+def record_uncheckpointed_failure(chain: Any, task: Any, error: Any) -> bool:
+    """
+    按宿主语义登记「checkpoint 之前的失败」，保留 accepted 任务供后续重新规划。
+
+    宿主 ``__handle_transfer`` 在 ``__perform_transfer`` 返回失败（如重复投递）
+    或抛异常时会调用它。补丁替换了整个 ``__handle_transfer``，因此必须自己补上，
+    否则宿主恢复调度看不到失败原因，只能反复回放。
+
+    :param chain: 宿主 TransferChain 实例
+    :param task: 宿主整理任务
+    :param error: 失败原因（异常或消息）
+    :return: 是否成功登记
+    """
+    record = getattr(chain, "_TransferChain__record_uncheckpointed_failure", None)
+    if not callable(record):
+        logger.warning(
+            "【整理接管】宿主未提供未结算失败登记入口，跳过记录"
+            "（宿主接口可能已变更）"
+        )
+        return False
+    try:
+        record(task, error)
+    except Exception as err:  # noqa: BLE001 - 记录失败不改变整理主流程
+        logger.error(f"【整理接管】登记整理规划失败原因出错: {err}")
+        return False
+    return True
+
+
+def abandon_taken_over_admission(chain: Any, task: Any, *, reason: str) -> bool:
+    """
+    注销被插件接管的 durable 准入记录，使宿主不再持有该文件的恢复责任。
+
+    插件接管 115→115 整理后，文件的实际流转（移动/复制、历史、通知）全部由插件负责，
+    但宿主在内存队列里仍持有一条 ``accepted`` 状态的 durable 准入记录；宿主 worker 的
+    ``terminal = plan_checkpoint is not None`` 对本路径恒为 False，于是每轮恢复扫描
+    （15 秒）都会把同一文件重新送回整理入口 —— 表现为同一文件被插件反复接管、重复
+    处理（copy 模式下源文件不会消失，永远不会自愈）。
+
+    宿主没有「插件接管」的公开终态，只有 ``TransferRecoveryCommand``/准入仓储的
+    ``abandon_unstarted``：仅在**任务从未执行**（accepted + 无检查点 + 无步骤 + 无历史）
+    且当前租约 token 有效时删除登记，正好对应「插件在宿主规划前接管」这一时点。
+
+    :param chain: 宿主 TransferChain 实例
+    :param task: 宿主整理任务（需带 durable 身份与租约）
+    :param reason: 注销原因，仅用于日志
+    :return: 是否确认注销；False 时调用方**不得**接管，应回退宿主原生整理
+    """
+    task_id = getattr(task, "admission_task_id", None)
+    lease_token = getattr(task, "lease_token", None)
+    if not task_id or not lease_token:
+        logger.warning(f"【整理接管】整理任务缺少 durable 身份，无法注销宿主准入：{reason}")
+        return False
+    repository = getattr(chain, "_transfer_admissions", None)
+    abandon = getattr(repository, "abandon_unstarted", None)
+    if not callable(abandon):
+        logger.warning(
+            "【整理接管】宿主未提供准入注销入口，无法确认接管终态"
+            "（宿主接口可能已变更）"
+        )
+        return False
+    try:
+        deleted = abandon(task_id=task_id, lease_token=lease_token)
+    except Exception as err:  # noqa: BLE001 - 注销失败即不接管，由调用方回退
+        logger.error(f"【整理接管】注销宿主整理准入记录失败：{err}")
+        return False
+    if not deleted:
+        logger.warning(f"【整理接管】宿主整理准入记录未注销（任务状态已变化），本次不接管：{reason}")
+        return False
+    logger.debug(f"【整理接管】已注销宿主整理准入记录，插件接管后续流转：{reason}")
+    return True
+
+
+def latest_transfer_history(chain: Any, task: Any) -> Any:
+    """
+    按 durable 任务身份查询刚结算的整理历史，供失败后的自动重试登记使用。
+
+    :param chain: 宿主 TransferChain 实例
+    :param task: 宿主整理任务
+    :return: 整理历史快照；查不到时返回 None
+    """
+    task_id = getattr(task, "admission_task_id", None)
+    if not task_id:
+        return None
+    try:
+        from app.db.oper.transferhistory import TransferHistoryOper
+
+        return TransferHistoryOper().get_by_transfer_task_id(task_id=task_id)
+    except Exception as err:  # noqa: BLE001 - 查不到就跳过自动重试
+        logger.debug(f"【整理接管】按整理任务查询历史记录失败: {err}")
         return None
 
 

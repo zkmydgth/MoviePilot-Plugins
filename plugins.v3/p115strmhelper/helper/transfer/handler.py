@@ -1925,9 +1925,11 @@ class TransferHandler:
                     TransferChain(), history, requested_by="p115strmhelper_ai_retry"
                 )
                 if retry_result is None:
-                    logger.warning(
-                        "【整理接管】宿主未受理自动重试，未登记AI智能体重试"
-                        f"（历史 #{history.id}）"
+                    # None 的两种来源：宿主无该入口（compat 层已告警）或该历史不是
+                    # durable 任务（旧记录，本就无从自动重试），不是「宿主拒绝」。
+                    logger.info(
+                        "【整理接管】该历史无 durable 整理任务（旧记录或宿主未提供入口），"
+                        f"跳过 AI 智能体重试登记（历史 #{history.id}）"
                     )
                 elif retry_result[0]:
                     logger.info(

@@ -14,7 +14,8 @@ class MediaChain(ChainBase):
     这正是插件在无媒体库环境下应有的降级路径。
     """
 
-    def recognize_by_meta(self, meta: Any) -> Optional[Any]:
+    def recognize_by_meta(self, meta: Any, **_kwargs: Any) -> Optional[Any]:
+        """按 meta 识别；替身环境恒为未识别（宿主签名为 ``(meta, obtain_images=...)``）。"""
         return None
 
     def recognize_media(self, mediainfo: Any = None, **kwargs: Any) -> Optional[Any]:
