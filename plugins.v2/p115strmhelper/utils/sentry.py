@@ -11,6 +11,7 @@ from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
 from sentry_sdk.integrations.dedupe import DedupeIntegration
 
 from app.log import logger
+from version import APP_VERSION
 
 from ..core.config import configer
 
@@ -107,6 +108,10 @@ class SentryManager:
                     ],
                 )
             )
+
+            with self.sentry_hub.configure_scope() as scope:
+                scope.set_tag("moviepilot_version", APP_VERSION)
+                logger.debug(f"【Sentry】Set moviepilot_version tag to: {APP_VERSION}")
 
             if not self._patched:
                 self._apply_monkey_patch()
