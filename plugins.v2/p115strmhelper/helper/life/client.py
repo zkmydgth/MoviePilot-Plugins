@@ -393,7 +393,7 @@ class MonitorLife:
                             extension=file_path.suffix[1:].lower(),
                             size=item["size"],
                             pickcode=item["pickcode"],
-                            modify_time=item["ctime"],
+                            modify_time=item.get("ctime", None),
                         )
                         transferchain.do_transfer(fileitem=fileitem)
                         logger.info(f"【网盘整理】{file_path} 加入整理列队")
@@ -420,7 +420,7 @@ class MonitorLife:
                             extension=file_path.suffix[1:].lower(),
                             size=item["size"],
                             pickcode=item["pickcode"],
-                            modify_time=item["ctime"],
+                            modify_time=item.get("ctime", None),
                         )
                         transferchain.do_transfer(fileitem=fileitem)
                         logger.info(f"【网盘整理】{file_path} 加入整理列队")
