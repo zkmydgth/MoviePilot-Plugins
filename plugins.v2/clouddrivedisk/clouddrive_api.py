@@ -728,6 +728,7 @@ class CloudDriveApi:
             stream = self.client.remote_upload_channel(
                 device_id=f"moviepilot-{uuid4().hex[:12]}"
             )
+            stream.initial_metadata()
             started = self.client.start_remote_upload(
                 file_path=target_path,
                 file_size=file_size,
