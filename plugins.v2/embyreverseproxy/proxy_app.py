@@ -372,7 +372,7 @@ def create_app(emby_host: str) -> FastAPI:
         request: Request,
     ) -> JSONResponse | StreamingResponse:
         """
-        代理 /emby/system/info 并改写响应中的端口，使客户端连回代理而非后端。
+        代理 /emby/system/info 与 /system/info，并改写响应中的端口，使客户端连回代理而非后端。
 
         :param request: 当前请求。
         :return: 改写后的 JSON 或 502 错误。
@@ -452,11 +452,12 @@ def create_app(emby_host: str) -> FastAPI:
         }
         return JSONResponse(status_code=200, content=body, headers=resp_headers)
 
-    app.api_route(
-        "/emby/system/info",
-        methods=["GET", "HEAD"],
-        response_model=None,
-    )(_system_info_handler)
+    for _path in ("/emby/system/info", "/system/info"):
+        app.api_route(
+            _path,
+            methods=["GET", "HEAD"],
+            response_model=None,
+        )(_system_info_handler)
 
     async def _reverse_proxy(request: Request) -> StreamingResponse | JSONResponse:
         """
