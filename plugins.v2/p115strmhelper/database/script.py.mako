@@ -8,9 +8,13 @@ Depends On: ${depends_on | comma,n}
 Create Date: ${create_date}
 
 """
-${'''from alembic import op
+<%
+has_ops = 'op.' in upgrades or 'op.' in downgrades
+%>
+% if has_ops:
+from alembic import op
 import sqlalchemy as sa
-''' if upgrade or downgrade else ''}
+% endif
 ${imports if imports else ""}
 
 # revision identifiers, used by Alembic.

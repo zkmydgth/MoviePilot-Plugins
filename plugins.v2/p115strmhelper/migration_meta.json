@@ -1,6 +1,6 @@
 {
-    "version": "1.0.1",
-    "revision": "2606909750bf",
+    "version": "1.0.2",
+    "revision": "d8dccb5dc598",
     "models": "db_manager.models",
     "script_location": "database",
     "version_location": "database.versions",

@@ -18,7 +18,7 @@ from ..utils.automaton import AutomatonUtils
 from ..utils.mediainfo_download import MediainfoDownloadMiddleware
 from ..utils.http import check_iter_path_data
 from ..utils.exception import FileItemKeyMiss
-from ..db_manager.oper import FileDbHelper
+from ..db_manager.oper import FileDbHelper, LifeEventDbHelper
 from ..helper.mediainfo_download import MediaInfoDownloader
 from ..helper.mediasyncdel import MediaSyncDelHelper
 from ..helper.mediaserver import MediaServerRefresh
@@ -858,6 +858,9 @@ class MonitorLife:
         if not events_batch:
             sleep(20)
             return from_time, from_id
+
+        db_helper = LifeEventDbHelper()
+        db_helper.upsert_batch_by_list(events_batch)
 
         for event in reversed(events_batch):
             self.rmt_mediaext = [

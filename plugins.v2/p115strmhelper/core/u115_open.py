@@ -1,4 +1,3 @@
-import hashlib
 from random import randint
 from datetime import datetime, timezone
 from pathlib import Path
@@ -12,6 +11,7 @@ from sqlalchemy.orm.exc import MultipleResultsFound
 from oss2 import SizedFileAdapter, determine_part_size
 from oss2.models import PartInfo
 from p115client import P115Client
+from cryptography.hazmat.primitives import hashes
 
 from app import schemas
 from app.log import logger
@@ -245,7 +245,7 @@ class U115OpenHelper:
         计算文件SHA1
         size: 前多少字节
         """
-        sha1 = hashlib.sha1()
+        sha1 = hashes.Hash(hashes.SHA1())
         with open(filepath, "rb") as f:
             if size:
                 chunk = f.read(size)
@@ -253,7 +253,7 @@ class U115OpenHelper:
             else:
                 while chunk := f.read(8192):
                     sha1.update(chunk)
-        return sha1.hexdigest()
+        return sha1.finalize().hex()
 
     @staticmethod
     def _can_write_db(path: Path) -> bool:
@@ -416,7 +416,9 @@ class U115OpenHelper:
                     # 取2392148-2392298之间的内容(包含2392148、2392298)的sha1
                     f.seek(start)
                     chunk = f.read(end - start + 1)
-                    sign_val = hashlib.sha1(chunk).hexdigest().upper()
+                    sha1 = hashes.Hash(hashes.SHA1())
+                    sha1.update(chunk)
+                    sign_val =sha1.finalize().hex().upper()
                 second_sha1 = sign_val
                 # 重新初始化请求
                 # sign_key，sign_val(根据sign_check计算的值大写的sha1值)
