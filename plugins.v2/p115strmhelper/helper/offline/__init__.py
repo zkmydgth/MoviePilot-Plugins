@@ -97,6 +97,7 @@ class OfflineDownloadHelper:
                 "file_size": int(data["size"]),
                 "pick_code": data["pickcode"],
                 "update_time": data["user_utime"],
+                "sha1": data["sha1"],
             }
             file_path = Path(parent_path) / str(item[1].get("data").get("name"))
             rmt_mediaext = [
@@ -182,9 +183,7 @@ class OfflineDownloadHelper:
 
             result = (resp.get("data") or {}).get("result")
             added_count = (
-                len(result)
-                if isinstance(result, list) and result
-                else len(url_list)
+                len(result) if isinstance(result, list) and result else len(url_list)
             )
 
             # 获取所有任务的 hash，添加到待整理列表中
@@ -224,9 +223,7 @@ class OfflineDownloadHelper:
 
             result = (resp.get("data") or {}).get("result")
             added_count = (
-                len(result)
-                if isinstance(result, list) and result
-                else len(url_list)
+                len(result) if isinstance(result, list) and result else len(url_list)
             )
 
             for url in url_list:
