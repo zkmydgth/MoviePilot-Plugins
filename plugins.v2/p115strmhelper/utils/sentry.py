@@ -5,14 +5,20 @@ import base64
 import sentry_sdk
 from sentry_sdk.hub import Hub
 from sentry_sdk.client import Client
+from sentry_sdk.integrations.stdlib import StdlibIntegration
+from sentry_sdk.integrations.excepthook import ExcepthookIntegration
 
 
 sentry_hub = Hub(
     Client(
         dsn=base64.b64decode(
-            "aHR0cHM6Ly8wZTY4OWY3NTM4N2E0NDMyYjZjYTY4NTc2N2I2MTdhMEBnbGl0Y2h0aXAuZGRzcmVtLmNvbS8z"
+            "aHR0cHM6Ly82YTk0ZjI2N2NjOTY0Y2ZiOTk5ZjQyNDgwNGIyMTE1M0BnbGl0Y2h0aXAuZGRzcmVtLmNvbS80"
         ).decode("utf-8"),
-        release="p115strmhelper@v1.9.19",
+        release="p115strmhelper@v1.9.20",
+        # 禁用所有默认集成
+        default_integrations=False,
+        # 启用标准库集成和全局异常钩子集成
+        integrations=[StdlibIntegration(), ExcepthookIntegration(always_run=True)],
     )
 )
 
