@@ -8,6 +8,8 @@ from p115client.tool.attr import get_attr
 from app.chain.storage import StorageChain
 from app.core.context import MediaInfo
 from app.core.meta import MetaBase
+from app.core.metainfo import MetaInfoPath
+from app.helper.directory import DirectoryHelper
 from app.log import logger
 from app.schemas import TransferInfo, FileItem
 from app.schemas.types import EventType, ChainEventType
@@ -127,6 +129,78 @@ class TransferStrmHelper:
             PathRemoveUtils.remove_parent_dir(
                 file_path=old_strm_path, mode="mixed", func_type="【监控整理STRM生成】"
             )
+
+    @staticmethod
+    def _get_overwrite_mode(storage_name: str, pan_dir_path: str) -> Optional[str]:
+        """
+        从 MP 媒体库目录配置中读取当前整理任务对应的覆盖模式
+
+        通过比对 library_storage 与 library_path 前缀来定位匹配的目录配置，
+        存在多级目录配置时取最长前缀匹配，避免父级配置覆盖子目录配置
+
+        :param storage_name: 目标存储名称（如 u115、115网盘Plus）
+        :param pan_dir_path: 网盘目标目录路径
+        :return: 覆盖模式字符串（always/size/never/latest），匹配失败时返回 None
+        """
+        try:
+            pan_dir_norm = pan_dir_path.rstrip("/") + "/"
+            best: Optional[tuple] = None
+            for d in DirectoryHelper().get_dirs():
+                if d.library_storage == storage_name and d.library_path:
+                    lib_norm = d.library_path.rstrip("/") + "/"
+                    if pan_dir_norm.startswith(lib_norm):
+                        if best is None or len(lib_norm) > len(best[0]):
+                            best = (lib_norm, d.overwrite_mode)
+            return best[1] if best else None
+        except Exception as e:
+            logger.debug("【监控整理STRM生成】读取覆盖模式失败: %s", e)
+            sentry_manager.sentry_hub.capture_exception(e)
+        return None
+
+    @staticmethod
+    def _cleanup_old_versions_strm(new_strm_path: str) -> None:
+        """
+        latest 覆盖模式下清理本地 STRM 目录中同集/同影片的旧版本 STRM 文件
+
+        仿照 MP 的 __delete_version_files 逻辑：扫描新 STRM 所在目录，找出与新文件
+        季集信息相同但文件名不同的旧版本 .strm 文件并删除，与 MP 行为保持完全一致
+
+        :param new_strm_path: 本次新生成的 STRM 文件路径
+        :return: None
+        """
+        new_path = Path(new_strm_path)
+        parent = new_path.parent
+        new_meta = MetaInfoPath(new_path.with_suffix(""))
+
+        try:
+            for f in parent.iterdir():
+                if f.resolve() == new_path.resolve() or f.suffix.lower() != ".strm":
+                    continue
+                candidate_meta = MetaInfoPath(f.with_suffix(""))
+                if (
+                    candidate_meta.season == new_meta.season
+                    and candidate_meta.episode == new_meta.episode
+                ):
+                    logger.info(
+                        "【监控整理STRM生成】latest 模式：删除旧版本 STRM 文件: %s", f
+                    )
+                    try:
+                        f.unlink(missing_ok=True)
+                    except Exception as e:
+                        logger.error(
+                            "【监控整理STRM生成】删除旧版本 STRM 文件失败: %s, %s", f, e
+                        )
+                        sentry_manager.sentry_hub.capture_exception(e)
+                        continue
+                    PathRemoveUtils.clean_related_files(
+                        file_path=f, func_type="【监控整理STRM生成】"
+                    )
+                    PathRemoveUtils.remove_parent_dir(
+                        file_path=f, mode="mixed", func_type="【监控整理STRM生成】"
+                    )
+        except Exception as e:
+            logger.error("【监控整理STRM生成】扫描旧版本 STRM 文件失败: %s", e)
+            sentry_manager.sentry_hub.capture_exception(e)
 
     def do_generate(
         self,
@@ -262,6 +336,14 @@ class TransferStrmHelper:
         )
         if not status:
             return
+
+        # latest 模式：清理同集旧版本 STRM（文件名不同但季集相同的残留）
+        overwrite_mode = self._get_overwrite_mode(
+            storage_name=item_transfer.target_item.storage,
+            pan_dir_path=itemdir_dest_path,
+        )
+        if overwrite_mode == "latest":
+            self._cleanup_old_versions_strm(strm_target_path)
 
         # 重新整理场景：移动整理时清理源路径对应的旧失效 STRM
         if item_transfer.transfer_type == "move":
