@@ -28,6 +28,7 @@ from watchdog.observers import Observer
 from watchdog.observers.polling import PollingObserver
 from p115client import P115Client
 from p115client.exception import DataError
+from p115client.tool.fs_files import iter_fs_files
 from p115client.tool.iterdir import iter_files_with_path, get_path_to_cid, share_iterdir
 from p115client.tool.life import iter_life_behavior_once, life_show
 from p115client.tool.util import share_extract_payload
@@ -1056,7 +1057,7 @@ class P115StrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png"
     # 插件版本
-    plugin_version = "1.8.5"
+    plugin_version = "1.8.6"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -3862,16 +3863,16 @@ class P115StrmHelper(_PluginBase):
                 cid = int(dir_info["id"])
 
                 items = []
-                fs_data = self._client.fs_files(cid)
-                for item in fs_data["data"]:
-                    if "fc" in item:
-                        items.append(
-                            {
-                                "name": item.get("n"),
-                                "path": f"{str(path).rstrip('/')}/{item.get('n')}",
-                                "is_dir": True,
-                            }
-                        )
+                for batch in iter_fs_files(self._client, cid):
+                    for item in batch.get("data", []):
+                        if "fc" in item:
+                            items.append(
+                                {
+                                    "name": item.get("n"),
+                                    "path": f"{str(path).rstrip('/')}/{item.get('n')}",
+                                    "is_dir": True,
+                                }
+                            )
                 return {
                     "code": 0,
                     "path": str(path),
