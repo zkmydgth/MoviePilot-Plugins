@@ -14,16 +14,21 @@ struct PyProcessor {
 impl PyProcessor {
     #[new]
     fn new(config_json: String) -> PyResult<Self> {
-        let config: Config = serde_json::from_str(&config_json)
-            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("解析 JSON 失败: {}", e)))?;
-        let processor = Processor::new(config);
+        let config: Config = serde_json::from_str(&config_json).map_err(|e| {
+            PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("解析 JSON 失败: {}", e))
+        })?;
+        let processor = Processor::new(config).map_err(|e| {
+            PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+                "构建 Aho-Corasick 自动机失败，请检查黑白名单配置: {}",
+                e
+            ))
+        })?;
+
         Ok(PyProcessor { processor })
     }
 
     fn process_batch(&self, py: Python, batch: Vec<FileInput>) -> PyResult<PackedResult> {
-        py.allow_threads(|| {
-            Ok(self.processor.process_batch_rust(batch))
-        })
+        py.allow_threads(|| Ok(self.processor.process_batch_rust(batch)))
     }
 }
 

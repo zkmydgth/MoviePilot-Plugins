@@ -47,7 +47,9 @@ impl<'source> FromPyObject<'source> for FileInput {
             .extract()?;
 
         let size: Option<u64> = dict.get_item("size")?.and_then(|item| item.extract().ok());
-        let pickcode: Option<String> = dict.get_item("pickcode")?.and_then(|item| item.extract().ok());
+        let pickcode: Option<String> = dict
+            .get_item("pickcode")?
+            .and_then(|item| item.extract().ok());
         let sha1: Option<String> = dict.get_item("sha1")?.and_then(|item| item.extract().ok());
 
         Ok(FileInput {
@@ -100,9 +102,27 @@ pub enum ProcessingResult {
 }
 
 #[pyclass(get_all)]
+#[derive(Default)]
 pub struct PackedResult {
     pub strm_results: Vec<StrmInfo>,
     pub download_results: Vec<DownloadInfo>,
     pub skip_results: Vec<SkipInfo>,
     pub fail_results: Vec<FailInfo>,
+}
+
+impl PackedResult {
+    pub fn add(&mut self, result: ProcessingResult) {
+        match result {
+            ProcessingResult::Strm(info) => self.strm_results.push(info),
+            ProcessingResult::Download(info) => self.download_results.push(info),
+            ProcessingResult::Skip(info) => self.skip_results.push(info),
+            ProcessingResult::Fail(info) => self.fail_results.push(info),
+        }
+    }
+    pub fn merge(&mut self, other: Self) {
+        self.strm_results.extend(other.strm_results);
+        self.download_results.extend(other.download_results);
+        self.skip_results.extend(other.skip_results);
+        self.fail_results.extend(other.fail_results);
+    }
 }

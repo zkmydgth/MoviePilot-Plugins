@@ -1,7 +1,7 @@
 use crate::types::*;
-use aho_corasick::{AhoCorasick, AhoCorasickBuilder};
-use std::path::Path;
+use aho_corasick::{AhoCorasick, AhoCorasickBuilder, BuildError};
 use rayon::prelude::*;
+use std::path::Path;
 
 pub struct Processor {
     config: Config,
@@ -11,49 +11,39 @@ pub struct Processor {
 }
 
 impl Processor {
-    pub fn new(config: Config) -> Self {
+    pub fn new(config: Config) -> Result<Self, BuildError> {
         let strm_blacklist_automaton = AhoCorasickBuilder::new()
             .ascii_case_insensitive(true)
-            .build(&config.strm_generate_blacklist)
-            .unwrap();
+            .build(&config.strm_generate_blacklist)?;
+
         let mediainfo_whitelist_automaton = AhoCorasickBuilder::new()
             .ascii_case_insensitive(true)
-            .build(&config.mediainfo_download_whitelist)
-            .unwrap();
+            .build(&config.mediainfo_download_whitelist)?;
+
         let mediainfo_blacklist_automaton = AhoCorasickBuilder::new()
             .ascii_case_insensitive(true)
-            .build(&config.mediainfo_download_blacklist)
-            .unwrap();
+            .build(&config.mediainfo_download_blacklist)?;
 
-        Self {
+        Ok(Self {
             config,
             strm_blacklist_automaton,
             mediainfo_whitelist_automaton,
             mediainfo_blacklist_automaton,
-        }
+        })
     }
 
     pub fn process_batch_rust(&self, batch: Vec<FileInput>) -> PackedResult {
-        let results: Vec<ProcessingResult> = batch
+        batch
             .par_iter()
             .map(|item| self.process_item(item))
-            .collect();
-
-        let mut strm_results = Vec::new();
-        let mut download_results = Vec::new();
-        let mut skip_results = Vec::new();
-        let mut fail_results = Vec::new();
-
-        for res in results {
-            match res {
-                ProcessingResult::Strm(info) => strm_results.push(info),
-                ProcessingResult::Download(info) => download_results.push(info),
-                ProcessingResult::Skip(info) => skip_results.push(info),
-                ProcessingResult::Fail(info) => fail_results.push(info),
-            }
-        }
-
-        PackedResult { strm_results, download_results, skip_results, fail_results }
+            .fold(PackedResult::default, |mut acc, result| {
+                acc.add(result);
+                acc
+            })
+            .reduce(PackedResult::default, |mut final_acc, local_acc| {
+                final_acc.merge(local_acc);
+                final_acc
+            })
     }
 
     pub fn process_item(&self, item: &FileInput) -> ProcessingResult {
@@ -109,7 +99,11 @@ impl Processor {
             {
                 return ProcessingResult::Skip(SkipInfo {
                     path_in_pan: item.path.clone(),
-                    reason: format!("{} 文件名未匹配到媒体信息文件白名单关键词，跳过处理", item.name).into(),
+                    reason: format!(
+                        "{} 文件名未匹配到媒体信息文件白名单关键词，跳过处理",
+                        item.name
+                    )
+                    .into(),
                 });
             }
             // 判断是否在黑名单内
@@ -118,7 +112,11 @@ impl Processor {
                     let keyword = &self.config.mediainfo_download_blacklist[found.pattern()];
                     return ProcessingResult::Skip(SkipInfo {
                         path_in_pan: item.path.clone(),
-                        reason: format!("{} 匹配到媒体信息文件黑名单关键词: {}", item.name, keyword).into(),
+                        reason: format!(
+                            "{} 匹配到媒体信息文件黑名单关键词: {}",
+                            item.name, keyword
+                        )
+                        .into(),
                     });
                 }
             }
@@ -144,7 +142,11 @@ impl Processor {
         if !self.config.rmt_mediaext_set.contains(&file_suffix_with_dot) {
             return ProcessingResult::Skip(SkipInfo {
                 path_in_pan: item.path.clone(),
-                reason: format!("{} 未匹配到媒体文件后缀和媒体信息文件后缀，跳过处理", item.path).into(),
+                reason: format!(
+                    "{} 未匹配到媒体文件后缀和媒体信息文件后缀，跳过处理",
+                    item.path
+                )
+                .into(),
             });
         }
 
@@ -154,7 +156,8 @@ impl Processor {
                 let keyword = &self.config.strm_generate_blacklist[found.pattern()];
                 return ProcessingResult::Skip(SkipInfo {
                     path_in_pan: item.path.clone(),
-                    reason: format!("{} 匹配到 STRM 生成黑名单关键词: {}", item.name, keyword).into(),
+                    reason: format!("{} 匹配到 STRM 生成黑名单关键词: {}", item.name, keyword)
+                        .into(),
                 });
             }
         }
@@ -171,22 +174,24 @@ impl Processor {
         }
 
         // pick_code 检查
-        match &item.pickcode {
-            Some(pc) if pc.len() == 17 && pc.chars().all(char::is_alphanumeric) => {
-                ProcessingResult::Strm(StrmInfo {
-                    pickcode: pc.clone(),
-                    original_file_name: item.name.clone(),
-                    path_in_pan: item.path.clone(),
-                })
-            }
-            Some(pc) => ProcessingResult::Fail(FailInfo {
-                path_in_pan: item.path.clone(),
-                reason: format!("{} 错误的 pick_code 格式: {}", item.path, pc).into(),
-            }),
-            None => ProcessingResult::Fail(FailInfo {
+        let Some(pc) = &item.pickcode else {
+            return ProcessingResult::Fail(FailInfo {
                 path_in_pan: item.path.clone(),
                 reason: format!("{} 缺失 pick_code 值", item.path).into(),
-            }),
+            });
+        };
+
+        if pc.len() == 17 && pc.chars().all(char::is_alphanumeric) {
+            ProcessingResult::Strm(StrmInfo {
+                pickcode: pc.clone(),
+                original_file_name: item.name.clone(),
+                path_in_pan: item.path.clone(),
+            })
+        } else {
+            ProcessingResult::Fail(FailInfo {
+                path_in_pan: item.path.clone(),
+                reason: format!("{} 错误的 pick_code 格式: {}", item.path, pc).into(),
+            })
         }
     }
 }
