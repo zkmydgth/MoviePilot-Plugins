@@ -1,6 +1,7 @@
 import hashlib
 import threading
 import time
+import traceback
 from random import randint
 from datetime import datetime, timezone
 from pathlib import Path
@@ -169,6 +170,7 @@ class U115OpenHelper:
             logger.warn(
                 f"【P115Open】{method} 请求 {endpoint} 出错：{ret_data.get('message')}！"
             )
+            logger.warn("".join(traceback.format_stack()))
 
         if result_key:
             return ret_data.get(result_key)
