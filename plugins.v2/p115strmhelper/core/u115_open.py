@@ -147,7 +147,7 @@ class U115OpenHelper:
         # 检查会话
         self._check_session()
 
-        request_headers = copy(self.session.headers)
+        request_headers = self.session.headers.copy()
         if headers:
             request_headers.update(headers)
         kwargs["headers"] = request_headers
