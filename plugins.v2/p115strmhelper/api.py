@@ -429,6 +429,8 @@ class Api:
                     }
             return result
         elif status_code is None:
+            if resp.json().get("message", None) == "key invalid":
+                return status_map[-1].copy()
             return status_map[0].copy()
         else:
             return {
