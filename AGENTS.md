@@ -20,7 +20,7 @@ Co-authored-by: <AI Name> <ai-email@example.com>
 - **type** (required): Commit type; see table below.
 - **scope** (required): Affected scope, e.g. plugin name `p115strmhelper`, `migudiscover`, or area like `ci`, `deps`.
 - **subject** (required): Short description, ~50 chars; no period at the end.
-- **Co-authored-by** (required when AI is involved): Footer line attributing the AI assistant that contributed to the commit; use the agent’s canonical name and email (e.g. **Cursor Agent** with GitHub account: `Cursor Agent <cursoragent@cursor.com>`).
+- **Co-authored-by** (required when AI is involved): Footer line attributing the AI assistant that contributed to the commit; use the **AI agent’s own identity** (its canonical name and email as defined in its system prompt), **not** a hardcoded example. For instance, an agent identifying as "Sisyphus" should use `Sisyphus <sisyphus@ohmyopenCode.com>`, while one identifying as "Cursor Agent" should use `Cursor Agent <cursoragent@cursor.com>`.
 
 ### Type Reference
 
@@ -52,7 +52,7 @@ Co-authored-by: Cursor Agent <cursoragent@cursor.com>
 ### Rules
 
 - Commit messages must be in English; keep language consistent across the repo.
-- **AI Co-author required**: Commits made by or with assistance from an AI coding agent **must** include a `Co-authored-by:` line in the footer, e.g. `Co-authored-by: Cursor Agent <cursoragent@cursor.com>`. Use the agent that has a GitHub account so the co-author is linked correctly.
+- **AI Co-author required**: Commits made by or with assistance from an AI coding agent **must** include a `Co-authored-by:` line in the footer. The co-author must use the **AI agent’s own identity** (its canonical name and email from its system prompt), not a hardcoded example. Use the agent that has a GitHub account so the co-author is linked correctly.
 - One logical change per commit; split unrelated changes into separate commits.
 - For breaking changes, describe in body or footer; use `BREAKING CHANGE:` when needed.
 
