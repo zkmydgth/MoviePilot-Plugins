@@ -23,12 +23,12 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Install maturin and pytest
-        run: pip install "maturin>=1.9,<2.0" pytest
+      - name: Install pytest
+        run: pip install pytest
 
-      - name: Build and install txt_tree_storage (develop)
+      - name: Build and install txt_tree_storage
         working-directory: plugins.v2/p115strmhelper/rust_utils/txt_tree_storage/
-        run: maturin develop --release
+        run: pip install .
 
       - name: Run parity tests
         working-directory: plugins.v2/p115strmhelper/rust_utils/txt_tree_storage/
