@@ -3,9 +3,9 @@
 
 为什么需要
 ----------
-原实现依赖 Rust 扩展 ``share_strm_scan``，该扩展上游只发布 cp312 ABI 的 wheel，
-而 MoviePilot V3 运行在 Python 3.14（cp314）上装不了。为了让分享 STRM 清理在 V3
-上仍然可用，这里提供一份接口一致、纯 Python 的 ``ShareStrmScanCache`` 替代品。
+原实现依赖 Rust 扩展 ``share_strm_scan``；当宿主未提供该扩展（3.13 宿主，或未随
+插件分发 wheel）时，为了让分享 STRM 清理仍然可用，这里提供一份接口一致、
+纯 Python 的 ``ShareStrmScanCache`` 替代品。
 
 接口对齐 Rust 版：
     ``scan(path)``            → 扫描根目录，返回去重后的分享码/提取码组合

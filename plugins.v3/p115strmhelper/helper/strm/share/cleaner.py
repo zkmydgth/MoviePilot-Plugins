@@ -12,9 +12,8 @@ from app.schemas.types import MessageType
 try:
     from share_strm_scan import Pair, ShareStrmScanCache
 except ImportError:  # pragma: no cover - 取决于宿主是否装了 Rust 扩展
-    # MoviePilot V3 运行在 Python 3.14（cp314），而 share_strm_scan 上游只发布
-    # cp312 ABI 的 wheel，宿主装不上。此时改用纯 Python 扫描器，接口与 Rust 版一致，
-    # 功能完整，仅超大目录的扫描会慢一些。
+    # 扩展缺失时（3.13 宿主，或未随插件分发 wheel）改用纯 Python 扫描器，
+    # 接口与 Rust 版一致，功能完整，仅超大目录的扫描会慢一些。
     from .pure_scanner import (  # noqa: F401
         Pair,
         PureShareStrmScanCache as ShareStrmScanCache,

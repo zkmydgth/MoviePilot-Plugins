@@ -3,9 +3,9 @@ Python 3.14 无 Rust 扩展时的降级路径测试模块
 
 背景
 ----
-MoviePilot V3 运行在 Python 3.14（cp314），而插件的三个 Rust 加速扩展
-（``txt_tree_storage`` / ``full_strm_sync`` / ``share_strm_scan``）上游只发布了
-cp312 ABI 的 wheel，宿主装不上。这三个依赖已改为可选，插件必须能在它们全部缺失时：
+插件的三个 Rust 加速扩展（``txt_tree_storage`` / ``full_strm_sync`` /
+``share_strm_scan``）以 wheel 随插件 wheels/ 分发，但 3.13 宿主、或未随包分发
+wheel 时会缺失。这三个依赖始终是可选的，插件必须能在它们全部缺失时：
 
 1. 正常导入（不能在模块顶层 import 就炸）
 2. 走纯 Python 降级路径，且**语义与 Rust 路径一致**

@@ -20,11 +20,10 @@ dependencies = [
     "numpy",
     "cachetools",
     "httpx[http2]",
-    # Rust 加速扩展（可选）：上游目前只发布 cp312 ABI 的 wheel，
-    # MoviePilot V3 运行在 Python 3.14（cp314）上装不了，
-    # 声明为必需依赖会让 uv 整体解析失败、插件无法安装。
-    # 加环境标记后在 3.13+ 自动跳过，插件走纯 Python 降级路径（功能完整，仅慢一些）。
-    "full_strm_sync==0.1.6; python_version < '3.13'",
-    "txt_tree_storage==0.2.1; python_version < '3.13'",
-    "share_strm_scan==0.2.2; python_version < '3.13'",
+    # Rust 加速扩展（可选）：不在 PyPI 上，以 wheel 随插件 wheels/ 分发，
+    # 上游构建矩阵已含 cp312 与 cp314 → 3.12 与 3.14 宿主都能装并启用；
+    # 3.13 无对应 wheel，显式排除以免解析失败。装不上时走纯 Python 降级路径。
+    "full_strm_sync==0.1.6; python_version < '3.13' or python_version == '3.14'",
+    "txt_tree_storage==0.2.1; python_version < '3.13' or python_version == '3.14'",
+    "share_strm_scan==0.2.2; python_version < '3.13' or python_version == '3.14'",
 ]
