@@ -98,11 +98,12 @@
         "name": "115网盘STRM助手",
         "description": "115网盘STRM生成一条龙服务",
         "labels": "云盘",
-        "version": "2.0.4",
+        "version": "2.0.5",
         "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png",
         "author": "DDSRem",
         "level": 1,
         "history": {
+            "v2.0.5": "优化上传增强配置，提高逻辑可靠性",
             "v2.0.4": "上传增强正式上线，目前默认最长秒传等待时间一小时，等待间隔时间五分钟",
             "v2.0.3": "重构Machine ID生成器",
             "v2.0.2": "OOP Server 上传优化",

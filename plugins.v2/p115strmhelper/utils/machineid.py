@@ -87,7 +87,8 @@ class MachineID:
             machine_id = data.get("machine_id")
 
             if not isinstance(machine_id, str) or len(machine_id) != 64:
-                raise ValueError(f"Invalid or malformed machine ID in {path}")
+                config_path.unlink(missing_ok=True)
+                return MachineID.generate_machine_id(path)
 
             return machine_id
         except json.JSONDecodeError as e:

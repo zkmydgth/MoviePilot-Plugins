@@ -389,35 +389,61 @@ class U115OpenHelper:
                 return self._delay_get_item(target_path)
 
             # 判断是等待秒传还是直接上传
-            if wait_start_time - time.perf_counter() > 60 * 60:
+            upload_module_skip_upload_wait_size = int(
+                configer.get_config("upload_module_skip_upload_wait_size") or 0
+            )
+            if (
+                upload_module_skip_upload_wait_size != 0
+                and file_size <= upload_module_skip_upload_wait_size
+            ):
+                logger.info(
+                    f"【P115Open】文件大小 {file_size} 小于最低阈值，跳过等待流程: {target_name}"
+                )
+                break
+
+            if wait_start_time - time.perf_counter() > int(
+                configer.get_config("upload_module_wait_timeout")
+            ):
                 logger.warn(
                     f"【P115Open】等待秒传超时，自动进行上传流程: {target_name}"
                 )
                 break
 
-            try:
-                response = self.oopserver_request.make_request(
-                    path="/speed/user_status/me",
-                    method="GET",
-                    headers={"x-machine-id": configer.get_config("MACHINE_ID")},
-                    timeout=10.0,
+            upload_module_force_upload_wait_size = int(
+                configer.get_config("upload_module_force_upload_wait_size") or 0
+            )
+            if (
+                upload_module_force_upload_wait_size != 0
+                and file_size >= upload_module_force_upload_wait_size
+            ):
+                logger.info(
+                    f"【P115Open】文件大小 {file_size} 大于最高阈值，强制等待流程: {target_name}"
                 )
+                time.sleep(int(configer.get_config("upload_module_wait_time")))
+            else:
+                try:
+                    response = self.oopserver_request.make_request(
+                        path="/speed/user_status/me",
+                        method="GET",
+                        headers={"x-machine-id": configer.get_config("MACHINE_ID")},
+                        timeout=10.0,
+                    )
 
-                if response is not None and response.status_code == 200:
-                    resp = response.json()
-                    if resp.get("status") != "slow":
-                        logger.warn(
-                            f"【P115Open】上传速度状态 {resp.get('status')}，跳过秒传等待: {target_name}"
-                        )
+                    if response is not None and response.status_code == 200:
+                        resp = response.json()
+                        if resp.get("status") != "slow":
+                            logger.warn(
+                                f"【P115Open】上传速度状态 {resp.get('status')}，跳过秒传等待: {target_name}"
+                            )
+                            break
+                        logger.info(f"【P115Open】休眠，等待秒传: {target_name}")
+                        time.sleep(int(configer.get_config("upload_module_wait_time")))
+                    else:
+                        logger.warn("【P115Open】获取用户上传速度错误，网络问题")
                         break
-                    logger.info(f"【P115Open】休眠，等待秒传: {target_name}")
-                    time.sleep(60 * 5)
-                else:
-                    logger.warn("【P115Open】获取用户上传速度错误，网络问题")
+                except Exception as e:
+                    logger.warn(f"【P115Open】获取用户上传速度错误: {e}")
                     break
-            except Exception as e:
-                logger.warn(f"【P115Open】获取用户上传速度错误: {e}")
-                break
 
         # Step 4: 获取上传凭证
         token_resp = self._request_api("GET", "/open/upload/get_token", "data")

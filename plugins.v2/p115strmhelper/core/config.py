@@ -190,6 +190,14 @@ class BaseConfig(BaseModel):
     error_info_upload: bool = True
     # 115 上传增强
     upload_module_enhancement: bool = False
+    # 115 上传增强休眠等待时间
+    upload_module_wait_time: int = 5 * 60
+    # 115 上传增强最长等待时间
+    upload_module_wait_timeout: int = 60 * 60
+    # 115 上传增强跳过等待秒传的文件大小阈值
+    upload_module_skip_upload_wait_size: Optional[int] = None
+    # 115 上传增强强制等待秒传的文件大小阈值
+    upload_module_force_upload_wait_size: Optional[int] = None
 
 
 class ConfigManager:
@@ -317,7 +325,7 @@ class ConfigManager:
         if utype in user_agents:
             return user_agents[utype]
         return (
-            f"{self._configs.get('PLUSIN_NAME')}/2.0.4 "
+            f"{self._configs.get('PLUSIN_NAME')}/2.0.5 "
             f"({platform.system()} {platform.release()}; "
             f"{SystemUtils.cpu_arch() if hasattr(SystemUtils, 'cpu_arch') and callable(SystemUtils.cpu_arch) else 'UnknownArch'})"
         )

@@ -884,6 +884,40 @@
                     </v-col>
                   </v-row>
 
+                  <!-- 上传模块增强配置 -->
+                  <v-expansion-panels variant="tonal" class="mt-6">
+                    <v-expansion-panel>
+                      <v-expansion-panel-title>
+                        <v-icon icon="mdi-tune-variant" class="mr-2"></v-icon>
+                        上传模块增强配置
+                      </v-expansion-panel-title>
+                      <v-expansion-panel-text class="pa-4">
+                        <v-row>
+                          <v-col cols="12" md="6">
+                            <v-text-field v-model.number="config.upload_module_wait_time" label="秒传休眠等待时间（单位秒）"
+                              type="number" hint="秒传休眠等待时间（单位秒）" persistent-hint density="compact"></v-text-field>
+                          </v-col>
+                          <v-col cols="12" md="6">
+                            <v-text-field v-model.number="config.upload_module_wait_timeout" label="秒传最长等待时间（单位秒）"
+                              type="number" hint="秒传最长等待时间（单位秒）" persistent-hint density="compact"></v-text-field>
+                          </v-col>
+                        </v-row>
+                        <v-row>
+                          <v-col cols="12" md="6">
+                            <v-text-field v-model="skipUploadWaitSizeFormatted" label="跳过等待秒传的文件大小阈值"
+                              hint="文件小于此值将跳过等待秒传（单位支持K，M，G）" persistent-hint density="compact"
+                              placeholder="例如: 5M, 1.5G (可为空)" clearable></v-text-field>
+                          </v-col>
+                          <v-col cols="12" md="6">
+                            <v-text-field v-model="forceUploadWaitSizeFormatted" label="强制等待秒传的文件大小阈值"
+                              hint="文件大于此值将强制等待秒传（单位支持K，M，G）" persistent-hint density="compact"
+                              placeholder="例如: 5M, 1.5G (可为空)" clearable></v-text-field>
+                          </v-col>
+                        </v-row>
+                      </v-expansion-panel-text>
+                    </v-expansion-panel>
+                  </v-expansion-panels>
+
                   <v-alert type="info" variant="tonal" density="compact" class="mt-3 text-caption">
                     <strong>115上传增强有效范围：</strong><br>
                     此功能开启后，将对整个MoviePilot系统内所有调用115网盘上传的功能生效。
@@ -1167,7 +1201,11 @@ const config = reactive({
   nullbr_api_key: '',
   same_playback: false,
   error_info_upload: false,
-  upload_module_enhancement: false
+  upload_module_enhancement: false,
+  upload_module_wait_time: 300,
+  upload_module_wait_timeout: 3600,
+  upload_module_skip_upload_wait_size: 0,
+  upload_module_force_upload_wait_size: 0
 });
 
 // 消息提示
@@ -1175,6 +1213,83 @@ const message = reactive({
   text: '',
   type: 'info'
 });
+
+const skipUploadWaitSizeFormatted = computed({
+  /**
+   * get: 将字节转换为带单位的字符串显示在输入框中
+   */
+  get() {
+    // 如果值是0或无效，返回空字符串，实现清空效果
+    if (!config.upload_module_skip_upload_wait_size || config.upload_module_skip_upload_wait_size <= 0) {
+      return '';
+    }
+    return formatBytes(config.upload_module_skip_upload_wait_size);
+  },
+  /**
+   * set: 将用户输入的字符串(如 "5M")解析为字节并存储
+   * @param {string} newValue - 用户输入的值
+   */
+  set(newValue) {
+    config.upload_module_skip_upload_wait_size = parseSize(newValue);
+  },
+});
+
+const forceUploadWaitSizeFormatted = computed({
+  /**
+   * get: 将字节转换为带单位的字符串显示在输入框中
+   */
+  get() {
+    // 如果值是0或无效，返回空字符串，实现清空效果
+    if (!config.upload_module_force_upload_wait_size || config.upload_module_force_upload_wait_size <= 0) {
+      return '';
+    }
+    return formatBytes(config.upload_module_force_upload_wait_size);
+  },
+  /**
+   * set: 将用户输入的字符串(如 "5M")解析为字节并存储
+   * @param {string} newValue - 用户输入的值
+   */
+  set(newValue) {
+    config.upload_module_force_upload_wait_size = parseSize(newValue);
+  },
+});
+
+const parseSize = (sizeString) => {
+  if (!sizeString || typeof sizeString !== 'string') return 0;
+
+  const regex = /^(\d*\.?\d+)\s*(k|m|g|t)?b?$/i;
+  const match = sizeString.trim().match(regex);
+
+  if (!match) return 0;
+
+  const num = parseFloat(match[1]);
+  const unit = (match[2] || '').toLowerCase();
+
+  switch (unit) {
+    case 't':
+      return Math.round(num * 1024 * 1024 * 1024 * 1024);
+    case 'g':
+      return Math.round(num * 1024 * 1024 * 1024);
+    case 'm':
+      return Math.round(num * 1024 * 1024);
+    case 'k':
+      return Math.round(num * 1024);
+    default:
+      return Math.round(num);
+  }
+};
+
+const formatBytes = (bytes, decimals = 2) => {
+  if (!+bytes) return '0 B';
+
+  const k = 1024;
+  const dm = decimals < 0 ? 0 : decimals;
+  const sizes = ['B', 'K', 'M', 'G', 'T'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  const formattedNum = parseFloat((bytes / Math.pow(k, i)).toFixed(dm));
+
+  return `${formattedNum} ${sizes[i]}`;
+};
 
 // 路径管理
 const transferPaths = ref([{ local: '', remote: '' }]);
