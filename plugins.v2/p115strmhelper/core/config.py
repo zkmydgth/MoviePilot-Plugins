@@ -165,7 +165,7 @@ class ConfigManager(BaseModel):
     # 刷新媒体服务器
     monitor_life_mediaservers: Optional[List[str]] = None
     # 监控事件类型
-    monitor_life_event_modes: List[str] = Field(default_factory=list)
+    monitor_life_event_modes: Optional[List[str]] = None
     # 刮削 STRM 开关
     monitor_life_scrape_metadata_enabled: bool = False
     # 刮削排除目录
@@ -208,7 +208,7 @@ class ConfigManager(BaseModel):
     # 可本地操作文件后缀
     directory_upload_copyext: str = Field("srt,ssa,ass", min_length=1)
     # 监控目录信息
-    directory_upload_path: List[Dict] = Field(default_factory=list)
+    directory_upload_path: Optional[List[Dict]] = None
 
     # CloudSaver 地址
     cloudsaver_url: Optional[str] = Field(None, min_length=1)
