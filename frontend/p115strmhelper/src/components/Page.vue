@@ -669,9 +669,13 @@
         </v-row>
 
         <v-row>
-          <v-col cols="12">
+          <v-col cols="12" md="6">
             <v-switch v-model="shareDialog.downloadMediaInfo" label="下载媒体数据文件" color="primary"
               density="compact"></v-switch>
+          </v-col>
+          <v-col cols="12" md="6">
+            <v-text-field v-model="shareDialog.shareMinFileSizeFormatted" label="STRM最小文件大小" hint="小于此值不生成STRM(K,M,G)"
+              persistent-hint variant="outlined" density="compact" placeholder="例如: 100M" clearable></v-text-field>
           </v-col>
         </v-row>
 
@@ -878,6 +882,37 @@ const props = defineProps({
 });
 
 const emit = defineEmits(['close', 'switch', 'update:config', 'action']);
+
+const parseSize = (sizeString) => {
+  if (!sizeString || typeof sizeString !== 'string') return 0;
+  const regex = /^(\d*\.?\d+)\s*(k|m|g|t)?b?$/i;
+  const match = sizeString.trim().match(regex);
+  if (!match) return 0;
+  const num = parseFloat(match[1]);
+  const unit = (match[2] || '').toLowerCase();
+  switch (unit) {
+    case 't':
+      return Math.round(num * 1024 * 1024 * 1024 * 1024);
+    case 'g':
+      return Math.round(num * 1024 * 1024 * 1024);
+    case 'm':
+      return Math.round(num * 1024 * 1024);
+    case 'k':
+      return Math.round(num * 1024);
+    default:
+      return Math.round(num);
+  }
+};
+
+const formatBytes = (bytes, decimals = 2) => {
+  if (!+bytes) return '';
+  const k = 1024;
+  const dm = decimals < 0 ? 0 : decimals;
+  const sizes = ['B', 'K', 'M', 'G', 'T'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  const formattedNum = parseFloat((bytes / Math.pow(k, i)).toFixed(dm));
+  return `${formattedNum} ${sizes[i]}`;
+};
 
 // 状态变量
 const loading = ref(true);
@@ -1154,7 +1189,8 @@ const shareDialog = reactive({
   receiveCode: '',
   panPath: '/',
   localPath: '',
-  downloadMediaInfo: false
+  downloadMediaInfo: false,
+  shareMinFileSizeFormatted: '',
 });
 
 // 计算属性：分享对话框是否填写有效
@@ -1194,6 +1230,7 @@ const openShareDialog = () => {
     shareDialog.panPath = props.initialConfig.user_share_pan_path || '/';
     shareDialog.localPath = props.initialConfig.user_share_local_path || '';
     shareDialog.downloadMediaInfo = props.initialConfig.share_strm_auto_download_mediainfo_enabled || false;
+    shareDialog.shareMinFileSizeFormatted = formatBytes(props.initialConfig.share_min_file_size || 0);
   }
 };
 
@@ -1412,6 +1449,7 @@ const executeShareSync = async () => {
       props.initialConfig.user_share_pan_path = shareDialog.panPath;
       props.initialConfig.user_share_local_path = shareDialog.localPath;
       props.initialConfig.share_strm_auto_download_mediainfo_enabled = shareDialog.downloadMediaInfo;
+      props.initialConfig.share_min_file_size = parseSize(shareDialog.shareMinFileSizeFormatted);
 
       // 保存配置
       await props.api.post(`plugin/${pluginId}/save_config`, props.initialConfig);

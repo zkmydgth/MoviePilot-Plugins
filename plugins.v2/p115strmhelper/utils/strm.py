@@ -160,7 +160,7 @@ class StrmGenerater:
         elif mode == "share":
             min_size = configer.share_strm_min_file_size
 
-        if not min_size:
+        if not min_size or min_size == 0:
             return "", True
 
         if not filesize:
