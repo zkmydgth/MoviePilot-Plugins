@@ -3,14 +3,17 @@ from time import sleep
 from typing import Tuple, List
 
 from p115client import P115Client
+from p115client.tool import iter_files_with_path_skim
 from p115pickcode import to_id, to_pickcode
 
 from ...core.u115_open import U115OpenHelper
+from ...core.p115 import get_pid_by_path
 from ...core.config import configer
 from ...core.scrape import media_scrape_metadata
 from ...helper.mediaserver import MediaServerRefresh
 from ...schemas.strm_api import (
     StrmApiPayloadData,
+    StrmApiPayloadByPathData,
     StrmApiResponseData,
     StrmApiResponseFail,
     StrmApiData,
@@ -217,6 +220,7 @@ class ApiSyncStrmHelper:
 
             strm_url = self.strm_url_getter.get_strm_url(pick_code, name, pan_path)
             try:
+                new_file_path.parent.mkdir(parents=True, exist_ok=True)
                 with open(new_file_path, "w", encoding="utf-8") as file:
                     file.write(strm_url)
             except Exception as e:
@@ -264,4 +268,58 @@ class ApiSyncStrmHelper:
                 success_count=success_strm_count,
                 fail_count=fail_strm_count,
             ),
+        )
+
+    def generate_strm_paths(
+        self, payload: StrmApiPayloadByPathData
+    ) -> Tuple[int, str, StrmApiResponseData]:
+        """
+        根据文件夹列表生成 STRM 文件
+        """
+        if not payload.data:
+            return StrmApiStatusCode.MissPayload, "未传有效参数", StrmApiResponseData()
+
+        file_list: List[StrmApiData] = []
+
+        for path in payload.data:
+            try:
+                parent_id = get_pid_by_path(self.client, path, True, False, False)
+                logger.info(
+                    f"【API_STRM生成】网盘媒体目录 ID 获取成功: {path} {parent_id}"
+                )
+            except Exception as e:
+                sentry_manager.sentry_hub.capture_exception(e)
+                logger.error(f"【API_STRM生成】网盘媒体目录 ID 获取失败: {path} {e}")
+                continue
+
+            for item in iter_files_with_path_skim(
+                self.client,
+                cid=parent_id,
+                with_ancestors=True,
+            ):
+                try:
+                    file_list.append(
+                        StrmApiData(
+                            id=item["id"],
+                            pick_code=item["pickcode"],
+                            name=item["name"],
+                            sha1=item["sha1"],
+                            size=item["size"],
+                            pan_path=item["path"],
+                            media_server_refresh=payload.media_server_refresh,
+                            scrape_metadata=payload.scrape_metadata,
+                        )
+                    )
+                except ValueError:
+                    logger.error(f"【API_STRM生成】文件信息缺失: {item}")
+                    continue
+
+        logger.info(
+            f"【API_STRM生成】提取 {len(file_list)} 个文件数据，开始生成 STRM ..."
+        )
+
+        return self.generate_strm_files(
+            StrmApiPayloadData(
+                data=file_list,
+            )
         )

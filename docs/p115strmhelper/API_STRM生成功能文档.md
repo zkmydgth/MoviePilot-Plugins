@@ -2,7 +2,12 @@
 
 ## 概述
 
-API STRM 生成功能允许第三方开发者通过 HTTP API 调用，批量生成 STRM 文件。该功能支持通过配置路径映射自动确定本地生成路径，也支持在请求中直接指定路径。
+API STRM 生成功能允许第三方开发者通过 HTTP API 调用，批量生成 STRM 文件。该功能提供了两种方式：
+
+1. **通过文件信息生成**: 指定具体的文件信息（pick_code、id 或文件路径）生成 STRM
+2. **通过文件夹路径批量生成**: 指定文件夹路径，系统自动遍历文件夹下的所有文件并生成 STRM
+
+两种方式都支持通过配置路径映射自动确定本地生成路径，也支持在请求中直接指定路径。
 
 ## 前置条件
 
@@ -12,9 +17,18 @@ API STRM 生成功能允许第三方开发者通过 HTTP API 调用，批量生�
 
 ## API 端点
 
+插件提供了两个 API 端点用于生成 STRM 文件：
+
+1. **`/api_strm_sync_creata`**: 通过指定文件信息生成 STRM（支持单个文件或批量文件）
+2. **`/api_strm_sync_create_by_path`**: 通过指定文件夹路径批量生成 STRM（自动遍历文件夹下的所有文件）
+
+---
+
+## 端点 1: 通过文件信息生成 STRM
+
 ### 基本信息
 
-- **路径**: `/api/v1/plugin/P115StrmHelper/api_strm_sync`
+- **路径**: `/api/v1/plugin/P115StrmHelper/api_strm_sync_creata`
 - **方法**: `POST`
 - **认证**: Bearer Token（需要 MoviePilot API Key）
 - **Content-Type**: `application/json`
@@ -22,7 +36,7 @@ API STRM 生成功能允许第三方开发者通过 HTTP API 调用，批量生�
 ### 请求 URL 格式
 
 ```
-POST {server_url}/api/v1/plugin/P115StrmHelper/api_strm_sync?apikey={APIKEY}
+POST {server_url}/api/v1/plugin/P115StrmHelper/api_strm_sync_creata?apikey={APIKEY}
 ```
 
 ## 请求参数
@@ -185,7 +199,130 @@ POST {server_url}/api/v1/plugin/P115StrmHelper/api_strm_sync?apikey={APIKEY}
 | 10602 | 无法获取网盘媒体库路径或文件信息 |
 | 10911 | STRM 文件生成失败 |
 
-## 使用示例
+---
+
+## 端点 2: 通过文件夹路径批量生成 STRM
+
+### 基本信息
+
+- **路径**: `/api/v1/plugin/P115StrmHelper/api_strm_sync_create_by_path`
+- **方法**: `POST`
+- **认证**: Bearer Token（需要 MoviePilot API Key）
+- **Content-Type**: `application/json`
+
+### 请求 URL 格式
+
+```
+POST {server_url}/api/v1/plugin/P115StrmHelper/api_strm_sync_create_by_path?apikey={APIKEY}
+```
+
+### 功能说明
+
+此端点允许您通过提供文件夹路径列表，自动遍历这些文件夹下的所有文件并生成 STRM。系统会自动：
+1. 获取指定文件夹的目录 ID
+2. 递归遍历文件夹下的所有文件
+3. 为每个符合条件的媒体文件生成 STRM
+
+### 请求参数
+
+#### 请求体结构
+
+```json
+{
+  "data": [
+    "/我的资源/电影",
+    "/我的资源/剧集/2024"
+  ],
+  "scrape_metadata": true,
+  "media_server_refresh": true
+}
+```
+
+#### 字段说明
+
+- `data` (array, 必需): 需要生成 STRM 的文件夹路径列表。系统会递归遍历这些文件夹下的所有文件
+- `scrape_metadata` (boolean, 可选): 是否刮削元数据。如果不提供，使用插件配置中的 `api_strm_scrape_metadata_enabled` 默认值
+- `media_server_refresh` (boolean, 可选): 是否刷新媒体服务器。如果不提供，使用插件配置中的 `api_strm_media_server_refresh_enabled` 默认值
+
+### 响应格式
+
+响应格式与端点 1 相同，返回成功和失败的文件列表。
+
+### 使用示例
+
+#### Python 示例
+
+```python
+import requests
+import json
+
+# API 配置
+server_url = "http://your-moviepilot-server:3001"
+apikey = "your-api-key"
+api_endpoint = f"{server_url}/api/v1/plugin/P115StrmHelper/api_strm_sync_create_by_path"
+
+# 请求数据
+payload = {
+    "data": [
+        "/我的资源/电影",
+        "/我的资源/剧集/2024"
+    ],
+    "scrape_metadata": True,
+    "media_server_refresh": True
+}
+
+# 发送请求
+headers = {
+    "Content-Type": "application/json"
+}
+params = {
+    "apikey": apikey
+}
+
+response = requests.post(
+    api_endpoint,
+    json=payload,
+    headers=headers,
+    params=params
+)
+
+result = response.json()
+print(json.dumps(result, indent=2, ensure_ascii=False))
+
+# 处理结果
+if result.get("code") == 10200:
+    data = result.get("data", {})
+    print(f"成功生成: {data.get('success_count', 0)} 个文件")
+    print(f"失败: {data.get('fail_count', 0)} 个文件")
+```
+
+#### cURL 示例
+
+```bash
+curl -X POST \
+  "http://your-moviepilot-server:3001/api/v1/plugin/P115StrmHelper/api_strm_sync_create_by_path?apikey=your-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "data": [
+      "/我的资源/电影",
+      "/我的资源/剧集/2024"
+    ],
+    "scrape_metadata": true,
+    "media_server_refresh": true
+  }'
+```
+
+### 注意事项
+
+1. **路径格式**: 文件夹路径必须是 115 网盘中的完整路径，以 `/` 开头
+2. **递归遍历**: 系统会递归遍历指定文件夹下的所有子文件夹和文件
+3. **文件过滤**: 只有符合媒体文件扩展名的文件才会生成 STRM（根据 `user_rmt_mediaext` 配置）
+4. **路径映射**: 系统会根据 `api_strm_config` 配置自动匹配本地路径
+5. **性能考虑**: 如果文件夹包含大量文件，处理时间可能较长，建议分批处理
+
+---
+
+## 使用示例（端点 1）
 
 ### Python 示例
 
@@ -196,7 +333,7 @@ import json
 # API 配置
 server_url = "http://your-moviepilot-server:3001"
 apikey = "your-api-key"
-api_endpoint = f"{server_url}/api/v1/plugin/P115StrmHelper/api_strm_sync"
+api_endpoint = f"{server_url}/api/v1/plugin/P115StrmHelper/api_strm_sync_creata"
 
 # 请求数据
 payload = {
@@ -253,7 +390,7 @@ if result.get("code") == 10200:
 
 ```bash
 curl -X POST \
-  "http://your-moviepilot-server:3001/api/v1/plugin/P115StrmHelper/api_strm_sync?apikey=your-api-key" \
+  "http://your-moviepilot-server:3001/api/v1/plugin/P115StrmHelper/api_strm_sync_creata?apikey=your-api-key" \
   -H "Content-Type: application/json" \
   -d '{
     "data": [
@@ -278,7 +415,7 @@ const axios = require('axios');
 
 const serverUrl = 'http://your-moviepilot-server:3001';
 const apikey = 'your-api-key';
-const apiEndpoint = `${serverUrl}/api/v1/plugin/P115StrmHelper/api_strm_sync`;
+const apiEndpoint = `${serverUrl}/api/v1/plugin/P115StrmHelper/api_strm_sync_creata`;
 
 const payload = {
   data: [
@@ -363,6 +500,8 @@ axios.post(apiEndpoint, payload, {
 
 6. **STRM 文件位置**: STRM 文件会生成在 `local_path` 目录下，保持与网盘路径相同的相对目录结构
 
+7. **自动创建目录**: 系统会自动创建所需的目录结构，无需手动创建目标目录
+
 ## 常见问题
 
 ### Q: 如何获取文件的 pick_code、id 或 pan_path？
@@ -388,3 +527,17 @@ A: 检查响应中的 `fail` 数组，每个失败项都包含 `code` 和 `reaso
 ### Q: 可以同时处理多少个文件？
 
 A: API 支持批量处理，理论上没有数量限制，但建议单次请求不要超过 100 个文件，以避免请求超时。
+
+### Q: 什么时候使用 `/api_strm_sync_creata`，什么时候使用 `/api_strm_sync_create_by_path`？
+
+A: 
+- **使用 `/api_strm_sync_creata`**: 当您已经知道具体的文件信息（如 pick_code、id 或文件路径），需要为特定文件生成 STRM 时使用
+- **使用 `/api_strm_sync_create_by_path`**: 当您想要为整个文件夹下的所有文件批量生成 STRM 时使用，系统会自动遍历文件夹下的所有文件
+
+### Q: `/api_strm_sync_create_by_path` 会处理子文件夹吗？
+
+A: 是的，`/api_strm_sync_create_by_path` 会递归遍历指定文件夹下的所有子文件夹和文件，为所有符合条件的媒体文件生成 STRM。
+
+### Q: 如果目标目录不存在会怎样？
+
+A: 系统会自动创建所需的目录结构。在生成 STRM 文件前，系统会自动创建所有必要的父目录，确保文件能够成功写入。

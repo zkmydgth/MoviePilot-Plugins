@@ -45,7 +45,7 @@ from .schemas.u115 import (
 from .schemas.plugin import PluginStatusData
 from .schemas.api import ApiResponse
 from .schemas.share import ShareApiData, ShareResponseData, ShareSaveParent
-from .schemas.strm_api import StrmApiPayloadData
+from .schemas.strm_api import StrmApiPayloadData, StrmApiPayloadByPathData
 from .utils.sentry import sentry_manager
 from .utils.oopserver import OOPServerHelper
 
@@ -820,10 +820,20 @@ class Api:
         """
         return OOPServerHelper.check_feature(name)
 
-    def api_strm_sync(self, payload: StrmApiPayloadData) -> ApiResponse:
+    def api_strm_sync_creata(self, payload: StrmApiPayloadData) -> ApiResponse:
         """
         API 请求生成 STRM
         """
         strm_helper = ApiSyncStrmHelper(client=self._client)
         code, msg, data = strm_helper.generate_strm_files(payload)
+        return ApiResponse(code=code, msg=msg, data=data)
+
+    def api_strm_sync_create_by_path(
+        self, payload: StrmApiPayloadByPathData
+    ) -> ApiResponse:
+        """
+        API 请求生成 STRM（by_path）
+        """
+        strm_helper = ApiSyncStrmHelper(client=self._client)
+        code, msg, data = strm_helper.generate_strm_paths(payload)
         return ApiResponse(code=code, msg=msg, data=data)

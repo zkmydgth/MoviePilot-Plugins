@@ -50,6 +50,20 @@ class StrmApiPayloadData(BaseModel):
     )
 
 
+class StrmApiPayloadByPathData(BaseModel):
+    """
+    API 调用生成 STRM 参数（by_path）
+    """
+
+    data: List[str] = Field(
+        default_factory=list, description="需要生成STRM的一组文件夹列表"
+    )
+    media_server_refresh: Optional[bool] = Field(
+        default=None, description="是否刷新媒体服务器"
+    )
+    scrape_metadata: Optional[bool] = Field(default=None, description="是否刮削元数据")
+
+
 class StrmApiResponseData(BaseModel):
     """
     API 返回生成 STRM 信息

@@ -263,11 +263,18 @@ class P115StrmHelper(_PluginBase):
                 "description": "115网盘302跳转",
             },
             {
-                "path": "/api_strm_sync",
-                "endpoint": self.api.api_strm_sync,
+                "path": "/api_strm_sync_creata",
+                "endpoint": self.api.api_strm_sync_creata,
                 "methods": ["POST"],
                 "summary": "API 请求生成 STRM",
                 "description": "API 请求生成 STRM",
+            },
+            {
+                "path": "/api_strm_sync_create_by_path",
+                "endpoint": self.api.api_strm_sync_create_by_path,
+                "methods": ["POST"],
+                "summary": "API 请求生成 STRM（通过一组文件夹路径）",
+                "description": "API 请求生成 STRM（通过一组文件夹路径）",
             },
             {
                 "path": "/add_transfer_share",
