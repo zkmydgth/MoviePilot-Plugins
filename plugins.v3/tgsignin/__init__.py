@@ -47,6 +47,8 @@ from .core.config import (
     NOTIFY_MODE_NONE,
     NOTIFY_MODE_SUCCESS,
     DEFAULT_RETRY_INTERVAL_HOURS,
+    DEFAULT_REPEATED_KEYWORDS,
+    DEFAULT_SUCCESS_KEYWORDS,
     MAX_RETRY_INTERVAL_HOURS,
     PROXY_MODE_CUSTOM,
     PROXY_MODE_DIRECT,
@@ -60,6 +62,7 @@ from .core.config import (
     default_slot_config,
     login_actions,
     parse_accounts,
+    parse_keywords,
     parse_targets,
     targets_from_slots,
     targets_to_text,
@@ -144,6 +147,8 @@ class TgSignin(_PluginBase):
         self._cron = "0 9 * * *"
         self._notify_mode = NOTIFY_MODE_FAILURE
         self._retry_interval_hours = DEFAULT_RETRY_INTERVAL_HOURS
+        self._success_keywords = list(DEFAULT_SUCCESS_KEYWORDS)
+        self._repeated_keywords = list(DEFAULT_REPEATED_KEYWORDS)
         self._use_text_mode = False
         self._accounts_text = DEFAULT_ACCOUNTS_TEXT
         self._targets_text = DEFAULT_TARGETS_TEXT
@@ -185,6 +190,13 @@ class TgSignin(_PluginBase):
                         DEFAULT_RETRY_INTERVAL_HOURS,
                     ),
                 ),
+            )
+            # 结果关键词：留空用内置默认（2026-10-07 用户定案，接新 bot 不必改代码）
+            self._success_keywords = parse_keywords(
+                config.get("success_keywords"), DEFAULT_SUCCESS_KEYWORDS
+            )
+            self._repeated_keywords = parse_keywords(
+                config.get("repeated_keywords"), DEFAULT_REPEATED_KEYWORDS
             )
             self._use_text_mode = bool(config.get("use_text_mode"))
             self._accounts_text = str(config.get("accounts_text") or DEFAULT_ACCOUNTS_TEXT)
@@ -528,6 +540,43 @@ class TgSignin(_PluginBase):
                                     "placeholder": f"默认 {DEFAULT_RETRY_INTERVAL_HOURS}，0=不重试",
                                     "persistent-hint": True,
                                     "hint": "当天签到失败后每隔这么久重试一次；到次日 0 点自动重置重试窗口",
+                                },
+                            }
+                        ],
+                    },
+                ],
+            },
+            {
+                "component": "VRow",
+                "content": [
+                    {
+                        "component": "VCol",
+                        "props": {"cols": 12, "md": 6},
+                        "content": [
+                            {
+                                "component": "VTextField",
+                                "props": {
+                                    "model": "success_keywords",
+                                    "label": "签到成功关键词",
+                                    "persistent-hint": True,
+                                    "hint": "回复/弹窗里出现任一关键词即判「签到成功」；多个用 | 或逗号分隔，留空用内置默认",
+                                    "placeholder": "|".join(DEFAULT_SUCCESS_KEYWORDS),
+                                },
+                            }
+                        ],
+                    },
+                    {
+                        "component": "VCol",
+                        "props": {"cols": 12, "md": 6},
+                        "content": [
+                            {
+                                "component": "VTextField",
+                                "props": {
+                                    "model": "repeated_keywords",
+                                    "label": "已签到关键词",
+                                    "persistent-hint": True,
+                                    "hint": "回复/弹窗里出现任一关键词即判「今日已签到」；多个用 | 或逗号分隔，留空用内置默认",
+                                    "placeholder": "|".join(DEFAULT_REPEATED_KEYWORDS),
                                 },
                             }
                         ],
@@ -930,6 +979,8 @@ class TgSignin(_PluginBase):
             "cron": "0 9 * * *",
             "notify_mode": NOTIFY_MODE_FAILURE,
             "retry_interval_hours": DEFAULT_RETRY_INTERVAL_HOURS,
+            "success_keywords": "|".join(DEFAULT_SUCCESS_KEYWORDS),
+            "repeated_keywords": "|".join(DEFAULT_REPEATED_KEYWORDS),
             "use_text_mode": False,
             "accounts_text": DEFAULT_ACCOUNTS_TEXT,
             "targets_text": DEFAULT_TARGETS_TEXT,
@@ -1502,6 +1553,8 @@ class TgSignin(_PluginBase):
                 "cron": self._cron,
                 "notify_mode": self._notify_mode,
                 "retry_interval_hours": self._retry_interval_hours,
+                "success_keywords": "|".join(self._success_keywords),
+                "repeated_keywords": "|".join(self._repeated_keywords),
                 "use_text_mode": self._use_text_mode,
             }
         )
@@ -1662,6 +1715,8 @@ class TgSignin(_PluginBase):
             only_account=only_account,
             only_bot=only_bot,
             only_targets=only_targets,
+            success_keywords=self._success_keywords,
+            repeated_keywords=self._repeated_keywords,
         )
         summary = summarize_results(results)
         record_run(self.get_data_path(), results, source, summary)

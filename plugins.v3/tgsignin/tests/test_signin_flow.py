@@ -398,6 +398,49 @@ class TestClassifyResult(unittest.TestCase):
             STATUS_UNCONFIRMED,
         )
 
+    def test_builtin_success_variants(self) -> None:
+        """内置词表覆盖常见成功说法：签到完成 / 打卡成功。"""
+        self.assertEqual(
+            classify_result("✅ 签到完成，获得 5 积分", True, "发命令「/checkin」"),
+            STATUS_SUCCESS,
+        )
+        self.assertEqual(
+            classify_result("打卡成功 🎉", True, "点按钮「打卡」"),
+            STATUS_SUCCESS,
+        )
+
+    def test_builtin_repeated_variants(self) -> None:
+        """内置词表覆盖「已打卡 / 已领取」这类重复签到说法。"""
+        self.assertEqual(
+            classify_result("今日已打卡", True, "点按钮「打卡」"),
+            STATUS_REPEATED,
+        )
+        self.assertEqual(
+            classify_result("该奖励已领取", True, "发命令「/checkin」"),
+            STATUS_REPEATED,
+        )
+
+    def test_custom_keywords_override_defaults(self) -> None:
+        """自定义关键词生效（接新 bot 不必改代码）。"""
+        self.assertEqual(
+            classify_result(
+                "奖励发放完毕",
+                True,
+                "点按钮「签到」",
+                success_keywords=["奖励发放完毕"],
+            ),
+            STATUS_SUCCESS,
+        )
+        self.assertEqual(
+            classify_result(
+                "今天领过了",
+                True,
+                "点按钮「签到」",
+                repeated_keywords=["领过了"],
+            ),
+            STATUS_REPEATED,
+        )
+
 
 class TestBuildNotifyText(unittest.TestCase):
     """通知正文生成：四档通知方式 + 明细条数上限 + 摘要截断。"""

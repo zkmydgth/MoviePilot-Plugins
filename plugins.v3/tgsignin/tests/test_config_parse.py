@@ -301,5 +301,33 @@ class TestSlotConfig(unittest.TestCase):
         self.assertEqual(login_actions(default_slot_config()), [])
 
 
+class TestParseKeywords(unittest.TestCase):
+    """结果关键词解析：分隔符、大小写、留空回落内置默认。"""
+
+    def test_blank_falls_back_to_default(self) -> None:
+        """留空（空串 / None）用内置默认。"""
+        from tgsignin.core.config import (  # pylint: disable=import-outside-toplevel
+            DEFAULT_SUCCESS_KEYWORDS,
+            parse_keywords,
+        )
+
+        self.assertEqual(
+            parse_keywords("", DEFAULT_SUCCESS_KEYWORDS),
+            list(DEFAULT_SUCCESS_KEYWORDS),
+        )
+        self.assertEqual(parse_keywords(None, ("x",)), ["x"])
+
+    def test_splits_and_lowercases(self) -> None:
+        """支持 | 、逗号、顿号、换行分隔，并统一小写。"""
+        from tgsignin.core.config import (  # pylint: disable=import-outside-toplevel
+            parse_keywords,
+        )
+
+        self.assertEqual(
+            parse_keywords("A|b，C、D\nE", ["fallback"]),
+            ["a", "b", "c", "d", "e"],
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

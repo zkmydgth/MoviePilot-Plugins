@@ -46,6 +46,9 @@ __all__ = [
     "NOTIFY_MODE_ALL",
     "DEFAULT_RETRY_INTERVAL_HOURS",
     "MAX_RETRY_INTERVAL_HOURS",
+    "DEFAULT_SUCCESS_KEYWORDS",
+    "DEFAULT_REPEATED_KEYWORDS",
+    "parse_keywords",
     "DEFAULT_API_ID",
     "DEFAULT_API_HASH",
     "DEFAULT_ACCOUNTS_TEXT",
@@ -105,6 +108,28 @@ NOTIFY_MODE_ALL = "all"
 # 失败重试间隔（小时）：失败后每隔这么久重试一次；0 = 不重试；窗口到次日 0 点重置（2026-10-07 定案）
 DEFAULT_RETRY_INTERVAL_HOURS = 6
 MAX_RETRY_INTERVAL_HOURS = 24
+
+# 签到结果关键词（内置默认，可在配置里覆盖；分档判据见 core/signin.classify_result）
+DEFAULT_SUCCESS_KEYWORDS = (
+    "签到成功",
+    "签到完成",
+    "打卡成功",
+    "打卡完成",
+    "领取成功",
+    "check-in success",
+    "checkin success",
+)
+DEFAULT_REPEATED_KEYWORDS = (
+    "已签到",
+    "已经签到",
+    "签到过了",
+    "已打卡",
+    "已领取",
+    "已签过",
+    "重复签到",
+    "already checked in",
+    "already signed in",
+)
 
 # 交接单里已实测确认的默认账号与签到目标（用户可随意增删改）
 DEFAULT_ACCOUNTS_TEXT = """# 一行一个账号：标识 | 显示名 | 手机号
@@ -230,6 +255,26 @@ def coerce_scalar(value: Any) -> str:
     if isinstance(value, bool):
         return "true" if value else "false"
     return str(value).strip()
+
+
+def parse_keywords(text: Optional[str], fallback: Sequence[str]) -> List[str]:
+    """
+    解析配置里的关键词串（支持 ``|``、``,``、``，``、``、`` 与换行分隔）。
+
+    :param text: 用户填写的关键词串；空值表示用内置默认
+    :param fallback: 内置默认关键词
+    :return List[str]: 关键词列表（统一小写，便于忽略大小写匹配）
+    """
+
+    raw = str(text or "").strip()
+    if not raw:
+        return [str(item).lower() for item in fallback]
+    items = [
+        item.strip().lower()
+        for item in re.split(r"[|,，、\n]+", raw)
+        if item.strip()
+    ]
+    return items or [str(item).lower() for item in fallback]
 
 
 def parse_accounts(

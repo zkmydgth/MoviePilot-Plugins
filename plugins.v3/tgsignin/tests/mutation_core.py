@@ -117,16 +117,22 @@ MUTANTS = [
         "下拉选中的对象取值不再归一化（选了也按默认走）",
     ),
     (
-        "core/signin.py",
-        '    if "签到成功" in text or "签到成功" in alert_text:',
-        "    if False:",
+        "core/config.py",
+        '    "签到成功",\n    "签到完成",',
+        '    "签到完成",',
         "「签到成功」不再被识别（状态分类失真）",
     ),
     (
         "core/signin.py",
-        '        for marker in ("已签到", "已经签到", "签到过了")',
-        '        for marker in ("已签到",)',
-        "弹窗的「已经签到过了」不再被识别（通知里看不出区别）",
+        "    success_words = tuple(success_keywords or DEFAULT_SUCCESS_KEYWORDS)",
+        "    success_words = tuple(success_keywords or ())",
+        "自定义关键词为空时不再回落内置默认（成功档失真）",
+    ),
+    (
+        "core/config.py",
+        '        for item in re.split(r"[|,，、\\n]+", raw)',
+        '        for item in re.split(r"[.]+", raw)',
+        "关键词分隔符解析失效（配置里多写一个都不生效）",
     ),
     (
         "core/login.py",

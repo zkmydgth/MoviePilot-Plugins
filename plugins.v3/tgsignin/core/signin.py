@@ -21,6 +21,8 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 from .config import (
+    DEFAULT_REPEATED_KEYWORDS,
+    DEFAULT_SUCCESS_KEYWORDS,
     SIGN_TYPE_BUTTON,
     SIGN_TYPE_COMMAND,
     AccountConfig,
@@ -165,21 +167,20 @@ async def _click_button(
     )
 
 
-def _mentions_signin_done(text: str) -> bool:
+def _matches_keywords(text: str, keywords: Sequence[str]) -> bool:
     """
-    文本是否在说「已经签到过了」这类重复签到信号。
+    文本是否命中关键词表（忽略大小写）。
 
-    实测口径：emby 类 bot 的弹窗文案是「您今天已经签到过了」，并不含「已签到」三字，
-    因此这里按多种说法匹配（2026-10-07 补）。
+    实测口径：emby 类 bot 的弹窗文案是「您今天已经签到过了」，不含「已签到」三字，
+    所以默认词表覆盖多种说法，并允许用户在配置里追加（2026-10-07 用户定案）。
 
     :param text: bot 回复或弹窗文本
-    :return bool: 命中「已签到」类说法返回 True
+    :param keywords: 关键词列表
+    :return bool: 命中任一关键词返回 True
     """
 
-    return any(
-        marker in str(text or "")
-        for marker in ("已签到", "已经签到", "签到过了")
-    )
+    lowered = str(text or "").lower()
+    return any(str(word).lower() in lowered for word in keywords if word)
 
 
 def classify_result(
@@ -188,6 +189,8 @@ def classify_result(
     method: str = "",
     alert: str = "",
     already_signed_today: bool = False,
+    success_keywords: Optional[Sequence[str]] = None,
+    repeated_keywords: Optional[Sequence[str]] = None,
 ) -> str:
     """
     按 bot 回复内容给签到结果分档。
@@ -201,21 +204,29 @@ def classify_result(
     :param method: 签到方式描述（用于区分「点了按钮但只回菜单」）
     :param alert: 点击按钮时 Telegram 返回的弹窗提示（callback 应答文本）
     :param already_signed_today: 今天此前是否已经签到成功过（按钮式只回菜单时用于分档）
+    :param success_keywords: 自定义「签到成功」关键词（None 用内置默认）
+    :param repeated_keywords: 自定义「已签到」关键词（None 用内置默认）
     :return str: STATUS_SUCCESS / STATUS_REPEATED / STATUS_UNCONFIRMED / STATUS_FAILED
     """
 
     if not ok:
         return STATUS_FAILED
+    success_words = tuple(success_keywords or DEFAULT_SUCCESS_KEYWORDS)
+    repeated_words = tuple(repeated_keywords or DEFAULT_REPEATED_KEYWORDS)
     alert_text = str(alert or "")
     text = str(reply or "")
     if not text.strip() and not alert_text.strip():
         # 本次没有任何返回内容（既无回复也无弹窗）：不能当成成功
         return STATUS_FAILED
-    if alert_text and _mentions_signin_done(alert_text):
+    if alert_text and _matches_keywords(alert_text, repeated_words):
         return STATUS_REPEATED
-    if "签到成功" in text or "签到成功" in alert_text:
+    if _matches_keywords(text, success_words) or _matches_keywords(
+        alert_text, success_words
+    ):
         return STATUS_SUCCESS
-    if _mentions_signin_done(text) or _mentions_signin_done(alert_text):
+    if _matches_keywords(text, repeated_words) or _matches_keywords(
+        alert_text, repeated_words
+    ):
         return STATUS_REPEATED
     if "按钮" in str(method or ""):
         # 按钮点到了、bot 只回菜单（没有任何签到结果）：
@@ -231,6 +242,8 @@ async def signin_one(
     client: Any,
     target: BotTarget,
     already_signed_today: bool = False,
+    success_keywords: Optional[Sequence[str]] = None,
+    repeated_keywords: Optional[Sequence[str]] = None,
 ) -> Dict[str, Any]:
     """
     对单个 bot 执行一次签到，并补上结果状态分类。
@@ -238,6 +251,8 @@ async def signin_one(
     :param client: 已登录的 TelegramClient
     :param target: 签到目标配置
     :param already_signed_today: 今天此前是否已经签到成功过
+    :param success_keywords: 自定义「签到成功」关键词（None 用内置默认）
+    :param repeated_keywords: 自定义「已签到」关键词（None 用内置默认）
     :return Dict[str, Any]: 结果字典（含 status）
     """
 
@@ -248,6 +263,8 @@ async def signin_one(
         str(result.get("method") or ""),
         str(result.get("alert") or ""),
         already_signed_today=already_signed_today,
+        success_keywords=success_keywords,
+        repeated_keywords=repeated_keywords,
     )
     result["status"] = status
     if status == STATUS_FAILED and result.get("ok"):
@@ -333,6 +350,8 @@ async def run_account(
     targets: Sequence[BotTarget],
     data_dir: Path,
     proxy: Optional[Tuple[str, str, int]],
+    success_keywords: Optional[Sequence[str]] = None,
+    repeated_keywords: Optional[Sequence[str]] = None,
 ) -> Tuple[List[Dict[str, Any]], str]:
     """
     对单个账号执行它名下所有启用的签到目标。
@@ -341,6 +360,8 @@ async def run_account(
     :param targets: 该账号的目标列表
     :param data_dir: 插件数据目录
     :param proxy: 代理元组，None 表示直连
+    :param success_keywords: 自定义「签到成功」关键词（None 用内置默认）
+    :param repeated_keywords: 自定义「已签到」关键词（None 用内置默认）
     :return Tuple[List[Dict[str, Any]], str]: ``(结果列表, 账号级错误)``；
         账号级错误非空时结果列表为空
     """
@@ -360,6 +381,8 @@ async def run_account(
                 client,
                 target,
                 already_signed_today=signed_today(load_state(data_dir), target),
+                success_keywords=success_keywords,
+                repeated_keywords=repeated_keywords,
             )
             # 带上显示名：通知正文里显示「账号1(acc1)」比纯标识好认
             item["account_label"] = account.display()
@@ -382,6 +405,8 @@ async def run_all(
     only_account: Optional[str] = None,
     only_bot: Optional[str] = None,
     only_targets: Optional[Sequence[BotTarget]] = None,
+    success_keywords: Optional[Sequence[str]] = None,
+    repeated_keywords: Optional[Sequence[str]] = None,
 ) -> List[Dict[str, Any]]:
     """
     按账号维度依次签到（同一时刻只连一个账号，避免并发触发风控）。
@@ -393,6 +418,8 @@ async def run_all(
     :param only_account: 只跑该账号标识（None 表示全部）
     :param only_bot: 只跑该 bot 用户名（None 表示全部）
     :param only_targets: 只跑给定的目标集合（失败重试用），None 表示按账号/bot 过滤
+    :param success_keywords: 自定义「签到成功」关键词（None 用内置默认）
+    :param repeated_keywords: 自定义「已签到」关键词（None 用内置默认）
     :return List[Dict[str, Any]]: 扁平的结果列表
     """
 
@@ -419,7 +446,12 @@ async def run_all(
         if not account_targets:
             continue
         account_results, account_error = await run_account(
-            account, account_targets, data_dir, proxy
+            account,
+            account_targets,
+            data_dir,
+            proxy,
+            success_keywords=success_keywords,
+            repeated_keywords=repeated_keywords,
         )
         if account_error:
             results.append(
