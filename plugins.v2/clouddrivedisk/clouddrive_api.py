@@ -1,7 +1,8 @@
 import hashlib
+import time
 from enum import IntEnum
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import grpc
 from httpx import RequestError
@@ -27,11 +28,12 @@ class UploadStatus(IntEnum):
 
 class HashType(IntEnum):
     """
-    Hash 类型：Md5=1, Sha1=2
+    Hash 类型，MD5=1, SHA1=2, PIKPAK_SHA1=3
     """
 
     MD5 = 1
     SHA1 = 2
+    PIKPAK_SHA1 = 3
 
 
 def _cloudfile_to_fileitem(
@@ -462,17 +464,120 @@ class CloudDriveApi:
 
     def _compute_file_hash(self, path: Path, hash_type: int) -> str:
         """
-        计算文件 MD5(1) 或 SHA1(2)，返回十六进制字符串。
+        计算文件 MD5(1)、SHA1(2) 或 PikPakSha1(3)，返回十六进制字符串。
 
         :param path: 文件路径
-        :param hash_type: 哈希类型 (MD5/SHA1)
-        :return: 十六进制字符串
+        :param hash_type: 哈希类型 (HashType.MD5 / SHA1 / PIKPAK_SHA1)
+        :return: 十六进制字符串（PikPakSha1 为大写，其余小写）
         """
+        if hash_type == HashType.PIKPAK_SHA1:
+            return self._compute_pikpak_sha1(path)
         h = hashlib.md5() if hash_type == HashType.MD5 else hashlib.sha1()
         with open(path, "rb") as f:
             while chunk := f.read(8192):
                 h.update(chunk)
         return h.hexdigest()
+
+    def _compute_pikpak_sha1(self, path: Path) -> str:
+        """
+        PikPakSha1：按文件大小动态分段，每段 SHA1 后连接再对连接做 SHA1，输出大写十六进制。
+        分段规则：<=128MiB 用 256KiB；128-256 用 512KiB；256-512 用 1024KiB；>512 用 2048KiB。
+
+        :param path: 文件路径
+        :return: 大写十六进制字符串
+        """
+        size = path.stat().st_size
+        if size <= 128 << 20:
+            seg_size = 256 << 10
+        elif size <= 256 << 20:
+            seg_size = 512 << 10
+        elif size <= 512 << 20:
+            seg_size = 1024 << 10
+        else:
+            seg_size = 2048 << 10
+        final_sha1 = hashlib.sha1()
+        with open(path, "rb") as f:
+            while chunk := f.read(seg_size):
+                seg_digest = hashlib.sha1(chunk).digest()
+                final_sha1.update(seg_digest)
+        return final_sha1.hexdigest().upper()
+
+    def _compute_all_hashes_one_pass(self, path: Path) -> Dict[int, str]:
+        """
+        单遍读取文件同时计算 MD5、SHA1、PikPakSha1
+
+        :param path: 文件路径
+        :return: {HashType.MD5: hex, HashType.SHA1: hex, HashType.PIKPAK_SHA1: hex}
+        """
+        total_size = path.stat().st_size
+        if total_size <= 128 << 20:
+            seg_size = 256 << 10
+        elif total_size <= 256 << 20:
+            seg_size = 512 << 10
+        elif total_size <= 512 << 20:
+            seg_size = 1024 << 10
+        else:
+            seg_size = 2048 << 10
+        file_md5 = hashlib.md5()
+        file_sha1 = hashlib.sha1()
+        final_sha1 = hashlib.sha1()
+        with open(path, "rb") as f:
+            while chunk := f.read(seg_size):
+                file_md5.update(chunk)
+                file_sha1.update(chunk)
+                final_sha1.update(hashlib.sha1(chunk).digest())
+        return {
+            HashType.MD5: file_md5.hexdigest(),
+            HashType.SHA1: file_sha1.hexdigest(),
+            HashType.PIKPAK_SHA1: final_sha1.hexdigest().upper(),
+        }
+
+    def _compute_file_md5_with_blocks(
+        self,
+        path: Path,
+        block_size: int,
+        progress_callback: Optional[Callable[[int, int], None]] = None,
+        cancelled_ref: Optional[List[bool]] = None,
+    ) -> Tuple[str, List[str]]:
+        """
+        计算文件 MD5 及按 block_size 的每块 MD5（小写十六进制，按序）。
+        协议要求计算过程中定期上报进度，避免约 60 秒无 RemoteHashProgress 导致会话失效。
+
+        :param path: 文件路径
+        :param block_size: 块大小（字节）
+        :param progress_callback: 可选，(bytes_hashed, total_bytes) 回调，建议约 0.25s 节流
+        :param cancelled_ref: 可选，[False] 的列表；若在回调中被设为 [True] 则提前结束
+        :return: (文件 MD5 十六进制, 块 MD5 列表)
+        """
+        total_bytes = path.stat().st_size
+        file_md5 = hashlib.md5()
+        blocks: List[str] = []
+        bytes_hashed = 0
+        last_report = 0.0
+        with open(path, "rb") as f:
+            while chunk := f.read(block_size):
+                if cancelled_ref and cancelled_ref[0]:
+                    break
+                file_md5.update(chunk)
+                blocks.append(hashlib.md5(chunk).hexdigest())
+                bytes_hashed += len(chunk)
+                if progress_callback:
+                    now = time.monotonic()
+                    if now - last_report >= 0.25:
+                        last_report = now
+                        progress_callback(bytes_hashed, total_bytes)
+        return file_md5.hexdigest(), blocks
+
+    def _cancel_upload(self, upload_id: str) -> None:
+        """
+        安全取消远程上传会话，忽略取消过程中的异常。
+
+        :param upload_id: StartRemoteUpload 返回的上传会话 ID
+        """
+        try:
+            self.client.remote_upload_control_cancel(upload_id)
+        except Exception:
+            pass
 
     def upload(
         self,
@@ -499,11 +604,13 @@ class CloudDriveApi:
         parent_path = (target_dir.path or "").rstrip("/") or "/"
         target_path = f"{parent_path.rstrip('/')}/{target_name}"
 
+        logger.info("【CloudDrive】预计算文件哈希: %s", target_name)
+        precomputed_hashes = self._compute_all_hashes_one_pass(local_path)
         try:
             started = self.client.start_remote_upload(
                 file_path=target_path,
                 file_size=file_size,
-                known_hashes={},
+                known_hashes=precomputed_hashes,
                 client_can_calculate_hashes=True,
             )
         except Exception as e:
@@ -517,7 +624,7 @@ class CloudDriveApi:
                 for reply in stream:
                     if global_vars.is_transfer_stopped(target_path):
                         logger.info("【CloudDrive】上传已取消: %s", target_path)
-                        self.client.remote_upload_control_cancel(upload_id)
+                        self._cancel_upload(upload_id)
                         return None
                     which = reply.WhichOneof("request")
                     if not which:
@@ -542,7 +649,7 @@ class CloudDriveApi:
                             )
                         except Exception as e:
                             logger.error("【CloudDrive】RemoteReadData 失败: %s", e)
-                            self.client.remote_upload_control_cancel(upload_id)
+                            self._cancel_upload(upload_id)
                             return None
                         if not resp.success:
                             logger.error(
@@ -555,19 +662,96 @@ class CloudDriveApi:
                     elif which == "hash_data":
                         req = reply.hash_data
                         ht = req.hash_type
-                        hash_val = self._compute_file_hash(local_path, ht)
+                        block_size = getattr(req, "block_size", 0) or 0
+                        if global_vars.is_transfer_stopped(target_path):
+                            try:
+                                self.client.remote_hash_progress(
+                                    upload_id=upload_id,
+                                    bytes_hashed=0,
+                                    total_bytes=file_size,
+                                    hash_type=ht,
+                                    hash_value="",
+                                    block_hashes=None,
+                                )
+                            except Exception:
+                                pass
+                            logger.info("【CloudDrive】上传已取消: %s", target_path)
+                            self._cancel_upload(upload_id)
+                            return None
+                        hash_val: Optional[str] = None
+                        block_hashes: Optional[List[str]] = None
+                        cancelled_ref: List[bool] = [False]
+
+                        def _hash_progress_callback(bh: int, tb: int) -> None:
+                            if global_vars.is_transfer_stopped(target_path):
+                                cancelled_ref[0] = True
+                                try:
+                                    self.client.remote_hash_progress(
+                                        upload_id=upload_id,
+                                        bytes_hashed=bh,
+                                        total_bytes=tb,
+                                        hash_type=ht,
+                                        hash_value="",
+                                        block_hashes=None,
+                                    )
+                                except Exception:
+                                    pass
+                                return
+                            try:
+                                self.client.remote_hash_progress(
+                                    upload_id=upload_id,
+                                    bytes_hashed=bh,
+                                    total_bytes=tb,
+                                    hash_type=ht,
+                                    hash_value="",
+                                    block_hashes=None,
+                                )
+                            except Exception:
+                                pass
+
+                        if ht == HashType.MD5 and block_size > 0:
+                            hash_val, block_hashes = self._compute_file_md5_with_blocks(
+                                local_path,
+                                block_size,
+                                progress_callback=_hash_progress_callback,
+                                cancelled_ref=cancelled_ref,
+                            )
+                            if cancelled_ref[0]:
+                                self._cancel_upload(upload_id)
+                                return None
+                        else:
+                            hash_val = precomputed_hashes.get(ht)
+                            if hash_val is None:
+                                hash_val = self._compute_file_hash(local_path, ht)
+                        if global_vars.is_transfer_stopped(target_path):
+                            try:
+                                self.client.remote_hash_progress(
+                                    upload_id=upload_id,
+                                    bytes_hashed=file_size,
+                                    total_bytes=file_size,
+                                    hash_type=ht,
+                                    hash_value="",
+                                    block_hashes=None,
+                                )
+                            except Exception:
+                                pass
+                            self._cancel_upload(upload_id)
+                            return None
                         try:
                             self.client.remote_hash_progress(
                                 upload_id=upload_id,
                                 bytes_hashed=file_size,
                                 total_bytes=file_size,
                                 hash_type=ht,
-                                hash_value=hash_val,
+                                hash_value=hash_val or "",
+                                block_hashes=block_hashes,
                             )
                         except Exception as e:
                             logger.warning(
                                 "【CloudDrive】RemoteHashProgress 失败: %s", e
                             )
+                            self._cancel_upload(upload_id)
+                            return None
                     elif which == "status_changed":
                         st = reply.status_changed.status
                         if st == UploadStatus.FINISH:
@@ -579,10 +763,7 @@ class CloudDriveApi:
                             return None
         except Exception as e:
             logger.error("【CloudDrive】上传过程异常: %s", e)
-            try:
-                self.client.remote_upload_control_cancel(upload_id)
-            except Exception:
-                pass
+            self._cancel_upload(upload_id)
             return None
         return self.get_item(Path(target_path))
 
