@@ -530,6 +530,13 @@ class IncrementSyncStrmHelper:
                 # 等待生成本地目录树运行完成
                 self.__wait_generate_local_tree(local_tree_task_thread)
 
+                if (
+                    not Path(self.pan_to_local_tree).exists()
+                    or not Path(self.local_tree).exists()
+                ):
+                    logger.error(f"【增量STRM生成】{path} 目录树生成错误")
+                    return
+
                 # 生成或者下载文件
                 for line in DirectoryTree().compare_trees_lines(
                     self.pan_to_local_tree, self.local_tree
