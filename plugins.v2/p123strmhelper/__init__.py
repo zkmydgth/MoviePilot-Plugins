@@ -177,7 +177,9 @@ class FullSyncStrmHelper:
         self._storagechain = StorageChain()
         self.download_mediainfo_list = []
 
-    def generate_strm_files(self, full_sync_strm_paths):
+    def generate_strm_files(
+        self, full_sync_strm_paths: str, full_sync_overwrite_mode: str = "never"
+    ):
         """
         生成 STRM 文件
         """
@@ -220,6 +222,17 @@ class FullSyncStrmHelper:
                     item = item["raw"]
                     try:
                         if self.auto_download_mediainfo:
+                            if file_path.exists():
+                                if full_sync_overwrite_mode == "never":
+                                    logger.warn(
+                                        f"【全量STRM生成】{file_path} 已存在，覆盖模式 {full_sync_overwrite_mode}，跳过此路径"
+                                    )
+                                    continue
+                                else:
+                                    logger.warn(
+                                        f"【全量STRM生成】{file_path} 已存在，覆盖模式 {full_sync_overwrite_mode}"
+                                    )
+
                             if file_path.suffix in self.download_mediaext:
                                 self.download_mediainfo_list.append(
                                     [
@@ -241,6 +254,17 @@ class FullSyncStrmHelper:
                                 str(file_path).replace(str(target_dir), "", 1),
                             )
                             continue
+
+                        if new_file_path.exists():
+                            if full_sync_overwrite_mode == "never":
+                                logger.warn(
+                                    f"【全量STRM生成】{new_file_path} 已存在，覆盖模式 {full_sync_overwrite_mode}，跳过此路径"
+                                )
+                                continue
+                            else:
+                                logger.warn(
+                                    f"【全量STRM生成】{new_file_path} 已存在，覆盖模式 {full_sync_overwrite_mode}"
+                                )
 
                         new_file_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -440,7 +464,7 @@ class P123StrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/DDS-Derek/MoviePilot-Plugins/main/icons/P123Disk.png"
     # 插件版本
-    plugin_version = "1.0.15"
+    plugin_version = "1.0.16"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -472,6 +496,7 @@ class P123StrmHelper(_PluginBase):
     _full_sync_auto_download_mediainfo_enabled = False
     _cron_full_sync_strm = None
     _full_sync_strm_paths = None
+    _full_sync_overwrite_mode = None
     _mediaservers = None
     _share_strm_enabled = False
     _share_strm_auto_download_mediainfo_enabled = False
@@ -515,6 +540,7 @@ class P123StrmHelper(_PluginBase):
             )
             self._cron_full_sync_strm = config.get("cron_full_sync_strm")
             self._full_sync_strm_paths = config.get("full_sync_strm_paths")
+            self._full_sync_overwrite_mode = config.get("full_sync_overwrite_mode", "never")
             self._share_strm_enabled = config.get("share_strm_enabled")
             self._share_strm_auto_download_mediainfo_enabled = config.get(
                 "share_strm_auto_download_mediainfo_enabled"
@@ -831,7 +857,7 @@ class P123StrmHelper(_PluginBase):
                 "content": [
                     {
                         "component": "VCol",
-                        "props": {"cols": 12, "md": 3},
+                        "props": {"cols": 12, "md": 4},
                         "content": [
                             {
                                 "component": "VSwitch",
@@ -844,7 +870,7 @@ class P123StrmHelper(_PluginBase):
                     },
                     {
                         "component": "VCol",
-                        "props": {"cols": 12, "md": 3},
+                        "props": {"cols": 12, "md": 4},
                         "content": [
                             {
                                 "component": "VSwitch",
@@ -857,7 +883,7 @@ class P123StrmHelper(_PluginBase):
                     },
                     {
                         "component": "VCol",
-                        "props": {"cols": 12, "md": 3},
+                        "props": {"cols": 12, "md": 4},
                         "content": [
                             {
                                 "component": "VCronField",
@@ -868,15 +894,38 @@ class P123StrmHelper(_PluginBase):
                             }
                         ],
                     },
+                ],
+            },
+            {
+                "component": "VRow",
+                "content": [
                     {
                         "component": "VCol",
-                        "props": {"cols": 12, "md": 3},
+                        "props": {"cols": 12, "md": 4},
                         "content": [
                             {
                                 "component": "VSwitch",
                                 "props": {
                                     "model": "full_sync_auto_download_mediainfo_enabled",
                                     "label": "下载媒体数据文件",
+                                },
+                            }
+                        ],
+                    },
+                    {
+                        "component": "VCol",
+                        "props": {"cols": 12, "md": 4},
+                        "content": [
+                            {
+                                "component": "VSelect",
+                                "props": {
+                                    "clearable": True,
+                                    "model": "full_sync_overwrite_mode",
+                                    "label": "覆盖模式",
+                                    "items": [
+                                        {"title": "总是", "value": "always"},
+                                        {"title": "从不", "value": "never"},
+                                    ],
                                 },
                             }
                         ],
@@ -1365,6 +1414,7 @@ class P123StrmHelper(_PluginBase):
             "full_sync_auto_download_mediainfo_enabled": False,
             "cron_full_sync_strm": "0 */7 * * *",
             "full_sync_strm_paths": "",
+            "full_sync_overwrite_mode": "never",
             "share_strm_enabled": False,
             "share_strm_auto_download_mediainfo_enabled": False,
             "user_share_code": "",
@@ -1400,6 +1450,7 @@ class P123StrmHelper(_PluginBase):
                 "full_sync_auto_download_mediainfo_enabled": self._full_sync_auto_download_mediainfo_enabled,
                 "cron_full_sync_strm": self._cron_full_sync_strm,
                 "full_sync_strm_paths": self._full_sync_strm_paths,
+                "full_sync_overwrite_mode": self._full_sync_overwrite_mode,
                 "share_strm_enabled": self._share_strm_enabled,
                 "share_strm_auto_download_mediainfo_enabled": self._share_strm_auto_download_mediainfo_enabled,
                 "user_share_code": self._user_share_code,
@@ -1854,6 +1905,7 @@ class P123StrmHelper(_PluginBase):
         )
         strm_helper.generate_strm_files(
             full_sync_strm_paths=self._full_sync_strm_paths,
+            full_sync_overwrite_mode=self._full_sync_overwrite_mode,
         )
 
     def share_strm_files(self):
