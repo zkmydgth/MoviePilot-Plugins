@@ -595,6 +595,13 @@
                 </template>
                 <v-list-item-title>全量同步</v-list-item-title>
               </v-list-item>
+              <v-list-item @click="fullSyncDbConfirmDialog = true"
+                :disabled="!status.enabled || !status.has_client || actionLoading">
+                <template v-slot:prepend>
+                  <v-icon color="primary">mdi-database-sync</v-icon>
+                </template>
+                <v-list-item-title>全量同步数据库</v-list-item-title>
+              </v-list-item>
               <v-list-item @click="openShareDialog" :disabled="!status.enabled || !status.has_client || actionLoading"
                 :loading="shareSyncLoading">
                 <template v-slot:prepend>
@@ -864,6 +871,28 @@
       </v-card-actions>
     </v-card>
   </v-dialog>
+
+  <v-dialog v-model="fullSyncDbConfirmDialog" max-width="450" persistent>
+    <v-card>
+      <v-card-title class="text-h6 d-flex align-center">
+        <v-icon icon="mdi-alert-circle-outline" color="warning" class="mr-2"></v-icon>
+        确认操作
+      </v-card-title>
+      <v-card-text>
+        您确定要立即执行全量同步数据库吗？该操作会清理缓存并覆盖数据库
+      </v-card-text>
+      <v-card-actions>
+        <v-spacer></v-spacer>
+        <v-btn color="grey" variant="text" @click="fullSyncDbConfirmDialog = false" :disabled="syncDbLoading">
+          取消
+        </v-btn>
+        <v-btn color="warning" variant="text" @click="handleConfirmFullSyncDb" :loading="syncDbLoading">
+          确认执行
+        </v-btn>
+      </v-card-actions>
+    </v-card>
+  </v-dialog>
+
 </template>
 
 <script setup>
@@ -918,6 +947,7 @@ const formatBytes = (bytes, decimals = 2) => {
 const loading = ref(true);
 const refreshing = ref(false);
 const syncLoading = ref(false);
+const syncDbLoading = ref(false);
 const shareSyncLoading = ref(false);
 const initialDataLoaded = ref(false);
 const error = ref(null);
@@ -925,6 +955,7 @@ const actionMessage = ref(null);
 const actionMessageType = ref('info');
 const actionLoading = ref(false);
 const fullSyncConfirmDialog = ref(false);
+const fullSyncDbConfirmDialog = ref(false);
 
 const status = reactive({
   enabled: false,
@@ -1136,6 +1167,11 @@ const handleConfirmFullSync = async () => {
   await triggerFullSync(); // 然后执行原始的同步函数
 };
 
+const handleConfirmFullSyncDb = async () => {
+  fullSyncDbConfirmDialog.value = false;
+  await triggerFullSyncDb();
+};
+
 // 触发全量同步
 const triggerFullSync = async () => {
   syncLoading.value = true;
@@ -1176,6 +1212,46 @@ const triggerFullSync = async () => {
     console.error('启动全量同步失败:', err);
   } finally {
     syncLoading.value = false;
+    actionLoading.value = false;
+  }
+};
+
+// 触发全量同步数据库
+const triggerFullSyncDb = async () => {
+  syncDbLoading.value = true;
+  actionLoading.value = true;
+  error.value = null;
+  actionMessage.value = null;
+
+  try {
+    // 检查状态
+    if (!status.enabled) {
+      throw new Error('插件未启用，请先在配置页面启用插件');
+    }
+
+    if (!status.has_client) {
+      throw new Error('插件未配置Cookie或Cookie无效，请先在配置页面设置115 Cookie');
+    }
+
+    // 获取插件ID
+    const pluginId = "P115StrmHelper";
+
+    // 调用API触发全量同步数据库
+    const result = await props.api.post(`plugin/${pluginId}/full_sync_db`);
+
+    if (result && result.code === 0) {
+      actionMessage.value = result.msg || '全量同步数据库任务已启动';
+      actionMessageType.value = 'success';
+      // 刷新状态
+      await getStatus();
+    } else {
+      throw new Error(result?.msg || '启动全量同步数据库失败');
+    }
+  } catch (err) {
+    error.value = `启动全量同步数据库失败: ${err.message || '未知错误'}`;
+    console.error('启动全量同步数据库失败:', err);
+  } finally {
+    syncDbLoading.value = false;
     actionLoading.value = false;
   }
 };
