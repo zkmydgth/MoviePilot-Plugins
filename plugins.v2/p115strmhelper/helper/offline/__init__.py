@@ -86,7 +86,9 @@ class OfflineDownloadHelper:
             parent_path = self.__remove_transfer_list_by_hash(item[0])
             logger.info(f"【离线下载】{item[0]} 下载完成，添加到网盘整理队列")
             data = get_attr(
-                self.client, id=int(item[1].get("data").get("delete_file_id"))
+                self.client,
+                id=int(item[1].get("data").get("delete_file_id")),
+                **configer.get_ios_ua_app(app=False),
             )
             event = {
                 "file_id": int(data["id"]),
@@ -117,13 +119,17 @@ class OfflineDownloadHelper:
         添加一组任务
         """
         payload = self.build_offline_urls_payload(urls=url_list, wp_path_id=cid)
-        return self.client.offline_add_urls(payload)
+        return self.client.offline_add_urls(
+            payload, **configer.get_ios_ua_app(app=False)
+        )
 
     def get_tasks(self):
         """
         获取当前所有任务
         """
-        return offline_iter(self.client, cooldown=2, type="web")
+        return offline_iter(
+            self.client, cooldown=2, type="web", **configer.get_ios_ua_app(app=False)
+        )
 
     def get_tasks_status(self, info_hash: List):
         """

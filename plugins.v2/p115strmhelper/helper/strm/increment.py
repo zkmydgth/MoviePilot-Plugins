@@ -137,7 +137,10 @@ class IncrementSyncStrmHelper:
         self.api_count += 4
 
         items_iterator = export_dir_parse_iter(
-            client=self.client, export_file_ids=cid, delete=True
+            client=self.client,
+            export_file_ids=cid,
+            delete=True,
+            **configer.get_ios_ua_app(app=False),
         )
         try:
             next(items_iterator)
@@ -184,7 +187,9 @@ class IncrementSyncStrmHelper:
         :return Iterator: 网盘文件(夹)信息迭代器
         """
         logger.debug(f"【增量STRM生成】迭代网盘目录: {cid} {path}")
-        for batch in iter_fs_files(self.client, cid, cooldown=2):
+        for batch in iter_fs_files(
+            self.client, cid, cooldown=2, **configer.get_ios_ua_app(app=False)
+        ):
             self.api_count += 1
             for item in batch.get("data", []):
                 item["path"] = path + "/" + item.get("n")

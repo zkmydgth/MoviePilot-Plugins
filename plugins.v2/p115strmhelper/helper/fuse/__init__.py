@@ -30,6 +30,7 @@ from app.log import logger
 from app.core.cache import TTLCache
 
 from ...core.cache import IntKeyCacheAdapter
+from ...core.config import configer
 from ...utils.sentry import sentry_manager
 
 
@@ -152,7 +153,11 @@ class P115FuseOperations(Operations):
 
     def getattr(self, /, path: str, fh: int = 0) -> dict[str, Any]:
         try:
-            return attr_to_stat(self.fs.get_attr(path), uid=self.uid, gid=self.gid)
+            return attr_to_stat(
+                self.fs.get_attr(path, **configer.get_ios_ua_app(app=False)),
+                uid=self.uid,
+                gid=self.gid,
+            )
         except FileNotFoundError:
             raise OSError(ENOENT, path)
         except OSError:
@@ -177,12 +182,12 @@ class P115FuseOperations(Operations):
     @log
     def mkdir(self, /, path: str, mode: int = 0) -> int:
         dir_, name = splitpath(path)
-        self.fs.mkdir(dir_, name)
+        self.fs.mkdir(dir_, name, **configer.get_ios_ua_app(app=False))
         return 0
 
     @log
     def open(self, /, path: str, flags: int) -> int:
-        file = self.fs.open(path, mode="rb")
+        file = self.fs.open(path, mode="rb", **configer.get_ios_ua_app(app=False))
         fh = self._get_id()
         self._opened[fh] = file
         return fh
@@ -200,7 +205,7 @@ class P115FuseOperations(Operations):
     @log
     def readdir(self, /, path: str, fh: int = 0) -> list[str]:
         try:
-            children = self.fs.readdir(path)
+            children = self.fs.readdir(path, **configer.get_ios_ua_app(app=False))
             return [".", "..", *(a["name"] for a in children)]
         except FileNotFoundError:
             raise OSError(ENOENT, path)
@@ -224,28 +229,30 @@ class P115FuseOperations(Operations):
         if src != dst:
             src_dir, src_name = splitpath(src)
             dst_dir, dst_name = splitpath(dst)
-            attr = self.fs.get_attr(src)
+            attr = self.fs.get_attr(src, **configer.get_ios_ua_app(app=False))
             if src_dir != dst_dir:
                 if dst_dir == "/":
                     cid = 0
                 else:
-                    dstdir_attr = self.fs.get_attr(dst_dir)
+                    dstdir_attr = self.fs.get_attr(
+                        dst_dir, **configer.get_ios_ua_app(app=False)
+                    )
                     if not dstdir_attr["is_dir"]:
                         raise NotADirectoryError(ENOTDIR, dst_dir)
                     cid = dstdir_attr["id"]
-                self.fs.move(attr, cid)
+                self.fs.move(attr, cid, **configer.get_ios_ua_app(app=False))
             if src_name != dst_name:
-                self.fs.rename(attr, dst_name)
+                self.fs.rename(attr, dst_name, **configer.get_ios_ua_app(app=False))
         return 0
 
     @log
     def unlink(self, /, path: str) -> int:
-        self.fs.remove(path)
+        self.fs.remove(path, **configer.get_ios_ua_app(app=False))
         return 0
 
     @log
     def rmdir(self, /, path: str) -> int:
-        self.fs.remove(path)
+        self.fs.remove(path, **configer.get_ios_ua_app(app=False))
         return 0
 
     def run_forever(self, /, mountpoint: None | str = None, **options):

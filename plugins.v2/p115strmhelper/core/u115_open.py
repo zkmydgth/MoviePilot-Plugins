@@ -441,7 +441,9 @@ class U115OpenHelper:
                 size_str = StringUtils.str_filesize(file_size)
                 error_text = f"\n{i18n.translate('upload_fail_text', name=target_name, size=size_str)}\n"
                 if error_msg:
-                    error_text += f"{i18n.translate('upload_fail_error', error=error_msg)}\n"
+                    error_text += (
+                        f"{i18n.translate('upload_fail_error', error=error_msg)}\n"
+                    )
                 post_message(
                     mtype=NotificationType.Plugin,
                     title=i18n.translate("upload_fail_title"),
@@ -1004,7 +1006,11 @@ class U115OpenHelper:
                 logger.error(f"【P115Open】处理返回信息失败: {e}")
                 return None
         else:
-            resp = self.cookie_client.fs_mkdir(name, pid=int(parent_item.fileid or "0"))
+            resp = self.cookie_client.fs_mkdir(
+                name,
+                pid=int(parent_item.fileid or "0"),
+                **configer.get_ios_ua_app(app=False),
+            )
             if not resp.get("state"):
                 if resp.get("errno") == 20004:
                     return self.get_item(new_path)
@@ -1117,14 +1123,18 @@ class U115OpenHelper:
                     payload = {
                         "path": path.as_posix(),
                     }
-                    resp = self.cookie_client.fs_dir_getid(payload)
+                    resp = self.cookie_client.fs_dir_getid(
+                        payload, **configer.get_ios_ua_app(app=False)
+                    )
                     if not resp.get("state", None):
                         return None
                     folder_id = resp.get("id", None)
                     if not folder_id or folder_id == 0:
                         return None
             sleep(1)
-            resp = self.cookie_client.fs_file(folder_id)
+            resp = self.cookie_client.fs_file(
+                folder_id, **configer.get_ios_ua_app(app=False)
+            )
             if not resp.get("state", None):
                 return None
             data: list = resp.get("data", [])
@@ -1200,7 +1210,9 @@ class U115OpenHelper:
                 data={"file_id": int(fileitem.fileid), "file_name": name},
             )
         elif r == 1:
-            resp = self.cookie_client.fs_rename((int(fileitem.fileid), name))
+            resp = self.cookie_client.fs_rename(
+                (int(fileitem.fileid), name), **configer.get_ios_ua_app(app=False)
+            )
         else:
             resp = self.cookie_client.fs_rename_app(
                 (int(fileitem.fileid), name), **configer.get_ios_ua_app()

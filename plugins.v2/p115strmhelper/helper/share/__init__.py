@@ -125,6 +125,7 @@ class ShareTransferHelper:
             share_code=share_code,
             cid=0,
             app="web",
+            **configer.get_ios_ua_app(app=False),
         ):
             if file_num == 1:
                 file_num = 2
@@ -310,7 +311,7 @@ class ShareTransferHelper:
             "cid": 0,
         }
         size = "未知"
-        resp = self.client.share_snap(payload)
+        resp = self.client.share_snap(payload, **configer.get_ios_ua_app(app=False))
         if resp["state"]:
             size = StringUtils.str_filesize(resp["data"]["shareinfo"]["file_size"])
 
@@ -321,7 +322,7 @@ class ShareTransferHelper:
             "cid": int(parent_id),
             "is_check": 0,
         }
-        resp = self.client.share_receive(payload)
+        resp = self.client.share_receive(payload, **configer.get_ios_ua_app(app=False))
         if resp["state"]:
             logger.info(f"【分享转存】转存 {share_code} 到 {parent_path} 成功！")
             if not file_mediainfo:

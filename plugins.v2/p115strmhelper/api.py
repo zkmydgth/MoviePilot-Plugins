@@ -390,7 +390,9 @@ class Api:
                     return ApiResponse(code=1, msg=f"获取目录ID失败: {path}")
 
                 items = []
-                for batch in iter_fs_files(self._client, cid, cooldown=2):
+                for batch in iter_fs_files(
+                    self._client, cid, cooldown=2, **configer.get_ios_ua_app(app=False)
+                ):
                     for item in batch.get("data", []):
                         if "fid" not in item:
                             full_path = f"{path.as_posix().rstrip('/')}/{item.get('n')}"

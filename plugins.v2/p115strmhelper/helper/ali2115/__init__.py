@@ -15,6 +15,7 @@ from app.chain.media import MediaChain
 from app.core.context import MediaInfo
 
 from ...core.aliyunpan import BAligo
+from ...core.config import configer
 from ...utils.sentry import sentry_manager
 
 
@@ -72,6 +73,7 @@ class Ali2115Helper:
             filesha1=full_sha1,
             pid=m115_dir_id,
             read_range_bytes_or_hash=self.double_sha1_range,
+            **configer.get_ios_ua_app(app=False),
         )
 
     def get_ali_folder_id(self):
@@ -227,12 +229,14 @@ class Ali2115Helper:
 
         path_type, path_name = self.get_share_one_path_name(share_token)
         if path_type == "folder":
-            pid = self.u115_client.fs_dir_getid(f"{unrecognized_path}/{path_name}")[
-                "id"
-            ]
+            pid = self.u115_client.fs_dir_getid(
+                f"{unrecognized_path}/{path_name}", **configer.get_ios_ua_app(app=False)
+            )["id"]
             if pid == 0:
                 payload = {"cname": path_name, "pid": unrecognized_id}
-                pid = self.u115_client.fs_mkdir(payload)["file_id"]
+                pid = self.u115_client.fs_mkdir(
+                    payload, **configer.get_ios_ua_app(app=False)
+                )["file_id"]
             pid = int(pid)
         else:
             if not file_mediainfo:
@@ -327,7 +331,9 @@ class Ali2115Helper:
 
         if file_mediainfo and pid != parent_id:
             logger.debug("【Ali2115】移动文件到待整理目录")
-            self.u115_client.fs_move(pid, pid=parent_id)
+            self.u115_client.fs_move(
+                pid, pid=parent_id, **configer.get_ios_ua_app(app=False)
+            )
 
         if not file_mediainfo:
             logger.error(

@@ -357,7 +357,7 @@ class MediaInfoDownloader:
         """
         for item_list in batched(downloads_list, self.batch_size):
             resp = self.client.fs_mkdir(
-                f"subtitle-{uuid4()}",
+                f"subtitle-{uuid4()}", **configer.get_ios_ua_app(app=False)
             )
             p115_check_response(resp)
             if "cid" in resp:
@@ -372,6 +372,7 @@ class MediaInfoDownloader:
                 resp = self.client.fs_copy(
                     [pickcode_to_id(item["pickcode"]) for item in item_list],
                     pid=scid,
+                    **configer.get_ios_ua_app(app=False),
                 )
                 p115_check_response(resp)
                 attr = next(
@@ -380,10 +381,11 @@ class MediaInfoDownloader:
                         payload=scid,
                         page_size=1,
                         app="web",
+                        **configer.get_ios_ua_app(app=False),
                     )
                 )
                 resp = self.client.fs_video_subtitle(
-                    attr["pickcode"],
+                    attr["pickcode"], **configer.get_ios_ua_app(app=False)
                 )
                 p115_check_response(resp)
                 subtitles = {
@@ -397,7 +399,7 @@ class MediaInfoDownloader:
             except Exception as e:
                 logger.error(f"【媒体信息文件下载】批处理字幕文件失败: {e}")
             finally:
-                self.client.fs_delete(scid)
+                self.client.fs_delete(scid, **configer.get_ios_ua_app(app=False))
 
     def batch_share_subtitle_downloader(self, downloads_list: List):
         """
@@ -405,7 +407,7 @@ class MediaInfoDownloader:
         """
         for item_list in batched(downloads_list, 50):
             resp = self.client.fs_mkdir(
-                f"subtitle-{uuid4()}",
+                f"subtitle-{uuid4()}", **configer.get_ios_ua_app(app=False)
             )
             p115_check_response(resp)
             scid = resp["cid"]
@@ -417,7 +419,9 @@ class MediaInfoDownloader:
                     "cid": scid,
                     "is_check": 0,
                 }
-                resp = self.client.share_receive(payload)
+                resp = self.client.share_receive(
+                    payload, **configer.get_ios_ua_app(app=False)
+                )
                 p115_check_response(resp)
                 # 休眠等待 115 全部转存完成
                 time.sleep(8)
@@ -427,10 +431,11 @@ class MediaInfoDownloader:
                         payload=scid,
                         page_size=1,
                         app="web",
+                        **configer.get_ios_ua_app(app=False),
                     )
                 )
                 resp = self.client.fs_video_subtitle(
-                    attr["pickcode"],
+                    attr["pickcode"], **configer.get_ios_ua_app(app=False)
                 )
                 p115_check_response(resp)
                 subtitles = {
@@ -444,7 +449,7 @@ class MediaInfoDownloader:
             except Exception as e:
                 logger.error(f"【媒体信息文件下载】批处理字幕文件失败: {e}")
             finally:
-                self.client.fs_delete(scid)
+                self.client.fs_delete(scid, **configer.get_ios_ua_app(app=False))
 
     def batch_image_downloader(self, downloads_list: List):
         """
@@ -455,7 +460,7 @@ class MediaInfoDownloader:
         """
         for item_list in batched(downloads_list, self.batch_size):
             resp = self.client.fs_mkdir(
-                f"image-{uuid4()}",
+                f"image-{uuid4()}", **configer.get_ios_ua_app(app=False)
             )
             p115_check_response(resp)
             scid = resp["cid"]
@@ -464,11 +469,16 @@ class MediaInfoDownloader:
                 resp = self.client.fs_copy(
                     ids,
                     pid=scid,
+                    **configer.get_ios_ua_app(app=False),
                 )
                 p115_check_response(resp)
                 images: Dict = {}
                 for attr in iter_files(
-                    client=self.client, cid=scid, cooldown=1.5, type=2
+                    client=self.client,
+                    cid=scid,
+                    cooldown=1.5,
+                    type=2,
+                    **configer.get_ios_ua_app(app=False),
                 ):
                     url = None
                     try:
@@ -479,10 +489,11 @@ class MediaInfoDownloader:
                                 url = self.client.download_url(
                                     attr["pickcode"],
                                     use_web_api=True,
+                                    user_agent=configer.get_user_agent(),
                                 )
                         else:
                             url = self.client.download_url(
-                                attr["pickcode"],
+                                attr["pickcode"], user_agent=configer.get_user_agent()
                             )
                     if url:
                         images[attr["sha1"]] = url
@@ -492,7 +503,7 @@ class MediaInfoDownloader:
             except Exception as e:
                 logger.error(f"【媒体信息文件下载】批处理图片文件失败: {e}")
             finally:
-                self.client.fs_delete(scid)
+                self.client.fs_delete(scid, **configer.get_ios_ua_app(app=False))
 
     def batch_oof_fast_mi_downloader(
         self, downloads_list: List, u115_share: bool = False
@@ -545,6 +556,7 @@ class MediaInfoDownloader:
             sha1_to_path = {info["sha1"]: info["path"] for info in item_list}
             resp = self.client.fs_mkdir(
                 f"receive_files-{uuid4()}",
+                **configer.get_ios_ua_app(app=False),
             )
             p115_check_response(resp)
             scid = resp["cid"]
@@ -556,7 +568,9 @@ class MediaInfoDownloader:
                     "cid": scid,
                     "is_check": 0,
                 }
-                resp = self.client.share_receive(payload)
+                resp = self.client.share_receive(
+                    payload, **configer.get_ios_ua_app(app=False)
+                )
                 p115_check_response(resp)
                 # 休眠等待 115 全部转存完成
                 time.sleep(8)
@@ -593,7 +607,7 @@ class MediaInfoDownloader:
             except Exception as e:
                 logger.error(f"【媒体信息文件下载】批处理下载文件失败: {e}")
             finally:
-                self.client.fs_delete(scid)
+                self.client.fs_delete(scid, **configer.get_ios_ua_app(app=False))
 
         if oof_upload and upload_lst:
             self._oof_data_upload(upload_lst)

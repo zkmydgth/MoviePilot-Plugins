@@ -162,7 +162,9 @@ def iter_share_files_with_path(
     )
     snap_api_info = ApiEndpointInfo(
         endpoint=ApiEndpointCooldown(
-            api_callable=lambda p: client.share_snap_cookie(p, **request_kwargs),
+            api_callable=lambda p: client.share_snap_cookie(
+                p, **request_kwargs, **configer.get_ios_ua_app(app=False)
+            ),
             cooldown=api_cooldown,
         ),
         api_name="share_snap",
@@ -278,6 +280,8 @@ def get_pid_by_path(
 
     :return int: 文件夹 ID，0 为根目录，-1 为获取失败
     """
+    from .config import configer
+
     path = Path(path).as_posix()
     if path == "/":
         return 0
@@ -285,14 +289,12 @@ def get_pid_by_path(
         pid = idpathcacher.get_id_by_dir(directory=path)
         if pid:
             return pid
-    resp = client.fs_dir_getid(path)
+    resp = client.fs_dir_getid(path, **configer.get_ios_ua_app(app=False))
     check_response(resp)
     pid = resp.get("id", -1)
     if pid == -1:
         return -1
     if pid == 0 and mkdir:
-        from .config import configer
-
         resp = client.fs_makedirs_app(path, pid=0, **configer.get_ios_ua_app())
         check_response(resp)
         pid = resp["cid"]
@@ -311,6 +313,8 @@ def get_pickcode_by_path(
     """
     通过文件（夹）路径获取 pick_code
     """
+    from .config import configer
+
     db_helper = FileDbHelper()
     path = Path(path).as_posix()
     if path == "/":
@@ -322,7 +326,7 @@ def get_pickcode_by_path(
         except ValueError:
             return client.to_pickcode(db_item["id"])
     try:
-        file_id = get_id(client=client, path=path)
+        file_id = get_id(client=client, path=path, **configer.get_ios_ua_app(app=False))
         if file_id:
             return client.to_pickcode(file_id)
         return None

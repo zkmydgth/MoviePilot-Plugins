@@ -903,7 +903,9 @@ class TransferHandler:
                     if delete_file_ids:
                         try:
                             # 批量删除
-                            resp = self.client.fs_delete(delete_file_ids)
+                            resp = self.client.fs_delete(
+                                delete_file_ids, **configer.get_ios_ua_app(app=False)
+                            )
                             check_response(resp)
                             for file_id in delete_file_ids:
                                 self.cache_updater.remove_cache(file_id)
@@ -944,7 +946,11 @@ class TransferHandler:
                 # 执行批量 移动 /复制
                 if transfer_type == "move":
                     try:
-                        resp = self.client.fs_move(file_ids, pid=target_dir_id)
+                        resp = self.client.fs_move(
+                            file_ids,
+                            pid=target_dir_id,
+                            **configer.get_ios_ua_app(app=False),
+                        )
                         check_response(resp)
                         for file_id, (
                             task,
@@ -1027,7 +1033,11 @@ class TransferHandler:
                                     )
                 elif transfer_type == "copy":
                     try:
-                        resp = self.client.fs_copy(file_ids, pid=target_dir_id)
+                        resp = self.client.fs_copy(
+                            file_ids,
+                            pid=target_dir_id,
+                            **configer.get_ios_ua_app(app=False),
+                        )
                         check_response(resp)
                         logger.info(
                             f"【整理接管】批量复制 {len(file_ids)} 个文件到 {target_dir}"
@@ -1299,7 +1309,9 @@ class TransferHandler:
 
                 if delete_file_ids:
                     try:
-                        resp = self.client.fs_delete(delete_file_ids)
+                        resp = self.client.fs_delete(
+                            delete_file_ids, **configer.get_ios_ua_app(app=False)
+                        )
                         check_response(resp)
                         for file_id in delete_file_ids:
                             self.cache_updater.remove_cache(file_id)
@@ -1450,6 +1462,7 @@ class TransferHandler:
             update_name(
                 self.client,
                 [(file_id, new_name) for file_id, new_name, _, _ in rename_items],
+                **configer.get_ios_ua_app(app=False),
             )
             for file_id, new_name, _, _ in rename_items:
                 self.cache_updater.update_rename_cache(file_id, new_name)
@@ -2123,7 +2136,9 @@ class TransferHandler:
                 else:
                     # 一次性批量删除所有空目录
                     try:
-                        resp = self.client.fs_delete(dir_ids_to_delete)
+                        resp = self.client.fs_delete(
+                            dir_ids_to_delete, **configer.get_ios_ua_app(app=False)
+                        )
                         check_response(resp)
                         for dir_id in dir_ids_to_delete:
                             self.cache_updater.remove_cache(dir_id)

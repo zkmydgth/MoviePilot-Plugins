@@ -1,6 +1,6 @@
 from threading import Lock
 from time import monotonic, sleep
-from typing import Dict, List
+from typing import Dict, List, Any
 
 IOS_UA = (
     "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5_1 like Mac OS X) "
@@ -8,14 +8,16 @@ IOS_UA = (
 )
 
 
-def get_ios_ua_app() -> Dict[str, str]:
+def get_ios_ua_app(app: bool = True) -> Dict[str, str]:
     """
     获取 IOS 设备的 header（UA）和 APP
     """
-    return {
+    kwargs: Dict[str, Any] = {
         "headers": {"user-agent": IOS_UA},
-        "app": "ios",
     }
+    if app:
+        kwargs["app"] = "ios"
+    return kwargs
 
 
 class RateLimiter:

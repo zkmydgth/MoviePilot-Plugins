@@ -669,14 +669,16 @@ class ConfigManager(BaseModel):
             f"{SystemUtils.cpu_arch() if hasattr(SystemUtils, 'cpu_arch') and callable(SystemUtils.cpu_arch) else 'UnknownArch'})"
         )
 
-    def get_ios_ua_app(self) -> Dict[str, str]:
+    def get_ios_ua_app(self, app: bool = True) -> Dict[str, Any]:
         """
         获取 IOS 设备的 header（UA）和 APP
         """
-        return {
+        kwargs: Dict[str, Any] = {
             "headers": {"user-agent": self.get_user_agent(0)},
-            "app": "ios",
         }
+        if app:
+            kwargs["app"] = "ios"
+        return kwargs
 
     def save_plugin_data(self, key: str, value: Any, plugin_id: Optional[str] = None):
         """

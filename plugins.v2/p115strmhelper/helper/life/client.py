@@ -162,7 +162,12 @@ class MonitorLife:
                     logger.debug(f"获取 {cid} 路径（数据库）: {dir_path}")
                     idpathcacher.add_cache(id=cid, directory=str(dir_path))
                     return Path(dir_path)
-            dir_path = get_path(client=self._client, attr=cid, root_id=None)
+            dir_path = get_path(
+                client=self._client,
+                attr=cid,
+                root_id=None,
+                **configer.get_ios_ua_app(app=False),
+            )
             if not dir_path:
                 logger.error(f"获取 {cid} 路径失败")
                 return None
@@ -894,6 +899,7 @@ class MonitorLife:
                     from_id=from_id,
                     cooldown=2,
                     app="web",
+                    **configer.get_ios_ua_app(app=False),
                 )
 
                 try:
@@ -1094,7 +1100,13 @@ class MonitorLife:
             logger.info(f"【监控生活事件】开始遍历目录: {path}")
             try:
                 for batch_count, data in enumerate(
-                    iter_fs_files(self._client, parent_id, cooldown=2), 1
+                    iter_fs_files(
+                        self._client,
+                        parent_id,
+                        cooldown=2,
+                        **configer.get_ios_ua_app(app=False),
+                    ),
+                    1,
                 ):
                     if not data:
                         logger.debug(
@@ -1193,7 +1205,9 @@ class MonitorLife:
         检查生活事件开启状态
         """
         try:
-            resp = life_show(self._client, timeout=5)
+            resp = life_show(
+                self._client, timeout=5, **configer.get_ios_ua_app(app=False)
+            )
             check_response(resp)
             return True
         except Exception as e:

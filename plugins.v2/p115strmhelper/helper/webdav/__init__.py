@@ -25,6 +25,7 @@ from yarl import URL
 
 from app.log import logger
 
+from ...core.config import configer
 from ...utils.time import TimeUtils
 
 
@@ -91,12 +92,16 @@ class WebdavCore:
                         return children[name]
                     except KeyError:
                         throw(errno.ENOENT, path)
-            id = await get_id_to_path(self.client, path, async_=True)
+            id = await get_id_to_path(
+                self.client, path, async_=True, **configer.get_ios_ua_app(app=False)
+            )
         else:
             id = path
             if attr := self.cache_attr.get(id):
                 return attr
-        resp = await self.client.fs_file(id, async_=True)
+        resp = await self.client.fs_file(
+            id, async_=True, **configer.get_ios_ua_app(app=False)
+        )
         check_response(resp)
         attr = self.cache_attr[id] = self.cache_attr[path] = normalize_attr_simple(
             resp["data"][0]
@@ -119,6 +124,7 @@ class WebdavCore:
                 escape=None,
                 normalize_attr=normalize_attr_simple,
                 async_=True,
+                **configer.get_ios_ua_app(app=False),
             ):
                 self.cache_attr.pop(attr["id"], None)
                 self.cache_attr.pop(attr["path"], None)
@@ -134,6 +140,7 @@ class WebdavCore:
             id_to_dirnode=self.id_to_dirnode,
             escape=None,
             async_=True,
+            **configer.get_ios_ua_app(app=False),
         ):
             self.cache_attr[attr["id"]] = self.cache_attr[attr["path"]] = attr
             yield attr

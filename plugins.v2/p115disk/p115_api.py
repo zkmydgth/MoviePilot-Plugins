@@ -86,7 +86,9 @@ class P115Api:
                 self._get_pid_by_path_call_counter + 1
             ) % 2
             if self._get_pid_by_path_call_counter == 0:
-                resp = self.client.fs_dir_getid(path.as_posix())
+                resp = self.client.fs_dir_getid(
+                    path.as_posix(), **get_ios_ua_app(app=False)
+                )
             else:
                 resp = self.client.fs_dir_getid_app(path.as_posix(), **get_ios_ua_app())
             check_response(resp)
@@ -198,7 +200,9 @@ class P115Api:
 
         items = []
         try:
-            for data in iter_fs_files(self.client, file_id, cooldown=1.5):
+            for data in iter_fs_files(
+                self.client, file_id, cooldown=1.5, **get_ios_ua_app(app=False)
+            ):
                 logger.debug(f"【P115Disk】浏览目录 {data}")
                 for item in data.get("data", []):
                     item = normalize_attr(item)
@@ -291,7 +295,7 @@ class P115Api:
                 "cname": name,
                 "pid": parent_id,
             }
-            resp = self.client.fs_mkdir(payload)
+            resp = self.client.fs_mkdir(payload, **get_ios_ua_app(app=False))
             check_response(resp)
             logger.info(f"【P115Disk】创建目录: {resp}")
             data = resp.get("cid", resp.get("file_id", None))
@@ -425,8 +429,12 @@ class P115Api:
         self._get_item_rate_limiter.acquire()
 
         try:
-            file_id = get_id_to_path(client=self.client, path=path_str)
-            file_item = get_attr(client=self.client, id=file_id)
+            file_id = get_id_to_path(
+                client=self.client, path=path_str, **get_ios_ua_app(app=False)
+            )
+            file_item = get_attr(
+                client=self.client, id=file_id, **get_ios_ua_app(app=False)
+            )
             logger.debug(f"【P115Disk】文件信息: {file_item}")
             if path_str in self._get_item_fail_records:
                 del self._get_item_fail_records[path_str]
@@ -542,7 +550,9 @@ class P115Api:
         try:
             self._delete_call_counter = (self._delete_call_counter + 1) % 2
             if self._delete_call_counter == 0:
-                resp = self.client.fs_delete(fileitem.fileid)
+                resp = self.client.fs_delete(
+                    fileitem.fileid, **get_ios_ua_app(app=False)
+                )
             else:
                 resp = self.client.fs_delete_app(fileitem.fileid, **get_ios_ua_app())
             check_response(resp)
@@ -576,7 +586,9 @@ class P115Api:
         try:
             self._rename_call_counter = (self._rename_call_counter + 1) % 2
             if self._rename_call_counter == 0:
-                resp = self.client.fs_rename((int(fileitem.fileid), name))
+                resp = self.client.fs_rename(
+                    (int(fileitem.fileid), name), **get_ios_ua_app(app=False)
+                )
             else:
                 resp = self.client.fs_rename_app(
                     (int(fileitem.fileid), name), **get_ios_ua_app()
@@ -697,7 +709,7 @@ class P115Api:
 
         :return: (endpoint, access_key_id, access_key_secret, security_token, expiration_time)
         """
-        token_resp = self.client.upload_gettoken()
+        token_resp = self.client.upload_gettoken(**get_ios_ua_app(app=False))
         check_response(token_resp)
 
         endpoint = "http://oss-cn-shenzhen.aliyuncs.com"
@@ -793,6 +805,7 @@ class P115Api:
                         filesha1=file_sha1,
                         pid=target_pid,
                         read_range_bytes_or_hash=read_range_hash,
+                        **get_ios_ua_app(app=False),
                     )
                     check_response(init_resp)
                     break
@@ -1015,7 +1028,9 @@ class P115Api:
                 return False
             self._copy_call_counter = (self._copy_call_counter + 1) % 2
             if self._copy_call_counter == 0:
-                resp = self.client.fs_copy(fileitem.fileid, pid=parent_id)
+                resp = self.client.fs_copy(
+                    fileitem.fileid, pid=parent_id, **get_ios_ua_app(app=False)
+                )
             else:
                 resp = self.client.fs_copy_app(
                     fileitem.fileid, pid=parent_id, **get_ios_ua_app()
@@ -1047,7 +1062,9 @@ class P115Api:
                 return False
             self._move_call_counter = (self._move_call_counter + 1) % 2
             if self._move_call_counter == 0:
-                resp = self.client.fs_move(fileitem.fileid, pid=parent_id)
+                resp = self.client.fs_move(
+                    fileitem.fileid, pid=parent_id, **get_ios_ua_app(app=False)
+                )
             else:
                 resp = self.client.fs_move_app(
                     fileitem.fileid, pid=parent_id, **get_ios_ua_app()
@@ -1113,7 +1130,7 @@ class P115Api:
         :return: 存储使用情况对象，包含总容量和可用容量，获取失败返回None
         """
         try:
-            resp = self.client.fs_index_info(0)
+            resp = self.client.fs_index_info(0, **get_ios_ua_app(app=False))
             check_response(resp)
             return StorageUsage(
                 total=resp["data"]["space_info"]["all_total"]["size"],

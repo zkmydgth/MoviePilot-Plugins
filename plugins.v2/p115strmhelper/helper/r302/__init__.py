@@ -104,10 +104,17 @@ class Redirect:
         """
         if not self.pid:
             return None
-        resp = await self.client.fs_copy(to_id(pickcode), pid=self.pid, async_=True)
+        resp = await self.client.fs_copy(
+            to_id(pickcode),
+            pid=self.pid,
+            async_=True,
+            **configer.get_ios_ua_app(app=False),
+        )
         p115_check_response(resp)
         payload = {"cid": self.pid, "o": "user_ptime", "asc": 0}
-        resp = await self.client.fs_files(payload, async_=True)
+        resp = await self.client.fs_files(
+            payload, async_=True, **configer.get_ios_ua_app(app=False)
+        )
         p115_check_response(resp)
         data = resp.get("data")[0]
         return data.get("pc", None)
@@ -116,7 +123,9 @@ class Redirect:
         """
         延迟删除
         """
-        await self.client.fs_delete(to_id(pickcode), async_=True)
+        await self.client.fs_delete(
+            to_id(pickcode), async_=True, **configer.get_ios_ua_app(app=False)
+        )
         logger.debug(f"【302跳转服务】清理 {pickcode} 文件")
 
     async def _delayed_remove_async(self, pickcode: str) -> None:

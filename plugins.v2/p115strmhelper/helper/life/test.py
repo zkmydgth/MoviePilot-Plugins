@@ -3,6 +3,8 @@ from time import time
 from p115client import check_response, P115AuthenticationError
 from p115client.tool.life import iter_life_behavior_once, life_show
 
+from ...core.config import configer
+
 
 class MonitorLifeTest:
     """
@@ -20,7 +22,7 @@ class MonitorLifeTest:
         """
         debug_info = []
         try:
-            resp = life_show(client, timeout=10)
+            resp = life_show(client, timeout=10, **configer.get_ios_ua_app(app=False))
             check_response(resp)
             if resp.get("state"):
                 debug_info.append("   生活事件开启: 是")
@@ -53,6 +55,7 @@ class MonitorLifeTest:
                 from_id=0,
                 app="web",
                 cooldown=1,
+                **configer.get_ios_ua_app(app=False),
             )
             try:
                 first_event = next(events_iterator)

@@ -25,7 +25,9 @@ class Cleaner:
         try:
             logger.info("【回收站清理】开始清理回收站")
             payload = {"password": configer.get_config("password")}
-            resp = self.client.recyclebin_clean(payload)
+            resp = self.client.recyclebin_clean(
+                payload, **configer.get_ios_ua_app(app=False)
+            )
             check_response(resp)
             logger.info("【回收站清理】回收站已清空")
         except Exception as e:
@@ -48,7 +50,9 @@ class Cleaner:
             logger.info(f"【最近接收清理】最近接收目录 ID 获取成功: {parent_id}")
             sleep(2)
             id_list: List = []
-            for batch in iter_fs_files(self.client, parent_id, cooldown=2):
+            for batch in iter_fs_files(
+                self.client, parent_id, cooldown=2, **configer.get_ios_ua_app(app=False)
+            ):
                 for item in batch.get("data", []):
                     if not item:
                         continue
@@ -70,10 +74,12 @@ class Cleaner:
                     logger.info(
                         f"【最近接收清理】正在删除第 {i // batch_size + 1} 批，数量：{len(batch_ids)}"
                     )
-                    self.client.fs_delete(batch_ids)
+                    self.client.fs_delete(
+                        batch_ids, **configer.get_ios_ua_app(app=False)
+                    )
                     sleep(2)
             else:
-                self.client.fs_delete(id_list)
+                self.client.fs_delete(id_list, **configer.get_ios_ua_app(app=False))
             logger.info("【最近接收清理】最近接收已清空")
         except Exception as e:
             sentry_manager.sentry_hub.capture_exception(e)
