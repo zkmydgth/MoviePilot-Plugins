@@ -1171,8 +1171,8 @@ class U115OpenHelper:
                 raise CanNotFindPathToCid("无法获取目录信息")
             path = file_item.fileid
         initial_cid = int(path)
-        if page_size <= 0 or page_size > 1150:
-            page_size = 1150
+        if page_size <= 0 or page_size > 10000:
+            page_size = 7,000
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             pending_futures: Set[Future] = set()
@@ -1320,8 +1320,8 @@ class U115OpenHelper:
                 raise CanNotFindPathToCid("无法获取目录信息")
             path = file_item.fileid
         initial_cid = int(path)
-        if page_size <= 0 or page_size > 1150:
-            page_size = 1150
+        if page_size <= 0 or page_size > 10000:
+            page_size = 7,000
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             pending_futures: Set[Future] = set()
