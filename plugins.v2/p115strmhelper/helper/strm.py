@@ -616,7 +616,10 @@ class FullSyncStrmHelper:
 
             try:
                 for batch in batched(
-                    iter_files_with_path(self.client, cid=parent_id, cooldown=2), 7_000
+                    iter_files_with_path(
+                        self.client, cid=parent_id, with_ancestors=True, cooldown=2
+                    ),
+                    7_000,
                 ):
                     processed: List = []
                     path_list: List = []
