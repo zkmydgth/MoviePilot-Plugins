@@ -56,10 +56,10 @@ class ServiceHelper:
         self.monitor_life_lock = Lock()
         self.monitor_life_fail_time: Optional[float] = None
 
-        self.transfer_queue: Optional[ProcessQueue] = None
-        self.transfer_response_queue: Optional[ProcessQueue] = None
-        self.transfer_queue_thread: Optional[Thread] = None
-        self.transfer_queue_thread_stop = False
+        self.life_queue: Optional[ProcessQueue] = None
+        self.life_response_queue: Optional[ProcessQueue] = None
+        self.life_queue_thread: Optional[Thread] = None
+        self.life_queue_thread_stop = False
 
         self.offlinehelper: Optional[OfflineDownloadHelper] = None
 
@@ -113,7 +113,8 @@ class ServiceHelper:
                 client=self.client,
                 mediainfodownloader=self.mediainfodownloader,
                 stop_event=None,
-                transfer_queue=None,
+                life_queue=None,
+                life_response_queue=None,
             )
 
             # 分享转存初始化
@@ -223,36 +224,95 @@ class ServiceHelper:
             if self.monitor_stop_event:
                 self.monitor_stop_event = None
 
-        self._stop_transfer_queue_thread()
+        self._stop_life_queue_thread()
 
-    def _process_transfer_queue(self):
+    def _process_life_queue(self):
         """
-        处理从子进程接收的 do_transfer 任务队列和查询请求
+        处理从子进程接收的生活事件任务队列和查询请求
         """
-        logger.info("【网盘整理】任务队列处理线程已启动")
+        logger.info("【监控生活事件】任务队列处理线程已启动")
 
-        while not self.transfer_queue_thread_stop:
+        while not self.life_queue_thread_stop:
             try:
-                task_data: Dict[str, Any] = self.transfer_queue.get(timeout=1)
+                task_data: Dict[str, Any] = self.life_queue.get(timeout=1)
                 if task_data is None:
                     continue
 
-                if (
-                    isinstance(task_data, dict)
-                    and task_data.get("type") == "query_queue_status"
-                ):
-                    if self.monitorlife and self.transfer_response_queue:
-                        try:
-                            self.monitorlife.process_queue_status_query(
-                                self.transfer_response_queue
-                            )
-                        except Exception as e:
-                            logger.error(f"【监控生活事件】处理队列状态查询失败: {e}")
+                if isinstance(task_data, dict):
+                    request_type = task_data.get("type")
+
+                    if request_type == "query_queue_status":
+                        if self.monitorlife and self.life_response_queue:
                             try:
-                                self.transfer_response_queue.put({"has_tasks": False})
-                            except Exception:
-                                pass
-                    continue
+                                self.monitorlife.process_queue_status_query(
+                                    self.life_response_queue
+                                )
+                            except Exception as e:
+                                logger.error(
+                                    f"【监控生活事件】处理队列状态查询失败: {e}"
+                                )
+                                try:
+                                    self.life_response_queue.put({"has_tasks": False})
+                                except Exception:
+                                    pass
+                        continue
+
+                    elif request_type == "check_file_exists":
+                        if self.monitorlife and self.life_response_queue:
+                            try:
+                                self.monitorlife.process_check_file_exists(
+                                    task_data, self.life_response_queue
+                                )
+                            except Exception as e:
+                                logger.error(
+                                    f"【监控生活事件】处理文件存在性查询失败: {e}"
+                                )
+                                try:
+                                    self.life_response_queue.put({"exists": False})
+                                except Exception:
+                                    pass
+                        continue
+
+                    elif request_type == "remove_mp_history":
+                        if self.monitorlife:
+                            try:
+                                self.monitorlife.process_remove_mp_history(task_data)
+                            except Exception as e:
+                                logger.error(
+                                    f"【监控生活事件】处理删除历史记录失败: {e}"
+                                )
+                        continue
+
+                    elif request_type == "scrape_metadata":
+                        if self.monitorlife:
+                            try:
+                                self.monitorlife.process_scrape_metadata(task_data)
+                            except Exception as e:
+                                logger.error(f"【监控生活事件】处理媒体刮削失败: {e}")
+                        continue
+
+                    elif request_type == "refresh_mediaserver":
+                        if self.monitorlife:
+                            try:
+                                mediaserver_helper = getattr(
+                                    self.monitorlife, "mediaserver_helper", None
+                                )
+                                self.monitorlife.process_refresh_mediaserver(
+                                    task_data, mediaserver_helper
+                                )
+                            except Exception as e:
+                                logger.error(
+                                    f"【监控生活事件】处理媒体服务器刷新失败: {e}"
+                                )
+                        continue
+
+                    elif request_type == "post_message":
+                        if self.monitorlife:
+                            try:
+                                self.monitorlife.process_post_message(task_data)
+                            except Exception as e:
+                                logger.error(f"【监控生活事件】处理发送通知失败: {e}")
+                        continue
 
                 if self.monitorlife:
                     try:
@@ -271,34 +331,34 @@ class ServiceHelper:
 
         logger.info("【监控生活事件】任务队列处理线程已停止")
 
-    def _start_transfer_queue_thread(self):
+    def _start_life_queue_thread(self):
         """
-        启动任务队列处理线程
+        启动生活事件任务队列处理线程
         """
-        if self.transfer_queue_thread and self.transfer_queue_thread.is_alive():
+        if self.life_queue_thread and self.life_queue_thread.is_alive():
             return
 
-        self.transfer_queue_thread_stop = False
-        self.transfer_queue_thread = Thread(
-            target=self._process_transfer_queue,
-            name="P115StrmHelper-TransferQueue",
+        self.life_queue_thread_stop = False
+        self.life_queue_thread = Thread(
+            target=self._process_life_queue,
+            name="P115StrmHelper-LifeQueue",
             daemon=True,
         )
-        self.transfer_queue_thread.start()
-        logger.debug("【网盘整理】任务队列处理线程已启动")
+        self.life_queue_thread.start()
+        logger.debug("【监控生活事件】任务队列处理线程已启动")
 
-    def _stop_transfer_queue_thread(self):
+    def _stop_life_queue_thread(self):
         """
-        停止任务队列处理线程
+        停止生活事件任务队列处理线程
         """
-        if self.transfer_queue_thread and self.transfer_queue_thread.is_alive():
-            self.transfer_queue_thread_stop = True
-            self.transfer_queue_thread.join(timeout=5)
-            if self.transfer_queue_thread.is_alive():
-                logger.warning("【网盘整理】任务队列处理线程未在预期时间内停止")
+        if self.life_queue_thread and self.life_queue_thread.is_alive():
+            self.life_queue_thread_stop = True
+            self.life_queue_thread.join(timeout=5)
+            if self.life_queue_thread.is_alive():
+                logger.warning("【监控生活事件】任务队列处理线程未在预期时间内停止")
             else:
-                logger.debug("【网盘整理】任务队列处理线程已停止")
-            self.transfer_queue_thread = None
+                logger.debug("【监控生活事件】任务队列处理线程已停止")
+            self.life_queue_thread = None
 
     def _start_monitor_life_internal(self):
         """
@@ -322,21 +382,21 @@ class ServiceHelper:
 
             self.monitor_stop_event = ProcessEvent()
 
-            if self.transfer_queue is None:
-                self.transfer_queue = ProcessQueue()
+            if self.life_queue is None:
+                self.life_queue = ProcessQueue()
 
-            if self.transfer_response_queue is None:
-                self.transfer_response_queue = ProcessQueue()
+            if self.life_response_queue is None:
+                self.life_response_queue = ProcessQueue()
 
-            self._start_transfer_queue_thread()
+            self._start_life_queue_thread()
 
             self.monitor_life_process = Process(
                 target=monitor_life_process_worker,
                 args=(
                     self.monitor_stop_event,
                     configer.cookies,
-                    self.transfer_queue,
-                    self.transfer_response_queue,
+                    self.life_queue,
+                    self.life_response_queue,
                 ),
                 name="P115StrmHelper-MonitorLife",
                 daemon=False,
@@ -686,7 +746,7 @@ class ServiceHelper:
                 elif self.monitor_stop_event:
                     self.monitor_stop_event.set()
                     self.monitor_stop_event = None
-                self._stop_transfer_queue_thread()
+                self._stop_life_queue_thread()
         except Exception as e:
             logger.error(f"发生错误: {e}")
 
