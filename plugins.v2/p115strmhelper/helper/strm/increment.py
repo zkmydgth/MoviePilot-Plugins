@@ -658,8 +658,9 @@ class IncrementSyncStrmHelper:
                 logger.error(f"【增量STRM生成】增量同步 STRM 文件失败: {e}")
                 return
 
-            wait_seconds = 20 + 10 * retry_count
-            sleep(wait_seconds)
+            if queue:
+                wait_seconds = 20 + 10 * retry_count
+                sleep(wait_seconds)
 
         # 下载媒体信息文件
         self.mediainfo_count, self.mediainfo_fail_count, self.mediainfo_fail_dict = (
