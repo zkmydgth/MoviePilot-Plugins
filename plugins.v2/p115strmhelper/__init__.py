@@ -1544,12 +1544,8 @@ class P115StrmHelper(_PluginBase):
     auth_level = 1
 
     # 私有属性
-    mediaserver_helper = None
-    transferchain = None
-    mediachain = None
     pathmatchinghelper = None
     mediainfodownloader = None
-    storagechain = None
 
     # 目录ID缓存
     id_path_cache = None
