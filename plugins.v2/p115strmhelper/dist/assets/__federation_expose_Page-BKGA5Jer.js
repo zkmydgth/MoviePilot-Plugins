@@ -427,7 +427,8 @@ const loadDirContent = async () => {
               name: item.name,
               path: item.path,
               is_dir: true
-            }));
+            }))
+            .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
         } else {
           throw new Error('浏览目录失败：无效响应');
         }
@@ -2225,6 +2226,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-8744df1e"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-d4d3b9dc"]]);
 
 export { Page as default };

@@ -899,7 +899,8 @@ const loadDirContent = async () => {
               name: item.name,
               path: item.path,
               is_dir: true
-            }));
+            }))
+            .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
         } else {
           throw new Error('浏览目录失败：无效响应');
         }
