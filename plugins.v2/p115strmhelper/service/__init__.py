@@ -17,6 +17,7 @@ from ..core.p115 import get_pid_by_path
 from ..helper.clean import Cleaner
 from ..helper.life import MonitorLife
 from ..helper.mediainfo_download import MediaInfoDownloader
+from ..helper.monitor import directory_upload_stability_tracker
 from ..helper.monitor.directory_upload_queue import (
     DirectoryUploadTask,
     directory_upload_queue,
@@ -676,8 +677,14 @@ class ServiceHelper:
         启动目录上传监控
         """
         if configer.directory_upload_enabled:
+            active_mon_paths = [
+                item.get("src", "")
+                for item in (configer.directory_upload_path or [])
+                if item and item.get("src", "")
+            ]
             directory_upload_queue.start()
-            for item in configer.directory_upload_path:
+            directory_upload_stability_tracker.start(self.client, active_mon_paths)
+            for item in configer.directory_upload_path or []:
                 if not item:
                     continue
                 mon_path = item.get("src", "")
@@ -794,6 +801,10 @@ class ServiceHelper:
                         logger.error(f"【目录上传】关闭失败: {e}")
                 logger.info("【目录上传】目录监控已关闭")
             self.service_observer = []
+            try:
+                directory_upload_stability_tracker.stop()
+            except Exception as e:
+                logger.debug(f"【目录上传】停止稳定性跟踪异常: {e}")
             try:
                 directory_upload_queue.stop()
             except Exception as e:
