@@ -9,6 +9,7 @@
 - 在遍历时捕获并遵守子依赖的版本限制，确保兼容性。
 - 自动下载所有目标平台的 .whl 文件。
 - 如果特定平台的 .whl 文件不存在，则尝试从源码构建（仅限当前环境或纯 Python 包）。
+- 支持在清理 wheels 目录时保留指定包的 .whl 文件
 - 不修改原始的 `requirements.txt` 文件。
 """
 
@@ -50,6 +51,17 @@ TARGET_ABI = f"cp{TARGET_PYTHON_VERSION}"
 
 # 用于缓存已查询过的包信息，避免重复网络请求
 package_info_cache: Dict[str, Optional[str]] = {}
+
+
+def normalize_package_name(package_name: str) -> str:
+    """
+    规范化 Python 包名
+
+    :param package_name (str): 包名
+
+    :return str: 规范化后的包名
+    """
+    return re.sub(r"[-_.]+", "-", package_name.strip()).lower()
 
 
 def log(*args, **kwargs):
@@ -151,7 +163,7 @@ def parse_resolved_requirements(file_path: Path) -> Dict[str, str]:
                 # 正则匹配 "包名==版本号" 格式
                 match = re.match(r"([a-zA-Z0-9_.-]+)==([0-9a-zA-Z_.-]+)", spec_line)
                 if match:
-                    package_name = match.group(1).lower()
+                    package_name = normalize_package_name(match.group(1))
                     specs[package_name] = spec_line
     return specs
 
@@ -169,10 +181,13 @@ def load_bundling_config(config_file: Path) -> Dict:
     with open(config_file, "r", encoding="utf-8") as f:
         config = json.load(f)
 
+    keep_wheel_packages = set(config.get("keep_wheel_packages", []))
+    keep_wheel_packages.update(config.get("preserve_wheel_packages", []))
+
     # 提取并处理各项配置
     return {
         "top_level_whitelist": {
-            pkg.lower() for pkg in config.get("top_level_packages", [])
+            normalize_package_name(pkg) for pkg in config.get("top_level_packages", [])
         },
         "author_match_list": {
             rule["value"]
@@ -180,12 +195,17 @@ def load_bundling_config(config_file: Path) -> Dict:
             if rule.get("strategy") == "author_match"
         },
         "package_match_list": {
-            pkg.lower()
+            normalize_package_name(pkg)
             for rule in config.get("rules", [])
             if rule.get("strategy") == "package_name_match"
             for pkg in rule.get("value", [])
         },
-        "exclude_list": {pkg.lower() for pkg in config.get("exclude_packages", [])},
+        "exclude_list": {
+            normalize_package_name(pkg) for pkg in config.get("exclude_packages", [])
+        },
+        "keep_wheel_packages": {
+            normalize_package_name(pkg) for pkg in keep_wheel_packages
+        },
     }
 
 
@@ -208,7 +228,7 @@ def get_top_level_packages(requirements_file: Path) -> Set[str]:
                 # 正则提取包名部分
                 match = re.match(r"([a-zA-Z0-9_.-]+)", line)
                 if match:
-                    top_level_packages.add(match.group(1).lower())
+                    top_level_packages.add(normalize_package_name(match.group(1)))
     return top_level_packages
 
 
@@ -258,6 +278,62 @@ def filter_packages_to_bundle(
     return packages_to_bundle
 
 
+def get_wheel_package_name(wheel_file: Path) -> Optional[str]:
+    """
+    从 wheel 文件名中提取包名
+
+    :param wheel_file (Path): wheel 文件路径
+
+    :return str: 规范化后的包名，无法识别时返回 None
+    """
+    if wheel_file.suffix != ".whl":
+        return None
+
+    package_name = wheel_file.name.split("-", 1)[0]
+    if not package_name:
+        return None
+
+    return normalize_package_name(package_name)
+
+
+def prepare_wheels_dir(wheels_dir: Path, keep_wheel_packages: Set[str]) -> None:
+    """
+    准备 wheels 目录并保留指定包的 whl 文件
+
+    :param wheels_dir (Path): wheels 目录路径
+    :param keep_wheel_packages (Set): 需要保留 wheel 文件的包名集合
+    """
+    if not wheels_dir.exists():
+        wheels_dir.mkdir(parents=True)
+        return
+
+    if not keep_wheel_packages:
+        shutil.rmtree(wheels_dir)
+        wheels_dir.mkdir(parents=True)
+        log("[Info] 已清理旧的 wheels 目录")
+        return
+
+    removed_count = 0
+    kept_count = 0
+    for item in wheels_dir.iterdir():
+        wheel_package_name = get_wheel_package_name(item)
+        if wheel_package_name and wheel_package_name in keep_wheel_packages:
+            kept_count += 1
+            continue
+
+        if item.is_dir() and not item.is_symlink():
+            shutil.rmtree(item)
+        else:
+            item.unlink()
+        removed_count += 1
+
+    log(
+        "[Info] 已清理旧的 wheels 目录，"
+        f"删除 {removed_count} 个条目，保留 {kept_count} 个 wheel 文件"
+    )
+    log(f"[Info] wheel 保留包: {sorted(keep_wheel_packages)}")
+
+
 def download_wheels(package_specs: List[str], wheels_dir: Path):
     """
     为给定的包列表，逐个下载或构建所有目标平台的 .whl 文件。
@@ -268,7 +344,9 @@ def download_wheels(package_specs: List[str], wheels_dir: Path):
         wheels_dir (Path): 用于存放下载的 .whl 文件的目录。
     """
     log("\n[Info] 开始逐个下载或构建 Wheels 文件...")
-    log("     注意：从源码构建仅能生成当前运行环境的 wheel，或纯 Python 包的通用 wheel。")
+    log(
+        "     注意：从源码构建仅能生成当前运行环境的 wheel，或纯 Python 包的通用 wheel。"
+    )
     log("     此脚本无法为其他操作系统或架构进行交叉编译。")
 
     # 构建通用的平台参数列表，供后续重复使用
@@ -285,38 +363,44 @@ def download_wheels(package_specs: List[str], wheels_dir: Path):
         log(f"  -> 正在尝试为 '{package_name}' 下载预构建的二进制 wheel...")
         subprocess.run(
             [
-                "pip3", "download",
+                "pip3",
+                "download",
                 "--only-binary=:all:",
-                "--python-version", TARGET_PYTHON_VERSION,
-                "--abi", TARGET_ABI,
+                "--python-version",
+                TARGET_PYTHON_VERSION,
+                "--abi",
+                TARGET_ABI,
                 "--no-deps",
-                "-d", str(wheels_dir),
+                "-d",
+                str(wheels_dir),
             ]
             + platform_args
-            + [spec], # 只处理当前这一个包
-            check=False, # 关键：不检查退出码，允许命令“失败”
+            + [spec],  # 只处理当前这一个包
+            check=False,  # 关键：不检查退出码，允许命令“失败”
             capture_output=True,
             text=True,
             encoding="utf-8",
         )
 
         # 阶段 2: 检查下载结果。如果一个 wheel 文件都没有下载到，则尝试从源码构建
-        wheels_for_package = list(
-            wheels_dir.glob(f"{normalized_package_name}-*.whl")
-        )
+        wheels_for_package = list(wheels_dir.glob(f"{normalized_package_name}-*.whl"))
 
         if not wheels_for_package:
-            log(f"  ⚠️  [警告] 未找到 '{package_name}' 的任何预构建二进制包。尝试从源码构建...")
+            log(
+                f"  ⚠️  [警告] 未找到 '{package_name}' 的任何预构建二进制包。尝试从源码构建..."
+            )
 
             # 使用 pip wheel 命令，它会自动下载源码并构建
             build_process = subprocess.run(
                 [
-                    "pip3", "wheel",
+                    "pip3",
+                    "wheel",
                     "--no-deps",
-                    "--wheel-dir", str(wheels_dir),
+                    "--wheel-dir",
+                    str(wheels_dir),
                     spec,
                 ],
-                check=False, # 构建也可能失败，不中断脚本
+                check=False,  # 构建也可能失败，不中断脚本
                 capture_output=True,
                 text=True,
                 encoding="utf-8",
@@ -325,7 +409,9 @@ def download_wheels(package_specs: List[str], wheels_dir: Path):
             if build_process.returncode == 0:
                 log(f"  ✅ [成功] 成功从源码为 '{package_name}' 构建 wheel。")
             else:
-                log(f"  ❌ [失败] 无法为 '{package_name}' 构建 wheel。可能缺少编译工具链 (如 C++ 编译器, Rust 等)。")
+                log(
+                    f"  ❌ [失败] 无法为 '{package_name}' 构建 wheel。可能缺少编译工具链 (如 C++ 编译器, Rust 等)。"
+                )
                 log(f"      错误详情:\n{build_process.stderr}")
         else:
             log(f"  ✅ [成功] 成功下载 '{package_name}' 的预构建 wheel 文件。")
@@ -387,9 +473,7 @@ def main():
 
     # 准备下载目录并执行下载
     wheels_dir_in_plugin = PLUGIN_SOURCE_DIR / "wheels"
-    if wheels_dir_in_plugin.exists():
-        shutil.rmtree(wheels_dir_in_plugin)  # 清理旧的 wheels 目录
-    wheels_dir_in_plugin.mkdir(parents=True)
+    prepare_wheels_dir(wheels_dir_in_plugin, config["keep_wheel_packages"])
 
     # 从筛选结果中提取精确的版本声明
     specs_to_download = [resolved_specs[pkg] for pkg in packages_to_bundle]

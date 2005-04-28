@@ -4,6 +4,12 @@
     "qrcode_terminal",
     "qrcode-terminal"
   ],
+  "keep_wheel_packages": [
+    "full_strm_sync",
+    "pyahocorasick",
+    "share_strm_scan",
+    "txt_tree_storage"
+  ],
   "rules": [
     {
       "strategy": "author_match",
