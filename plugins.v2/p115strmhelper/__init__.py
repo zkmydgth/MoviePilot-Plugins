@@ -320,7 +320,7 @@ class P115StrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png"
     # 插件版本
-    plugin_version = "1.3.1"
+    plugin_version = "1.4.0"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -565,507 +565,495 @@ class P115StrmHelper(_PluginBase):
         """
         拼装插件配置页面，需要返回两块数据：1、页面配置；2、数据结构
         """
-        return [
+        transfer_monitor_tab = [
             {
-                "component": "VForm",
+                "component": "VRow",
                 "content": [
                     {
-                        "component": "VRow",
+                        "component": "VCol",
+                        "props": {"cols": 12, "md": 4},
                         "content": [
                             {
-                                "component": "VCol",
-                                "props": {"cols": 12, "md": 4},
-                                "content": [
-                                    {
-                                        "component": "VSwitch",
-                                        "props": {
-                                            "model": "enabled",
-                                            "label": "启用插件",
-                                        },
-                                    }
-                                ],
-                            },
-                            {
-                                "component": "VCol",
-                                "props": {"cols": 12, "md": 4},
-                                "content": [
-                                    {
-                                        "component": "VTextField",
-                                        "props": {
-                                            "model": "cookies",
-                                            "label": "115 Cookie",
-                                        },
-                                    }
-                                ],
-                            },
-                            {
-                                "component": "VCol",
-                                "props": {"cols": 12, "md": 4},
-                                "content": [
-                                    {
-                                        "component": "VTextField",
-                                        "props": {
-                                            "model": "moviepilot_address",
-                                            "label": "MoviePilot 外网访问地址",
-                                        },
-                                    }
-                                ],
-                            },
-                        ],
-                    },
-                    {
-                        "component": "VRow",
-                        "content": [
-                            {
-                                "component": "VCol",
-                                "props": {"cols": 12},
-                                "content": [
-                                    {
-                                        "component": "VTextField",
-                                        "props": {
-                                            "model": "user_rmt_mediaext",
-                                            "label": "可整理媒体文件扩展名",
-                                        },
-                                    }
-                                ],
-                            },
-                        ],
-                    },
-                    {
-                        "component": "VRow",
-                        "content": [
-                            {
-                                "component": "VCol",
+                                "component": "VSwitch",
                                 "props": {
-                                    "cols": 12,
+                                    "model": "transfer_monitor_enabled",
+                                    "label": "整理事件监控",
+                                },
+                            }
+                        ],
+                    },
+                    {
+                        "component": "VCol",
+                        "props": {"cols": 12, "md": 4},
+                        "content": [
+                            {
+                                "component": "VSwitch",
+                                "props": {
+                                    "model": "transfer_monitor_media_server_refresh_enabled",
+                                    "label": "媒体服务器刷新",
+                                },
+                            }
+                        ],
+                    },
+                    {
+                        "component": "VCol",
+                        "props": {"cols": 12, "md": 4},
+                        "content": [
+                            {
+                                "component": "VSelect",
+                                "props": {
+                                    "multiple": True,
+                                    "chips": True,
+                                    "clearable": True,
+                                    "model": "transfer_monitor_mediaservers",
+                                    "label": "媒体服务器",
+                                    "items": [
+                                        {"title": config.name, "value": config.name}
+                                        for config in self.mediaserver_helper.get_configs().values()
+                                    ],
+                                },
+                            }
+                        ],
+                    },
+                ],
+            },
+            {
+                "component": "VRow",
+                "content": [
+                    {
+                        "component": "VCol",
+                        "props": {"cols": 12},
+                        "content": [
+                            {
+                                "component": "VTextarea",
+                                "props": {
+                                    "model": "transfer_monitor_paths",
+                                    "label": "整理事件监控目录",
+                                    "rows": 5,
+                                    "placeholder": "一行一个，格式：本地STRM目录#网盘媒体库目录\n例如：\n/volume1/strm/movies#/媒体库/电影\n/volume1/strm/tv#/媒体库/剧集",
+                                    "hint": "监控MoviePilot整理入库事件，自动在此处配置的本地目录生成对应的STRM文件。",
+                                    "persistent-hint": True,
+                                },
+                            },
+                            {
+                                "component": "VAlert",
+                                "props": {
+                                    "type": "info",
+                                    "variant": "tonal",
+                                    "density": "compact",
+                                    "class": "mt-2",
                                 },
                                 "content": [
+                                    {"component": "div", "text": "格式示例："},
                                     {
-                                        "component": "VAlert",
-                                        "props": {
-                                            "type": "info",
-                                            "variant": "tonal",
-                                            "text": "监控MP整理生成STRM配置",
-                                        },
-                                    }
-                                ],
-                            }
-                        ],
-                    },
-                    {
-                        "component": "VRow",
-                        "content": [
-                            {
-                                "component": "VCol",
-                                "props": {"cols": 12, "md": 4},
-                                "content": [
+                                        "component": "div",
+                                        "props": {"class": "ml-2"},
+                                        "text": "本地路径1#网盘路径1",
+                                    },
                                     {
-                                        "component": "VSwitch",
-                                        "props": {
-                                            "model": "transfer_monitor_enabled",
-                                            "label": "整理事件监控",
-                                        },
-                                    }
-                                ],
-                            },
-                            {
-                                "component": "VCol",
-                                "props": {"cols": 12, "md": 4},
-                                "content": [
-                                    {
-                                        "component": "VSwitch",
-                                        "props": {
-                                            "model": "transfer_monitor_media_server_refresh_enabled",
-                                            "label": "媒体服务器刷新",
-                                        },
-                                    }
-                                ],
-                            },
-                            {
-                                "component": "VCol",
-                                "props": {"cols": 12, "md": 4},
-                                "content": [
-                                    {
-                                        "component": "VSelect",
-                                        "props": {
-                                            "multiple": True,
-                                            "chips": True,
-                                            "clearable": True,
-                                            "model": "transfer_monitor_mediaservers",
-                                            "label": "媒体服务器",
-                                            "items": [
-                                                {
-                                                    "title": config.name,
-                                                    "value": config.name,
-                                                }
-                                                for config in self.mediaserver_helper.get_configs().values()
-                                            ],
-                                        },
-                                    }
+                                        "component": "div",
+                                        "props": {"class": "ml-2"},
+                                        "text": "本地路径2#网盘路径2",
+                                    },
                                 ],
                             },
                         ],
-                    },
+                    }
+                ],
+            },
+        ]
+
+        full_sync_tab = [
+            {
+                "component": "VRow",
+                "content": [
                     {
-                        "component": "VRow",
+                        "component": "VCol",
+                        "props": {"cols": 12, "md": 4},
                         "content": [
                             {
-                                "component": "VCol",
-                                "props": {"cols": 12},
-                                "content": [
-                                    {
-                                        "component": "VTextarea",
-                                        "props": {
-                                            "model": "transfer_monitor_paths",
-                                            "label": "整理事件监控目录",
-                                            "rows": 5,
-                                            "placeholder": "配置格式为 本地STRM媒体库目录#网盘媒体库目录，一行一个",
-                                            "hint": "配置整理事件监控目录，格式为：本地STRM媒体库目录#网盘媒体库目录",
-                                            "persistent-hint": True,
-                                        },
-                                    }
-                                ],
-                            }
-                        ],
-                    },
-                    {
-                        "component": "VRow",
-                        "content": [
-                            {
-                                "component": "VCol",
+                                "component": "VSwitch",
                                 "props": {
-                                    "cols": 12,
+                                    "model": "once_full_sync_strm",
+                                    "label": "立刻全量同步",
+                                },
+                            }
+                        ],
+                    },
+                    {
+                        "component": "VCol",
+                        "props": {"cols": 12, "md": 4},
+                        "content": [
+                            {
+                                "component": "VSwitch",
+                                "props": {
+                                    "model": "timing_full_sync_strm",
+                                    "label": "定期全量同步",
+                                },
+                            }
+                        ],
+                    },
+                    {
+                        "component": "VCol",
+                        "props": {"cols": 12, "md": 4},
+                        "content": [
+                            {
+                                "component": "VCronField",
+                                "props": {
+                                    "model": "cron_full_sync_strm",
+                                    "label": "运行全量同步周期",
+                                },
+                            }
+                        ],
+                    },
+                ],
+            },
+            {
+                "component": "VRow",
+                "content": [
+                    {
+                        "component": "VCol",
+                        "props": {"cols": 12},
+                        "content": [
+                            {
+                                "component": "VTextarea",
+                                "props": {
+                                    "model": "full_sync_strm_paths",
+                                    "label": "全量同步目录",
+                                    "rows": 5,
+                                    "placeholder": "一行一个，格式：本地STRM目录#网盘媒体库目录\n例如：\n/volume1/strm/movies#/媒体库/电影\n/volume1/strm/tv#/媒体库/剧集",
+                                    "hint": "全量扫描配置的网盘目录，并在对应的本地目录生成STRM文件。",
+                                    "persistent-hint": True,
+                                },
+                            },
+                            {
+                                "component": "VAlert",
+                                "props": {
+                                    "type": "info",
+                                    "variant": "tonal",
+                                    "density": "compact",
+                                    "class": "mt-2",
                                 },
                                 "content": [
+                                    {"component": "div", "text": "格式示例："},
                                     {
-                                        "component": "VAlert",
-                                        "props": {
-                                            "type": "info",
-                                            "variant": "tonal",
-                                            "text": "全量同步配置",
-                                        },
-                                    }
-                                ],
-                            }
-                        ],
-                    },
-                    {
-                        "component": "VRow",
-                        "content": [
-                            {
-                                "component": "VCol",
-                                "props": {"cols": 12, "md": 4},
-                                "content": [
+                                        "component": "div",
+                                        "props": {"class": "ml-2"},
+                                        "text": "本地路径1#网盘路径1",
+                                    },
                                     {
-                                        "component": "VSwitch",
-                                        "props": {
-                                            "model": "once_full_sync_strm",
-                                            "label": "立刻全量同步",
-                                        },
-                                    }
-                                ],
-                            },
-                            {
-                                "component": "VCol",
-                                "props": {"cols": 12, "md": 4},
-                                "content": [
-                                    {
-                                        "component": "VSwitch",
-                                        "props": {
-                                            "model": "timing_full_sync_strm",
-                                            "label": "定期全量同步",
-                                        },
-                                    }
-                                ],
-                            },
-                            {
-                                "component": "VCol",
-                                "props": {"cols": 12, "md": 4},
-                                "content": [
-                                    {
-                                        "component": "VCronField",
-                                        "props": {
-                                            "model": "cron_full_sync_strm",
-                                            "label": "运行全量同步周期",
-                                        },
-                                    }
+                                        "component": "div",
+                                        "props": {"class": "ml-2"},
+                                        "text": "本地路径2#网盘路径2",
+                                    },
                                 ],
                             },
                         ],
-                    },
+                    }
+                ],
+            },
+        ]
+
+        life_events_tab = [
+            {
+                "component": "VRow",
+                "content": [
                     {
-                        "component": "VRow",
+                        "component": "VCol",
+                        "props": {"cols": 12, "md": 4},
                         "content": [
                             {
-                                "component": "VCol",
-                                "props": {"cols": 12},
-                                "content": [
-                                    {
-                                        "component": "VTextarea",
-                                        "props": {
-                                            "model": "full_sync_strm_paths",
-                                            "label": "全量同步目录",
-                                            "rows": 5,
-                                            "placeholder": "配置格式为 本地STRM媒体库目录#网盘媒体库目录，一行一个",
-                                            "hint": "配置全量同步目录，格式为：本地STRM媒体库目录#网盘媒体库目录",
-                                            "persistent-hint": True,
-                                        },
-                                    }
-                                ],
-                            }
-                        ],
-                    },
-                    {
-                        "component": "VRow",
-                        "content": [
-                            {
-                                "component": "VCol",
+                                "component": "VSwitch",
                                 "props": {
-                                    "cols": 12,
+                                    "model": "monitor_life_enabled",
+                                    "label": "监控115生活事件",
+                                },
+                            }
+                        ],
+                    },
+                ],
+            },
+            {
+                "component": "VRow",
+                "content": [
+                    {
+                        "component": "VCol",
+                        "props": {"cols": 12},
+                        "content": [
+                            {
+                                "component": "VTextarea",
+                                "props": {
+                                    "model": "monitor_life_paths",
+                                    "label": "监控115生活事件目录",
+                                    "rows": 5,
+                                    "placeholder": "一行一个，格式：本地STRM目录#网盘媒体库目录\n例如：\n/volume1/strm/movies#/媒体库/电影\n/volume1/strm/tv#/媒体库/剧集",
+                                    "hint": "监控115生活（上传、移动、接收文件）事件，自动在此处配置的本地目录生成对应的STRM文件。",
+                                    "persistent-hint": True,
+                                },
+                            },
+                            {
+                                "component": "VAlert",
+                                "props": {
+                                    "type": "info",
+                                    "variant": "tonal",
+                                    "density": "compact",
+                                    "class": "mt-2",
                                 },
                                 "content": [
+                                    {"component": "div", "text": "格式示例："},
                                     {
-                                        "component": "VAlert",
-                                        "props": {
-                                            "type": "info",
-                                            "variant": "tonal",
-                                            "text": "115生活事件监控配置",
-                                        },
-                                    }
-                                ],
-                            }
-                        ],
-                    },
-                    {
-                        "component": "VRow",
-                        "content": [
-                            {
-                                "component": "VCol",
-                                "props": {"cols": 12, "md": 4},
-                                "content": [
+                                        "component": "div",
+                                        "props": {"class": "ml-2"},
+                                        "text": "本地路径1#网盘路径1",
+                                    },
                                     {
-                                        "component": "VSwitch",
-                                        "props": {
-                                            "model": "monitor_life_enabled",
-                                            "label": "监控115生活事件",
-                                        },
-                                    }
+                                        "component": "div",
+                                        "props": {"class": "ml-2"},
+                                        "text": "本地路径2#网盘路径2",
+                                    },
                                 ],
                             },
                         ],
-                    },
+                    }
+                ],
+            },
+        ]
+
+        share_generate_tab = [
+            {
+                "component": "VRow",
+                "content": [
                     {
-                        "component": "VRow",
+                        "component": "VCol",
+                        "props": {"cols": 12, "md": 4},
                         "content": [
                             {
-                                "component": "VCol",
-                                "props": {"cols": 12},
-                                "content": [
-                                    {
-                                        "component": "VTextarea",
-                                        "props": {
-                                            "model": "monitor_life_paths",
-                                            "label": "监控115生活事件目录",
-                                            "rows": 5,
-                                            "placeholder": "配置格式为 本地STRM媒体库目录#网盘媒体库目录，一行一个",
-                                            "hint": "配置监控115生活事件目录，格式为：本地STRM媒体库目录#网盘媒体库目录",
-                                            "persistent-hint": True,
-                                        },
-                                    }
-                                ],
-                            }
-                        ],
-                    },
-                    {
-                        "component": "VRow",
-                        "content": [
-                            {
-                                "component": "VCol",
+                                "component": "VSwitch",
                                 "props": {
-                                    "cols": 12,
+                                    "model": "share_strm_enabled",
+                                    "label": "运行分享生成STRM",
                                 },
-                                "content": [
-                                    {
-                                        "component": "VAlert",
-                                        "props": {
-                                            "type": "info",
-                                            "variant": "tonal",
-                                            "text": "分享生成STRM配置",
-                                        },
-                                    }
-                                ],
                             }
                         ],
                     },
                     {
-                        "component": "VRow",
+                        "component": "VCol",
+                        "props": {"cols": 12, "md": 4},
                         "content": [
                             {
-                                "component": "VCol",
-                                "props": {"cols": 12, "md": 4},
-                                "content": [
-                                    {
-                                        "component": "VSwitch",
-                                        "props": {
-                                            "model": "share_strm_enabled",
-                                            "label": "运行分享生成STRM",
-                                        },
-                                    }
-                                ],
-                            },
-                            {
-                                "component": "VCol",
-                                "props": {"cols": 12, "md": 4},
-                                "content": [
-                                    {
-                                        "component": "VTextField",
-                                        "props": {
-                                            "model": "user_share_code",
-                                            "label": "分享码",
-                                        },
-                                    }
-                                ],
-                            },
-                            {
-                                "component": "VCol",
-                                "props": {"cols": 12, "md": 4},
-                                "content": [
-                                    {
-                                        "component": "VTextField",
-                                        "props": {
-                                            "model": "user_receive_code",
-                                            "label": "分享密码",
-                                        },
-                                    }
-                                ],
-                            },
-                        ],
-                    },
-                    {
-                        "component": "VRow",
-                        "content": [
-                            {
-                                "component": "VCol",
-                                "props": {"cols": 12, "md": 6},
-                                "content": [
-                                    {
-                                        "component": "VTextField",
-                                        "props": {
-                                            "model": "user_share_pan_path",
-                                            "label": "分享文件夹路径",
-                                        },
-                                    }
-                                ],
-                            },
-                            {
-                                "component": "VCol",
-                                "props": {"cols": 12, "md": 6},
-                                "content": [
-                                    {
-                                        "component": "VTextField",
-                                        "props": {
-                                            "model": "user_share_local_path",
-                                            "label": "本地生成STRM路径",
-                                        },
-                                    }
-                                ],
-                            },
-                        ],
-                    },
-                    {
-                        "component": "VRow",
-                        "content": [
-                            {
-                                "component": "VCol",
+                                "component": "VTextField",
                                 "props": {
-                                    "cols": 12,
+                                    "model": "user_share_code",
+                                    "label": "分享码",
                                 },
-                                "content": [
-                                    {
-                                        "component": "VAlert",
-                                        "props": {
-                                            "type": "info",
-                                            "variant": "tonal",
-                                            "text": "定期清理 回收站/我的接收 配置",
-                                        },
-                                    }
-                                ],
                             }
                         ],
                     },
                     {
-                        "component": "VRow",
+                        "component": "VCol",
+                        "props": {"cols": 12, "md": 4},
                         "content": [
                             {
-                                "component": "VCol",
+                                "component": "VTextField",
                                 "props": {
-                                    "cols": 12,
+                                    "model": "user_receive_code",
+                                    "label": "分享密码",
                                 },
-                                "content": [
-                                    {
-                                        "component": "VAlert",
-                                        "props": {
-                                            "type": "info",
-                                            "variant": "tonal",
-                                            "text": "注意，清空 回收站/我的接收 后文件不可恢复，如果产生重要数据丢失本程序不负责！",
-                                        },
-                                    }
-                                ],
+                            }
+                        ],
+                    },
+                ],
+            },
+            {
+                "component": "VRow",
+                "content": [
+                    {
+                        "component": "VCol",
+                        "props": {"cols": 12, "md": 6},
+                        "content": [
+                            {
+                                "component": "VTextField",
+                                "props": {
+                                    "model": "user_share_pan_path",
+                                    "label": "分享文件夹路径",
+                                },
                             }
                         ],
                     },
                     {
-                        "component": "VRow",
+                        "component": "VCol",
+                        "props": {"cols": 12, "md": 6},
                         "content": [
                             {
-                                "component": "VCol",
-                                "props": {"cols": 12, "md": 3},
+                                "component": "VTextField",
+                                "props": {
+                                    "model": "user_share_local_path",
+                                    "label": "本地生成STRM路径",
+                                },
+                            }
+                        ],
+                    },
+                ],
+            },
+        ]
+
+        cleanup_tab = [
+            {
+                "component": "VRow",
+                "content": [
+                    {
+                        "component": "VCol",
+                        "props": {"cols": 12},
+                        "content": [
+                            {
+                                "component": "VAlert",
+                                "props": {
+                                    "type": "warning",
+                                    "variant": "tonal",
+                                    "density": "compact",
+                                    "text": "注意，清空 回收站/我的接收 后文件不可恢复，如果产生重要数据丢失本程序不负责！",
+                                },
+                            }
+                        ],
+                    }
+                ],
+            },
+            {
+                "component": "VRow",
+                "content": [
+                    {
+                        "component": "VCol",
+                        "props": {"cols": 12, "md": 3},
+                        "content": [
+                            {
+                                "component": "VSwitch",
+                                "props": {
+                                    "model": "clear_recyclebin_enabled",
+                                    "label": "清空回收站",
+                                },
+                            }
+                        ],
+                    },
+                    {
+                        "component": "VCol",
+                        "props": {"cols": 12, "md": 3},
+                        "content": [
+                            {
+                                "component": "VSwitch",
+                                "props": {
+                                    "model": "clear_receive_path_enabled",
+                                    "label": "清空我的接收目录",
+                                },
+                            }
+                        ],
+                    },
+                    {
+                        "component": "VCol",
+                        "props": {"cols": 12, "md": 3},
+                        "content": [
+                            {
+                                "component": "VTextField",
+                                "props": {"model": "password", "label": "115访问密码"},
+                            }
+                        ],
+                    },
+                    {
+                        "component": "VCol",
+                        "props": {"cols": 12, "md": 3},
+                        "content": [
+                            {
+                                "component": "VCronField",
+                                "props": {"model": "cron_clear", "label": "清理周期"},
+                            }
+                        ],
+                    },
+                ],
+            },
+        ]
+
+        return [
+            {
+                "component": "VCard",
+                "props": {"variant": "outlined", "class": "mb-3"},
+                "content": [
+                    {
+                        "component": "VCardTitle",
+                        "props": {"class": "d-flex align-center"},
+                        "content": [
+                            {
+                                "component": "VIcon",
+                                "props": {
+                                    "icon": "mdi-cog",
+                                    "color": "primary",
+                                    "class": "mr-2",
+                                },
+                            },
+                            {"component": "span", "text": "基础设置"},
+                        ],
+                    },
+                    {"component": "VDivider"},
+                    {
+                        "component": "VCardText",
+                        "content": [
+                            {
+                                "component": "VRow",
                                 "content": [
                                     {
-                                        "component": "VSwitch",
-                                        "props": {
-                                            "model": "clear_recyclebin_enabled",
-                                            "label": "清空回收站",
-                                        },
-                                    }
+                                        "component": "VCol",
+                                        "props": {"cols": 12, "md": 4},
+                                        "content": [
+                                            {
+                                                "component": "VSwitch",
+                                                "props": {
+                                                    "model": "enabled",
+                                                    "label": "启用插件",
+                                                },
+                                            }
+                                        ],
+                                    },
+                                    {
+                                        "component": "VCol",
+                                        "props": {"cols": 12, "md": 4},
+                                        "content": [
+                                            {
+                                                "component": "VTextField",
+                                                "props": {
+                                                    "model": "cookies",
+                                                    "label": "115 Cookie",
+                                                },
+                                            }
+                                        ],
+                                    },
+                                    {
+                                        "component": "VCol",
+                                        "props": {"cols": 12, "md": 4},
+                                        "content": [
+                                            {
+                                                "component": "VTextField",
+                                                "props": {
+                                                    "model": "moviepilot_address",
+                                                    "label": "MoviePilot 外网访问地址",
+                                                },
+                                            }
+                                        ],
+                                    },
                                 ],
                             },
                             {
-                                "component": "VCol",
-                                "props": {"cols": 12, "md": 3},
+                                "component": "VRow",
                                 "content": [
                                     {
-                                        "component": "VSwitch",
-                                        "props": {
-                                            "model": "clear_receive_path_enabled",
-                                            "label": "清空我的接收目录",
-                                        },
-                                    }
-                                ],
-                            },
-                            {
-                                "component": "VCol",
-                                "props": {"cols": 12, "md": 3},
-                                "content": [
-                                    {
-                                        "component": "VTextField",
-                                        "props": {
-                                            "model": "password",
-                                            "label": "115访问密码",
-                                        },
-                                    }
-                                ],
-                            },
-                            {
-                                "component": "VCol",
-                                "props": {"cols": 12, "md": 3},
-                                "content": [
-                                    {
-                                        "component": "VCronField",
-                                        "props": {
-                                            "model": "cron_clear",
-                                            "label": "清理周期",
-                                        },
+                                        "component": "VCol",
+                                        "props": {"cols": 12},
+                                        "content": [
+                                            {
+                                                "component": "VTextField",
+                                                "props": {
+                                                    "model": "user_rmt_mediaext",
+                                                    "label": "可整理媒体文件扩展名",
+                                                },
+                                            }
+                                        ],
                                     }
                                 ],
                             },
@@ -1073,8 +1061,146 @@ class P115StrmHelper(_PluginBase):
                     },
                 ],
             },
+            {
+                "component": "VCard",
+                "props": {"variant": "outlined"},
+                "content": [
+                    {
+                        "component": "VTabs",
+                        "props": {"model": "tab", "grow": True, "color": "primary"},
+                        "content": [
+                            {
+                                "component": "VTab",
+                                "props": {"value": "tab-transfer"},
+                                "content": [
+                                    {
+                                        "component": "VIcon",
+                                        "props": {
+                                            "icon": "mdi-file-move-outline",
+                                            "start": True,
+                                            "color": "#1976D2",
+                                        },
+                                    },
+                                    {"component": "span", "text": "监控MP整理"},
+                                ],
+                            },
+                            {
+                                "component": "VTab",
+                                "props": {"value": "tab-sync"},
+                                "content": [
+                                    {
+                                        "component": "VIcon",
+                                        "props": {
+                                            "icon": "mdi-sync",
+                                            "start": True,
+                                            "color": "#4CAF50",
+                                        },
+                                    },
+                                    {"component": "span", "text": "全量同步"},
+                                ],
+                            },
+                            {
+                                "component": "VTab",
+                                "props": {"value": "tab-life"},
+                                "content": [
+                                    {
+                                        "component": "VIcon",
+                                        "props": {
+                                            "icon": "mdi-calendar-heart",
+                                            "start": True,
+                                            "color": "#9C27B0",
+                                        },
+                                    },
+                                    {"component": "span", "text": "监控115生活事件"},
+                                ],
+                            },
+                            {
+                                "component": "VTab",
+                                "props": {"value": "tab-share"},
+                                "content": [
+                                    {
+                                        "component": "VIcon",
+                                        "props": {
+                                            "icon": "mdi-share-variant-outline",
+                                            "start": True,
+                                            "color": "#009688",
+                                        },
+                                    },
+                                    {"component": "span", "text": "分享生成STRM"},
+                                ],
+                            },
+                            {
+                                "component": "VTab",
+                                "props": {"value": "tab-cleanup"},
+                                "content": [
+                                    {
+                                        "component": "VIcon",
+                                        "props": {
+                                            "icon": "mdi-broom",
+                                            "start": True,
+                                            "color": "#FF9800",
+                                        },
+                                    },
+                                    {"component": "span", "text": "定期清理"},
+                                ],
+                            },
+                        ],
+                    },
+                    {"component": "VDivider"},
+                    {
+                        "component": "VWindow",
+                        "props": {"model": "tab"},
+                        "content": [
+                            {
+                                "component": "VWindowItem",
+                                "props": {"value": "tab-transfer"},
+                                "content": [
+                                    {
+                                        "component": "VCardText",
+                                        "content": transfer_monitor_tab,
+                                    }
+                                ],
+                            },
+                            {
+                                "component": "VWindowItem",
+                                "props": {"value": "tab-sync"},
+                                "content": [
+                                    {"component": "VCardText", "content": full_sync_tab}
+                                ],
+                            },
+                            {
+                                "component": "VWindowItem",
+                                "props": {"value": "tab-life"},
+                                "content": [
+                                    {
+                                        "component": "VCardText",
+                                        "content": life_events_tab,
+                                    }
+                                ],
+                            },
+                            {
+                                "component": "VWindowItem",
+                                "props": {"value": "tab-share"},
+                                "content": [
+                                    {
+                                        "component": "VCardText",
+                                        "content": share_generate_tab,
+                                    }
+                                ],
+                            },
+                            {
+                                "component": "VWindowItem",
+                                "props": {"value": "tab-cleanup"},
+                                "content": [
+                                    {"component": "VCardText", "content": cleanup_tab}
+                                ],
+                            },
+                        ],
+                    },
+                ],
+            },
         ], {
-            "enable": False,
+            "enabled": False,
             "once_full_sync_strm": False,
             "cookies": "",
             "password": "",
@@ -1083,6 +1209,7 @@ class P115StrmHelper(_PluginBase):
             "transfer_monitor_enabled": False,
             "transfer_monitor_paths": "",
             "transfer_monitor_media_server_refresh_enabled": False,
+            "transfer_monitor_mediaservers": [],
             "timing_full_sync_strm": False,
             "cron_full_sync_strm": "0 */7 * * *",
             "full_sync_strm_paths": "",
@@ -1096,6 +1223,7 @@ class P115StrmHelper(_PluginBase):
             "clear_recyclebin_enabled": False,
             "clear_receive_path_enabled": False,
             "cron_clear": "0 */7 * * *",
+            "tab": "tab-transfer",
         }
 
     def get_page(self) -> List[dict]:
