@@ -52,7 +52,7 @@ class TransferStrmHelper:
         except Exception as e:  # noqa: F841
             sentry_manager.sentry_hub.capture_exception(e)
             logger.error(
-                "【监控整理STRM生成】生成 %s 文件失败: %s", str(new_file_path), e
+                "【监控整理STRM生成】生成 %s 文件失败: %s", str(new_file_path), e  # noqa
             )
             return False, None
 
