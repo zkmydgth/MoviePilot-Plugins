@@ -325,7 +325,7 @@ class ConfigManager:
         if utype in user_agents:
             return user_agents[utype]
         return (
-            f"{self._configs.get('PLUSIN_NAME')}/2.0.6 "
+            f"{self._configs.get('PLUSIN_NAME')}/2.0.7 "
             f"({platform.system()} {platform.release()}; "
             f"{SystemUtils.cpu_arch() if hasattr(SystemUtils, 'cpu_arch') and callable(SystemUtils.cpu_arch) else 'UnknownArch'})"
         )

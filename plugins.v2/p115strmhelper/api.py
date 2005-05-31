@@ -674,13 +674,12 @@ class Api:
             "message": resp["error"],
         }
 
-    async def offline_tasks_api(self, request: Request) -> Dict:
+    def offline_tasks_api(self, payload: Dict) -> Dict:
         """
         离线任务列表
         """
-        data = await request.json()
-        page = int(data.get("page", 1))
-        limit = int(data.get("limit", 10))
+        page = int(payload.get("page", 1))
+        limit = int(payload.get("limit", 10))
 
         all_tasks = servicer.offlinehelper.get_cached_data()
         total = len(all_tasks)
@@ -700,13 +699,12 @@ class Api:
 
         return response
 
-    async def add_offline_task_api(self, request: Request) -> Dict:
+    def add_offline_task_api(self, payload: Dict) -> Dict:
         """
         添加离线下载任务
         """
-        data = await request.json()
-        links = data.get("links")
-        path = data.get("path")
+        links = payload.get("links")
+        path = payload.get("path")
 
         if not path:
             status = servicer.offlinehelper.add_urls_to_transfer(links)
