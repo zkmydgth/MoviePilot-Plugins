@@ -722,10 +722,10 @@ class U115OpenHelper:
                                     security_token=security_token,
                                 )
                                 bucket = oss2.Bucket(
-                                    auth,
+                                    auth,  # noqa
                                     endpoint,
                                     bucket_name,
-                                    connect_timeout=120,  # noqa
+                                    connect_timeout=120,
                                 )
                                 logger.info(
                                     "【P115Open】上传凭证已刷新，将重试当前分片。"
