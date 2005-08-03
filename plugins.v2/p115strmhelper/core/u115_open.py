@@ -51,7 +51,7 @@ class U115OpenHelper:
 
     def __init__(self):
         super().__init__()
-        self.session = httpx.Client(follow_redirects=True)
+        self.session = httpx.Client(follow_redirects=True, timeout=120.0)
         self._init_session()
 
         self.fail_upload_count = 0
