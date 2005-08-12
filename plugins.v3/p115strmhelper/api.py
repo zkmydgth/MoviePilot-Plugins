@@ -1,3 +1,9 @@
+from .utils.concurrenttools_compat import ensure_legacy_concurrenttools_aliases
+
+# api.py 会被其它入口（API 路由、测试桩）直接 import，这里独立挂一次兼容别名，
+# 保证不依赖包 __init__ 的执行顺序。
+ensure_legacy_concurrenttools_aliases()
+
 from base64 import b64encode, b64decode
 from io import BytesIO
 from datetime import datetime
