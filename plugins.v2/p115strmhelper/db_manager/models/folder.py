@@ -57,14 +57,13 @@ class Folder(P115StrmHelperBase):
         db.execute(delete(Folder).where(Folder.path == file_path))
         return True
 
+    @staticmethod
     @db_update
-    def delete_by_id(self, db: Session, file_id: int):
+    def delete_by_id(db: Session, file_id: int):
         """
         通过ID删除
         """
-        data = self.get_by_id(db, file_id)
-        if data:
-            data.delete(db, data.id)
+        db.execute(delete(Folder).where(Folder.id == file_id))
         return True
 
     @staticmethod

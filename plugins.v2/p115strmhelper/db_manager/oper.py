@@ -254,6 +254,15 @@ class FileDbHelper(DbOper):
         else:
             Folder.delete_by_path(self._db, path)
 
+    def remove_by_id(self, id_type: str, id: int):
+        """
+        通过 ID 删除记录
+        """
+        if id_type == "file":
+            File.delete_by_id(self._db, id)
+        else:
+            Folder.delete_by_id(self._db, id)
+
     def update_path_by_id(self, id: int, new_path: str) -> bool:
         """
         通过ID匹配数据并修改path
