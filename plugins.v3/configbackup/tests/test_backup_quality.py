@@ -376,7 +376,7 @@ class TestSqliteWal(_BoundaryBase):
         target = Path(self.base) / "t"
         target.mkdir()
         with mock.patch.object(ConfigBackup, "_ConfigBackup__checkpoint_sqlite") as ck:
-            self.plugin._ConfigBackup__copy_config_files(target)
+            self.plugin._ConfigBackup__copy_database_files(target)
 
         self.assertTrue(ck.called, "未 checkpoint 就复制 user.db 会拿到不完整快照")
 

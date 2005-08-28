@@ -9,6 +9,7 @@ import threading
 import time
 import zipfile
 from datetime import datetime
+from email.utils import parsedate_to_datetime
 from io import StringIO
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -23,6 +24,7 @@ from app.plugins import _PluginBase
 from app.schemas import MessageType
 
 from .version import VERSION
+from .webdav_client import WebDAVClient, WebDAVError
 from app.sdk.string import StringUtils
 
 
@@ -44,14 +46,38 @@ class ConfigBackup(_PluginBase):
     # 可使用的用户级别
     auth_level = 1
 
+    # 备份内容可勾选的部分（元组顺序即表单选项与摘要的展示顺序）
+    _PART_DATABASE = "database"
+    _PART_SYSTEM = "system"
+    _PART_COOKIES = "cookies"
+    _PART_PLUGINS = "plugins"
+    _PART_EXTRA = "extra"
+    _ALL_PARTS = (_PART_DATABASE, _PART_SYSTEM, _PART_COOKIES, _PART_PLUGINS, _PART_EXTRA)
+    #: 各部分的展示名（表单选项与备份包摘要共用，改文案只改这里）
+    _PART_LABELS = {
+        "database": "数据库",
+        "system": "系统配置",
+        "cookies": "站点 Cookie",
+        "plugins": "插件配置",
+        "extra": "附加路径",
+    }
+
     # 私有属性
     _enabled = False
     _cron = None
     _backup_dir = None
     _keep_count = 10
     _keep_days = 7
-    _backup_plugins = True
+    _backup_parts = _ALL_PARTS
     _extra_paths = None
+    # --- WebDAV 远端备份（v3.2.0 模块 B）---
+    _webdav_enabled = False
+    _webdav_url = ""
+    _webdav_user = ""
+    _webdav_pass = ""
+    _webdav_dir = "/MoviePilot"
+    _webdav_keep = ""
+    _webdav_timeout = 300
     _notify = False
     _notify_type = "插件"
     _onlyonce = False
@@ -79,8 +105,15 @@ class ConfigBackup(_PluginBase):
             self._backup_dir = config.get("backup_dir") or ""
             self._keep_count = int(config.get("keep_count") or 10)
             self._keep_days = int(config.get("keep_days") or 0)
-            self._backup_plugins = bool(config.get("backup_plugins", True))
+            self._backup_parts = self.__parse_parts(config)
             self._extra_paths = config.get("extra_paths") or ""
+            self._webdav_enabled = bool(config.get("webdav_enabled"))
+            self._webdav_url = config.get("webdav_url") or ""
+            self._webdav_user = config.get("webdav_user") or ""
+            self._webdav_pass = config.get("webdav_pass") or ""
+            self._webdav_dir = (config.get("webdav_dir") or "/MoviePilot").strip()
+            self._webdav_keep = config.get("webdav_keep")
+            self._webdav_timeout = int(config.get("webdav_timeout") or 300)
             self._notify = bool(config.get("notify"))
             self._notify_type = config.get("notify_type") or "插件"
             self._onlyonce = bool(config.get("onlyonce"))
@@ -93,8 +126,15 @@ class ConfigBackup(_PluginBase):
                 "backup_dir": self._backup_dir,
                 "keep_count": self._keep_count,
                 "keep_days": self._keep_days,
-                "backup_plugins": self._backup_plugins,
+                "backup_parts": list(self._backup_parts),
                 "extra_paths": self._extra_paths,
+                "webdav_enabled": self._webdav_enabled,
+                "webdav_url": self._webdav_url,
+                "webdav_user": self._webdav_user,
+                "webdav_pass": self._webdav_pass,
+                "webdav_dir": self._webdav_dir,
+                "webdav_keep": self._webdav_keep,
+                "webdav_timeout": self._webdav_timeout,
                 "notify": self._notify,
                 "notify_type": self._notify_type,
                 "onlyonce": False,
@@ -106,6 +146,29 @@ class ConfigBackup(_PluginBase):
                 name="ConfigBackup-Once",
                 daemon=True,
             ).start()
+
+    @classmethod
+    def __parse_parts(cls, config: Dict[str, Any]) -> Tuple[str, ...]:
+        """
+        解析「备份内容」配置，并与老配置对齐。
+
+        - 未配置 ``backup_parts``（老版本升级上来的）→ 由老开关 ``backup_plugins`` 推导：
+          关掉过「备份插件配置」的，迁移后就不含 ``plugins``，行为与升级前一致。
+        - 配置了但一项都没勾 → 返回空元组，调用方据此拒绝备份（不打空包）。
+        - 未知取值一律丢弃，并按 ``_ALL_PARTS`` 的固定顺序归位。
+
+        :param config: 插件配置
+        :return: 勾选的部分（按固定顺序）
+        """
+        raw = config.get("backup_parts")
+        if raw is None:
+            if bool(config.get("backup_plugins", True)):
+                return tuple(cls._ALL_PARTS)
+            return tuple(p for p in cls._ALL_PARTS if p != cls._PART_PLUGINS)
+        if isinstance(raw, str):
+            raw = re.split(r"[,\s]+", raw)
+        selected = set(raw or [])
+        return tuple(p for p in cls._ALL_PARTS if p in selected)
 
     def get_state(self) -> bool:
         """获取插件启用状态。"""
@@ -146,6 +209,34 @@ class ConfigBackup(_PluginBase):
                 "methods": ["GET"],
                 "summary": "还原配置备份",
                 "description": "选择备份文件后确认还原；filename 用于选择待还原文件，confirm=1 执行还原，confirm=cancel 取消",
+            },
+            {
+                "path": "/webdav/test",
+                "endpoint": self.api_webdav_test,
+                "methods": ["GET"],
+                "summary": "测试 WebDAV 连接",
+                "description": "按当前配置对远端目录做一次只读探测（Depth:0 的 PROPFIND），不写入任何文件",
+            },
+            {
+                "path": "/webdav/list",
+                "endpoint": self.api_webdav_list,
+                "methods": ["GET"],
+                "summary": "获取远端备份列表",
+                "description": "列出 WebDAV 远端目录中的备份包",
+            },
+            {
+                "path": "/webdav/download",
+                "endpoint": self.api_webdav_download,
+                "methods": ["GET"],
+                "summary": "从远端下载备份",
+                "description": "把远端备份包下载到本地备份目录（下载后校验完整性）",
+            },
+            {
+                "path": "/webdav/restore",
+                "endpoint": self.api_webdav_restore,
+                "methods": ["GET"],
+                "summary": "下载并还原远端备份",
+                "description": "先把远端包下载到本地，再走与本地还原相同的两阶段确认（confirm=1 执行 / confirm=cancel 取消）",
             },
         ]
 
@@ -201,10 +292,11 @@ class ConfigBackup(_PluginBase):
                                         "props": {
                                             "type": "info",
                                             "variant": "tonal",
-                                            "text": "使用说明：定时备份 MoviePilot 系统配置、数据库与插件配置，"
+                                            "text": "使用说明：定时备份 MoviePilot 系统配置、数据库、站点 Cookie 与插件配置，"
                                                     "支持按个数与天数保留、自动清理与一键还原（还原前自动先备份当前状态作安全网）。"
+                                                    "备份内容可在下方「备份内容」中勾选，默认全选即全量。"
                                                     "数据库：PostgreSQL 以 SQL 方式备份还原（兼容 10+ 含 18.x）；"
-                                                    "SQLite 以数据库文件方式备份（备份前自动 checkpoint 落盘）；"
+                                                    "SQLite 以数据库文件（user.db）方式备份并归入「数据库」项（备份前自动 checkpoint 落盘）；"
                                                     "其它类型跳过数据库部分。还原为覆盖式：备份包中含有的配置会回到备份那一刻，"
                                                     "备份后新增的插件配置与站点 Cookie 将被清除。首次使用建议先手动备份一次验证。",
                                         },
@@ -355,11 +447,21 @@ class ConfigBackup(_PluginBase):
                                 "props": {"cols": 12, "md": 6},
                                 "content": [
                                     {
-                                        "component": "VSwitch",
+                                        "component": "VSelect",
                                         "props": {
-                                            "model": "backup_plugins",
-                                            "label": "备份插件配置",
-                                            "hint": "同时备份 /config/plugins 插件数据与配置",
+                                            "model": "backup_parts",
+                                            "label": "备份内容",
+                                            "multiple": True,
+                                            "chips": True,
+                                            "items": [
+                                                {"title": self._PART_LABELS[p], "value": p}
+                                                for p in self._ALL_PARTS
+                                            ],
+                                            "hint": "默认全选（= 全量备份）；取消勾选即只备份所选部分，"
+                                                    "一项都不选会拒绝备份（不打空包）。"
+                                                    "「数据库」= PostgreSQL 的 SQL 导出，或 SQLite 的 user.db 文件；"
+                                                    "「系统配置」= app.env 与 category.yaml；"
+                                                    "「站点 Cookie」= /config/cookies。",
                                             "persistent-hint": True,
                                         }
                                     }
@@ -388,6 +490,146 @@ class ConfigBackup(_PluginBase):
                                 ]
                             }
                         ]
+                    },
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 3},
+                                "content": [
+                                    {
+                                        "component": "VSwitch",
+                                        "props": {
+                                            "model": "webdav_enabled",
+                                            "label": "上传到 WebDAV",
+                                            "hint": "包自检通过后上传；上传失败整次备份标红，但本地包仍生成且可用",
+                                            "persistent-hint": True,
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 9},
+                                "content": [
+                                    {
+                                        "component": "VTextField",
+                                        "props": {
+                                            "model": "webdav_url",
+                                            "label": "WebDAV 地址",
+                                            "placeholder": "https://dav.jianguoyun.com/dav/MoviePilot",
+                                            "hint": "含目录的完整地址；保存后可到插件详情页点「测试 WebDAV 连接」",
+                                            "persistent-hint": True,
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 3},
+                                "content": [
+                                    {
+                                        "component": "VTextField",
+                                        "props": {
+                                            "model": "webdav_user",
+                                            "label": "用户名",
+                                            "persistent-hint": True,
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 3},
+                                "content": [
+                                    {
+                                        "component": "VTextField",
+                                        "props": {
+                                            "model": "webdav_pass",
+                                            "label": "密码 / 应用密码",
+                                            "type": "password",
+                                            "hint": "建议用网盘的应用专用密码，不要用登录密码",
+                                            "persistent-hint": True,
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 3},
+                                "content": [
+                                    {
+                                        "component": "VTextField",
+                                        "props": {
+                                            "model": "webdav_dir",
+                                            "label": "远端目录",
+                                            "placeholder": "/MoviePilot",
+                                            "hint": "存放备份包的远端目录，不存在会自动逐级创建",
+                                            "persistent-hint": True,
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 3},
+                                "content": [
+                                    {
+                                        "component": "VTextField",
+                                        "props": {
+                                            "model": "webdav_keep",
+                                            "label": "远端保留份数",
+                                            "type": "number",
+                                            "min": "0",
+                                            "hint": "留空则跟随「保留备份个数」；与「保留天数」满足其一即保留",
+                                            "persistent-hint": True,
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 3},
+                                "content": [
+                                    {
+                                        "component": "VTextField",
+                                        "props": {
+                                            "model": "webdav_timeout",
+                                            "label": "WebDAV 超时（秒）",
+                                            "type": "number",
+                                            "min": "10",
+                                            "hint": "大数据库包上传/下载慢，建议 ≥300",
+                                            "persistent-hint": True,
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 9},
+                                "content": [
+                                    {
+                                        "component": "VAlert",
+                                        "props": {
+                                            "type": "warning",
+                                            "variant": "tonal",
+                                            "text": "注意：备份包含站点 Cookie 与数据库，默认不加密就上传到网盘 —— 请确认该 WebDAV 服务端可信。",
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
                     }
                 ]
             }
@@ -397,8 +639,15 @@ class ConfigBackup(_PluginBase):
             "backup_dir": "/config/backup",
             "keep_count": 10,
             "keep_days": 7,
-            "backup_plugins": True,
+            "backup_parts": list(self._ALL_PARTS),
             "extra_paths": "",
+            "webdav_enabled": False,
+            "webdav_url": "",
+            "webdav_user": "",
+            "webdav_pass": "",
+            "webdav_dir": "/MoviePilot",
+            "webdav_keep": "",
+            "webdav_timeout": 300,
             "notify": False,
             "notify_type": "插件",
             "onlyonce": False,
@@ -553,6 +802,35 @@ class ConfigBackup(_PluginBase):
                 "props": {"class": "text-subtitle-2 mt-2"},
                 "text": f"备份目录：{bk_path}（保留 {self._keep_count} 份）",
             },
+            {
+                "component": "div",
+                "props": {"class": "d-flex align-center flex-wrap mt-2"},
+                "content": [
+                    {
+                        "component": "VBtn",
+                        "props": {
+                            "color": "primary",
+                            "variant": "tonal",
+                            "size": "small",
+                            "prependIcon": "mdi-cloud-check",
+                            "title": "对配置的 WebDAV 地址做一次只读探测，不写入任何文件",
+                        },
+                        "text": "测试 WebDAV 连接",
+                        "events": {
+                            "click": {
+                                "api": "plugin/ConfigBackup/webdav/test",
+                                "method": "get",
+                                "params": {"apikey": settings.API_TOKEN},
+                            }
+                        },
+                    },
+                    {
+                        "component": "span",
+                        "props": {"class": "text-caption ml-2"},
+                        "text": self.__webdav_status_text(),
+                    },
+                ],
+            },
         ]
 
         # 待还原提示
@@ -602,12 +880,17 @@ class ConfigBackup(_PluginBase):
                 }
             )
 
+        # 远端备份区（v3.2.0）：远端不可达时退化成一条告警，绝不因此让详情页打不开。
+        # ⚠️ 必须在下面的 "本地列表为空" 早返回**之前**算好 —— 否则本地一个包都没有时
+        # 远端列表会被整段吞掉（"本地空、远端有"恰恰是最需要看远的场景）。
+        remote_blocks: List[dict] = self.__render_remote_section() if self._webdav_enabled else []
+
         if not backup_files:
             return [
                 {
                     "component": "div",
                     "props": {"class": "pa-4"},
-                    "content": header + [
+                    "content": header + remote_blocks + [
                         {
                             "component": "p",
                             "props": {"class": "text-center mt-4"},
@@ -730,6 +1013,7 @@ class ConfigBackup(_PluginBase):
                 "component": "div",
                 "props": {"class": "pa-4"},
                 "content": header
+                + remote_blocks
                 + [
                     {
                         "component": "VTable",
@@ -760,6 +1044,53 @@ class ConfigBackup(_PluginBase):
     def stop_service(self):
         """停止插件后台服务并释放资源。"""
         return None
+
+    def api_webdav_test(self) -> Dict[str, Any]:
+        """API：测试 WebDAV 连接（只读探测，不在远端留任何东西）。"""
+        if not self._webdav_url:
+            return {"success": False, "message": "未配置 WebDAV 地址", "data": None}
+        ok, msg = self.__webdav_client().test()
+        return {"success": ok, "message": msg, "data": None}
+
+    def api_webdav_list(self) -> Dict[str, Any]:
+        """API：列出远端备份包。"""
+        try:
+            items = self.__list_remote_backups()
+        except WebDAVError as e:
+            return {"success": False, "message": str(e), "data": []}
+        return {"success": True, "message": "获取成功", "data": items}
+
+    def api_webdav_download(self, filename: str = "") -> Dict[str, Any]:
+        """API：把远端备份包下载到本地备份目录。"""
+        if not filename:
+            return {"success": False, "message": "缺少文件名参数", "data": None}
+        try:
+            path = self.__download_remote_backup(filename)
+        except WebDAVError as e:
+            return {"success": False, "message": str(e), "data": None}
+        return {"success": True, "message": f"已下载到本地备份目录：{path.name}", "data": None}
+
+    def api_webdav_restore(self, filename: str = "", confirm: str = "") -> Dict[str, Any]:
+        """
+        API：下载并还原远端备份（复用本地还原的两阶段确认与安全网）。
+
+        - filename 且无 confirm：下载到本地 → 选中为待还原
+        - confirm=1：执行还原（与本地【确认还原】走完全同一条链路）
+        - confirm=cancel：取消待确认还原
+        """
+        if confirm:
+            # 直接复用本地还原的执行/取消分支，保证安全网与锁行为完全一致
+            return self.api_restore(filename="", confirm=confirm)
+        if not filename:
+            return {"success": False, "message": "缺少文件名参数", "data": None}
+        try:
+            path = self.__download_remote_backup(filename)
+        except WebDAVError as e:
+            return {"success": False, "message": str(e), "data": None}
+        result = self.api_restore(filename=path.name)
+        if result.get("success"):
+            result["message"] = f"已下载并选中：{path.name}。{result.get('message', '')}"
+        return result
 
     def api_backup(self) -> Dict[str, Any]:
         """API：手动触发配置备份。"""
@@ -1281,6 +1612,296 @@ class ConfigBackup(_PluginBase):
             })
         return result
 
+    # ------------------------------------------------------------------
+    # WebDAV 远端备份（v3.2.0 模块 B）
+    # ------------------------------------------------------------------
+    def __webdav_client(self) -> WebDAVClient:
+        """
+        按当前配置构造 WebDAV 客户端。
+
+        :return: 客户端实例
+        """
+        return WebDAVClient(
+            self._webdav_url, self._webdav_user, self._webdav_pass,
+            timeout=self._webdav_timeout,
+        )
+
+    def __remote_dir(self) -> str:
+        """远端备份目录（去掉首尾斜杠，供客户端拼接）。"""
+        return (self._webdav_dir or "/MoviePilot").strip().strip("/")
+
+    def __remote_path(self, name: str) -> str:
+        """
+        某个备份包在远端的相对路径。
+
+        :param name: 备份文件名
+        :return: 远端相对路径
+        """
+        remote_dir = self.__remote_dir()
+        return f"{remote_dir}/{name}" if remote_dir else name
+
+    def __remote_keep(self) -> int:
+        """远端保留份数：留空（或非法值）则跟随「保留备份个数」。"""
+        try:
+            value = int(str(self._webdav_keep).strip()) if str(self._webdav_keep or "").strip() else 0
+        except (TypeError, ValueError):
+            value = 0
+        return value if value > 0 else int(self._keep_count or 10)
+
+    def __webdav_status_text(self) -> str:
+        """详情页上的一句话 WebDAV 状态（未启用时提示去哪开）。"""
+        if not self._webdav_enabled:
+            return "未启用 WebDAV 上传（可在插件配置里开启）"
+        return f"远端目录：/{self.__remote_dir()}（保留 {self.__remote_keep()} 份）"
+
+    def __remote_time(self, entry: Dict[str, Any]) -> float:
+        """
+        远端条目的时间戳：优先解析文件名 ``bk_<14位时间>.zip``，其次 HTTP 日期。
+
+        与本地一致 —— 文件名时间戳最稳（跨时区、跨客户端都一致），
+        服务端返回的修改时间只是兜底。
+
+        :param entry: 远端列表项
+        :return: 时间戳（秒），取不到给 0
+        """
+        name = str(entry.get("name") or "")
+        matched = re.match(rf"^{re.escape(self._prefix)}(\d{{14}})\.zip$", name)
+        if matched:
+            try:
+                return datetime.strptime(matched.group(1), "%Y%m%d%H%M%S").timestamp()
+            except Exception:
+                pass
+        try:
+            return parsedate_to_datetime(str(entry.get("modified") or "")).timestamp()
+        except Exception:
+            return 0.0
+
+    def __list_remote_backups(self) -> List[Dict[str, Any]]:
+        """
+        列出远端备份包（按时间倒序）。
+
+        只认与本地同规则的 ``bk_<14位时间>.zip`` —— 远端目录里可能还放着用户
+        自己的其它文件，不按前缀过滤就可能被后面的清理逻辑误删。
+
+        :return: 列表项（name / size / time / path）
+        """
+        entries = self.__webdav_client().list_dir(self.__remote_dir())
+        result: List[Dict[str, Any]] = []
+        for entry in entries:
+            name = str(entry.get("name") or "")
+            if entry.get("is_dir") or not name.startswith(self._prefix) or not name.endswith(".zip"):
+                continue
+            timestamp = self.__remote_time(entry)
+            result.append({
+                "name": name,
+                "size": int(entry.get("size") or 0),
+                "time": datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M:%S") if timestamp else "",
+                "mtime": timestamp,
+                "path": entry.get("path") or self.__remote_path(name),
+            })
+        result.sort(key=lambda item: item["mtime"], reverse=True)
+        return result
+
+    def __download_remote_backup(self, name: str) -> Path:
+        """
+        把远端备份包下载到本地备份目录（下载后立刻校验完整性）。
+
+        :param name: 远端文件名（``bk_*.zip``）
+        :return: 本地文件路径
+        """
+        safe_name = Path(name).name
+        if safe_name != name or not safe_name.startswith(self._prefix) \
+                or not safe_name.endswith(".zip"):
+            raise WebDAVError("非法文件名")
+        bk_path = Path(self._backup_dir) if self._backup_dir else self.get_data_path()
+        bk_path.mkdir(parents=True, exist_ok=True)
+        target = bk_path / safe_name
+        size = self.__webdav_client().download(self.__remote_path(safe_name), target)
+        if not self.__verify_zip(str(target)):
+            # 损坏包必须删掉：留着会占保留名额，还会让用户以为它可用
+            try:
+                target.unlink()
+            except Exception:
+                pass
+            raise WebDAVError("下载的备份包校验失败（可能不完整），已删除")
+        logger.info(f"远端备份已下载：{target}（{size} 字节）")
+        return target
+
+    def __upload_to_webdav(self, zip_file: Path) -> Tuple[bool, str]:
+        """
+        把备份包上传到 WebDAV。
+
+        定案（§7.3）：上传失败**算整次备份失败**（通知标红），但文案必须写清
+        「本地备份已生成、可用」—— 否则用户会以为这次备份白做了。
+
+        :param zip_file: 本地备份包路径
+        :return: (是否成功, 结果信息)
+        """
+        remote_path = self.__remote_path(zip_file.name)
+        try:
+            size = self.__webdav_client().upload(zip_file, remote_path)
+            logger.info(f"备份包已上传到 WebDAV：{remote_path}（{size} 字节）")
+            return True, f"已上传到 WebDAV（{remote_path}）"
+        except WebDAVError as e:
+            logger.error(f"上传备份到 WebDAV 失败：{e}")
+            # 只有"凭证有效但中途出错"才可能留下半包；认证/权限失败不会写进任何东西
+            if "401" not in str(e) and "403" not in str(e):
+                self.__remove_remote_quietly(zip_file.name)
+            return False, f"本地备份已生成 {zip_file.name}（可用）；上传失败：{e}"
+        except Exception as e:  # pragma: no cover - 兜底
+            logger.error(f"上传备份到 WebDAV 异常：{e}")
+            return False, f"本地备份已生成 {zip_file.name}（可用）；上传失败：{e}"
+
+    def __remove_remote_quietly(self, name: str) -> None:
+        """
+        尽力清掉远端可能残留的半包；失败只记日志，绝不掩盖原始错误。
+
+        :param name: 远端文件名
+        """
+        if not self._webdav_url:
+            return
+        try:
+            self.__webdav_client().delete(self.__remote_path(name))
+            logger.info(f"已清理远端残留文件：{name}")
+        except Exception as e:
+            logger.debug(f"清理远端残留文件失败（忽略）：{e}")
+
+    def __clean_remote_backups(self) -> int:
+        """
+        按「远端保留份数 + 保留天数」清理远端旧备份，返回删除份数。
+
+        与本地清理同一套规则（两者**满足其一即保留**），只是数据源换成远端列表；
+        只在本次上传成功后才调用（§7.3）。
+
+        :return: 删除的份数
+        """
+        items = self.__list_remote_backups()
+        if not items:
+            return 0
+        keep = self.__remote_keep()
+        keep_days = int(self._keep_days or 0)
+        cutoff = time.time() - keep_days * 86400 if keep_days > 0 else None
+        client = self.__webdav_client()
+        deleted = 0
+        # 已按时间倒序：下标 >= keep 的才是"超出份数"的候选
+        for item in items[keep:]:
+            if cutoff is not None and item["mtime"] and item["mtime"] >= cutoff:
+                continue
+            try:
+                client.delete(self.__remote_path(item["name"]))
+                deleted += 1
+            except WebDAVError as e:
+                logger.warning(f"删除远端旧备份失败 {item['name']}：{e}")
+        return deleted
+
+    def __render_remote_section(self) -> List[dict]:
+        """
+        渲染详情页的「远端备份」区。
+
+        远端不可达时退化成一条告警：详情页打不开会让用户连**本地**备份都看不到，
+        比"远端列表为空"严重得多。
+
+        :return: 组件列表
+        """
+        title = {
+            "component": "p",
+            "props": {"class": "text-subtitle-2 mt-4"},
+            "text": f"远端备份（WebDAV：/{self.__remote_dir()}）",
+        }
+        try:
+            items = self.__list_remote_backups()
+        except WebDAVError as e:
+            return [title, {
+                "component": "VAlert",
+                "props": {
+                    "type": "warning", "variant": "tonal", "class": "mt-2",
+                    "text": f"远端列表获取失败：{e}",
+                },
+            }]
+        if not items:
+            return [title, {
+                "component": "VAlert",
+                "props": {
+                    "type": "info", "variant": "tonal", "class": "mt-2",
+                    "text": "远端暂无备份包。",
+                },
+            }]
+
+        rows = []
+        for item in items:
+            name = item["name"]
+            rows.append({
+                "component": "tr",
+                "content": [
+                    {"component": "td", "content": [
+                        {"component": "p", "props": {"class": "mb-0"}, "text": name}]},
+                    {"component": "td", "content": [{
+                        "component": "p",
+                        "props": {"class": "mb-0"},
+                        "text": StringUtils.str_filesize(item["size"]) if item["size"] else "-",
+                    }]},
+                    {"component": "td", "content": [
+                        {"component": "p", "props": {"class": "mb-0"}, "text": item["time"]}]},
+                    {
+                        "component": "td",
+                        "props": {"class": "text-right", "style": "white-space: nowrap;"},
+                        "content": [
+                            {
+                                "component": "VBtn",
+                                "props": {
+                                    "color": "primary", "variant": "text", "size": "x-small",
+                                    "prependIcon": "mdi-download",
+                                    "title": "下载到本地备份目录（之后可在本地列表里还原）",
+                                },
+                                "text": "下载",
+                                "events": {
+                                    "click": {
+                                        "api": "plugin/ConfigBackup/webdav/download",
+                                        "method": "get",
+                                        "params": {"apikey": settings.API_TOKEN, "filename": name},
+                                    }
+                                },
+                            },
+                            {
+                                "component": "VBtn",
+                                "props": {
+                                    "color": "warning", "variant": "text", "size": "x-small",
+                                    "prependIcon": "mdi-cloud-download", "class": "ml-2",
+                                    "title": "下载到本地并选中为待还原，再到本地列表点【确认还原】",
+                                },
+                                "text": "下载并还原",
+                                "events": {
+                                    "click": {
+                                        "api": "plugin/ConfigBackup/webdav/restore",
+                                        "method": "get",
+                                        "params": {"apikey": settings.API_TOKEN, "filename": name},
+                                    }
+                                },
+                            },
+                        ],
+                    },
+                ],
+            })
+        return [title, {
+            "component": "VTable",
+            "props": {"density": "compact", "hover": True},
+            "content": [
+                {
+                    "component": "thead",
+                    "content": [{
+                        "component": "tr",
+                        "content": [
+                            {"component": "th", "props": {"class": "text-left"}, "text": "远端备份文件"},
+                            {"component": "th", "props": {"class": "text-left"}, "text": "大小"},
+                            {"component": "th", "props": {"class": "text-left"}, "text": "备份时间"},
+                            {"component": "th", "props": {"class": "text-right"}, "text": "操作"},
+                        ],
+                    }],
+                },
+                {"component": "tbody", "content": rows},
+            ],
+        }]
+
     def __notify_mtype(self) -> MessageType:
         """
         按配置解析通知场景；未知值回落为「插件」。
@@ -1332,11 +1953,15 @@ class ConfigBackup(_PluginBase):
             ]) if extra_manifest.exists() else 0
         except Exception:
             extra_count = 0
+        parts = [p for p in self._ALL_PARTS if p in (self._backup_parts or ())]
         info = {
             "plugin": self.plugin_name,
             "version": VERSION,
             "created": time.strftime("%Y-%m-%d %H:%M:%S"),
             "db_type": str(settings.DB_TYPE),
+            #: 本次勾选了哪些部分（v3.2.0 起写入；老读取方忽略即可）
+            "parts": parts,
+            # 以下三个字段保留给 v3.1.1 及以前的读取方，语义仍是「包里实际有什么」
             "database": (temp_dir / "postgresql_backup.sql").exists()
                         or bool(list(temp_dir.glob("user.db*"))),
             "plugins": (temp_dir / "plugins").exists(),
@@ -1377,14 +2002,39 @@ class ConfigBackup(_PluginBase):
         data = ConfigBackup.__read_manifest(Path(zip_path))
         if not data:
             return "老备份包（无清单）"
-        parts = []
+        selected = data.get("parts")
+        if not selected:
+            # 老包（v3.1.1 及以前没有 parts 字段）：按包里实际有什么展示
+            return ConfigBackup.__summarize_legacy(data)
+        labels = []
+        for part in ConfigBackup._ALL_PARTS:
+            if part not in selected:
+                continue
+            if part == ConfigBackup._PART_DATABASE:
+                labels.append(f"数据库({data.get('db_type') or '未知'})")
+            elif part == ConfigBackup._PART_EXTRA:
+                count = data.get("extra_count") or 0
+                labels.append(f"附加×{count}" if count else "附加路径")
+            else:
+                labels.append(ConfigBackup._PART_LABELS[part])
+        return "＋".join(labels) if labels else "无内容记录"
+
+    @staticmethod
+    def __summarize_legacy(data: Dict[str, Any]) -> str:
+        """
+        老备份包（清单里没有 parts 字段）的摘要：按包里实际有的内容展示。
+
+        :param data: 备份清单
+        :return: 摘要文本
+        """
+        labels = []
         if data.get("database"):
-            parts.append(f"数据库({data.get('db_type') or '未知'})")
+            labels.append(f"数据库({data.get('db_type') or '未知'})")
         if data.get("plugins"):
-            parts.append("插件配置")
+            labels.append("插件配置")
         if data.get("extra_count"):
-            parts.append(f"附加×{data['extra_count']}")
-        return "＋".join(parts) if parts else "仅系统配置"
+            labels.append(f"附加×{data['extra_count']}")
+        return "＋".join(labels) if labels else "仅系统配置"
 
     @staticmethod
     def __verify_zip(zip_file: str) -> bool:
@@ -1441,11 +2091,18 @@ class ConfigBackup(_PluginBase):
 
     def __do_backup(self) -> Tuple[bool, str]:
         """
-        执行配置备份：数据库导出、配置文件复制、插件配置复制、压缩与清理。
+        执行配置备份：按勾选的备份内容逐项收集、压缩、自检与清理。
 
         :return: (是否成功, 结果信息)
         """
         logger.info(f"开始配置备份，当前时间 {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())}")
+
+        # 一项都没勾选：直接拒绝，不打空包——空包会让「什么都没有」被当成一次有效备份
+        parts = tuple(p for p in self._ALL_PARTS if p in (self._backup_parts or ()))
+        if not parts:
+            msg = "未勾选任何备份内容，已取消本次备份（请在「备份内容」中至少选择一项）"
+            logger.warning(msg)
+            return False, msg
 
         # 备份保存路径
         bk_path = Path(self._backup_dir) if self._backup_dir else self.get_data_path()
@@ -1466,33 +2123,44 @@ class ConfigBackup(_PluginBase):
         msgs = []
 
         try:
-            # 1. 备份数据库
-            db_success, db_msg = self.__dump_database(temp_dir)
-            msgs.append(db_msg)
+            # 1. 备份数据库（PostgreSQL 导出 SQL；SQLite 复制 user.db 文件）
+            db_success = True
+            if self._PART_DATABASE in parts:
+                db_success, db_msg = self.__backup_database(temp_dir)
+                msgs.append(db_msg)
 
-            # 2. 备份系统配置文件
-            cfg_success, cfg_msg = self.__copy_config_files(temp_dir)
-            msgs.append(cfg_msg)
+            # 2. 备份系统配置（app.env / category.yaml）
+            cfg_success = True
+            if self._PART_SYSTEM in parts:
+                cfg_success, cfg_msg = self.__copy_system_files(temp_dir)
+                msgs.append(cfg_msg)
 
-            # 3. 备份插件配置
+            # 3. 备份站点 Cookie
+            cookie_success = True
+            if self._PART_COOKIES in parts:
+                cookie_success, cookie_msg = self.__copy_cookies(temp_dir)
+                msgs.append(cookie_msg)
+
+            # 4. 备份插件配置
             plugin_success = True
-            if self._backup_plugins:
+            if self._PART_PLUGINS in parts:
                 plugin_success, plugin_msg = self.__copy_plugins(temp_dir)
                 msgs.append(plugin_msg)
 
-            # 4. 备份附加路径
+            # 5. 备份附加路径（勾了但没配路径时跳过，不算失败）
             extra_success = True
-            if self._extra_paths:
+            if self._PART_EXTRA in parts and self._extra_paths:
                 extra_success, extra_msg = self.__copy_extra_paths(temp_dir)
                 msgs.append(extra_msg)
 
-            if not (db_success and cfg_success and plugin_success and extra_success):
+            if not (db_success and cfg_success and cookie_success
+                    and plugin_success and extra_success):
                 return False, "；".join(msgs)
 
-            # 5. 写入清单（记录这个包含什么，供还原前确认选中的是哪一份）
+            # 6. 写入清单（记录这个包含什么，供还原前确认选中的是哪一份）
             self.__write_manifest(temp_dir)
 
-            # 6. 压缩：先在临时区成包，再整体移入备份目录（网盘场景更快，也更原子）
+            # 7. 压缩：先在临时区成包，再整体移入备份目录（网盘场景更快，也更原子）
             shutil.make_archive(str(temp_dir), "zip", str(temp_dir))
             shutil.rmtree(str(temp_dir), ignore_errors=True)
             shutil.move(str(temp_dir) + ".zip", zip_file)
@@ -1509,6 +2177,13 @@ class ConfigBackup(_PluginBase):
             zip_size = os.path.getsize(zip_file)
             msgs.append(f"备份完成：{backup_name}.zip（{StringUtils.str_filesize(zip_size)}）")
             success = True
+
+            # 6.2 上传到 WebDAV：必须在包自检通过之后（§7.3）；
+            # 上传失败算整次失败（通知标红），但文案已写明本地包可用
+            if self._webdav_enabled:
+                upload_ok, upload_msg = self.__upload_to_webdav(Path(zip_file))
+                msgs.append(upload_msg)
+                success = success and upload_ok
         except Exception as e:
             logger.error(f"创建备份失败: {e}")
             shutil.rmtree(str(temp_dir), ignore_errors=True)
@@ -1521,6 +2196,15 @@ class ConfigBackup(_PluginBase):
         del_cnt = self.__clean_old_backups(bk_path)
         if del_cnt > 0:
             msgs.append(f"自动清理旧备份 {del_cnt} 份")
+
+        # 7.1 远端清理：只在本次上传成功后做（§7.3），失败不影响本地结果
+        if self._webdav_enabled and success:
+            try:
+                remote_del = self.__clean_remote_backups()
+                if remote_del > 0:
+                    msgs.append(f"远端清理旧备份 {remote_del} 份")
+            except WebDAVError as e:
+                msgs.append(f"远端清理失败：{e}")
 
         msg = "；".join(msgs)
         logger.info(msg)
@@ -1656,9 +2340,27 @@ class ConfigBackup(_PluginBase):
                 sql_file.unlink()
             return False, f"数据库备份失败: {e}"
 
-    def __copy_config_files(self, temp_dir: Path) -> Tuple[bool, str]:
+    def __backup_database(self, temp_dir: Path) -> Tuple[bool, str]:
         """
-        复制 /config 根目录下的系统配置文件。
+        备份「数据库」部分：按数据库类型分派。
+
+        PostgreSQL 走 SQL 导出；SQLite 走文件复制；其它类型跳过（返回成功）。
+
+        :param temp_dir: 备份临时目录
+        :return: (是否成功, 结果信息)
+        """
+        if settings.DB_TYPE == "postgresql":
+            return self.__dump_database(temp_dir)
+        if settings.DB_TYPE == "sqlite":
+            return self.__copy_database_files(temp_dir)
+        return True, "当前数据库类型非 PostgreSQL / SQLite，跳过数据库备份"
+
+    def __copy_database_files(self, temp_dir: Path) -> Tuple[bool, str]:
+        """
+        复制 SQLite 数据库文件（user.db 及其 -wal / -shm）。
+
+        复制前先 checkpoint 把 WAL 写回主库；一并复制 -wal/-shm 是为了
+        让还原后的 SQLite 能自行回放（主库自包含时它们本就是空的）。
 
         :param temp_dir: 备份临时目录
         :return: (是否成功, 结果信息)
@@ -1666,27 +2368,55 @@ class ConfigBackup(_PluginBase):
         config_path = Path(settings.CONFIG_PATH)
         copied = []
         try:
-            # 数据库文件（SQLite 场景）：先 checkpoint 把 WAL 写回主库，再复制
-            if settings.DB_TYPE == "sqlite":
-                self.__checkpoint_sqlite(config_path / "user.db")
-                for f in config_path.glob("user.db*"):
+            self.__checkpoint_sqlite(config_path / "user.db")
+            for f in config_path.glob("user.db*"):
+                if f.is_file():
                     shutil.copy(f, temp_dir)
                     copied.append(f.name)
-            # 其他配置文件
-            for name in ("app.env", "category.yaml", "user.db"):
+            return True, f"数据库文件备份成功（{'、'.join(copied) if copied else '未找到 user.db'}）"
+        except Exception as e:
+            logger.error(f"数据库文件备份失败: {e}")
+            return False, f"数据库文件备份失败: {e}"
+
+    def __copy_system_files(self, temp_dir: Path) -> Tuple[bool, str]:
+        """
+        复制「系统配置」部分：/config 根目录下的 app.env 与 category.yaml。
+
+        注意：SQLite 的 user.db 属「数据库」部分，不再混在这里——
+        否则勾「系统配置」会把数据库一起带走（v3.2.0 拆分的原因）。
+
+        :param temp_dir: 备份临时目录
+        :return: (是否成功, 结果信息)
+        """
+        config_path = Path(settings.CONFIG_PATH)
+        copied = []
+        try:
+            for name in ("app.env", "category.yaml"):
                 src = config_path / name
                 if src.exists() and src.is_file():
                     shutil.copy(src, temp_dir)
                     copied.append(name)
-            # cookies 目录
-            cookies = config_path / "cookies"
-            if cookies.exists() and cookies.is_dir():
-                shutil.copytree(cookies, temp_dir / "cookies", dirs_exist_ok=True)
-                copied.append("cookies")
-            return True, f"系统配置文件备份成功（{'、'.join(copied) if copied else '无'}）"
+            return True, f"系统配置备份成功（{'、'.join(copied) if copied else '无'}）"
         except Exception as e:
-            logger.error(f"系统配置文件备份失败: {e}")
-            return False, f"系统配置文件备份失败: {e}"
+            logger.error(f"系统配置备份失败: {e}")
+            return False, f"系统配置备份失败: {e}"
+
+    def __copy_cookies(self, temp_dir: Path) -> Tuple[bool, str]:
+        """
+        复制「站点 Cookie」部分：/config/cookies 目录。
+
+        :param temp_dir: 备份临时目录
+        :return: (是否成功, 结果信息)
+        """
+        cookies = Path(settings.CONFIG_PATH) / "cookies"
+        if not cookies.exists() or not cookies.is_dir():
+            return True, "无站点 Cookie，跳过"
+        try:
+            shutil.copytree(cookies, temp_dir / "cookies", dirs_exist_ok=True)
+            return True, "站点 Cookie 备份成功"
+        except Exception as e:
+            logger.error(f"站点 Cookie 备份失败: {e}")
+            return False, f"站点 Cookie 备份失败: {e}"
 
     @staticmethod
     def __checkpoint_sqlite(db_file: Path) -> None:

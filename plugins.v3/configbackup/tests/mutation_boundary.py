@@ -284,6 +284,51 @@ MUTANTS = [
         """        keep_days = int(self._keep_days or 0)""",
         "应导致 test_recent_backups_survive_count_pressure 失败",
     ),
+
+    # ---------------- v3.2.0 模块 A：备份内容勾选 ----------------
+    (
+        "空勾选不再拒绝：一项都不选也照打空包",
+        """        # 一项都没勾选：直接拒绝，不打空包——空包会让「什么都没有」被当成一次有效备份
+        parts = tuple(p for p in self._ALL_PARTS if p in (self._backup_parts or ()))
+        if not parts:""",
+        """        parts = tuple(p for p in self._ALL_PARTS if p in (self._backup_parts or ()))
+        if False:""",
+        "应导致 test_empty_parts_refused_without_package 失败（空包被当成有效备份）",
+    ),
+    (
+        "勾选被忽略：没勾「系统配置」也照样打包",
+        """            # 2. 备份系统配置（app.env / category.yaml）
+            cfg_success = True
+            if self._PART_SYSTEM in parts:""",
+        """            # 2. 备份系统配置（app.env / category.yaml）
+            cfg_success = True
+            if True:""",
+        "应导致 test_database_only_keeps_user_db 失败（勾了 A 却带走了 B）",
+    ),
+    (
+        "user.db 混回「系统配置」：勾系统配置把数据库一起带走",
+        """            for name in ("app.env", "category.yaml"):
+                src = config_path / name
+                if src.exists() and src.is_file():
+                    shutil.copy(src, temp_dir)
+                    copied.append(name)
+            return True, f"系统配置备份成功（{'、'.join(copied) if copied else '无'}）\"""",
+        """            for name in ("app.env", "category.yaml", "user.db"):
+                src = config_path / name
+                if src.exists() and src.is_file():
+                    shutil.copy(src, temp_dir)
+                    copied.append(name)
+            return True, f"系统配置备份成功（{'、'.join(copied) if copied else '无'}）\"""",
+        "应导致 test_system_only_excludes_database 失败（user.db 归属又被混掉）",
+    ),
+    (
+        "清单不写 parts：摘要退回旧逻辑，勾选信息丢失",
+        """            #: 本次勾选了哪些部分（v3.2.0 起写入；老读取方忽略即可）
+            "parts": parts,""",
+        """            #: 本次勾选了哪些部分（v3.2.0 起写入；老读取方忽略即可）
+            "parts": None,""",
+        "应导致 test_manifest_parts_follow_canonical_order 失败",
+    ),
 ]
 
 
