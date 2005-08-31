@@ -565,28 +565,29 @@ class ServiceHelper:
                     stop_event = ThreadEvent()
                     force_polling = configer.directory_upload_mode == "compatibility"
 
-                    def watch_worker():
+                    def watch_worker(path: str, stop_evt: ThreadEvent, polling: bool):
                         try:
                             for changes in watch(
-                                mon_path,
+                                path,
                                 recursive=True,
-                                force_polling=force_polling,
-                                stop_event=stop_event,
+                                force_polling=polling,
+                                stop_event=stop_evt,
                                 debounce=1600,
                                 step=50,
                             ):
                                 for change in changes:
                                     change_type, path_str = change
                                     if change_type == Change.added:
-                                        process_file_change(path_str, mon_path)
+                                        process_file_change(path_str, path)
                         except Exception as e:
                             logger.error(
-                                f"【目录上传】{mon_path} 监控线程异常: {e}",
+                                f"【目录上传】{path} 监控线程异常: {e}",
                                 exc_info=True,
                             )
 
                     watch_thread = Thread(
                         target=watch_worker,
+                        args=(mon_path, stop_event, force_polling),
                         name=f"P115StrmHelper-DirectoryUpload-{mon_path}",
                         daemon=True,
                     )
