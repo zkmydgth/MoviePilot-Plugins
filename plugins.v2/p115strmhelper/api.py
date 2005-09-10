@@ -129,7 +129,7 @@ class Api:
                 f"  // 匹配 {mount_dir} 开头的路径，替换为新的 URL（保留后续路径）",
                 f'  [0, 1, "{mount_dir}", "{redirect_url}"],',
                 "  // 在末尾添加 apikey 参数（尾插方式）",
-                f'  [2, 1, "{redirect_url}", "?apikey={apikey}"],',
+                f'  [2, 2, "{redirect_url}", "?apikey={apikey}"],',
             ]
 
             generated_config = "\n".join(config_rules)
