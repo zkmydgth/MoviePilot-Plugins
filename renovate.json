@@ -16,7 +16,7 @@
       ],
       "matchPackageNames": [
         "full-strm-sync",
-        "txt_tree_storage"
+        "txt-tree-storage"
       ],
       "enabled": false
     },
