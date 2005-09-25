@@ -114,6 +114,8 @@ class SentryManager:
             {"type": OSError, "message": "No space left on device"},
             {"type": OSError, "message": "Input/output error"},
             {"type": OSError, "message": "Host is down"},
+            {"type": OSError, "message": "Invalid argument"},
+            {"type": OSError, "message": "file size changed"},
             {"type": PermissionError, "message": "Permission denied"},
             {"type": PermissionError, "message": "Operation not permitted"},
             {"type": FileNotFoundError, "message": "No such file or directory"},
