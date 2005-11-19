@@ -2214,673 +2214,93 @@
     </v-card>
 
     <!-- 全量同步确认对话框 -->
-    <v-dialog v-model="fullSyncConfirmDialog" max-width="500" persistent>
-      <v-card>
-        <v-card-title class="text-h6 d-flex align-center">
-          <v-icon icon="mdi-alert-circle-outline" color="warning" class="mr-2"></v-icon>
-          确认操作
-        </v-card-title>
-        <v-card-text>
-          <div class="mb-2">您确定要立即执行全量同步吗？</div>
-          <v-alert v-if="config.full_sync_media_server_refresh_enabled" type="warning" variant="tonal" density="compact"
-            class="mt-2" icon="mdi-alert">
-            <div class="text-body-2 mb-1"><strong>重要警告</strong></div>
-            <div class="text-caption">
-              全量同步完成后将自动刷新整个媒体库，此操作会扫描所有媒体文件，可能导致媒体服务器负载增加。请确保您已了解此风险并自行承担相应责任。
-            </div>
-          </v-alert>
-        </v-card-text>
-        <v-card-actions>
-          <v-spacer></v-spacer>
-          <v-btn color="grey" variant="text" @click="fullSyncConfirmDialog = false" :disabled="syncLoading">
-            取消
-          </v-btn>
-          <v-btn color="warning" variant="text" @click="handleConfirmFullSync" :loading="syncLoading">
-            确认执行
-          </v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
+    <FullSyncConfirmDialog
+      v-model="fullSyncConfirmDialog"
+      :loading="syncLoading"
+      :has-media-server-refresh="config.full_sync_media_server_refresh_enabled"
+      @confirm="handleConfirmFullSync"
+    />
 
     <!-- 目录选择器对话框 -->
-    <v-dialog v-model="dirDialog.show" max-width="800">
-      <v-card>
-        <v-card-title class="text-subtitle-1 d-flex align-center px-3 py-2 bg-primary-lighten-5">
-          <v-icon :icon="dirDialog.isLocal ? 'mdi-folder-search' : 'mdi-folder-network'" class="mr-2" color="primary" />
-          <span>{{ dirDialog.isLocal ? '选择本地目录' : '选择网盘目录' }}</span>
-        </v-card-title>
+    <DirSelectorDialog
+      :dir-dialog="dirDialog"
+      @load-dir="loadDirContent"
+      @navigate-up="navigateToParentDir"
+      @select-dir="selectDir"
+      @confirm="confirmDirSelection"
+      @close="closeDirDialog"
+    />
 
-        <v-card-text class="px-3 py-2">
-          <div v-if="dirDialog.loading" class="d-flex justify-center my-3">
-            <v-progress-circular indeterminate color="primary"></v-progress-circular>
-          </div>
+    <!-- 手动整理确认对话框 -->
+    <ManualTransferDialog
+      :manual-transfer-dialog="manualTransferDialog"
+      @confirm="confirmManualTransfer"
+      @close="closeManualTransferDialog"
+    />
 
-          <div v-else>
-            <!-- 当前路径显示 -->
-            <v-text-field v-model="dirDialog.currentPath" label="当前路径" variant="outlined" density="compact" class="mb-2"
-              @keyup.enter="loadDirContent"></v-text-field>
+    <!-- 115网盘扫码登录对话框 -->
+    <QrCodeDialog
+      :qr-dialog="qrDialog"
+      :client-types="clientTypes"
+      @refresh="refreshQrCode"
+      @close="closeQrDialog"
+    />
 
-            <!-- 文件列表 -->
-            <v-list class="border rounded" max-height="300px" overflow-y="auto">
-              <v-list-item
-                v-if="dirDialog.currentPath !== '/' && dirDialog.currentPath !== 'C:\\' && dirDialog.currentPath !== 'C:/'"
-                @click="navigateToParentDir" class="py-1">
-                <template v-slot:prepend>
-                  <v-icon icon="mdi-arrow-up" size="small" class="mr-2" color="grey" />
-                </template>
-                <v-list-item-title class="text-body-2">上级目录</v-list-item-title>
-                <v-list-item-subtitle>..</v-list-item-subtitle>
-              </v-list-item>
+    <!-- 阿里云盘扫码登录对话框 -->
+    <AliQrCodeDialog
+      :ali-qr-dialog="aliQrDialog"
+      @refresh="refreshAliQrCode"
+      @close="closeAliQrCodeDialog"
+    />
 
-              <v-list-item v-for="(item, index) in dirDialog.items" :key="index" @click="selectDir(item)"
-                :disabled="!item.is_dir" class="py-1">
-                <template v-slot:prepend>
-                  <v-icon :icon="item.is_dir ? 'mdi-folder' : 'mdi-file'" size="small" class="mr-2"
-                    :color="item.is_dir ? 'amber-darken-2' : 'blue'" />
-                </template>
-                <v-list-item-title class="text-body-2">{{ item.name }}</v-list-item-title>
-              </v-list-item>
+    <!-- 捐赠/授权对话框 -->
+    <DonateDialog
+      :donate-dialog="donateDialog"
+      :format-authorization-expiration="formatAuthorizationExpiration"
+      @close="closeDonateDialog"
+    />
 
-              <v-list-item v-if="!dirDialog.items.length" class="py-2 text-center">
-                <v-list-item-title class="text-body-2 text-grey">该目录为空或访问受限</v-list-item-title>
-              </v-list-item>
-            </v-list>
-          </div>
-
-          <v-alert v-if="dirDialog.error" type="error" density="compact" class="mt-2 text-caption" variant="tonal">
-            {{ dirDialog.error }}
-          </v-alert>
-        </v-card-text>
-
-        <v-card-actions class="px-3 py-2">
-          <v-spacer></v-spacer>
-          <v-btn color="primary" @click="confirmDirSelection" :disabled="!dirDialog.currentPath || dirDialog.loading"
-            variant="text" size="small">
-            选择当前目录
-          </v-btn>
-          <v-btn color="grey" @click="closeDirDialog" variant="text" size="small">
-            取消
-          </v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
-
-    <v-dialog v-model="manualTransferDialog.show" max-width="500" persistent>
-      <v-card>
-        <v-card-title class="text-subtitle-1 d-flex align-center px-3 py-2 bg-primary-lighten-5">
-          <v-icon icon="mdi-play-circle" class="mr-2" color="primary" size="small" />
-          <span>手动整理确认</span>
-        </v-card-title>
-
-        <v-card-text class="px-3 py-3">
-          <div v-if="!manualTransferDialog.loading && !manualTransferDialog.result">
-            <div class="text-body-2 mb-3">确定要手动整理以下目录吗？</div>
-            <v-alert type="info" variant="tonal" density="compact" icon="mdi-information">
-              <div class="text-body-2">
-                <strong>路径：</strong>{{ manualTransferDialog.path }}
-              </div>
-            </v-alert>
-          </div>
-
-          <div v-else-if="manualTransferDialog.loading" class="d-flex flex-column align-center py-3">
-            <v-progress-circular indeterminate color="primary" size="48" class="mb-3"></v-progress-circular>
-            <div class="text-body-2 text-grey">正在启动整理任务...</div>
-          </div>
-
-          <div v-else-if="manualTransferDialog.result">
-            <v-alert :type="manualTransferDialog.result.type" variant="tonal" density="compact"
-              :icon="manualTransferDialog.result.type === 'success' ? 'mdi-check-circle' : 'mdi-alert-circle'">
-              <div class="text-subtitle-2 mb-1">
-                {{ manualTransferDialog.result.title }}
-              </div>
-              <div class="text-body-2">{{ manualTransferDialog.result.message }}</div>
-            </v-alert>
-          </div>
-        </v-card-text>
-
-        <v-card-actions class="px-3 py-2">
-          <v-spacer></v-spacer>
-          <template v-if="!manualTransferDialog.loading && !manualTransferDialog.result">
-            <v-btn color="grey" variant="text" @click="closeManualTransferDialog" size="small">
-              取消
-            </v-btn>
-            <v-btn color="primary" variant="text" @click="confirmManualTransfer" size="small">
-              确认执行
-            </v-btn>
-          </template>
-          <template v-else>
-            <v-btn color="primary" variant="text" @click="closeManualTransferDialog" size="small">
-              关闭
-            </v-btn>
-          </template>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
-
-    <!-- 二维码登录对话框 -->
-    <v-dialog v-model="qrDialog.show" max-width="450">
-      <v-card>
-        <v-card-title class="text-subtitle-1 d-flex align-center px-3 py-2 bg-primary-lighten-5">
-          <v-icon icon="mdi-qrcode" class="mr-2" color="primary" size="small" />
-          <span>115网盘扫码登录</span>
-        </v-card-title>
-
-        <v-card-text class="text-center py-4">
-          <v-alert v-if="qrDialog.error" type="error" density="compact" class="mb-3 mx-3" variant="tonal" closable>
-            {{ qrDialog.error }}
-          </v-alert>
-
-          <div v-if="qrDialog.loading" class="d-flex flex-column align-center py-3">
-            <v-progress-circular indeterminate color="primary" class="mb-3"></v-progress-circular>
-            <div>正在获取二维码...</div>
-          </div>
-
-          <div v-else-if="qrDialog.qrcode" class="d-flex flex-column align-center">
-            <div class="mb-2 font-weight-medium">请选择扫码方式</div>
-            <v-chip-group v-model="qrDialog.clientType" class="mb-3" mandatory selected-class="primary">
-              <v-chip v-for="type in clientTypes" :key="type.value" :value="type.value" variant="outlined"
-                color="primary" size="small">
-                {{ type.label }}
-              </v-chip>
-            </v-chip-group>
-            <div class="d-flex flex-column align-center mb-3">
-              <v-card flat class="border pa-2 mb-2">
-                <img :src="qrDialog.qrcode" width="220" height="220" />
-              </v-card>
-              <div class="text-body-2 text-grey mb-1">{{ qrDialog.tips }}</div>
-              <div class="text-subtitle-2 font-weight-medium text-primary">{{ qrDialog.status }}</div>
-            </div>
-            <v-btn color="primary" variant="tonal" @click="refreshQrCode" size="small" class="mb-2">
-              <v-icon left size="small" class="mr-1">mdi-refresh</v-icon>刷新二维码
-            </v-btn>
-          </div>
-
-          <div v-else class="d-flex flex-column align-center py-3">
-            <v-icon icon="mdi-qrcode-off" size="64" color="grey" class="mb-3"></v-icon>
-            <div class="text-subtitle-1">二维码获取失败</div>
-            <div class="text-body-2 text-grey">请点击刷新按钮重试</div>
-            <div class="text-caption mt-2 text-grey">
-              <v-icon icon="mdi-alert-circle" size="small" class="mr-1 text-warning"></v-icon>
-              如果多次获取失败，请检查网络连接
-            </div>
-          </div>
-        </v-card-text>
-        <v-divider></v-divider>
-        <v-card-actions class="px-3 py-2">
-          <v-btn color="grey" variant="text" @click="closeQrDialog" size="small" prepend-icon="mdi-close">关闭</v-btn>
-          <v-spacer></v-spacer>
-          <v-btn color="primary" variant="text" @click="refreshQrCode" :disabled="qrDialog.loading" size="small"
-            prepend-icon="mdi-refresh">
-            刷新二维码
-          </v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
-
-    <!-- 阿里云盘二维码登录对话框 -->
-    <v-dialog v-model="aliQrDialog.show" max-width="450">
-      <v-card>
-        <v-card-title class="text-subtitle-1 d-flex align-center px-3 py-2 bg-primary-lighten-5">
-          <v-icon icon="mdi-qrcode" class="mr-2" color="primary" size="small" />
-          <span>阿里云盘扫码登录</span>
-        </v-card-title>
-        <v-card-text class="text-center py-4">
-          <v-alert v-if="aliQrDialog.error" type="error" density="compact" class="mb-3 mx-3" variant="tonal" closable>
-            {{ aliQrDialog.error }}
-          </v-alert>
-          <div v-if="aliQrDialog.loading" class="d-flex flex-column align-center py-3">
-            <v-progress-circular indeterminate color="primary" class="mb-3"></v-progress-circular>
-            <div>正在获取二维码...</div>
-          </div>
-          <div v-else-if="aliQrDialog.qrcode" class="d-flex flex-column align-center">
-            <v-card flat class="border pa-2 mb-2">
-              <img :src="aliQrDialog.qrcode" width="220" height="220" />
-            </v-card>
-            <div class="text-body-2 text-grey mb-1">请使用阿里云盘App扫描二维码</div>
-            <div class="text-subtitle-2 font-weight-medium text-primary">{{ aliQrDialog.status }}</div>
-          </div>
-          <div v-else class="d-flex flex-column align-center py-3">
-            <v-icon icon="mdi-qrcode-off" size="64" color="grey" class="mb-3"></v-icon>
-            <div class="text-subtitle-1">二维码获取失败</div>
-            <div class="text-body-2 text-grey">请点击刷新按钮重试</div>
-          </div>
-        </v-card-text>
-        <v-divider></v-divider>
-        <v-card-actions class="px-3 py-2">
-          <v-btn color="grey" variant="text" @click="closeAliQrCodeDialog" size="small"
-            prepend-icon="mdi-close">关闭</v-btn>
-          <v-spacer></v-spacer>
-          <v-btn color="primary" variant="text" @click="refreshAliQrCode" :disabled="aliQrDialog.loading" size="small"
-            prepend-icon="mdi-refresh">
-            刷新
-          </v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
-
-    <!-- 捐赠对话框 -->
-    <v-dialog v-model="donateDialog.show" max-width="600">
-      <v-card>
-        <v-card-title class="text-subtitle-1 d-flex align-center px-3 py-2 bg-primary-lighten-5">
-          <v-icon icon="mdi-gift" class="mr-2" color="primary" size="small" />
-          <span>支持作者 / 获取授权</span>
-        </v-card-title>
-
-        <v-card-text class="py-4">
-          <v-alert type="success" variant="tonal" density="compact" class="mb-3" icon="mdi-information-outline">
-            <span class="text-body-2">无论是否捐赠，插件功能均可正常使用。捐赠为自愿支持行为。</span>
-          </v-alert>
-          <v-alert v-if="donateDialog.error" type="error" density="compact" class="mb-3" variant="tonal" closable>
-            {{ donateDialog.error }}
-          </v-alert>
-
-          <div v-if="donateDialog.loading" class="d-flex flex-column align-center py-3">
-            <v-progress-circular indeterminate color="primary" class="mb-3"></v-progress-circular>
-            <div>正在加载捐赠信息...</div>
-          </div>
-
-          <div v-else-if="donateDialog.donateInfo">
-            <!-- 授权状态 -->
-            <v-card variant="outlined" class="mb-4">
-              <v-card-item>
-                <v-card-title class="d-flex align-center">
-                  <v-icon icon="mdi-shield-check"
-                    :color="donateDialog.authorizationStatus?.is_authorized ? 'success' : 'warning'"
-                    class="mr-2"></v-icon>
-                  <span class="text-h6">授权状态</span>
-                </v-card-title>
-              </v-card-item>
-              <v-card-text>
-                <v-row v-if="!donateDialog.authorizationStatus">
-                  <v-col cols="12">
-                    <div class="text-caption text-grey">暂无授权信息</div>
-                  </v-col>
-                </v-row>
-                <v-row v-else>
-                  <v-col cols="12" md="4">
-                    <div class="d-flex flex-column">
-                      <span class="text-caption text-grey-darken-1">授权状态</span>
-                      <v-chip :color="donateDialog.authorizationStatus.is_authorized ? 'success' : 'warning'"
-                        size="small" class="mt-1">
-                        {{ donateDialog.authorizationStatus.is_authorized ? '已授权' : '未授权' }}
-                      </v-chip>
-                    </div>
-                  </v-col>
-                  <v-col cols="12" md="4" v-if="donateDialog.authorizationStatus.is_authorized">
-                    <div class="d-flex flex-column">
-                      <span class="text-caption text-grey-darken-1">授权类型</span>
-                      <v-chip :color="donateDialog.authorizationStatus.is_permanent ? 'info' : 'default'" size="small"
-                        class="mt-1">
-                        {{ donateDialog.authorizationStatus.is_permanent ? '永久授权' : '临时授权' }}
-                      </v-chip>
-                    </div>
-                  </v-col>
-                  <v-col cols="12" md="4"
-                    v-if="donateDialog.authorizationStatus.is_authorized && !donateDialog.authorizationStatus.is_permanent && donateDialog.authorizationStatus.authorization_expiration">
-                    <div class="d-flex flex-column">
-                      <span class="text-caption text-grey-darken-1">过期时间</span>
-                      <span class="text-body-2 mt-1">{{
-                        formatAuthorizationExpiration(donateDialog.authorizationStatus.authorization_expiration)
-                      }}</span>
-                    </div>
-                  </v-col>
-                </v-row>
-              </v-card-text>
-            </v-card>
-
-            <v-alert type="info" variant="tonal" density="compact" class="mb-4" icon="mdi-information">
-              <div class="text-caption">
-                捐赠后前往 <a :href="`https://${donateDialog.donateInfo.telegram_bot}`" target="_blank"
-                  style="color: inherit; text-decoration: underline;">Telegram Bot</a> 使用
-                <code>{{ donateDialog.donateInfo.donate_command }}</code> 命令提交捐赠证明
-              </div>
-            </v-alert>
-
-            <!-- 捐赠方式选择 -->
-            <v-tabs v-model="donateDialog.activeTab" color="primary" class="mb-4">
-              <v-tab v-if="donateDialog.donateInfo.wechat?.enabled" value="wechat">
-                <v-icon start>mdi-wechat</v-icon>微信
-              </v-tab>
-              <v-tab v-if="donateDialog.donateInfo.alipay?.enabled" value="alipay">
-                <v-icon start>mdi-wallet</v-icon>支付宝
-              </v-tab>
-            </v-tabs>
-
-            <v-window v-model="donateDialog.activeTab" :touch="false">
-              <!-- 微信捐赠 -->
-              <v-window-item v-if="donateDialog.donateInfo.wechat?.enabled" value="wechat">
-                <div class="d-flex flex-column align-center">
-                  <v-card flat class="border pa-2 mb-3">
-                    <img v-if="donateDialog.donateInfo.wechat.qrcode" :src="donateDialog.donateInfo.wechat.qrcode"
-                      width="280" height="280" alt="微信捐赠码" />
-                    <div v-else class="d-flex flex-column align-center pa-8">
-                      <v-icon icon="mdi-image-off" size="64" color="grey" class="mb-2"></v-icon>
-                      <div class="text-caption text-grey">二维码未配置</div>
-                    </div>
-                  </v-card>
-                  <div class="text-body-2 text-grey">使用微信扫描二维码进行捐赠</div>
-                </div>
-              </v-window-item>
-
-              <!-- 支付宝捐赠 -->
-              <v-window-item v-if="donateDialog.donateInfo.alipay?.enabled" value="alipay">
-                <div class="d-flex flex-column align-center">
-                  <v-card flat class="border pa-2 mb-3">
-                    <img v-if="donateDialog.donateInfo.alipay.qrcode" :src="donateDialog.donateInfo.alipay.qrcode"
-                      width="280" height="280" alt="支付宝收款码" />
-                    <div v-else class="d-flex flex-column align-center pa-8">
-                      <v-icon icon="mdi-image-off" size="64" color="grey" class="mb-2"></v-icon>
-                      <div class="text-caption text-grey">二维码未配置</div>
-                    </div>
-                  </v-card>
-                  <div class="text-body-2 text-grey mb-2">使用支付宝扫描二维码进行捐赠</div>
-
-                  <!-- 支付宝红包口令方式 -->
-                  <div v-if="donateDialog.donateInfo.alipay?.redpack_enabled" class="w-100 mt-3">
-                    <v-divider class="mb-3"></v-divider>
-                    <v-alert type="info" variant="tonal" density="compact" icon="mdi-wallet-giftcard">
-                      <div class="text-caption">
-                        也可以使用支付宝红包口令，将口令发给机器人即可
-                      </div>
-                    </v-alert>
-                  </div>
-                </div>
-              </v-window-item>
-            </v-window>
-          </div>
-
-          <div v-else class="d-flex flex-column align-center py-3">
-            <v-icon icon="mdi-gift-off" size="64" color="grey" class="mb-3"></v-icon>
-            <div class="text-subtitle-1">捐赠信息未配置</div>
-            <div class="text-body-2 text-grey">请联系作者获取捐赠方式</div>
-          </div>
-        </v-card-text>
-
-        <v-divider></v-divider>
-        <v-card-actions class="px-3 py-2">
-          <v-btn color="grey" variant="text" @click="closeDonateDialog" size="small" prepend-icon="mdi-close">
-            关闭
-          </v-btn>
-          <v-spacer></v-spacer>
-          <v-btn color="primary" variant="text"
-            :href="`https://${donateDialog.donateInfo?.telegram_bot || 't.me/dds_oof_bot'}`" target="_blank"
-            size="small" prepend-icon="mdi-telegram">
-            前往 Telegram Bot
-          </v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
-
-    <!-- Emby 反代 302 配置生成对话框（emby2Alist / Emby 302 反向代理） -->
-    <v-dialog v-model="configGeneratorDialog.show" max-width="900" scrollable>
-      <v-card>
-        <v-card-title class="d-flex align-center px-3 py-2 bg-primary-lighten-5">
-          <v-icon icon="mdi-code-tags" class="mr-2" color="primary" size="small" />
-          <span>生成 Emby 反代 302 配置</span>
-        </v-card-title>
-        <v-card-text class="pa-4">
-          <v-alert type="info" variant="tonal" density="compact" class="mb-4" icon="mdi-information">
-            <div class="text-body-2 mb-1"><strong>使用说明：</strong></div>
-            <div class="text-caption" v-if="configGeneratorDialog.configType === 'emby2alist'">
-              <div class="mb-1">1. 此配置用于 emby2Alist 系列软件的 <code>mediaPathMapping</code> 规则</div>
-              <div class="mb-1">2. 将生成的配置复制到 emby2Alist 的配置文件中</div>
-              <div>3. 配置会自动匹配 strm 文件中的 <code>/emby/115</code> 路径并替换为插件重定向地址</div>
-            </div>
-            <div class="text-caption" v-else>
-              <div class="mb-1">1. 此配置用于 Emby 302 反向代理插件的「顶置路径规则」</div>
-              <div class="mb-1">2. 将生成的配置复制到 Emby 302 反向代理插件的顶置路径规则中（每行一条：路径前缀 => 目标 URL）</div>
-              <div>3. 路径匹配前缀时会先替换为目标 URL 再 302 跳转</div>
-            </div>
-          </v-alert>
-
-          <v-row>
-            <v-col cols="12">
-              <v-radio-group v-model="configGeneratorDialog.configType" label="配置类型" density="compact" hide-details
-                class="mb-2">
-                <v-radio label="emby2Alist mediaPathMapping" value="emby2alist"></v-radio>
-                <v-radio label="Emby 302 反向代理 顶置路径规则" value="emby_reverse_proxy"></v-radio>
-              </v-radio-group>
-            </v-col>
-          </v-row>
-
-          <v-row>
-            <v-col cols="12">
-              <v-text-field v-model="configGeneratorDialog.mountDir" label="媒体服务器网盘挂载目录"
-                hint="对应配置中的 fuse_strm_mount_dir，例如：/emby/115" persistent-hint density="compact" variant="outlined"
-                placeholder="/emby/115"></v-text-field>
-            </v-col>
-          </v-row>
-
-          <v-row>
-            <v-col cols="12">
-              <v-text-field v-model="configGeneratorDialog.moviepilotAddress" label="MoviePilot 地址"
-                hint="对应配置中的 moviepilot_address" persistent-hint density="compact" variant="outlined"
-                placeholder="http://localhost:3000"></v-text-field>
-            </v-col>
-          </v-row>
-
-
-          <v-divider class="my-4"></v-divider>
-
-          <div class="mb-2">
-            <div class="text-body-2 mb-2"><strong>生成的配置：</strong></div>
-            <div v-if="configGeneratorDialog.loading" class="d-flex flex-column align-center py-4">
-              <v-progress-circular indeterminate color="primary" class="mb-3"></v-progress-circular>
-              <div class="text-body-2 text-grey">正在生成配置...</div>
-            </div>
-            <v-textarea v-else v-model="configGeneratorDialog.generatedConfig" label="配置代码"
-              :hint="configGeneratorDialog.configType === 'emby_reverse_proxy' ? '复制此配置到 Emby 302 反向代理插件的顶置路径规则中' : '复制此配置到 emby2Alist 的 mediaPathMapping 数组中'"
-              persistent-hint rows="8" variant="outlined" density="compact" readonly class="font-monospace"
-              style="font-family: 'Courier New', monospace;"></v-textarea>
-          </div>
-
-          <v-alert type="warning" variant="tonal" density="compact" class="mt-3" icon="mdi-alert">
-            <div class="text-body-2 mb-1"><strong>配置说明：</strong></div>
-            <div class="text-caption" v-if="configGeneratorDialog.configType === 'emby2alist'">
-              <div>• 规则：将 <code>/emby/115</code> 替换为插件重定向地址（保留后续路径）</div>
-            </div>
-            <div class="text-caption" v-else>
-              <div>• 规则：路径前缀 => 目标 URL，匹配前缀时先替换再 302</div>
-            </div>
-          </v-alert>
-        </v-card-text>
-        <v-divider></v-divider>
-        <v-card-actions class="px-3 py-2">
-          <v-btn color="grey" variant="text" @click="closeConfigGeneratorDialog" size="small"
-            prepend-icon="mdi-close">关闭</v-btn>
-          <v-spacer></v-spacer>
-          <v-btn color="primary" variant="text" @click="copyGeneratedConfig" size="small"
-            prepend-icon="mdi-content-copy"
-            :disabled="configGeneratorDialog.loading || !configGeneratorDialog.generatedConfig">
-            复制配置
-          </v-btn>
-          <v-btn color="primary" variant="text" @click="generateConfig" size="small" prepend-icon="mdi-refresh"
-            :disabled="configGeneratorDialog.loading" :loading="configGeneratorDialog.loading">
-            重新生成
-          </v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
+    <!-- Emby 反代 302 配置生成对话框 -->
+    <ConfigGeneratorDialog
+      :config-generator-dialog="configGeneratorDialog"
+      @close="closeConfigGeneratorDialog"
+      @copy="copyGeneratedConfig"
+      @regenerate="generateConfig"
+    />
 
     <!-- 生活事件故障检查对话框 -->
-    <v-dialog v-model="lifeEventCheckDialog.show" max-width="1000" scrollable persistent>
-      <v-card>
-        <v-card-title class="d-flex align-center px-3 py-2 bg-primary-lighten-5">
-          <v-icon icon="mdi-bug-check" class="mr-2" color="primary" size="small" />
-          <span>115生活事件故障检查</span>
-        </v-card-title>
-        <v-card-text class="px-3 py-3">
-          <div class="mb-3">
-            <div class="text-caption text-grey mb-1">拉取指定时间内的全部数据（可选）</div>
-            <div class="life-event-check-start-time-wrapper">
-              <input ref="lifeEventStartTimeInputRef" v-model="lifeEventCheckDialog.startTime" type="datetime-local"
-                class="life-event-check-datetime-input" aria-label="开始时间" />
-              <v-btn v-if="lifeEventCheckDialog.startTime" icon size="x-small" variant="text"
-                class="life-event-check-clear-btn" aria-label="清除时间" @click="lifeEventCheckDialog.startTime = ''">
-                <v-icon icon="mdi-close" size="small" />
-              </v-btn>
-            </div>
-            <div class="text-caption text-grey mt-1">填写后点击检查，将额外拉取从该时间起的全部生活事件并显示数量</div>
-          </div>
-          <v-alert v-if="lifeEventCheckDialog.error" type="error" density="compact" class="mb-3" variant="tonal"
-            closable>
-            {{ lifeEventCheckDialog.error }}
-          </v-alert>
-          <div v-if="lifeEventCheckDialog.loading" class="d-flex flex-column align-center py-3">
-            <v-progress-circular indeterminate color="primary" size="48" class="mb-3"></v-progress-circular>
-            <div class="text-body-2 text-grey">正在检查...</div>
-          </div>
-          <div v-else-if="lifeEventCheckDialog.result">
-            <v-alert :type="lifeEventCheckDialog.result.data?.success ? 'success' : 'warning'" density="compact"
-              class="mb-3" variant="tonal">
-              <div class="text-subtitle-2 mb-1">
-                <v-icon :icon="lifeEventCheckDialog.result.data?.success ? 'mdi-check-circle' : 'mdi-alert-circle'"
-                  class="mr-1" size="small"></v-icon>
-                {{ lifeEventCheckDialog.result.msg }}
-              </div>
-              <div v-if="lifeEventCheckDialog.result.data?.error_messages?.length" class="mt-2">
-                <div class="text-caption mb-1"><strong>发现的问题：</strong></div>
-                <div v-for="(msg, idx) in lifeEventCheckDialog.result.data.error_messages" :key="idx"
-                  class="text-caption d-flex align-start mb-1">
-                  <v-icon icon="mdi-alert" size="x-small" class="mr-1 mt-1" color="warning"></v-icon>
-                  <span>{{ msg }}</span>
-                </div>
-              </div>
-            </v-alert>
+    <LifeEventCheckDialog
+      :life-event-check-dialog="lifeEventCheckDialog"
+      @check="checkLifeEventStatus"
+      @close="closeLifeEventCheckDialog"
+      @copy-debug="copyDebugInfo"
+    />
 
-            <div class="mb-3">
-              <div class="d-flex align-center mb-2">
-                <v-icon icon="mdi-information" size="small" class="mr-2" color="info"></v-icon>
-                <strong class="text-body-2">检查结果摘要</strong>
-                <v-spacer></v-spacer>
-                <v-btn size="small" variant="outlined" prepend-icon="mdi-content-copy" @click="copyDebugInfo">
-                  复制调试信息
-                </v-btn>
-              </div>
-              <v-card variant="outlined" class="pa-3">
-                <v-row dense>
-                  <v-col cols="12" md="6">
-                    <div class="d-flex align-center mb-2">
-                      <v-icon
-                        :icon="lifeEventCheckDialog.result.data?.summary?.plugin_enabled ? 'mdi-check-circle' : 'mdi-close-circle'"
-                        :color="lifeEventCheckDialog.result.data?.summary?.plugin_enabled ? 'success' : 'error'"
-                        size="small" class="mr-2"></v-icon>
-                      <span class="text-caption">插件启用:
-                        <strong>{{ lifeEventCheckDialog.result.data?.summary?.plugin_enabled ? '是' : '否' }}</strong>
-                      </span>
-                    </div>
-                  </v-col>
-                  <v-col cols="12" md="6">
-                    <div class="d-flex align-center mb-2">
-                      <v-icon
-                        :icon="lifeEventCheckDialog.result.data?.summary?.client_initialized ? 'mdi-check-circle' : 'mdi-close-circle'"
-                        :color="lifeEventCheckDialog.result.data?.summary?.client_initialized ? 'success' : 'error'"
-                        size="small" class="mr-2"></v-icon>
-                      <span class="text-caption">客户端初始化:
-                        <strong>{{ lifeEventCheckDialog.result.data?.summary?.client_initialized ? '是' : '否' }}</strong>
-                      </span>
-                    </div>
-                  </v-col>
-                  <v-col cols="12" md="6">
-                    <div class="d-flex align-center mb-2">
-                      <v-icon
-                        :icon="lifeEventCheckDialog.result.data?.summary?.monitorlife_initialized ? 'mdi-check-circle' : 'mdi-close-circle'"
-                        :color="lifeEventCheckDialog.result.data?.summary?.monitorlife_initialized ? 'success' : 'error'"
-                        size="small" class="mr-2"></v-icon>
-                      <span class="text-caption">MonitorLife初始化:
-                        <strong>{{ lifeEventCheckDialog.result.data?.summary?.monitorlife_initialized ? '是' : '否'
-                        }}</strong>
-                      </span>
-                    </div>
-                  </v-col>
-                  <v-col cols="12" md="6">
-                    <div class="d-flex align-center mb-2">
-                      <v-icon
-                        :icon="lifeEventCheckDialog.result.data?.summary?.thread_running ? 'mdi-check-circle' : 'mdi-close-circle'"
-                        :color="lifeEventCheckDialog.result.data?.summary?.thread_running ? 'success' : 'error'"
-                        size="small" class="mr-2"></v-icon>
-                      <span class="text-caption">线程运行:
-                        <strong>{{ lifeEventCheckDialog.result.data?.summary?.thread_running ? '是' : '否' }}</strong>
-                      </span>
-                    </div>
-                  </v-col>
-                  <v-col cols="12">
-                    <div class="d-flex align-center mb-2">
-                      <v-icon
-                        :icon="lifeEventCheckDialog.result.data?.summary?.config_valid ? 'mdi-check-circle' : 'mdi-close-circle'"
-                        :color="lifeEventCheckDialog.result.data?.summary?.config_valid ? 'success' : 'error'"
-                        size="small" class="mr-2"></v-icon>
-                      <span class="text-caption">配置有效:
-                        <strong>{{ lifeEventCheckDialog.result.data?.summary?.config_valid ? '是' : '否' }}</strong>
-                      </span>
-                    </div>
-                  </v-col>
-                </v-row>
-              </v-card>
-            </div>
-
-            <div>
-              <div class="d-flex align-center mb-2">
-                <v-icon icon="mdi-code-tags" size="small" class="mr-2" color="primary"></v-icon>
-                <strong class="text-body-2">详细调试信息</strong>
-              </div>
-              <v-textarea :model-value="lifeEventCheckDialog.result.data?.debug_info || ''" readonly variant="outlined"
-                rows="15" auto-grow class="text-caption font-monospace debug-info-textarea"
-                style="font-size: 0.75rem; line-height: 1.6; white-space: pre-wrap;" hint="此信息可用于开发者诊断问题，请复制给开发者"
-                persistent-hint></v-textarea>
-            </div>
-          </div>
-        </v-card-text>
-        <v-divider></v-divider>
-        <v-card-actions class="px-3 py-2">
-          <v-btn color="grey" variant="text" @click="closeLifeEventCheckDialog" size="small"
-            prepend-icon="mdi-close">关闭</v-btn>
-          <v-spacer></v-spacer>
-          <v-btn color="primary" variant="text" @click="checkLifeEventStatus" :disabled="lifeEventCheckDialog.loading"
-            size="small" prepend-icon="mdi-refresh">
-            重新检查
-          </v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
-
-    <!-- 一键导入频道配置对话框 -->
-    <v-dialog v-model="importDialog.show" max-width="600" persistent>
-      <v-card>
-        <v-card-title class="text-subtitle-1 d-flex align-center px-3 py-2 bg-primary-lighten-5">
-          <v-icon icon="mdi-import" class="mr-2" color="primary" size="small" />
-          <span>一键导入频道配置</span>
-        </v-card-title>
-        <v-card-text class="py-4">
-          <v-alert v-if="importDialog.error" type="error" density="compact" class="mb-3" variant="tonal" closable>
-            {{ importDialog.error }}
-          </v-alert>
-          <p class="text-caption mb-2 text-grey-darken-1">
-            请在此处粘贴JSON格式的频道列表。格式应为：<br>
-            <code>[{"name":"名称1", "id":"id1"}, {"name":"名称2", "id":"id2"}]</code>
-          </p>
-          <v-textarea v-model="importDialog.jsonText" label="频道配置JSON" variant="outlined" rows="8" auto-grow
-            hide-details="auto" placeholder='[{"name":"Lsp115","id":"Lsp115"}]'></v-textarea>
-        </v-card-text>
-        <v-divider></v-divider>
-        <v-card-actions class="px-3 py-2">
-          <v-spacer></v-spacer>
-          <v-btn color="grey" variant="text" @click="closeImportDialog" size="small">
-            取消
-          </v-btn>
-          <v-btn color="primary" variant="text" @click="handleConfirmImport" size="small">
-            确认导入
-          </v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
+    <!-- 频道配置导入对话框 -->
+    <ImportChannelDialog
+      :import-dialog="importDialog"
+      @close="closeImportDialog"
+      @confirm="handleConfirmImport"
+    />
 
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, onBeforeUnmount, watch } from 'vue';
+import { ref, reactive, computed, onMounted, watch } from 'vue';
 import { ensureSentryInitialized } from '../utils/init-sentry.js';
+import { usePathManagement } from './composables/usePathManagement.js';
+import { useQrCode } from './composables/useQrCode.js';
+import { useDirSelector } from './composables/useDirSelector.js';
+import QrCodeDialog from './dialogs/QrCodeDialog.vue';
+import AliQrCodeDialog from './dialogs/AliQrCodeDialog.vue';
+import DirSelectorDialog from './dialogs/DirSelectorDialog.vue';
+import DonateDialog from './dialogs/DonateDialog.vue';
+import ConfigGeneratorDialog from './dialogs/ConfigGeneratorDialog.vue';
+import LifeEventCheckDialog from './dialogs/LifeEventCheckDialog.vue';
+import ManualTransferDialog from './dialogs/ManualTransferDialog.vue';
+import FullSyncConfirmDialog from './dialogs/FullSyncConfirmDialog.vue';
+import ImportChannelDialog from './dialogs/ImportChannelDialog.vue';
 
 const props = defineProps({
   api: {
@@ -3060,6 +2480,32 @@ const message = reactive({
   type: 'info'
 });
 
+// 使用 composables
+const pathMgmt = usePathManagement(config);
+const {
+  transferPaths, transferMpPaths, fullSyncPaths, incrementSyncPaths, incrementSyncMPPaths,
+  monitorLifePaths, monitorLifeMpPaths, apiStrmPaths, apiStrmMPPaths, panTransferPaths,
+  shareReceivePaths, offlineDownloadPaths, transferExcludePaths, incrementSyncExcludePaths,
+  monitorLifeExcludePaths, directoryUploadPaths, syncDelLibraryPaths, fuseStrmTakeoverRules,
+  generatePathsConfig,
+  addPath, removePath, addPanTransferPath, removePanTransferPath,
+  addShareReceivePath, removeShareReceivePath, addOfflineDownloadPath, removeOfflineDownloadPath,
+} = pathMgmt;
+
+const qrMgmt = useQrCode(props.api, config, message, PLUGIN_ID);
+const {
+  qrDialog, aliQrDialog, clientTypes,
+  openQrCodeDialog, refreshQrCode, closeQrDialog,
+  openAliQrCodeDialog, refreshAliQrCode, closeAliQrCodeDialog,
+} = qrMgmt;
+
+const dirMgmt = useDirSelector(props.api, config, message, PLUGIN_ID, pathMgmt);
+const {
+  dirDialog,
+  openDirSelector, loadDirContent, selectDir, navigateToParentDir, confirmDirSelection, closeDirDialog,
+  openExcludeDirSelector, removeExcludePathEntry,
+} = dirMgmt;
+
 // 文件大小输入使用 ref，避免输入时 get 返回 formatBytes 导致内容被重写（如输入 "500M" 时被截断）
 const skipUploadWaitSizeFormattedRef = ref('');
 const forceUploadWaitSizeFormattedRef = ref('');
@@ -3094,25 +2540,6 @@ const formatBytes = (bytes, decimals = 2) => {
   return `${formattedNum} ${sizes[i]}`;
 };
 
-// 路径管理
-const transferPaths = ref([{ local: '', remote: '', cd2Prefix: '' }]);
-const transferMpPaths = ref([{ local: '', remote: '' }]);
-const fullSyncPaths = ref([{ local: '', remote: '', enabled: true }]);
-const incrementSyncPaths = ref([{ local: '', remote: '' }]);
-const incrementSyncMPPaths = ref([{ local: '', remote: '' }]);
-const monitorLifePaths = ref([{ local: '', remote: '' }]);
-const monitorLifeMpPaths = ref([{ local: '', remote: '' }]);
-const apiStrmPaths = ref([{ local: '', remote: '' }]);
-const apiStrmMPPaths = ref([{ local: '', remote: '' }]);
-const panTransferPaths = ref([{ path: '' }]);
-const shareReceivePaths = ref([{ path: '' }]);
-const offlineDownloadPaths = ref([{ path: '' }]);
-const transferExcludePaths = ref([{ path: '' }]);
-const incrementSyncExcludePaths = ref([{ local: '', remote: '' }]);
-const monitorLifeExcludePaths = ref([{ path: '' }]);
-const directoryUploadPaths = ref([{ src: '', dest_remote: '', dest_local: '', dest_strm: '', delete: false }]);
-const syncDelLibraryPaths = ref([{ mediaserver: '', moviepilot: '', p115: '' }]);
-const fuseStrmTakeoverRules = ref([{ extensions: '', names: '', paths: '', _use_extensions: false, _use_names: false, _use_paths: false }]);
 const fullSyncConfirmDialog = ref(false);
 const machineId = ref('');
 const tgChannels = ref([{ name: '', id: '' }]);
@@ -3134,24 +2561,6 @@ const importDialog = reactive({
   error: ''
 });
 
-// 目录选择器对话框
-const dirDialog = reactive({
-  show: false,
-  isLocal: true,
-  loading: false,
-  error: null,
-  currentPath: '/',
-  items: [],
-  selectedPath: '',
-  callback: null,
-  type: '',
-  index: -1,
-  fieldKey: null,
-  targetConfigKeyForExclusion: null,
-  originalPathTypeBackup: '',
-  originalIndexBackup: -1
-});
-
 // 捐赠对话框
 const donateDialog = reactive({
   show: false,
@@ -3162,46 +2571,7 @@ const donateDialog = reactive({
   authorizationStatus: null,
 });
 
-// 二维码登录对话框
-const qrDialog = reactive({
-  show: false,
-  loading: false,
-  error: null,
-  qrcode: '',
-  uid: '',
-  time: "",
-  sign: "",
-  tips: '请使用支付宝扫描二维码登录',
-  status: '等待扫码',
-  checkInterval: null,
-  clientType: 'alipaymini'
-});
-
-// 二维码客户端类型选项
-const clientTypes = [
-  { label: "支付宝", value: "alipaymini" },
-  { label: "微信", value: "wechatmini" },
-  { label: "安卓", value: "115android" },
-  { label: "iOS", value: "115ios" },
-  { label: "网页", value: "web" },
-  { label: "PAD", value: "115ipad" },
-  { label: "TV", value: "tv" }
-];
-
-// 阿里云盘二维码登录对话框
-const aliQrDialog = reactive({
-  show: false,
-  loading: false,
-  error: null,
-  qrcode: '',
-  t: '',
-  ck: '',
-  status: '等待扫码',
-  checkIntervalId: null,
-});
-
 // 生活事件故障检查对话框
-const lifeEventStartTimeInputRef = ref(null);
 const lifeEventCheckDialog = reactive({
   show: false,
   loading: false,
@@ -3228,411 +2598,71 @@ const manualTransferDialog = reactive({
   result: null, // { type: 'success' | 'error', title: string, message: string }
 });
 
-watch(() => config.transfer_monitor_paths, (newVal) => {
-  if (!newVal) {
-    transferPaths.value = [{ local: '', remote: '', cd2Prefix: '' }];
+const manualTransfer = (index) => {
+  if (index < 0 || index >= panTransferPaths.value.length) {
+    message.text = '路径项不存在';
+    message.type = 'error';
     return;
   }
-  try {
-    const paths = newVal.split('\n').filter(line => line.trim());
-    transferPaths.value = paths.map(path => {
-      const parts = path.split('#');
-      const local = parts[0] || '';
-      const fullRemote = parts[1] || '';
-      const prefix = parts[2]?.trim() || '';
-      let remote = fullRemote;
-      if (prefix) {
-        const normPrefix = prefix.replace(/^\/+/, '').replace(/\/+$/, '');
-        const normFull = fullRemote.replace(/^\/+/, '').replace(/\/+$/, '');
-        if (normFull === normPrefix || normFull.startsWith(normPrefix + '/')) {
-          const rest = normFull.slice(normPrefix.length);
-          remote = (rest.startsWith('/') ? rest : '/' + rest) || '';
-        }
-      }
-      return { local, remote, cd2Prefix: prefix };
-    });
-    if (transferPaths.value.length === 0) {
-      transferPaths.value = [{ local: '', remote: '', cd2Prefix: '' }];
-    }
-  } catch (e) {
-    console.error('解析transfer_monitor_paths出错:', e);
-    transferPaths.value = [{ local: '', remote: '', cd2Prefix: '' }];
-  }
-}, { immediate: true });
-
-watch(() => config.transfer_mp_mediaserver_paths, (newVal) => {
-  if (!newVal) {
-    transferMpPaths.value = [{ local: '', remote: '' }];
+  const pathItem = panTransferPaths.value[index];
+  if (!pathItem) {
+    message.text = '路径项不存在';
+    message.type = 'error';
     return;
   }
-  try {
-    const paths = newVal.split('\n').filter(line => line.trim());
-    transferMpPaths.value = paths.map(path => {
-      const parts = path.split('#');
-      return { local: parts[0] || '', remote: parts[1] || '' };
-    });
-    if (transferMpPaths.value.length === 0) {
-      transferMpPaths.value = [{ local: '', remote: '' }];
-    }
-  } catch (e) {
-    console.error('解析transfer_mp_mediaserver_paths出错:', e);
-    transferMpPaths.value = [{ local: '', remote: '' }];
-  }
-}, { immediate: true });
-
-watch(() => config.full_sync_strm_paths, (newVal) => {
-  if (!newVal) {
-    fullSyncPaths.value = [{ local: '', remote: '', enabled: true }];
+  const path = pathItem.path;
+  if (!path || typeof path !== 'string' || !path.trim()) {
+    message.text = '请先配置网盘路径';
+    message.type = 'warning';
     return;
   }
-  try {
-    const paths = newVal.split('\n').filter(line => line.trim());
-    fullSyncPaths.value = paths.map(path => {
-      const parts = path.split('#');
-      // 无第三段（旧格式）或第三段非 '0' 时均为开启；仅第三段为 '0' 时为关闭
-      const enabled = parts.length < 3 || parts[2].trim() !== '0';
-      return { local: parts[0] || '', remote: parts[1] || '', enabled };
-    });
-    if (fullSyncPaths.value.length === 0) {
-      fullSyncPaths.value = [{ local: '', remote: '', enabled: true }];
-    }
-  } catch (e) {
-    console.error('解析full_sync_strm_paths出错:', e);
-    fullSyncPaths.value = [{ local: '', remote: '', enabled: true }];
-  }
-}, { immediate: true });
-
-watch(() => config.increment_sync_strm_paths, (newVal) => {
-  if (!newVal) {
-    incrementSyncPaths.value = [{ local: '', remote: '' }];
-    return;
-  }
-  try {
-    const paths = newVal.split('\n').filter(line => line.trim());
-    incrementSyncPaths.value = paths.map(path => {
-      const parts = path.split('#');
-      return { local: parts[0] || '', remote: parts[1] || '' };
-    });
-    if (incrementSyncPaths.value.length === 0) {
-      incrementSyncPaths.value = [{ local: '', remote: '' }];
-    }
-  } catch (e) {
-    console.error('解析increment_sync_strm_paths出错:', e);
-    incrementSyncPaths.value = [{ local: '', remote: '' }];
-  }
-}, { immediate: true });
-
-watch(() => config.increment_sync_mp_mediaserver_paths, (newVal) => {
-  if (!newVal) {
-    incrementSyncMPPaths.value = [{ local: '', remote: '' }];
-    return;
-  }
-  try {
-    const paths = newVal.split('\n').filter(line => line.trim());
-    incrementSyncMPPaths.value = paths.map(path => {
-      const parts = path.split('#');
-      return { local: parts[0] || '', remote: parts[1] || '' };
-    });
-    if (incrementSyncMPPaths.value.length === 0) {
-      incrementSyncMPPaths.value = [{ local: '', remote: '' }];
-    }
-  } catch (e) {
-    console.error('解析increment_sync_mp_mediaserver_paths出错:', e);
-    incrementSyncMPPaths.value = [{ local: '', remote: '' }];
-  }
-}, { immediate: true });
-
-watch(() => config.monitor_life_paths, (newVal) => {
-  if (!newVal) {
-    monitorLifePaths.value = [{ local: '', remote: '' }];
-    return;
-  }
-  try {
-    const paths = newVal.split('\n').filter(line => line.trim());
-    monitorLifePaths.value = paths.map(path => {
-      const parts = path.split('#');
-      return { local: parts[0] || '', remote: parts[1] || '' };
-    });
-    if (monitorLifePaths.value.length === 0) {
-      monitorLifePaths.value = [{ local: '', remote: '' }];
-    }
-  } catch (e) {
-    console.error('解析monitor_life_paths出错:', e);
-    monitorLifePaths.value = [{ local: '', remote: '' }];
-  }
-}, { immediate: true });
-
-watch(() => config.monitor_life_mp_mediaserver_paths, (newVal) => {
-  if (!newVal) {
-    monitorLifeMpPaths.value = [{ local: '', remote: '' }];
-    return;
-  }
-  try {
-    const paths = newVal.split('\n').filter(line => line.trim());
-    monitorLifeMpPaths.value = paths.map(path => {
-      const parts = path.split('#');
-      return { local: parts[0] || '', remote: parts[1] || '' };
-    });
-    if (monitorLifeMpPaths.value.length === 0) {
-      monitorLifeMpPaths.value = [{ local: '', remote: '' }];
-    }
-  } catch (e) {
-    console.error('解析monitor_life_mp_mediaserver_paths出错:', e);
-    monitorLifeMpPaths.value = [{ local: '', remote: '' }];
-  }
-}, { immediate: true });
-
-watch(() => config.pan_transfer_paths, (newVal) => {
-  if (!newVal) {
-    panTransferPaths.value = [{ path: '' }];
-    return;
-  }
-  try {
-    const paths = newVal.split('\n').filter(line => line.trim());
-    panTransferPaths.value = paths.map(path => {
-      return { path };
-    });
-    if (panTransferPaths.value.length === 0) {
-      panTransferPaths.value = [{ path: '' }];
-    }
-  } catch (e) {
-    console.error('解析pan_transfer_paths出错:', e);
-    panTransferPaths.value = [{ path: '' }];
-  }
-}, { immediate: true });
-
-watch(() => config.api_strm_config, (newVal) => {
-  if (!newVal || !Array.isArray(newVal)) {
-    apiStrmPaths.value = [{ local: '', remote: '' }];
-    return;
-  }
-  try {
-    apiStrmPaths.value = newVal.map(item => ({
-      local: item.local_path || '',
-      remote: item.pan_path || ''
-    }));
-    if (apiStrmPaths.value.length === 0) {
-      apiStrmPaths.value = [{ local: '', remote: '' }];
-    }
-  } catch (e) {
-    console.error('解析api_strm_config出错:', e);
-    apiStrmPaths.value = [{ local: '', remote: '' }];
-  }
-}, { immediate: true });
-
-watch(() => config.sync_del_p115_library_path, (newVal) => {
-  if (!newVal) {
-    syncDelLibraryPaths.value = [{ mediaserver: '', moviepilot: '', p115: '' }];
-    return;
-  }
-  try {
-    const paths = newVal.split('\n').filter(line => line.trim());
-    syncDelLibraryPaths.value = paths.map(path => {
-      const parts = path.split('#');
-      return {
-        mediaserver: parts[0] || '',
-        moviepilot: parts[1] || '',
-        p115: parts[2] || ''
-      };
-    });
-    if (syncDelLibraryPaths.value.length === 0) {
-      syncDelLibraryPaths.value = [{ mediaserver: '', moviepilot: '', p115: '' }];
-    }
-  } catch (e) {
-    console.error('解析sync_del_p115_library_path出错:', e);
-    syncDelLibraryPaths.value = [{ mediaserver: '', moviepilot: '', p115: '' }];
-  }
-}, { immediate: true });
-
-watch(() => config.api_strm_mp_mediaserver_paths, (newVal) => {
-  if (!newVal) {
-    apiStrmMPPaths.value = [{ local: '', remote: '' }];
-    return;
-  }
-  try {
-    const paths = newVal.split('\n').filter(line => line.trim());
-    apiStrmMPPaths.value = paths.map(path => {
-      const parts = path.split('#');
-      return { local: parts[0] || '', remote: parts[1] || '' };
-    });
-    if (apiStrmMPPaths.value.length === 0) {
-      apiStrmMPPaths.value = [{ local: '', remote: '' }];
-    }
-  } catch (e) {
-    console.error('解析api_strm_mp_mediaserver_paths出错:', e);
-    apiStrmMPPaths.value = [{ local: '', remote: '' }];
-  }
-}, { immediate: true });
-
-watch(() => config.share_recieve_paths, (newVal) => {
-  if (!newVal || !Array.isArray(newVal)) {
-    shareReceivePaths.value = [{ path: '' }];
-    return;
-  }
-  try {
-    shareReceivePaths.value = newVal.map(path => {
-      return { path: typeof path === 'string' ? path : '' };
-    });
-    if (shareReceivePaths.value.length === 0) {
-      shareReceivePaths.value = [{ path: '' }];
-    }
-  } catch (e) {
-    console.error('解析share_recieve_paths出错:', e);
-    shareReceivePaths.value = [{ path: '' }];
-  }
-}, { immediate: true });
-
-watch(() => config.offline_download_paths, (newVal) => {
-  if (!newVal || !Array.isArray(newVal)) {
-    offlineDownloadPaths.value = [{ path: '' }];
-    return;
-  }
-  try {
-    offlineDownloadPaths.value = newVal.map(path => {
-      return { path: typeof path === 'string' ? path : '' };
-    });
-    if (offlineDownloadPaths.value.length === 0) {
-      offlineDownloadPaths.value = [{ path: '' }];
-    }
-  } catch (e) {
-    console.error('解析offline_download_paths出错:', e);
-    offlineDownloadPaths.value = [{ path: '' }];
-  }
-}, { immediate: true });
-
-watch(() => config.transfer_monitor_scrape_metadata_exclude_paths, (newVal) => {
-  if (typeof newVal !== 'string' || !newVal.trim()) {
-    transferExcludePaths.value = [{ path: '' }];
-    return;
-  }
-  try {
-    const paths = newVal.split('\n').filter(line => line.trim());
-    transferExcludePaths.value = paths.map(p => ({ path: p }));
-    if (transferExcludePaths.value.length === 0) {
-      transferExcludePaths.value = [{ path: '' }];
-    }
-  } catch (e) {
-    console.error('解析 transfer_monitor_scrape_metadata_exclude_paths 出错:', e);
-    transferExcludePaths.value = [{ path: '' }];
-  }
-}, { immediate: true });
-
-watch(transferExcludePaths, (newVal) => {
-  if (!Array.isArray(newVal)) return;
-  const pathsString = newVal
-    .map(item => item.path?.trim())
-    .filter(p => p)
-    .join('\n');
-  if (config.transfer_monitor_scrape_metadata_exclude_paths !== pathsString) {
-    config.transfer_monitor_scrape_metadata_exclude_paths = pathsString;
-  }
-}, { deep: true });
-
-watch(() => config.increment_sync_scrape_metadata_exclude_paths, (newVal) => {
-  if (typeof newVal !== 'string' || !newVal.trim()) {
-    incrementSyncExcludePaths.value = [{ path: '' }];
-    return;
-  }
-  try {
-    const paths = newVal.split('\n').filter(line => line.trim());
-    incrementSyncExcludePaths.value = paths.map(p => ({ path: p }));
-    if (incrementSyncExcludePaths.value.length === 0) {
-      incrementSyncExcludePaths.value = [{ path: '' }];
-    }
-  } catch (e) {
-    console.error('解析 increment_sync_scrape_metadata_exclude_paths 出错:', e);
-    incrementSyncExcludePaths.value = [{ path: '' }];
-  }
-}, { immediate: true });
-
-watch(incrementSyncExcludePaths, (newVal) => {
-  if (!Array.isArray(newVal)) return;
-  const pathsString = newVal
-    .map(item => item.path?.trim())
-    .filter(p => p)
-    .join('\n');
-  if (config.increment_sync_scrape_metadata_exclude_paths !== pathsString) {
-    config.increment_sync_scrape_metadata_exclude_paths = pathsString;
-  }
-}, { deep: true });
-
-watch(() => config.monitor_life_scrape_metadata_exclude_paths, (newVal) => {
-  if (typeof newVal !== 'string' || !newVal.trim()) {
-    monitorLifeExcludePaths.value = [{ path: '' }];
-    return;
-  }
-  try {
-    const paths = newVal.split('\n').filter(line => line.trim());
-    monitorLifeExcludePaths.value = paths.map(p => ({ path: p }));
-    if (monitorLifeExcludePaths.value.length === 0) {
-      monitorLifeExcludePaths.value = [{ path: '' }];
-    }
-  } catch (e) {
-    console.error('解析 monitor_life_scrape_metadata_exclude_paths 出错:', e);
-    monitorLifeExcludePaths.value = [{ path: '' }];
-  }
-}, { immediate: true });
-
-watch(monitorLifeExcludePaths, (newVal) => {
-  if (!Array.isArray(newVal)) return;
-  const pathsString = newVal
-    .map(item => item.path?.trim())
-    .filter(p => p)
-    .join('\n');
-  if (config.monitor_life_scrape_metadata_exclude_paths !== pathsString) {
-    config.monitor_life_scrape_metadata_exclude_paths = pathsString;
-  }
-}, { deep: true });
-
-// 监听 full_sync_remove_unless_strm 变化，当禁用时自动禁用依赖的配置项
-watch(() => config.full_sync_remove_unless_strm, (newVal) => {
-  if (!newVal) {
-    // 当主配置被禁用时，自动禁用依赖的配置项
-    config.full_sync_remove_unless_dir = false;
-    config.full_sync_remove_unless_file = false;
-  }
-});
-
-/** 规范化路径拼接，避免双斜杠，保留前缀的绝对路径（前导 /） */
-const normalizePathJoin = (prefix, rest) => {
-  const a = (prefix || '').trim().replace(/\/+$/, '');
-  const b = (rest || '').trim().replace(/^\/+/, '').replace(/\/+$/, '');
-  if (!b) return a || '';
-  return a ? `${a}/${b}` : b;
+  Object.assign(manualTransferDialog, {
+    path: path.trim(),
+    loading: false,
+    result: null,
+    show: true
+  });
 };
 
-const generatePathsConfig = (paths, key) => {
-  const configText = paths.map(p => {
-    if (key === 'panTransfer') {
-      return p.path?.trim();
+const confirmManualTransfer = async () => {
+  if (!manualTransferDialog.path) return;
+  manualTransferDialog.loading = true;
+  manualTransferDialog.result = null;
+  try {
+    const result = await props.api.post(`plugin/${PLUGIN_ID}/manual_transfer`, {
+      path: manualTransferDialog.path
+    });
+    if (result.code === 0) {
+      manualTransferDialog.result = {
+        type: 'success',
+        title: '整理任务已启动',
+        message: '整理任务已在后台启动，正在执行中。您可以在日志中查看详细进度。'
+      };
+    } else {
+      manualTransferDialog.result = {
+        type: 'error',
+        title: '启动失败',
+        message: result.msg || '启动整理任务失败，请检查配置和网络连接。'
+      };
     }
-    if (key === 'fullSync') {
-      return `${p.local?.trim()}#${p.remote?.trim()}#${p.enabled !== false ? '1' : '0'}`;
-    }
-    if (key === 'transfer') {
-      const local = p.local?.trim() ?? '';
-      const remote = p.remote?.trim() ?? '';
-      const cd2 = (p.cd2Prefix || '').trim();
-      const effectiveRemote = cd2 ? normalizePathJoin(cd2, remote) : remote;
-      return `${local}#${effectiveRemote}#${cd2}`;
-    }
-    return `${p.local?.trim()}#${p.remote?.trim()}`;
-  }).filter(p => {
-    if (key === 'panTransfer') {
-      return p && p !== '';
-    }
-    if (key === 'fullSync') {
-      const parts = p.split('#');
-      return parts.length >= 2 && (parts[0]?.trim() || parts[1]?.trim());
-    }
-    if (key === 'transfer') {
-      const parts = p.split('#');
-      return parts.length >= 2 && (parts[0]?.trim() || parts[1]?.trim());
-    }
-    return p !== '#' && p !== '';
-  }).join('\n');
+  } catch (error) {
+    manualTransferDialog.result = {
+      type: 'error',
+      title: '启动失败',
+      message: `启动整理任务时发生错误：${error.message || error}`
+    };
+  } finally {
+    manualTransferDialog.loading = false;
+  }
+};
 
-  return configText;
+const closeManualTransferDialog = () => {
+  Object.assign(manualTransferDialog, {
+    show: false,
+    path: '',
+    loading: false,
+    result: null
+  });
 };
 
 const checkTransferModuleEnhancement = async () => {
@@ -3898,24 +2928,6 @@ const closeDonateDialog = () => {
   donateDialog.authorizationStatus = null;
 };
 
-// 复制文本到剪贴板
-const copyToClipboard = async (text, successMsg = '已复制到剪贴板') => {
-  try {
-    await navigator.clipboard.writeText(text);
-    message.text = successMsg;
-    message.type = 'success';
-  } catch (err) {
-    console.error('复制失败:', err);
-    message.text = '复制失败，请手动复制';
-    message.type = 'error';
-  }
-  setTimeout(() => {
-    if (message.type === 'success' || message.type === 'warning' || message.type === 'error') {
-      message.text = '';
-    }
-  }, 3000);
-};
-
 const handleConfirmFullSync = async () => {
   fullSyncConfirmDialog.value = false;
   await triggerFullSync();
@@ -3998,167 +3010,6 @@ const clearIncrementSkipCache = async () => {
   }
 };
 
-const addPath = (type) => {
-  switch (type) {
-    case 'transfer': transferPaths.value.push({ local: '', remote: '', cd2Prefix: '' }); break;
-    case 'mp': transferMpPaths.value.push({ local: '', remote: '' }); break;
-    case 'fullSync': fullSyncPaths.value.push({ local: '', remote: '', enabled: true }); break;
-    case 'incrementSync': incrementSyncPaths.value.push({ local: '', remote: '' }); break;
-    case 'increment-mp': incrementSyncMPPaths.value.push({ local: '', remote: '' }); break;
-    case 'monitorLife': monitorLifePaths.value.push({ local: '', remote: '' }); break;
-    case 'monitorLifeMp': monitorLifeMpPaths.value.push({ local: '', remote: '' }); break;
-    case 'apiStrm': apiStrmPaths.value.push({ local: '', remote: '' }); break;
-    case 'apiStrm-mp': apiStrmMPPaths.value.push({ local: '', remote: '' }); break;
-    case 'syncDelLibrary': syncDelLibraryPaths.value.push({ mediaserver: '', moviepilot: '', p115: '' }); break;
-    case 'directoryUpload': directoryUploadPaths.value.push({ src: '', dest_remote: '', dest_local: '', dest_strm: '', delete: false }); break;
-    case 'fuseStrmTakeover': fuseStrmTakeoverRules.value.push({ extensions: '', names: '', paths: '', _use_extensions: false, _use_names: false, _use_paths: false }); break;
-  }
-};
-const removePath = (index, type) => {
-  switch (type) {
-    case 'transfer':
-      transferPaths.value.splice(index, 1);
-      if (transferPaths.value.length === 0) transferPaths.value = [{ local: '', remote: '', cd2Prefix: '' }];
-      break;
-    case 'mp':
-      transferMpPaths.value.splice(index, 1);
-      if (transferMpPaths.value.length === 0) transferMpPaths.value = [{ local: '', remote: '' }];
-      break;
-    case 'fullSync':
-      fullSyncPaths.value.splice(index, 1);
-      if (fullSyncPaths.value.length === 0) fullSyncPaths.value = [{ local: '', remote: '', enabled: true }];
-      break;
-    case 'incrementSync':
-      incrementSyncPaths.value.splice(index, 1);
-      if (incrementSyncPaths.value.length === 0) incrementSyncPaths.value = [{ local: '', remote: '' }];
-      break;
-    case 'increment-mp':
-      incrementSyncMPPaths.value.splice(index, 1);
-      if (incrementSyncMPPaths.value.length === 0) incrementSyncMPPaths.value = [{ local: '', remote: '' }];
-      break;
-    case 'monitorLife':
-      monitorLifePaths.value.splice(index, 1);
-      if (monitorLifePaths.value.length === 0) monitorLifePaths.value = [{ local: '', remote: '' }];
-      break;
-    case 'monitorLifeMp':
-      monitorLifeMpPaths.value.splice(index, 1);
-      if (monitorLifeMpPaths.value.length === 0) monitorLifeMpPaths.value = [{ local: '', remote: '' }];
-      break;
-    case 'apiStrm':
-      apiStrmPaths.value.splice(index, 1);
-      if (apiStrmPaths.value.length === 0) apiStrmPaths.value = [{ local: '', remote: '' }];
-      break;
-    case 'apiStrm-mp':
-      apiStrmMPPaths.value.splice(index, 1);
-      if (apiStrmMPPaths.value.length === 0) apiStrmMPPaths.value = [{ local: '', remote: '' }];
-      break;
-    case 'syncDelLibrary':
-      syncDelLibraryPaths.value.splice(index, 1);
-      if (syncDelLibraryPaths.value.length === 0) syncDelLibraryPaths.value = [{ mediaserver: '', moviepilot: '', p115: '' }];
-      break;
-    case 'directoryUpload':
-      directoryUploadPaths.value.splice(index, 1);
-      if (directoryUploadPaths.value.length === 0) directoryUploadPaths.value = [{ src: '', dest_remote: '', dest_local: '', dest_strm: '', delete: false }];
-      break;
-    case 'fuseStrmTakeover':
-      fuseStrmTakeoverRules.value.splice(index, 1);
-      if (fuseStrmTakeoverRules.value.length === 0) fuseStrmTakeoverRules.value = [{ extensions: '', names: '', paths: '', _use_extensions: false, _use_names: false, _use_paths: false }];
-      break;
-  }
-};
-const addPanTransferPath = () => { panTransferPaths.value.push({ path: '' }); };
-const removePanTransferPath = (index) => {
-  panTransferPaths.value.splice(index, 1);
-  if (panTransferPaths.value.length === 0) panTransferPaths.value = [{ path: '' }];
-};
-
-const manualTransfer = (index) => {
-  if (index < 0 || index >= panTransferPaths.value.length) {
-    message.text = '路径项不存在';
-    message.type = 'error';
-    return;
-  }
-
-  const pathItem = panTransferPaths.value[index];
-  if (!pathItem) {
-    message.text = '路径项不存在';
-    message.type = 'error';
-    return;
-  }
-
-  const path = pathItem.path;
-  if (!path || typeof path !== 'string' || !path.trim()) {
-    message.text = '请先配置网盘路径';
-    message.type = 'warning';
-    return;
-  }
-
-  Object.assign(manualTransferDialog, {
-    path: path.trim(),
-    loading: false,
-    result: null,
-    show: true
-  });
-};
-
-const confirmManualTransfer = async () => {
-  if (!manualTransferDialog.path) {
-    return;
-  }
-
-  manualTransferDialog.loading = true;
-  manualTransferDialog.result = null;
-
-  try {
-    const result = await props.api.post(`plugin/${PLUGIN_ID}/manual_transfer`, {
-      path: manualTransferDialog.path
-    });
-
-    if (result.code === 0) {
-      manualTransferDialog.result = {
-        type: 'success',
-        title: '整理任务已启动',
-        message: '整理任务已在后台启动，正在执行中。您可以在日志中查看详细进度。'
-      };
-    } else {
-      manualTransferDialog.result = {
-        type: 'error',
-        title: '启动失败',
-        message: result.msg || '启动整理任务失败，请检查配置和网络连接。'
-      };
-    }
-  } catch (error) {
-    manualTransferDialog.result = {
-      type: 'error',
-      title: '启动失败',
-      message: `启动整理任务时发生错误：${error.message || error}`
-    };
-  } finally {
-    manualTransferDialog.loading = false;
-  }
-};
-
-const closeManualTransferDialog = () => {
-  Object.assign(manualTransferDialog, {
-    show: false,
-    path: '',
-    loading: false,
-    result: null
-  });
-};
-
-const addShareReceivePath = () => { shareReceivePaths.value.push({ path: '' }); };
-const removeShareReceivePath = (index) => {
-  shareReceivePaths.value.splice(index, 1);
-  if (shareReceivePaths.value.length === 0) shareReceivePaths.value = [{ path: '' }];
-};
-
-const addOfflineDownloadPath = () => { offlineDownloadPaths.value.push({ path: '' }); };
-const removeOfflineDownloadPath = (index) => {
-  offlineDownloadPaths.value.splice(index, 1);
-  if (offlineDownloadPaths.value.length === 0) offlineDownloadPaths.value = [{ path: '' }];
-};
-
 const openImportDialog = () => {
   importDialog.jsonText = '';
   importDialog.error = '';
@@ -4190,168 +3041,6 @@ const handleConfirmImport = () => {
   }
 };
 
-const openDirSelector = (index, locationType, pathType, fieldKey = null) => {
-  dirDialog.show = true;
-  dirDialog.isLocal = locationType === 'local';
-  dirDialog.loading = false;
-  dirDialog.error = null;
-  dirDialog.items = [];
-  dirDialog.index = index;
-  dirDialog.type = pathType;
-  dirDialog.fieldKey = fieldKey;
-  dirDialog.targetConfigKeyForExclusion = null;
-  dirDialog.originalPathTypeBackup = '';
-  dirDialog.originalIndexBackup = -1;
-
-  // 设置初始路径
-  if (pathType === 'syncDelLibrary' && index >= 0 && syncDelLibraryPaths.value[index] && fieldKey) {
-    const currentPath = syncDelLibraryPaths.value[index][fieldKey] || '/';
-    dirDialog.currentPath = currentPath;
-  } else {
-    dirDialog.currentPath = '/';
-  }
-
-  loadDirContent();
-};
-
-const loadDirContent = async () => {
-  dirDialog.loading = true;
-  dirDialog.error = null;
-  dirDialog.items = [];
-  try {
-    if (dirDialog.isLocal) {
-      try {
-        const response = await props.api.post('storage/list', { path: dirDialog.currentPath || '/', type: 'share', flag: 'ROOT' });
-        if (response && Array.isArray(response)) {
-          dirDialog.items = response
-            .filter(item => item.type === 'dir')
-            .map(item => ({ name: item.name, path: item.path, is_dir: true }))
-            .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
-        } else {
-          throw new Error('浏览目录失败：无效响应');
-        }
-      } catch (error) {
-        console.error('浏览本地目录失败:', error);
-        dirDialog.error = `浏览本地目录失败: ${error.message || '未知错误'}`;
-        dirDialog.items = [];
-      }
-    } else {
-      if (!config.cookies || config.cookies.trim() === '') {
-        throw new Error('请先设置115 Cookie才能浏览网盘目录');
-      }
-      const result = await props.api.get(`plugin/${PLUGIN_ID}/browse_dir?path=${encodeURIComponent(dirDialog.currentPath)}&is_local=${dirDialog.isLocal}`);
-
-      if (result && result.code === 0 && result.data) {
-        dirDialog.items = result.data.items
-          .filter(item => item.is_dir)
-          .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
-        dirDialog.currentPath = result.data.path || dirDialog.currentPath;
-      } else {
-        throw new Error(result?.msg || '获取网盘目录内容失败');
-      }
-    }
-  } catch (error) {
-    console.error('加载目录内容失败:', error);
-    dirDialog.error = error.message || '获取目录内容失败';
-    if (error.message.includes('Cookie') || error.message.includes('cookie')) {
-      dirDialog.items = [];
-    }
-  } finally {
-    dirDialog.loading = false;
-  }
-};
-
-const selectDir = (item) => {
-  if (!item || !item.is_dir) return;
-  if (item.path) {
-    dirDialog.currentPath = item.path;
-    loadDirContent();
-  }
-};
-const navigateToParentDir = () => {
-  const path = dirDialog.currentPath;
-  if (!dirDialog.isLocal) {
-    if (path === '/') return;
-    let current = path.replace(/\\/g, '/');
-    if (current.length > 1 && current.endsWith('/')) current = current.slice(0, -1);
-    const parent = current.substring(0, current.lastIndexOf('/'));
-    dirDialog.currentPath = parent === '' ? '/' : parent;
-    loadDirContent();
-    return;
-  }
-  if (path === '/' || path === 'C:\\' || path === 'C:/') return;
-  const normalizedPath = path.replace(/\\/g, '/');
-  const parts = normalizedPath.split('/').filter(Boolean);
-  if (parts.length === 0) {
-    dirDialog.currentPath = '/';
-  } else if (parts.length === 1 && normalizedPath.includes(':')) {
-    dirDialog.currentPath = parts[0] + ':/';
-  } else {
-    parts.pop();
-    dirDialog.currentPath = parts.length === 0 ? '/' : (normalizedPath.startsWith('/') ? '/' : '') + parts.join('/') + '/';
-  }
-  loadDirContent();
-};
-const confirmDirSelection = () => {
-  if (!dirDialog.currentPath) return;
-  let processedPath = dirDialog.currentPath;
-  if (processedPath !== '/' && !(/^[a-zA-Z]:[\\\/]$/.test(processedPath)) && (processedPath.endsWith('/') || processedPath.endsWith('\\\\'))) {
-    processedPath = processedPath.slice(0, -1);
-  }
-  if (dirDialog.type === 'excludePath' && dirDialog.targetConfigKeyForExclusion) {
-    const targetKey = dirDialog.targetConfigKeyForExclusion;
-    let targetArrayRef;
-    if (targetKey === 'transfer_monitor_scrape_metadata_exclude_paths') targetArrayRef = transferExcludePaths;
-    else if (targetKey === 'monitor_life_scrape_metadata_exclude_paths') targetArrayRef = monitorLifeExcludePaths;
-    else if (targetKey === 'increment_sync_scrape_metadata_exclude_paths') targetArrayRef = incrementSyncExcludePaths;
-    if (targetArrayRef) {
-      if (targetArrayRef.value.length === 1 && !targetArrayRef.value[0].path) {
-        targetArrayRef.value[0] = { path: processedPath };
-      } else {
-        if (!targetArrayRef.value.some(item => item.path === processedPath)) {
-          targetArrayRef.value.push({ path: processedPath });
-        } else {
-          message.text = '该排除路径已存在。';
-          message.type = 'warning';
-          setTimeout(() => { message.text = ''; }, 3000);
-        }
-      }
-    }
-    dirDialog.type = dirDialog.originalPathTypeBackup;
-    dirDialog.index = dirDialog.originalIndexBackup;
-    dirDialog.targetConfigKeyForExclusion = null;
-    dirDialog.originalPathTypeBackup = '';
-    dirDialog.originalIndexBackup = -1;
-  }
-  else if (dirDialog.index >= 0 && dirDialog.type !== 'excludePath') {
-    switch (dirDialog.type) {
-      case 'transfer': dirDialog.isLocal ? transferPaths.value[dirDialog.index].local = processedPath : transferPaths.value[dirDialog.index].remote = processedPath; break;
-      case 'fullSync': dirDialog.isLocal ? fullSyncPaths.value[dirDialog.index].local = processedPath : fullSyncPaths.value[dirDialog.index].remote = processedPath; break;
-      case 'incrementSync': dirDialog.isLocal ? incrementSyncPaths.value[dirDialog.index].local = processedPath : incrementSyncPaths.value[dirDialog.index].remote = processedPath; break;
-      case 'monitorLife': dirDialog.isLocal ? monitorLifePaths.value[dirDialog.index].local = processedPath : monitorLifePaths.value[dirDialog.index].remote = processedPath; break;
-      case 'apiStrm': dirDialog.isLocal ? apiStrmPaths.value[dirDialog.index].local = processedPath : apiStrmPaths.value[dirDialog.index].remote = processedPath; break;
-      case 'panTransfer': panTransferPaths.value[dirDialog.index].path = processedPath; break;
-      case 'shareReceive': shareReceivePaths.value[dirDialog.index].path = processedPath; break;
-      case 'offlineDownload': offlineDownloadPaths.value[dirDialog.index].path = processedPath; break;
-      case 'syncDelLibrary':
-        if (dirDialog.index >= 0 && syncDelLibraryPaths.value[dirDialog.index] && dirDialog.fieldKey) {
-          syncDelLibraryPaths.value[dirDialog.index][dirDialog.fieldKey] = processedPath;
-        }
-        break;
-      case 'directoryUpload':
-        if (dirDialog.fieldKey && directoryUploadPaths.value[dirDialog.index]) directoryUploadPaths.value[dirDialog.index][dirDialog.fieldKey] = processedPath;
-        break;
-    }
-  }
-  else if (dirDialog.type === 'panTransferUnrecognized') config.pan_transfer_unrecognized_path = processedPath;
-  closeDirDialog();
-};
-const closeDirDialog = () => {
-  dirDialog.show = false;
-  dirDialog.items = [];
-  dirDialog.error = null;
-};
-
 const copyCookieToClipboard = async () => {
   if (!config.cookies) { message.text = 'Cookie为空，无法复制。'; message.type = 'warning'; return; }
   try {
@@ -4377,174 +3066,6 @@ const copyAliTokenToClipboard = async () => {
     message.type = 'error';
   }
   setTimeout(() => { message.text = ''; }, 3000);
-};
-
-const openQrCodeDialog = () => {
-  qrDialog.show = true;
-  qrDialog.loading = false;
-  qrDialog.error = null;
-  qrDialog.qrcode = '';
-  qrDialog.uid = '';
-  qrDialog.time = '';
-  qrDialog.sign = '';
-  if (!clientTypes.some(ct => ct.value === qrDialog.clientType)) qrDialog.clientType = 'alipaymini';
-  const selectedClient = clientTypes.find(type => type.value === qrDialog.clientType);
-  qrDialog.tips = selectedClient ? `请使用${selectedClient.label}扫描二维码登录` : '请使用支付宝扫描二维码登录';
-  qrDialog.status = '等待扫码';
-  getQrCode();
-};
-
-const getQrCode = async () => {
-  qrDialog.loading = true;
-  qrDialog.error = null;
-  qrDialog.qrcode = '';
-  qrDialog.uid = '';
-  qrDialog.time = '';
-  qrDialog.sign = '';
-  console.warn(`【115STRM助手 DEBUG】准备获取二维码，前端选择的 clientType: ${qrDialog.clientType}`);
-  try {
-    const response = await props.api.get(`plugin/${PLUGIN_ID}/get_qrcode?client_type=${qrDialog.clientType}`);
-    if (response && response.code === 0 && response.data) {
-      qrDialog.uid = response.data.uid;
-      qrDialog.time = response.data.time;
-      qrDialog.sign = response.data.sign;
-      qrDialog.qrcode = response.data.qrcode;
-      qrDialog.tips = response.data.tips || '请扫描二维码登录';
-      qrDialog.status = '等待扫码';
-      if (response.data.client_type) qrDialog.clientType = response.data.client_type;
-      startQrCodeCheckInterval();
-    } else {
-      qrDialog.error = response?.msg || '获取二维码失败';
-      console.error("【115STRM助手 DEBUG】获取二维码API调用失败或返回错误码: ", response);
-    }
-  } catch (err) {
-    qrDialog.error = `获取二维码出错: ${err.message || '未知错误'}`;
-    console.error('【115STRM助手 DEBUG】获取二维码 JS 捕获异常:', err);
-  } finally {
-    qrDialog.loading = false;
-  }
-};
-
-const checkQrCodeStatus = async () => {
-  if (!qrDialog.uid || !qrDialog.show || !qrDialog.time || !qrDialog.sign) return;
-  try {
-    const response = await props.api.get(`plugin/${PLUGIN_ID}/check_qrcode?uid=${qrDialog.uid}&time=${qrDialog.time}&sign=${qrDialog.sign}&client_type=${qrDialog.clientType}`);
-    if (response && response.code === 0 && response.data) {
-      const data = response.data;
-      if (data.status === 'waiting') qrDialog.status = '等待扫码';
-      else if (data.status === 'scanned') qrDialog.status = '已扫码，请在设备上确认';
-      else if (data.status === 'success') {
-        if (data.cookie) {
-          clearQrCodeCheckInterval();
-          qrDialog.status = '登录成功！';
-          config.cookies = data.cookie;
-          message.text = '登录成功！Cookie已获取，请点击下方"保存配置"按钮保存。';
-          message.type = 'success';
-          setTimeout(() => { qrDialog.show = false; }, 3000);
-        } else {
-          qrDialog.status = '登录似乎成功，但未获取到Cookie';
-          message.text = '登录成功但未获取到Cookie信息，请重试或检查账号。';
-          message.type = 'warning';
-          clearQrCodeCheckInterval();
-        }
-      }
-    } else if (response) {
-      if (qrDialog.status !== '登录成功，正在处理...') {
-        clearQrCodeCheckInterval();
-        qrDialog.error = response.msg || '二维码已失效，请刷新';
-        qrDialog.status = '二维码已失效';
-      }
-    }
-  } catch (err) {
-    if (qrDialog.status !== '登录成功，正在处理...') console.error('检查二维码状态JS捕获异常:', err);
-  }
-};
-
-const startQrCodeCheckInterval = () => {
-  clearQrCodeCheckInterval();
-  qrDialog.checkIntervalId = setInterval(checkQrCodeStatus, 3000);
-};
-
-const openAliQrCodeDialog = () => {
-  aliQrDialog.show = true;
-  aliQrDialog.loading = false;
-  aliQrDialog.error = null;
-  aliQrDialog.qrcode = '';
-  aliQrDialog.t = '';
-  aliQrDialog.ck = '';
-  aliQrDialog.status = '等待扫码';
-  getAliQrCode();
-};
-
-const getAliQrCode = async () => {
-  aliQrDialog.loading = true;
-  aliQrDialog.error = null;
-  aliQrDialog.qrcode = '';
-  try {
-    const response = await props.api.get(`plugin/${PLUGIN_ID}/get_aliyundrive_qrcode`);
-    if (response && response.code === 0 && response.data) {
-      aliQrDialog.qrcode = response.data.qrcode;
-      aliQrDialog.t = response.data.t;
-      aliQrDialog.ck = response.data.ck;
-      aliQrDialog.status = '等待扫码';
-      startAliQrCodeCheckInterval();
-    } else {
-      aliQrDialog.error = response?.msg || '获取阿里云盘二维码失败';
-    }
-  } catch (err) {
-    aliQrDialog.error = `获取二维码出错: ${err.message || '未知错误'}`;
-  } finally {
-    aliQrDialog.loading = false;
-  }
-};
-
-const checkAliQrCodeStatus = async () => {
-  if (!aliQrDialog.t || !aliQrDialog.ck || !aliQrDialog.show) return;
-  try {
-    const response = await props.api.get(`plugin/${PLUGIN_ID}/check_aliyundrive_qrcode?t=${aliQrDialog.t}&ck=${encodeURIComponent(aliQrDialog.ck)}`);
-    if (response && response.code === 0 && response.data) {
-      if (response.data.status === 'success' && response.data.token) {
-        clearAliQrCodeCheckInterval();
-        aliQrDialog.status = '登录成功！';
-        config.aliyundrive_token = response.data.token;
-        message.text = '阿里云盘登录成功！Token已获取，请点击下方“保存配置”按钮。';
-        message.type = 'success';
-        setTimeout(() => { aliQrDialog.show = false; }, 2000);
-      } else {
-        aliQrDialog.status = response.data.msg || '等待扫码';
-        if (response.data.status === 'expired' || response.data.status === 'invalid') {
-          clearAliQrCodeCheckInterval();
-          aliQrDialog.error = '二维码已失效，请刷新';
-        }
-      }
-    } else if (response) {
-      clearAliQrCodeCheckInterval();
-      aliQrDialog.status = '二维码已失效';
-      aliQrDialog.error = response.msg || '二维码检查失败，请刷新。';
-    }
-  } catch (err) {
-    console.error('检查阿里云盘二维码状态出错:', err);
-  }
-};
-
-const startAliQrCodeCheckInterval = () => {
-  clearAliQrCodeCheckInterval();
-  aliQrDialog.checkIntervalId = setInterval(checkAliQrCodeStatus, 2000);
-};
-const clearAliQrCodeCheckInterval = () => {
-  if (aliQrDialog.checkIntervalId) {
-    clearInterval(aliQrDialog.checkIntervalId);
-    aliQrDialog.checkIntervalId = null;
-  }
-};
-const refreshAliQrCode = () => {
-  clearAliQrCodeCheckInterval();
-  aliQrDialog.error = null;
-  getAliQrCode();
-};
-const closeAliQrCodeDialog = () => {
-  clearAliQrCodeCheckInterval();
-  aliQrDialog.show = false;
 };
 
 // emby2Alist 配置生成相关函数
@@ -4697,47 +3218,17 @@ const copyDebugInfo = async () => {
   }
 };
 
-const clearQrCodeCheckInterval = () => {
-  if (qrDialog.checkIntervalId) {
-    clearInterval(qrDialog.checkIntervalId);
-    qrDialog.checkIntervalId = null;
-  }
-};
-const refreshQrCode = () => {
-  clearQrCodeCheckInterval();
-  qrDialog.error = null;
-  const matchedType = clientTypes.find(type => type.value === qrDialog.clientType);
-  qrDialog.tips = matchedType ? `请使用${matchedType.label}扫描二维码登录` : '请扫描二维码登录';
-  getQrCode();
-};
-const closeQrDialog = () => {
-  clearQrCodeCheckInterval();
-  qrDialog.show = false;
-};
-
 onMounted(async () => {
   ensureSentryInitialized();
   await loadConfig();
   await checkTransferModuleEnhancement();
 });
 
-onBeforeUnmount(() => {
-  console.log('组件即将卸载，清理定时器...');
-  clearQrCodeCheckInterval();
-  clearAliQrCodeCheckInterval();
-});
 
 // 监听基础设置折叠状态变化并保存到 localStorage
 watch(basicConfigExpanded, (newVal) => {
   localStorage.setItem('p115strmhelper_basic_config_expanded', JSON.stringify(newVal));
 }, { deep: true });
-
-watch(() => qrDialog.clientType, (newVal, oldVal) => {
-  if (newVal !== oldVal && qrDialog.show) {
-    console.log(`【115STRM助手 DEBUG】qrDialog.clientType 从 ${oldVal} 变为 ${newVal}，准备刷新二维码`);
-    refreshQrCode();
-  }
-});
 
 const setMoviePilotAddressToCurrentOrigin = () => {
   if (window && window.location && window.location.origin) {
@@ -4755,31 +3246,6 @@ const setMoviePilotAddressToCurrentOrigin = () => {
   }, 3000);
 };
 
-const openExcludeDirSelector = (configKeyToUpdate) => {
-  dirDialog.show = true;
-  dirDialog.isLocal = true;
-  dirDialog.loading = false;
-  dirDialog.error = null;
-  dirDialog.items = [];
-  dirDialog.currentPath = '/';
-  dirDialog.originalPathTypeBackup = dirDialog.type;
-  dirDialog.originalIndexBackup = dirDialog.index;
-  dirDialog.targetConfigKeyForExclusion = configKeyToUpdate;
-  dirDialog.type = 'excludePath';
-  dirDialog.index = -1;
-  loadDirContent();
-};
-
-const removeExcludePathEntry = (index, type) => {
-  let targetArrayRef;
-  if (type === 'transfer_exclude') targetArrayRef = transferExcludePaths;
-  else if (type === 'life_exclude') targetArrayRef = monitorLifeExcludePaths;
-  else if (type === 'increment_exclude') targetArrayRef = incrementSyncExcludePaths;
-  if (targetArrayRef && targetArrayRef.value && index < targetArrayRef.value.length) {
-    targetArrayRef.value.splice(index, 1);
-    if (targetArrayRef.value.length === 0) targetArrayRef.value = [{ path: '' }];
-  }
-};
 </script>
 
 <style scoped>
@@ -4865,58 +3331,6 @@ const removeExcludePathEntry = (index, type) => {
   }
 }
 
-/* 生活事件故障检查 - 开始时间原生 input，避免多次点击才弹出选择器 */
-.life-event-check-start-time-wrapper {
-  position: relative;
-  display: block;
-  border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
-  border-radius: 4px;
-  background: rgb(var(--v-theme-surface));
-  min-height: 40px;
-}
-
-.life-event-check-start-time-wrapper:focus-within {
-  border-color: rgb(var(--v-theme-primary));
-  box-shadow: 0 0 0 1px rgb(var(--v-theme-primary));
-}
-
-.life-event-check-datetime-input {
-  width: 100%;
-  height: 100%;
-  min-height: 38px;
-  padding: 0 36px 0 12px;
-  border: none;
-  outline: none;
-  background: transparent;
-  font-size: 0.875rem;
-  font-family: inherit;
-  color: rgb(var(--v-theme-on-surface));
-  cursor: pointer;
-  -webkit-appearance: none;
-  appearance: none;
-}
-
-.life-event-check-datetime-input::-webkit-calendar-picker-indicator {
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 0;
-  bottom: 0;
-  width: 100%;
-  height: 100%;
-  margin: 0;
-  padding: 0;
-  opacity: 0;
-  cursor: pointer;
-}
-
-.life-event-check-clear-btn {
-  position: absolute;
-  right: 2px;
-  top: 50%;
-  transform: translateY(-50%);
-  z-index: 1;
-}
 
 /* 优化基础设置折叠面板动画速度 */
 :v-deep(.v-expansion-panel) {
