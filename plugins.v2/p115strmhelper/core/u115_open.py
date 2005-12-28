@@ -30,7 +30,7 @@ from ..core.cache import idpathcacher
 from ..db_manager.oper import FileDbHelper
 from ..utils.oopserver import OOPServerRequest
 from ..utils.sentry import sentry_manager
-from ..utils.exception import U115NoCheckInException
+from ..utils.exception import U115NoCheckInException, CanNotFindPathToCid
 from ..utils.path import PathUtils
 
 
@@ -1083,7 +1083,7 @@ class U115OpenHelper:
             - "user_utime": 修改时间
         """
 
-        def _process_directory_job(
+        def _job(
             cid: int, path_prefix: str, offset: int
         ) -> Tuple[List[Dict[str, Any]], List[Tuple[int, str, int]]]:
             payload = {
@@ -1133,7 +1133,7 @@ class U115OpenHelper:
             storage_chain = StorageChain()
             file_item = storage_chain.get_file_item(storage="u115", path=Path(path))
             if not file_item:
-                raise "无法获取目录信息"
+                raise CanNotFindPathToCid("无法获取目录信息")
             path = file_item.fileid
         initial_cid = int(path)
         if page_size <= 0:
@@ -1143,7 +1143,7 @@ class U115OpenHelper:
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             pending_futures: Set[Future] = set()
-            initial_future = executor.submit(_process_directory_job, initial_cid, "", 0)
+            initial_future = executor.submit(_job, initial_cid, "", 0)
             pending_futures.add(initial_future)
             while pending_futures:
                 for future in as_completed(pending_futures):
@@ -1153,9 +1153,7 @@ class U115OpenHelper:
                         for file_info in files:
                             yield file_info
                         for task_args in subdirs:
-                            new_future = executor.submit(
-                                _process_directory_job, *task_args
-                            )
+                            new_future = executor.submit(_job, *task_args)
                             pending_futures.add(new_future)
                     except Exception as e:
                         for f in pending_futures:
