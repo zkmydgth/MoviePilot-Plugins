@@ -1,16 +1,18 @@
+from concurrent.futures import ThreadPoolExecutor, Future, as_completed
+from os import PathLike
 from random import randint
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import Lock
-from time import sleep, time, perf_counter
-from typing import Optional, Union
+from time import sleep, time, perf_counter, monotonic
+from typing import Optional, Union, Literal, List, Tuple, Any, Dict, Set
 
 import oss2
 import httpx
 from sqlalchemy.orm.exc import MultipleResultsFound
 from oss2 import SizedFileAdapter, determine_part_size
 from oss2.models import PartInfo
-from p115client import P115Client
+from p115client import P115Client, normalize_attr
 from cryptography.hazmat.primitives import hashes
 
 from app import schemas
@@ -418,7 +420,7 @@ class U115OpenHelper:
                     chunk = f.read(end - start + 1)
                     sha1 = hashes.Hash(hashes.SHA1())
                     sha1.update(chunk)
-                    sign_val =sha1.finalize().hex().upper()
+                    sign_val = sha1.finalize().hex().upper()
                 second_sha1 = sign_val
                 # 重新初始化请求
                 # sign_key，sign_val(根据sign_check计算的值大写的sha1值)
@@ -552,7 +554,9 @@ class U115OpenHelper:
                             break
 
                         # 计算等待时间
-                        default_wait_time = int(configer.get_config("upload_module_wait_time"))
+                        default_wait_time = int(
+                            configer.get_config("upload_module_wait_time")
+                        )
                         sleep_time = default_wait_time
                         fastest_speed = resp.get("fastest_user_speed_mbps", None)
                         user_speed = resp.get("user_average_speed_mbps", None)
@@ -1046,3 +1050,116 @@ class U115OpenHelper:
         if resp.get("state"):
             return True
         return False
+
+    def iter_files_with_path(
+        self,
+        path: str | int | Path | PathLike,
+        /,
+        cooldown: float | int = 0.25,
+        page_size: int = 1150,
+        max_workers: int = 10,
+        type: Optional[int] = None,
+        suffix: Optional[str] = None,
+        asc: int = 1,
+        order: Literal[
+            "file_name", "file_size", "user_utime", "file_type"
+        ] = "file_name",
+    ):
+        """
+        遍历目录树迭代文件信息对象
+
+        :param path: 迭代目录（可选目录路径，cid）
+        :param cooldown: 请求冷却时间
+        :param page_size: 分页大小
+        :param max_workers: 最大工作线程数
+        :param type: 文件类型；1.文档；2.图片；3.音乐；4.视频；5.压缩；6.应用；7.书籍
+        :param suffix: 匹配文件后缀名
+        :param asc: 升序排列。0: 否，1: 是
+        :param order: 排序
+
+            - "file_name": 文件名
+            - "file_size": 文件大小
+            - "file_type": 文件种类
+            - "user_utime": 修改时间
+        """
+
+        def _process_directory_job(
+            cid: int, path_prefix: str, offset: int
+        ) -> Tuple[List[Dict[str, Any]], List[Tuple[int, str, int]]]:
+            payload = {
+                "cid": cid,
+                "limit": page_size,
+                "o": order,
+                "asc": asc,
+                "type": type,
+                "suffix": suffix,
+                "offset": offset,
+                "show_dir": 1,
+            }
+            if cooldown > 0:
+                with api_lock:
+                    now = monotonic()
+                    elapsed = now - last_api_call_time[0]
+                    if elapsed < cooldown:
+                        sleep(cooldown - elapsed)
+                    last_api_call_time[0] = monotonic()
+            resp = self._request_api(
+                "GET",
+                "/open/ufile/files",
+                params=payload,
+            )
+            items = resp.get("data", [])
+            count = resp.get("count", 0)
+            files_found = []
+            subdirs_to_scan = []
+            for attr in items:
+                attr = normalize_attr(attr)
+                path = (
+                    f"{path_prefix}/{attr['name']}"
+                    if path_prefix
+                    else f"/{attr['name']}"
+                )
+                if attr.get("is_dir"):
+                    subdirs_to_scan.append((int(attr["id"]), path, 0))
+                else:
+                    attr["path"] = path
+                    files_found.append(attr)
+            new_offset = offset + len(items)
+            if new_offset < count and len(items) > 0:
+                subdirs_to_scan.append((cid, path_prefix, new_offset))
+            return files_found, subdirs_to_scan
+
+        if isinstance(path, (Path, PathLike)):
+            storage_chain = StorageChain()
+            file_item = storage_chain.get_file_item(storage="u115", path=Path(path))
+            if not file_item:
+                raise "无法获取目录信息"
+            path = file_item.fileid
+        initial_cid = int(path)
+        if page_size <= 0:
+            page_size = 1150
+        last_api_call_time = [monotonic() - cooldown]
+        api_lock = Lock()
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            pending_futures: Set[Future] = set()
+            initial_future = executor.submit(_process_directory_job, initial_cid, "", 0)
+            pending_futures.add(initial_future)
+            while pending_futures:
+                for future in as_completed(pending_futures):
+                    pending_futures.remove(future)
+                    try:
+                        files, subdirs = future.result()
+                        for file_info in files:
+                            yield file_info
+                        for task_args in subdirs:
+                            new_future = executor.submit(
+                                _process_directory_job, *task_args
+                            )
+                            pending_futures.add(new_future)
+                    except Exception as e:
+                        for f in pending_futures:
+                            f.cancel()
+                        executor.shutdown(wait=False, cancel_futures=True)
+                        raise e
+                    break
