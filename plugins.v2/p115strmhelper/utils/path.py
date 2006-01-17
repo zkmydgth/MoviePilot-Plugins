@@ -118,7 +118,6 @@ class PathRemoveUtils:
         file_path: Path,
         mode: str | list = "all",
         func_type: str = None,
-        stop_at_paths: Optional[List[str]] = None,
     ):
         """
         删除父目录
@@ -127,9 +126,7 @@ class PathRemoveUtils:
         :param mode: 删除模式，支持全部匹配（"all"）、文件后缀匹配（list）和混合模式（"mixed"，
                      第一层以 "all" 判断空目录，上层以 ["strm"] 判断）
         :param func_type: 日志输出函数名称
-        :param stop_at_paths: 停止删除的目录路径列表，当遍历到这些路径时停止向上删除
         """
-        stop_paths = set(stop_at_paths or [])
         # 判断当前媒体父路径下是否有媒体文件，如有则无需遍历父级
         if mode in ("all", "mixed"):
             func_bool = any(file_path.parent.iterdir())
@@ -143,9 +140,6 @@ class PathRemoveUtils:
             for parent_path in file_path.parents:
                 i += 1
                 if i > 3:
-                    break
-                # 检查是否到达停止边界
-                if str(parent_path) in stop_paths:
                     break
                 if str(parent_path.parent) != str(file_path.root):
                     # 父目录非根目录，才删除父目录

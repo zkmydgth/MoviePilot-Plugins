@@ -18,7 +18,6 @@ from app.schemas import (
 )
 from app.schemas.types import EventType, MessageChannel, ChainEventType
 from app.chain.storage import StorageChain
-from app.helper.directory import DirectoryHelper
 
 from apscheduler.triggers.cron import CronTrigger
 from jinja2 import Template
@@ -56,7 +55,7 @@ from .helper.mediasyncdel.webhook_queue import (
     SyncDelWebhookTask,
     sync_del_webhook_queue,
 )
-from .utils.path import PathUtils, PathRemoveUtils
+from .utils.path import PathUtils
 from .utils.offline_link import OfflineLinkResolver
 from .utils.sentry import sentry_manager
 from .helper.share.share_links import ShareLinkResolver
@@ -1848,9 +1847,7 @@ class P115StrmHelper(_PluginBase):
         data.source = "P115StrmHelper"
         media_title = getattr(mediainfo, "title", "") or ""
         data.reason = f"媒体库已存在：{media_title}（{exist_info.server}）"
-        logger.info(
-            f"【媒体库存在拦截】拦截整理 {data.fileitem.path}，{data.reason}"
-        )
+        logger.info(f"【媒体库存在拦截】拦截整理 {data.fileitem.path}，{data.reason}")
 
     @eventmanager.register(ChainEventType.TransferOverwriteCheck)
     def share_strm_overwrite_check(self, event: Event) -> None:
@@ -1940,32 +1937,16 @@ class P115StrmHelper(_PluginBase):
             return
 
         try:
-            if fileitem.storage == "local":
-                Path(source_path).unlink(missing_ok=True)
-                logger.info(f"【自动删除低质量源文件】已删除本地源文件: {source_path}")
-                stop_paths = [
-                    p
-                    for d in DirectoryHelper().get_dirs()
-                    for p in (d.download_path, d.library_path)
-                    if p
-                ]
-                PathRemoveUtils.remove_parent_dir(
-                    file_path=Path(source_path),
-                    mode=settings.RMT_MEDIAEXT,
-                    func_type="【自动删除低质量源文件】",
-                    stop_at_paths=stop_paths,
+            storage_chain = StorageChain()
+            if storage_chain.delete_media_file(fileitem=fileitem):
+                logger.info(
+                    f"【自动删除低质量源文件】已删除 {fileitem.storage} 源文件: {source_path}"
                 )
             else:
-                storage_chain = StorageChain()
-                if storage_chain.delete_media_file(fileitem=fileitem):
-                    logger.info(
-                        f"【自动删除低质量源文件】已删除 {fileitem.storage} 源文件: {source_path}"
-                    )
-                else:
-                    logger.error(
-                        f"【自动删除低质量源文件】删除 {fileitem.storage} 源文件失败: {source_path}"
-                    )
-                    return
+                logger.error(
+                    f"【自动删除低质量源文件】删除 {fileitem.storage} 源文件失败: {source_path}"
+                )
+                return
 
             # 发送通知
             if configer.notify:
