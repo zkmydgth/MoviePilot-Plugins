@@ -6,7 +6,7 @@ from uvicorn import Config, Server
 from app.log import logger
 from app.plugins import _PluginBase
 
-from .proxy_app import create_app
+from .proxy_app import EXTERNAL_PLAYERS, create_app
 
 
 PIN_RULES_SEP = " => "
@@ -54,7 +54,7 @@ class EmbyReverseProxy(_PluginBase):
 
     plugin_name = "Emby 302 反向代理"
     plugin_desc = (
-        "Emby 302 反向代理，自动代理 HTTP 链接，跳转最终地址，简单易用无需过多配置。"
+        "Emby 302 反向代理，自动代理 HTTP 链接，跳转最终地址，支持外部播放器调用。"
     )
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/refs/heads/main/icons/Emby_A.png"
     plugin_version = "0.1.0"
@@ -70,6 +70,8 @@ class EmbyReverseProxy(_PluginBase):
     _port = 8099
     _pin_rules: List[Tuple[str, str]] = []
     _pin_rules_raw = ""
+    _external_player_url = False
+    _external_player_list: List[str] = []
     _server = None
     _thread = None
 
@@ -89,6 +91,8 @@ class EmbyReverseProxy(_PluginBase):
                 self._port = 8099
             self._pin_rules_raw = (config.get("pin_rules") or "").strip()
             self._pin_rules = _parse_pin_rules(self._pin_rules_raw)
+            self._external_player_url = config.get("external_player_url", False)
+            self._external_player_list = config.get("external_player_list") or []
             self._update_config()
 
         self.stop_service()
@@ -96,7 +100,12 @@ class EmbyReverseProxy(_PluginBase):
         if self._enabled and self._emby_host:
             if not self._emby_host.startswith(("http://", "https://")):
                 self._emby_host = "http://" + self._emby_host
-            app = create_app(self._emby_host, pin_rules=self._pin_rules)
+            app = create_app(
+                self._emby_host,
+                pin_rules=self._pin_rules,
+                external_player_url=self._external_player_url,
+                external_player_list=self._external_player_list,
+            )
             try:
                 uv_config = Config(
                     app=app,
@@ -131,6 +140,8 @@ class EmbyReverseProxy(_PluginBase):
                 "host": self._host,
                 "port": self._port,
                 "pin_rules": self._pin_rules_raw,
+                "external_player_url": self._external_player_url,
+                "external_player_list": self._external_player_list,
             }
         )
 
@@ -169,6 +180,10 @@ class EmbyReverseProxy(_PluginBase):
 
         :return: (页面配置列表, 表单默认值字典)。
         """
+        player_select_items = [
+            {"title": info["name"], "value": key}
+            for key, info in EXTERNAL_PLAYERS.items()
+        ]
         return [
             {
                 "component": "VRow",
@@ -183,6 +198,21 @@ class EmbyReverseProxy(_PluginBase):
                                     "model": "enabled",
                                     "label": "启用插件",
                                     "hint": "开启后将在独立端口运行 Emby 反向代理",
+                                    "persistent-hint": True,
+                                },
+                            }
+                        ],
+                    },
+                    {
+                        "component": "VCol",
+                        "props": {"cols": 12, "md": 4},
+                        "content": [
+                            {
+                                "component": "VSwitch",
+                                "props": {
+                                    "model": "external_player_url",
+                                    "label": "外部播放器",
+                                    "hint": "在 Emby 客户端中显示「使用外部播放器打开」按钮",
                                     "persistent-hint": True,
                                 },
                             }
@@ -251,6 +281,30 @@ class EmbyReverseProxy(_PluginBase):
                         "props": {"cols": 12},
                         "content": [
                             {
+                                "component": "VSelect",
+                                "props": {
+                                    "model": "external_player_list",
+                                    "label": "外部播放器列表",
+                                    "items": player_select_items,
+                                    "multiple": True,
+                                    "chips": True,
+                                    "clearable": True,
+                                    "hint": "选择要显示的外部播放器，留空则显示全部",
+                                    "persistent-hint": True,
+                                },
+                            }
+                        ],
+                    },
+                ],
+            },
+            {
+                "component": "VRow",
+                "content": [
+                    {
+                        "component": "VCol",
+                        "props": {"cols": 12},
+                        "content": [
+                            {
                                 "component": "VTextarea",
                                 "props": {
                                     "model": "pin_rules",
@@ -271,4 +325,6 @@ class EmbyReverseProxy(_PluginBase):
             "host": "0.0.0.0",
             "port": 8099,
             "pin_rules": "",
+            "external_player_url": False,
+            "external_player_list": [],
         }

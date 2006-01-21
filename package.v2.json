@@ -554,7 +554,7 @@
     },
     "EmbyReverseProxy": {
         "name": "Emby 302 反向代理",
-        "description": "Emby 302 反向代理，自动代理 HTTP 链接，跳转最终地址，简单易用无需过多配置。",
+        "description": "Emby 302 反向代理，自动代理 HTTP 链接，跳转最终地址，支持外部播放器调用。",
         "labels": "云盘,媒体",
         "version": "0.1.0",
         "release": true,
