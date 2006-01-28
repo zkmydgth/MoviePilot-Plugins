@@ -550,7 +550,8 @@ class U115OpenHelper:
                             break
 
                         # 计算等待时间
-                        sleep_time = int(configer.get_config("upload_module_wait_time"))
+                        default_wait_time = int(configer.get_config("upload_module_wait_time"))
+                        sleep_time = default_wait_time
                         fastest_speed = resp.get("fastest_user_speed_mbps", None)
                         user_speed = resp.get("user_average_speed_mbps", None)
                         if fastest_speed and user_speed:
@@ -558,6 +559,8 @@ class U115OpenHelper:
                             wt = file_size / (1024 * 1024) / bs
                             if wt > 10 * 60:
                                 wt = wt / (wt // (10 * 60) + 1)
+                            if wt <= default_wait_time // 2:
+                                wt += default_wait_time // 2
                             sleep_time = int(wt)
 
                         logger.info(
