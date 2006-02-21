@@ -368,6 +368,23 @@ class ConfigManager(BaseModel):
     monitor_life_remove_mp_source: bool = Field(
         default=False, description="同上方情况时是否删除源文件"
     )
+    monitor_life_move_out_media_remove_local_strm: bool = Field(
+        default=False, description="移动到非媒体目录时是否删除本地STRM"
+    )
+    monitor_life_move_media_keep_old_strm: bool = Field(
+        default=True, description="媒体目录内移动时是否保留旧STRM"
+    )
+    monitor_life_move_media_create_new_strm: bool = Field(
+        default=True, description="媒体目录内移动时是否生成新STRM"
+    )
+    monitor_life_move_media_mode: Literal["recreate", "local_move"] = Field(
+        default="recreate",
+        description="媒体目录内移动处理模式：recreate=删除/重建，local_move=纯本地迁移",
+    )
+    monitor_life_move_media_to_transfer_remove_local_strm: bool = Field(
+        default=False,
+        description="从媒体目录移动到待整理目录时是否删除媒体库下对应本地 STRM",
+    )
     monitor_life_min_file_size: Optional[int] = Field(
         default=None, ge=0, description="生活事件生成最小文件大小"
     )

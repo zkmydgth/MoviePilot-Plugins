@@ -9,6 +9,8 @@ from sqlalchemy import (
     select,
     delete,
     and_,
+    update,
+    func,
 )
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
@@ -116,6 +118,19 @@ class File(P115StrmHelperBase):
         更新指定ID的名称
         """
         db.query(File).filter(File.id == file_id).update({"name": new_name})
+
+    @staticmethod
+    @db_update
+    def update_path_prefix(db: Session, old_prefix: str, new_prefix: str):
+        """
+        批量更新以 old_prefix 开头的路径
+        """
+        db.execute(
+            update(File)
+            .where(File.path.startswith(old_prefix))
+            .values(path=func.replace(File.path, old_prefix, new_prefix))
+        )
+        return True
 
     @staticmethod
     @db_query

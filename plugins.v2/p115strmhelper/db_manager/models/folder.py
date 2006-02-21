@@ -7,6 +7,8 @@ from sqlalchemy import (
     Text,
     select,
     delete,
+    update,
+    func,
 )
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
@@ -91,4 +93,17 @@ class Folder(P115StrmHelperBase):
         通过路径批量删除
         """
         db.execute(delete(Folder).where(Folder.path.startswith(path)))
+        return True
+
+    @staticmethod
+    @db_update
+    def update_path_prefix(db: Session, old_prefix: str, new_prefix: str):
+        """
+        批量更新以 old_prefix 开头的路径
+        """
+        db.execute(
+            update(Folder)
+            .where(Folder.path.startswith(old_prefix))
+            .values(path=func.replace(Folder.path, old_prefix, new_prefix))
+        )
         return True

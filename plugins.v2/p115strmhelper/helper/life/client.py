@@ -1,4 +1,4 @@
-from shutil import rmtree
+from shutil import move as shutil_move, rmtree
 from collections import defaultdict
 from threading import Timer, Event, Thread
 from time import sleep, strftime, localtime, time
@@ -284,6 +284,7 @@ class MonitorLife:
     def media_transfer(self, event: Dict, file_path: Path, rmt_mediaext):
         """
         运行媒体文件整理
+
         :param event: 事件
         :param file_path: 文件路径
         :param rmt_mediaext: 媒体文件后缀名
@@ -449,9 +450,12 @@ class MonitorLife:
                 transferchain.do_transfer(fileitem=fileitem)
                 logger.info(f"【网盘整理】{file_path} 加入整理列队")
 
-    def creata_strm(self, event: Dict, file_path: Path):
+    def _create(self, event: Dict, file_path: Path):
         """
         创建 STRM 文件
+
+        :param event: 事件
+        :param file_path: 路径
         """
         _databasehelper = FileDbHelper()
 
@@ -796,9 +800,134 @@ class MonitorLife:
                         life_enqueue_kw["size"] = event["file_size"]
                     emby_mediainfo_queue.enqueue(**life_enqueue_kw)
 
-    def remove_strm(self, event: Dict):
+    def move(self, event: Dict):
+        """
+        移动操作
+
+        :param event: 事件
+        """
+        _databasehelper = FileDbHelper()
+
+        # 获取旧路径
+        old_file_path = None
+        file_item = _databasehelper.get_by_id(int(event["file_id"]))
+        if file_item:
+            old_file_path = file_item.get("path", "")
+
+        # 获取新路径
+        new_parent_path = self._get_path_by_cid(int(event["parent_id"]))
+        if new_parent_path is None:
+            logger.warning(f"【监控生活事件】无法获取父目录路径，跳过移动处理: {event}")
+            return
+        new_file_path = (Path(new_parent_path) / event["file_name"]).as_posix()
+
+        # 判断旧路径是否在媒体目录
+        old_is_media = False
+        if old_file_path:
+            old_is_media, _, _ = PathUtils.get_media_path(
+                configer.monitor_life_paths, old_file_path
+            )
+
+        # 判断新路径是否在媒体目录
+        new_is_media, _, _ = PathUtils.get_media_path(
+            configer.monitor_life_paths, new_file_path
+        )
+
+        # 其它目录/待整理目录/媒体目录 -> 待整理目录
+        if configer.pan_transfer_enabled and configer.pan_transfer_paths:
+            if PathUtils.get_run_transfer_path(
+                paths=configer.pan_transfer_paths,
+                transfer_path=new_file_path,
+            ):
+                # 旧路径在媒体目录时，判断是否删除本地 STRM 文件
+                if old_is_media:
+                    logger.info(
+                        "【监控生活事件】媒体目录迁入待整理目录，先执行媒体侧清理（remove_local=%s）后进行网盘整理: %s",
+                        configer.monitor_life_move_media_to_transfer_remove_local_strm,
+                        new_file_path,
+                    )
+                    self.remove(
+                        event=event,
+                        remove_local=configer.monitor_life_move_media_to_transfer_remove_local_strm,
+                    )
+                else:
+                    logger.info(
+                        "【监控生活事件】非媒体目录迁入待整理目录，直接执行网盘整理: %s",
+                        new_file_path,
+                    )
+                sleep(3)
+                self.media_transfer(
+                    event=event,
+                    file_path=Path(new_file_path),
+                    rmt_mediaext=self.rmt_mediaext,
+                )
+                return
+
+        if not old_file_path or not old_is_media:
+            if new_is_media:
+                # 其它目录/待整理目录 -> 媒体目录
+                logger.info(
+                    "【监控生活事件】移动前路径未命中数据库，新路径命中媒体目录，按其它目录迁入媒体目录处理: %s",
+                    new_file_path,
+                )
+                self._create_with_transfer_cache_guard(
+                    event=event, file_path=Path(new_file_path)
+                )
+            else:
+                # 其它目录/待整理目录 -> 其它目录
+                logger.info(
+                    "【监控生活事件】移动前路径无媒体目录记录且新路径不在媒体目录，跳过处理: %s",
+                    new_file_path,
+                )
+            return
+
+        if new_is_media:
+            # 媒体目录 -> 媒体目录
+            create_new_strm = configer.monitor_life_move_media_create_new_strm
+            move_mode = configer.monitor_life_move_media_mode
+            logger.info(
+                "【监控生活事件】媒体目录内移动，模式=%s，保留旧STRM=%s，生成新STRM=%s，目标路径: %s",
+                move_mode,
+                configer.monitor_life_move_media_keep_old_strm,
+                create_new_strm,
+                new_file_path,
+            )
+            if move_mode == "local_move":
+                self._move_local_media_assets(
+                    event=event,
+                    old_file_path=old_file_path,
+                    new_file_path=new_file_path,
+                )
+                self._sync_move_event_db_records(
+                    event=event,
+                    new_file_path=new_file_path,
+                )
+                return
+            if not configer.monitor_life_move_media_keep_old_strm:
+                self.remove(event=event, remove_local=True)
+            if create_new_strm:
+                self._create_with_transfer_cache_guard(
+                    event=event, file_path=Path(new_file_path)
+                )
+            return
+
+        # 媒体目录 -> 其它目录
+        logger.info(
+            "【监控生活事件】媒体目录迁出到其它目录，remove_local=%s，目标路径: %s",
+            configer.monitor_life_move_out_media_remove_local_strm,
+            new_file_path,
+        )
+        self.remove(
+            event=event,
+            remove_local=configer.monitor_life_move_out_media_remove_local_strm,
+        )
+
+    def remove(self, event: Dict, remove_local: bool = True):
         """
         删除 STRM 文件
+
+        :param event: 事件对象
+        :param remove_local: 是否删除本地 STRM 文件
         """
 
         # def __get_file_path(
@@ -869,6 +998,14 @@ class MonitorLife:
             path_type="folder" if file_category == 0 else "file",
             path=str(pan_file_path),
         )
+        if not remove_local:
+            _databasehelper.remove_by_path_batch(
+                path=str(pan_file_path), only_file=False
+            )
+            logger.info(
+                f"【监控生活事件】{pan_file_path} 已从数据库移除，按配置保留本地文件"
+            )
+            return
 
         # 检查文件是否还存在
         storagechain = StorageChain()
@@ -968,9 +1105,11 @@ class MonitorLife:
         except Exception as e:
             logger.error(f"【监控生活事件】{file_path} 删除失败: {e}")
 
-    def new_creata_path(self, event: Dict):
+    def create(self, event: Dict):
         """
         处理新出现的路径
+
+        :param event: 事件
         """
         # 1.获取绝对文件路径
         file_name = event["file_name"]
@@ -981,11 +1120,9 @@ class MonitorLife:
         file_path = Path(dir_path) / file_name
         # 匹配逻辑 整理路径目录 > 生成STRM文件路径目录
         # 2.匹配是否为整理路径目录
-        if configer.get_config("pan_transfer_enabled") and configer.get_config(
-            "pan_transfer_paths"
-        ):
+        if configer.pan_transfer_enabled and configer.pan_transfer_paths:
             if PathUtils.get_run_transfer_path(
-                paths=configer.get_config("pan_transfer_paths"),
+                paths=configer.pan_transfer_paths,
                 transfer_path=file_path,
             ):
                 self.media_transfer(
@@ -995,16 +1132,175 @@ class MonitorLife:
                 )
                 return
         # 3.匹配是否为生成STRM文件路径目录
-        if configer.get_config("monitor_life_enabled") and configer.get_config(
-            "monitor_life_paths"
+        if configer.monitor_life_enabled and configer.monitor_life_paths:
+            self._create_with_transfer_cache_guard(event=event, file_path=file_path)
+
+    def _create_with_transfer_cache_guard(self, event: Dict, file_path: Path):
+        """
+        命中整理缓存时按事件模式门控，再调用 STRM 生成
+
+        :param event: 事件
+        :param file_path: 文件路径
+        """
+        if str(event["file_id"]) in pantransfercacher.creata_pan_transfer_list:
+            pantransfercacher.creata_pan_transfer_list.remove(str(event["file_id"]))
+            if "transfer" in configer.monitor_life_event_modes:
+                self._create(event=event, file_path=file_path)
+            return
+        self._create(event=event, file_path=file_path)
+
+    def _move_local_media_assets(
+        self, event: Dict, old_file_path: str, new_file_path: str
+    ) -> None:
+        """
+        媒体目录内移动时，纯本地迁移 STRM 与关联文件
+
+        :param event: 事件
+        :param old_file_path: 旧网盘路径
+        :param new_file_path: 新网盘路径
+        """
+        old_status, old_target_dir, old_pan_media_dir = PathUtils.get_media_path(
+            configer.monitor_life_paths, old_file_path
+        )
+        new_status, new_target_dir, new_pan_media_dir = PathUtils.get_media_path(
+            configer.monitor_life_paths, new_file_path
+        )
+        if (
+            not old_status
+            or not new_status
+            or old_target_dir is None
+            or old_pan_media_dir is None
+            or new_target_dir is None
+            or new_pan_media_dir is None
         ):
-            if str(event["file_id"]) in pantransfercacher.creata_pan_transfer_list:
-                # 检查是否命中缓存
-                pantransfercacher.creata_pan_transfer_list.remove(str(event["file_id"]))
-                if "transfer" in configer.get_config("monitor_life_event_modes"):  # pylint: disable=E1135
-                    self.creata_strm(event=event, file_path=file_path)
+            logger.info(
+                "【监控生活事件】模式 local_move 本地迁移跳过，路径未匹配媒体目录 old=%s new=%s",
+                old_file_path,
+                new_file_path,
+            )
+            return
+
+        old_local_path = Path(old_target_dir) / Path(old_file_path).relative_to(
+            old_pan_media_dir
+        )
+        new_local_path = Path(new_target_dir) / Path(new_file_path).relative_to(
+            new_pan_media_dir
+        )
+
+        if int(event["file_category"]) == 0:
+            if not old_local_path.exists():
+                logger.info(
+                    "【监控生活事件】模式 local_move 目录迁移跳过，旧目录不存在: %s",
+                    old_local_path,
+                )
+                return
+            if new_local_path.exists():
+                logger.info(
+                    "【监控生活事件】模式 local_move 目录迁移跳过，目标目录已存在: %s",
+                    new_local_path,
+                )
+                return
+            new_local_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil_move(str(old_local_path), str(new_local_path))
+            logger.info(
+                "【监控生活事件】模式 local_move 目录迁移完成: %s -> %s",
+                old_local_path,
+                new_local_path,
+            )
+            return
+
+        old_strm_path = old_local_path.parent / StrmGenerater.get_strm_filename(
+            old_local_path
+        )
+        new_strm_path = new_local_path.parent / StrmGenerater.get_strm_filename(
+            new_local_path
+        )
+        moved_any = False
+
+        if old_strm_path.exists():
+            new_strm_path.parent.mkdir(parents=True, exist_ok=True)
+            if not new_strm_path.exists():
+                shutil_move(str(old_strm_path), str(new_strm_path))
+                moved_any = True
+                logger.info(
+                    "【监控生活事件】模式 local_move 文件迁移 STRM 完成: %s -> %s",
+                    old_strm_path,
+                    new_strm_path,
+                )
             else:
-                self.creata_strm(event=event, file_path=file_path)
+                logger.info(
+                    "【监控生活事件】模式 local_move 文件迁移 STRM 跳过，目标已存在: %s",
+                    new_strm_path,
+                )
+        else:
+            logger.info(
+                "【监控生活事件】模式 local_move 文件迁移 STRM 跳过，源文件不存在: %s",
+                old_strm_path,
+            )
+
+        for sibling in old_strm_path.parent.glob(f"{old_strm_path.stem}*"):
+            if sibling.suffix.lower() == ".strm" or not sibling.is_file():
+                continue
+            target_sibling = new_strm_path.parent / sibling.name
+            if target_sibling.exists():
+                logger.info(
+                    "【监控生活事件】模式 local_move 关联文件迁移跳过，目标已存在: %s",
+                    target_sibling,
+                )
+                continue
+            new_strm_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil_move(str(sibling), str(target_sibling))
+            moved_any = True
+            logger.info(
+                "【监控生活事件】模式 local_move 关联文件迁移完成: %s -> %s",
+                sibling,
+                target_sibling,
+            )
+
+        if moved_any:
+            PathRemoveUtils.remove_parent_dir(
+                file_path=old_strm_path,
+                mode="all",
+                func_type="【监控生活事件】",
+            )
+
+    def _sync_move_event_db_records(self, event: Dict, new_file_path: str) -> None:
+        """
+        同步移动事件后的数据库路径记录
+
+        :param event: 事件
+        :param new_file_path: 新网盘路径
+        """
+        _databasehelper = FileDbHelper()
+        file_id = int(event["file_id"])
+        file_category = int(event["file_category"])
+
+        if file_category == 0:
+            old_item = _databasehelper.get_by_id(file_id)
+            old_prefix = old_item.get("path") if old_item else None
+            if old_prefix:
+                _databasehelper.update_path_prefix_batch(
+                    old_prefix, new_file_path, False
+                )
+                logger.info(
+                    "【监控生活事件】local_move 目录移动后数据库路径批量同步完成: %s -> %s",
+                    old_prefix,
+                    new_file_path,
+                )
+            else:
+                logger.info(
+                    "【监控生活事件】local_move 目录移动后数据库同步跳过，旧路径不存在: %s",
+                    file_id,
+                )
+            return
+
+        # 文件移动：按新路径覆盖该文件记录
+        _databasehelper.upsert_batch(
+            _databasehelper.process_life_file_item(event=event, file_path=new_file_path)
+        )
+        logger.info(
+            "【监控生活事件】local_move 文件移动后数据库记录已同步: %s", new_file_path
+        )
 
     def _wait_for_transfer_complete(self):
         """
@@ -1045,6 +1341,11 @@ class MonitorLife:
     def once_pull(self, from_time, from_id):
         """
         单次拉取
+
+        :param from_time: 起始时间
+        :param from_id: 起始 ID
+
+        :return: tuple (from_time: int, from_id: int)
         """
         if self._wait_for_transfer_complete():
             return from_time, from_id
@@ -1169,13 +1470,15 @@ class MonitorLife:
             if (
                 int(event["type"]) == 1
                 or int(event["type"]) == 2
-                or int(event["type"]) == 5
-                or int(event["type"]) == 6
                 or int(event["type"]) == 14
                 or int(event["type"]) == 18
             ):
                 # 新路径事件处理
-                self.new_creata_path(event=event)
+                self.create(event=event)
+
+            if int(event["type"]) == 5 or int(event["type"]) == 6:
+                # 移动事件处理
+                self.move(event=event)
 
             if int(event["type"]) == 22:
                 # 删除文件/文件夹事件处理
@@ -1186,11 +1489,11 @@ class MonitorLife:
                     )
                 else:
                     if (
-                        configer.get_config("monitor_life_enabled")
-                        and configer.get_config("monitor_life_paths")
-                        and "remove" in configer.get_config("monitor_life_event_modes")  # pylint: disable=E1135
+                        configer.monitor_life_enabled
+                        and configer.monitor_life_paths
+                        and "remove" in configer.monitor_life_event_modes
                     ):
-                        self.remove_strm(event=event)
+                        self.remove(event=event)
 
             if int(event["type"]) == 17:
                 # 对于创建文件夹事件直接写入数据库

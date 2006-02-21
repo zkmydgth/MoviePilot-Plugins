@@ -46,13 +46,12 @@
                 color="warning"></v-switch>
             </v-col>
             <v-col cols="12" md="4">
-              <v-select v-model="config.transfer_monitor_mediaservers" label="媒体服务器" :items="mediaservers"
-                multiple chips closable-chips></v-select>
+              <v-select v-model="config.transfer_monitor_mediaservers" label="媒体服务器" :items="mediaservers" multiple
+                chips closable-chips></v-select>
             </v-col>
           </v-row>
 
-          <v-row
-            v-if="config.transfer_monitor_emby_mediainfo_enabled && !config.native_emby_mediainfo_enabled">
+          <v-row v-if="config.transfer_monitor_emby_mediainfo_enabled && !config.native_emby_mediainfo_enabled">
             <v-col cols="12">
               <v-alert type="warning" variant="tonal" density="compact" icon="mdi-alert-circle-outline">
                 <div class="text-caption">
@@ -68,16 +67,15 @@
               <div class="d-flex flex-column">
                 <div v-for="(item, index) in transferExcludePaths" :key="`transfer-exclude-${index}`"
                   class="mb-2 d-flex align-center">
-                  <v-text-field v-model="item.path" label="刮削排除目录" density="compact" variant="outlined"
-                    readonly hide-details class="flex-grow-1 mr-2">
+                  <v-text-field v-model="item.path" label="刮削排除目录" density="compact" variant="outlined" readonly
+                    hide-details class="flex-grow-1 mr-2">
                   </v-text-field>
                   <v-btn icon size="small" color="error" class="ml-2"
                     @click="removeExcludePathEntry(index, 'transfer_exclude')" :disabled="!item.path">
                     <v-icon>mdi-delete</v-icon>
                   </v-btn>
                 </div>
-                <v-btn size="small" prepend-icon="mdi-folder-plus-outline" variant="tonal"
-                  class="mt-1 align-self-start"
+                <v-btn size="small" prepend-icon="mdi-folder-plus-outline" variant="tonal" class="mt-1 align-self-start"
                   @click="openExcludeDirSelector('transfer_monitor_scrape_metadata_exclude_paths')">
                   添加刮削排除目录
                 </v-btn>
@@ -108,8 +106,7 @@
                 <div v-for="(pair, index) in transferPaths" :key="`transfer-${index}`"
                   class="mb-2 d-flex align-center flex-wrap">
                   <div class="path-selector flex-grow-1 mr-2" style="min-width: 140px;">
-                    <v-text-field v-model="pair.local" label="本地STRM目录" density="compact"
-                      append-icon="mdi-folder"
+                    <v-text-field v-model="pair.local" label="本地STRM目录" density="compact" append-icon="mdi-folder"
                       @click:append="openDirSelector(index, 'local', 'transfer')"></v-text-field>
                   </div>
                   <v-icon class="mr-2">mdi-pound</v-icon>
@@ -120,16 +117,14 @@
                   </div>
                   <template v-if="config.transfer_monitor_clouddrive2_enabled">
                     <v-text-field v-model="pair.cd2Prefix" label="CD2 挂载前缀" density="compact"
-                      placeholder="可选，如 /115open" class="mr-2" hide-details
-                      style="max-width: 160px;"></v-text-field>
+                      placeholder="可选，如 /115open" class="mr-2" hide-details style="max-width: 160px;"></v-text-field>
                   </template>
-                  <v-btn icon size="small" color="error" class="ml-1"
-                    @click="removePath(index, 'transfer')">
+                  <v-btn icon size="small" color="error" class="ml-1" @click="removePath(index, 'transfer')">
                     <v-icon>mdi-delete</v-icon>
                   </v-btn>
                 </div>
-                <v-btn size="small" prepend-icon="mdi-plus" variant="outlined"
-                  class="mt-2 align-self-start" @click="addPath('transfer')">
+                <v-btn size="small" prepend-icon="mdi-plus" variant="outlined" class="mt-2 align-self-start"
+                  @click="addPath('transfer')">
                   添加路径
                 </v-btn>
               </div>
@@ -152,11 +147,9 @@
           <v-row>
             <v-col cols="12">
               <div class="d-flex flex-column">
-                <div v-for="(pair, index) in transferMpPaths" :key="`mp-${index}`"
-                  class="mb-2 d-flex align-center">
+                <div v-for="(pair, index) in transferMpPaths" :key="`mp-${index}`" class="mb-2 d-flex align-center">
                   <div class="path-selector flex-grow-1 mr-2">
-                    <v-text-field v-model="pair.local" label="媒体库服务器映射目录"
-                      density="compact"></v-text-field>
+                    <v-text-field v-model="pair.local" label="媒体库服务器映射目录" density="compact"></v-text-field>
                   </div>
                   <v-icon>mdi-pound</v-icon>
                   <div class="path-selector flex-grow-1 ml-2">
@@ -166,8 +159,8 @@
                     <v-icon>mdi-delete</v-icon>
                   </v-btn>
                 </div>
-                <v-btn size="small" prepend-icon="mdi-plus" variant="outlined"
-                  class="mt-2 align-self-start" @click="addPath('mp')">
+                <v-btn size="small" prepend-icon="mdi-plus" variant="outlined" class="mt-2 align-self-start"
+                  @click="addPath('mp')">
                   添加路径
                 </v-btn>
               </div>
@@ -195,16 +188,15 @@
                 ]" chips closable-chips></v-select>
               </v-col>
               <v-col cols="12" md="3">
-                <v-switch v-model="config.full_sync_remove_unless_strm" label="清理失效STRM文件"
-                  color="warning"></v-switch>
+                <v-switch v-model="config.full_sync_remove_unless_strm" label="清理失效STRM文件" color="warning"></v-switch>
               </v-col>
               <v-col cols="12" md="3">
                 <v-switch v-model="config.full_sync_remove_unless_dir" label="清理无效STRM目录" color="warning"
                   :disabled="!config.full_sync_remove_unless_strm"></v-switch>
               </v-col>
               <v-col cols="12" md="3">
-                <v-switch v-model="config.full_sync_remove_unless_file" label="清理无效STRM文件关联的媒体信息文件"
-                  color="warning" :disabled="!config.full_sync_remove_unless_strm"></v-switch>
+                <v-switch v-model="config.full_sync_remove_unless_file" label="清理无效STRM文件关联的媒体信息文件" color="warning"
+                  :disabled="!config.full_sync_remove_unless_strm"></v-switch>
               </v-col>
             </v-row>
 
@@ -213,8 +205,8 @@
                 <v-switch v-model="config.timing_full_sync_strm" label="定期全量同步" color="info"></v-switch>
               </v-col>
               <v-col cols="12" md="3">
-                <VCronField v-model="config.cron_full_sync_strm" label="运行全量同步周期" hint="设置全量同步的执行周期"
-                  persistent-hint density="compact"></VCronField>
+                <VCronField v-model="config.cron_full_sync_strm" label="运行全量同步周期" hint="设置全量同步的执行周期" persistent-hint
+                  density="compact"></VCronField>
               </v-col>
               <v-col cols="12" md="3">
                 <v-switch v-model="config.full_sync_auto_download_mediainfo_enabled" label="下载媒体数据文件"
@@ -222,20 +214,20 @@
               </v-col>
               <v-col cols="12" md="3">
                 <v-text-field v-model="fullSyncMinFileSizeFormattedRef" label="STRM最小文件大小"
-                  hint="小于此值的文件将不生成STRM(单位K,M,G)" persistent-hint density="compact"
-                  placeholder="例如: 100M (可为空)" clearable></v-text-field>
+                  hint="小于此值的文件将不生成STRM(单位K,M,G)" persistent-hint density="compact" placeholder="例如: 100M (可为空)"
+                  clearable></v-text-field>
               </v-col>
             </v-row>
 
             <v-row>
               <v-col cols="12" md="4">
-                <v-switch v-model="config.full_sync_media_server_refresh_enabled" label="全量同步后刷新媒体库"
-                  color="error" density="compact"></v-switch>
+                <v-switch v-model="config.full_sync_media_server_refresh_enabled" label="全量同步后刷新媒体库" color="error"
+                  density="compact"></v-switch>
               </v-col>
               <v-col cols="12" md="8">
-                <v-select v-model="config.full_sync_mediaservers" label="媒体服务器" :items="mediaservers"
-                  multiple chips closable-chips :disabled="!config.full_sync_media_server_refresh_enabled"
-                  hint="全量同步完成后将刷新整个媒体库，请谨慎使用" persistent-hint></v-select>
+                <v-select v-model="config.full_sync_mediaservers" label="媒体服务器" :items="mediaservers" multiple chips
+                  closable-chips :disabled="!config.full_sync_media_server_refresh_enabled" hint="全量同步完成后将刷新整个媒体库，请谨慎使用"
+                  persistent-hint></v-select>
               </v-col>
               <v-col v-if="config.full_sync_media_server_refresh_enabled" cols="12">
                 <v-alert type="warning" variant="tonal" density="compact" class="mt-3" icon="mdi-alert">
@@ -253,8 +245,7 @@
                   <div v-for="(pair, index) in fullSyncPaths" :key="`full-${index}`"
                     class="mb-2 d-flex align-center gap-1">
                     <div class="path-selector flex-grow-1 mr-1">
-                      <v-text-field v-model="pair.local" label="本地STRM目录" density="compact"
-                        append-icon="mdi-folder"
+                      <v-text-field v-model="pair.local" label="本地STRM目录" density="compact" append-icon="mdi-folder"
                         @click:append="openDirSelector(index, 'local', 'fullSync')"></v-text-field>
                     </div>
                     <v-icon class="shrink-0">mdi-pound</v-icon>
@@ -265,9 +256,8 @@
                     </div>
                     <v-tooltip :text="pair.enabled ? '参与全量同步，点击关闭' : '不参与全量同步，点击开启'" location="top">
                       <template #activator="{ props: tooltipProps }">
-                        <v-btn v-bind="tooltipProps" icon size="small"
-                          :color="pair.enabled ? 'primary' : 'default'" variant="text" class="shrink-0"
-                          @click="pair.enabled = !pair.enabled">
+                        <v-btn v-bind="tooltipProps" icon size="small" :color="pair.enabled ? 'primary' : 'default'"
+                          variant="text" class="shrink-0" @click="pair.enabled = !pair.enabled">
                           <v-icon>{{ pair.enabled ? 'mdi-sync' : 'mdi-sync-off' }}</v-icon>
                         </v-btn>
                       </template>
@@ -277,14 +267,13 @@
                       <v-icon>mdi-delete</v-icon>
                     </v-btn>
                   </div>
-                  <v-btn size="small" prepend-icon="mdi-plus" variant="outlined"
-                    class="mt-2 align-self-start" @click="addPath('fullSync')">
+                  <v-btn size="small" prepend-icon="mdi-plus" variant="outlined" class="mt-2 align-self-start"
+                    @click="addPath('fullSync')">
                     添加路径
                   </v-btn>
                 </div>
 
-                <v-alert type="info" variant="tonal" density="compact" class="mt-3"
-                  icon="mdi-information">
+                <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
                   <div class="text-body-2 mb-1"><strong>功能说明：</strong></div>
                   <div class="text-caption">全量扫描配置的网盘目录，并在对应的本地目录生成STRM文件。</div>
                   <div class="text-body-2 mt-2 mb-1"><strong>配置说明：</strong></div>
@@ -308,12 +297,10 @@
               <v-expansion-panel-text class="pa-4">
                 <v-row>
                   <v-col cols="12" md="3">
-                    <v-switch v-model="config.full_sync_strm_log" label="输出STRM同步日志"
-                      color="primary"></v-switch>
+                    <v-switch v-model="config.full_sync_strm_log" label="输出STRM同步日志" color="primary"></v-switch>
                   </v-col>
                   <v-col cols="12" md="3">
-                    <v-switch v-model="config.full_sync_process_rust" label="Rust模式处理数据"
-                      color="primary"></v-switch>
+                    <v-switch v-model="config.full_sync_process_rust" label="Rust模式处理数据" color="primary"></v-switch>
                   </v-col>
                   <v-col cols="12" md="6">
                     <v-select v-model="config.full_sync_iter_function" label="迭代函数" :items="[
@@ -324,21 +311,19 @@
                 </v-row>
                 <v-row>
                   <v-col cols="12" md="6">
-                    <v-text-field v-model.number="config.full_sync_batch_num" label="全量同步批处理数量"
-                      type="number" hint="每次批量处理的文件/目录数量" persistent-hint
-                      density="compact"></v-text-field>
+                    <v-text-field v-model.number="config.full_sync_batch_num" label="全量同步批处理数量" type="number"
+                      hint="每次批量处理的文件/目录数量" persistent-hint density="compact"></v-text-field>
                   </v-col>
                   <v-col cols="12" md="6">
-                    <v-text-field v-model.number="config.full_sync_process_num" label="全量同步生成进程数"
-                      type="number" hint="同时执行同步任务的进程数量" persistent-hint density="compact"></v-text-field>
+                    <v-text-field v-model.number="config.full_sync_process_num" label="全量同步生成进程数" type="number"
+                      hint="同时执行同步任务的进程数量" persistent-hint density="compact"></v-text-field>
                   </v-col>
                 </v-row>
                 <v-row>
                   <v-col cols="12" md="6">
                     <v-text-field v-model.number="config.full_sync_remove_unless_max_threshold"
-                      label="清理无效 STRM 最大删除比例阈值 (%)" type="number"
-                      hint="当待删除文件数占本地文件总数的百分比超过此值时，将进入数据稳定性检查（默认 10%）" persistent-hint
-                      density="compact"></v-text-field>
+                      label="清理无效 STRM 最大删除比例阈值 (%)" type="number" hint="当待删除文件数占本地文件总数的百分比超过此值时，将进入数据稳定性检查（默认 10%）"
+                      persistent-hint density="compact"></v-text-field>
                   </v-col>
                   <v-col cols="12" md="6">
                     <v-text-field v-model.number="config.full_sync_remove_unless_stable_threshold"
@@ -355,17 +340,16 @@
         <v-card-text>
           <v-row>
             <v-col cols="12" md="3">
-              <v-switch v-model="config.increment_sync_strm_enabled" label="启用"
-                color="warning"></v-switch>
+              <v-switch v-model="config.increment_sync_strm_enabled" label="启用" color="warning"></v-switch>
             </v-col>
             <v-col cols="12" md="3">
-              <VCronField v-model="config.increment_sync_cron" label="运行增量同步周期" hint="设置增量同步的执行周期"
-                persistent-hint density="compact"></VCronField>
+              <VCronField v-model="config.increment_sync_cron" label="运行增量同步周期" hint="设置增量同步的执行周期" persistent-hint
+                density="compact"></VCronField>
             </v-col>
             <v-col cols="12" md="3">
               <v-text-field v-model="incrementSyncMinFileSizeFormattedRef" label="STRM最小文件大小"
-                hint="小于此值的文件将不生成STRM(单位K,M,G)" persistent-hint density="compact"
-                placeholder="例如: 100M (可为空)" clearable></v-text-field>
+                hint="小于此值的文件将不生成STRM(单位K,M,G)" persistent-hint density="compact" placeholder="例如: 100M (可为空)"
+                clearable></v-text-field>
             </v-col>
             <v-col cols="12" md="3">
               <v-switch v-model="config.increment_sync_auto_download_mediainfo_enabled" label="下载媒体数据文件"
@@ -386,13 +370,12 @@
                 color="warning"></v-switch>
             </v-col>
             <v-col cols="12" md="3">
-              <v-select v-model="config.increment_sync_mediaservers" label="媒体服务器" :items="mediaservers"
-                multiple chips closable-chips></v-select>
+              <v-select v-model="config.increment_sync_mediaservers" label="媒体服务器" :items="mediaservers" multiple chips
+                closable-chips></v-select>
             </v-col>
           </v-row>
 
-          <v-row
-            v-if="config.increment_sync_emby_mediainfo_enabled && !config.native_emby_mediainfo_enabled">
+          <v-row v-if="config.increment_sync_emby_mediainfo_enabled && !config.native_emby_mediainfo_enabled">
             <v-col cols="12">
               <v-alert type="warning" variant="tonal" density="compact" icon="mdi-alert-circle-outline">
                 <div class="text-caption">
@@ -405,18 +388,17 @@
           <v-row v-if="config.increment_sync_scrape_metadata_enabled" class="mt-2 mb-2">
             <v-col cols="12">
               <div class="d-flex flex-column">
-                <div v-for="(item, index) in incrementSyncExcludePaths"
-                  :key="`increment-exclude-${index}`" class="mb-2 d-flex align-center">
-                  <v-text-field v-model="item.path" label="刮削排除目录" density="compact" variant="outlined"
-                    readonly hide-details class="flex-grow-1 mr-2">
+                <div v-for="(item, index) in incrementSyncExcludePaths" :key="`increment-exclude-${index}`"
+                  class="mb-2 d-flex align-center">
+                  <v-text-field v-model="item.path" label="刮削排除目录" density="compact" variant="outlined" readonly
+                    hide-details class="flex-grow-1 mr-2">
                   </v-text-field>
                   <v-btn icon size="small" color="error" class="ml-2"
                     @click="removeExcludePathEntry(index, 'increment_exclude')" :disabled="!item.path">
                     <v-icon>mdi-delete</v-icon>
                   </v-btn>
                 </div>
-                <v-btn size="small" prepend-icon="mdi-folder-plus-outline" variant="tonal"
-                  class="mt-1 align-self-start"
+                <v-btn size="small" prepend-icon="mdi-folder-plus-outline" variant="tonal" class="mt-1 align-self-start"
                   @click="openExcludeDirSelector('increment_sync_scrape_metadata_exclude_paths')">
                   添加刮削排除目录
                 </v-btn>
@@ -433,8 +415,7 @@
                 <div v-for="(pair, index) in incrementSyncPaths" :key="`increment-${index}`"
                   class="mb-2 d-flex align-center">
                   <div class="path-selector flex-grow-1 mr-2">
-                    <v-text-field v-model="pair.local" label="本地STRM目录" density="compact"
-                      append-icon="mdi-folder"
+                    <v-text-field v-model="pair.local" label="本地STRM目录" density="compact" append-icon="mdi-folder"
                       @click:append="openDirSelector(index, 'local', 'incrementSync')"></v-text-field>
                   </div>
                   <v-icon>mdi-pound</v-icon>
@@ -443,13 +424,12 @@
                       append-icon="mdi-folder-network"
                       @click:append="openDirSelector(index, 'remote', 'incrementSync')"></v-text-field>
                   </div>
-                  <v-btn icon size="small" color="error" class="ml-2"
-                    @click="removePath(index, 'incrementSync')">
+                  <v-btn icon size="small" color="error" class="ml-2" @click="removePath(index, 'incrementSync')">
                     <v-icon>mdi-delete</v-icon>
                   </v-btn>
                 </div>
-                <v-btn size="small" prepend-icon="mdi-plus" variant="outlined"
-                  class="mt-2 align-self-start" @click="addPath('incrementSync')">
+                <v-btn size="small" prepend-icon="mdi-plus" variant="outlined" class="mt-2 align-self-start"
+                  @click="addPath('incrementSync')">
                   添加路径
                 </v-btn>
               </div>
@@ -472,20 +452,18 @@
                 <div v-for="(pair, index) in incrementSyncMPPaths" :key="`increment-mp-${index}`"
                   class="mb-2 d-flex align-center">
                   <div class="path-selector flex-grow-1 mr-2">
-                    <v-text-field v-model="pair.local" label="媒体库服务器映射目录"
-                      density="compact"></v-text-field>
+                    <v-text-field v-model="pair.local" label="媒体库服务器映射目录" density="compact"></v-text-field>
                   </div>
                   <v-icon>mdi-pound</v-icon>
                   <div class="path-selector flex-grow-1 ml-2">
                     <v-text-field v-model="pair.remote" label="MP映射目录" density="compact"></v-text-field>
                   </div>
-                  <v-btn icon size="small" color="error" class="ml-2"
-                    @click="removePath(index, 'increment-mp')">
+                  <v-btn icon size="small" color="error" class="ml-2" @click="removePath(index, 'increment-mp')">
                     <v-icon>mdi-delete</v-icon>
                   </v-btn>
                 </div>
-                <v-btn size="small" prepend-icon="mdi-plus" variant="outlined"
-                  class="mt-2 align-self-start" @click="addPath('increment-mp')">
+                <v-btn size="small" prepend-icon="mdi-plus" variant="outlined" class="mt-2 align-self-start"
+                  @click="addPath('increment-mp')">
                   添加路径
                 </v-btn>
               </div>
@@ -554,6 +532,52 @@
           </v-row>
 
           <v-row>
+            <v-col cols="12">
+              <v-card variant="outlined" class="pa-3 life-move-strategy-card">
+                <div class="d-flex align-center mb-2 life-move-title">
+                  <v-icon icon="mdi-tune-variant" size="14" class="mr-1"></v-icon>
+                  <span>移动事件处理策略</span>
+                </div>
+                <v-divider class="mb-3"></v-divider>
+                <v-row>
+                  <v-col cols="12" md="4">
+                    <v-select v-model="config.monitor_life_move_media_mode" label="媒体目录内移动模式" :items="[
+                      { title: '删除/重建（recreate）', value: 'recreate' },
+                      { title: '纯本地迁移（local_move）', value: 'local_move' }
+                    ]" density="compact" variant="outlined" hide-details="auto"></v-select>
+                  </v-col>
+                  <v-col cols="12" md="4">
+                    <v-switch v-model="config.monitor_life_move_out_media_remove_local_strm"
+                      label="媒体 -> 其它目录 时删除本地STRM" color="warning" density="compact" hide-details></v-switch>
+                  </v-col>
+                  <v-col cols="12" md="4">
+                    <v-switch v-model="config.monitor_life_move_media_to_transfer_remove_local_strm"
+                      label="媒体 -> 待整理 时删除本地STRM" color="warning" density="compact" hide-details></v-switch>
+                  </v-col>
+                </v-row>
+
+                <v-row v-if="config.monitor_life_move_media_mode === 'recreate'">
+                  <v-col cols="12" md="6">
+                    <v-switch v-model="config.monitor_life_move_media_keep_old_strm" label="媒体 -> 媒体 时保留旧STRM"
+                      color="primary" density="compact" hide-details></v-switch>
+                  </v-col>
+                  <v-col cols="12" md="6">
+                    <v-switch v-model="config.monitor_life_move_media_create_new_strm" label="媒体 -> 媒体 时生成新STRM"
+                      color="primary" density="compact" hide-details></v-switch>
+                  </v-col>
+                </v-row>
+
+                <v-alert type="info" variant="text" density="compact" class="mt-3" icon="mdi-information">
+                  <div class="text-caption">
+                    <div class="mb-1">• <strong>recreate</strong>：按配置执行“删旧/建新”，适合希望内容重算与重新生成的场景</div>
+                    <div>• <strong>local_move</strong>：仅本地移动旧 STRM 及关联文件，不重新生成</div>
+                  </div>
+                </v-alert>
+              </v-card>
+            </v-col>
+          </v-row>
+
+          <v-row>
             <v-col cols="12" md="3">
               <v-switch v-model="config.monitor_life_media_server_refresh_enabled" label="媒体服务器刷新"
                 color="warning"></v-switch>
@@ -563,13 +587,12 @@
                 color="warning"></v-switch>
             </v-col>
             <v-col cols="12" md="6">
-              <v-select v-model="config.monitor_life_mediaservers" label="媒体服务器" :items="mediaservers"
-                multiple chips closable-chips></v-select>
+              <v-select v-model="config.monitor_life_mediaservers" label="媒体服务器" :items="mediaservers" multiple chips
+                closable-chips></v-select>
             </v-col>
           </v-row>
 
-          <v-row
-            v-if="config.monitor_life_emby_mediainfo_enabled && !config.native_emby_mediainfo_enabled">
+          <v-row v-if="config.monitor_life_emby_mediainfo_enabled && !config.native_emby_mediainfo_enabled">
             <v-col cols="12">
               <v-alert type="warning" variant="tonal" density="compact" icon="mdi-alert-circle-outline">
                 <div class="text-caption">
@@ -590,13 +613,12 @@
             </v-col>
             <v-col cols="12" md="3">
               <v-text-field v-model="monitorLifeMinFileSizeFormattedRef" label="STRM最小文件大小"
-                hint="小于此值的文件将不生成STRM(单位K,M,G)" persistent-hint density="compact"
-                placeholder="例如: 100M (可为空)" clearable></v-text-field>
+                hint="小于此值的文件将不生成STRM(单位K,M,G)" persistent-hint density="compact" placeholder="例如: 100M (可为空)"
+                clearable></v-text-field>
             </v-col>
             <v-col cols="12" md="3">
-              <v-text-field v-model.number="config.monitor_life_event_wait_time" label="事件处理延迟时间"
-                type="number" hint="接收到事件后等待的时间，0 则代表不等待 (单位秒)" persistent-hint
-                density="compact"></v-text-field>
+              <v-text-field v-model.number="config.monitor_life_event_wait_time" label="事件处理延迟时间" type="number"
+                hint="接收到事件后等待的时间，0 则代表不等待 (单位秒)" persistent-hint density="compact"></v-text-field>
             </v-col>
           </v-row>
 
@@ -606,16 +628,15 @@
               <div class="d-flex flex-column">
                 <div v-for="(item, index) in monitorLifeExcludePaths" :key="`life-exclude-${index}`"
                   class="mb-2 d-flex align-center">
-                  <v-text-field v-model="item.path" label="刮削排除目录" density="compact" variant="outlined"
-                    readonly hide-details class="flex-grow-1 mr-2">
+                  <v-text-field v-model="item.path" label="刮削排除目录" density="compact" variant="outlined" readonly
+                    hide-details class="flex-grow-1 mr-2">
                   </v-text-field>
                   <v-btn icon size="small" color="error" class="ml-2"
                     @click="removeExcludePathEntry(index, 'life_exclude')" :disabled="!item.path">
                     <v-icon>mdi-delete</v-icon>
                   </v-btn>
                 </div>
-                <v-btn size="small" prepend-icon="mdi-folder-plus-outline" variant="tonal"
-                  class="mt-1 align-self-start"
+                <v-btn size="small" prepend-icon="mdi-folder-plus-outline" variant="tonal" class="mt-1 align-self-start"
                   @click="openExcludeDirSelector('monitor_life_scrape_metadata_exclude_paths')">
                   添加刮削排除目录
                 </v-btn>
@@ -629,11 +650,9 @@
           <v-row>
             <v-col cols="12">
               <div class="d-flex flex-column">
-                <div v-for="(pair, index) in monitorLifePaths" :key="`life-${index}`"
-                  class="mb-2 d-flex align-center">
+                <div v-for="(pair, index) in monitorLifePaths" :key="`life-${index}`" class="mb-2 d-flex align-center">
                   <div class="path-selector flex-grow-1 mr-2">
-                    <v-text-field v-model="pair.local" label="本地STRM目录" density="compact"
-                      append-icon="mdi-folder"
+                    <v-text-field v-model="pair.local" label="本地STRM目录" density="compact" append-icon="mdi-folder"
                       @click:append="openDirSelector(index, 'local', 'monitorLife')"></v-text-field>
                   </div>
                   <v-icon>mdi-pound</v-icon>
@@ -642,13 +661,12 @@
                       append-icon="mdi-folder-network"
                       @click:append="openDirSelector(index, 'remote', 'monitorLife')"></v-text-field>
                   </div>
-                  <v-btn icon size="small" color="error" class="ml-2"
-                    @click="removePath(index, 'monitorLife')">
+                  <v-btn icon size="small" color="error" class="ml-2" @click="removePath(index, 'monitorLife')">
                     <v-icon>mdi-delete</v-icon>
                   </v-btn>
                 </div>
-                <v-btn size="small" prepend-icon="mdi-plus" variant="outlined"
-                  class="mt-2 align-self-start" @click="addPath('monitorLife')">
+                <v-btn size="small" prepend-icon="mdi-plus" variant="outlined" class="mt-2 align-self-start"
+                  @click="addPath('monitorLife')">
                   添加路径
                 </v-btn>
               </div>
@@ -671,20 +689,18 @@
                 <div v-for="(pair, index) in monitorLifeMpPaths" :key="`life-mp-${index}`"
                   class="mb-2 d-flex align-center">
                   <div class="path-selector flex-grow-1 mr-2">
-                    <v-text-field v-model="pair.local" label="媒体库服务器映射目录"
-                      density="compact"></v-text-field>
+                    <v-text-field v-model="pair.local" label="媒体库服务器映射目录" density="compact"></v-text-field>
                   </div>
                   <v-icon>mdi-pound</v-icon>
                   <div class="path-selector flex-grow-1 ml-2">
                     <v-text-field v-model="pair.remote" label="MP映射目录" density="compact"></v-text-field>
                   </div>
-                  <v-btn icon size="small" color="error" class="ml-2"
-                    @click="removePath(index, 'monitorLifeMp')">
+                  <v-btn icon size="small" color="error" class="ml-2" @click="removePath(index, 'monitorLifeMp')">
                     <v-icon>mdi-delete</v-icon>
                   </v-btn>
                 </div>
-                <v-btn size="small" prepend-icon="mdi-plus" variant="outlined"
-                  class="mt-2 align-self-start" @click="addPath('monitorLifeMp')">
+                <v-btn size="small" prepend-icon="mdi-plus" variant="outlined" class="mt-2 align-self-start"
+                  @click="addPath('monitorLifeMp')">
                   添加路径
                 </v-btn>
               </div>
@@ -705,8 +721,7 @@
 
           <v-row class="mt-4">
             <v-col cols="12">
-              <v-btn color="info" variant="outlined" prepend-icon="mdi-bug-check"
-                @click="checkLifeEventStatus">
+              <v-btn color="info" variant="outlined" prepend-icon="mdi-bug-check" @click="checkLifeEventStatus">
                 故障检查
               </v-btn>
               <div class="text-caption text-grey mt-2">
@@ -724,8 +739,7 @@
             <div class="text-caption">
               详细 API 文档请参考：
               <a href="https://github.com/DDSRem-Dev/MoviePilot-Plugins/blob/main/docs/p115strmhelper/API_STRM生成功能文档.md"
-                target="_blank" rel="noopener noreferrer"
-                style="color: inherit; text-decoration: underline;">
+                target="_blank" rel="noopener noreferrer" style="color: inherit; text-decoration: underline;">
                 GitHub 文档链接
               </a>
             </div>
@@ -737,12 +751,12 @@
                 density="compact"></v-switch>
             </v-col>
             <v-col cols="12" md="3">
-              <v-switch v-model="config.api_strm_media_server_refresh_enabled" label="媒体服务器刷新"
-                color="warning" density="compact"></v-switch>
+              <v-switch v-model="config.api_strm_media_server_refresh_enabled" label="媒体服务器刷新" color="warning"
+                density="compact"></v-switch>
             </v-col>
             <v-col cols="12" md="6">
-              <v-select v-model="config.api_strm_mediaservers" label="媒体服务器" :items="mediaservers"
-                multiple chips closable-chips density="compact"></v-select>
+              <v-select v-model="config.api_strm_mediaservers" label="媒体服务器" :items="mediaservers" multiple chips
+                closable-chips density="compact"></v-select>
             </v-col>
           </v-row>
 
@@ -756,11 +770,9 @@
           <v-row>
             <v-col cols="12">
               <div class="d-flex flex-column">
-                <div v-for="(pair, index) in apiStrmPaths" :key="`api-strm-${index}`"
-                  class="mb-2 d-flex align-center">
+                <div v-for="(pair, index) in apiStrmPaths" :key="`api-strm-${index}`" class="mb-2 d-flex align-center">
                   <div class="path-selector flex-grow-1 mr-2">
-                    <v-text-field v-model="pair.local" label="本地STRM目录" density="compact"
-                      append-icon="mdi-folder"
+                    <v-text-field v-model="pair.local" label="本地STRM目录" density="compact" append-icon="mdi-folder"
                       @click:append="openDirSelector(index, 'local', 'apiStrm')"></v-text-field>
                   </div>
                   <v-icon>mdi-pound</v-icon>
@@ -769,13 +781,12 @@
                       append-icon="mdi-folder-network"
                       @click:append="openDirSelector(index, 'remote', 'apiStrm')"></v-text-field>
                   </div>
-                  <v-btn icon size="small" color="error" class="ml-2"
-                    @click="removePath(index, 'apiStrm')">
+                  <v-btn icon size="small" color="error" class="ml-2" @click="removePath(index, 'apiStrm')">
                     <v-icon>mdi-delete</v-icon>
                   </v-btn>
                 </div>
-                <v-btn size="small" prepend-icon="mdi-plus" variant="outlined"
-                  class="mt-2 align-self-start" @click="addPath('apiStrm')">
+                <v-btn size="small" prepend-icon="mdi-plus" variant="outlined" class="mt-2 align-self-start"
+                  @click="addPath('apiStrm')">
                   添加路径
                 </v-btn>
               </div>
@@ -825,3 +836,17 @@ const openExcludeDirSelector = inject('openExcludeDirSelector');
 const removeExcludePathEntry = inject('removeExcludePathEntry');
 const checkLifeEventStatus = inject('checkLifeEventStatus');
 </script>
+
+<style scoped>
+.life-move-strategy-card {
+  background: rgba(var(--v-theme-on-surface), 0.02);
+  border-color: rgba(var(--v-theme-on-surface), 0.08);
+}
+
+.life-move-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: rgba(var(--v-theme-on-surface), 0.85);
+  letter-spacing: 0.01em;
+}
+</style>

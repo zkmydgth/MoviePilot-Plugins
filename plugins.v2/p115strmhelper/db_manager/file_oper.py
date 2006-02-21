@@ -348,6 +348,17 @@ class FileDbHelper(DbOper):
 
         return True
 
+    def update_path_prefix_batch(
+        self, old_prefix: str, new_prefix: str, only_file: bool = False
+    ) -> bool:
+        """
+        批量更新以旧前缀开头的路径
+        """
+        File.update_path_prefix(self._db, old_prefix, new_prefix)
+        if not only_file:
+            Folder.update_path_prefix(self._db, old_prefix, new_prefix)
+        return True
+
     def get_any_pickcode(self) -> Optional[str]:
         """
         从文件表中任意获取一条 pickcode 不为空的数据的 pickcode
