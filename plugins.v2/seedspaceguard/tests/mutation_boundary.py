@@ -147,31 +147,35 @@ MUTANTS = [
 
     # ---------------- 保守返回：改成乐观默认 ----------------
     (
-        "保守返回失效：无记录时乐观认为可删种",
-        """        if not records:
-            # 无文件记录：无从判定，保守起见不删种
+        "保守返回失效：无任何依据时乐观认为可删种",
+        """        if records_checked == 0 and not (cand and cand.get("path")):
+            # 完全没有任何可复核的依据：无从判定，保守保留种子
             return False""",
-        """        if not records:
+        """        if records_checked == 0 and not (cand and cand.get("path")):
             return True""",
-        "应导致 no_records_keeps_torrent 失败",
+        "应导致 test_blank_record_path_is_inconclusive_and_kept / "
+        "test_no_record_at_all_with_real_files_kept 失败",
     ),
     (
         "保守返回失效：查询异常时乐观认为可删种",
-        """        except Exception as err:
-            logger.error("【保种空间守护】查询种子文件记录失败（%s）：%s", hash_str, err)
-            return False""",
-        """        except Exception as err:
-            logger.error("【保种空间守护】查询种子文件记录失败（%s）：%s", hash_str, err)
-            return True""",
-        "应导致 query_exception_keeps_torrent 失败",
+        """            except Exception as err:
+                logger.error("【保种空间守护】查询种子文件记录失败（%s）：%s", hash_str, err)
+                return False""",
+        """            except Exception as err:
+                logger.error("【保种空间守护】查询种子文件记录失败（%s）：%s", hash_str, err)
+                pass""",
+        "应导致 test_record_query_error_keeps_seed 失败",
     ),
     (
-        "空路径记录被误判为存在（种子永远删不掉）",
-        """            if not fullpath:
-                continue""",
-        """            if not fullpath:
-                return False""",
-        "应导致 blank_record_path_does_not_block 失败",
+        "物理复核失效：候选路径不被查验（退回只信记录，会误删完好种子）",
+        """        if cand is not None:
+            content_path = str(cand.get("path") or "").strip()
+            if content_path and os.path.exists(content_path):""",
+        """        if False:
+            content_path = str(cand.get("path") or "").strip()
+            if content_path and os.path.exists(content_path):""",
+        "应导致 test_real_files_alive_with_stale_record_kept / "
+        "test_blank_record_with_real_files_kept / test_nested_subdir_with_files_kept 失败",
     ),
     (
         "下载器异常未被吞掉（联动异常冒泡到主流程）",

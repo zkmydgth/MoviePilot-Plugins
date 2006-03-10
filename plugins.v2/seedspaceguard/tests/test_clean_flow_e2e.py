@@ -325,8 +325,8 @@ class TestCheckAndClean(_E2EBase):
         finally:
             self.plugin._lock.release()
 
-    def test_notification_sent(self):
-        """按配置应发送通知。"""
+    def test_manual_trigger_notifies_when_space_sufficient(self):
+        """手动触发时即使空间充足也要通知（待办1：用户主动点按钮必须有回执）。"""
         self.plugin._enabled = True
         self.plugin._target_dirs = [self.dl]
         self.plugin._threshold_gb = 10
@@ -335,8 +335,213 @@ class TestCheckAndClean(_E2EBase):
         with self.patch_free([100 * GIB]):
             self.plugin.check_and_clean(source="手动")
 
-        # 空间充足时按设计不发通知
-        self.assertEqual(len(self.plugin.sent_messages), 0)
+        self.assertEqual(len(self.plugin.sent_messages), 1,
+                         "手动触发空间充足时必须推送回执")
+
+    def test_timed_trigger_stays_silent_when_space_sufficient(self):
+        """定时触发 + 空间充足 + 无空壳 → 保持静默，避免每 6 小时一条噪音。"""
+        self.plugin._enabled = True
+        self.plugin._target_dirs = [self.dl]
+        self.plugin._threshold_gb = 10
+        self.plugin._notify = True
+
+        with self.patch_free([100 * GIB]):
+            self.plugin.check_and_clean(source="定时")
+
+        self.assertEqual(len(self.plugin.sent_messages), 0,
+                         "定时触发且无任何动作时应静默")
+
+    def test_command_trigger_notifies_when_space_sufficient(self):
+        """命令触发（/seedguard）同样视为主动发起，必须通知。"""
+        self.plugin._enabled = True
+        self.plugin._target_dirs = [self.dl]
+        self.plugin._threshold_gb = 10
+        self.plugin._notify = True
+
+        with self.patch_free([100 * GIB]):
+            self.plugin.check_and_clean(source="命令")
+
+        self.assertEqual(len(self.plugin.sent_messages), 1,
+                         "命令触发空间充足时也必须推送回执")
+
+    def test_timed_trigger_notifies_when_orphans_reaped(self):
+        """定时触发若本轮回收了空壳种子，也要通知（否则回收动作悄无声息）。"""
+        from app.core.module import ModuleManager
+        from app.schemas.types import DownloaderType
+
+        empty_dir = os.path.join(self.dl, "空壳种子")
+        os.makedirs(empty_dir, exist_ok=True)
+
+        class _Server:
+            """伪下载器：返回一个内容路径为空的种子（空壳）。"""
+
+            def __init__(self):
+                self.removed = []
+
+            def get_torrents(self, *args, **kwargs):
+                return [
+                    {
+                        "progress": 1.0,
+                        "content_path": empty_dir,
+                        "hash": "hash_orphan_e2e",
+                        "name": "空壳种子",
+                        "completion_on": int(time.time()) - 30 * 86400,
+                        "size": 1024 ** 3,
+                    }
+                ]
+
+            def remove_torrents(self, hashs=None, delete_file=False,
+                                downloader=None, **kwargs):
+                """真删分支需要此方法，缺失会导致回收不计数。"""
+                self.removed.extend(hashs or [])
+                return True
+
+        ModuleManager.reset()
+        ModuleManager.register_downloader(
+            DownloaderType.Qbittorrent, "qb", _Server()
+        )
+
+        self.plugin._enabled = True
+        self.plugin._target_dirs = [self.dl]
+        self.plugin._active_dirs = [self.dl]
+        self.plugin._downloaders = []
+        self.plugin._threshold_gb = 10
+        self.plugin._notify = True
+        self.plugin._delete_torrents = True
+        self.plugin._dry_run = False
+
+        with self.patch_free([100 * GIB]):
+            self.plugin.check_and_clean(source="定时")
+
+        self.assertGreaterEqual(len(self.plugin.sent_messages), 1,
+                                "定时触发回收了空壳也必须通知")
+
+    def test_orphan_count_folded_into_seed_stat(self):
+        """待办3：空壳回收数必须计入 seeds 统计，摘要不得出现 130 vs 0 的矛盾。"""
+        from app.core.module import ModuleManager
+        from app.schemas.types import DownloaderType
+
+        empty_dir = os.path.join(self.dl, "空壳种子2")
+        os.makedirs(empty_dir, exist_ok=True)
+
+        class _Server:
+            def get_torrents(self, *args, **kwargs):
+                return [
+                    {
+                        "progress": 1.0,
+                        "content_path": empty_dir,
+                        "hash": "hash_orphan_stat",
+                        "name": "空壳种子2",
+                        "completion_on": int(time.time()) - 30 * 86400,
+                        "size": 1024 ** 3,
+                    }
+                ]
+
+            def remove_torrents(self, hashs=None, delete_file=False,
+                                downloader=None, **kwargs):
+                return True
+
+        ModuleManager.reset()
+        ModuleManager.register_downloader(
+            DownloaderType.Qbittorrent, "qb", _Server()
+        )
+
+        self.plugin._enabled = True
+        self.plugin._target_dirs = [self.dl]
+        self.plugin._active_dirs = [self.dl]
+        self.plugin._downloaders = []
+        self.plugin._threshold_gb = 10
+        self.plugin._notify = True
+        self.plugin._delete_torrents = True
+        self.plugin._dry_run = True
+
+        with self.patch_free([100 * GIB]):
+            self.plugin.check_and_clean(source="定时")
+
+        stats = self.plugin._clean_stats
+        self.assertEqual(stats.get("seeds"), 1,
+                         "空壳回收数应计入 seeds 统计（不得为 0）")
+        body = self.plugin.sent_messages[-1].get("text", "")
+        self.assertIn("删除种子：1 个", body,
+                      "摘要中的删除种子数应与空壳回收数一致")
+
+    def test_seed_mode_accumulates_orphan_and_deleted_counts(self):
+        """待办3：种子级模式下，空壳回收数不得被种子级删除数覆盖。
+
+        这是「覆盖 vs 累加」的关键防线：若 `_clean_by_seed` 结尾直接
+        `seeds = deleted`，进入该方法前已统计的空壳数会被冲掉，
+        摘要少报 → 用户以为空壳没被回收。
+        """
+        from app.core.module import ModuleManager
+        from app.schemas.types import DownloaderType
+
+        # 空壳：目录存在但为空
+        empty_dir = os.path.join(self.dl, "空壳A")
+        os.makedirs(empty_dir, exist_ok=True)
+        # 待清理的老种子：目录里有文件
+        real_dir = os.path.join(self.dl, "老种子B")
+        os.makedirs(real_dir, exist_ok=True)
+        self.make_file(os.path.join(real_dir, "b.mkv"), 4096, 30)
+
+        class _Server:
+            def __init__(self):
+                self.removed = []
+
+            def get_torrents(self, *args, **kwargs):
+                old = int(time.time()) - 40 * 86400
+                return [
+                    {
+                        "progress": 1.0,
+                        "content_path": empty_dir,
+                        "hash": "hash_empty_a",
+                        "name": "空壳A",
+                        "completion_on": old,
+                        "size": 1024 ** 3,
+                    },
+                    {
+                        "progress": 1.0,
+                        "content_path": real_dir,
+                        "hash": "hash_old_b",
+                        "name": "老种子B",
+                        "completion_on": old,
+                        "size": 2 * 1024 ** 3,
+                    },
+                ]
+
+            def remove_torrents(self, hashs=None, delete_file=False,
+                                downloader=None, **kwargs):
+                self.removed.extend(hashs or [])
+                return True
+
+        ModuleManager.reset()
+        ModuleManager.register_downloader(
+            DownloaderType.Qbittorrent, "qb", _Server()
+        )
+
+        self.plugin._enabled = True
+        self.plugin._target_dirs = [self.dl]
+        self.plugin._active_dirs = [self.dl]
+        self.plugin._downloaders = []
+        self.plugin._mode = "seed"
+        self.plugin._threshold_gb = 100
+        self.plugin._notify = True
+        self.plugin._delete_torrents = True
+        self.plugin._dry_run = True
+        self.plugin._recent_skip_days = 1
+        self.plugin._sync_wait_seconds = 0
+
+        # 空间不足 → 走种子级清理分支
+        with self.patch_free([1 * GIB]):
+            self.plugin.check_and_clean(source="手动")
+
+        stats = self.plugin._clean_stats
+        # 空壳 1 个（老种子B 有文件不算空壳）+ 种子级删除 2 个 = 3
+        # 若结尾是覆盖（seeds = deleted），会退化成 2，此处必须精确断言
+        self.assertEqual(
+            stats.get("seeds"), 3,
+            "空壳回收数(1) + 种子级删除数(2) 应累加为 3；"
+            f"被覆盖时会少报，实际 {stats.get('seeds')}",
+        )
 
     def test_notification_on_clean(self):
         """实际清理后应发送通知。"""
@@ -734,6 +939,221 @@ class TestDryRunFullPreview(_E2EBase):
                 source="手动", dry_run_override=False
             )
         self.assertTrue(msg.startswith("[清理]"), f"缺前缀：{msg}")
+
+
+class TestQbitWipedTransmissionKeepsE2E(_E2EBase):
+    """
+    端到端复现真实误删事故（2026-09-20）：qB 清空 + tr 仍在保种。
+
+    完整链路：同一 hash 在 qBittorrent 与 Transmission 并存（做种转移的
+    常见状态），``DownloadFiles`` 登记的是后来被清空的那一侧路径。之后
+    空壳扫描纳入该种子，旧实现仅凭失效记录判出「文件已全部删除」→ 删种，
+    而磁盘上文件完好。本类验证修复后**全流程**都不会删这个种子。
+    """
+
+    class _DualServer:
+        """可同时充当 qB 与 tr 的伪下载器。"""
+
+        def __init__(self, torrents=None):
+            self.torrents = list(torrents or [])
+            self.removed = []
+
+        def get_torrents(self, *args, **kwargs):
+            return list(self.torrents)
+
+        def list_torrents(self, hashs=None, *args, **kwargs):
+            want = set(hashs or [])
+            return [t for t in self.torrents if not want or t["hash"] in want]
+
+        def remove_torrents(self, hashs=None, delete_file=False, downloader=None):
+            self.removed.append((list(hashs or []), delete_file, downloader))
+            return True
+
+    def _torrent(self, path, hash_str, name):
+        """构造 qBittorrent 风格的种子条目（走 content_path）。"""
+        return {
+            "progress": 1.0,
+            "content_path": path,
+            "hash": hash_str,
+            "name": name,
+            "completion_on": int(time.time()) - 30 * 86400,
+            "size": 178 * 1024 ** 3,
+        }
+
+    def _tr_torrent(self, seed_dir, hash_str, name):
+        """构造 Transmission 风格的种子条目（走 download_dir + name 拼接）。"""
+        return {
+            "percent_done": 1.0,
+            "download_dir": os.path.dirname(seed_dir),
+            "name": os.path.basename(seed_dir),
+            "hash_string": hash_str,
+            "done_date": int(time.time()) - 30 * 86400,
+            "total_size": 178 * 1024 ** 3,
+        }
+
+    def test_seed_kept_when_record_side_was_wiped(self):
+        """核心复现：记录侧（qB）已清空，真实目录（tr 保种）文件完好 → 保留。"""
+        from app.core.module import ModuleManager
+        from app.db.downloadhistory_oper import DownloadHistoryOper
+        from app.schemas.types import DownloaderType
+
+        ModuleManager.reset()
+        DownloadHistoryOper.reset()
+
+        # 真实内容：84 个文件（这里用 3 个代表），位于下载目录内
+        seed_dir = os.path.join(self.dl, "The.King.of.Stand-up.Comedy.S03")
+        os.makedirs(seed_dir, exist_ok=True)
+        for i in range(3):
+            self.make_file(os.path.join(seed_dir, f"e{i:02d}.mkv"), size_kb=4096)
+
+        # 下载器（tr）报告种子的真实内容路径
+        server = self._DualServer([self._torrent(seed_dir, "HASH_KING", "The.King")])
+        ModuleManager.register_downloader(DownloaderType.Qbittorrent, "qb", server)
+
+        # 数据库登记的是「已被清空的 qB 侧路径」——这正是事故的成因
+        DownloadHistoryOper.add_seed(
+            "HASH_KING", [os.path.join(self.dl, "旧路径", "e00.mkv")]
+        )
+
+        self.configure([self.dl], threshold=500, mode="file", sync_wait=0)
+        self.plugin._delete_torrents = True
+        self.plugin._delete_history = True
+        self.plugin._downloadhis = DownloadHistoryOper()
+        self.plugin._transferhis = None
+
+        with self.patch_free([501 * GIB, 501 * GIB, 501 * GIB]):
+            msg = self.plugin.check_and_clean(source="手动", dry_run_override=False)
+
+        self.assertEqual(server.removed, [], f"文件完好，严禁回收种子。消息：{msg}")
+        self.assertNotIn("回收空壳种子", msg, f"不应预告回收。消息：{msg}")
+        # 文件一个都不能少
+        for i in range(3):
+            self.assertTrue(
+                os.path.exists(os.path.join(seed_dir, f"e{i:02d}.mkv")),
+                "磁盘文件不得被触碰",
+            )
+
+    def test_dry_run_also_keeps(self):
+        """试运行同样不得预告回收（通知内容不能误导）。"""
+        from app.core.module import ModuleManager
+        from app.db.downloadhistory_oper import DownloadHistoryOper
+        from app.schemas.types import DownloaderType
+
+        ModuleManager.reset()
+        DownloadHistoryOper.reset()
+
+        seed_dir = os.path.join(self.dl, "Stale.Dry")
+        os.makedirs(seed_dir, exist_ok=True)
+        self.make_file(os.path.join(seed_dir, "a.mkv"), size_kb=4096)
+        server = self._DualServer([self._torrent(seed_dir, "HASH_DRY", "Stale")])
+        ModuleManager.register_downloader(DownloaderType.Qbittorrent, "qb", server)
+        DownloadHistoryOper.add_seed(
+            "HASH_DRY", [os.path.join(self.dl, "旧路径", "a.mkv")]
+        )
+
+        self.configure([self.dl], threshold=500, mode="file", sync_wait=0)
+        self.plugin._delete_torrents = True
+        self.plugin._downloadhis = DownloadHistoryOper()
+        self.plugin._transferhis = None
+
+        with self.patch_free([501 * GIB, 501 * GIB, 501 * GIB]):
+            msg = self.plugin.check_and_clean(source="手动", dry_run_override=True)
+
+        self.assertNotIn("空壳种子", msg, f"试运行不得预告回收。消息：{msg}")
+        self.assertEqual(server.removed, [])
+
+    def test_genuinely_empty_seed_still_reaped_e2e(self):
+        """确证删空的种子在全流程中仍应被回收（修复不得矫枉过正）。"""
+        from app.core.module import ModuleManager
+        from app.db.downloadhistory_oper import DownloadHistoryOper
+        from app.schemas.types import DownloaderType
+
+        ModuleManager.reset()
+        DownloadHistoryOper.reset()
+
+        # 目录存在但为空；记录里的文件已删
+        seed_dir = os.path.join(self.dl, "ReallyGone")
+        os.makedirs(seed_dir, exist_ok=True)
+        gone = os.path.join(seed_dir, "gone.mkv")
+        DownloadHistoryOper.add_seed("HASH_REALLY_GONE", [gone])
+        server = self._DualServer(
+            [self._torrent(seed_dir, "HASH_REALLY_GONE", "ReallyGone")]
+        )
+        ModuleManager.register_downloader(DownloaderType.Qbittorrent, "qb", server)
+
+        self.configure([self.dl], threshold=500, mode="file", sync_wait=0)
+        self.plugin._delete_torrents = True
+        self.plugin._downloadhis = DownloadHistoryOper()
+        self.plugin._transferhis = None
+
+        with self.patch_free([501 * GIB, 501 * GIB, 501 * GIB]):
+            msg = self.plugin.check_and_clean(source="手动", dry_run_override=False)
+
+        self.assertEqual(
+            server.removed[0][0], ["HASH_REALLY_GONE"], f"应回收空壳。消息：{msg}"
+        )
+        self.assertFalse(server.removed[0][1], "回收不得连带删文件")
+        self.assertIn("回收空壳种子", msg)
+
+    def test_tr_side_stale_record_keeps_seed(self):
+        """tr 场景：记录失效、tr 真实目录有文件 → 保留（覆盖 tr 路径拼接）。"""
+        from app.core.module import ModuleManager
+        from app.db.downloadhistory_oper import DownloadHistoryOper
+        from app.schemas.types import DownloaderType
+
+        ModuleManager.reset()
+        DownloadHistoryOper.reset()
+
+        seed_dir = os.path.join(self.dl, "TR.Stale")
+        os.makedirs(seed_dir, exist_ok=True)
+        self.make_file(os.path.join(seed_dir, "a.mkv"), size_kb=4096)
+        server = self._DualServer(
+            [self._tr_torrent(seed_dir, "HASH_TR_STALE", "TR.Stale")]
+        )
+        ModuleManager.register_downloader(DownloaderType.Transmission, "tr", server)
+        DownloadHistoryOper.add_seed(
+            "HASH_TR_STALE", [os.path.join(self.dl, "旧路径", "a.mkv")]
+        )
+
+        self.configure([self.dl], threshold=500, mode="file", sync_wait=0)
+        self.plugin._delete_torrents = True
+        self.plugin._downloadhis = DownloadHistoryOper()
+        self.plugin._transferhis = None
+
+        with self.patch_free([501 * GIB, 501 * GIB, 501 * GIB]):
+            msg = self.plugin.check_and_clean(source="手动", dry_run_override=False)
+
+        self.assertEqual(server.removed, [], f"tr 侧文件完好，严禁回收。消息：{msg}")
+
+    def test_tr_empty_dir_reaped(self):
+        """tr 场景：目录确实空 → 仍应回收（确认 tr 分支未被误伤）。"""
+        from app.core.module import ModuleManager
+        from app.db.downloadhistory_oper import DownloadHistoryOper
+        from app.schemas.types import DownloaderType
+
+        ModuleManager.reset()
+        DownloadHistoryOper.reset()
+
+        seed_dir = os.path.join(self.dl, "TR.Gone")
+        os.makedirs(seed_dir, exist_ok=True)
+        DownloadHistoryOper.add_seed(
+            "HASH_TR_GONE", [os.path.join(seed_dir, "gone.mkv")]
+        )
+        server = self._DualServer(
+            [self._tr_torrent(seed_dir, "HASH_TR_GONE", "TR.Gone")]
+        )
+        ModuleManager.register_downloader(DownloaderType.Transmission, "tr", server)
+
+        self.configure([self.dl], threshold=500, mode="file", sync_wait=0)
+        self.plugin._delete_torrents = True
+        self.plugin._downloadhis = DownloadHistoryOper()
+        self.plugin._transferhis = None
+
+        with self.patch_free([501 * GIB, 501 * GIB, 501 * GIB]):
+            self.plugin.check_and_clean(source="手动", dry_run_override=False)
+
+        self.assertEqual(server.removed[0][0], ["HASH_TR_GONE"], "tr 空壳应被回收")
+        self.assertFalse(server.removed[0][1])
 
 
 if __name__ == "__main__":
