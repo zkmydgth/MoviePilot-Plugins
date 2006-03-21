@@ -1,55 +1,36 @@
-import threading
-import time
-import shutil
 import base64
 import re
+import shutil
+import threading
+import time
 import traceback
-from threading import Event as ThreadEvent, Timer
-from queue import Queue, Empty
 from collections import defaultdict
 from collections.abc import Mapping
+from copy import deepcopy
+from dataclasses import asdict
 from datetime import datetime, timedelta
-from typing import Any, List, Dict, Tuple, cast, Optional, MutableMapping
 from errno import EIO, ENOENT
-from urllib.parse import quote, unquote, urlsplit, urlencode
+from functools import wraps
 from itertools import chain, batched
 from pathlib import Path
-from functools import wraps
-from dataclasses import asdict
+from queue import Queue, Empty
+from threading import Event as ThreadEvent, Timer
+from typing import Any, List, Dict, Tuple, cast, Optional, MutableMapping, Union
+from urllib.parse import quote, unquote, urlsplit, urlencode
 
 import pytz
-from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.triggers.cron import CronTrigger
-from fastapi import Request, Response
 import requests
-from orjson import dumps, loads
-from cachetools import cached, TTLCache
-from watchdog.events import FileSystemEventHandler
-from watchdog.observers import Observer
-from watchdog.observers.polling import PollingObserver
-from p115client import P115Client
-from p115client.exception import DataError
-from p115client.tool.fs_files import iter_fs_files
-from p115client.tool.iterdir import iter_files_with_path, get_path_to_cid, share_iterdir
-from p115client.tool.life import iter_life_behavior_once, life_show
-from p115client.tool.util import share_extract_payload
-from p115rsacipher import encrypt, decrypt
-
-from .core.config import configer
-from .core.cache import IdPathCache
-from .core.u115_open import U115OpenHelper
-from .core.scrape_metadata import media_scrape_metadata
-from .helper.mediainfo_download import MediaInfoDownloader
-from .helper.strm import FullSyncStrmHelper, ShareStrmHelper, IncrementSyncStrmHelper
-from .sdk.cloudsaver import CloudSaverHelper
-from .db_manager import ct_db_manager
-from .db_manager.init import init_db, update_db
-from .db_manager.oper import FileDbHelper
-from .utils.http import check_response
-from .utils.path import PathMatchingHelper
-from .utils.url import Url
-
-from app import schemas
+from app.chain.media import MediaChain
+from app.chain.storage import StorageChain
+from app.chain.transfer import TransferChain
+from app.core.config import settings
+from app.core.context import MediaInfo
+from app.core.event import eventmanager, Event
+from app.core.meta import MetaBase
+from app.core.metainfo import MetaInfo
+from app.helper.mediaserver import MediaServerHelper
+from app.log import logger
+from app.plugins import _PluginBase
 from app.schemas import (
     TransferInfo,
     FileItem,
@@ -57,20 +38,45 @@ from app.schemas import (
     ServiceInfo,
     NotificationType,
 )
-from app.schemas.types import EventType
-from app.core.config import settings
-from app.core.event import eventmanager, Event
-from app.core.context import MediaInfo
-from app.core.meta import MetaBase
-from app.core.metainfo import MetaInfo
-from app.log import logger
-from app.plugins import _PluginBase
-from app.chain.transfer import TransferChain
-from app.chain.media import MediaChain
-from app.helper.mediaserver import MediaServerHelper
-from app.chain.storage import StorageChain
+from app.schemas.types import EventType, MessageChannel
 from app.utils.system import SystemUtils
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
+from cachetools import cached, TTLCache
+from fastapi import Request, Response
+from orjson import dumps, loads
+from p115client import P115Client
+from p115client.exception import DataError
+from p115client.tool.fs_files import iter_fs_files
+from p115client.tool.iterdir import iter_files_with_path, get_path_to_cid, share_iterdir
+from p115client.tool.life import iter_life_behavior_once, life_show
+from p115client.tool.util import share_extract_payload
+from p115rsacipher import encrypt, decrypt
+from watchdog.events import FileSystemEventHandler
+from watchdog.observers import Observer
+from watchdog.observers.polling import PollingObserver
 
+from .core.cache import IdPathCache
+from .core.config import configer
+from .core.scrape_metadata import media_scrape_metadata
+from .core.u115_open import U115OpenHelper
+from .db_manager import ct_db_manager
+from .db_manager.init import init_db, update_db
+from .db_manager.oper import FileDbHelper
+from .framework.callbacks import decode_action, Action
+from .framework.manager import BaseSessionManager
+from .framework.schemas import TSession
+from .handler import ActionHandler
+from .helper.mediainfo_download import MediaInfoDownloader
+from .helper.strm import FullSyncStrmHelper, ShareStrmHelper, IncrementSyncStrmHelper
+from .schemas.session import Session
+from .utils.http import check_response
+from .utils.path import PathMatchingHelper
+from .utils.url import Url
+from .views import ViewRenderer
+
+# 实例化一个该插件专用的 SessionManager
+session_manager = BaseSessionManager(session_class=Session)
 
 directory_upload_dict = defaultdict(threading.Lock)
 
@@ -220,6 +226,10 @@ class P115StrmHelper(_PluginBase):
 
         # 初始化数据库
         self.init_database()
+
+        # 实例化处理器和渲染器
+        self.action_handler = ActionHandler()
+        self.view_renderer = ViewRenderer()
 
     def init_plugin(self, config: dict = None):
         """
@@ -422,6 +432,15 @@ class P115StrmHelper(_PluginBase):
         """
         定义远程控制命令
         :return: 命令关键字、事件、描述、附带数据
+        """
+        """
+            {
+                "cmd": "/p115_search",
+                "event": EventType.PluginAction,
+                "desc": "搜索指定资源",
+                "category": "",
+                "data": {"action": "p115_search"},
+            },
         """
         return [
             {
@@ -823,8 +842,8 @@ class P115StrmHelper(_PluginBase):
 
                     # 网盘目录创建流程
                     def __find_dir(
-                        _fileitem: schemas.FileItem, _name: str
-                    ) -> Optional[schemas.FileItem]:
+                        _fileitem: FileItem, _name: str
+                    ) -> Optional[FileItem]:
                         """
                         查找下级目录中匹配名称的目录
                         """
@@ -1337,6 +1356,148 @@ class P115StrmHelper(_PluginBase):
             text=text,
         )
 
+    @eventmanager.register(EventType.PluginAction)
+    def p115_search(self, event: Event):
+        """
+        处理搜索请求
+        """
+        if not event:
+            return
+        event_data = event.event_data
+        if not event_data or event_data.get("action") != "p115_search":
+            return
+        args = event_data.get("arg_str")
+        if not args:
+            logger.error(f"【搜索】缺少参数：{event_data}")
+            self.post_message(
+                channel=event.event_data.get("channel"),
+                title="参数错误！ /p115_search 搜索关键词",
+                userid=event.event_data.get("user"),
+            )
+            return
+
+        try:
+            session = session_manager.get_or_create(
+                event_data, plugin_id=self.__class__.__name__
+            )
+
+            search_keyword = args.strip()
+            action = Action(command="search", view="search_list", value=search_keyword)
+
+            immediate_messages = self.action_handler.process(session, action)
+            # 报错，截断后续运行
+            if immediate_messages:
+                for msg in immediate_messages:
+                    self.__send_message(session, text=msg.get("text"), title="错误")
+                    return
+
+            # 设置页面为search_list
+            session.go_to("search_list")
+            self._render_and_send(session)
+        except Exception as e:
+            logger.error(f"处理 search 命令失败: {e}", exc_info=True)
+
+    @eventmanager.register(EventType.MessageAction)
+    def message_action(self, event: Event):
+        """
+        处理按钮点击回调
+        """
+        try:
+            event_data = event.event_data
+            callback_text = event_data.get("text", "")
+
+            # 1. 解码 Action callback_text = c:xxx|w:xxx|v|xxx
+            session_id, action = decode_action(callback_text=callback_text)
+            if not session_id or not action:
+                # 如果解码失败或不属于本插件，则忽略
+                return
+
+            # 2. 获取会话
+            session = session_manager.get(session_id)
+            if not session:
+                context = {
+                    "channel": event_data.get("channel"),
+                    "source": event_data.get("source"),
+                    "userid": event_data.get("userid") or event_data.get("user"),
+                    "original_message_id": event_data.get("original_message_id"),
+                    "original_chat_id": event_data.get("original_chat_id"),
+                }
+                self.post_message(
+                    **context,
+                    title="⚠️ 会话已过期",
+                    text="操作已超时。\n请重新发起 `/p115_search` 命令。",
+                )
+                return
+
+            # 3. 更新会话上下文
+            session.update_message_context(event_data)
+
+            # 4. 委托给 ActionHandler 处理业务逻辑
+            immediate_messages = self.action_handler.process(session, action)
+            if immediate_messages:
+                for msg in immediate_messages:
+                    self.__send_message(session, text=msg.get("text"), title="错误")
+                    return
+
+            # 5. 渲染新视图并发送
+            self._render_and_send(session)
+        except Exception as e:
+            logger.debug(f"出错了：{e}", exc_info=True)
+
+    def _render_and_send(self, session: TSession):
+        """
+        根据 Session 的当前状态，渲染视图并发送/编辑消息。
+        """
+        # 1. 委托给 ViewRenderer 生成界面数据
+        render_data = self.view_renderer.render(session)
+
+        # 2. 发送或编辑消息
+        self.__send_message(session, render_data=render_data)
+
+        # 3. 处理会话结束逻辑
+        if session.view.name in ["subscribe_success", "close"]:
+            # 深复制会话的删除消息数据
+            delete_message_data = deepcopy(session.get_delete_message_data())
+            session_manager.end(session.session_id)
+            # 等待一段时间让用户看到最后一条消息
+            time.sleep(5)
+            self.__delete_message(**delete_message_data)
+
+    def __send_message(
+        self, session: TSession, render_data: Optional[dict] = None, **kwargs
+    ):
+        """
+        统一的消息发送接口。
+        """
+        context = asdict(session.message)
+        if render_data:
+            context.update(render_data)
+        context.update(kwargs)
+        # 将 user key改名成 userid，规避传入值只是user
+        userid = context.get("user")
+        if userid:
+            context["userid"] = userid
+            # 删除多余的 user 键
+            context.pop("user", None)
+        self.post_message(**context)
+
+    def __delete_message(
+        self,
+        channel: MessageChannel,
+        source: str,
+        message_id: Union[str, int],
+        chat_id: Optional[Union[str, int]] = None,
+    ) -> bool:
+        """
+        删除会话中的原始消息。
+        """
+        # 兼容旧版本无删除方法
+        if hasattr(self.chain, "delete_message"):
+            return self.chain.delete_message(
+                channel=channel, source=source, message_id=message_id, chat_id=chat_id
+            )
+        return False
+
     def _ensure_add_share_worker_running(self):
         """
         确保工作线程正在运行
@@ -1666,11 +1827,11 @@ class P115StrmHelper(_PluginBase):
         ) = strm_helper.get_generate_total()
         if configer.get_config("notify"):
             text = f"""
-📄 生成STRM文件 {strm_count} 个
-⬇️ 下载媒体文件 {mediainfo_count} 个
-❌ 生成STRM失败 {strm_fail_count} 个
-🚫 下载媒体失败 {mediainfo_fail_count} 个
-"""
+    📄 生成STRM文件 {strm_count} 个
+    ⬇️ 下载媒体文件 {mediainfo_count} 个
+    ❌ 生成STRM失败 {strm_fail_count} 个
+    🚫 下载媒体失败 {mediainfo_fail_count} 个
+    """
             if remove_unless_strm_count != 0:
                 text += f"🗑️ 清理无效STRM文件 {remove_unless_strm_count} 个"
             self.post_message(
