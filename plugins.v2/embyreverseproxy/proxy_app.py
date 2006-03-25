@@ -1,9 +1,9 @@
 from asyncio import Lock, gather
 from contextlib import asynccontextmanager
 from hashlib import sha256
-from re import sub as re_sub
+from re import IGNORECASE, compile as re_compile, search as re_search, sub as re_sub
 from time import monotonic
-from typing import List, Tuple
+from typing import Any, List, Tuple
 from urllib.parse import urlparse
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
@@ -14,7 +14,7 @@ from fastapi.responses import (
     Response,
     StreamingResponse,
 )
-from httpx import AsyncClient, Limits
+from httpx import AsyncClient, Limits, Response as HttpxResponse
 from websockets import connect
 
 from app.log import logger
@@ -64,6 +64,54 @@ MEDIA_ROUTES = [
 
 CROSS_ORIGIN_PATTERN = r"&&\s*\(elem\.crossOrigin\s*=\s*initialSubtitleStream\)"
 
+PLUGIN_CROSS_ORIGIN_RE = re_compile(r"&&\(\w+\.crossOrigin=\w+\)")
+
+CROSS_ORIGIN_VALUE_RE = re_compile(
+    r'\w+\.IsRemote\s*&&\s*"DirectPlay"\s*===\s*\w+\s*\?\s*null\s*:\s*"anonymous"'
+)
+
+CROSS_ORIGIN_INTERCEPT_MARKER = "[EmbyReverseProxy] crossOrigin"
+
+CROSS_ORIGIN_INTERCEPT_SCRIPT = (
+    """<script>
+(function(){
+  // """
+    + CROSS_ORIGIN_INTERCEPT_MARKER
+    + """ 拦截器 — 302 直链播放避免 CORS
+  try {
+    Object.defineProperty(HTMLMediaElement.prototype,'crossOrigin',{
+      get:function(){return null},
+      set:function(){},
+      configurable:true
+    });
+  } catch(e){}
+  try {
+    var ob=new MutationObserver(function(ms){
+      ms.forEach(function(m){
+        if(m.type==='attributes'&&m.attributeName==='crossorigin'){
+          m.target.removeAttribute('crossorigin');
+        }
+        if(m.type==='childList'){
+          m.addedNodes.forEach(function(n){
+            if(n.nodeType===1&&(n.tagName==='VIDEO'||n.tagName==='AUDIO')){
+              n.removeAttribute('crossorigin');
+            }
+          });
+        }
+      });
+    });
+    if(document.documentElement){
+      ob.observe(document.documentElement,{attributes:true,attributeFilter:['crossorigin'],childList:true,subtree:true});
+    } else {
+      document.addEventListener('DOMContentLoaded',function(){
+        ob.observe(document.documentElement,{attributes:true,attributeFilter:['crossorigin'],childList:true,subtree:true});
+      });
+    }
+  } catch(e){}
+})();
+</script>"""
+)
+
 
 def create_app(
     emby_host: str,
@@ -78,6 +126,124 @@ def create_app(
     """
     emby_host = emby_host.rstrip("/")
     pin_rules = pin_rules or []
+
+    def _strip_accept_encoding(headers: dict[str, str]) -> dict[str, str]:
+        """
+        去掉 Accept-Encoding，便于上游返回未压缩内容以便修改 body。
+
+        :param headers: 原始转发头。
+        :return: 不包含 accept-encoding 的头字典。
+        """
+        return {k: v for k, v in headers.items() if k.lower() != "accept-encoding"}
+
+    def _may_return_emby_html_shell(path: str) -> bool:
+        """
+        判断路径是否可能返回 Emby Web 的 HTML 壳（用于是否走缓冲并注入脚本）。
+
+        :param path: 请求路径。
+        :return: 若可能为 HTML 页面则 True。
+        """
+        pl = path.lower()
+        if "playbackinfo" in pl:
+            return False
+        if path == "/" or path == "":
+            return True
+        if path.startswith("/web/") or path == "/web":
+            return True
+        if path.endswith(".html") or path.endswith(".htm"):
+            return True
+        if path.startswith("/emby/") or path.startswith("/items/"):
+            return False
+        last = path.rsplit("/", 1)[-1]
+        if "." not in last:
+            return True
+        return False
+
+    def _inject_cross_origin_html(html: str) -> str | None:
+        """
+        在 HTML 的 head 中注入 crossOrigin 拦截脚本；已注入则跳过。
+
+        :param html: 页面 HTML 文本。
+        :return: 注入后的 HTML；无需修改时返回 None。
+        """
+        if CROSS_ORIGIN_INTERCEPT_MARKER in html:
+            return None
+        m = re_search(r"</head>", html, IGNORECASE)
+        if m:
+            i = m.start()
+            return html[:i] + CROSS_ORIGIN_INTERCEPT_SCRIPT + html[i:]
+        m2 = re_search(r"<head[^>]*>", html, IGNORECASE)
+        if m2:
+            return html[: m2.end()] + CROSS_ORIGIN_INTERCEPT_SCRIPT + html[m2.end() :]
+        return None
+
+    def _media_sources_indicate_strm(data: dict[str, Any]) -> bool:
+        """
+        根据 PlaybackInfo JSON 判断是否为 STRM。
+        Emby 解析 .strm 后 Path 变为文件内的实际地址（HTTP URL），
+        因此通过 Protocol=Http + IsRemote=True 来识别。
+
+        :param data: PlaybackInfo 解析后的字典。
+        :return: 若任一 MediaSource 为 STRM 解析后的远程源则为 True。
+        """
+        sources = data.get("MediaSources")
+        if not isinstance(sources, list):
+            return False
+        for ms in sources:
+            if not isinstance(ms, dict):
+                continue
+            if ms.get("IsRemote") is True and ms.get("Protocol") == "Http":
+                return True
+        return False
+
+    def _media_sources_match_pin_rules(
+        data: dict[str, Any], rules: List[Tuple[str, str]]
+    ) -> bool:
+        """
+        判断 PlaybackInfo 中是否有 MediaSource 的 Path 经 pin_rules 替换后变为 HTTP URL。
+
+        :param data: PlaybackInfo 解析后的字典。
+        :param rules: 顶置路径规则列表。
+        :return: 若任一 MediaSource 命中规则且替换结果为 HTTP URL 则为 True。
+        """
+        if not rules:
+            return False
+        sources = data.get("MediaSources")
+        if not isinstance(sources, list):
+            return False
+        for ms in sources:
+            if not isinstance(ms, dict):
+                continue
+            path = ms.get("Path")
+            if not isinstance(path, str):
+                continue
+            replaced = _apply_pin_rules(path, rules)
+            if replaced != path and replaced.startswith(("http://", "https://")):
+                return True
+        return False
+
+    def _apply_force_direct_play_to_media_sources(data: dict[str, Any]) -> None:
+        """
+        对 PlaybackInfo 中所有 MediaSource 强制 DirectPlay，去掉转码相关字段。
+
+        :param data: PlaybackInfo 字典（就地修改）。
+        """
+        sources = data.get("MediaSources")
+        if not isinstance(sources, list):
+            return
+        for ms in sources:
+            if not isinstance(ms, dict):
+                continue
+            ms["SupportsDirectPlay"] = True
+            ms["SupportsDirectStream"] = True
+            ms["SupportsTranscoding"] = False
+            for key in (
+                "TranscodingUrl",
+                "TranscodingContainer",
+                "TranscodingSubProtocol",
+                "DirectStreamUrl",
+            ):
+                ms.pop(key, None)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -166,7 +332,7 @@ def create_app(
 
     async def _handle_media(
         request: Request, item_id: str, name: str = ""
-    ) -> RedirectResponse | StreamingResponse | JSONResponse:
+    ) -> RedirectResponse | StreamingResponse | JSONResponse | Response:
         """
         处理媒体路由：有 api_key 时尝试 PlaybackInfo 后重定向/流式代理，否则走通用反向代理。
 
@@ -470,7 +636,197 @@ def create_app(
             response_model=None,
         )(_system_info_handler)
 
-    async def _reverse_proxy(request: Request) -> StreamingResponse | JSONResponse:
+    async def _playback_info_strm_direct_play(
+        request: Request, item_id: str
+    ) -> JSONResponse | Response:
+        """
+        代理 Items/PlaybackInfo：若 MediaSource.Path 为 .strm，则强制 DirectPlay，
+        避免浏览器因编码能力走 HLS 转码，使 302 直链失效。
+
+        :param request: 当前请求。
+        :param item_id: 路径中的条目 ID。
+        :return: 改写后的 JSON 或透传响应。
+        """
+        path = request.scope.get("path", "/")
+        qs = str(request.url.query)
+        target_url = f"{emby_host}{path}"
+        if qs:
+            target_url += f"?{qs}"
+
+        headers = _strip_accept_encoding(_build_forward_headers(request))
+        body = await request.body()
+        client = request.app.state.http_client_follow
+
+        excluded = HOP_BY_HOP_HEADERS | {"content-encoding", "content-length"}
+
+        def _resp_headers_from_httpx(r: HttpxResponse) -> dict[str, str]:
+            return {
+                k: v for k, v in r.headers.multi_items() if k.lower() not in excluded
+            }
+
+        if request.method == "HEAD":
+            try:
+                resp = await client.request(
+                    "HEAD",
+                    target_url,
+                    headers=headers,
+                    timeout=60.0,
+                )
+            except Exception:
+                logger.warning("PlaybackInfo HEAD 失败: %s", target_url, exc_info=True)
+                return JSONResponse(
+                    status_code=502,
+                    content={"error": "Bad Gateway"},
+                )
+            return Response(
+                content=b"",
+                status_code=resp.status_code,
+                headers=_resp_headers_from_httpx(resp),
+            )
+
+        try:
+            resp = await client.request(
+                request.method,
+                target_url,
+                headers=headers,
+                content=body if body else None,
+                timeout=120.0,
+            )
+        except Exception:
+            logger.warning("PlaybackInfo 请求失败: %s", target_url, exc_info=True)
+            return JSONResponse(
+                status_code=502,
+                content={
+                    "error": "Bad Gateway",
+                    "detail": f"无法连接到 Emby 服务器: {emby_host}",
+                },
+            )
+
+        if resp.status_code != 200:
+            return Response(
+                content=resp.content,
+                status_code=resp.status_code,
+                headers=_resp_headers_from_httpx(resp),
+            )
+
+        try:
+            data = resp.json()
+        except Exception:
+            logger.warning("PlaybackInfo 响应非 JSON: %s", target_url, exc_info=True)
+            return Response(
+                content=resp.content,
+                status_code=resp.status_code,
+                headers=_resp_headers_from_httpx(resp),
+            )
+
+        if not isinstance(data, dict):
+            return JSONResponse(
+                content=data,
+                status_code=200,
+                headers=_resp_headers_from_httpx(resp),
+            )
+
+        is_strm = _media_sources_indicate_strm(data)
+        is_pin = _media_sources_match_pin_rules(data, pin_rules)
+        if not is_strm and not is_pin:
+            return JSONResponse(
+                content=data,
+                status_code=200,
+                headers=_resp_headers_from_httpx(resp),
+            )
+
+        _apply_force_direct_play_to_media_sources(data)
+        reason = "STRM" if is_strm else "路径替换"
+        logger.info(
+            "PlaybackInfo: %s 已强制 DirectPlay item_id=%s",
+            reason,
+            item_id,
+        )
+        return JSONResponse(
+            content=data,
+            status_code=200,
+            headers=_resp_headers_from_httpx(resp),
+        )
+
+    for _playback_path in (
+        "/items/{item_id}/playbackinfo",
+        "/emby/items/{item_id}/playbackinfo",
+    ):
+        app.api_route(
+            _playback_path,
+            methods=["GET", "POST", "HEAD"],
+            response_model=None,
+        )(_playback_info_strm_direct_play)
+
+    async def _reverse_proxy_html_inject(request: Request) -> Response | JSONResponse:
+        """
+        对可能返回 HTML 的 GET 请求整包拉取，注入 crossOrigin 拦截脚本后再返回。
+
+        :param request: 当前请求（须为 GET）。
+        :return: 响应体或 502 JSON。
+        """
+        path = request.scope.get("path", "/")
+        qs = str(request.url.query)
+        target_url = f"{emby_host}{path}"
+        if qs:
+            target_url += f"?{qs}"
+
+        headers = _strip_accept_encoding(_build_forward_headers(request))
+        body = await request.body()
+        client = request.app.state.http_client_no_follow
+        try:
+            resp = await client.request(
+                request.method,
+                target_url,
+                headers=headers,
+                content=body if body else None,
+                timeout=120.0,
+            )
+        except Exception:
+            logger.warning("无法连接到 Emby: %s", target_url, exc_info=True)
+            return JSONResponse(
+                status_code=502,
+                content={
+                    "error": "Bad Gateway",
+                    "detail": f"无法连接到 Emby 服务器: {emby_host}",
+                },
+            )
+
+        ct = (resp.headers.get("content-type") or "").lower()
+        raw = resp.content
+        out = raw
+        if resp.status_code == 200 and "text/html" in ct:
+            try:
+                html = resp.text
+            except Exception:
+                html = raw.decode("utf-8", errors="replace")
+            injected = _inject_cross_origin_html(html)
+            if injected is not None:
+                out = injected.encode("utf-8")
+                logger.info("已在 HTML 注入 crossOrigin 拦截脚本: path=%s", path)
+
+        excluded = HOP_BY_HOP_HEADERS | {"content-encoding", "content-length"}
+        resp_headers = {
+            k: v for k, v in resp.headers.multi_items() if k.lower() not in excluded
+        }
+        if out != raw and resp.status_code == 200 and "text/html" in ct:
+            resp_headers["cache-control"] = "no-cache, no-store, must-revalidate"
+            resp_headers["pragma"] = "no-cache"
+            resp_headers["expires"] = "0"
+            lk = {k.lower(): k for k in resp_headers}
+            for name in ("etag", "last-modified"):
+                if name in lk:
+                    del resp_headers[lk[name]]
+
+        return Response(
+            content=out,
+            status_code=resp.status_code,
+            headers=resp_headers,
+        )
+
+    async def _reverse_proxy(
+        request: Request,
+    ) -> StreamingResponse | JSONResponse | Response:
         """
         将请求反向代理到 Emby 服务器并流式返回响应。
 
@@ -478,6 +834,9 @@ def create_app(
         :return: 流式响应或 502 JSON 错误。
         """
         path = request.scope.get("path", "/")
+        if request.method == "GET" and _may_return_emby_html_shell(path):
+            return await _reverse_proxy_html_inject(request)
+
         qs = str(request.url.query)
         target_url = f"{emby_host}{path}"
         if qs:
@@ -523,6 +882,77 @@ def create_app(
             headers=resp_headers,
         )
 
+    def _patch_js_response_headers(
+        resp: HttpxResponse, extra: dict[str, str] | None = None
+    ) -> dict[str, str]:
+        """
+        从 httpx 响应构造转发头，并可选附加 Cache-Control 等。
+
+        :param resp: httpx Response。
+        :param extra: 额外头。
+        :return: 适合 FastAPI Response 的头字典。
+        """
+        excluded = HOP_BY_HOP_HEADERS | {"content-encoding", "content-length"}
+        h = {k: v for k, v in resp.headers.multi_items() if k.lower() not in excluded}
+        if extra:
+            h.update(extra)
+        return h
+
+    async def _patch_basehtmlplayer_js(request: Request) -> JSONResponse | Response:
+        """
+        拦截 htmlvideoplayer/basehtmlplayer.js，将 getCrossOriginValue 相关逻辑改为不设置 crossorigin。
+
+        :param request: 当前请求。
+        :return: 修补后的 JS 或 502。
+        """
+        path = request.scope.get("path", "/")
+        qs = str(request.url.query)
+        target_url = f"{emby_host}{path}"
+        if qs:
+            target_url += f"?{qs}"
+        headers = _strip_accept_encoding(_build_forward_headers(request))
+        client = request.app.state.http_client_follow
+        try:
+            resp = await client.get(target_url, headers=headers, timeout=15)
+        except Exception:
+            logger.warning("获取 basehtmlplayer.js 失败: %s", target_url, exc_info=True)
+            return JSONResponse(status_code=502, content={"error": "Bad Gateway"})
+
+        if resp.status_code != 200:
+            return Response(
+                content=resp.content,
+                status_code=resp.status_code,
+                headers=_patch_js_response_headers(resp),
+            )
+
+        content = resp.text
+        original = content
+        patched = CROSS_ORIGIN_VALUE_RE.sub("null", content)
+        if patched != original:
+            logger.info(
+                "已修补 basehtmlplayer.js: getCrossOriginValue 三元表达式 -> null"
+            )
+        elif "getCrossOriginValue" in original:
+            logger.info(
+                "basehtmlplayer.js: 精确正则未命中，尝试将 anonymous 替换为 null"
+            )
+            patched = original.replace('"anonymous"', "null").replace(
+                "'anonymous'", "null"
+            )
+
+        extra: dict[str, str] = {
+            "content-type": "application/javascript; charset=utf-8",
+        }
+        if patched != original:
+            extra["cache-control"] = "no-cache, no-store, must-revalidate"
+            extra["pragma"] = "no-cache"
+            extra["expires"] = "0"
+        return Response(
+            content=patched.encode("utf-8"),
+            status_code=resp.status_code,
+            headers=_patch_js_response_headers(resp, extra=extra),
+        )
+
     async def _patch_plugin_js(request: Request) -> JSONResponse | Response:
         """
         拦截 htmlvideoplayer/plugin.js，去除 crossOrigin 赋值，
@@ -536,7 +966,7 @@ def create_app(
         target_url = f"{emby_host}{path}"
         if qs:
             target_url += f"?{qs}"
-        headers = _build_forward_headers(request)
+        headers = _strip_accept_encoding(_build_forward_headers(request))
         client = request.app.state.http_client_follow
         try:
             resp = await client.get(target_url, headers=headers, timeout=15)
@@ -545,20 +975,31 @@ def create_app(
             return JSONResponse(status_code=502, content={"error": "Bad Gateway"})
 
         content = resp.text
-        patched = re_sub(CROSS_ORIGIN_PATTERN, "", content)
-        if patched != content:
+        original = content
+        patched = PLUGIN_CROSS_ORIGIN_RE.sub("", content)
+        patched = re_sub(CROSS_ORIGIN_PATTERN, "", patched)
+        if patched != original:
             logger.info("已修补 plugin.js: 移除 crossOrigin 赋值")
 
-        excluded = HOP_BY_HOP_HEADERS | {"content-encoding", "content-length"}
-        resp_headers = {
-            k: v for k, v in resp.headers.multi_items() if k.lower() not in excluded
+        extra: dict[str, str] = {
+            "content-type": "application/javascript; charset=utf-8",
         }
-        resp_headers["content-type"] = "application/javascript; charset=utf-8"
-
+        if patched != original:
+            extra["cache-control"] = "no-cache, no-store, must-revalidate"
+            extra["pragma"] = "no-cache"
+            extra["expires"] = "0"
         return Response(
             content=patched.encode("utf-8"),
             status_code=resp.status_code,
-            headers=resp_headers,
+            headers=_patch_js_response_headers(resp, extra=extra),
+        )
+
+    for _js_path in (
+        "/emby/web/modules/htmlvideoplayer/basehtmlplayer.js",
+        "/web/modules/htmlvideoplayer/basehtmlplayer.js",
+    ):
+        app.api_route(_js_path, methods=["GET", "HEAD"], response_model=None)(
+            _patch_basehtmlplayer_js
         )
 
     for _js_path in (
@@ -576,7 +1017,7 @@ def create_app(
     )
     async def catch_all(
         request: Request,
-    ) -> StreamingResponse | JSONResponse:
+    ) -> StreamingResponse | JSONResponse | Response:
         """
         兜底路由：将未匹配请求反向代理到 Emby。
 
