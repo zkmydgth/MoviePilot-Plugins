@@ -390,8 +390,9 @@ V2 版**已停更，不再同步 V3 的新能力**，仅作存档。V3 在其之
 - **115网盘STRM助手（`plugins.v3/p115strmhelper`）**：衍生自
   [DDSRem-Dev/MoviePilot-Plugins](https://github.com/DDSRem-Dev/MoviePilot-Plugins) 的
   `plugins.v2/p115strmhelper`（该仓库整体以 GPL-3.0 授权）。本仓库自 2026-09 起将其适配
-  MoviePilot V3 宿主并持续修改（宿主 API 迁移、接管网盘整理的 durable 收口、前端与依赖适配等），
-  当前版本 2.7.22。修改部分版权归 zkmydgth，原作品版权归原作者所有；本仓库按 GPL-3.0 分发该衍生版本，
+  MoviePilot V3 宿主并持续修改（宿主 API 迁移、接管网盘整理的 durable 收口、前端与依赖适配等）。
+  当前版本以 [`package.v3.json`](package.v3.json) 为准。修改部分版权归 zkmydgth，原作品版权归原作者所有；
+  本仓库按 GPL-3.0 分发该衍生版本，
   **不是上游官方版本，也未获得上游背书**。
   注意：本版本与上游 V2 版本数据不互通，且两者插件 ID 相同，请勿同时订阅上游仓库。
 - **其余插件**（ConfigBackup / SeedSpaceGuard / TgSignin / VarietyGuard）：由 zkmydgth 原创编写，
