@@ -1447,11 +1447,12 @@ class MonitorLife:
                         if file_category == 0
                         else i18n.translate("life_del_file", path=pan_file_path)
                     )
+                    _history_count = len(transfer_history) if transfer_history else 0
                     post_message(
                         mtype=NotificationType.Plugin,
                         title=i18n.translate("life_sync_media_del_title"),
                         text=f"\n{del_type_text}\n"
-                        f"{i18n.translate('sync_del_record_count', count=len(transfer_history) if transfer_history else 0)}\n"
+                        f"{i18n.translate('sync_del_record_count', count=_history_count)}\n"
                         f"{torrent_cnt_msg}"
                         f"时间 {strftime('%Y-%m-%d %H:%M:%S', localtime(time()))}\n",
                     )

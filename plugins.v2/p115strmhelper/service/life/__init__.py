@@ -68,11 +68,12 @@ def monitor_life_thread_worker(
                     logger.info("【监控生活事件】收到停止信号，退出监控")
                     return
                 if configer.notify:
+                    _err_text = NotifyExceptionFormatter.format_exception_for_notify(e)
                     post_message(
                         mtype=NotificationType.Plugin,
                         title=i18n.translate("monitor_life_error_title"),
                         text=(
-                            f"\n{i18n.translate('monitor_life_error_text', error=NotifyExceptionFormatter.format_exception_for_notify(e))}\n"
+                            f"\n{i18n.translate('monitor_life_error_text', error=_err_text)}\n"
                         ),
                     )
                 logger.info("【监控生活事件】30s 后尝试重新启动生活事件监控")
@@ -84,11 +85,12 @@ def monitor_life_thread_worker(
     except Exception as e:
         logger.error(f"【监控生活事件】线程运行异常: {e}")
         if configer.notify:
+            _err_text = NotifyExceptionFormatter.format_exception_for_notify(e)
             post_message(
                 mtype=NotificationType.Plugin,
                 title=i18n.translate("monitor_life_exit_title"),
                 text=(
-                    f"\n{i18n.translate('monitor_life_exit_text', error=NotifyExceptionFormatter.format_exception_for_notify(e))}\n"
+                    f"\n{i18n.translate('monitor_life_exit_text', error=_err_text)}\n"
                 ),
             )
         raise

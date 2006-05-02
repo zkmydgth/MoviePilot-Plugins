@@ -7,7 +7,7 @@ from .framework.schemas import BaseSession, BaseBusiness
 @dataclass
 class Business(BaseBusiness):
     """
-    本插件专属的业务模型。
+    本插件专属的业务模型
     """
 
     search_keyword: Optional[str] = None
@@ -32,7 +32,7 @@ class Business(BaseBusiness):
 @dataclass
 class Session(BaseSession):
     """
-    组装成本插件专属的 Session。
+    组装成本插件专属的 Session
     """
 
     # 指定默认视图，用于错误兜底

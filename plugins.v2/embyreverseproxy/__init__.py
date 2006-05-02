@@ -15,10 +15,10 @@ PIN_RULES_SEP = " => "
 
 def _parse_pin_rules(raw: str) -> List[Tuple[str, str]]:
     """
-    解析顶置路径规则字符串为 (路径前缀, 目标URL) 列表。
+    解析顶置路径规则字符串为 (路径前缀, 目标URL) 列表
 
-    :param raw: 多行文本，每行「路径前缀 => 目标URL」（用 " => " 分隔，两侧可含空格）。
-    :return: 合法规则列表；非法行忽略并打日志。
+    :param raw: 多行文本，每行「路径前缀 => 目标URL」（用 " => " 分隔，两侧可含空格）
+    :return: 合法规则列表；非法行忽略并打日志
     """
     result: List[Tuple[str, str]] = []
     for line in (raw or "").strip().splitlines():
@@ -78,9 +78,9 @@ class EmbyReverseProxy(_PluginBase):
 
     def init_plugin(self, config: Dict[str, Any] | None = None) -> None:
         """
-        初始化插件：解析配置，启用时在独立线程启动 uvicorn，否则停止服务。
+        初始化插件：解析配置，启用时在独立线程启动 uvicorn，否则停止服务
 
-        :param config: 插件配置字典。
+        :param config: 插件配置字典
         """
         if config:
             self._enabled = config.get("enabled", False)
@@ -132,7 +132,7 @@ class EmbyReverseProxy(_PluginBase):
 
     def _update_config(self) -> None:
         """
-        将当前配置写回插件配置存储。
+        将当前配置写回插件配置存储
         """
         self.update_config(
             {
@@ -148,7 +148,7 @@ class EmbyReverseProxy(_PluginBase):
 
     def stop_service(self) -> None:
         """
-        停止代理服务：设置 server.should_exit 并等待线程结束。
+        停止代理服务：设置 server.should_exit 并等待线程结束
         """
         if self._server is not None:
             try:
@@ -177,9 +177,9 @@ class EmbyReverseProxy(_PluginBase):
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         """
-        拼装插件配置页面。
+        拼装插件配置页面
 
-        :return: (页面配置列表, 表单默认值字典)。
+        :return: (页面配置列表, 表单默认值字典)
         """
         player_select_items = [
             {"title": info["name"], "value": key}

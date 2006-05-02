@@ -469,7 +469,7 @@ class ShareTransferHelper:
         )
 
         try:
-            client = P115Center(configer.get_config("MACHINE_ID"))
+            client = P115Center(configer.get_config("machine_id"))
             resp = client.upload_share_info(
                 mtype=mtype,
                 payload=payload,

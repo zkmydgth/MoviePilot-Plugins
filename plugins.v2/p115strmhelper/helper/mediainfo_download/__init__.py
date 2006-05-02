@@ -128,9 +128,9 @@ class MediaInfoDownloader:
     @staticmethod
     async def async_is_file_leq_1k(file_path: str | Path) -> bool:
         """
-        判断文件是否小于等于 100B。
+        判断文件是否小于等于 100B
 
-        如果文件不存在，返回 True。
+        如果文件不存在，返回 True
         """
         try:
             stat_result = await aio_stat(file_path)

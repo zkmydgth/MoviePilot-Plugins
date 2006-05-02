@@ -58,7 +58,7 @@ class BangumiDailyDiscover(_PluginBase):
     @staticmethod
     def _weekday_sort_key(item: tuple, today: int) -> tuple:
         """
-        排序键：全部优先，今日其次，其余按星期序号。
+        排序键：全部优先，今日其次，其余按星期序号
         """
         val = item[0]
         if val == 0:
@@ -69,14 +69,14 @@ class BangumiDailyDiscover(_PluginBase):
 
     def init_plugin(self, config: Optional[dict] = None) -> None:
         """
-        根据配置初始化插件启用状态。
+        根据配置初始化插件启用状态
         """
         if config:
             self._enabled = config.get("enabled", False)
 
     def get_state(self) -> bool:
         """
-        返回插件是否已启用。
+        返回插件是否已启用
         """
         return self._enabled
 
@@ -128,9 +128,9 @@ class BangumiDailyDiscover(_PluginBase):
     @staticmethod
     def _fetch_raw_bangumi_data() -> Optional[List[dict]]:
         """
-        请求 Bangumi 每日放送 API 原始数据，不加缓存。
+        请求 Bangumi 每日放送 API 原始数据，不加缓存
 
-        :return: 成功时为每日条目列表，失败时为 None。
+        :return: 成功时为每日条目列表，失败时为 None
         """
         try:
             res = RequestUtils(headers=BANGUMI_HEADERS).get_res(BANGUMI_API_URL)
@@ -150,9 +150,9 @@ class BangumiDailyDiscover(_PluginBase):
         self,
     ) -> Optional[Dict[str, List[schemas.MediaInfo]]]:
         """
-        获取、处理并缓存 Bangumi 每日放送数据。
+        获取、处理并缓存 Bangumi 每日放送数据
 
-        :return: 按星期 ID 分组的 MediaInfo 列表，失败时为 None。
+        :return: 按星期 ID 分组的 MediaInfo 列表，失败时为 None
         """
         raw_data = self._fetch_raw_bangumi_data()
         if not raw_data:
@@ -194,12 +194,12 @@ class BangumiDailyDiscover(_PluginBase):
         count: int = 20,
     ) -> List[schemas.MediaInfo]:
         """
-        探索 API：按星期与分页返回 Bangumi 每日放送条目。
+        探索 API：按星期与分页返回 Bangumi 每日放送条目
 
-        :param weekday: 星期 ID，0 为全部。
-        :param page: 页码，从 1 开始。
-        :param count: 每页条数。
-        :return: 当前页的 MediaInfo 列表。
+        :param weekday: 星期 ID，0 为全部
+        :param page: 页码，从 1 开始
+        :param count: 每页条数
+        :return: 当前页的 MediaInfo 列表
         """
         try:
             processed_data = self._get_processed_bangumi_data()
@@ -220,10 +220,10 @@ class BangumiDailyDiscover(_PluginBase):
     @staticmethod
     def _convert_to_media_info(series_info: dict) -> schemas.MediaInfo:
         """
-        将 Bangumi 条目转换为 MediaInfo。
+        将 Bangumi 条目转换为 MediaInfo
 
-        :param series_info: Bangumi API 单条番剧数据。
-        :return: 对应的 MediaInfo 实例。
+        :param series_info: Bangumi API 单条番剧数据
+        :return: 对应的 MediaInfo 实例
         """
         rating_info = series_info.get("rating", {})
         title = series_info.get("name_cn") or series_info.get("name", "")
@@ -244,9 +244,9 @@ class BangumiDailyDiscover(_PluginBase):
     @staticmethod
     def bangumidaily_filter_ui() -> List[dict]:
         """
-        Bangumi 每日放送过滤参数 UI 配置（星期选择）。
+        Bangumi 每日放送过滤参数 UI 配置（星期选择）
 
-        :return: 前端表单组件列表。
+        :return: 前端表单组件列表
         """
         today_weekday = datetime.today().weekday() + 1
         sorted_weekdays = sorted(
@@ -286,7 +286,7 @@ class BangumiDailyDiscover(_PluginBase):
     @eventmanager.register(ChainEventType.DiscoverSource)
     def discover_source(self, event: Event) -> None:
         """
-        监听探索数据源事件，注册 Bangumi 每日放送数据源。
+        监听探索数据源事件，注册 Bangumi 每日放送数据源
         """
         if not self._enabled:
             return
@@ -307,6 +307,6 @@ class BangumiDailyDiscover(_PluginBase):
 
     def stop_service(self) -> None:
         """
-        插件停止时调用，当前无清理逻辑。
+        插件停止时调用，当前无清理逻辑
         """
         pass

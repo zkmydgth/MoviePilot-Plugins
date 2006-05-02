@@ -19,24 +19,24 @@ from .handlers import dispatch_rpc
 
 def _sse_message(event: str, data: str) -> str:
     """
-    构造一条 SSE 消息。
+    构造一条 SSE 消息
 
-    :param event: 事件名。
-    :param data: 数据内容。
-    :return: 格式化为 "event: x\\ndata: y\\n\\n" 的字符串。
+    :param event: 事件名
+    :param data: 数据内容
+    :return: 格式化为 "event: x\\ndata: y\\n\\n" 的字符串
     """
     return f"event: {event}\ndata: {data}\n\n"
 
 
 class MCPManager:
     """
-    MCP SSE + JSON-RPC 管理：会话存储、GET SSE 流、POST 消息处理。
+    MCP SSE + JSON-RPC 管理：会话存储、GET SSE 流、POST 消息处理
     """
 
     def __init__(self, api: Any, servicer: Any = None):
         """
-        :param api: 插件 Api 实例，供 RPC 调用。
-        :param servicer: 插件 ServiceHelper 实例。
+        :param api: 插件 Api 实例，供 RPC 调用
+        :param servicer: 插件 ServiceHelper 实例
         """
         self._api = api
         self._servicer = servicer
@@ -46,10 +46,10 @@ class MCPManager:
 
     async def handle_sse(self, request: Request):
         """
-        GET /mcp/sse：建立 SSE 连接，先发送 endpoint 事件，再持续发送 message 事件。
+        GET /mcp/sse：建立 SSE 连接，先发送 endpoint 事件，再持续发送 message 事件
 
-        :param request: FastAPI 请求对象。
-        :return: StreamingResponse，媒体类型 text/event-stream。
+        :param request: FastAPI 请求对象
+        :return: StreamingResponse，媒体类型 text/event-stream
         """
         scope = request.scope
         # 返回客户端用于 POST 的完整路径（含插件前缀），否则客户端会误解析为相对路径导致失败
@@ -98,10 +98,10 @@ class MCPManager:
 
     async def handle_messages(self, request: Request):
         """
-        POST /mcp/messages?session_id=xxx：接收 JSON-RPC 请求，分发后把响应写入该会话的 SSE 流。
+        POST /mcp/messages?session_id=xxx：接收 JSON-RPC 请求，分发后把响应写入该会话的 SSE 流
 
-        :param request: FastAPI 请求对象，query 含 session_id，body 为 JSON-RPC。
-        :return: 202 Accepted 或 4xx 错误响应。
+        :param request: FastAPI 请求对象，query 含 session_id，body 为 JSON-RPC
+        :return: 202 Accepted 或 4xx 错误响应
         """
         session_id = request.query_params.get("session_id")
         if not session_id:

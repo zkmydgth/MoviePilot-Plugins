@@ -28,7 +28,7 @@ class StringUtils:
     @staticmethod
     def to_emoji_number(n: int) -> str:
         """
-        将一个整数转换为对应的带圈数字 Emoji 字符串 (例如 ①, ②, ⑩)。
+        将一个整数转换为对应的带圈数字 Emoji 字符串 (例如 ①, ②, ⑩)
         """
         if not isinstance(n, int):
             return "❓"

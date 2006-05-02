@@ -232,7 +232,7 @@ class PathRemoveUtils:
     @staticmethod
     def clean_related_files(file_path: Path, func_type: str = None):
         """
-        根据一个文件的路径，清理同一文件夹下文件名包含此文件名的其他文件。
+        根据一个文件的路径，清理同一文件夹下文件名包含此文件名的其他文件
 
         对于 .strm 后缀文件进行保护，不做删除操作
 

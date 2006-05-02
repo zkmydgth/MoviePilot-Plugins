@@ -95,7 +95,7 @@ class MonitorLifeTest:
     @staticmethod
     def test_life_event_pull_from_time(client, from_time: int):
         """
-        拉取指定开始时间以来的全部生活事件数据，统计数量并逐条输出到调试信息。
+        拉取指定开始时间以来的全部生活事件数据，统计数量并逐条输出到调试信息
 
         :param client: P115Client 实例
         :param from_time: 开始时间（Unix 时间戳，秒，含）

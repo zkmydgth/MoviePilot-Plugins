@@ -537,7 +537,8 @@ class P123Api:
                                 retry_count += 1
                                 if retry_count < max_retries:
                                     logger.warning(
-                                        f"【123】{target_name} 分片 {slice_no} 上传失败，正在重试 ({retry_count}/{max_retries}): {upload_err}"
+                                        f"【123】{target_name} 分片 {slice_no} "
+                                        f"上传失败，正在重试 ({retry_count}/{max_retries}): {upload_err}"
                                     )
                                     time.sleep(10)  # 等待10秒后重试
 

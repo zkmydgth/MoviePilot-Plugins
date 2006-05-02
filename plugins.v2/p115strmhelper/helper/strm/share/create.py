@@ -334,7 +334,10 @@ class ShareStrmHelper:
                 continue
 
             logger.info(
-                f"【分享STRM生成】开始处理分享配置{comment_info}: share_code={config.share_code}, share_path={config.share_path}, local_path={config.local_path}"
+                f"【分享STRM生成】开始处理分享配置{comment_info}: "
+                f"share_code={config.share_code}, "
+                f"share_path={config.share_path}, "
+                f"local_path={config.local_path}"
             )
             start_time = perf_counter()
 

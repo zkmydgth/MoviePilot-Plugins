@@ -47,7 +47,10 @@ class AliyunPanLogin:
         ck 获取
         """
         try:
-            url = "https://passport.aliyundrive.com/newlogin/qrcode/query.do?appName=aliyun_drive&fromSite=52&_bx-v=2.0.31"
+            url = (
+                "https://passport.aliyundrive.com/newlogin/qrcode/query.do"
+                "?appName=aliyun_drive&fromSite=52&_bx-v=2.0.31"
+            )
             form_data = {
                 "t": t,
                 "ck": ck,

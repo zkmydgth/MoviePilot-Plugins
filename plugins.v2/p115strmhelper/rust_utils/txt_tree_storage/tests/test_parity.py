@@ -1,12 +1,12 @@
 """
-txt_tree_storage Rust 模块 与 原 Python 实现 的行为一致性测试。
+txt_tree_storage Rust 模块 与 原 Python 实现 的行为一致性测试
 
 运行方式（在本目录或 crate 根目录）：
     maturin develop
     pytest tests/test_parity.py -v
 
 参考实现 (PyRef) 完整复刻 plugins.v2/p115strmhelper/utils/tree.py 中
-TxtFileStorage 在重构前的行为，避免依赖 app.core / app.helper。
+TxtFileStorage 在重构前的行为，避免依赖 app.core / app.helper
 """
 
 from __future__ import annotations

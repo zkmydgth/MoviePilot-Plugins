@@ -108,7 +108,7 @@ class ServiceHelper:
             )
 
             # 阿里云盘登入
-            aligo_config = configer.get_config("PLUGIN_ALIGO_PATH")
+            aligo_config = configer.get_config("plugin_aligo_path")
             try:
                 if configer.get_config("aliyundrive_token"):
                     set_config_folder(aligo_config)

@@ -633,12 +633,16 @@ class TransferHandler:
                                 if source_size > target_size:
                                     over_flag = True
                                     logger.info(
-                                        f"【整理接管】目标文件已存在，覆盖模式=size，源文件更大 ({source_size} > {target_size})，将覆盖: {target_dir / target_name}"
+                                        f"【整理接管】目标文件已存在，覆盖模式=size，"
+                                        f"源文件更大 ({source_size} > {target_size})，"
+                                        f"将覆盖: {target_dir / target_name}"
                                     )
                                 else:
                                     skip_reason = "媒体库存在同名文件，且质量更好"
                                     logger.info(
-                                        f"【整理接管】目标文件已存在，覆盖模式=size，目标文件质量更好 ({target_size} >= {source_size})，跳过: {target_dir / target_name}"
+                                        f"【整理接管】目标文件已存在，覆盖模式=size，"
+                                        f"目标文件质量更好 ({target_size} >= {source_size})，"
+                                        f"跳过: {target_dir / target_name}"
                                     )
                             elif overwrite_mode == "latest":
                                 over_flag = True

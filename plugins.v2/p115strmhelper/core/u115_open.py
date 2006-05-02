@@ -80,7 +80,7 @@ class U115OpenHelper:
 
         self.fail_upload_count = 0
 
-        self.p115_center = P115Center(configer.get_config("MACHINE_ID"))
+        self.p115_center = P115Center(configer.get_config("machine_id"))
         self.databasehelper = FileDbHelper()
         self.cookie_client = create_client(
             configer.cookies,

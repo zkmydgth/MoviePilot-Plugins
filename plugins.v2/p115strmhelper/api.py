@@ -125,7 +125,7 @@ class Api:
         """
         获取 Machine ID
         """
-        return MachineID(machine_id=configer.MACHINE_ID)
+        return MachineID(machine_id=configer.machine_id)
 
     @staticmethod
     def generate_media_redirect_config_api(
@@ -303,7 +303,7 @@ class Api:
     )
     def get_user_storage_status(self) -> UserStorageStatusResponse:
         """
-        获取 115 用户基本信息和空间使用情况。
+        获取 115 用户基本信息和空间使用情况
         """
         if not configer.get_config("cookies"):
             return UserStorageStatusResponse(
@@ -1434,7 +1434,7 @@ class Api:
         判断是否有权限使用此增强功能
         """
         try:
-            client = P115Center(configer.get_config("MACHINE_ID"))
+            client = P115Center(configer.get_config("machine_id"))
             resp = client.check_feature(name)
             return MachineIDFeature(**resp)
         except Exception:
@@ -1450,7 +1450,7 @@ class Api:
         获取机器授权状态
         """
         try:
-            client = P115Center(configer.get_config("MACHINE_ID"))
+            client = P115Center(configer.get_config("machine_id"))
             resp = client.get_authorization_status()
             if resp:
                 return ApiResponse(code=0, msg="获取授权状态成功", data=resp)

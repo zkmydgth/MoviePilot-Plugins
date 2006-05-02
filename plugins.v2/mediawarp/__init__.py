@@ -367,10 +367,11 @@ class MediaWarp(_PluginBase):
                                                                     "title": config.name,
                                                                     "value": config.name,
                                                                 }
-                                                                for config in self._mediaserver_helper.get_configs().values()
+                                                                for config in (
+                                                                    self._mediaserver_helper.get_configs().values()
+                                                                )
                                                                 if config.type == "emby"
-                                                                or config.type
-                                                                == "jellyfin"
+                                                                or config.type == "jellyfin"
                                                             ],
                                                             "hint": "同时只能选择一个",
                                                             "persistent-hint": True,
@@ -644,7 +645,10 @@ class MediaWarp(_PluginBase):
         """
         获取下载链接
         """
-        base_url = "https://github.com/DDSRem-Dev/MediaWarp/releases/download/v{version}/MediaWarp_{version}_{os}_{arch}.tar.gz"
+        base_url = (
+            "https://github.com/DDSRem-Dev/MediaWarp/releases/"
+            "download/v{version}/MediaWarp_{version}_{os}_{arch}.tar.gz"
+        )
 
         machine = platform.machine().lower()
         if machine == "arm64" or machine == "aarch64":

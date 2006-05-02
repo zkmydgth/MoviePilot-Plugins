@@ -38,7 +38,7 @@ def broker_request_headers(instance_key: str) -> Dict[str, str]:
         "X-Instance-Key": instance_key,
         "Content-Type": "application/json",
     }
-    machine_id = getattr(configer, "MACHINE_ID", None) or ""
+    machine_id = getattr(configer, "machine_id", None) or ""
     if machine_id:
         headers["X-Machine-Id"] = str(machine_id)
     return headers

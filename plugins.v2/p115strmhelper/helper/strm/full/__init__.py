@@ -1089,7 +1089,9 @@ class FullSyncStrmHelper:
                             if rp > configer.full_sync_remove_unless_max_threshold:
                                 # 在阈值范围外，进行数据稳定性测试
                                 logger.warn(
-                                    f"【全量STRM生成】本次将删除文件个数为 {remove_count}，超过安全阈值 {configer.full_sync_remove_unless_max_threshold}% 不进行删除操作"
+                                    f"【全量STRM生成】本次将删除文件个数为 {remove_count}，"
+                                    f"超过安全阈值 {configer.full_sync_remove_unless_max_threshold}% "
+                                    f"不进行删除操作"
                                 )
 
                                 counts.append(remove_count)

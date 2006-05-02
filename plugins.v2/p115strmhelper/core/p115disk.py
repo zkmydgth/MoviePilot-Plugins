@@ -41,7 +41,7 @@ class P115DiskCore:
         if P115_API_AVAILABLE:
             self._p115_api = P115Api(client=client, disk_name="115网盘Plus")
 
-        self.p115_center = P115Center(configer.get_config("MACHINE_ID"))
+        self.p115_center = P115Center(configer.get_config("machine_id"))
 
     def upload(
         self,

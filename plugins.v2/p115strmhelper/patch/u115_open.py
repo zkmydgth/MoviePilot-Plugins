@@ -13,8 +13,8 @@ from ..core.config import configer
 
 class U115Patcher:
     """
-    一个用于控制 U115Pan 猴子补丁的管理器。
-    支持手动启用/禁用，也支持作为上下文管理器使用。
+    一个用于控制 U115Pan 猴子补丁的管理器
+    支持手动启用/禁用，也支持作为上下文管理器使用
     """
 
     _original_method: Dict[str, Callable[..., Any]] = {
@@ -116,7 +116,7 @@ class U115Patcher:
             logger.info("【P115Open】上传接口补丁应用成功")
 
         try:
-            client = P115Center(configer.get_config("MACHINE_ID"))
+            client = P115Center(configer.get_config("machine_id"))
             resp = client.check_feature("transfer_module_enhancement")
             status = resp.get("enabled")
         except Exception:

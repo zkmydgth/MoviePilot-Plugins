@@ -131,7 +131,7 @@ class CloudDriveApi:
 
     def list(self, fileitem: FileItem) -> List[FileItem]:
         """
-        列出目录下文件，或单文件则返回包含该文件的列表。
+        列出目录下文件，或单文件则返回包含该文件的列表
 
         :param fileitem: 目录或文件项
         :return: FileItem 列表
@@ -154,7 +154,7 @@ class CloudDriveApi:
 
     def iter_files(self, fileitem: FileItem) -> Optional[List[FileItem]]:
         """
-        递归遍历目录，返回扁平文件列表。
+        递归遍历目录，返回扁平文件列表
 
         :param fileitem: 目录或文件项
         :return: 所有文件项列表，失败返回 None
@@ -178,7 +178,7 @@ class CloudDriveApi:
 
     def get_item(self, path: Path) -> Optional[FileItem]:
         """
-        按路径获取文件或目录项。
+        按路径获取文件或目录项
 
         :param path: 路径
         :return: FileItem 或 None
@@ -234,7 +234,7 @@ class CloudDriveApi:
 
     def create_folder(self, fileitem: FileItem, name: str) -> Optional[FileItem]:
         """
-        在指定目录下创建文件夹。
+        在指定目录下创建文件夹
 
         :param fileitem: 父目录项
         :param name: 新文件夹名
@@ -257,7 +257,7 @@ class CloudDriveApi:
 
     def get_folder(self, path: Path) -> Optional[FileItem]:
         """
-        获取目录，如目录不存在则逐级创建。
+        获取目录，如目录不存在则逐级创建
 
         :param path: 目录路径
         :return: 目录文件项，若创建失败则返回 None
@@ -322,7 +322,7 @@ class CloudDriveApi:
 
     def delete(self, fileitem: FileItem) -> bool:
         """
-        删除文件或目录。
+        删除文件或目录
 
         :param fileitem: 文件项
         :return: 删除成功返回 True，失败返回 False
@@ -583,7 +583,7 @@ class CloudDriveApi:
 
     def copy(self, fileitem: FileItem, path: Path, new_name: str) -> bool:
         """
-        复制文件或目录到目标位置。
+        复制文件或目录到目标位置
 
         :param fileitem: 要复制的文件项
         :param path: 目标目录路径
@@ -630,7 +630,7 @@ class CloudDriveApi:
         self, fileitem: FileItem, path: Optional[Path] = None
     ) -> Optional[Path]:
         """
-        下载文件到本地。
+        下载文件到本地
 
         :param fileitem: 文件项
         :param path: 本地目录，None 则使用临时目录
@@ -708,7 +708,7 @@ class CloudDriveApi:
 
     def _compute_file_hash(self, path: Path, hash_type: int) -> str:
         """
-        计算文件 MD5(1)、SHA1(2) 或 PikPakSha1(3)，返回十六进制字符串。
+        计算文件 MD5(1)、SHA1(2) 或 PikPakSha1(3)，返回十六进制字符串
 
         :param path: 文件路径
         :param hash_type: 哈希类型 (HashType.MD5 / SHA1 / PIKPAK_SHA1)
@@ -725,8 +725,8 @@ class CloudDriveApi:
 
     def _compute_pikpak_sha1(self, path: Path) -> str:
         """
-        PikPakSha1：按文件大小动态分段，每段 SHA1 后连接再对连接做 SHA1，输出大写十六进制。
-        分段规则：<=128MiB 用 256KiB；128-256 用 512KiB；256-512 用 1024KiB；>512 用 2048KiB。
+        PikPakSha1：按文件大小动态分段，每段 SHA1 后连接再对连接做 SHA1，输出大写十六进制
+        分段规则：<=128MiB 用 256KiB；128-256 用 512KiB；256-512 用 1024KiB；>512 用 2048KiB
 
         :param path: 文件路径
         :return: 大写十六进制字符串
@@ -788,8 +788,8 @@ class CloudDriveApi:
         cancelled_ref: Optional[List[bool]] = None,
     ) -> Tuple[str, List[str]]:
         """
-        计算文件 MD5 及按 block_size 的每块 MD5（小写十六进制，按序）。
-        协议要求计算过程中定期上报进度，避免约 60 秒无 RemoteHashProgress 导致会话失效。
+        计算文件 MD5 及按 block_size 的每块 MD5（小写十六进制，按序）
+        协议要求计算过程中定期上报进度，避免约 60 秒无 RemoteHashProgress 导致会话失效
 
         :param path: 文件路径
         :param block_size: 块大小（字节）
@@ -821,7 +821,7 @@ class CloudDriveApi:
     @staticmethod
     def _iter_stream_with_timeout(stream, timeout: int = 300) -> Iterator:
         """
-        包装 gRPC 服务端流，为每条消息添加超时。
+        包装 gRPC 服务端流，为每条消息添加超时
 
         :param stream: gRPC 服务端流迭代器
         :param timeout: 每条消息的超时秒数，默认 300 秒
@@ -857,7 +857,7 @@ class CloudDriveApi:
 
     def _cancel_upload(self, upload_id: str) -> None:
         """
-        安全取消远程上传会话，忽略取消过程中的异常。
+        安全取消远程上传会话，忽略取消过程中的异常
 
         :param upload_id: StartRemoteUpload 返回的上传会话 ID
         """
@@ -873,7 +873,7 @@ class CloudDriveApi:
         new_name: Optional[str] = None,
     ) -> Optional[FileItem]:
         """
-        上传文件到 CloudDrive。
+        上传文件到 CloudDrive
 
         upload_mode:
         - remote_upload: Remote Upload 协议（StartRemoteUpload → RemoteUploadChannel）
@@ -896,7 +896,7 @@ class CloudDriveApi:
         new_name: Optional[str] = None,
     ) -> Optional[FileItem]:
         """
-        上传文件到 CloudDrive（Remote Upload 协议）。
+        上传文件到 CloudDrive（Remote Upload 协议）
 
         协议参考: https://www.clouddrive2.com/api/CloudDrive2_gRPC_API_Guide.html
         （远程上传协议：StartRemoteUpload → RemoteUploadChannel 流 → 响应 ReadData/HashData）
@@ -954,9 +954,9 @@ class CloudDriveApi:
         stall_timeout: int = 1800,
     ) -> bool:
         """
-        等待 CloudDrive2 将直写文件上传到云端完成。
+        等待 CloudDrive2 将直写文件上传到云端完成
 
-        通过轮询 get_upload_file_list 查找 destPath 匹配项的终态。
+        通过轮询 get_upload_file_list 查找 destPath 匹配项的终态
 
         :param remote_path: 云端目标路径
         :param timeout: 总超时时间（秒）
@@ -1156,7 +1156,7 @@ class CloudDriveApi:
         precomputed_hashes: Dict[int, str],
     ) -> Optional[FileItem]:
         """
-        执行一次上传尝试。成功返回 FileItem，失败返回 None。
+        执行一次上传尝试。成功返回 FileItem，失败返回 None
 
         :param target_path: 云端目标路径
         :param local_path: 本地文件路径

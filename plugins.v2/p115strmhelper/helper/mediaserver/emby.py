@@ -173,7 +173,9 @@ class EmbyOperate:
                     return True
                 else:
                     logger.warning(
-                        f"{self.func_name}触发刷新任务失败，Emby 未返回有效响应 code={res.status_code!r} name={name!r} item_id={item_id!r}"
+                        f"{self.func_name}触发刷新任务失败，"
+                        f"Emby 未返回有效响应 code={res.status_code!r} "
+                        f"name={name!r} item_id={item_id!r}"
                     )
                     return False
         except Exception as e:
@@ -252,7 +254,9 @@ class EmbyOperate:
                     return True
                 else:
                     logger.warning(
-                        f"{self.func_name}触发提取媒体信息失败，Emby 未返回有效响应 code={res.status_code!r} name={name!r} item_id={item_id!r}"
+                        f"{self.func_name}触发提取媒体信息失败，"
+                        f"Emby 未返回有效响应 code={res.status_code!r} "
+                        f"name={name!r} item_id={item_id!r}"
                     )
                     return False
         except Exception as e:

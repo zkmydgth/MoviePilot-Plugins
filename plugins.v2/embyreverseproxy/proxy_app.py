@@ -154,13 +154,13 @@ def create_app(
     external_player_list: List[str] | None = None,
 ) -> FastAPI:
     """
-    创建 Emby 反向代理 FastAPI 应用。
+    创建 Emby 反向代理 FastAPI 应用
 
-    :param emby_host: Emby 服务器根地址。
-    :param pin_rules: 顶置路径规则列表 (路径前缀, 目标URL)；命中时先替换再 302。
-    :param external_player_url: 是否启用外部播放器链接注入。
-    :param external_player_list: 要注入的外部播放器 key 列表；为空时使用全部。
-    :return: 配置好的 FastAPI 应用实例。
+    :param emby_host: Emby 服务器根地址
+    :param pin_rules: 顶置路径规则列表 (路径前缀, 目标URL)；命中时先替换再 302
+    :param external_player_url: 是否启用外部播放器链接注入
+    :param external_player_list: 要注入的外部播放器 key 列表；为空时使用全部
+    :return: 配置好的 FastAPI 应用实例
     """
     emby_host = emby_host.rstrip("/")
     pin_rules = pin_rules or []
@@ -194,19 +194,19 @@ def create_app(
 
     def _strip_accept_encoding(headers: dict[str, str]) -> dict[str, str]:
         """
-        去掉 Accept-Encoding，便于上游返回未压缩内容以便修改 body。
+        去掉 Accept-Encoding，便于上游返回未压缩内容以便修改 body
 
-        :param headers: 原始转发头。
-        :return: 不包含 accept-encoding 的头字典。
+        :param headers: 原始转发头
+        :return: 不包含 accept-encoding 的头字典
         """
         return {k: v for k, v in headers.items() if k.lower() != "accept-encoding"}
 
     def _may_return_emby_html_shell(path: str) -> bool:
         """
-        判断路径是否可能返回 Emby Web 的 HTML 壳（用于是否走缓冲并注入脚本）。
+        判断路径是否可能返回 Emby Web 的 HTML 壳（用于是否走缓冲并注入脚本）
 
-        :param path: 请求路径。
-        :return: 若可能为 HTML 页面则 True。
+        :param path: 请求路径
+        :return: 若可能为 HTML 页面则 True
         """
         pl = path.lower()
         if "playbackinfo" in pl:
@@ -226,10 +226,10 @@ def create_app(
 
     def _inject_scripts_into_html(html: str) -> str | None:
         """
-        在 HTML 的 head 中注入 crossOrigin 拦截脚本和外部播放器脚本；已注入则跳过。
+        在 HTML 的 head 中注入 crossOrigin 拦截脚本和外部播放器脚本；已注入则跳过
 
-        :param html: 页面 HTML 文本。
-        :return: 注入后的 HTML；无需修改时返回 None。
+        :param html: 页面 HTML 文本
+        :return: 注入后的 HTML；无需修改时返回 None
         """
         scripts = ""
         if CROSS_ORIGIN_INTERCEPT_MARKER not in html:
@@ -249,12 +249,12 @@ def create_app(
 
     def _media_sources_indicate_strm(data: dict[str, Any]) -> bool:
         """
-        根据 PlaybackInfo JSON 判断是否为 STRM。
+        根据 PlaybackInfo JSON 判断是否为 STRM
         Emby 解析 .strm 后 Path 变为文件内的实际地址（HTTP URL），
-        因此通过 Protocol=Http + IsRemote=True 来识别。
+        因此通过 Protocol=Http + IsRemote=True 来识别
 
-        :param data: PlaybackInfo 解析后的字典。
-        :return: 若任一 MediaSource 为 STRM 解析后的远程源则为 True。
+        :param data: PlaybackInfo 解析后的字典
+        :return: 若任一 MediaSource 为 STRM 解析后的远程源则为 True
         """
         sources = data.get("MediaSources")
         if not isinstance(sources, list):
@@ -270,11 +270,11 @@ def create_app(
         data: dict[str, Any], rules: List[Tuple[str, str]]
     ) -> bool:
         """
-        判断 PlaybackInfo 中是否有 MediaSource 的 Path 经 pin_rules 替换后变为 HTTP URL。
+        判断 PlaybackInfo 中是否有 MediaSource 的 Path 经 pin_rules 替换后变为 HTTP URL
 
-        :param data: PlaybackInfo 解析后的字典。
-        :param rules: 顶置路径规则列表。
-        :return: 若任一 MediaSource 命中规则且替换结果为 HTTP URL 则为 True。
+        :param data: PlaybackInfo 解析后的字典
+        :param rules: 顶置路径规则列表
+        :return: 若任一 MediaSource 命中规则且替换结果为 HTTP URL 则为 True
         """
         if not rules:
             return False
@@ -383,10 +383,10 @@ def create_app(
 
     def _build_forward_headers(request: Request) -> dict[str, str]:
         """
-        构建转发请求头，排除 host 和 hop-by-hop 头。
+        构建转发请求头，排除 host 和 hop-by-hop 头
 
-        :param request: 当前请求。
-        :return: 用于转发的请求头字典。
+        :param request: 当前请求
+        :return: 用于转发的请求头字典
         """
         return {
             k: v
@@ -396,11 +396,11 @@ def create_app(
 
     def _real_client_ip(request: Request) -> str:
         """
-        获取真实客户端 IP。
+        获取真实客户端 IP
 
         若 MoviePilot 前置有反向代理（nginx/Cloudflare 等），
         `request.client.host` 会是上游代理的 IP，导致局域网内所有用户看起来
-        都来自同一 IP。优先读取 `X-Forwarded-For` / `X-Real-IP` 恢复真实 IP。
+        都来自同一 IP。优先读取 `X-Forwarded-For` / `X-Real-IP` 恢复真实 IP
 
         :param request: 当前请求
         :return: 客户端 IP 字符串，取不到时返回空串
@@ -415,12 +415,12 @@ def create_app(
 
     def _playback_user_key(request: Request, item_id: str) -> tuple[str, str, str]:
         """
-        构造用于关联 PlaybackInfo → Stream 的复合 key。
+        构造用于关联 PlaybackInfo → Stream 的复合 key
 
         Stream 请求通常不携带任何 Emby 认证字段，但与其前置的 PlaybackInfo
         来自同一浏览器/设备，因此可以用 (client_ip, user_agent, item_id)
         三元组作为稳定关联键。同一设备下多用户互不影响：不同用户的
-        PlaybackInfo 分属不同 item_id 的播放动作，不会相互覆盖。
+        PlaybackInfo 分属不同 item_id 的播放动作，不会相互覆盖
 
         :param request: 当前请求
         :param item_id: 媒体项 ID
@@ -432,10 +432,10 @@ def create_app(
 
     def _header_hash(request: Request) -> str:
         """
-        对缓存 key 白名单内的请求头做稳定序列化并哈希，用于区分认证/设备。
+        对缓存 key 白名单内的请求头做稳定序列化并哈希，用于区分认证/设备
 
-        :param request: 当前请求。
-        :return: 十六进制摘要字符串。
+        :param request: 当前请求
+        :return: 十六进制摘要字符串
         """
         parts = []
         for name in sorted(CACHE_KEY_HEADERS):
@@ -470,13 +470,13 @@ def create_app(
         user_id: str | None = None,
     ) -> str:
         """
-        跟随重定向链，返回最终 URL。
+        跟随重定向链，返回最终 URL
 
-        :param client: 共享的 httpx 客户端（follow_redirects=True）。
-        :param url: 起始 URL。
-        :param headers: 请求头。
-        :param user_id: Emby 用户 ID，可为 None。
-        :return: 最终 URL；失败时返回原始 url。
+        :param client: 共享的 httpx 客户端（follow_redirects=True）
+        :param url: 起始 URL
+        :param headers: 请求头
+        :param user_id: Emby 用户 ID，可为 None
+        :return: 最终 URL；失败时返回原始 url
         """
         if user_id:
             headers = {**headers, "X-Emby-UserId": user_id}
@@ -516,11 +516,11 @@ def create_app(
 
     def _apply_pin_rules(url_or_path: str, rules: List[Tuple[str, str]]) -> str:
         """
-        对 PlaybackInfo 返回的 Path（URL 或路径）应用顶置规则：匹配前缀则替换为目标 URL。
+        对 PlaybackInfo 返回的 Path（URL 或路径）应用顶置规则：匹配前缀则替换为目标 URL
 
-        :param url_or_path: 完整 URL 或路径字符串。
-        :param rules: 顶置规则列表 (路径前缀, 目标URL)。
-        :return: 替换后的 URL，未命中则返回原串。
+        :param url_or_path: 完整 URL 或路径字符串
+        :param rules: 顶置规则列表 (路径前缀, 目标URL)
+        :return: 替换后的 URL，未命中则返回原串
         """
         if not url_or_path or not rules:
             return url_or_path
@@ -670,9 +670,9 @@ def create_app(
 
     async def _ws_proxy(ws_client: WebSocket) -> None:
         """
-        双向代理客户端 WebSocket 与 Emby 后端 WebSocket。
+        双向代理客户端 WebSocket 与 Emby 后端 WebSocket
 
-        :param ws_client: 客户端 WebSocket 连接。
+        :param ws_client: 客户端 WebSocket 连接
         """
         await ws_client.accept()
         parsed = urlparse(emby_host)
@@ -717,10 +717,10 @@ def create_app(
 
     def _current_port(request: Request) -> int:
         """
-        从请求中解析当前代理端口（供客户端连回），优先 X-Forwarded-Port。
+        从请求中解析当前代理端口（供客户端连回），优先 X-Forwarded-Port
 
-        :param request: 当前请求。
-        :return: 端口号。
+        :param request: 当前请求
+        :return: 端口号
         """
         forwarded = request.headers.get("x-forwarded-port")
         if forwarded:
@@ -740,10 +740,10 @@ def create_app(
         request: Request,
     ) -> JSONResponse | StreamingResponse:
         """
-        代理 /emby/system/info 与 /system/info，并改写响应中的端口，使客户端连回代理而非后端。
+        代理 /emby/system/info 与 /system/info，并改写响应中的端口，使客户端连回代理而非后端
 
-        :param request: 当前请求。
-        :return: 改写后的 JSON 或 502 错误。
+        :param request: 当前请求
+        :return: 改写后的 JSON 或 502 错误
         """
         path = request.scope.get("path", "/")
         qs = str(request.url.query)
@@ -835,11 +835,11 @@ def create_app(
     ) -> JSONResponse | Response:
         """
         代理 Items/PlaybackInfo：若 MediaSource.Path 为 .strm，则强制 DirectPlay，
-        避免浏览器因编码能力走 HLS 转码，使 302 直链失效。
+        避免浏览器因编码能力走 HLS 转码，使 302 直链失效
 
-        :param request: 当前请求。
-        :param item_id: 路径中的条目 ID。
-        :return: 改写后的 JSON 或透传响应。
+        :param request: 当前请求
+        :param item_id: 路径中的条目 ID
+        :return: 改写后的 JSON 或透传响应
         """
         path = request.scope.get("path", "/")
         qs = str(request.url.query)
@@ -984,10 +984,10 @@ def create_app(
 
     async def _reverse_proxy_html_inject(request: Request) -> Response | JSONResponse:
         """
-        对可能返回 HTML 的 GET 请求整包拉取，注入 crossOrigin 拦截脚本后再返回。
+        对可能返回 HTML 的 GET 请求整包拉取，注入 crossOrigin 拦截脚本后再返回
 
-        :param request: 当前请求（须为 GET）。
-        :return: 响应体或 502 JSON。
+        :param request: 当前请求（须为 GET）
+        :return: 响应体或 502 JSON
         """
         path = request.scope.get("path", "/")
         qs = str(request.url.query)
@@ -1054,10 +1054,10 @@ def create_app(
         request: Request,
     ) -> StreamingResponse | JSONResponse | Response:
         """
-        将请求反向代理到 Emby 服务器并流式返回响应。
+        将请求反向代理到 Emby 服务器并流式返回响应
 
-        :param request: 当前请求。
-        :return: 流式响应或 502 JSON 错误。
+        :param request: 当前请求
+        :return: 流式响应或 502 JSON 错误
         """
         path = request.scope.get("path", "/")
         if request.method == "GET" and _may_return_emby_html_shell(path):
@@ -1114,11 +1114,11 @@ def create_app(
         resp: HttpxResponse, extra: dict[str, str] | None = None
     ) -> dict[str, str]:
         """
-        从 httpx 响应构造转发头，并可选附加 Cache-Control 等。
+        从 httpx 响应构造转发头，并可选附加 Cache-Control 等
 
-        :param resp: httpx Response。
-        :param extra: 额外头。
-        :return: 适合 FastAPI Response 的头字典。
+        :param resp: httpx Response
+        :param extra: 额外头
+        :return: 适合 FastAPI Response 的头字典
         """
         excluded = HOP_BY_HOP_HEADERS | {"content-encoding", "content-length"}
         h = {k: v for k, v in resp.headers.multi_items() if k.lower() not in excluded}
@@ -1128,10 +1128,10 @@ def create_app(
 
     async def _patch_basehtmlplayer_js(request: Request) -> JSONResponse | Response:
         """
-        拦截 htmlvideoplayer/basehtmlplayer.js，将 getCrossOriginValue 相关逻辑改为不设置 crossorigin。
+        拦截 htmlvideoplayer/basehtmlplayer.js，将 getCrossOriginValue 相关逻辑改为不设置 crossorigin
 
-        :param request: 当前请求。
-        :return: 修补后的 JS 或 502。
+        :param request: 当前请求
+        :return: 修补后的 JS 或 502
         """
         path = request.scope.get("path", "/")
         qs = str(request.url.query)
@@ -1184,10 +1184,10 @@ def create_app(
     async def _patch_plugin_js(request: Request) -> JSONResponse | Response:
         """
         拦截 htmlvideoplayer/plugin.js，去除 crossOrigin 赋值，
-        使浏览器播放器在 302 重定向时不触发 CORS 预检。
+        使浏览器播放器在 302 重定向时不触发 CORS 预检
 
-        :param request: 当前请求。
-        :return: 修补后的 JS 响应或 502 错误 JSON。
+        :param request: 当前请求
+        :return: 修补后的 JS 响应或 502 错误 JSON
         """
         path = request.scope.get("path", "/")
         qs = str(request.url.query)
@@ -1244,12 +1244,12 @@ def create_app(
             request: Request, user_id: str, item_id: str
         ) -> JSONResponse | StreamingResponse | Response:
             """
-            代理 /Users/{user_id}/Items/{item_id}，为含有 MediaSources 的响应注入 ExternalUrls。
+            代理 /Users/{user_id}/Items/{item_id}，为含有 MediaSources 的响应注入 ExternalUrls
 
-            :param request: 当前请求。
-            :param user_id: 用户 ID。
-            :param item_id: 媒体项 ID。
-            :return: 注入后的 JSON 或透传响应。
+            :param request: 当前请求
+            :param user_id: 用户 ID
+            :param item_id: 媒体项 ID
+            :return: 注入后的 JSON 或透传响应
             """
             path = request.scope.get("path", "/")
             qs = str(request.url.query)
@@ -1360,10 +1360,10 @@ def create_app(
         request: Request,
     ) -> StreamingResponse | JSONResponse | Response:
         """
-        兜底路由：将未匹配请求反向代理到 Emby。
+        兜底路由：将未匹配请求反向代理到 Emby
 
-        :param request: 当前请求。
-        :return: 流式响应或 502 JSON 错误。
+        :param request: 当前请求
+        :return: 流式响应或 502 JSON 错误
         """
         return await _reverse_proxy(request)
 

@@ -291,7 +291,7 @@ class OfflineDownloadHelper:
             return
 
         try:
-            client = P115Center(configer.get_config("MACHINE_ID"))
+            client = P115Center(configer.get_config("machine_id"))
             resp = client.upload_offline_info(
                 OfflineInfo(
                     url=url,

@@ -27,7 +27,7 @@ from app.core.config import settings
 from app.log import logger
 
 
-class __DBManager:
+class _DBManager:
     """
     数据库管理器
     """
@@ -70,7 +70,7 @@ class __DBManager:
 
     def init_database(self, db_path: Path):
         """
-        初始化数据库引擎。
+        初始化数据库引擎
         :param db_path: 数据库路径
         """
         # 数据库已经启动
@@ -404,4 +404,4 @@ class DbOper:
 
 
 # 全局数据库会话
-ct_db_manager = __DBManager()
+ct_db_manager = _DBManager()

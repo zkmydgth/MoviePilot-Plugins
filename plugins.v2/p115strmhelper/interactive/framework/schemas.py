@@ -9,7 +9,7 @@ from app.schemas.types import MessageChannel
 @dataclass
 class BaseView:
     """
-    视图模型的通用基类。
+    视图模型的通用基类
     """
 
     # 视图名称
@@ -27,7 +27,7 @@ class BaseView:
 @dataclass
 class BaseMessage:
     """
-    消息模型的通用基类。
+    消息模型的通用基类
     """
 
     # 消息类型
@@ -47,7 +47,7 @@ class BaseMessage:
 @dataclass
 class BaseBusiness:
     """
-    业务模型的通用基类。
+    业务模型的通用基类
     """
 
     pass
@@ -56,7 +56,7 @@ class BaseBusiness:
 @dataclass
 class BaseSession:
     """
-    Session 模型的通用基类。
+    Session 模型的通用基类
     """
 
     # 会话 ID，用于唯一标识每个用户在每个聊天中的会话
@@ -80,7 +80,7 @@ class BaseSession:
 
     def get_delete_message_data(self) -> Dict[str, Any]:
         """
-        获取删除消息的数据。
+        获取删除消息的数据
         """
         return {
             "channel": self.message.channel,
@@ -91,8 +91,8 @@ class BaseSession:
 
     def update_message_context(self, event_data: Dict[str, Any]):
         """
-        更新消息上下文信息。
-        :param event_data: 字典，包含事件数据，必须包含 'channel', 'source', 'userid' 或 'user' 字段。
+        更新消息上下文信息
+        :param event_data: 字典，包含事件数据，必须包含 'channel', 'source', 'userid' 或 'user' 字段
         """
         self.message.channel = event_data.get("channel")
         self.message.source = event_data.get("source")
@@ -105,14 +105,14 @@ class BaseSession:
 
     def update_activity(self):
         """
-        更新会话的最后活动时间戳。
+        更新会话的最后活动时间戳
         """
         self.last_active = time.time()
 
     def go_to(self, view: str):
         """
-        切换到指定的视图，并保存当前状态到历史记录。
-        :param view: 要切换到的视图名称。
+        切换到指定的视图，并保存当前状态到历史记录
+        :param view: 要切换到的视图名称
         """
         # 如果没有历史记录且当前视图是默认视图，则不进行任何操作，默认视图是初始化
         if not self.history and view == self.default_view:
@@ -129,7 +129,7 @@ class BaseSession:
     def go_back(self, view: Optional[str] = None):
         """
         返回到历史记录
-        :param view: 要返回的视图名称。
+        :param view: 要返回的视图名称
         """
         if not view:
             view = self.view.previous_view or "start"
@@ -151,21 +151,21 @@ class BaseSession:
 
     def page_next(self):
         """
-        翻到下一页。
+        翻到下一页
         """
         if self.view.total_pages > 0 and self.view.page < self.view.total_pages - 1:
             self.view.page += 1
 
     def page_prev(self):
         """
-        翻到上一页。
+        翻到上一页
         """
         if self.view.page > 0:
             self.view.page -= 1
 
     def refresh_view(self):
         """
-        刷新当前视图。
+        刷新当前视图
         """
         self.view.refresh = True
 

@@ -91,7 +91,10 @@ class P115StrmHelper(_PluginBase):
     # 插件描述
     plugin_desc = "115网盘STRM生成一条龙服务"
     # 插件图标
-    plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png"
+    plugin_icon = (
+        "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/"
+        "refs/heads/v2/src/assets/images/misc/u115.png"
+    )
     # 插件版本
     plugin_version = VERSION
     # 插件作者
@@ -917,8 +920,8 @@ class P115StrmHelper(_PluginBase):
 
     def get_form(self) -> Tuple[Optional[List[dict]], Dict[str, Any]]:
         """
-        为Vue组件模式返回初始配置数据。
-        Vue模式下，第一个参数返回None，第二个参数返回初始配置数据。
+        为Vue组件模式返回初始配置数据
+        Vue模式下，第一个参数返回None，第二个参数返回初始配置数据
         """
         return None, self.api.get_config_api()
 
@@ -1333,7 +1336,7 @@ class P115StrmHelper(_PluginBase):
 
     def _render_and_send(self, session: TSession):
         """
-        根据 Session 的当前状态，渲染视图并发送/编辑消息。
+        根据 Session 的当前状态，渲染视图并发送/编辑消息
         """
         # 1. 委托给 ViewRenderer 生成界面数据
         render_data = self.view_renderer.render(session)
@@ -1354,7 +1357,7 @@ class P115StrmHelper(_PluginBase):
         self, session: TSession, render_data: Optional[dict] = None, **kwargs
     ):
         """
-        统一的消息发送接口。
+        统一的消息发送接口
         """
         context = asdict(session.message)
         if render_data:
@@ -1376,7 +1379,7 @@ class P115StrmHelper(_PluginBase):
         chat_id: Optional[Union[str, int]] = None,
     ) -> bool:
         """
-        删除会话中的原始消息。
+        删除会话中的原始消息
         """
         # 兼容旧版本无删除方法
         if hasattr(self.chain, "delete_message"):
@@ -1796,9 +1799,9 @@ class P115StrmHelper(_PluginBase):
 
         响应主程序渲染前的 TransferRenameBuild 事件，通过 ffprobe / 中心化接口
         获取真实媒体信息（如 effect=SDR/HDR、视频/音频编码等），写回
-        ``event_data.rename_dict``。
+        ``event_data.rename_dict``
 
-        与渲染后的 TransferRename 字符串改写类插件天然分层、互不冲突。
+        与渲染后的 TransferRename 字符串改写类插件天然分层、互不冲突
         """
         if not configer.enabled:
             return

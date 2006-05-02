@@ -24,14 +24,14 @@ class ViewRenderer(BaseViewRenderer):
     @staticmethod
     def __now_date() -> str:
         """
-        返回当前时间的字符串表示。
+        返回当前时间的字符串表示
         """
         return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     @staticmethod
     def __get_paged_items_and_start_index(session: Session, page_size: int, data):
         """
-        通用 - 获取当前页码的数据项。
+        通用 - 获取当前页码的数据项
 
         """
         session.view.total_pages = math.ceil(len(data) / page_size)
@@ -46,7 +46,7 @@ class ViewRenderer(BaseViewRenderer):
     @staticmethod
     def __get_page_size(session: Session) -> Tuple[int, int]:
         """
-        通用 - 获取当前页面的大小，决定每页显示多少个下按钮。
+        通用 - 获取当前页面的大小，决定每页显示多少个下按钮
         """
         max_buttons_per_row = ChannelCapabilityManager.get_max_buttons_per_row(
             session.message.channel
@@ -66,7 +66,7 @@ class ViewRenderer(BaseViewRenderer):
 
     def get_page_switch_buttons(self, session: Session) -> List[Dict[str, Any]]:
         """
-        构建分页切换按钮。
+        构建分页切换按钮
         """
         page_nav = []
         if session.view.page > 0:
@@ -87,7 +87,7 @@ class ViewRenderer(BaseViewRenderer):
         close: bool = False,
     ) -> list:
         """
-        获取导航按钮，包含返回、刷新和关闭按钮。
+        获取导航按钮，包含返回、刷新和关闭按钮
         """
         nav_buttons = []
         if go_back:
@@ -506,7 +506,7 @@ class ViewRenderer(BaseViewRenderer):
     @view_registry.view(name="subscribe_success", code="ss")
     def render_subscribe_success(self, _: Session) -> Dict:
         """
-        渲染转存成功视图。
+        渲染转存成功视图
         """
         title = "✅ 转存成功"
         text = "您的转存请求已成功处理。"
@@ -516,7 +516,7 @@ class ViewRenderer(BaseViewRenderer):
     @view_registry.view(name="subscribe_fail", code="sf")
     def render_subscribe_fail(self, session: Session) -> Dict:
         """
-        渲染转存失败视图。
+        渲染转存失败视图
         """
         title = "❌ 转存失败"
         text = "您的转存请求处理失败，请稍后重试。"
@@ -528,7 +528,7 @@ class ViewRenderer(BaseViewRenderer):
     @view_registry.view(name="close", code="cl")
     def render_close(self, session: Session) -> Dict:
         """
-        渲染转存失败视图。
+        渲染转存失败视图
         """
         title = "❌ 关闭页面"
         text = ""

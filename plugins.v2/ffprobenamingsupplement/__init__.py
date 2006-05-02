@@ -819,9 +819,9 @@ class FFprobeNamingSupplement(_PluginBase):
     def on_transfer_rename_build(self, event: Event) -> None:
         """
         处理 TransferRenameBuild 链式事件，在主程序首次渲染前把 ffprobe
-        解析到的字段写入 rename_dict。
+        解析到的字段写入 rename_dict
 
-        与渲染后的 TransferRename 字符串改写类插件天然分层、互不冲突。
+        与渲染后的 TransferRename 字符串改写类插件天然分层、互不冲突
         """
         if not self._enabled:
             return

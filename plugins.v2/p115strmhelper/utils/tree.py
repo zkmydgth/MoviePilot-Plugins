@@ -190,7 +190,7 @@ class DirectoryTree:
 
     def __init__(self, file_path: Path):
         """
-        初始化目录树实例。
+        初始化目录树实例
         """
         if settings.CACHE_BACKEND_TYPE == "redis":
             self._storage: DirectoryTreeStorage = RedisStorage(file_path.stem)
@@ -250,7 +250,7 @@ class DirectoryTree:
 
     def compare_entry_counts(self, other_tree: "DirectoryTree") -> int:
         """
-        对比两个目录树的有效条目总数。
+        对比两个目录树的有效条目总数
 
         :param other_tree: 要比较的另一个 DirectoryTree 实例
         :return: int 两个树条目数量的差值绝对值
@@ -259,7 +259,7 @@ class DirectoryTree:
 
     def clear(self):
         """
-        清除此目录树的所有内容。
+        清除此目录树的所有内容
         - 对于 TXT 后端，会清空文件
         - 对于 Redis 后端，会删除相关的键
         """

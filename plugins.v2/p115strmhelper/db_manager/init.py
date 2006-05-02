@@ -56,7 +56,7 @@ def migration_db(db_path, script_location, version_locations: list):
 
 def init_migration_scripts() -> bool:
     """
-    初始化持久化的迁移脚本，将源目录内容完整复制到目标目录。
+    初始化持久化的迁移脚本，将源目录内容完整复制到目标目录
     """
     # 使用 Path 对象定义路径
     source_path = Path(
@@ -107,7 +107,7 @@ def init_migration_scripts() -> bool:
 
 def get_ancestors(script: ScriptDirectory, revision_id: str) -> Set[str]:
     """
-    获取给定 revision 的所有祖先（历史版本）。
+    获取给定 revision 的所有祖先（历史版本）
     """
     ancestors = set()
     # 路径上的所有版本都被认为是“祖先”
@@ -123,7 +123,7 @@ def sync_to_revision(
     version_locations: str = None,
 ):
     """
-    智能地将数据库同步到指定的目标版本，无需 alembic.ini 文件。
+    智能地将数据库同步到指定的目标版本，无需 alembic.ini 文件
     """
     logger.info(f"--- 开始智能迁移，目标版本: {target_revision} ---")
 

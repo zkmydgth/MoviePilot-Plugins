@@ -861,14 +861,14 @@ class ConfigManager(BaseModel):
         return "a2d8b7633e56790973910590ab9d135ed9a9cb58967c7b92b05a22579923bb3d"
 
     @property
-    def PLUGIN_ALIGO_PATH(self) -> Path:
+    def plugin_aligo_path(self) -> Path:
         """
         返回 aligo 配置的动态路径
         """
         return self.PLUGIN_CONFIG_PATH / "aligo"
 
     @property
-    def MACHINE_ID(self) -> str:
+    def machine_id(self) -> str:
         """
         获取或生成机器ID
         """
@@ -877,7 +877,7 @@ class ConfigManager(BaseModel):
         )
 
     @property
-    def USER_AGENT(self) -> str:
+    def user_agent(self) -> str:
         """
         全局用户代理字符串
         """
@@ -895,7 +895,7 @@ class ConfigManager(BaseModel):
         """
         从文件动态获取最新的阿里云盘Token
         """
-        token = AliyunPanLogin.get_token(self.PLUGIN_ALIGO_PATH / "aligo.json")
+        token = AliyunPanLogin.get_token(self.plugin_aligo_path / "aligo.json")
         if token:
             self.aliyundrive_token = token
 
@@ -927,7 +927,7 @@ class ConfigManager(BaseModel):
         """
         获取单个配置值
         """
-        if key in ["PLUGIN_ALIGO_PATH", "MACHINE_ID"]:
+        if key in ["plugin_aligo_path", "machine_id"]:
             return getattr(self, key)
         if key == "aliyundrive_token":
             self._update_aliyun_token()
@@ -963,7 +963,7 @@ class ConfigManager(BaseModel):
 
             if "aliyundrive_token" in updates:
                 if not updates.get("aliyundrive_token"):
-                    (self.PLUGIN_ALIGO_PATH / "aligo.json").unlink(missing_ok=True)
+                    (self.plugin_aligo_path / "aligo.json").unlink(missing_ok=True)
             else:
                 self._update_aliyun_token()
 
@@ -990,18 +990,38 @@ class ConfigManager(BaseModel):
         根据类型获取指定的User-Agent
         """
         user_agents = {
-            1: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-            2: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+            1: (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/131.0.0.0 Safari/537.36"
+            ),
+            2: (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/131.0.0.0 Safari/537.36"
+            ),
             3: settings.USER_AGENT,
-            4: "Mozilla/5.0 (Linux; Android 11; Redmi Note 8 Pro Build/RP1A.200720.011; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/89.0.4389.72 MQQBrowser/6.2 TBS/045913 Mobile Safari/537.36 V1_AND_SQ_8.8.68_2538_YYB_D A_8086800 QQ/8.8.68.7265 NetType/WIFI WebP/0.3.0 Pixel/1080 StatusBarHeight/76 SimpleUISwitch/1 QQTheme/2971 InMagicWin/0 StudyMode/0 CurrentMode/1 CurrentFontScale/1.0 GlobalDensityScale/0.9818182 AppId/537112567 Edg/98.0.4758.102",
+            4: (
+                "Mozilla/5.0 (Linux; Android 11; Redmi Note 8 Pro Build/RP1A.200720.011; wv) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/89.0.4389.72 "
+                "MQQBrowser/6.2 TBS/045913 Mobile Safari/537.36 "
+                "V1_AND_SQ_8.8.68_2538_YYB_D A_8086800 QQ/8.8.68.7265 NetType/WIFI "
+                "WebP/0.3.0 Pixel/1080 StatusBarHeight/76 SimpleUISwitch/1 QQTheme/2971 "
+                "InMagicWin/0 StudyMode/0 CurrentMode/1 CurrentFontScale/1.0 "
+                "GlobalDensityScale/0.9818182 AppId/537112567 Edg/98.0.4758.102"
+            ),
             5: UserAgentUtils.generate_u115_ios(),
         }
         if utype in user_agents:
             return user_agents[utype]
+        _cpu_arch = (
+            SystemUtils.cpu_arch()
+            if hasattr(SystemUtils, 'cpu_arch') and callable(SystemUtils.cpu_arch)
+            else 'UnknownArch'
+        )
         return (
             f"{self.PLUSIN_NAME}/{VERSION} "
-            f"({system()} {release()}; "
-            f"{SystemUtils.cpu_arch() if hasattr(SystemUtils, 'cpu_arch') and callable(SystemUtils.cpu_arch) else 'UnknownArch'})"
+            f"({system()} {release()}; {_cpu_arch})"
         )
 
     def get_default_timeout(self) -> Optional[Dict[str, Any]]:

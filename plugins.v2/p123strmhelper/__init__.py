@@ -267,7 +267,12 @@ class FullSyncStrmHelper:
 
                         new_file_path.parent.mkdir(parents=True, exist_ok=True)
 
-                        strm_url = f"{self.server_address}/api/v1/plugin/P123StrmHelper/redirect_url?apikey={settings.API_TOKEN}&name={item['FileName']}&size={item['Size']}&md5={item['Etag']}&s3_key_flag={item['S3KeyFlag']}"
+                        strm_url = (
+                            f"{self.server_address}/api/v1/plugin/P123StrmHelper/redirect_url"
+                            f"?apikey={settings.API_TOKEN}&name={item['FileName']}"
+                            f"&size={item['Size']}&md5={item['Etag']}"
+                            f"&s3_key_flag={item['S3KeyFlag']}"
+                        )
 
                         with open(new_file_path, "w", encoding="utf-8") as file:
                             file.write(strm_url)
@@ -417,7 +422,12 @@ class ShareStrmHelper:
 
                 new_file_path.parent.mkdir(parents=True, exist_ok=True)
 
-                strm_url = f"{self.server_address}/api/v1/plugin/P123StrmHelper/redirect_url?apikey={settings.API_TOKEN}&name={item['FileName']}&size={item['Size']}&md5={item['Etag']}&s3_key_flag={item['S3KeyFlag']}"
+                strm_url = (
+                    f"{self.server_address}/api/v1/plugin/P123StrmHelper/redirect_url"
+                    f"?apikey={settings.API_TOKEN}&name={item['FileName']}"
+                    f"&size={item['Size']}&md5={item['Etag']}"
+                    f"&s3_key_flag={item['S3KeyFlag']}"
+                )
 
                 with open(new_file_path, "w", encoding="utf-8") as file:
                     file.write(strm_url)
@@ -1767,7 +1777,12 @@ class P123StrmHelper(_PluginBase):
             )
             return
 
-        strm_url = f"{self.moviepilot_address.rstrip('/')}/api/v1/plugin/P123StrmHelper/redirect_url?apikey={settings.API_TOKEN}&name={item_dest_info['FileName']}&size={item_dest_info['Size']}&md5={item_dest_info['Etag']}&s3_key_flag={item_dest_info['S3KeyFlag']}"
+        strm_url = (
+            f"{self.moviepilot_address.rstrip('/')}/api/v1/plugin/P123StrmHelper/redirect_url"
+            f"?apikey={settings.API_TOKEN}&name={item_dest_info['FileName']}"
+            f"&size={item_dest_info['Size']}&md5={item_dest_info['Etag']}"
+            f"&s3_key_flag={item_dest_info['S3KeyFlag']}"
+        )
 
         status, strm_target_path = generate_strm_files(
             target_dir=local_media_dir,

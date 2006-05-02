@@ -18,7 +18,10 @@ class P115Disk(_PluginBase):
     # 插件描述
     plugin_desc = "更快更强的115网盘存储模块。"
     # 插件图标
-    plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png"
+    plugin_icon = (
+        "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/"
+        "refs/heads/v2/src/assets/images/misc/u115.png"
+    )
     # 插件版本
     plugin_version = "0.2.14"
     # 插件作者

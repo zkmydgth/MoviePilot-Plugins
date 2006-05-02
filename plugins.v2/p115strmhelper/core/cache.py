@@ -130,7 +130,7 @@ class R302Cache:
 
     async def set(self, pick_code, ua_code, url, expires_time):
         """
-        向缓存中添加一个URL，并为其设置独立的过期时间。
+        向缓存中添加一个URL，并为其设置独立的过期时间
 
         :param pick_code: 第一层键
         :param ua_code: 第二层键
@@ -160,7 +160,7 @@ class R302Cache:
 
     async def count_by_pick_code(self, pick_code) -> int:
         """
-        计算与指定 pick_code 匹配的缓存条目数量。
+        计算与指定 pick_code 匹配的缓存条目数量
 
         :param pick_code: 要匹配的第一层键
 
@@ -284,7 +284,7 @@ class RedisCacheDirectory(BaseCacheDirectory):
 
 class DirectoryCache:
     """
-    一个支持 diskcache 和 Redis 后端的目录缓存模块。
+    一个支持 diskcache 和 Redis 后端的目录缓存模块
     """
 
     def __init__(self, cache_directory: Optional[Path] = None):

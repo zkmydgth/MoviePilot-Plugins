@@ -22,10 +22,10 @@ INTERNAL_TOOLS: List[Dict[str, Any]] = []
 
 def _dump(obj: Any) -> str:
     """
-    将对象序列化为 JSON 字符串。
+    将对象序列化为 JSON 字符串
 
-    :param obj: 支持 model_dump()、dict() 或普通可序列化对象。
-    :return: UTF-8 JSON 字符串。
+    :param obj: 支持 model_dump()、dict() 或普通可序列化对象
+    :return: UTF-8 JSON 字符串
     """
     if hasattr(obj, "model_dump"):
         return orjson_dumps(obj.model_dump(), default=str).decode()
@@ -38,13 +38,13 @@ async def run_tool(
     api: Any, servicer: Any, name: str, arguments: Dict[str, Any]
 ) -> str:
     """
-    根据 name 调用对应 handler（Api 或 INTERNAL_TOOLS），返回 JSON 字符串结果。
+    根据 name 调用对应 handler（Api 或 INTERNAL_TOOLS），返回 JSON 字符串结果
 
-    :param api: 插件 Api 实例，供包装 Api 的 tools 使用。
-    :param servicer: 插件 ServiceHelper 实例。
-    :param name: 工具名称。
-    :param arguments: 工具参数字典。
-    :return: 序列化后的 JSON 字符串（成功为结果，失败为含 error 的 dict）。
+    :param api: 插件 Api 实例，供包装 Api 的 tools 使用
+    :param servicer: 插件 ServiceHelper 实例
+    :param name: 工具名称
+    :param arguments: 工具参数字典
+    :return: 序列化后的 JSON 字符串（成功为结果，失败为含 error 的 dict）
     """
     internal_handlers = {t["def"]["name"]: t["handler"] for t in INTERNAL_TOOLS}
     if name in internal_handlers:
@@ -87,27 +87,27 @@ async def run_tool(
 
 async def _get_plugin_status(api: Any, _: Dict) -> Any:
     """
-    :param api: 插件 Api 实例。
-    :param _: 未使用参数。
-    :return: 插件状态响应。
+    :param api: 插件 Api 实例
+    :param _: 未使用参数
+    :return: 插件状态响应
     """
     return await to_thread(api.get_status_api)
 
 
 async def _get_storage_status(api: Any, _: Dict) -> Any:
     """
-    :param api: 插件 Api 实例。
-    :param _: 未使用参数。
-    :return: 115 存储空间信息。
+    :param api: 插件 Api 实例
+    :param _: 未使用参数
+    :return: 115 存储空间信息
     """
     return await to_thread(api.get_user_storage_status)
 
 
 async def _browse_directory(api: Any, args: Dict) -> Any:
     """
-    :param api: 插件 Api 实例。
-    :param args: 含 path、is_local。
-    :return: 目录浏览结果。
+    :param api: 插件 Api 实例
+    :param args: 含 path、is_local
+    :return: 目录浏览结果
     """
     params = BrowseDirParams(
         path=args.get("path", "/"), is_local=args.get("is_local", False)
@@ -117,27 +117,27 @@ async def _browse_directory(api: Any, args: Dict) -> Any:
 
 async def _trigger_full_sync(api: Any, _: Dict) -> Any:
     """
-    :param api: 插件 Api 实例。
-    :param _: 未使用参数。
-    :return: 全量同步触发结果。
+    :param api: 插件 Api 实例
+    :param _: 未使用参数
+    :return: 全量同步触发结果
     """
     return await to_thread(api.trigger_full_sync_api)
 
 
 async def _trigger_share_sync(api: Any, _: Dict) -> Any:
     """
-    :param api: 插件 Api 实例。
-    :param _: 未使用参数。
-    :return: 分享同步触发结果。
+    :param api: 插件 Api 实例
+    :param _: 未使用参数
+    :return: 分享同步触发结果
     """
     return await to_thread(api.trigger_share_sync_api)
 
 
 async def _add_share_transfer(api: Any, args: Dict) -> Any:
     """
-    :param api: 插件 Api 实例。
-    :param args: 含 share_url 和可选 pan_path。
-    :return: 添加分享转存结果。
+    :param api: 插件 Api 实例
+    :param args: 含 share_url 和可选 pan_path
+    :return: 添加分享转存结果
     """
     return await to_thread(
         api.add_transfer_share, args.get("share_url", ""), args.get("pan_path")
@@ -146,9 +146,9 @@ async def _add_share_transfer(api: Any, args: Dict) -> Any:
 
 async def _manual_pan_transfer(api: Any, args: Dict) -> Any:
     """
-    :param api: 插件 Api 实例。
-    :param args: 含 path（网盘路径）。
-    :return: 手动整理触发结果。
+    :param api: 插件 Api 实例
+    :param args: 含 path（网盘路径）
+    :return: 手动整理触发结果
     """
     payload = ManualTransferPayload(path=args.get("path", ""))
     return await to_thread(api.manual_transfer_api, payload)
@@ -156,9 +156,9 @@ async def _manual_pan_transfer(api: Any, args: Dict) -> Any:
 
 async def _get_offline_tasks(api: Any, args: Dict) -> Any:
     """
-    :param api: 插件 Api 实例。
-    :param args: 含 page、limit。
-    :return: 离线任务列表。
+    :param api: 插件 Api 实例
+    :param args: 含 page、limit
+    :return: 离线任务列表
     """
     payload = OfflineTasksPayload(page=args.get("page", 1), limit=args.get("limit", 10))
     return await to_thread(api.offline_tasks_api, payload)
@@ -166,9 +166,9 @@ async def _get_offline_tasks(api: Any, args: Dict) -> Any:
 
 async def _add_offline_task(api: Any, args: Dict) -> Any:
     """
-    :param api: 插件 Api 实例。
-    :param args: 含 links、path。
-    :return: 添加离线任务结果。
+    :param api: 插件 Api 实例
+    :param args: 含 links、path
+    :return: 添加离线任务结果
     """
     payload = AddOfflineTaskPayload(links=args.get("links", []), path=args.get("path"))
     return await to_thread(api.add_offline_task_api, payload)
@@ -176,27 +176,27 @@ async def _add_offline_task(api: Any, args: Dict) -> Any:
 
 async def _clear_id_path_cache(api: Any, _: Dict) -> Any:
     """
-    :param api: 插件 Api 实例。
-    :param _: 未使用参数。
-    :return: 清理结果。
+    :param api: 插件 Api 实例
+    :param _: 未使用参数
+    :return: 清理结果
     """
     return await to_thread(api.clear_id_path_cache_api)
 
 
 async def _clear_increment_skip_cache(api: Any, _: Dict) -> Any:
     """
-    :param api: 插件 Api 实例。
-    :param _: 未使用参数。
-    :return: 清理结果。
+    :param api: 插件 Api 实例
+    :param _: 未使用参数
+    :return: 清理结果
     """
     return await to_thread(api.clear_increment_skip_cache_api)
 
 
 async def _get_sync_delete_history(api: Any, args: Dict) -> Any:
     """
-    :param api: 插件 Api 实例。
-    :param args: 含 page、limit。
-    :return: 同步删除历史。
+    :param api: 插件 Api 实例
+    :param args: 含 page、limit
+    :return: 同步删除历史
     """
     return await to_thread(
         api.get_sync_del_history,
@@ -207,9 +207,9 @@ async def _get_sync_delete_history(api: Any, args: Dict) -> Any:
 
 async def _fuse_mount(api: Any, args: Dict) -> Any:
     """
-    :param api: 插件 Api 实例。
-    :param args: 含 mountpoint、readdir_ttl。
-    :return: FUSE 挂载结果。
+    :param api: 插件 Api 实例
+    :param args: 含 mountpoint、readdir_ttl
+    :return: FUSE 挂载结果
     """
     payload = FuseMountPayload(
         mountpoint=args.get("mountpoint", ""),
@@ -220,47 +220,47 @@ async def _fuse_mount(api: Any, args: Dict) -> Any:
 
 async def _fuse_unmount(api: Any, _: Dict) -> Any:
     """
-    :param api: 插件 Api 实例。
-    :param _: 未使用参数。
-    :return: FUSE 卸载结果。
+    :param api: 插件 Api 实例
+    :param _: 未使用参数
+    :return: FUSE 卸载结果
     """
     return await to_thread(api.fuse_unmount_api)
 
 
 async def _get_fuse_status(api: Any, _: Dict) -> Any:
     """
-    :param api: 插件 Api 实例。
-    :param _: 未使用参数。
-    :return: FUSE 挂载状态。
+    :param api: 插件 Api 实例
+    :param _: 未使用参数
+    :return: FUSE 挂载状态
     """
     return await to_thread(api.fuse_status_api)
 
 
 async def _trigger_full_sync_db(api: Any, _: Dict) -> Any:
     """
-    :param api: 插件 Api 实例。
-    :param _: 未使用参数。
-    :return: 全量同步数据库触发结果。
+    :param api: 插件 Api 实例
+    :param _: 未使用参数
+    :return: 全量同步数据库触发结果
     """
     return await to_thread(api.trigger_full_sync_db_api)
 
 
 async def _check_life_event_status(api: Any, _: Dict) -> Any:
     """
-    :param api: 插件 Api 实例。
-    :param _: 未使用参数。
-    :return: 生活事件线程状态与调试信息。
+    :param api: 插件 Api 实例
+    :param _: 未使用参数
+    :return: 生活事件线程状态与调试信息
     """
     return await to_thread(api.check_life_event_status_api)
 
 
 async def _clear_recyclebin_internal(servicer: Any, _: Dict) -> Any:
     """
-    清空 115 回收站（非 Api 暴露，仅 MCP 内部 tool）。
+    清空 115 回收站（非 Api 暴露，仅 MCP 内部 tool）
 
-    :param servicer: 插件 ServiceHelper 实例。
-    :param _: 未使用参数。
-    :return: 结果 dict。
+    :param servicer: 插件 ServiceHelper 实例
+    :param _: 未使用参数
+    :return: 结果 dict
     """
     if not servicer or not servicer.client:
         return {"error": "115 客户端未初始化"}
@@ -271,11 +271,11 @@ async def _clear_recyclebin_internal(servicer: Any, _: Dict) -> Any:
 
 async def _clear_receive_path_internal(servicer: Any, _: Dict) -> Any:
     """
-    清空 115 最近接收（非 Api 暴露，仅 MCP 内部 tool）。
+    清空 115 最近接收（非 Api 暴露，仅 MCP 内部 tool）
 
-    :param servicer: 插件 ServiceHelper 实例。
-    :param _: 未使用参数。
-    :return: 结果 dict。
+    :param servicer: 插件 ServiceHelper 实例
+    :param _: 未使用参数
+    :return: 结果 dict
     """
     if not servicer or not servicer.client:
         return {"error": "115 客户端未初始化"}
