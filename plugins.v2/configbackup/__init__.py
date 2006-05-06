@@ -31,9 +31,9 @@ class ConfigBackup(_PluginBase):
     # 插件描述
     plugin_desc = "定时备份 MoviePilot 系统配置、数据库及插件配置到指定目录，支持保留数量自动清理、手动触发和一键还原。"
     # 插件版本
-    plugin_version = "1.3.0"
+    plugin_version = "1.3.1"
     # 插件作者
-    plugin_author = "local"
+    plugin_author = "zkmydgth"
     # 插件配置项ID前缀
     plugin_config_prefix = "configbackup_"
     # 加载顺序
