@@ -47,7 +47,7 @@ class CCTVDiscover(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/DDS-Derek/MoviePilot-Plugins/main/icons/CCTV_A.png"
     # 插件版本
-    plugin_version = "1.0"
+    plugin_version = "1.1"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -145,14 +145,7 @@ class CCTVDiscover(_PluginBase):
 
     @cached(cache=TTLCache(maxsize=32, ttl=1800))
     def __request(
-        self,
-        page_num: int,
-        page_size: int,
-        fc: Optional[str] = None,
-        area: Optional[str] = None,
-        sc: Optional[str] = None,
-        year: Optional[str] = None,
-        fl: Optional[str] = None,
+        self, page_num: int, page_size: int, **kwargs
     ) -> List[schemas.MediaInfo]:
         """
         请求CCTV API
@@ -164,18 +157,10 @@ class CCTVDiscover(_PluginBase):
             "serviceId": "cbox",
             "sort": "desc",
         }
-        if fc:
-            params.update({"fc": fc})
-        if area:
-            params.update({"area": area})
-        if sc:
-            params.update({"sc": sc})
-        if year:
-            params.update({"year": year})
-        if fl:
-            params.update({"fl": fl})
+        if kwargs:
+            params.update(kwargs)
         headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+            "User-Agent": settings.USER_AGENT,
             "Referer": "https://app.cctv.com/",
         }
         res = RequestUtils(headers=headers).get_res(
@@ -195,11 +180,12 @@ class CCTVDiscover(_PluginBase):
         sc: str = None,
         year: str = None,
         fl: str = None,
+        channel: str = None,
         page: int = 1,
         count: int = 30,
     ) -> List[schemas.MediaInfo]:
         """
-        获取TheTVDB探索数据
+        获取CCTV探索数据
         """
 
         def __movie_to_media(movie_info) -> schemas.MediaInfo:
@@ -221,19 +207,24 @@ class CCTVDiscover(_PluginBase):
             )
 
         try:
-            if page * count > 50:
-                req_page = 50 // count
-            else:
-                req_page = page
-            result = self.__request(
-                page_num=req_page,
-                page_size=50,
-                fc=fc,
-                area=area,
-                sc=sc,
-                year=year,
-                fl=fl,
-            )
+            params = {
+                "page_num": page,
+                "page_size": count,
+                "fc": fc,
+            }
+            if fc:
+                params.update({"fc": fc})
+            if area:
+                params.update({"area": area})
+            if sc:
+                params.update({"sc": sc})
+            if year:
+                params.update({"year": year})
+            if fl:
+                params.update({"fl": fl})
+            if channel:
+                params.update({"channel": channel})
+            result = self.__request(**params)
         except Exception as err:
             logger.error(str(err))
             return []
@@ -243,16 +234,16 @@ class CCTVDiscover(_PluginBase):
             results = [__movie_to_media(movie) for movie in result.data.list[:]]
         else:
             results = [__series_to_media(series) for series in result.data.list[:]]
-        return results[(page - 1) * count : page * count]
+        return results
 
     @staticmethod
     def cctv_filter_ui() -> List[dict]:
         """
-        TheTVDB过滤参数UI配置
+        CCTV过滤参数UI配置
         """
 
+        # 媒体类型
         fc = ["电视剧", "电影", "动画片", "纪录片", "特别节目"]
-
         fc_ui = [
             {
                 "component": "VChip",
@@ -262,7 +253,8 @@ class CCTVDiscover(_PluginBase):
             for value in fc
         ]
 
-        area = [
+        # 地区分类（电视剧，动画片）
+        all_area = [
             "内地（大陆）",
             "港澳台",
             "欧美",
@@ -274,17 +266,25 @@ class CCTVDiscover(_PluginBase):
             "欧洲",
             "泰国",
         ]
-
-        area_ui = [
+        tv_area_ui = [
             {
                 "component": "VChip",
                 "props": {"filter": True, "tile": True, "value": value},
                 "text": value,
             }
-            for value in area
+            for value in all_area
+        ]
+        cartoon_area_ui = [
+            {
+                "component": "VChip",
+                "props": {"filter": True, "tile": True, "value": value},
+                "text": value,
+            }
+            for value in all_area[0:5]
         ]
 
-        sc = [
+        # fc分类
+        tv_sc = [
             "谍战",
             "悬疑",
             "刑侦",
@@ -304,18 +304,121 @@ class CCTVDiscover(_PluginBase):
             "都市",
             "其他",
         ]
-
-        sc_ui = [
+        tv_sc_ui = [
             {
                 "component": "VChip",
                 "props": {"filter": True, "tile": True, "value": value},
                 "text": value,
             }
-            for value in sc
+            for value in tv_sc
+        ]
+        movie_sc = [
+            "全部",
+            "偶像",
+            "古装",
+            "喜剧",
+            "农村",
+            "军旅",
+            "惊悚",
+            "爱情",
+            "文艺",
+            "战争",
+            "历史",
+            "谍战",
+            "传记",
+            "军事",
+            "生活",
+            "现代",
+            "其他",
+        ]
+        movie_sc_ui = [
+            {
+                "component": "VChip",
+                "props": {"filter": True, "tile": True, "value": value},
+                "text": value,
+            }
+            for value in movie_sc
+        ]
+        cartoon_sc = [
+            "亲子",
+            "搞笑",
+            "冒险",
+            "动作",
+            "宠物",
+            "体育",
+            "益智",
+            "历史",
+            "教育",
+            "校园",
+            "言情",
+            "武侠",
+            "经典",
+            "未来",
+            "古代",
+            "神话",
+            "真人",
+            "励志",
+            "热血",
+            "奇幻",
+            "童话",
+            "剧情",
+            "夺宝",
+            "其他",
+        ]
+        cartoon_sc_ui = [
+            {
+                "component": "VChip",
+                "props": {"filter": True, "tile": True, "value": value},
+                "text": value,
+            }
+            for value in cartoon_sc
+        ]
+        documentary_sc = [
+            "人文历史",
+            "人物",
+            "军事",
+            "探索",
+            "社会",
+            "自然",
+            "时政",
+            "经济",
+            "科技",
+        ]
+        documentary_sc_ui = [
+            {
+                "component": "VChip",
+                "props": {"filter": True, "tile": True, "value": value},
+                "text": value,
+            }
+            for value in documentary_sc
+        ]
+        special_programs_sc = [
+            "新闻",
+            "经济",
+            "综艺",
+            "体育",
+            "军事",
+            "影视",
+            "科教",
+            "戏曲",
+            "青少",
+            "音乐",
+            "社会",
+            "文化",
+            "公益",
+            "其他",
+        ]
+        special_programs_sc_ui = [
+            {
+                "component": "VChip",
+                "props": {"filter": True, "tile": True, "value": value},
+                "text": value,
+            }
+            for value in special_programs_sc
         ]
 
+        # 年份分类（电视剧，电影，纪录片）
         year = [str(i) for i in range(2025, 1996, -1)]
-
         year_ui = [
             {
                 "component": "VChip",
@@ -325,8 +428,8 @@ class CCTVDiscover(_PluginBase):
             for value in year
         ]
 
+        # 字母排序（全部）
         fl = [chr(i) for i in range(ord("A"), ord("Z") + 1)]
-
         fl_ui = [
             {
                 "component": "VChip",
@@ -334,6 +437,34 @@ class CCTVDiscover(_PluginBase):
                 "text": value,
             }
             for value in fl
+        ]
+
+        # 频道分类（纪录片，特别节目）
+        channel = {
+            "CCTV-1综合,CCTV-1高清,CCTV-1综合高清": "CCTV-1 综合",
+            "CCTV-2财经,CCTV-2高清,CCTV-2财经高清": "CCTV-2 财经",
+            "CCTV-3综艺,CCTV-3高清,CCTV-3综艺高清": "CCTV-3 综艺",
+            "CCTV-4中文国际,CCTV-4高清,CCTV-4中文国际(亚)高清": "CCTV-4 中文国际",
+            "CCTV-5体育,CCTV-5高清,CCTV-5体育高清": "CCTV-5 体育",
+            "CCTV-6电影,CCTV-6高清,CCTV-6电影高清": "CCTV-6 电影",
+            "CCTV-7军事农业,CCTV-7高清,CCTV-7军事农业高清,CCTV-7国防军事高清": "CCTV-7 国防军事",
+            "CCTV-8电视剧,CCTV-8高清,CCTV-8电视剧高清": "CCTV-8 电视剧",
+            "CCTV-9纪录,CCTV-9高清,CCTV-9纪录高清": "CCTV-9 纪录",
+            "CCTV-10科教,CCTV-10高清,CCTV-10科教高清": "CCTV-10 科教",
+            "CCTV-11戏曲,CCTV-11高清": "CCTV-11 戏曲",
+            "CCTV-12社会与法,CCTV-12高清,CCTV-12社会与法高清": "CCTV-12 社会与法",
+            "CCTV-13新闻,CCTV-13高清": "CCTV-13 新闻",
+            "CCTV-14少儿,CCTV-14高清,CCTV-14少儿高清": "CCTV-14 少儿",
+            "CCTV-15音乐,CCTV-15高清,CCTV-15音乐高清": "CCTV-15 音乐",
+            "CCTV-17农业农村高清": "CCTV-17农业农村",
+        }
+        channel_ui = [
+            {
+                "component": "VChip",
+                "props": {"filter": True, "tile": True, "value": key},
+                "text": value,
+            }
+            for key, value in channel.items()
         ]
 
         return [
@@ -355,7 +486,29 @@ class CCTVDiscover(_PluginBase):
             },
             {
                 "component": "div",
-                "props": {"class": "flex justify-start items-center"},
+                "props": {
+                    "class": "flex justify-start items-center",
+                    "show": "{{fc == '纪录片' || fc == '特别节目'}}",
+                },
+                "content": [
+                    {
+                        "component": "div",
+                        "props": {"class": "mr-5"},
+                        "content": [{"component": "VLabel", "text": "频道"}],
+                    },
+                    {
+                        "component": "VChipGroup",
+                        "props": {"model": "channel"},
+                        "content": channel_ui,
+                    },
+                ],
+            },
+            {
+                "component": "div",
+                "props": {
+                    "class": "flex justify-start items-center",
+                    "show": "{{fc == '电视剧'}}",
+                },
                 "content": [
                     {
                         "component": "div",
@@ -365,13 +518,35 @@ class CCTVDiscover(_PluginBase):
                     {
                         "component": "VChipGroup",
                         "props": {"model": "area"},
-                        "content": area_ui,
+                        "content": tv_area_ui,
                     },
                 ],
             },
             {
                 "component": "div",
-                "props": {"class": "flex justify-start items-center"},
+                "props": {
+                    "class": "flex justify-start items-center",
+                    "show": "{{fc == '动画片'}}",
+                },
+                "content": [
+                    {
+                        "component": "div",
+                        "props": {"class": "mr-5"},
+                        "content": [{"component": "VLabel", "text": "地区"}],
+                    },
+                    {
+                        "component": "VChipGroup",
+                        "props": {"model": "area"},
+                        "content": cartoon_area_ui,
+                    },
+                ],
+            },
+            {
+                "component": "div",
+                "props": {
+                    "class": "flex justify-start items-center",
+                    "show": "{{fc == '电视剧'}}",
+                },
                 "content": [
                     {
                         "component": "div",
@@ -381,13 +556,92 @@ class CCTVDiscover(_PluginBase):
                     {
                         "component": "VChipGroup",
                         "props": {"model": "sc"},
-                        "content": sc_ui,
+                        "content": tv_sc_ui,
                     },
                 ],
             },
             {
                 "component": "div",
-                "props": {"class": "flex justify-start items-center"},
+                "props": {
+                    "class": "flex justify-start items-center",
+                    "show": "{{fc == '电影'}}",
+                },
+                "content": [
+                    {
+                        "component": "div",
+                        "props": {"class": "mr-5"},
+                        "content": [{"component": "VLabel", "text": "类型"}],
+                    },
+                    {
+                        "component": "VChipGroup",
+                        "props": {"model": "sc"},
+                        "content": movie_sc_ui,
+                    },
+                ],
+            },
+            {
+                "component": "div",
+                "props": {
+                    "class": "flex justify-start items-center",
+                    "show": "{{fc == '动画片'}}",
+                },
+                "content": [
+                    {
+                        "component": "div",
+                        "props": {"class": "mr-5"},
+                        "content": [{"component": "VLabel", "text": "类型"}],
+                    },
+                    {
+                        "component": "VChipGroup",
+                        "props": {"model": "sc"},
+                        "content": cartoon_sc_ui,
+                    },
+                ],
+            },
+            {
+                "component": "div",
+                "props": {
+                    "class": "flex justify-start items-center",
+                    "show": "{{fc == '纪录片'}}",
+                },
+                "content": [
+                    {
+                        "component": "div",
+                        "props": {"class": "mr-5"},
+                        "content": [{"component": "VLabel", "text": "类型"}],
+                    },
+                    {
+                        "component": "VChipGroup",
+                        "props": {"model": "sc"},
+                        "content": documentary_sc_ui,
+                    },
+                ],
+            },
+            {
+                "component": "div",
+                "props": {
+                    "class": "flex justify-start items-center",
+                    "show": "{{fc == '特别节目'}}",
+                },
+                "content": [
+                    {
+                        "component": "div",
+                        "props": {"class": "mr-5"},
+                        "content": [{"component": "VLabel", "text": "类型"}],
+                    },
+                    {
+                        "component": "VChipGroup",
+                        "props": {"model": "sc"},
+                        "content": special_programs_sc_ui,
+                    },
+                ],
+            },
+            {
+                "component": "div",
+                "props": {
+                    "class": "flex justify-start items-center",
+                    "show": "{{fc == '电视剧' || fc == '电影' || fc == '纪录片'}}",
+                },
                 "content": [
                     {
                         "component": "div",
@@ -437,6 +691,7 @@ class CCTVDiscover(_PluginBase):
                 "sc": None,
                 "year": None,
                 "fl": None,
+                "channel": None,
             },
             filter_ui=self.cctv_filter_ui(),
         )
