@@ -1,15 +1,19 @@
 import json
 import shutil
 from pathlib import Path
+from typing import Set
 
-from alembic.command import upgrade
+from alembic import command
 from alembic.config import Config
+from alembic.runtime.environment import EnvironmentContext
+from alembic.runtime.migration import MigrationContext
+from alembic.script import ScriptDirectory
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.config import settings
 from app.log import logger
 
-from ..db_manager import P115StrmHelperBase
+from ..db_manager import ct_db_manager, P115StrmHelperBase
 
 # 显式载入，确保表单模型已注册
 from ..db_manager.models import *  # noqa
@@ -29,17 +33,20 @@ def migration_db(db_path, script_location, version_locations: list):
     """
     更新数据库
     """
-    alembic_cfg = Config()
-    alembic_cfg.set_main_option("script_location", str(script_location))
-    # 启动时的更新，调整从 /config/plugins/p115strmhelper/database/versions 中读取持久化的迁移脚本
-    alembic_cfg.set_main_option("version_locations", str(" ".join(version_locations)))
-    alembic_cfg.set_main_option("sqlalchemy.url", f"sqlite:///{db_path}")
-
-    with open('app/plugins/p115strmhelper/database/migration_meta.json', 'r', encoding='utf-8') as f:
+    # 启动时的更新，调整从 /config/plugins/p115strmhelper/database/versions 中读取持久化的迁移脚本)
+    meta_data_path = Path(settings.ROOT_PATH / 'app' / 'plugins' / 'p115strmhelper' / 'migration_meta.json')
+    with open(meta_data_path, 'r', encoding='utf-8') as f:
         config_data = json.load(f)
         revision = config_data.get("revision", 'head')
+        logger.debug(f"正在将数据库迁移到版本: {revision} ...")
 
-    upgrade(alembic_cfg, revision)
+    # 智能迁移到指定版本
+    sync_to_revision(
+        sqlalchemy_url=f"sqlite:///{db_path}",
+        script_location=str(script_location),
+        target_revision=revision,
+        version_locations=" ".join(version_locations) if version_locations else None
+    )
 
 
 def init_migration_scripts() -> bool:
@@ -47,7 +54,7 @@ def init_migration_scripts() -> bool:
     初始化持久化的迁移脚本，将源目录内容完整复制到目标目录。
     """
     # 使用 Path 对象定义路径
-    source_path = Path(settings.ROOT_PATH / 'app/plugins/p115strmhelper/database/versions')
+    source_path = Path(settings.ROOT_PATH / 'app' / 'plugins' / 'p115strmhelper' / 'database'/ 'versions')
     target_path = Path(settings.PLUGIN_DATA_PATH / 'p115strmhelper' / 'database' / 'versions')
 
     # 确保源目录存在且是一个目录
@@ -80,3 +87,99 @@ def init_migration_scripts() -> bool:
 
     logger.debug(f"数据库迁移脚本 versions 同步完成，共复制/覆盖了 {files_copied} 个文件。")
     return True
+
+
+def get_ancestors(script: ScriptDirectory, revision_id: str) -> Set[str]:
+    """
+    获取给定 revision 的所有祖先（历史版本）。
+    """
+    ancestors = set()
+    # 路径上的所有版本都被认为是“祖先”
+    for rev in script.walk_revisions(head=revision_id):
+        ancestors.add(rev.revision)
+    return ancestors
+
+
+def sync_to_revision(
+        script_location: str,
+        sqlalchemy_url: str,
+        target_revision: str,
+        version_locations: str = None
+):
+    """
+    智能地将数据库同步到指定的目标版本，无需 alembic.ini 文件。
+    """
+    logger.info(f"--- 开始智能迁移，目标版本: {target_revision} ---")
+
+    # 创建并配置 Alembic Config 对象
+    alembic_cfg = Config()
+    alembic_cfg.set_main_option("script_location", script_location)
+    if version_locations:
+        alembic_cfg.set_main_option("version_locations", version_locations)
+    alembic_cfg.set_main_option("sqlalchemy.url", sqlalchemy_url)
+
+    try:
+        script = ScriptDirectory.from_config(alembic_cfg)
+    except Exception as e:
+        logger.error(f"加载 Alembic 环境失败: {e}")
+        logger.error("请确保 'script_location' 指向的目录包含有效的 'env.py' 文件。")
+        return
+
+    # 解析目标版本号
+    try:
+        resolved_target_rev = script.as_revision_number(target_revision)
+        if resolved_target_rev is None and target_revision.lower() == 'base':
+            resolved_target_rev = 'base'
+        elif resolved_target_rev is None:
+            raise ValueError(f"目标版本 '{target_revision}' 未找到。")
+        logger.info(f"解析后的目标版本 ID: {resolved_target_rev}")
+    except Exception as e:
+        logger.error(f"无法解析目标版本 '{target_revision}': {e}")
+        return
+
+    # 获取数据库当前的版本头 (heads)
+    with ct_db_manager.Engine.connect() as connection:
+        # 必须先 configure()，然后 get_context()
+        env_context = EnvironmentContext(alembic_cfg, script)
+        env_context.configure(connection=connection)
+
+        migration_context = env_context.get_context()
+        current_heads = set(migration_context.get_current_heads())
+
+    if not current_heads:
+        logger.info("数据库当前为空（没有版本记录）。将执行升级操作。")
+        command.upgrade(alembic_cfg, resolved_target_rev)
+        logger.info(f"--- 成功迁移到版本: {resolved_target_rev} ---")
+        return
+
+    logger.info(f"数据库当前版本头: {current_heads}")
+
+    if len(current_heads) > 1:
+        logger.error("数据库处于多分支状态，无法自动判断。请手动处理。")
+        return
+
+    current_rev = current_heads.pop()
+
+    if current_rev == resolved_target_rev:
+        logger.info("目标版本与当前数据库版本相同。无需操作。")
+        return
+
+    # 判断是升级、降级还是分支切换
+    ancestors_of_current = get_ancestors(script, current_rev)
+    ancestors_of_target = get_ancestors(script, resolved_target_rev) if resolved_target_rev != 'base' else {'base'}
+
+    if resolved_target_rev in ancestors_of_current:
+        logger.info(f"目标版本 '{resolved_target_rev}' 是当前版本 '{current_rev}' 的历史版本。将执行降级操作。")
+        command.downgrade(alembic_cfg, resolved_target_rev)
+    elif current_rev in ancestors_of_target:
+        logger.info(f"目标版本 '{resolved_target_rev}' 是当前版本 '{current_rev}' 的未来版本。将执行升级操作。")
+        command.upgrade(alembic_cfg, resolved_target_rev)
+    else:
+        logger.error(
+            f"当前版本 '{current_rev}' 和目标版本 '{resolved_target_rev}' "
+            "位于不同的迁移分支上。无法自动判断路径。"
+            "请先降级到共同的祖先版本，然后再升级。"
+        )
+        return
+
+    logger.info(f"--- 迁移操作成功完成 ---")
