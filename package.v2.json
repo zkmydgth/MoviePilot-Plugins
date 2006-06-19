@@ -98,11 +98,12 @@
         "name": "115网盘STRM助手",
         "description": "115网盘STRM生成一条龙服务",
         "labels": "云盘",
-        "version": "2.0.8",
+        "version": "2.0.9",
         "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png",
         "author": "DDSRem",
         "level": 1,
         "history": {
+            "v2.0.9": "安全性更新：修复部分用户无法登入的问题；优化各模块稳定性",
             "v2.0.8": "修复扫码登入异常",
             "v2.0.7": "修复离线下载界面错误",
             "v2.0.6": "修复已知上传问题，文件最后校验失败会自动重试",
