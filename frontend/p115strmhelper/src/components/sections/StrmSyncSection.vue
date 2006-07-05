@@ -22,6 +22,10 @@
     <v-window v-model="strmSubTab" :touch="false" class="tab-window">
       <v-window-item value="tab-transfer">
         <v-card-text>
+          <v-alert type="info" variant="tonal" density="compact" class="mb-4" icon="mdi-information">
+            <div class="text-body-2 mb-1"><strong>功能说明：</strong></div>
+            <div class="text-caption mb-2">监控MoviePilot整理入库事件，自动在本地对应目录生成STRM文件。</div>
+          </v-alert>
           <v-row>
             <v-col cols="12" md="4">
               <v-switch v-model="config.transfer_monitor_enabled" label="启用" color="info"></v-switch>
@@ -130,9 +134,7 @@
               </div>
 
               <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
-                <div class="text-body-2 mb-1"><strong>功能说明：</strong></div>
-                <div class="text-caption">监控MoviePilot整理入库事件，自动在本地对应目录生成STRM文件。</div>
-                <div class="text-body-2 mt-2 mb-1"><strong>配置说明：</strong></div>
+                <div class="text-body-2 mb-1"><strong>配置说明：</strong></div>
                 <div class="text-caption">
                   <div class="mb-1">• <strong>本地STRM目录：</strong>本地STRM文件生成路径</div>
                   <div class="mb-1">• <strong>网盘媒体库目录：</strong>需要生成本地STRM文件的网盘媒体库路径</div>
@@ -180,6 +182,10 @@
         <v-card-text>
           <!-- 基础配置 -->
           <div class="basic-config">
+            <v-alert type="info" variant="tonal" density="compact" class="mb-4" icon="mdi-information">
+              <div class="text-body-2 mb-1"><strong>功能说明：</strong></div>
+              <div class="text-caption mb-2">全量扫描配置的网盘目录，并在对应的本地目录生成STRM文件。</div>
+            </v-alert>
             <v-row>
               <v-col cols="12" md="3">
                 <v-select v-model="config.full_sync_overwrite_mode" label="覆盖模式" :items="[
@@ -274,9 +280,7 @@
                 </div>
 
                 <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
-                  <div class="text-body-2 mb-1"><strong>功能说明：</strong></div>
-                  <div class="text-caption">全量扫描配置的网盘目录，并在对应的本地目录生成STRM文件。</div>
-                  <div class="text-body-2 mt-2 mb-1"><strong>配置说明：</strong></div>
+                  <div class="text-body-2 mb-1"><strong>配置说明：</strong></div>
                   <div class="text-caption">
                     <div class="mb-1">• <strong>同步：</strong>开启时该目录参与全量同步，关闭则不参与（机器人命令按路径执行不受影响）</div>
                     <div class="mb-1">• <strong>本地STRM目录：</strong>本地STRM文件生成路径</div>
@@ -338,6 +342,10 @@
       </v-window-item>
       <v-window-item value="tab-increment-sync">
         <v-card-text>
+          <v-alert type="info" variant="tonal" density="compact" class="mb-4" icon="mdi-information">
+            <div class="text-body-2 mb-1"><strong>功能说明：</strong></div>
+            <div class="text-caption mb-2">增量扫描配置的网盘目录，并在对应的本地目录生成STRM文件。</div>
+          </v-alert>
           <v-row>
             <v-col cols="12" md="3">
               <v-switch v-model="config.increment_sync_strm_enabled" label="启用" color="warning"></v-switch>
@@ -435,9 +443,7 @@
               </div>
 
               <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
-                <div class="text-body-2 mb-1"><strong>功能说明：</strong></div>
-                <div class="text-caption">增量扫描配置的网盘目录，并在对应的本地目录生成STRM文件。</div>
-                <div class="text-body-2 mt-2 mb-1"><strong>配置说明：</strong></div>
+                <div class="text-body-2 mb-1"><strong>配置说明：</strong></div>
                 <div class="text-caption">
                   <div class="mb-1">• <strong>本地STRM目录：</strong>本地STRM文件生成路径</div>
                   <div>• <strong>网盘媒体库目录：</strong>需要生成本地STRM文件的网盘媒体库路径</div>
@@ -510,6 +516,10 @@
       </v-window-item>
       <v-window-item value="tab-life">
         <v-card-text>
+          <v-alert type="info" variant="tonal" density="compact" class="mb-4" icon="mdi-information">
+            <div class="text-body-2 mb-1"><strong>功能说明：</strong></div>
+            <div class="text-caption mb-2">监控115生活（上传、移动、接收文件、删除、复制）事件，自动在本地对应目录生成STRM文件或者删除STRM文件。</div>
+          </v-alert>
           <v-row>
             <v-col cols="12" md="3">
               <v-switch v-model="config.monitor_life_enabled" label="启用" color="info"></v-switch>
@@ -569,13 +579,8 @@
 
                 <v-row v-if="config.monitor_life_move_media_mode === 'local_move'">
                   <v-col cols="12">
-                    <v-switch
-                      v-model="config.monitor_life_move_media_local_move_related_files"
-                      label="local_move 时迁移 STRM 关联文件"
-                      color="primary"
-                      density="compact"
-                      hide-details
-                    ></v-switch>
+                    <v-switch v-model="config.monitor_life_move_media_local_move_related_files"
+                      label="local_move 时迁移 STRM 关联文件" color="primary" density="compact" hide-details></v-switch>
                   </v-col>
                 </v-row>
 
@@ -701,9 +706,7 @@
               </div>
 
               <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
-                <div class="text-body-2 mb-1"><strong>功能说明：</strong></div>
-                <div class="text-caption">监控115生活（上传、移动、接收文件、删除、复制）事件，自动在本地对应目录生成STRM文件或者删除STRM文件。</div>
-                <div class="text-body-2 mt-2 mb-1"><strong>配置说明：</strong></div>
+                <div class="text-body-2 mb-1"><strong>配置说明：</strong></div>
                 <div class="text-caption">
                   <div class="mb-1">• <strong>本地STRM目录：</strong>本地STRM文件生成路径</div>
                   <div>• <strong>网盘媒体库目录：</strong>需要生成本地STRM文件的网盘媒体库路径</div>
