@@ -238,6 +238,7 @@ class P115StrmHelper(_PluginBase):
                 "methods": ["GET"],
                 "summary": "302跳转",
                 "description": "115网盘302跳转",
+                "allow_anonymous": True,
             },
             {
                 "path": "/redirect_url",
@@ -245,6 +246,7 @@ class P115StrmHelper(_PluginBase):
                 "methods": ["POST"],
                 "summary": "302跳转",
                 "description": "115网盘302跳转",
+                "allow_anonymous": True,
             },
             {
                 "path": "/redirect_url",
@@ -252,6 +254,7 @@ class P115StrmHelper(_PluginBase):
                 "methods": ["HEAD"],
                 "summary": "302跳转",
                 "description": "115网盘302跳转",
+                "allow_anonymous": True,
             },
             {
                 "path": "/redirect_url/{args:path}",
@@ -259,6 +262,7 @@ class P115StrmHelper(_PluginBase):
                 "methods": ["GET"],
                 "summary": "302跳转",
                 "description": "115网盘302跳转",
+                "allow_anonymous": True,
             },
             {
                 "path": "/redirect_url/{args:path}",
@@ -266,6 +270,7 @@ class P115StrmHelper(_PluginBase):
                 "methods": ["POST"],
                 "summary": "302跳转",
                 "description": "115网盘302跳转",
+                "allow_anonymous": True,
             },
             {
                 "path": "/redirect_url/{args:path}",
@@ -273,6 +278,7 @@ class P115StrmHelper(_PluginBase):
                 "methods": ["HEAD"],
                 "summary": "302跳转",
                 "description": "115网盘302跳转",
+                "allow_anonymous": True,
             },
             {
                 "path": "/api_strm_sync_creata",

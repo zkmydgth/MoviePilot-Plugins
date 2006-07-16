@@ -2,7 +2,6 @@ from pathlib import Path
 from typing import Optional, Dict, Any, Union
 from urllib.parse import quote
 
-from app.core.config import settings
 from app.log import logger
 
 from ahocorasick import Automaton
@@ -153,7 +152,6 @@ class StrmUrlTemplateResolver:
         self,
         file_name: str,
         base_url: str,
-        apikey: str,
         pickcode: Optional[str] = None,
         share_code: Optional[str] = None,
         receive_code: Optional[str] = None,
@@ -166,7 +164,6 @@ class StrmUrlTemplateResolver:
 
         :param file_name: 文件名
         :param base_url: 基础 URL
-        :param apikey: API Token
         :param pickcode: 文件 pickcode
         :param share_code: 分享码
         :param receive_code: 提取码
@@ -182,7 +179,6 @@ class StrmUrlTemplateResolver:
 
         context = {
             "base_url": base_url.rstrip("/"),
-            "apikey": apikey,
             "pickcode": pickcode or "",
             "share_code": share_code or "",
             "receive_code": receive_code or "",
@@ -412,7 +408,6 @@ class StrmUrlGetter:
                 result = self.url_template_resolver.render(
                     file_name=file_name,
                     base_url=self.base_url_cache,
-                    apikey=settings.API_TOKEN,
                     pickcode=pickcode,
                     file_path=file_path,
                     file_id=str(to_id(pickcode)),
@@ -434,9 +429,7 @@ class StrmUrlGetter:
             except Exception as e:
                 logger.error(f"【FUSE STRM 接管】处理失败: {e}", exc_info=True)
 
-        strm_url = (
-            f"{self.base_url_cache}?apikey={settings.API_TOKEN}&pickcode={pickcode}"
-        )
+        strm_url = f"{self.base_url_cache}?pickcode={pickcode}"
         if configer.strm_url_format == "pickname":
             if self.strm_url_encode:
                 file_name = quote(file_name)
@@ -466,7 +459,6 @@ class StrmUrlGetter:
                 result = self.url_template_resolver.render(
                     file_name=file_name,
                     base_url=self.base_url_cache,
-                    apikey=settings.API_TOKEN,
                     share_code=share_code,
                     receive_code=receive_code,
                     file_id=file_id,
@@ -477,7 +469,7 @@ class StrmUrlGetter:
             except Exception as e:
                 logger.error(f"【STRM URL 模板】渲染失败，使用默认格式: {e}")
 
-        strm_url = f"{self.base_url_cache}?apikey={settings.API_TOKEN}&share_code={share_code}&receive_code={receive_code}&id={file_id}"
+        strm_url = f"{self.base_url_cache}?share_code={share_code}&receive_code={receive_code}&id={file_id}"
         if configer.strm_url_format == "pickname":
             strm_url += f"&file_name={file_name}"
 

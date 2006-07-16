@@ -19,7 +19,7 @@ Item Path:
 /data2/test/狂怒沙暴 (2023)/狂怒沙暴 (2023) - 1080p.strm
 
 Mount Paths:
-http://192.168.31.99:23000/api/v1/plugin/P115StrmHelper/redirect_url?apikey=mtf&pickcode=cg04ctinkn3aidbzc"""
+http://192.168.31.99:23000/api/v1/plugin/P115StrmHelper/redirect_url?pickcode=cg04ctinkn3aidbzc"""
 
         result = WebhookUtils.parse_item_paths_from_description(description)
         expected = ["/data2/test/狂怒沙暴 (2023)/狂怒沙暴 (2023) - 1080p.strm"]
@@ -35,7 +35,7 @@ Item Path:
 /data2/test/狂怒沙暴 (2023)/狂怒沙暴 (2023) - 720p.strm
 
 Mount Paths:
-http://192.168.31.99:23000/api/v1/plugin/P115StrmHelper/redirect_url?apikey=mtf&pickcode=cg04ctinkn3aidbzc"""
+http://192.168.31.99:23000/api/v1/plugin/P115StrmHelper/redirect_url?pickcode=cg04ctinkn3aidbzc"""
 
         result = WebhookUtils.parse_item_paths_from_description(description)
         expected = [
@@ -122,7 +122,7 @@ Item Path:
 /data2/test/狂怒沙暴 (2023)/狂怒沙暴 (2023) - 4K.strm
 
 Mount Paths:
-http://192.168.31.99:23000/api/v1/plugin/P115StrmHelper/redirect_url?apikey=mtf&pickcode=cg04ctinkn3aidbzc
+http://192.168.31.99:23000/api/v1/plugin/P115StrmHelper/redirect_url?pickcode=cg04ctinkn3aidbzc
 
 Other Info:
 Some other information here"""

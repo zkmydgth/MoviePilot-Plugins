@@ -1646,7 +1646,7 @@
                           <v-textarea v-model="config.strm_url_template" label="STRM URL 基础模板 (Jinja2)"
                             hint="支持 Jinja2 语法，可用变量和过滤器见下方说明" persistent-hint rows="4" variant="outlined"
                             density="compact"
-                            placeholder="{{ base_url }}?apikey={{ apikey }}&pickcode={{ pickcode }}{% if file_name %}&file_name={{ file_name | urlencode }}{% endif %}"
+                            placeholder="{{ base_url }}?pickcode={{ pickcode }}{% if file_name %}&file_name={{ file_name | urlencode }}{% endif %}"
                             clearable></v-textarea>
                         </v-col>
                       </v-row>
@@ -1656,7 +1656,7 @@
                           <v-textarea v-model="config.strm_url_template_custom" label="STRM URL 扩展名特定模板 (Jinja2)"
                             hint="为特定文件扩展名指定 URL 模板，优先级高于基础模板。格式：ext1,ext2 => template（每行一个）" persistent-hint rows="5"
                             variant="outlined" density="compact"
-                            placeholder="例如：&#10;mkv,mp4 => {{ base_url }}?apikey={{ apikey }}&pickcode={{ pickcode }}&file_name={{ file_name | urlencode }}&file_path={{ file_path | path_encode }}&#10;iso => {{ base_url }}?apikey={{ apikey }}&pickcode={{ pickcode }}&file_name={{ file_name | urlencode }}"
+                            placeholder="例如：&#10;mkv,mp4 => {{ base_url }}?pickcode={{ pickcode }}&file_name={{ file_name | urlencode }}&file_path={{ file_path | path_encode }}&#10;iso => {{ base_url }}?pickcode={{ pickcode }}&file_name={{ file_name | urlencode }}"
                             clearable></v-textarea>
                         </v-col>
                       </v-row>
@@ -1670,7 +1670,6 @@
                             </div>
                             <div class="ml-6">
                               <div class="mb-1"><code class="text-caption">base_url</code> - 基础 URL</div>
-                              <div class="mb-1"><code class="text-caption">apikey</code> - API Token</div>
                               <div class="mb-1"><code class="text-caption">pickcode</code> - 文件 pickcode（仅普通 STRM）</div>
                               <div class="mb-1"><code class="text-caption">share_code</code> - 分享码（仅分享 STRM）</div>
                               <div class="mb-1"><code class="text-caption">receive_code</code> - 提取码（仅分享 STRM）</div>
@@ -1712,14 +1711,14 @@
                                 <div class="text-caption text-medium-emphasis mb-1">普通 STRM:</div>
                                 <code class="text-caption pa-2 d-block"
                                   style="background-color: rgba(var(--v-theme-on-surface), 0.05); border-radius: 8px; font-family: 'Courier New', monospace; word-break: break-all; display: block; white-space: pre-wrap; border: 1px solid rgba(var(--v-theme-on-surface), 0.12); padding: 10px;">{{
-                        base_url }}?apikey={{ apikey }}&pickcode={{ pickcode }}{% if file_name %}&file_name={{ file_name
+                        base_url }}?pickcode={{ pickcode }}{% if file_name %}&file_name={{ file_name
                         | urlencode }}{% endif %}</code>
                               </div>
                               <div>
                                 <div class="text-caption text-medium-emphasis mb-1">分享 STRM:</div>
                                 <code class="text-caption pa-2 d-block"
                                   style="background-color: rgba(var(--v-theme-on-surface), 0.05); border-radius: 8px; font-family: 'Courier New', monospace; word-break: break-all; display: block; white-space: pre-wrap; border: 1px solid rgba(var(--v-theme-on-surface), 0.12); padding: 10px;">{{
-                        base_url }}?apikey={{ apikey }}&share_code={{ share_code }}&receive_code={{ receive_code
+                        base_url }}?share_code={{ share_code }}&receive_code={{ receive_code
                         }}&id={{ file_id }}{% if file_name %}&file_name={{ file_name | urlencode }}{% endif %}</code>
                               </div>
                             </div>
@@ -2259,8 +2258,7 @@
           <v-alert type="warning" variant="tonal" density="compact" class="mt-3" icon="mdi-alert">
             <div class="text-body-2 mb-1"><strong>配置说明：</strong></div>
             <div class="text-caption">
-              <div class="mb-1">• 第一条规则：将 <code>/emby/115</code> 替换为插件重定向地址（保留后续路径）</div>
-              <div>• 第二条规则：在 URL 末尾添加 <code>?apikey=...</code> 参数</div>
+              <div>• 规则：将 <code>/emby/115</code> 替换为插件重定向地址（保留后续路径）</div>
             </div>
           </v-alert>
         </v-card-text>

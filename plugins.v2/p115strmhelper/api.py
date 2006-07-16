@@ -59,7 +59,6 @@ from .utils.oopserver import OOPServerHelper
 
 from app.log import logger
 from app.core.cache import cached, TTLCache
-from app.core.config import settings
 from app.helper.mediaserver import MediaServerHelper
 
 
@@ -123,13 +122,10 @@ class Api:
 
             base_url = moviepilot_address.rstrip("/")
             redirect_url = f"{base_url}/api/v1/plugin/P115StrmHelper/redirect_url"
-            apikey = settings.API_TOKEN
 
             config_rules = [
                 f"  // 匹配 {mount_dir} 开头的路径，替换为新的 URL（保留后续路径）",
                 f'  [0, 1, "{mount_dir}", "{redirect_url}"],',
-                "  // 在末尾添加 apikey 参数（尾插方式）",
-                f'  [2, 2, "{redirect_url}", "?apikey={apikey}"],',
             ]
 
             generated_config = "\n".join(config_rules)
