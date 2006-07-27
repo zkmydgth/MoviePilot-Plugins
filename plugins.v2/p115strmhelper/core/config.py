@@ -170,6 +170,10 @@ class ConfigManager(BaseModel):
     monitor_life_scrape_metadata_enabled: bool = False
     # 刮削排除目录
     monitor_life_scrape_metadata_exclude_paths: Optional[str] = None
+    # 同步删除本地STRM时是否删除MP整理记录
+    monitor_life_remove_mp_history: bool = False
+    # 同上方情况时是否删除源文件
+    monitor_life_remove_mp_source: bool = False
 
     # 分享生成 STRM 运行开关
     share_strm_auto_download_mediainfo_enabled: bool = False

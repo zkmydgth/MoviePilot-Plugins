@@ -16,6 +16,7 @@ from ..utils.sentry import sentry_manager
 from ..utils.strm import StrmUrlGetter, StrmGenerater
 from ..db_manager.oper import FileDbHelper
 from ..helper.mediainfo_download import MediaInfoDownloader
+from ..helper.mediasyncdel import MediaSyncDelHelper
 
 from p115client import P115Client
 from p115client.tool.attr import get_path_to_cid
@@ -713,12 +714,23 @@ class MonitorLife:
                 logger.warn(f"【监控生活事件】本地 {file_path} 不存在，跳过删除")
                 return
             if file_category == 0:
+                # 删除目录
                 shutil.rmtree(Path(file_path))
             else:
+                # 删除文件
                 Path(file_path).unlink(missing_ok=True)
+                # 判断父目录是否需要删除
                 __remove_parent_dir(Path(file_path))
+            # 清理数据库文件
             _databasehelper.remove_by_path_batch(str(pan_file_path))
             logger.info(f"【监控生活事件】{file_path} 已删除")
+            # 同步删除历史记录
+            if configer.monitor_life_remove_mp_history:
+                mediasyncdel = MediaSyncDelHelper()
+                mediasyncdel.remove_by_path(
+                    path=pan_file_path,
+                    del_source=configer.monitor_life_remove_mp_source,
+                )
         except Exception as e:
             logger.error(f"【监控生活事件】{file_path} 删除失败: {e}")
 
