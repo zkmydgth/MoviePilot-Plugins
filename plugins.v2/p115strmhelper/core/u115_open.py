@@ -511,8 +511,8 @@ class U115OpenHelper:
             access_key_secret=AccessKeySecret,
             security_token=SecurityToken,
         )
-        bucket = oss2.Bucket(auth, endpoint, bucket_name, connect_timeout=60)
-        part_size = determine_part_size(file_size, preferred_size=10 * 1024 * 1024)
+        bucket = oss2.Bucket(auth, endpoint, bucket_name, connect_timeout=120)
+        part_size = determine_part_size(file_size, preferred_size=100 * 1024 * 1024)
 
         headers = {
             "X-oss-callback": encode_callback(callback["callback"]),
