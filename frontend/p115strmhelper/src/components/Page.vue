@@ -869,13 +869,28 @@
                 </v-col>
               </v-row>
               <v-expand-transition>
+                <div v-if="shareDialog.interactiveGenStrm.moviepilotTransfer" class="mt-2">
+                  <v-switch v-model="shareDialog.interactiveGenStrm.moviepilotTransferDownloadRmtAudioSub"
+                    label="下载 MoviePilot 可整理的音轨与字幕" color="primary" density="compact" hide-details class="mb-2" />
+                  <div class="text-caption text-medium-emphasis mb-2">
+                    只下载 MoviePilot 设定里允许的音轨、字幕文件，先保存到本地，再和 STRM 一起交给 MoviePilot 整理
+                  </div>
+                </div>
+              </v-expand-transition>
+              <v-expand-transition>
                 <div v-if="shareDialog.interactiveGenStrm.moviepilotTransfer">
                   <v-alert type="warning" variant="tonal" density="compact" class="mt-3" icon="mdi-alert-circle">
                     <div class="text-body-2 mb-2"><strong>交由 MoviePilot 整理配置说明：</strong></div>
-                    <div class="text-caption mb-2">开启 MP 整理时，「本地生成目录」为临时待整理目录，请在 MoviePilot <strong>设定 → 目录</strong> 中配置：</div>
-                    <div class="text-caption" style="padding-left: 4px; border-left: 2px solid rgba(var(--v-theme-warning), 0.3);">
-                      <div class="mb-1">1. 添加目录配置卡，按需选择媒体类型与媒体类别，资源存储选择<strong>本地</strong>，资源目录填写与本插件一致的<strong>本地生成目录</strong>路径</div>
-                      <div>2. 自动整理模式选择<strong>手动整理</strong>，媒体库存储选择<strong>本地</strong>并配置媒体库路径，整理方式选择<strong>移动</strong>，分类、重命名、通知、刮削按需配置</div>
+                    <div class="text-caption mb-2">开启 MP 整理时，「本地生成目录」为临时待整理目录，请在 MoviePilot <strong>设定 → 目录</strong>
+                      中配置：
+                    </div>
+                    <div class="text-caption"
+                      style="padding-left: 4px; border-left: 2px solid rgba(var(--v-theme-warning), 0.3);">
+                      <div class="mb-1">1.
+                        添加目录配置卡，按需选择媒体类型与媒体类别，资源存储选择<strong>本地</strong>，资源目录填写与本插件一致的<strong>本地生成目录</strong>路径</div>
+                      <div>2.
+                        自动整理模式选择<strong>手动整理</strong>，媒体库存储选择<strong>本地</strong>并配置媒体库路径，整理方式选择<strong>移动</strong>，分类、重命名、通知、刮削按需配置
+                      </div>
                     </div>
                   </v-alert>
                 </div>
@@ -1088,6 +1103,27 @@
             </v-switch>
           </v-col>
         </v-row>
+
+        <v-expand-transition>
+          <div v-if="shareConfigDialog.moviepilotTransfer" class="mb-2">
+            <v-row>
+              <v-col cols="12">
+                <v-switch v-model="shareConfigDialog.moviepilotTransferDownloadRmtAudioSub" color="primary"
+                  density="compact" hide-details>
+                  <template v-slot:label>
+                    <div class="d-flex align-center flex-wrap">
+                      <v-icon icon="mdi-subtitles-outline" size="small" class="mr-2"></v-icon>
+                      <span>下载 MoviePilot 可整理的音轨与字幕</span>
+                    </div>
+                  </template>
+                </v-switch>
+                <div class="text-caption text-medium-emphasis pl-1 mt-1">
+                  只下载 MoviePilot 设定里允许的音轨、字幕文件，先保存到本地，再和 STRM 一起交给 MoviePilot 整理
+                </div>
+              </v-col>
+            </v-row>
+          </div>
+        </v-expand-transition>
 
         <v-expand-transition>
           <div v-if="!shareConfigDialog.moviepilotTransfer">
@@ -1855,6 +1891,7 @@ const defaultInteractiveGenStrm = () => ({
   autoDownloadMediainfo: false,
   localPath: '',
   moviepilotTransfer: false,
+  moviepilotTransferDownloadRmtAudioSub: false,
   speedMode: 3,
 });
 
@@ -1883,6 +1920,7 @@ const shareConfigDialog = reactive({
   minFileSizeFormatted: '',
   speedMode: 3,
   moviepilotTransfer: false,
+  moviepilotTransferDownloadRmtAudioSub: false,
   autoDownloadMediainfo: false,
   mediaServerRefresh: false,
   scrapeMetadata: false,
@@ -1944,6 +1982,8 @@ const openShareDialog = () => {
     shareDialog.interactiveGenStrm.autoDownloadMediainfo = ig.auto_download_mediainfo || false;
     shareDialog.interactiveGenStrm.localPath = ig.local_path || '';
     shareDialog.interactiveGenStrm.moviepilotTransfer = ig.moviepilot_transfer || false;
+    shareDialog.interactiveGenStrm.moviepilotTransferDownloadRmtAudioSub =
+      ig.moviepilot_transfer_download_rmt_audio_sub || false;
     shareDialog.interactiveGenStrm.speedMode = ig.speed_mode !== undefined ? ig.speed_mode : 3;
   }
 };
@@ -1956,6 +1996,9 @@ const flushShareInteractiveGenStrmToInitialConfig = () => {
     auto_download_mediainfo: m.moviepilotTransfer ? false : m.autoDownloadMediainfo,
     local_path: m.localPath || null,
     moviepilot_transfer: m.moviepilotTransfer,
+    moviepilot_transfer_download_rmt_audio_sub: m.moviepilotTransfer
+      ? m.moviepilotTransferDownloadRmtAudioSub
+      : false,
     speed_mode: m.speedMode,
   };
 };
@@ -1993,6 +2036,7 @@ const addShareConfig = () => {
   shareConfigDialog.minFileSizeFormatted = '';
   shareConfigDialog.speedMode = 3;
   shareConfigDialog.moviepilotTransfer = false;
+  shareConfigDialog.moviepilotTransferDownloadRmtAudioSub = false;
   shareConfigDialog.autoDownloadMediainfo = false;
   shareConfigDialog.mediaServerRefresh = false;
   shareConfigDialog.scrapeMetadata = false;
@@ -2014,6 +2058,8 @@ const editShareConfig = (index) => {
   shareConfigDialog.minFileSizeFormatted = formatBytes(config.min_file_size || 0);
   shareConfigDialog.speedMode = config.speed_mode !== undefined ? config.speed_mode : 3;
   shareConfigDialog.moviepilotTransfer = config.moviepilot_transfer || false;
+  shareConfigDialog.moviepilotTransferDownloadRmtAudioSub =
+    config.moviepilot_transfer_download_rmt_audio_sub || false;
   shareConfigDialog.autoDownloadMediainfo = config.auto_download_mediainfo || false;
   shareConfigDialog.mediaServerRefresh = config.media_server_refresh || false;
   shareConfigDialog.scrapeMetadata = config.scrape_metadata || false;
@@ -2092,6 +2138,9 @@ const saveShareConfig = () => {
     min_file_size: parseSize(shareConfigDialog.minFileSizeFormatted) || null,
     speed_mode: shareConfigDialog.speedMode,
     moviepilot_transfer: shareConfigDialog.moviepilotTransfer,
+    moviepilot_transfer_download_rmt_audio_sub: shareConfigDialog.moviepilotTransfer
+      ? shareConfigDialog.moviepilotTransferDownloadRmtAudioSub
+      : false,
     auto_download_mediainfo: shareConfigDialog.moviepilotTransfer ? false : shareConfigDialog.autoDownloadMediainfo,
     media_server_refresh: shareConfigDialog.moviepilotTransfer ? false : shareConfigDialog.mediaServerRefresh,
     scrape_metadata: shareConfigDialog.moviepilotTransfer ? false : shareConfigDialog.scrapeMetadata,

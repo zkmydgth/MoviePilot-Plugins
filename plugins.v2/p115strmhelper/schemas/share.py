@@ -46,6 +46,10 @@ class ShareInteractiveGenStrmConfig(BaseModel):
     )
     local_path: Optional[str] = Field(default=None, description="本地生成目录")
     moviepilot_transfer: bool = Field(default=False, description="交由 MoviePilot 整理")
+    moviepilot_transfer_download_rmt_audio_sub: bool = Field(
+        default=False,
+        description="MP 整理时是否下载 MoviePilot 设定中 RMT 音轨与字幕后缀文件",
+    )
     speed_mode: Literal[0, 1, 2, 3] = Field(default=3, description="运行速度模式")
 
     @model_validator(mode="after")
@@ -53,6 +57,8 @@ class ShareInteractiveGenStrmConfig(BaseModel):
         """
         当 moviepilot_transfer 为 True 时，强制关闭自动下载网盘元数据
         """
+        if not self.moviepilot_transfer:
+            self.moviepilot_transfer_download_rmt_audio_sub = False
         if self.moviepilot_transfer:
             self.auto_download_mediainfo = False
         return self
@@ -74,6 +80,10 @@ class ShareStrmConfig(BaseModel):
         default=None, description="分享生成最小文件大小"
     )
     moviepilot_transfer: bool = Field(default=False, description="交由 MoviePilot 整理")
+    moviepilot_transfer_download_rmt_audio_sub: bool = Field(
+        default=False,
+        description="MP 整理时是否下载 MoviePilot 设定中 RMT 音轨与字幕后缀文件",
+    )
     auto_download_mediainfo: bool = Field(
         default=False, description="自动下载网盘元数据"
     )
@@ -86,6 +96,8 @@ class ShareStrmConfig(BaseModel):
         """
         当 moviepilot_transfer 为 True 时，强制关闭其他相关选项
         """
+        if not self.moviepilot_transfer:
+            self.moviepilot_transfer_download_rmt_audio_sub = False
         if self.moviepilot_transfer:
             self.auto_download_mediainfo = False
             self.media_server_refresh = False

@@ -73,6 +73,7 @@ from p115center import P115Center
 from p115client.util import share_extract_payload
 
 from app.chain.transfer import TransferChain
+from app.core.config import settings
 from app.log import logger
 from app.schemas import FileItem
 
@@ -437,7 +438,32 @@ class ShareStrmHelper:
                         )
                     return
 
-            if file_path.suffix.lower() not in self.rmt_mediaext:
+            sfx_lower = file_path.suffix.lower()
+            if (
+                config.moviepilot_transfer
+                and config.moviepilot_transfer_download_rmt_audio_sub
+                and (
+                    sfx_lower in settings.RMT_AUDIOEXT
+                    or sfx_lower in settings.RMT_SUBEXT
+                )
+            ):
+                file_path.parent.mkdir(parents=True, exist_ok=True)
+                with self.lock:
+                    self.download_mediainfo_list.append(
+                        {
+                            "type": "share",
+                            "share_code": config.share_code,
+                            "receive_code": config.share_receive,
+                            "file_id": item["id"],
+                            "path": file_path,
+                            "thumb": item.get("thumb", None),
+                            "sha1": item["sha1"],
+                            "mp_transfer_after_download": True,
+                        }
+                    )
+                return
+
+            if sfx_lower not in self.rmt_mediaext:
                 logger.warn(
                     "【分享STRM生成】文件后缀不匹配，跳过分享路径: %s",
                     str(file_path).replace(config.local_path, "", 1),
@@ -635,14 +661,20 @@ class ShareStrmHelper:
 
             self.scrape_refresh_media(config)
 
-            if config.moviepilot_transfer:
-                self.mp_transfer()
-
         self.mediainfo_count, self.mediainfo_fail_count, self.mediainfo_fail_dict = (
             self.mediainfodownloader.batch_auto_share_downloader(
                 downloads_list=self.download_mediainfo_list
             )
         )
+
+        for entry in self.download_mediainfo_list:
+            if not entry.get("mp_transfer_after_download"):
+                continue
+            path = Path(entry["path"])
+            if path.is_file():
+                self.mp_transfer_queue.append(path)
+        if self.mp_transfer_queue:
+            self.mp_transfer()
 
     def generate_strm_files(self) -> None:
         """
@@ -832,6 +864,9 @@ class ShareInteractiveGenStrmQueue:
             min_file_size=g.min_file_size,
             auto_download_mediainfo=g.auto_download_mediainfo,
             moviepilot_transfer=g.moviepilot_transfer,
+            moviepilot_transfer_download_rmt_audio_sub=(
+                g.moviepilot_transfer_download_rmt_audio_sub
+            ),
             speed_mode=g.speed_mode,
             scrape_metadata=False,
             media_server_refresh=False,
