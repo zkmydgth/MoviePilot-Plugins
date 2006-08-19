@@ -375,21 +375,28 @@ class TransferHandler:
         :param files: 目录文件列表
         """
         _zhcn_sub_re = (
-            r"([.\[(](((zh[-_])?(cn|ch[si]|sg|sc))|zho?"
-            r"|chinese|(cn|ch[si]|sg|zho?|eng)[-_&]?(cn|ch[si]|sg|zho?|eng)"
-            r"|简[体中]?)[.\])])"
+            r"([.\[(\s](((zh[-_])?(cn|ch[si]|sg|sc))|zho?"
+            r"|chinese|(cn|ch[si]|sg|zho?)[-_&]?(cn|ch[si]|sg|zho?|eng|jap|ja|jpn)"
+            r"|eng[-_&]?(cn|ch[si]|sg|zho?)|(jap|ja|jpn)[-_&]?(cn|ch[si]|sg|zho?)"
+            r"|简[体中]?)[.\])\s])"
             r"|([\u4e00-\u9fa5]{0,3}[中双][\u4e00-\u9fa5]{0,2}[字文语][\u4e00-\u9fa5]{0,3})"
             r"|简体|简中|JPSC|sc_jp"
             r"|(?<![a-z0-9])gb(?![a-z0-9])"
         )
         _zhtw_sub_re = (
-            r"([.\[(](((zh[-_])?(hk|tw|cht|tc))"
-            r"|(cht|eng)[-_&]?(cht|eng)"
-            r"|繁[体中]?)[.\])])"
+            r"([.\[(\s](((zh[-_])?(hk|tw|cht|tc))"
+            r"|cht[-_&]?(cht|eng|jap|ja|jpn)"
+            r"|eng[-_&]?cht|(jap|ja|jpn)[-_&]?cht"
+            r"|繁[体中]?)[.\])\s])"
             r"|繁体中[文字]|中[文字]繁体|繁体|JPTC|tc_jp"
             r"|(?<![a-z0-9])big5(?![a-z0-9])"
         )
-        _eng_sub_re = r"[.\[(]eng[.\])]"
+        _ja_sub_re = (
+            r"([.\[(\s](ja-jp|jap|ja|jpn"
+            r"|(jap|ja|jpn)[-_&]?eng|eng[-_&]?(jap|ja|jpn))[.\])\s])"
+            r"|日本語|日語"
+        )
+        _eng_sub_re = r"[.\[(\s]eng[.\])\s]"
 
         # 筛选字幕文件
         subtitle_files = [
@@ -454,6 +461,8 @@ class TransferHandler:
                     new_file_type = ".chi.zh-cn"
                 elif re.search(_zhtw_sub_re, sub_item.name, re.I):
                     new_file_type = ".zh-tw"
+                elif re.search(_ja_sub_re, sub_item.name, re.I):
+                    new_file_type = ".ja"
                 elif re.search(_eng_sub_re, sub_item.name, re.I):
                     new_file_type = ".eng"
 
@@ -476,6 +485,10 @@ class TransferHandler:
                                 or (
                                     settings.DEFAULT_SUB == "zh-tw"
                                     and new_file_type == ".zh-tw"
+                                )
+                                or (
+                                    settings.DEFAULT_SUB == "ja"
+                                    and new_file_type == ".ja"
                                 )
                                 or (
                                     settings.DEFAULT_SUB == "eng"
