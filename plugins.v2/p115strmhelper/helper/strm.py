@@ -26,7 +26,12 @@ from ..db_manager.oper import FileDbHelper
 from ..utils.path import PathUtils
 from ..utils.strm import StrmUrlGetter, StrmGenerater
 from ..utils.mediainfo_download import MediainfoDownloadMiddleware
-from ..utils.exception import PanPathNotFound, PanDataNotInDb, CanNotFindPathToCid
+from ..utils.exception import (
+    PanPathNotFound,
+    PanDataNotInDb,
+    CanNotFindPathToCid,
+    FileItemKeyMiss,
+)
 from ..utils.automaton import AutomatonUtils
 from ..helper.mediainfo_download import MediaInfoDownloader
 
@@ -770,13 +775,23 @@ class FullSyncStrmHelper:
         """
         path_entry = None
         try:
+            # 判断是否有信息缺失
+            if "path" not in item:
+                raise FileItemKeyMiss(f"缺失 path 信息：{item}")
+            if "is_dir" not in item:
+                raise FileItemKeyMiss(f"缺失 is_dir 信息：{item}")
+            if "sha1" not in item:
+                raise FileItemKeyMiss(f"缺失 sha1 信息：{item}")
+            if ("pickcode" not in item) and ("pick_code" not in item):
+                raise FileItemKeyMiss(f"缺失 pickcode 信息：{item}")
+            # 判断是否为文件夹
             if item["is_dir"]:
                 return path_entry
-            file_path = item["path"]
+            item_path = item["path"]
             # 全量拉数据时可能混入无关路径
-            if not PathUtils.has_prefix(file_path, pan_media_dir):
+            if not PathUtils.has_prefix(item_path, pan_media_dir):
                 return path_entry
-            file_path = target_dir / Path(file_path).relative_to(pan_media_dir)
+            file_path = target_dir / Path(item_path).relative_to(pan_media_dir)
             file_target_dir = file_path.parent
             original_file_name = file_path.name
             file_name = file_path.stem + ".strm"
@@ -796,11 +811,11 @@ class FullSyncStrmHelper:
             if self.pan_transfer_enabled and self.pan_transfer_paths:
                 if PathUtils.get_run_transfer_path(
                     paths=self.pan_transfer_paths,
-                    transfer_path=item["path"],
+                    transfer_path=item_path,
                 ):
                     logger.debug(
                         "【全量STRM生成】%s 为待整理目录下的路径，不做处理",
-                        item["path"],
+                        item_path,
                     )
                     return path_entry
 
@@ -834,11 +849,11 @@ class FullSyncStrmHelper:
                             "warn",
                             "【全量STRM生成】%s，跳过网盘路径: %s",
                             result[0],
-                            item["path"],
+                            item_path,
                         )
                         return path_entry
 
-                    pickcode = item["pickcode"]
+                    pickcode = item.get("pickcode", item.get("pick_code", None))
                     if not pickcode:
                         logger.error(
                             f"【全量STRM生成】{original_file_name} 不存在 pickcode 值，无法下载该文件"
@@ -858,7 +873,7 @@ class FullSyncStrmHelper:
                 self.__base_logger(
                     "warn",
                     "【全量STRM生成】跳过网盘路径: %s",
-                    item["path"],
+                    item_path,
                 )
                 return path_entry
 
@@ -874,7 +889,7 @@ class FullSyncStrmHelper:
                     "warn",
                     "【全量STRM生成】%s，跳过网盘路径: %s",
                     result[0],
-                    item["path"],
+                    item_path,
                 )
                 return path_entry
 
@@ -894,9 +909,7 @@ class FullSyncStrmHelper:
                         f"【全量STRM生成】{new_file_path} 已存在，覆盖模式 {self.overwrite_mode}",
                     )
 
-            pickcode = item["pickcode"]
-            if not pickcode:
-                pickcode = item["pick_code"]
+            pickcode = item.get("pickcode", item.get("pick_code", None))
 
             new_file_path.parent.mkdir(parents=True, exist_ok=True)
 
