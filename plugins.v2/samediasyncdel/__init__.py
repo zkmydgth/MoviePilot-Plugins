@@ -11,6 +11,8 @@ from app.chain.transfer import TransferChain
 from app.core.config import settings
 from app.core.event import eventmanager, Event
 from app.db.models.transferhistory import TransferHistory
+from app.db.transferhistory_oper import TransferHistoryOper
+from app.db.downloadhistory_oper import DownloadHistoryOper
 from app.helper.downloader import DownloaderHelper
 from app.helper.mediaserver import MediaServerHelper
 from app.log import logger
@@ -28,7 +30,7 @@ class SaMediaSyncDel(_PluginBase):
     # 插件图标
     plugin_icon = "mediasyncdel.png"
     # 插件版本
-    plugin_version = "1.0.3"
+    plugin_version = "1.0.5"
     # 插件作者
     plugin_author = "DDSRem,thsrite"
     # 作者主页
@@ -67,8 +69,8 @@ class SaMediaSyncDel(_PluginBase):
     def init_plugin(self, config: dict = None):
         self._transferchain = TransferChain()
         self._downloader_helper = DownloaderHelper()
-        self._transferhis = self._transferchain.transferhis
-        self._downloadhis = self._transferchain.downloadhis
+        self._transferhis = TransferHistoryOper()
+        self._downloadhis = DownloadHistoryOper()
         self._storagechain = StorageChain()
         self._mediaserver_helper = MediaServerHelper()
         self._mediaserver = None
