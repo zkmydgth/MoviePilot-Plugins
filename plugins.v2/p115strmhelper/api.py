@@ -814,7 +814,9 @@ class Api:
                     path_to_use = "/" + path_to_use
                 try:
                     resolved_pickcode = get_pickcode_by_path(
-                        servicer.client, path_to_use
+                        servicer.client,
+                        path_to_use,
+                        **configer.get_ios_ua_app(app=False),
                     )
                     if not resolved_pickcode:
                         logger.error(

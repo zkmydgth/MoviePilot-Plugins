@@ -535,6 +535,7 @@ class ShareStrmHelper:
                     receive_code=config.share_receive,
                     cid=0,
                     speed_mode=config.speed_mode,
+                    **configer.get_ios_ua_app(),
                 )
                 data_collector = ShareFilesDataCollector(data_iter, temp_file)
                 data_iter = data_collector

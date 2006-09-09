@@ -115,7 +115,6 @@ def iter_share_files_with_path(
 
     :return: 迭代器，返回此分享链接下的（所有文件）文件信息
     """
-    from .config import configer
 
     @dataclass
     class ApiEndpointInfo:
@@ -144,7 +143,6 @@ def iter_share_files_with_path(
                 p,
                 base_url="http://pro.api.115.com",
                 **request_kwargs,
-                **configer.get_ios_ua_app(),
             ),
             cooldown=app_http_cooldown,
         ),
@@ -157,7 +155,6 @@ def iter_share_files_with_path(
                 p,
                 base_url="https://proapi.115.com",
                 **request_kwargs,
-                **configer.get_ios_ua_app(),
             ),
             cooldown=app_https_cooldown,
         ),
@@ -167,7 +164,8 @@ def iter_share_files_with_path(
     snap_api_info = ApiEndpointInfo(
         endpoint=ApiEndpointCooldown(
             api_callable=lambda p: client.share_snap_cookie(
-                p, **request_kwargs, **configer.get_ios_ua_app(app=False)
+                p,
+                **{k: request_kwargs[k] for k in request_kwargs if k != "app"},
             ),
             cooldown=api_cooldown,
         ),
@@ -313,12 +311,12 @@ def get_pid_by_path(
 def get_pickcode_by_path(
     client: P115Client,
     path: str | PathLike | Path,
+    /,
+    **request_kwargs,
 ) -> Optional[str]:
     """
     通过文件（夹）路径获取 pick_code
     """
-    from .config import configer
-
     db_helper = FileDbHelper()
     path = Path(path).as_posix()
     if path == "/":
@@ -330,7 +328,7 @@ def get_pickcode_by_path(
         except ValueError:
             return client.to_pickcode(db_item["id"])
     try:
-        file_id = get_id(client=client, path=path, **configer.get_ios_ua_app(app=False))
+        file_id = get_id(client=client, path=path, **request_kwargs)
         if file_id:
             return client.to_pickcode(file_id)
         return None
