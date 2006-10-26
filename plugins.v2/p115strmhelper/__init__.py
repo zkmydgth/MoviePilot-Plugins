@@ -3,11 +3,10 @@ import time
 import shutil
 import base64
 import re
-from threading import Timer
+from threading import Event as ThreadEvent, Timer
 from collections import defaultdict
 from collections.abc import Mapping
 from datetime import datetime, timedelta
-from threading import Event as ThreadEvent
 from typing import Any, List, Dict, Tuple, Self, cast, Optional
 from errno import EIO, ENOENT
 from urllib.parse import quote, unquote, urlsplit, urlencode
