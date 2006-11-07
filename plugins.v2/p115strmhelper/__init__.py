@@ -382,6 +382,7 @@ class FullSyncStrmHelper:
         server_address: str,
         pan_transfer_enabled: bool,
         pan_transfer_paths: str,
+        strm_url_format: str,
         mediainfodownloader: MediaInfoDownloader,
         auto_download_mediainfo: bool = False,
     ):
@@ -402,6 +403,7 @@ class FullSyncStrmHelper:
         self.server_address = server_address.rstrip("/")
         self.pan_transfer_enabled = pan_transfer_enabled
         self.pan_transfer_paths = pan_transfer_paths
+        self.strm_url_format = strm_url_format
         self.pathmatchinghelper = PathMatchingHelper()
         self.mediainfodownloader = mediainfodownloader
         self.download_mediainfo_list = []
@@ -499,6 +501,8 @@ class FullSyncStrmHelper:
                             )
                             continue
                         strm_url = f"{self.server_address}/api/v1/plugin/P115StrmHelper/redirect_url?apikey={settings.API_TOKEN}&pickcode={pickcode}"
+                        if self.strm_url_format == "pickname":
+                            strm_url += f"&file_name={original_file_name}"
 
                         with open(new_file_path, "w", encoding="utf-8") as file:
                             file.write(strm_url)
@@ -744,7 +748,7 @@ class P115StrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png"
     # 插件版本
-    plugin_version = "1.6.7"
+    plugin_version = "1.6.8"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -774,6 +778,7 @@ class P115StrmHelper(_PluginBase):
     _scheduler = None
     _enabled = False
     _notify = False
+    _strm_url_format = None
     _cookies = None
     _password = None
     moviepilot_address = None
@@ -834,6 +839,7 @@ class P115StrmHelper(_PluginBase):
         if config:
             self._enabled = config.get("enabled", False)
             self._notify = config.get("notify", False)
+            self._strm_url_format = config.get("strm_url_format", "pickcode")
             self._cookies = config.get("cookies")
             self._password = config.get("password")
             self.moviepilot_address = config.get("moviepilot_address")
@@ -1148,6 +1154,7 @@ class P115StrmHelper(_PluginBase):
             {
                 "enabled": self._enabled,
                 "notify": self._notify,
+                "strm_url_format": self._strm_url_format,
                 "cookies": self._cookies,
                 "password": self._password,
                 "moviepilot_address": self.moviepilot_address,
@@ -1761,6 +1768,8 @@ class P115StrmHelper(_PluginBase):
             )
             return
         strm_url = f"{self.moviepilot_address.rstrip('/')}/api/v1/plugin/P115StrmHelper/redirect_url?apikey={settings.API_TOKEN}&pickcode={item_dest_pickcode}"
+        if self._strm_url_format == "pickname":
+            strm_url += f"&file_name={item_dest_name}"
 
         status, strm_target_path = generate_strm_files(
             target_dir=local_media_dir,
@@ -1987,6 +1996,7 @@ class P115StrmHelper(_PluginBase):
             server_address=self.moviepilot_address,
             pan_transfer_enabled=self._pan_transfer_enabled,
             pan_transfer_paths=self._pan_transfer_paths,
+            strm_url_format=self._strm_url_format,
         )
         strm_helper.generate_strm_files(
             full_sync_strm_paths=self._full_sync_strm_paths,
@@ -2211,6 +2221,8 @@ class P115StrmHelper(_PluginBase):
                         )
                         continue
                     strm_url = f"{self.moviepilot_address.rstrip('/')}/api/v1/plugin/P115StrmHelper/redirect_url?apikey={settings.API_TOKEN}&pickcode={pickcode}"
+                    if self._strm_url_format == "pickname":
+                        strm_url += f"&file_name={original_file_name}"
 
                     with open(new_file_path, "w", encoding="utf-8") as file:
                         file.write(strm_url)
@@ -2302,6 +2314,8 @@ class P115StrmHelper(_PluginBase):
                     )
                     return
                 strm_url = f"{self.moviepilot_address.rstrip('/')}/api/v1/plugin/P115StrmHelper/redirect_url?apikey={settings.API_TOKEN}&pickcode={pickcode}"
+                if self._strm_url_format == "pickname":
+                    strm_url += f"&file_name={original_file_name}"
 
                 with open(new_file_path, "w", encoding="utf-8") as file:
                     file.write(strm_url)
@@ -2727,6 +2741,7 @@ class P115StrmHelper(_PluginBase):
         return {
             "enabled": self._enabled,
             "notify": self._notify,
+            "strm_url_format": self._strm_url_format or "pickcode",
             "cookies": self._cookies or "",
             "password": self._password or "",
             "moviepilot_address": self.moviepilot_address or "",
@@ -2782,6 +2797,7 @@ class P115StrmHelper(_PluginBase):
             data = await request.json()
             self._enabled = data.get("enabled", False)
             self._notify = data.get("notify", False)
+            self._strm_url_format = data.get("strm_url_format", "pickcode")
             self._cookies = data.get("cookies", "")
             self._password = data.get("password", "")
             self.moviepilot_address = data.get("moviepilot_address", "")
