@@ -9,7 +9,7 @@ def generate_file_list_db(cookies, dbfile, media_path):
     """
     文件列表导出到数据库
     """
-    client = P115Client(cookies, check_for_relogin=False)
+    client = P115Client(cookies, check_for_relogin=True, ensure_cookies=True)
     updatedb(
         client,
         dbfile=dbfile,
