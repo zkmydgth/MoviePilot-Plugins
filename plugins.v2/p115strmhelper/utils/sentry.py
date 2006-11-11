@@ -2,6 +2,7 @@ import functools
 import inspect
 import base64
 
+import sentry_sdk
 from sentry_sdk.hub import Hub
 from sentry_sdk.client import Client
 
@@ -13,6 +14,22 @@ sentry_hub = Hub(
         ).decode("utf-8"),
     )
 )
+
+
+_original_capture_exception = sentry_sdk.capture_exception
+
+
+def _patched_capture_exception(*args, **kwargs):
+    """
+    当前 Hub 是插件 sentry_hub 时才真正执行上报
+    """
+    if Hub.current is sentry_hub:
+        _original_capture_exception(*args, **kwargs)
+    else:
+        pass
+
+
+sentry_sdk.capture_exception = _patched_capture_exception
 
 
 def capture_plugin_exceptions(func):
