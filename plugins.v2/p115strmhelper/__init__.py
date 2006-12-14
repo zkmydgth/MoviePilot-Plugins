@@ -771,18 +771,18 @@ class FullSyncStrmHelper:
                 logger.error(f"【全量STRM生成】全量生成 STRM 文件失败: {e}")
                 return False
 
-        if self.remove_unless_strm:
-            while local_tree_task_thread.is_alive():
-                logger.info("【全量STRM生成】扫描本地媒体库运行中...")
-                time.sleep(10)
-            try:
-                for path in tree.compare_trees(self.local_tree, self.pan_tree):
-                    logger.info(f"【全量STRM生成】清理无效 STRM 文件: {path}")
-                    Path(path).unlink(missing_ok=True)
-                    self.__remove_parent_dir(file_path=Path(path))
-                    self.remove_unless_strm_count += 1
-            except Exception as e:
-                logger.error(f"【全量STRM生成】清理无效 STRM 文件失败: {e}")
+            if self.remove_unless_strm:
+                while local_tree_task_thread.is_alive():
+                    logger.info("【全量STRM生成】扫描本地媒体库运行中...")
+                    time.sleep(10)
+                try:
+                    for path in tree.compare_trees(self.local_tree, self.pan_tree):
+                        logger.info(f"【全量STRM生成】清理无效 STRM 文件: {path}")
+                        Path(path).unlink(missing_ok=True)
+                        self.__remove_parent_dir(file_path=Path(path))
+                        self.remove_unless_strm_count += 1
+                except Exception as e:
+                    logger.error(f"【全量STRM生成】清理无效 STRM 文件失败: {e}")
 
         self.mediainfo_count, self.mediainfo_fail_count, self.mediainfo_fail_dict = (
             self.mediainfodownloader.auto_downloader(
@@ -1056,7 +1056,7 @@ class P115StrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png"
     # 插件版本
-    plugin_version = "1.8.4"
+    plugin_version = "1.8.5"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
