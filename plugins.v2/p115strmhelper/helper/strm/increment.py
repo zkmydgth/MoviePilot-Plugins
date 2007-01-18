@@ -561,7 +561,7 @@ class IncrementSyncStrmHelper:
                 logger.error(f"【增量STRM生成】增量同步 STRM 文件失败: {e}")
                 return
 
-            sleep(2)
+            sleep(20)
 
         # 下载媒体信息文件
         self.mediainfo_count, self.mediainfo_fail_count, self.mediainfo_fail_dict = (
