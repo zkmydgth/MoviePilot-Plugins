@@ -105,13 +105,15 @@ class CloudDriveApi:
         path = (fileitem.path or "/").rstrip("/") or "/"
         try:
             sub = self.client.get_sub_files(path)
+            return [
+                _cloudfile_to_fileitem(
+                    f, self._disk_name, parent_fileid=fileitem.fileid
+                )
+                for f in sub
+            ]
         except Exception as e:
             logger.error("【CloudDrive】列出目录失败 %s: %s", path, e)
             return []
-        return [
-            _cloudfile_to_fileitem(f, self._disk_name, parent_fileid=fileitem.fileid)
-            for f in sub
-        ]
 
     def iter_files(self, fileitem: FileItem) -> Optional[List[FileItem]]:
         """
