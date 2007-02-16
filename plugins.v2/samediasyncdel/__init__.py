@@ -3,12 +3,10 @@ import time
 from pathlib import Path
 from typing import List, Tuple, Dict, Any, Optional
 
-from p115client import P115Client
-from p115client.tool.iterdir import get_id_to_path
-from p115client.tool.fs_files import iter_fs_files
 from apscheduler.schedulers.background import BackgroundScheduler
 
 from app import schemas
+from app.chain.storage import StorageChain
 from app.chain.transfer import TransferChain
 from app.core.config import settings
 from app.core.event import eventmanager, Event
@@ -46,11 +44,9 @@ class SaMediaSyncDel(_PluginBase):
     _del_history = False
     _local_library_path = None
     _p115_library_path = None
-    _p115_cookies = None
     _transferchain = None
     _transferhis = None
     _downloadhis = None
-    _p115_client = None
 
     def init_plugin(self, config: dict = None):
         self._transferchain = TransferChain()
@@ -68,13 +64,6 @@ class SaMediaSyncDel(_PluginBase):
             self._del_history = config.get("del_history")
             self._local_library_path = config.get("local_library_path")
             self._p115_library_path = config.get("p115_library_path")
-            self._p115_cookies = config.get("p115_cookies")
-
-            if self._p115_cookies:
-                try:
-                    self._p115_client = P115Client(self._p115_cookies)
-                except Exception as e:
-                    logger.error(f"115网盘客户端创建失败: {e}")
 
             # 清理插件历史
             if self._del_history:
@@ -87,7 +76,6 @@ class SaMediaSyncDel(_PluginBase):
                         "del_history": False,
                         "local_library_path": self._local_library_path,
                         "p115_library_path": self._p115_library_path,
-                        "p115_cookies": self._p115_cookies,
                     }
                 )
 
@@ -207,24 +195,6 @@ class SaMediaSyncDel(_PluginBase):
                         "content": [
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 12},
-                                "content": [
-                                    {
-                                        "component": "VTextField",
-                                        "props": {
-                                            "model": "p115_cookies",
-                                            "label": "115 Cookie",
-                                        },
-                                    }
-                                ],
-                            },
-                        ],
-                    },
-                    {
-                        "component": "VRow",
-                        "content": [
-                            {
-                                "component": "VCol",
                                 "props": {
                                     "cols": 12,
                                 },
@@ -319,7 +289,6 @@ class SaMediaSyncDel(_PluginBase):
             "del_history": False,
             "local_library_path": "",
             "p115_library_path": "",
-            "p115_cookies": "",
         }
 
     def get_page(self) -> List[dict]:
@@ -905,26 +874,13 @@ class SaMediaSyncDel(_PluginBase):
         """
         删除115网盘文件
         """
-        if not self._p115_client:
-            return
         try:
-            file_path = Path(file_path)
-            file_dir = file_path.parent
-            file_name = file_path.name
-            path_id = int(get_id_to_path(self._p115_client, path=file_dir))
-            files_list = list(iter_fs_files(self._p115_client, id))[0]
-            if int(files_list["count"]) == 1:
-                self._p115_client.fs_delete(
-                    [int(files_list["data"][0]["fid"]), path_id]
+            StorageChain.delete_media_file(
+                fileitem=StorageChain.get_file_item(
+                    storage="u115", path=Path(file_path)
                 )
-                logger.info(f"{media_name} 删除网盘媒体文件：{file_path}")
-                logger.info(f"{media_name} 删除网盘路径：{file_dir}")
-            else:
-                for item in files_list["data"]:
-                    if file_name == item["n"]:
-                        self._p115_client.fs_delete(int(item["fid"]))
-                        break
-                logger.info(f"{media_name} 删除网盘媒体文件：{file_path}")
+            )
+            logger.info(f"{media_name} 删除网盘媒体文件：{file_path}")
         except Exception as e:
             logger.error(f"{media_name} 删除网盘媒体文件 {file_path} 失败: {e}")
 
