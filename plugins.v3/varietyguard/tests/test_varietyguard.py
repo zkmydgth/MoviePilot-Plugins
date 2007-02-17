@@ -394,16 +394,16 @@ class VarietyGuardTestCase(unittest.TestCase):
         self.assertEqual(checkpoint.items, ())
 
     def test_default_keyword_list_integrity(self):
-        """默认词表：51 项、无重复、全部合法正则；ASCII 项带词边界（E00/EP00 例外）、中文项不带。"""
+        """默认词表：60 项、无重复、全部合法正则；ASCII 项带词边界（E00/EP00 例外）、中文项不带。"""
         from varietyguard import DEFAULT_EXCLUDE_KEYWORDS
 
-        self.assertEqual(len(DEFAULT_EXCLUDE_KEYWORDS), 51)
-        self.assertEqual(len(set(DEFAULT_EXCLUDE_KEYWORDS)), 51)
+        self.assertEqual(len(DEFAULT_EXCLUDE_KEYWORDS), 60)
+        self.assertEqual(len(set(DEFAULT_EXCLUDE_KEYWORDS)), 60)
         for pattern in DEFAULT_EXCLUDE_KEYWORDS:
             re.compile(pattern)  # 非法正则会直接抛错
         chinese_items = [w for w in DEFAULT_EXCLUDE_KEYWORDS if not w.isascii()]
         ascii_items = [w for w in DEFAULT_EXCLUDE_KEYWORDS if w.isascii()]
-        self.assertEqual(len(chinese_items) + len(ascii_items), 51)
+        self.assertEqual(len(chinese_items) + len(ascii_items), 60)
         for item in ascii_items:
             if item in {"E00", "EP00"}:
                 continue  # 这两条按设计不加词边界（见 test_bare_episode_zero_keywords）
@@ -436,6 +436,46 @@ class VarietyGuardTestCase(unittest.TestCase):
         ):
             self.assertIsNotNone(
                 plugin._match_first(DEFAULT_EXCLUDE_KEYWORDS, name), f"{name} 应命中"
+            )
+
+    def test_added_markers_hit_real_non_main_v105(self):
+        """v1.0.5 新增词：超前 / 尊享版 / 陪看 / 直拍 / 探班 / 直播 / Live / Pilot / Fancam 必须命中对应命名。"""
+        from varietyguard import DEFAULT_EXCLUDE_KEYWORDS
+
+        plugin = VarietyGuard()
+        for name in (
+            # S02 观众站 ADWeb（描述含「加更|特辑|超前」）
+            "现在就出发.超前.Natural.High.S02E01.2024.2160p.TX.WEB-DL.H265.DDP2.0-ADWeb.mp4",
+            # S03 观众站 ADWeb 五类命名
+            "现在就出发.直播.Natural.High.S03E03.Live.2025-ADWeb.mp4",
+            "现在就出发.直拍.Natural.High.S03E28.Fancam.2025-ADWeb.mp4",
+            # 只写英文标签、无中文词的变体（原词表会漏）
+            "现在就出发.Natural.High.S03E01.Live.2025-ADWeb.mp4",
+            "现在就出发.Natural.High.S03E01.Pilot.2025-ADWeb.mp4",
+            "现在就出发.Natural.High.S03E01.Fancam.2025-ADWeb.mp4",
+            # 其余中文衍生词
+            "现在就出发.尊享版.Natural.High.S02E02.2024-ADWeb.mp4",
+            "现在就出发.陪看.Natural.High.S02E03.2024-ADWeb.mp4",
+            "现在就出发.探班.Natural.High.S02E04.2024-ADWeb.mp4",
+        ):
+            self.assertIsNotNone(
+                plugin._match_first(DEFAULT_EXCLUDE_KEYWORDS, name), f"{name} 应命中"
+            )
+
+    def test_added_markers_do_not_hit_word_containing_strings(self):
+        """v1.0.5 新增英文词的词边界生效：LiveHouse / Pilotlight / FancamX 与纯正片名不得被误伤。"""
+        from varietyguard import DEFAULT_EXCLUDE_KEYWORDS
+
+        plugin = VarietyGuard()
+        for name in (
+            "现在就出发.Natural.High.S03E01.LiveHouse.2025-ADWeb.mp4",
+            "现在就出发.Natural.High.S03E01.Pilotlight.2025-ADWeb.mp4",
+            "现在就出发.Natural.High.S03E01.FancamX.2025-ADWeb.mp4",
+            "现在就出发.Natural.High.S03E15.2025-ADWeb.mp4",
+            "现在就出发.Natural.High.S03E15.正片.2025-ADWeb.mp4",
+        ):
+            self.assertIsNone(
+                plugin._match_first(DEFAULT_EXCLUDE_KEYWORDS, name), f"{name} 不应命中"
             )
 
     def test_added_markers_do_not_hit_main_episodes(self):
