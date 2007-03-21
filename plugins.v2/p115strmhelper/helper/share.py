@@ -79,7 +79,7 @@ class ShareTransferHelper:
                 self._add_share_queue.task_done()
 
             except Empty:
-                logger.debug("【分享转存】释放分享转存队列进程")
+                logger.debug("【分享转存】释放分享转存队列任务")
                 break
             except Exception as e:
                 logger.error(f"【分享转存】任务处理异常: {e}")
@@ -124,7 +124,7 @@ class ShareTransferHelper:
             receive_code=receive_code,
             share_code=share_code,
             cid=0,
-            app="web"
+            app="web",
         ):
             if file_num == 1:
                 file_num = 2

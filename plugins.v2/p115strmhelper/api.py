@@ -763,8 +763,8 @@ class Api:
                     bool(servicer.scheduler.get_jobs()) if servicer.scheduler else False
                 )
                 or bool(
-                    servicer.monitor_life_process
-                    and servicer.monitor_life_process.is_alive()
+                    servicer.monitor_life_thread
+                    and servicer.monitor_life_thread.is_alive()
                 )
                 or bool(servicer.service_observer),
             )
@@ -859,7 +859,7 @@ class Api:
     @staticmethod
     def check_life_event_status_api() -> ApiResponse:
         """
-        检查生活事件进程状态并测试拉取数据
+        检查生活事件线程状态并测试拉取数据
         提供详细的debug信息供开发者判断
         """
         debug_info = []
@@ -899,17 +899,16 @@ class Api:
         )
         debug_info.append("")
 
-        debug_info.append("4. 生活事件进程状态")
-        monitor_life_process = servicer.monitor_life_process
-        if monitor_life_process:
-            is_alive = monitor_life_process.is_alive()
-            debug_info.append("   进程存在: 是")
-            debug_info.append(f"   进程运行: {is_alive}")
-            debug_info.append(f"   进程名称: {monitor_life_process.name}")
-            debug_info.append(f"   进程ID: {monitor_life_process.pid}")
+        debug_info.append("4. 生活事件线程状态")
+        monitor_life_thread = servicer.monitor_life_thread
+        if monitor_life_thread:
+            is_alive = monitor_life_thread.is_alive()
+            debug_info.append("   线程存在: 是")
+            debug_info.append(f"   线程运行: {is_alive}")
+            debug_info.append(f"   线程名称: {monitor_life_thread.name}")
         else:
-            debug_info.append("   进程存在: 否")
-            debug_info.append("   进程运行: 否")
+            debug_info.append("   线程存在: 否")
+            debug_info.append("   线程运行: 否")
         debug_info.append("")
 
         debug_info.append("5. 115客户端状态")
@@ -995,14 +994,14 @@ class Api:
         )
         debug_info.append(f"   应运行: {should_run}")
         if should_run:
-            if not monitor_life_process or not monitor_life_process.is_alive():
-                debug_info.append("   进程状态: 未运行（应运行但未运行，可能存在问题）")
+            if not monitor_life_thread or not monitor_life_thread.is_alive():
+                debug_info.append("   线程状态: 未运行（应运行但未运行，可能存在问题）")
                 success = False
-                error_messages.append("配置应运行但进程未运行")
+                error_messages.append("配置应运行但线程未运行")
             else:
-                debug_info.append("   进程状态: 正常运行")
+                debug_info.append("   线程状态: 正常运行")
         else:
-            debug_info.append("   进程状态: 未配置运行（配置未启用或配置不完整）")
+            debug_info.append("   线程状态: 未配置运行（配置未启用或配置不完整）")
         debug_info.append("")
 
         debug_info.append("=" * 60)
@@ -1030,7 +1029,7 @@ class Api:
                     client_initialized=bool(client),
                     monitorlife_initialized=bool(monitorlife),
                     thread_running=bool(
-                        monitor_life_process and monitor_life_process.is_alive()
+                        monitor_life_thread and monitor_life_thread.is_alive()
                     ),
                     config_valid=should_run,
                 ),

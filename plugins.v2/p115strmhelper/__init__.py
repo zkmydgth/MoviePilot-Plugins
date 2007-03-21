@@ -421,7 +421,7 @@ class P115StrmHelper(_PluginBase):
                 "endpoint": self.api.check_life_event_status_api,
                 "methods": ["POST"],
                 "auth": "bear",
-                "summary": "检查115生活事件进程状态并测试拉取数据",
+                "summary": "检查115生活事件线程状态并测试拉取数据",
             },
             {
                 "path": "/manual_transfer",
@@ -466,7 +466,7 @@ class P115StrmHelper(_PluginBase):
             cron_service.append(
                 {
                     "id": "P115StrmHelper_monitor_life_guard",
-                    "name": "115生活事件进程守护",
+                    "name": "115生活事件线程守护",
                     "trigger": CronTrigger.from_crontab("* * * * *"),
                     "func": servicer.check_monitor_life_guard,
                     "kwargs": {},
@@ -1120,7 +1120,7 @@ class P115StrmHelper(_PluginBase):
 
         # 生活事件在运行
         if not bool(
-            servicer.monitor_life_process and servicer.monitor_life_process.is_alive()
+            servicer.monitor_life_thread and servicer.monitor_life_thread.is_alive()
         ):
             return
 

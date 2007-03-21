@@ -1,19 +1,9 @@
 from logging import ERROR
 from time import time
-from threading import Lock, Thread
-from multiprocessing import (
-    Process,
-    Event as ProcessEvent,
-    Queue as ProcessQueue,
-    parent_process,
-    current_process,
-    set_start_method,
-    get_start_method,
-)
-from queue import Empty
+from threading import Lock, Thread, Event as ThreadEvent
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Optional, List, Dict, Any
+from typing import Optional, List
 
 import pytz
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -26,8 +16,8 @@ from aligo.core import set_config_folder
 from ..core.i18n import i18n
 from ..core.p115 import get_pid_by_path
 from ..helper.mediainfo_download import MediaInfoDownloader
-from ..helper.life import MonitorLife, MonitorLifeTool
-from ..service.life import monitor_life_process_worker
+from ..helper.life import MonitorLife
+from ..service.life import monitor_life_thread_worker
 from ..helper.strm import FullSyncStrmHelper, ShareStrmHelper, IncrementSyncStrmHelper
 from ..helper.monitor import handle_file, FileMonitorHandler
 from ..helper.offline import OfflineDownloadHelper
@@ -45,29 +35,6 @@ from app.schemas import NotificationType
 from app.scheduler import Scheduler
 
 
-def _setup_multiprocessing():
-    """
-    配置 multiprocessing 启动方法，避免 SSL 冲突
-    """
-    try:
-        try:
-            parent = parent_process()
-            if parent is not None:
-                return
-        except AttributeError:
-            if current_process().name != "MainProcess":
-                return
-
-        try:
-            set_start_method("spawn", force=True)
-            logger.info("multiprocessing set to spawn success")
-        except RuntimeError:
-            current_method = get_start_method()
-            logger.info(f"multiprocessing start method is: {current_method}")
-    except Exception as e:
-        logger.warning(f"Set multiprocessing start method error: {e}")
-
-
 @sentry_manager.capture_all_class_exceptions
 class ServiceHelper:
     """
@@ -75,8 +42,6 @@ class ServiceHelper:
     """
 
     def __init__(self):
-        _setup_multiprocessing()
-
         self.client = None
         self.mediainfodownloader: Optional[MediaInfoDownloader] = None
         self.monitorlife: Optional[MonitorLife] = None
@@ -84,15 +49,10 @@ class ServiceHelper:
 
         self.sharetransferhelper: Optional[ShareTransferHelper] = None
 
-        self.monitor_stop_event: Optional[ProcessEvent] = None
-        self.monitor_life_process: Optional[Process] = None
+        self.monitor_stop_event: Optional[ThreadEvent] = None
+        self.monitor_life_thread: Optional[Thread] = None
         self.monitor_life_lock = Lock()
         self.monitor_life_fail_time: Optional[float] = None
-
-        self.life_queue: Optional[ProcessQueue] = None
-        self.life_response_queue: Optional[ProcessQueue] = None
-        self.life_queue_thread: Optional[Thread] = None
-        self.life_queue_thread_stop = False
 
         self.offlinehelper: Optional[OfflineDownloadHelper] = None
 
@@ -146,8 +106,6 @@ class ServiceHelper:
                 client=self.client,
                 mediainfodownloader=self.mediainfodownloader,
                 stop_event=None,
-                life_queue=None,
-                life_response_queue=None,
             )
 
             # 分享转存初始化
@@ -172,7 +130,7 @@ class ServiceHelper:
 
     def check_monitor_life_guard(self):
         """
-        检查并守护生活事件监控进程
+        检查并守护生活事件监控线程
         """
         should_run = (
             configer.monitor_life_enabled
@@ -183,37 +141,37 @@ class ServiceHelper:
         with self.monitor_life_lock:
             if should_run:
                 is_alive = (
-                    self.monitor_life_process and self.monitor_life_process.is_alive()
+                    self.monitor_life_thread and self.monitor_life_thread.is_alive()
                 )
 
                 if is_alive:
                     if self.monitor_life_fail_time is not None:
-                        logger.debug("【监控生活事件】进程运行正常，清除失败时间记录")
+                        logger.debug("【监控生活事件】线程运行正常，清除失败时间记录")
                         self.monitor_life_fail_time = None
                 else:
                     current_time = time()
                     if self.monitor_life_fail_time is None:
                         self.monitor_life_fail_time = current_time
                         logger.debug(
-                            "【监控生活事件】检测到进程已停止，开始记录失败时间"
+                            "【监控生活事件】检测到线程已停止，开始记录失败时间"
                         )
                     else:
                         fail_duration = current_time - self.monitor_life_fail_time
                         fail_duration_minutes = int(fail_duration / 60)
                         fail_duration_seconds = int(fail_duration % 60)
                         logger.debug(
-                            f"【监控生活事件】进程已停止，持续失败时间: {fail_duration_minutes}分{fail_duration_seconds}秒"
+                            f"【监控生活事件】线程已停止，持续失败时间: {fail_duration_minutes}分{fail_duration_seconds}秒"
                         )
 
                         if fail_duration >= 300:
                             logger.warning(
-                                "【监控生活事件】连续5分钟检测到进程已停止，正在重新启动..."
+                                "【监控生活事件】连续5分钟检测到线程已停止，正在重新启动..."
                             )
                             self._start_monitor_life_internal()
                             self.monitor_life_fail_time = None
             else:
-                if self.monitor_life_process and self.monitor_life_process.is_alive():
-                    logger.info("【监控生活事件】配置已关闭，守护进程正在停止进程")
+                if self.monitor_life_thread and self.monitor_life_thread.is_alive():
+                    logger.info("【监控生活事件】配置已关闭，守护线程正在停止线程")
                     self._stop_monitor_life_internal()
                 self.monitor_life_fail_time = None
 
@@ -226,95 +184,26 @@ class ServiceHelper:
 
     def _stop_monitor_life_internal(self):
         """
-        停止生活事件监控进程
+        停止生活事件监控线程
         """
-        if self.monitor_life_process and self.monitor_life_process.is_alive():
-            logger.info("【监控生活事件】停止生活事件监控进程")
+        if self.monitor_life_thread and self.monitor_life_thread.is_alive():
+            logger.info("【监控生活事件】停止生活事件监控线程")
             if self.monitor_stop_event:
                 self.monitor_stop_event.set()
 
-            self.monitor_life_process.join(timeout=25)
-            if self.monitor_life_process.is_alive():
-                logger.warning("【监控生活事件】进程未在预期时间内结束，强制终止...")
-                self.monitor_life_process.terminate()
-                self.monitor_life_process.join(timeout=10)
-                if self.monitor_life_process.is_alive():
-                    logger.error("【监控生活事件】进程强制终止失败，使用kill")
-                    self.monitor_life_process.kill()
-                    self.monitor_life_process.join(timeout=5)
-                    if self.monitor_life_process.is_alive():
-                        logger.error(
-                            "【监控生活事件】进程kill后仍未退出，可能需要手动清理"
-                        )
-                    else:
-                        logger.info("【监控生活事件】进程已通过kill终止")
-                else:
-                    logger.info("【监控生活事件】进程已成功终止")
+            self.monitor_life_thread.join(timeout=25)
+            if self.monitor_life_thread.is_alive():
+                logger.warning("【监控生活事件】线程未在预期时间内结束")
             else:
-                logger.info("【监控生活事件】进程已正常退出")
+                logger.info("【监控生活事件】线程已正常退出")
 
-            self.monitor_life_process = None
+            self.monitor_life_thread = None
             if self.monitor_stop_event:
                 self.monitor_stop_event = None
 
-        self._stop_life_queue_thread()
-
-    def _process_life_queue(self):
-        """
-        处理从子进程接收的生活事件任务队列和查询请求
-        """
-        logger.info("【监控生活事件】任务队列处理线程已启动")
-
-        while not self.life_queue_thread_stop:
-            try:
-                task_data: Dict[str, Any] = self.life_queue.get(timeout=1)
-                if task_data is None:
-                    continue
-                if not self.monitorlife:
-                    continue
-                MonitorLifeTool.process_life_queue(
-                    task_data, self.life_response_queue, self.monitorlife
-                )
-            except Empty:
-                continue
-            except Exception as e:
-                logger.error(f"【监控生活事件】队列处理异常: {e}")
-                continue
-
-        logger.info("【监控生活事件】任务队列处理线程已停止")
-
-    def _start_life_queue_thread(self):
-        """
-        启动生活事件任务队列处理线程
-        """
-        if self.life_queue_thread and self.life_queue_thread.is_alive():
-            return
-
-        self.life_queue_thread_stop = False
-        self.life_queue_thread = Thread(
-            target=self._process_life_queue,
-            name="P115StrmHelper-LifeQueue",
-            daemon=True,
-        )
-        self.life_queue_thread.start()
-        logger.debug("【监控生活事件】任务队列处理线程已启动")
-
-    def _stop_life_queue_thread(self):
-        """
-        停止生活事件任务队列处理线程
-        """
-        if self.life_queue_thread and self.life_queue_thread.is_alive():
-            self.life_queue_thread_stop = True
-            self.life_queue_thread.join(timeout=5)
-            if self.life_queue_thread.is_alive():
-                logger.warning("【监控生活事件】任务队列处理线程未在预期时间内停止")
-            else:
-                logger.debug("【监控生活事件】任务队列处理线程已停止")
-            self.life_queue_thread = None
-
     def _start_monitor_life_internal(self):
         """
-        启动生活事件监控进程
+        启动生活事件监控线程
         """
         if (
             configer.get_config("monitor_life_enabled")
@@ -324,40 +213,31 @@ class ServiceHelper:
             configer.get_config("pan_transfer_enabled")
             and configer.get_config("pan_transfer_paths")
         ):
-            if self.monitor_life_process and self.monitor_life_process.is_alive():
-                logger.info("【监控生活事件】检测到已有进程在运行，停止旧进程中...")
+            if self.monitor_life_thread and self.monitor_life_thread.is_alive():
+                logger.info("【监控生活事件】检测到已有线程在运行，停止旧线程中...")
                 self._stop_monitor_life_internal()
 
-            if self.monitor_life_process and self.monitor_life_process.is_alive():
-                logger.debug("【监控生活事件】进程仍在运行，跳过启动")
+            if self.monitor_life_thread and self.monitor_life_thread.is_alive():
+                logger.debug("【监控生活事件】线程仍在运行，跳过启动")
                 return
 
-            self.monitor_stop_event = ProcessEvent()
+            self.monitor_stop_event = ThreadEvent()
 
-            if self.life_queue is None:
-                self.life_queue = ProcessQueue()
+            if not self.monitorlife:
+                logger.error("【监控生活事件】monitorlife 未初始化，无法启动监控线程")
+                return
 
-            if self.life_response_queue is None:
-                self.life_response_queue = ProcessQueue()
-
-            self._start_life_queue_thread()
-
-            self.monitor_life_process = Process(
-                target=monitor_life_process_worker,
+            self.monitor_life_thread = Thread(
+                target=monitor_life_thread_worker,
                 args=(
+                    self.monitorlife,
                     self.monitor_stop_event,
-                    configer.cookies,
-                    self.life_queue,
-                    self.life_response_queue,
                 ),
                 name="P115StrmHelper-MonitorLife",
                 daemon=False,
             )
-            self.monitor_life_process.start()
-            logger.info(
-                "【监控生活事件】生活事件监控进程已启动，PID: %s",
-                self.monitor_life_process.pid,
-            )
+            self.monitor_life_thread.start()
+            logger.info("【监控生活事件】生活事件监控线程已启动")
             self.monitor_life_fail_time = None
 
             try:
@@ -369,7 +249,7 @@ class ServiceHelper:
 
     def _update_monitor_life_guard_service(self):
         """
-        只重新注册115生活事件进程守护服务
+        只重新注册115生活事件线程守护服务
         """
         pid = "P115StrmHelper"
         service_id = "P115StrmHelper_monitor_life_guard"
@@ -387,7 +267,7 @@ class ServiceHelper:
 
         guard_service = {
             "id": service_id,
-            "name": "115生活事件进程守护",
+            "name": "115生活事件线程守护",
             "trigger": CronTrigger.from_crontab("* * * * *"),
             "func": self.check_monitor_life_guard,
             "kwargs": {},
@@ -416,7 +296,7 @@ class ServiceHelper:
                     kwargs={"job_id": job_id},
                     replace_existing=True,
                 )
-                logger.debug("【监控生活事件】已重新注册115生活事件进程守护服务")
+                logger.debug("【监控生活事件】已重新注册115生活事件线程守护服务")
             except Exception as e:
                 logger.error(f"【监控生活事件】注册守护服务失败: {str(e)}")
 
@@ -693,12 +573,11 @@ class ServiceHelper:
                     self.scheduler.shutdown()
                 self.scheduler = None
             with self.monitor_life_lock:
-                if self.monitor_life_process:
+                if self.monitor_life_thread:
                     self._stop_monitor_life_internal()
                 elif self.monitor_stop_event:
                     self.monitor_stop_event.set()
                     self.monitor_stop_event = None
-                self._stop_life_queue_thread()
         except Exception as e:
             logger.error(f"发生错误: {e}")
 

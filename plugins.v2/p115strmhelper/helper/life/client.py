@@ -5,8 +5,6 @@ from time import sleep, strftime, localtime, time
 from typing import List, Set, Dict, Optional
 from pathlib import Path
 from itertools import batched, chain
-from multiprocessing import Queue as ProcessQueue
-from queue import Empty
 
 from ...core.config import configer
 from ...core.message import post_message
@@ -77,14 +75,10 @@ class MonitorLife:
         client: P115Client,
         mediainfodownloader: MediaInfoDownloader,
         stop_event: Optional[Event] = None,
-        life_queue: Optional[ProcessQueue] = None,
-        life_response_queue: Optional[ProcessQueue] = None,
     ):
         self._client = client
         self.mediainfodownloader = mediainfodownloader
         self.stop_event = stop_event
-        self.life_queue = life_queue
-        self.life_response_queue = life_response_queue
 
         self.tasks_queue = LifeTasksQueue()
 
@@ -104,15 +98,12 @@ class MonitorLife:
             configer.mediainfo_download_blacklist
         )
 
-        if self.life_queue is None:
-            self.mediaserver_helper = MediaServerRefresh(
-                func_name="【监控生活事件】",
-                enabled=configer.monitor_life_media_server_refresh_enabled,
-                mp_mediaserver=configer.monitor_life_mp_mediaserver_paths,
-                mediaservers=configer.monitor_life_mediaservers,
-            )
-        else:
-            self.mediaserver_helper = None
+        self.mediaserver_helper = MediaServerRefresh(
+            func_name="【监控生活事件】",
+            enabled=configer.monitor_life_media_server_refresh_enabled,
+            mp_mediaserver=configer.monitor_life_mp_mediaserver_paths,
+            mediaservers=configer.monitor_life_mediaservers,
+        )
 
     def _schedule_notification(self):
         """
@@ -142,25 +133,11 @@ class MonitorLife:
             text_parts.append(f"⬇️ 下载媒体文件 {counts['mediainfo_count']} 个")
 
         if text_parts and configer.get_config("notify"):
-            if self.life_queue is not None:
-                try:
-                    mtype_value = NotificationType.Plugin.value
-                    self.life_queue.put(
-                        {
-                            "type": "post_message",
-                            "mtype": mtype_value,
-                            "title": i18n.translate("life_sync_done_title"),
-                            "text": "\n" + "\n".join(text_parts),
-                        }
-                    )
-                except Exception as e:
-                    logger.error(f"【监控生活事件】发送通知请求失败: {e}")
-            else:
-                post_message(
-                    mtype=NotificationType.Plugin,
-                    title=i18n.translate("life_sync_done_title"),
-                    text="\n" + "\n".join(text_parts),
-                )
+            post_message(
+                mtype=NotificationType.Plugin,
+                title=i18n.translate("life_sync_done_title"),
+                text="\n" + "\n".join(text_parts),
+            )
 
         # 重置计数器
         self._monitor_life_notification_queue["life"] = {
@@ -206,9 +183,7 @@ class MonitorLife:
         """
         org_file_path = file_path.as_posix()
         _databasehelper = FileDbHelper()
-        transferchain = None
-        if self.life_queue is None:
-            transferchain = TransferChain()
+        transferchain = TransferChain()
         file_category = event["file_category"]
         file_id = event["file_id"]
         if file_category == 0:
@@ -266,15 +241,8 @@ class MonitorLife:
                         pickcode=item["pickcode"],
                         modify_time=item["ctime"],
                     )
-                    if self.life_queue is not None:
-                        try:
-                            self.life_queue.put(fileitem.model_dump())
-                            logger.info(f"【网盘整理】{file_path} 已发送到主进程队列")
-                        except Exception as e:
-                            logger.error(f"【网盘整理】发送任务到队列失败: {e}")
-                    else:
-                        transferchain.do_transfer(fileitem=fileitem)
-                        logger.info(f"【网盘整理】{file_path} 加入整理列队")
+                    transferchain.do_transfer(fileitem=fileitem)
+                    logger.info(f"【网盘整理】{file_path} 加入整理列队")
                 if (
                     file_path.suffix.lower() in settings.RMT_AUDIOEXT
                     or file_path.suffix.lower() in settings.RMT_SUBEXT
@@ -336,15 +304,8 @@ class MonitorLife:
                     pickcode=event["pick_code"],
                     modify_time=event["update_time"],
                 )
-                if self.life_queue is not None:
-                    try:
-                        self.life_queue.put(fileitem.model_dump())
-                        logger.info(f"【网盘整理】{file_path} 已发送到主进程队列")
-                    except Exception as e:
-                        logger.error(f"【网盘整理】发送任务到队列失败: {e}")
-                else:
-                    transferchain.do_transfer(fileitem=fileitem)
-                    logger.info(f"【网盘整理】{file_path} 加入整理列队")
+                transferchain.do_transfer(fileitem=fileitem)
+                logger.info(f"【网盘整理】{file_path} 加入整理列队")
 
     def creata_strm(self, event: Dict, file_path: Path):
         """
@@ -510,39 +471,12 @@ class MonitorLife:
                                     )
                                     scrape_metadata = False
                             if scrape_metadata:
-                                if self.life_queue is not None:
-                                    try:
-                                        self.life_queue.put(
-                                            {
-                                                "type": "scrape_metadata",
-                                                "path": str(new_file_path),
-                                            }
-                                        )
-                                    except Exception as e:
-                                        logger.error(
-                                            f"【监控生活事件】发送刮削请求失败: {e}"
-                                        )
-                                else:
-                                    media_scrape_metadata(path=new_file_path)
+                                media_scrape_metadata(path=new_file_path)
                         # 刷新媒体服务器
-                        if self.life_queue is not None:
-                            try:
-                                self.life_queue.put(
-                                    {
-                                        "type": "refresh_mediaserver",
-                                        "file_path": str(new_file_path),
-                                        "file_name": str(original_file_name),
-                                    }
-                                )
-                            except Exception as e:
-                                logger.error(
-                                    f"【监控生活事件】发送媒体服务器刷新请求失败: {e}"
-                                )
-                        else:
-                            self.mediaserver_helper.refresh_mediaserver(
-                                file_path=str(new_file_path),
-                                file_name=str(original_file_name),
-                            )
+                        self.mediaserver_helper.refresh_mediaserver(
+                            file_path=str(new_file_path),
+                            file_name=str(original_file_name),
+                        )
                 _databasehelper.upsert_batch(processed)
             if configer.get_config("notify"):
                 if strm_count > 0 or mediainfo_count > 0:
@@ -683,35 +617,12 @@ class MonitorLife:
                             )
                             scrape_metadata = False
                     if scrape_metadata:
-                        if self.life_queue is not None:
-                            try:
-                                self.life_queue.put(
-                                    {
-                                        "type": "scrape_metadata",
-                                        "path": str(new_file_path),
-                                    }
-                                )
-                            except Exception as e:
-                                logger.error(f"【监控生活事件】发送刮削请求失败: {e}")
-                        else:
-                            media_scrape_metadata(path=new_file_path)
+                        media_scrape_metadata(path=new_file_path)
                 # 刷新媒体服务器
-                if self.life_queue is not None:
-                    try:
-                        self.life_queue.put(
-                            {
-                                "type": "refresh_mediaserver",
-                                "file_path": new_file_path.as_posix(),
-                                "file_name": str(original_file_name),
-                            }
-                        )
-                    except Exception as e:
-                        logger.error(f"【监控生活事件】发送媒体服务器刷新请求失败: {e}")
-                else:
-                    self.mediaserver_helper.refresh_mediaserver(
-                        file_path=new_file_path.as_posix(),
-                        file_name=str(original_file_name),
-                    )
+                self.mediaserver_helper.refresh_mediaserver(
+                    file_path=new_file_path.as_posix(),
+                    file_name=str(original_file_name),
+                )
 
     def remove_strm(self, event: Dict):
         """
@@ -788,54 +699,19 @@ class MonitorLife:
         )
 
         # 检查文件是否还存在
-        if self.life_queue is not None:
-            try:
-                self.life_queue.put(
-                    {
-                        "type": "check_file_exists",
-                        "storage": configer.storage_module,
-                        "path": str(file_path),
-                    }
-                )
-                try:
-                    response = (
-                        self.life_response_queue.get(timeout=2)
-                        if self.life_response_queue
-                        else None
-                    )
-                    if (
-                        response
-                        and isinstance(response, dict)
-                        and response.get("exists", False)
-                    ):
-                        fileitem_data = response.get("fileitem")
-                        if fileitem_data:
-                            logger.warn(
-                                f"【监控生活事件】网盘 {file_path} 目录存在，跳过本地删除"
-                            )
-                            fileitem = FileItem(**fileitem_data)
-                            _databasehelper.upsert_batch(
-                                _databasehelper.process_fileitem(fileitem=fileitem)
-                            )
-                            return
-                except Empty:
-                    logger.debug("【监控生活事件】文件存在性查询超时，继续删除")
-            except Exception as e:
-                logger.error(f"【监控生活事件】查询文件是否存在失败: {e}")
-        else:
-            storagechain = StorageChain()
-            fileitem = storagechain.get_file_item(
-                storage=configer.storage_module, path=Path(file_path)
+        storagechain = StorageChain()
+        fileitem = storagechain.get_file_item(
+            storage=configer.storage_module, path=Path(file_path)
+        )
+        if fileitem:
+            logger.warn(
+                f"【监控生活事件】网盘 {file_path} 目录存在，跳过本地删除: {fileitem}"
             )
-            if fileitem:
-                logger.warn(
-                    f"【监控生活事件】网盘 {file_path} 目录存在，跳过本地删除: {fileitem}"
-                )
-                # 这里如果路径存在则更新数据库信息
-                _databasehelper.upsert_batch(
-                    _databasehelper.process_fileitem(fileitem=fileitem)
-                )
-                return
+            # 这里如果路径存在则更新数据库信息
+            _databasehelper.upsert_batch(
+                _databasehelper.process_fileitem(fileitem=fileitem)
+            )
+            return
 
         file_path = Path(target_dir) / Path(file_path).relative_to(pan_media_dir)
         if file_path.suffix.lower() in self.rmt_mediaext_set:
@@ -868,55 +744,40 @@ class MonitorLife:
             logger.info(f"【监控生活事件】{file_path} 已删除")
             # 同步删除历史记录
             if configer.monitor_life_remove_mp_history:
-                if self.life_queue is not None:
-                    try:
-                        self.life_queue.put(
-                            {
-                                "type": "remove_mp_history",
-                                "path": pan_file_path,
-                                "del_source": configer.monitor_life_remove_mp_source,
-                            }
+                mediasyncdel = MediaSyncDelHelper()
+                (
+                    del_torrent_hashs,
+                    stop_torrent_hashs,
+                    error_cnt,
+                    transfer_history,
+                ) = mediasyncdel.remove_by_path(
+                    path=pan_file_path,
+                    del_source=configer.monitor_life_remove_mp_source,
+                )
+                if configer.get_config("notify") and transfer_history:
+                    torrent_cnt_msg = ""
+                    if del_torrent_hashs:
+                        torrent_cnt_msg += (
+                            f"删除种子 {len(set(del_torrent_hashs))} 个\n"
                         )
-                        logger.debug(
-                            f"【监控生活事件】已发送删除历史记录请求: {pan_file_path}"
-                        )
-                    except Exception as e:
-                        logger.error(f"【监控生活事件】发送删除历史记录请求失败: {e}")
-                else:
-                    mediasyncdel = MediaSyncDelHelper()
-                    (
-                        del_torrent_hashs,
-                        stop_torrent_hashs,
-                        error_cnt,
-                        transfer_history,
-                    ) = mediasyncdel.remove_by_path(
-                        path=pan_file_path,
-                        del_source=configer.monitor_life_remove_mp_source,
+                    if stop_torrent_hashs:
+                        stop_cnt = 0
+                        # 排除已删除
+                        for stop_hash in set(stop_torrent_hashs):
+                            if stop_hash not in set(del_torrent_hashs):
+                                stop_cnt += 1
+                        if stop_cnt > 0:
+                            torrent_cnt_msg += f"暂停种子 {stop_cnt} 个\n"
+                    if error_cnt:
+                        torrent_cnt_msg += f"删种失败 {error_cnt} 个\n"
+                    post_message(
+                        mtype=NotificationType.Plugin,
+                        title=i18n.translate("life_sync_media_del_title"),
+                        text=f"\n删除{'文件夹' if file_category == 0 else '文件'} {pan_file_path}\n"
+                        f"删除记录{len(transfer_history) if transfer_history else '0'}个\n"
+                        f"{torrent_cnt_msg}"
+                        f"时间 {strftime('%Y-%m-%d %H:%M:%S', localtime(time()))}\n",
                     )
-                    if configer.get_config("notify") and transfer_history:
-                        torrent_cnt_msg = ""
-                        if del_torrent_hashs:
-                            torrent_cnt_msg += (
-                                f"删除种子 {len(set(del_torrent_hashs))} 个\n"
-                            )
-                        if stop_torrent_hashs:
-                            stop_cnt = 0
-                            # 排除已删除
-                            for stop_hash in set(stop_torrent_hashs):
-                                if stop_hash not in set(del_torrent_hashs):
-                                    stop_cnt += 1
-                            if stop_cnt > 0:
-                                torrent_cnt_msg += f"暂停种子 {stop_cnt} 个\n"
-                        if error_cnt:
-                            torrent_cnt_msg += f"删种失败 {error_cnt} 个\n"
-                        post_message(
-                            mtype=NotificationType.Plugin,
-                            title=i18n.translate("life_sync_media_del_title"),
-                            text=f"\n删除{'文件夹' if file_category == 0 else '文件'} {pan_file_path}\n"
-                            f"删除记录{len(transfer_history) if transfer_history else '0'}个\n"
-                            f"{torrent_cnt_msg}"
-                            f"时间 {strftime('%Y-%m-%d %H:%M:%S', localtime(time()))}\n",
-                        )
         except Exception as e:
             logger.error(f"【监控生活事件】{file_path} 删除失败: {e}")
 
@@ -963,26 +824,7 @@ class MonitorLife:
         last_info_time = None
 
         while True:
-            if self.life_queue is not None and self.life_response_queue is not None:
-                try:
-                    self.life_queue.put({"type": "query_queue_status"})
-                    try:
-                        response = self.life_response_queue.get(timeout=2)
-                        has_tasks = (
-                            response.get("has_tasks", False)
-                            if isinstance(response, dict)
-                            else False
-                        )
-                    except Empty:
-                        has_tasks = False
-                        logger.debug("【监控生活事件】队列状态查询超时，继续处理")
-                except Exception as e:
-                    logger.error(f"【监控生活事件】查询队列状态失败: {e}")
-                    has_tasks = False
-            else:
-                has_tasks = len(TransferChain().get_queue_tasks()) > 0
-
-            if not has_tasks:
+            if not TransferChain().get_queue_tasks():
                 break
 
             if wait_start_time is None:

@@ -1,11 +1,7 @@
+from threading import Event
 from time import time
-from multiprocessing import Queue as ProcessQueue
-from typing import Optional
-
-from p115client import P115Client
 
 from ...core.config import configer
-from ...helper.mediainfo_download import MediaInfoDownloader
 from ...helper.life import MonitorLife
 from ...utils.sentry import sentry_manager
 
@@ -13,34 +9,18 @@ from app.log import logger
 
 
 @sentry_manager.capture_plugin_exceptions
-def monitor_life_process_worker(
-    stop_event,
-    cookies: str,
-    life_queue: Optional[ProcessQueue] = None,
-    life_response_queue: Optional[ProcessQueue] = None,
+def monitor_life_thread_worker(
+    monitor_life: MonitorLife,
+    stop_event: Event,
 ):
     """
-    生活事件监控进程工作函数
+    生活事件监控线程工作函数
 
-    :param stop_event: multiprocessing.Event 对象，用于接收停止信号
-    :param cookies: 115 网盘的 cookies 字符串
-    :param life_queue: 进程间通信队列，用于将任务和查询请求发送到主进程
-    :param life_response_queue: 响应队列，用于接收主进程返回的查询结果
+    :param monitor_life: 已初始化的 MonitorLife 对象
+    :param stop_event: threading.Event 对象，用于接收停止信号
     """
     try:
-        logger.info("【监控生活事件】初始化生活事件客户端中...")
-        client = P115Client(cookies)
-
-        mediainfo_downloader = MediaInfoDownloader(cookie=cookies)
-
-        monitor_life = MonitorLife(
-            client=client,
-            mediainfodownloader=mediainfo_downloader,
-            stop_event=stop_event,
-            life_queue=life_queue,
-            life_response_queue=life_response_queue,
-        )
-        logger.info("【监控生活事件】生活事件客户端初始化完成")
+        monitor_life.stop_event = stop_event
 
         logger.info("【监控生活事件】生活事件状态检查中...")
         if not monitor_life.check_status():
@@ -90,5 +70,5 @@ def monitor_life_process_worker(
 
         logger.info("【监控生活事件】已退出生活事件监控")
     except Exception as e:
-        logger.error(f"【监控生活事件】进程运行异常: {e}")
+        logger.error(f"【监控生活事件】线程运行异常: {e}")
         raise
