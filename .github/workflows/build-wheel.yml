@@ -156,7 +156,7 @@ jobs:
         env:
           CIBW_BUILD: ${{ steps.vars.outputs.cibw_build_version }}
           CIBW_OUTPUT_DIR: wheels
-          CIBW_SKIP: "*-win_ia64 *-win32 *-manylinux_armv7l *-manylinux_ppc64le *-manylinux_s390x *-macosx_i686 *-macosx_ppc64"
+          CIBW_SKIP: "*-win32 *-manylinux_armv7l *-manylinux_ppc64le *-manylinux_s390x"
           CIBW_ARCHS: ${{ steps.vars.outputs.cibw_arch }}
         with:
           package-dir: ${{ needs.get_source_info.outputs.source_dir }}
