@@ -315,7 +315,7 @@ class P123StrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/DDS-Derek/MoviePilot-Plugins/main/icons/P123Disk.png"
     # 插件版本
-    plugin_version = "1.0.0"
+    plugin_version = "1.0.1"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -506,7 +506,7 @@ class P123StrmHelper(_PluginBase):
             {
                 "path": "/redirect_url",
                 "endpoint": self.redirect_url,
-                "methods": ["GET", "POST"],
+                "methods": ["GET", "POST", "HEAD"],
                 "summary": "302跳转",
                 "description": "123云盘302跳转",
             }
@@ -1051,7 +1051,7 @@ class P123StrmHelper(_PluginBase):
                                                 "component": "VTextField",
                                                 "props": {
                                                     "model": "moviepilot_address",
-                                                    "label": "MoviePilot 外网访问地址",
+                                                    "label": "MoviePilot 内网访问地址",
                                                 },
                                             }
                                         ],

@@ -87,11 +87,12 @@
         "name": "115网盘STRM助手",
         "description": "115网盘STRM生成一条龙服务",
         "labels": "云盘",
-        "version": "1.4.5",
+        "version": "1.4.6",
         "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png",
         "author": "DDSRem",
         "level": 1,
         "history": {
+            "v1.4.6": "优化302跳转速度",
             "v1.4.5": "修复部分情况下全量和分享无法使用",
             "v1.4.4": "115生活事件全面优化，支持同步删除，同步上传、移动、接收文件、复制事件",
             "v1.4.3": "支持自动下载媒体数据文件",
@@ -142,12 +143,25 @@
         "name": "123云盘STRM助手",
         "description": "123云盘STRM生成一条龙服务",
         "labels": "云盘",
-        "version": "1.0.0",
+        "version": "1.0.1",
         "icon": "https://raw.githubusercontent.com/DDS-Derek/MoviePilot-Plugins/main/icons/P123Disk.png",
         "author": "DDSRem",
         "level": 1,
         "history": {
+            "v1.0.1": "优化302跳转速度",
             "v1.0.0": "发布，前置依赖123云盘储存插件"
+        }
+    },
+    "MediaWarp": {
+        "name": "MediaWarp",
+        "description": "EmbyServer/Jellyfin 中间件：优化播放 Strm 文件、自定义前端样式、自定义允许访问客户端、嵌入脚本。",
+        "labels": "云盘",
+        "version": "1.0.0",
+        "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/refs/heads/main/icons/cloud.png",
+        "author": "DDSRem",
+        "level": 1,
+        "history": {
+            "v1.0.0": "发布"
         }
     }
 }

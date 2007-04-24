@@ -474,7 +474,7 @@ class P115StrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png"
     # 插件版本
-    plugin_version = "1.4.5"
+    plugin_version = "1.4.6"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -700,7 +700,7 @@ class P115StrmHelper(_PluginBase):
             {
                 "path": "/redirect_url",
                 "endpoint": self.redirect_url,
-                "methods": ["GET", "POST"],
+                "methods": ["GET", "POST", "HEAD"],
                 "summary": "302跳转",
                 "description": "115网盘302跳转",
             }
@@ -1333,7 +1333,7 @@ class P115StrmHelper(_PluginBase):
                                                 "component": "VTextField",
                                                 "props": {
                                                     "model": "moviepilot_address",
-                                                    "label": "MoviePilot 外网访问地址",
+                                                    "label": "MoviePilot 内网访问地址",
                                                 },
                                             }
                                         ],

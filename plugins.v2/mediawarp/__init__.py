@@ -23,9 +23,9 @@ class MediaWarp(_PluginBase):
     # 插件描述
     plugin_desc = "EmbyServer/Jellyfin 中间件：优化播放 Strm 文件、自定义前端样式、自定义允许访问客户端、嵌入脚本。"
     # 插件图标
-    plugin_icon = ""
+    plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/refs/heads/main/icons/cloud.png"
     # 插件版本
-    plugin_version = "0.0.1"
+    plugin_version = "1.0.0"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -71,6 +71,11 @@ class MediaWarp(_PluginBase):
         self.__logs_dir = settings.PLUGIN_DATA_PATH / class_name / "logs"
         # 配置文件名
         self.__config_filename = "config.yaml"
+        # 二级制文件版本
+        self.__mediawarp_version = "0.1.6"
+        self.__mediawarp_version_path = (
+            settings.PLUGIN_DATA_PATH / class_name / "version.txt"
+        )
 
     def init_plugin(self, config: dict = None):
         self._mediaserver_helper = MediaServerHelper()
@@ -121,6 +126,13 @@ class MediaWarp(_PluginBase):
                     )
                     self.__update_config()
                     return
+
+            if os.path.exists(self.__mediawarp_version_path):
+                with open(self.__mediawarp_version_path, "r", encoding="utf-8") as f:
+                    version = f.read().strip()
+                if version != self.__mediawarp_version:
+                    logger.info("尝试自动更新二级制文件中...")
+                    self.download_and_extract()
 
             if not Path(self.__config_path / self.__config_filename).exists():
                 logger.error("MediaWarp 配置文件不存在，无法启动插件")
@@ -429,6 +441,40 @@ class MediaWarp(_PluginBase):
                                     }
                                 ],
                             },
+                            {
+                                "component": "VAlert",
+                                "props": {
+                                    "type": "info",
+                                    "variant": "tonal",
+                                    "density": "compact",
+                                    "class": "mt-2",
+                                },
+                                "content": [
+                                    {
+                                        "component": "div",
+                                        "text": "注意：如果 MoviePilot 容器为 bridge 模式需要手动映射配置的端口",
+                                    },
+                                    {
+                                        "component": "div",
+                                        "text": "更多配置可以前往 MoviePilot 配置目录找到此插件的配置目录进行详细配置文件配置",
+                                    },
+                                ],
+                            },
+                            {
+                                "component": "VAlert",
+                                "props": {
+                                    "type": "info",
+                                    "variant": "tonal",
+                                    "density": "compact",
+                                    "class": "mt-2",
+                                },
+                                "content": [
+                                    {
+                                        "component": "div",
+                                        "text": "感谢项目作者：https://github.com/Akimio521/MediaWarp",
+                                    },
+                                ],
+                            },
                         ],
                     },
                 ],
@@ -554,7 +600,7 @@ class MediaWarp(_PluginBase):
         """
         获取下载链接
         """
-        base_url = "https://github.com/DDS-Derek/MediaWarp/releases/download/v0.1.5/MediaWarp_0.1.5_linux_{arch}.tar.gz"
+        base_url = "https://github.com/DDS-Derek/MediaWarp/releases/download/v{version}/MediaWarp_{version}_linux_{arch}.tar.gz"
 
         machine = platform.machine().lower()
         if machine == "arm64" or machine == "aarch64":
@@ -562,7 +608,7 @@ class MediaWarp(_PluginBase):
         else:
             arch = "amd64"
 
-        return base_url.format(arch=arch)
+        return base_url.format(arch=arch, version=self.__mediawarp_version)
 
     def download_and_extract(self):
         """
@@ -607,13 +653,11 @@ class MediaWarp(_PluginBase):
                             Path(temp_dir) / config_example_member[0].name
                         )
                         shutil.copy2(extracted_config, config_target)
+                        logger.info(f"示例配置文件已保存到 {config_target}")
 
+            with open(self.__mediawarp_version_path, "w", encoding="utf-8") as f:
+                f.write(self.__mediawarp_version)
             logger.info(f"安装完成！MediaWarp 已安装到 {self.__mediawarp_path}")
-            if not config_target.exists():
-                logger.info(f"示例配置文件已保存到 {config_target}")
-            else:
-                logger.info("检测到已有配置文件，未覆盖现有配置")
-
         except Exception as e:
             logger.info(f"发生错误: {e}")
         finally:
