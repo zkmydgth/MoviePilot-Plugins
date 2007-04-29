@@ -25,9 +25,12 @@ from typing import (
 )
 from concurrent.futures import ThreadPoolExecutor, Future, as_completed
 
+from orjson import loads, dumps
 from p115client import P115Client, check_response
+from p115client.const import _CACHE_DIR
 from p115client.util import complete_url, posix_escape_name
 from p115client.tool.attr import normalize_attr, get_id
+from p115pickcode import get_stable_point
 
 from ..core.cache import idpathcacher
 from ..db_manager.oper import FileDbHelper
@@ -332,3 +335,31 @@ def get_pickcode_by_path(
         return None
     except Exception:
         return None
+
+
+def pickcode_stable_point(client: P115Client):
+    """
+    获取 pickcode 的不动点
+    """
+    from .config import configer
+
+    user_id = str(client.user_id)
+    pickcode_points_json = _CACHE_DIR / "pickcode_stable_points.json"
+    try:
+        cache = loads(pickcode_points_json.open("rb").read())
+    except OSError:
+        cache = {}
+    if point := cache.get(user_id):
+        return point
+    else:
+        resp = client.fs_files(
+            {"show_dir": 1, "limit": 1, "cid": 0}, **configer.get_ios_ua_app(app=False)
+        )
+        check_response(resp)
+        info = resp["data"][0]
+        point = cache[user_id] = get_stable_point(info["pc"])
+        try:
+            pickcode_points_json.open("wb").write(dumps(cache))
+        except Exception:
+            pass
+        return point
