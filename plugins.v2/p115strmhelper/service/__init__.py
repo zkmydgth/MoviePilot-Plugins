@@ -87,6 +87,11 @@ class ServiceHelper:
 
         self.share_interactive_gen_strm_queue = ShareInteractiveGenStrmQueue()
 
+        self._sync_state_lock = Lock()
+        self._full_sync_running = False
+        self._increment_sync_running = False
+        self._full_sync_pending = False
+
     def init_service(self):
         """
         初始化服务
@@ -403,7 +408,26 @@ class ServiceHelper:
 
     def full_sync_strm_files(self):
         """
-        全量同步
+        全量同步（带并发互斥与优先级控制）
+        """
+        with self._sync_state_lock:
+            if self._full_sync_running:
+                logger.info("【全量同步】全量同步已在运行，跳过本次触发")
+                return
+            if self._increment_sync_running:
+                logger.info("【全量同步】增量同步正在运行，已登记待执行全量同步")
+                self._full_sync_pending = True
+                return
+            self._full_sync_running = True
+        try:
+            self._run_full_sync()
+        finally:
+            with self._sync_state_lock:
+                self._full_sync_running = False
+
+    def _run_full_sync(self):
+        """
+        全量同步实际执行逻辑
         """
         if (
             not configer.get_config("full_sync_strm_paths")
@@ -547,7 +571,32 @@ class ServiceHelper:
 
     def increment_sync_strm_files(self, send_msg: bool = False):
         """
-        增量同步
+        增量同步（带并发互斥与优先级控制）
+        """
+        with self._sync_state_lock:
+            if self._full_sync_running:
+                logger.info("【增量同步】全量同步正在运行，跳过本次增量同步")
+                return
+            if self._increment_sync_running:
+                logger.info("【增量同步】增量同步已在运行，跳过本次触发")
+                return
+            self._increment_sync_running = True
+        try:
+            self._run_increment_sync(send_msg)
+        finally:
+            run_full = False
+            with self._sync_state_lock:
+                self._increment_sync_running = False
+                if self._full_sync_pending:
+                    self._full_sync_pending = False
+                    run_full = True
+            if run_full:
+                logger.info("【增量同步】增量同步完成，执行待运行的全量同步")
+                self.full_sync_strm_files()
+
+    def _run_increment_sync(self, send_msg: bool = False):
+        """
+        增量同步实际执行逻辑
         """
         if (
             not configer.get_config("increment_sync_strm_paths")
