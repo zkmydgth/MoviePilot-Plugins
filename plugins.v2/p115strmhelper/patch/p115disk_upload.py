@@ -14,7 +14,7 @@ except (ImportError, Exception):
 
 
 from ..core.config import configer
-from ..core.p115 import P115DiskHelper
+from ..core.p115disk import P115DiskCore
 
 
 class P115DiskPatcher:
@@ -40,7 +40,7 @@ class P115DiskPatcher:
         p115_api = getattr(self_instance, "_p115_api", None)
         if not p115_api or not getattr(p115_api, "client", None):
             return None
-        helper = P115DiskHelper(client=p115_api.client)
+        helper = P115DiskCore(client=p115_api.client)
         logger.debug("【P115Disk】调用补丁接口上传")
         return helper.upload(target_dir=fileitem, local_path=path, new_name=new_name)
 
