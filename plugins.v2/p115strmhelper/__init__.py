@@ -86,6 +86,41 @@ class Url(str):
         return self.__dict__.values()
 
 
+def check_response(
+    resp: requests.Response,
+) -> requests.Response:
+    """
+    检查 HTTP 响应，如果状态码 ≥ 400 则抛出 HTTPError
+    """
+    if resp.status_code >= 400:
+        raise HTTPError(
+            f"HTTP Error {resp.status_code}: {resp.text}",
+            response=resp,
+        )
+    return resp
+
+
+def get_download_url(pickcode: str, cookie: str):
+    """
+    获取下载链接
+    """
+    resp = requests.post(
+        "http://proapi.115.com/android/2.0/ufile/download",
+        data={"data": encrypt(f'{{"pick_code":"{pickcode}"}}').decode("utf-8")},
+        headers={
+            "User-Agent": settings.USER_AGENT,
+            "Cookie": cookie,
+        },
+    )
+    check_response(resp)
+    json = loads(cast(bytes, resp.content))
+    if not json["state"]:
+        raise OSError(EIO, json)
+    data = json["data"] = loads(decrypt(json["data"]))
+    data["file_name"] = unquote(urlsplit(data["url"]).path.rpartition("/")[-1])
+    return Url.of(data["url"], data)
+
+
 class FullSyncStrmHelper:
     """
     全量生成 STRM 文件
@@ -95,13 +130,23 @@ class FullSyncStrmHelper:
         self,
         client,
         user_rmt_mediaext: str,
+        user_download_mediaext: str,
         server_address: str,
+        cookie: str,
+        auto_download_mediainfo: bool = False,
     ):
         self.rmt_mediaext = [
             f".{ext.strip()}" for ext in user_rmt_mediaext.replace("，", ",").split(",")
         ]
+        self.download_mediaext = [
+            f".{ext.strip()}"
+            for ext in user_download_mediaext.replace("，", ",").split(",")
+        ]
+        self.auto_download_mediainfo = auto_download_mediainfo
         self.client = client
-        self.count = 0
+        self.cookie = cookie
+        self.strm_count = 0
+        self.mediainfo_count = 0
         self.server_address = server_address.rstrip("/")
 
     def generate_strm_files(self, full_sync_strm_paths):
@@ -138,6 +183,46 @@ class FullSyncStrmHelper:
                     file_name = file_path.stem + ".strm"
                     new_file_path = file_target_dir / file_name
 
+                    if self.auto_download_mediainfo:
+                        if file_path.suffix in self.download_mediaext:
+                            pickcode = item["pickcode"]
+                            if not pickcode:
+                                logger.error(
+                                    f"【全量STRM生成】{original_file_name} 不存在 pickcode 值，无法下载该文件"
+                                )
+                                continue
+                            download_url = get_download_url(
+                                pickcode=pickcode, cookie=self.cookie
+                            )
+
+                            if not download_url:
+                                logger.error(
+                                    f"【全量STRM生成】{original_file_name} 下载链接获取失败，无法下载该文件"
+                                )
+                                continue
+
+                            file_path.parent.mkdir(parents=True, exist_ok=True)
+
+                            with requests.get(
+                                download_url,
+                                stream=True,
+                                timeout=30,
+                                headers={
+                                    "User-Agent": settings.USER_AGENT,
+                                    "Cookie": self.cookie,
+                                },
+                            ) as response:
+                                response.raise_for_status()
+                                with open(file_path, "wb") as f:
+                                    for chunk in response.iter_content(chunk_size=8192):
+                                        f.write(chunk)
+
+                            logger.info(
+                                f"【全量STRM生成】保存 {original_file_name} 文件成功: {file_path}"
+                            )
+                            self.mediainfo_count += 1
+                            continue
+
                     if file_path.suffix not in self.rmt_mediaext:
                         logger.warn(
                             "【全量STRM生成】跳过网盘路径: %s",
@@ -165,7 +250,7 @@ class FullSyncStrmHelper:
 
                     with open(new_file_path, "w", encoding="utf-8") as file:
                         file.write(strm_url)
-                    self.count += 1
+                    self.strm_count += 1
                     logger.info(
                         "【全量STRM生成】生成 STRM 文件成功: %s", str(new_file_path)
                     )
@@ -173,7 +258,7 @@ class FullSyncStrmHelper:
                 logger.error(f"【全量STRM生成】全量生成 STRM 文件失败: {e}")
                 return False
         logger.info(
-            f"【全量STRM生成】全量生成 STRM 文件完成，总共生成 {self.count} 个文件"
+            f"【全量STRM生成】全量生成 STRM 文件完成，总共生成 {self.strm_count} 个 STRM 文件，下载 {self.mediainfo_count} 个媒体数据文件"
         )
         return True
 
@@ -187,15 +272,25 @@ class ShareStrmHelper:
         self,
         client,
         user_rmt_mediaext: str,
+        user_download_mediaext: str,
         share_media_path: str,
         local_media_path: str,
         server_address: str,
+        cookie: str,
+        auto_download_mediainfo: bool = False,
     ):
         self.rmt_mediaext = [
             f".{ext.strip()}" for ext in user_rmt_mediaext.replace("，", ",").split(",")
         ]
+        self.download_mediaext = [
+            f".{ext.strip()}"
+            for ext in user_download_mediaext.replace("，", ",").split(",")
+        ]
+        self.auto_download_mediainfo = auto_download_mediainfo
         self.client = client
-        self.count = 0
+        self.strm_count = 0
+        self.mediainfo_count = 0
+        self.cookie = cookie
         self.share_media_path = share_media_path
         self.local_media_path = local_media_path
         self.server_address = server_address.rstrip("/")
@@ -236,6 +331,63 @@ class ShareStrmHelper:
         file_name = file_path.stem + ".strm"
         new_file_path = file_target_dir / file_name
 
+        if self.auto_download_mediainfo:
+            if file_path.suffix in self.download_mediaext:
+                payload = {
+                    "share_code": share_code,
+                    "receive_code": receive_code,
+                    "file_id": file_id,
+                }
+                resp = requests.post(
+                    "http://proapi.115.com/app/share/downurl",
+                    data={"data": encrypt(dumps(payload)).decode("utf-8")},
+                    headers={
+                        "User-Agent": settings.USER_AGENT,
+                        "Cookie": self.cookie,
+                    },
+                )
+                check_response(resp)
+                json = loads(cast(bytes, resp.content))
+                if not json["state"]:
+                    raise OSError(EIO, json)
+                data = json["data"] = loads(decrypt(json["data"]))
+                if not (data and (url_info := data["url"])):
+                    raise FileNotFoundError(ENOENT, json)
+                data["file_id"] = data.pop("fid")
+                data["file_name"] = data.pop("fn")
+                data["file_size"] = int(data.pop("fs"))
+                download_url = Url.of(url_info["url"], data)
+
+                if not download_url:
+                    logger.error(
+                        f"【分享STRM生成】{original_file_name} 下载链接获取失败，无法下载该文件"
+                    )
+                    return
+
+                file_path.parent.mkdir(parents=True, exist_ok=True)
+
+                with requests.get(
+                    download_url,
+                    stream=True,
+                    timeout=30,
+                    headers={
+                        "User-Agent": settings.USER_AGENT,
+                        "Cookie": self.cookie,
+                    },
+                ) as response:
+                    response.raise_for_status()
+                    with open(file_path, "wb") as f:
+                        for chunk in response.iter_content(chunk_size=8192):
+                            f.write(chunk)
+
+                logger.info(
+                    f"【分享STRM生成】保存 {original_file_name} 文件成功: {file_path}"
+                )
+                self.mediainfo_count += 1
+                logger.info("【分享STRM生成】休眠 1s 后继续生成")
+                time.sleep(1)
+                return
+
         if file_path.suffix not in self.rmt_mediaext:
             logger.warn(
                 "【分享STRM生成】文件后缀不匹配，跳过网盘路径: %s",
@@ -264,7 +416,7 @@ class ShareStrmHelper:
 
         with open(new_file_path, "w", encoding="utf-8") as file:
             file.write(strm_url)
-        self.count += 1
+        self.strm_count += 1
         logger.info("【分享STRM生成】生成 STRM 文件成功: %s", str(new_file_path))
 
     def get_share_list_creata_strm(
@@ -285,7 +437,7 @@ class ShareStrmHelper:
             )
 
             if item["is_directory"] or item["is_dir"]:
-                if self.count != 0 and self.count % 100 == 0:
+                if self.strm_count != 0 and self.strm_count % 100 == 0:
                     logger.info("【分享STRM生成】休眠 2s 后继续生成")
                     time.sleep(2)
                 self.get_share_list_creata_strm(
@@ -309,7 +461,7 @@ class ShareStrmHelper:
         输出总共生成文件个数
         """
         logger.info(
-            f"【分享STRM生成】分享生成 STRM 文件完成，总共生成 {self.count} 个文件"
+            f"【分享STRM生成】分享生成 STRM 文件完成，总共生成 {self.strm_count} 个 STRM 文件，下载 {self.mediainfo_count} 个媒体数据文件"
         )
 
 
@@ -321,7 +473,7 @@ class P115StrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png"
     # 插件版本
-    plugin_version = "1.4.2"
+    plugin_version = "1.4.3"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -343,18 +495,22 @@ class P115StrmHelper(_PluginBase):
     _password = None
     moviepilot_address = None
     _user_rmt_mediaext = None
+    _user_download_mediaext = None
     _transfer_monitor_enabled = False
     _transfer_monitor_paths = None
     _transfer_mp_mediaserver_paths = None
     _transfer_monitor_mediaservers = None
     _transfer_monitor_media_server_refresh_enabled = False
     _timing_full_sync_strm = False
+    _full_sync_auto_download_mediainfo_enabled = False
     _cron_full_sync_strm = None
     _full_sync_strm_paths = None
     _mediaservers = None
     _monitor_life_enabled = False
+    _monitor_life_auto_download_mediainfo_enabled = False
     _monitor_life_paths = None
     _share_strm_enabled = False
+    _share_strm_auto_download_mediainfo_enabled = False
     _user_share_code = None
     _user_receive_code = None
     _user_share_link = None
@@ -382,6 +538,7 @@ class P115StrmHelper(_PluginBase):
             self._password = config.get("password")
             self.moviepilot_address = config.get("moviepilot_address")
             self._user_rmt_mediaext = config.get("user_rmt_mediaext")
+            self._user_download_mediaext = config.get("user_download_mediaext")
             self._transfer_monitor_enabled = config.get("transfer_monitor_enabled")
             self._transfer_monitor_paths = config.get("transfer_monitor_paths")
             self._transfer_mp_mediaserver_paths = config.get(
@@ -394,11 +551,20 @@ class P115StrmHelper(_PluginBase):
                 config.get("transfer_monitor_mediaservers") or []
             )
             self._timing_full_sync_strm = config.get("timing_full_sync_strm")
+            self._full_sync_auto_download_mediainfo_enabled = config.get(
+                "full_sync_auto_download_mediainfo_enabled"
+            )
             self._cron_full_sync_strm = config.get("cron_full_sync_strm")
             self._full_sync_strm_paths = config.get("full_sync_strm_paths")
             self._monitor_life_enabled = config.get("monitor_life_enabled")
+            self._monitor_life_auto_download_mediainfo_enabled = config.get(
+                "monitor_life_auto_download_mediainfo_enabled"
+            )
             self._monitor_life_paths = config.get("monitor_life_paths")
             self._share_strm_enabled = config.get("share_strm_enabled")
+            self._share_strm_auto_download_mediainfo_enabled = config.get(
+                "share_strm_auto_download_mediainfo_enabled"
+            )
             self._user_share_code = config.get("user_share_code")
             self._user_receive_code = config.get("user_receive_code")
             self._user_share_link = config.get("user_share_link")
@@ -409,6 +575,8 @@ class P115StrmHelper(_PluginBase):
             self._cron_clear = config.get("cron_clear")
             if not self._user_rmt_mediaext:
                 self._user_rmt_mediaext = "mp4,mkv,ts,iso,rmvb,avi,mov,mpeg,mpg,wmv,3gp,asf,m4v,flv,m2ts,tp,f4v"
+            if not self._user_download_mediaext:
+                self._user_download_mediaext = "srt,ssa,ass"
             if not self._cron_full_sync_strm:
                 self._cron_full_sync_strm = "0 */7 * * *"
             if not self._cron_clear:
@@ -460,7 +628,11 @@ class P115StrmHelper(_PluginBase):
                 self._scheduler.print_jobs()
                 self._scheduler.start()
 
-        if self._monitor_life_enabled and self._monitor_life_paths:
+        if (
+            self._monitor_life_enabled
+            and self._monitor_life_paths
+            and self._monitor_life_auto_download_mediainfo_enabled
+        ):
             self.monitor_stop_event.clear()
             if self.monitor_life_thread:
                 if not self.monitor_life_thread.is_alive():
@@ -717,7 +889,7 @@ class P115StrmHelper(_PluginBase):
                 "content": [
                     {
                         "component": "VCol",
-                        "props": {"cols": 12, "md": 4},
+                        "props": {"cols": 12, "md": 3},
                         "content": [
                             {
                                 "component": "VSwitch",
@@ -730,7 +902,7 @@ class P115StrmHelper(_PluginBase):
                     },
                     {
                         "component": "VCol",
-                        "props": {"cols": 12, "md": 4},
+                        "props": {"cols": 12, "md": 3},
                         "content": [
                             {
                                 "component": "VSwitch",
@@ -743,13 +915,26 @@ class P115StrmHelper(_PluginBase):
                     },
                     {
                         "component": "VCol",
-                        "props": {"cols": 12, "md": 4},
+                        "props": {"cols": 12, "md": 3},
                         "content": [
                             {
                                 "component": "VCronField",
                                 "props": {
                                     "model": "cron_full_sync_strm",
                                     "label": "运行全量同步周期",
+                                },
+                            }
+                        ],
+                    },
+                    {
+                        "component": "VCol",
+                        "props": {"cols": 12, "md": 3},
+                        "content": [
+                            {
+                                "component": "VSwitch",
+                                "props": {
+                                    "model": "full_sync_auto_download_mediainfo_enabled",
+                                    "label": "下载媒体数据文件",
                                 },
                             }
                         ],
@@ -819,6 +1004,19 @@ class P115StrmHelper(_PluginBase):
                             }
                         ],
                     },
+                    {
+                        "component": "VCol",
+                        "props": {"cols": 12, "md": 4},
+                        "content": [
+                            {
+                                "component": "VSwitch",
+                                "props": {
+                                    "model": "monitor_life_auto_download_mediainfo_enabled",
+                                    "label": "下载媒体数据文件",
+                                },
+                            }
+                        ],
+                    },
                 ],
             },
             {
@@ -873,7 +1071,7 @@ class P115StrmHelper(_PluginBase):
                 "content": [
                     {
                         "component": "VCol",
-                        "props": {"cols": 12, "md": 3},
+                        "props": {"cols": 12, "md": 4},
                         "content": [
                             {
                                 "component": "VSwitch",
@@ -886,7 +1084,25 @@ class P115StrmHelper(_PluginBase):
                     },
                     {
                         "component": "VCol",
-                        "props": {"cols": 12, "md": 3},
+                        "props": {"cols": 12, "md": 4},
+                        "content": [
+                            {
+                                "component": "VSwitch",
+                                "props": {
+                                    "model": "share_strm_auto_download_mediainfo_enabled",
+                                    "label": "下载媒体数据文件",
+                                },
+                            }
+                        ],
+                    },
+                ],
+            },
+            {
+                "component": "VRow",
+                "content": [
+                    {
+                        "component": "VCol",
+                        "props": {"cols": 12, "md": 4},
                         "content": [
                             {
                                 "component": "VTextField",
@@ -899,7 +1115,7 @@ class P115StrmHelper(_PluginBase):
                     },
                     {
                         "component": "VCol",
-                        "props": {"cols": 12, "md": 3},
+                        "props": {"cols": 12, "md": 4},
                         "content": [
                             {
                                 "component": "VTextField",
@@ -912,7 +1128,7 @@ class P115StrmHelper(_PluginBase):
                     },
                     {
                         "component": "VCol",
-                        "props": {"cols": 12, "md": 3},
+                        "props": {"cols": 12, "md": 4},
                         "content": [
                             {
                                 "component": "VTextField",
@@ -1142,6 +1358,24 @@ class P115StrmHelper(_PluginBase):
                                     }
                                 ],
                             },
+                            {
+                                "component": "VRow",
+                                "content": [
+                                    {
+                                        "component": "VCol",
+                                        "props": {"cols": 12},
+                                        "content": [
+                                            {
+                                                "component": "VTextField",
+                                                "props": {
+                                                    "model": "user_download_mediaext",
+                                                    "label": "可下载媒体数据文件扩展名",
+                                                },
+                                            }
+                                        ],
+                                    }
+                                ],
+                            },
                         ],
                     },
                 ],
@@ -1291,17 +1525,21 @@ class P115StrmHelper(_PluginBase):
             "password": "",
             "moviepilot_address": "",
             "user_rmt_mediaext": "mp4,mkv,ts,iso,rmvb,avi,mov,mpeg,mpg,wmv,3gp,asf,m4v,flv,m2ts,tp,f4v",
+            "user_download_mediaext": "srt,ssa,ass",
             "transfer_monitor_enabled": False,
             "transfer_monitor_paths": "",
             "transfer_mp_mediaserver_paths": "",
             "transfer_monitor_media_server_refresh_enabled": False,
             "transfer_monitor_mediaservers": [],
             "timing_full_sync_strm": False,
+            "full_sync_auto_download_mediainfo_enabled": False,
             "cron_full_sync_strm": "0 */7 * * *",
             "full_sync_strm_paths": "",
             "monitor_life_enabled": False,
+            "monitor_life_auto_download_mediainfo_enabled": False,
             "monitor_life_paths": "",
             "share_strm_enabled": False,
+            "share_strm_auto_download_mediainfo_enabled": False,
             "user_share_code": "",
             "user_receive_code": "",
             "user_share_link": "",
@@ -1325,17 +1563,21 @@ class P115StrmHelper(_PluginBase):
                 "password": self._password,
                 "moviepilot_address": self.moviepilot_address,
                 "user_rmt_mediaext": self._user_rmt_mediaext,
+                "user_download_mediaext": self._user_download_mediaext,
                 "transfer_monitor_enabled": self._transfer_monitor_enabled,
                 "transfer_monitor_paths": self._transfer_monitor_paths,
                 "transfer_mp_mediaserver_paths": self._transfer_mp_mediaserver_paths,
                 "transfer_monitor_media_server_refresh_enabled": self._transfer_monitor_media_server_refresh_enabled,
                 "transfer_monitor_mediaservers": self._transfer_monitor_mediaservers,
                 "timing_full_sync_strm": self._timing_full_sync_strm,
+                "full_sync_auto_download_mediainfo_enabled": self._full_sync_auto_download_mediainfo_enabled,
                 "cron_full_sync_strm": self._cron_full_sync_strm,
                 "full_sync_strm_paths": self._full_sync_strm_paths,
                 "monitor_life_enabled": self._monitor_life_enabled,
+                "monitor_life_auto_download_mediainfo_enabled": self._monitor_life_auto_download_mediainfo_enabled,
                 "monitor_life_paths": self._monitor_life_paths,
                 "share_strm_enabled": self._share_strm_enabled,
+                "share_strm_auto_download_mediainfo_enabled": self._share_strm_auto_download_mediainfo_enabled,
                 "user_share_code": self._user_share_code,
                 "user_receive_code": self._user_receive_code,
                 "user_share_link": self._user_share_link,
@@ -1404,16 +1646,6 @@ class P115StrmHelper(_PluginBase):
                 if k in m:
                     return m[k]
             return default
-
-        def check_response(resp: requests.Response) -> requests.Response:
-            """
-            检查 HTTP 响应，如果状态码 ≥ 400 则抛出 HTTPError
-            """
-            if resp.status_code >= 400:
-                raise HTTPError(
-                    f"HTTP Error {resp.status_code}: {resp.text}", response=resp
-                )
-            return resp
 
         def share_get_id_for_name(
             share_code: str,
@@ -1751,12 +1983,20 @@ class P115StrmHelper(_PluginBase):
         """
         全量同步
         """
-        if not self._full_sync_strm_paths or not self.moviepilot_address:
+        if (
+            not self._full_sync_strm_paths
+            or not self.moviepilot_address
+            or not self._user_download_mediaext
+            or not self._full_sync_auto_download_mediainfo_enabled
+        ):
             return
 
         strm_helper = FullSyncStrmHelper(
             user_rmt_mediaext=self._user_rmt_mediaext,
+            user_download_mediaext=self._user_download_mediaext,
+            auto_download_mediainfo=self._full_sync_auto_download_mediainfo_enabled,
             client=self._client,
+            cookie=self._cookies,
             server_address=self.moviepilot_address,
         )
         strm_helper.generate_strm_files(
@@ -1771,6 +2011,7 @@ class P115StrmHelper(_PluginBase):
             not self._user_share_pan_path
             or not self._user_share_local_path
             or not self.moviepilot_address
+            or not self._share_strm_auto_download_mediainfo_enabled
         ):
             return
 
@@ -1790,10 +2031,13 @@ class P115StrmHelper(_PluginBase):
         try:
             strm_helper = ShareStrmHelper(
                 user_rmt_mediaext=self._user_rmt_mediaext,
+                user_download_mediaext=self._user_download_mediaext,
+                auto_download_mediainfo=self._share_strm_auto_download_mediainfo_enabled,
                 client=self._client,
                 server_address=self.moviepilot_address,
                 share_media_path=self._user_share_pan_path,
                 local_media_path=self._user_share_local_path,
+                cookie=self._cookies,
             )
             strm_helper.get_share_list_creata_strm(
                 cid=0,
@@ -1812,6 +2056,10 @@ class P115StrmHelper(_PluginBase):
         rmt_mediaext = [
             f".{ext.strip()}"
             for ext in self._user_rmt_mediaext.replace("，", ",").split(",")
+        ]
+        download_mediaext = [
+            f".{ext.strip()}"
+            for ext in self._user_download_mediaext.replace("，", ",").split(",")
         ]
         logger.info("【监控生活事件】上传事件监控启动中...")
         try:
@@ -1851,6 +2099,44 @@ class P115StrmHelper(_PluginBase):
                     original_file_name = file_path.name
                     file_name = file_path.stem + ".strm"
                     new_file_path = file_target_dir / file_name
+
+                    if self._monitor_life_auto_download_mediainfo_enabled:
+                        if file_path.suffix in download_mediaext:
+                            if not pickcode:
+                                logger.error(
+                                    f"【监控生活事件】{original_file_name} 不存在 pickcode 值，无法下载该文件"
+                                )
+                                continue
+                            download_url = get_download_url(
+                                pickcode=pickcode, cookie=self._cookies
+                            )
+
+                            if not download_url:
+                                logger.error(
+                                    f"【监控生活事件】{original_file_name} 下载链接获取失败，无法下载该文件"
+                                )
+                                continue
+
+                            file_path.parent.mkdir(parents=True, exist_ok=True)
+
+                            with requests.get(
+                                download_url,
+                                stream=True,
+                                timeout=30,
+                                headers={
+                                    "User-Agent": settings.USER_AGENT,
+                                    "Cookie": self._cookies,
+                                },
+                            ) as response:
+                                response.raise_for_status()
+                                with open(file_path, "wb") as f:
+                                    for chunk in response.iter_content(chunk_size=8192):
+                                        f.write(chunk)
+
+                            logger.info(
+                                f"【监控生活事件】保存 {original_file_name} 文件成功: {file_path}"
+                            )
+                            continue
 
                     if file_path.suffix not in rmt_mediaext:
                         logger.warn(
