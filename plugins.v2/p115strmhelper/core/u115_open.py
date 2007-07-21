@@ -485,8 +485,6 @@ class U115OpenHelper:
         logger.debug(f"【P115Open】上传 Step 4 获取上传凭证结果: {token_resp}")
         # 上传凭证
         endpoint = token_resp.get("endpoint")
-        if endpoint and endpoint.startswith("http://"):
-            endpoint = endpoint.replace("http://", "https://")
         access_key_id = token_resp.get("AccessKeyId")
         access_key_secret = token_resp.get("AccessKeySecret")
         security_token = token_resp.get("SecurityToken")
