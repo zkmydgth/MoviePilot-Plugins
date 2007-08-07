@@ -263,52 +263,53 @@ def db_update(func):
     def wrapper(*args, **kwargs):
         # 是否关闭数据库会话
         _close_db = False
+        db = get_args_db(args, kwargs)
+        if not db:
+            init_database()
+            # 如果没有获取到数据库会话，创建一个
+            db = ct_db_manager.ScopedSession()
+            # 标记需要关闭数据库会话
+            _close_db = True
+            # 更新参数中的数据库会话
+            args, kwargs = update_args_db(args, kwargs, db)
+
         max_retries = 3
         retry_delay = 0.1
+        last_err = None
 
-        for attempt in range(max_retries):
-            # 从参数中获取数据库会话
-            db = get_args_db(args, kwargs)
-            if not db:
-                init_database()
-                # 如果没有获取到数据库会话，创建一个
-                db = ct_db_manager.ScopedSession()
-                # 标记需要关闭数据库会话
-                _close_db = True
-                # 更新参数中的数据库会话
-                args, kwargs = update_args_db(args, kwargs, db)
+        try:
+            for attempt in range(max_retries):
+                try:
+                    # 执行函数
+                    result = func(*args, **kwargs)
+                    # 提交事务
+                    db.commit()
+                    return result
+                except OperationalError as err:
+                    # 回滚事务
+                    db.rollback()
+                    last_err = err
+                    if not (
+                        isinstance(err.orig, SqlOperationalError)
+                        and err.orig.sqlite_errorcode == SQLITE_BUSY
+                    ):
+                        raise err
 
-            try:
-                # 执行函数
-                result = func(*args, **kwargs)
-                # 提交事务
-                db.commit()
-                return result
-            except OperationalError as err:
-                # 回滚事务
-                db.rollback()
-
-                if (
-                    isinstance(err.orig, SqlOperationalError)
-                    and err.orig.sqlite_errorcode == SQLITE_BUSY
-                ):
                     logger.warning(
                         f"数据库锁定，第 {attempt + 1} 次重试，等待 {retry_delay}s..."
                     )
                     sleep(retry_delay)
                     retry_delay *= 2
-                    continue
-                else:
-                    raise err
-            except Exception as err:
-                # 回滚事务
+            if last_err:
+                raise last_err
+        except Exception as err:
+            if not isinstance(err, OperationalError):
                 db.rollback()
-                raise err
-            finally:
-                # 关闭数据库会话
-                if _close_db:
-                    db.close()
-                    _close_db = False  # 重置标志，避免重复关闭
+            raise err
+        finally:
+            # 关闭数据库会话
+            if _close_db:
+                db.close()
 
     return wrapper
 
