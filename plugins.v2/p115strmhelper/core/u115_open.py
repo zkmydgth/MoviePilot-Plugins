@@ -578,9 +578,45 @@ class U115OpenHelper:
                                 f"【P115Open】{target_name} 分片 {part_number} 上传完成"
                             )
                             break
-                        except Exception as e:
+                        except oss2.exceptions.OssError as e:
+                            # 判断是否为STS Token过期错误
+                            if e.code == "SecurityTokenExpired":
+                                logger.warn(
+                                    f"【P115Open】上传凭证已过期，正在重新获取... (重试次数: {attempt + 1}/3)"
+                                )
+                                # Step 4: 重新获取上传凭证
+                                token_resp = self._request_api(
+                                    "GET", "/open/upload/get_token", "data"
+                                )
+                                if not token_resp:
+                                    logger.error(
+                                        "【P115Open】重新获取上传凭证失败，上传终止。"
+                                    )
+                                    return None
+
+                                # 更新OSS客户端的认证信息
+                                access_key_id = token_resp.get("AccessKeyId")
+                                access_key_secret = token_resp.get("AccessKeySecret")
+                                security_token = token_resp.get("SecurityToken")
+                                auth = oss2.StsAuth(
+                                    access_key_id=access_key_id,
+                                    access_key_secret=access_key_secret,
+                                    security_token=security_token,
+                                )
+                                bucket = oss2.Bucket(
+                                    auth, endpoint, bucket_name, connect_timeout=120
+                                )
+                                logger.info(
+                                    "【P115Open】上传凭证已刷新，将重试当前分片。"
+                                )
+                                continue
                             logger.warn(
                                 f"【P115Open】上传分片 {part_number} 失败: {e}，正在重试... ({attempt + 1}/3)"
+                            )
+                            time.sleep(2**attempt)
+                        except Exception as e:
+                            logger.warn(
+                                f"【P115Open】上传分片 {part_number} 发生未知错误: {e}，正在重试... ({attempt + 1}/3)"
                             )
                             time.sleep(2**attempt)
                     else:
