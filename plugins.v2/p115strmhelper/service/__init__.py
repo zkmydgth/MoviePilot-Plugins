@@ -1,35 +1,39 @@
-import logging
+from logging import ERROR
 from time import time
-from threading import Event, Thread, Lock
+from threading import Lock
+from multiprocessing import Process, Event as ProcessEvent
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional, List
 
 import pytz
 from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
 from p115client import P115Client
 from watchdog.observers import Observer
 from watchdog.observers.polling import PollingObserver
 from aligo.core import set_config_folder
 
-from .core.i18n import i18n
-from .core.p115 import get_pid_by_path
-from .helper.mediainfo_download import MediaInfoDownloader
-from .helper.life import MonitorLife
-from .helper.strm import FullSyncStrmHelper, ShareStrmHelper, IncrementSyncStrmHelper
-from .helper.monitor import handle_file, FileMonitorHandler
-from .helper.offline import OfflineDownloadHelper
-from .helper.share import ShareTransferHelper
-from .helper.clean import Cleaner
-from .helper.r302 import Redirect
-from .core.config import configer
-from .core.message import post_message
-from .core.aliyunpan import BAligo
-from .utils.sentry import sentry_manager
+from ..core.i18n import i18n
+from ..core.p115 import get_pid_by_path
+from ..helper.mediainfo_download import MediaInfoDownloader
+from ..helper.life import MonitorLife
+from ..service.life import monitor_life_process_worker
+from ..helper.strm import FullSyncStrmHelper, ShareStrmHelper, IncrementSyncStrmHelper
+from ..helper.monitor import handle_file, FileMonitorHandler
+from ..helper.offline import OfflineDownloadHelper
+from ..helper.share import ShareTransferHelper
+from ..helper.clean import Cleaner
+from ..helper.r302 import Redirect
+from ..core.config import configer
+from ..core.message import post_message
+from ..core.aliyunpan import BAligo
+from ..utils.sentry import sentry_manager
 
 from app.log import logger
 from app.core.config import settings
 from app.schemas import NotificationType
+from app.scheduler import Scheduler
 
 
 @sentry_manager.capture_all_class_exceptions
@@ -46,9 +50,10 @@ class ServiceHelper:
 
         self.sharetransferhelper: Optional[ShareTransferHelper] = None
 
-        self.monitor_stop_event = Event()
-        self.monitor_life_thread: Optional[Thread] = None
+        self.monitor_stop_event: Optional[ProcessEvent] = None
+        self.monitor_life_process: Optional[Process] = None
         self.monitor_life_lock = Lock()
+        self.monitor_life_fail_time: Optional[float] = None
 
         self.offlinehelper: Optional[OfflineDownloadHelper] = None
 
@@ -72,12 +77,12 @@ class ServiceHelper:
                 set_config_folder(aligo_config)
                 if Path(aligo_config / "aligo.json").exists():
                     logger.debug("Config login aliyunpan")
-                    self.aligo = BAligo(level=logging.ERROR, re_login=False)
+                    self.aligo = BAligo(level=ERROR, re_login=False)
                 else:
                     logger.debug("Refresh token login aliyunpan")
                     self.aligo = BAligo(
                         refresh_token=configer.get_config("aliyundrive_token"),
-                        level=logging.ERROR,
+                        level=ERROR,
                         re_login=False,
                     )
                 # 默认操作资源盘
@@ -101,7 +106,7 @@ class ServiceHelper:
             self.monitorlife = MonitorLife(
                 client=self.client,
                 mediainfodownloader=self.mediainfodownloader,
-                stop_event=self.monitor_stop_event,
+                stop_event=None,
             )
 
             # 分享转存初始化
@@ -124,58 +129,6 @@ class ServiceHelper:
             logger.error(f"服务项初始化失败: {e}")
             return False
 
-    def monitor_life_strm_files(self):
-        """
-        监控115生活事件
-        """
-        if not self.monitorlife:
-            logger.error("【监控生活事件】MonitorLife 未初始化，无法启动监控")
-            return
-        if not self.monitorlife.check_status():
-            logger.error("【监控生活事件】生活事件状态检查失败，无法启动监控")
-            return
-        logger.info("【监控生活事件】生活事件监控启动中...")
-        try:
-            pull_mode = configer.monitor_life_first_pull_mode
-            # latest 模式，从当前时间开始拉取数据
-            from_time = time()
-            from_id = 0
-            # all 模式，拉取所有数据
-            if pull_mode == "all":
-                from_time = 0
-                from_id = 0
-            # last 模式，从上次停止时间拉取后续数据
-            elif pull_mode == "last":
-                data = configer.get_plugin_data("monitor_life_strm_files")
-                if data:
-                    from_time = data.get("from_time")
-                    from_id = data.get("from_id")
-
-            while True:
-                if self.monitor_stop_event.is_set():
-                    logger.info("【监控生活事件】收到停止信号，退出上传事件监控")
-                    configer.save_plugin_data(
-                        "monitor_life_strm_files",
-                        {"from_time": from_time, "from_id": from_id},
-                    )
-                    break
-                from_time, from_id = self.monitorlife.once_pull(
-                    from_time=from_time, from_id=from_id
-                )
-        except Exception as e:
-            logger.error(f"【监控生活事件】生活事件监控运行失败: {e}")
-            if self.monitor_stop_event.is_set():
-                logger.info("【监控生活事件】收到停止信号，退出监控")
-                return
-            logger.info("【监控生活事件】30s 后尝试重新启动生活事件监控")
-            if self.monitor_stop_event.wait(timeout=30):
-                logger.info("【监控生活事件】等待期间收到停止信号，退出监控")
-                return
-            if not self.monitor_stop_event.is_set():
-                self.monitor_life_strm_files()
-        logger.info("【监控生活事件】已退出生活事件监控")
-        return
-
     def check_monitor_life_guard(self):
         """
         检查并守护生活事件监控进程
@@ -188,16 +141,40 @@ class ServiceHelper:
 
         with self.monitor_life_lock:
             if should_run:
-                if (
-                    not self.monitor_life_thread
-                    or not self.monitor_life_thread.is_alive()
-                ):
-                    logger.warning("【监控生活事件】检测到线程已停止，正在重新启动...")
-                    self._start_monitor_life_internal()
+                is_alive = (
+                    self.monitor_life_process and self.monitor_life_process.is_alive()
+                )
+
+                if is_alive:
+                    if self.monitor_life_fail_time is not None:
+                        logger.debug("【监控生活事件】进程运行正常，清除失败时间记录")
+                        self.monitor_life_fail_time = None
+                else:
+                    current_time = time()
+                    if self.monitor_life_fail_time is None:
+                        self.monitor_life_fail_time = current_time
+                        logger.debug(
+                            "【监控生活事件】检测到进程已停止，开始记录失败时间"
+                        )
+                    else:
+                        fail_duration = current_time - self.monitor_life_fail_time
+                        fail_duration_minutes = int(fail_duration / 60)
+                        fail_duration_seconds = int(fail_duration % 60)
+                        logger.debug(
+                            f"【监控生活事件】进程已停止，持续失败时间: {fail_duration_minutes}分{fail_duration_seconds}秒"
+                        )
+
+                        if fail_duration >= 300:
+                            logger.warning(
+                                "【监控生活事件】连续5分钟检测到进程已停止，正在重新启动..."
+                            )
+                            self._start_monitor_life_internal()
+                            self.monitor_life_fail_time = None
             else:
-                if self.monitor_life_thread and self.monitor_life_thread.is_alive():
-                    logger.info("【监控生活事件】配置已关闭，守护进程正在停止线程")
+                if self.monitor_life_process and self.monitor_life_process.is_alive():
+                    logger.info("【监控生活事件】配置已关闭，守护进程正在停止进程")
                     self._stop_monitor_life_internal()
+                self.monitor_life_fail_time = None
 
     def start_monitor_life(self):
         """
@@ -208,21 +185,40 @@ class ServiceHelper:
 
     def _stop_monitor_life_internal(self):
         """
-        停止生活事件监控线程
+        停止生活事件监控进程
         """
-        if self.monitor_life_thread and self.monitor_life_thread.is_alive():
-            logger.info("【监控生活事件】停止生活事件监控线程")
-            self.monitor_stop_event.set()
-            self.monitor_life_thread.join(timeout=2)
-            if self.monitor_life_thread.is_alive():
-                self.monitor_life_thread.join(timeout=20)
-                if self.monitor_life_thread.is_alive():
-                    logger.warning("【监控生活事件】线程未在预期时间内结束")
-            self.monitor_life_thread = None
+        if self.monitor_life_process and self.monitor_life_process.is_alive():
+            logger.info("【监控生活事件】停止生活事件监控进程")
+            if self.monitor_stop_event:
+                self.monitor_stop_event.set()
+
+            self.monitor_life_process.join(timeout=25)
+            if self.monitor_life_process.is_alive():
+                logger.warning("【监控生活事件】进程未在预期时间内结束，强制终止...")
+                self.monitor_life_process.terminate()
+                self.monitor_life_process.join(timeout=10)
+                if self.monitor_life_process.is_alive():
+                    logger.error("【监控生活事件】进程强制终止失败，使用kill")
+                    self.monitor_life_process.kill()
+                    self.monitor_life_process.join(timeout=5)
+                    if self.monitor_life_process.is_alive():
+                        logger.error(
+                            "【监控生活事件】进程kill后仍未退出，可能需要手动清理"
+                        )
+                    else:
+                        logger.info("【监控生活事件】进程已通过kill终止")
+                else:
+                    logger.info("【监控生活事件】进程已成功终止")
+            else:
+                logger.info("【监控生活事件】进程已正常退出")
+
+            self.monitor_life_process = None
+            if self.monitor_stop_event:
+                self.monitor_stop_event = None
 
     def _start_monitor_life_internal(self):
         """
-        启动生活事件监控
+        启动生活事件监控进程
         """
         if (
             configer.get_config("monitor_life_enabled")
@@ -232,23 +228,88 @@ class ServiceHelper:
             configer.get_config("pan_transfer_enabled")
             and configer.get_config("pan_transfer_paths")
         ):
-            if self.monitor_life_thread and self.monitor_life_thread.is_alive():
-                logger.info("【监控生活事件】检测到已有线程在运行，停止旧线程中...")
+            if self.monitor_life_process and self.monitor_life_process.is_alive():
+                logger.info("【监控生活事件】检测到已有进程在运行，停止旧进程中...")
                 self._stop_monitor_life_internal()
 
-            if self.monitor_life_thread and self.monitor_life_thread.is_alive():
-                logger.debug("【监控生活事件】线程仍在运行，跳过启动")
+            if self.monitor_life_process and self.monitor_life_process.is_alive():
+                logger.debug("【监控生活事件】进程仍在运行，跳过启动")
                 return
 
-            self.monitor_stop_event.clear()
+            self.monitor_stop_event = ProcessEvent()
 
-            self.monitor_life_thread = Thread(
-                target=self.monitor_life_strm_files, daemon=True
+            self.monitor_life_process = Process(
+                target=monitor_life_process_worker,
+                args=(self.monitor_stop_event, configer.cookies),
+                name="P115StrmHelper-MonitorLife",
+                daemon=False,
             )
-            self.monitor_life_thread.start()
-            logger.info("【监控生活事件】生活事件监控线程已启动")
+            self.monitor_life_process.start()
+            logger.info(
+                "【监控生活事件】生活事件监控进程已启动，PID: %s",
+                self.monitor_life_process.pid,
+            )
+            self.monitor_life_fail_time = None
+
+            try:
+                self._update_monitor_life_guard_service()
+            except Exception as e:
+                logger.debug(f"【监控生活事件】重新注册守护服务失败: {e}")
         else:
             self._stop_monitor_life_internal()
+
+    def _update_monitor_life_guard_service(self):
+        """
+        只重新注册115生活事件进程守护服务
+        """
+        pid = "P115StrmHelper"
+        service_id = "P115StrmHelper_monitor_life_guard"
+        job_id = f"{pid}_{service_id}"
+
+        should_register = (
+            configer.monitor_life_enabled
+            and configer.monitor_life_paths
+            and configer.monitor_life_event_modes
+        ) or (configer.pan_transfer_enabled and configer.pan_transfer_paths)
+
+        if not should_register:
+            logger.debug("【监控生活事件】守护服务未启用，跳过注册")
+            return
+
+        guard_service = {
+            "id": service_id,
+            "name": "115生活事件进程守护",
+            "trigger": CronTrigger.from_crontab("* * * * *"),
+            "func": self.check_monitor_life_guard,
+            "kwargs": {},
+        }
+
+        scheduler = Scheduler()
+        scheduler.remove_plugin_job(pid, job_id)
+
+        with scheduler._lock:
+            try:
+                sid = f"{pid}_{service_id}"
+                scheduler._jobs[job_id] = {
+                    "func": guard_service["func"],
+                    "name": guard_service["name"],
+                    "pid": pid,
+                    "provider_name": "115网盘STRM助手",
+                    "kwargs": guard_service.get("func_kwargs") or {},
+                    "running": False,
+                }
+                scheduler._scheduler.add_job(
+                    scheduler.start,
+                    guard_service["trigger"],
+                    id=sid,
+                    name=guard_service["name"],
+                    **(guard_service.get("kwargs") or {}),
+                    kwargs={"job_id": job_id},
+                    replace_existing=True,
+                )
+                logger.debug("【监控生活事件】已重新注册115生活事件进程守护服务")
+            except Exception as e:
+                logger.error(f"【监控生活事件】注册守护服务失败: {str(e)}")
 
     def full_sync_strm_files(self):
         """
@@ -426,7 +487,8 @@ class ServiceHelper:
                 text=text,
             )
 
-    def event_handler(self, event, mon_path: str, text: str, event_path: str):
+    @staticmethod
+    def event_handler(event, mon_path: str, text: str, event_path: str):
         """
         处理文件变化
         :param event: 事件
@@ -496,7 +558,7 @@ class ServiceHelper:
 
     def offline_status(self):
         """
-        监控115网盘离线下载进度
+        监控 115 网盘离线下载进度
         """
         if self.offlinehelper:
             self.offlinehelper.pull_status_to_task()
@@ -522,10 +584,11 @@ class ServiceHelper:
                     self.scheduler.shutdown()
                 self.scheduler = None
             with self.monitor_life_lock:
-                if self.monitor_life_thread:
+                if self.monitor_life_process:
                     self._stop_monitor_life_internal()
-                else:
+                elif self.monitor_stop_event:
                     self.monitor_stop_event.set()
+                    self.monitor_stop_event = None
         except Exception as e:
             logger.error(f"发生错误: {e}")
 

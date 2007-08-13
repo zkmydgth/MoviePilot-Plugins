@@ -1099,7 +1099,7 @@ class P115StrmHelper(_PluginBase):
 
         # 生活事件在运行
         if not bool(
-            servicer.monitor_life_thread and servicer.monitor_life_thread.is_alive()
+            servicer.monitor_life_process and servicer.monitor_life_process.is_alive()
         ):
             return
 
