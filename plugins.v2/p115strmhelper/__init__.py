@@ -887,6 +887,11 @@ class P115StrmHelper(_PluginBase):
         "cron_clear": "0 */7 * * *",
         "pan_transfer_enabled": False,
         "pan_transfer_paths": None,
+        "directory_upload_enabled": False,
+        "directory_upload_mode": "compatibility",
+        "directory_upload_uploadext": "mp4,mkv,ts,iso,rmvb,avi,mov,mpeg,mpg,wmv,3gp,asf,m4v,flv,m2ts,tp,f4v",
+        "directory_upload_copyext": "srt,ssa,ass",
+        "directory_upload_path": [],
     }
 
     @staticmethod

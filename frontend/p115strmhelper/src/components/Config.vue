@@ -99,6 +99,9 @@
               <v-tab value="tab-pan-transfer" class="text-caption">
                 <v-icon size="small" start>mdi-transfer</v-icon>网盘整理
               </v-tab>
+              <v-tab value="tab-directory-upload" class="text-caption">
+                <v-icon size="small" start>mdi-upload</v-icon>目录上传
+              </v-tab>
             </v-tabs>
             <v-divider></v-divider>
 
@@ -468,6 +471,83 @@
                   </v-alert>
                 </v-card-text>
               </v-window-item>
+
+              <!-- 目录上传 -->
+              <v-window-item value="tab-directory-upload">
+                <v-card-text>
+                  <v-row>
+                    <v-col cols="12" md="4">
+                      <v-switch v-model="config.directory_upload_enabled" label="目录上传" color="info"></v-switch>
+                    </v-col>
+                    <v-col cols="12" md="4">
+                      <v-select v-model="config.directory_upload_mode" label="监控模式" :items="[
+                        { title: '兼容模式', value: 'compatibility' },
+                        { title: '性能模式', value: 'fast' }
+                      ]" chips closable-chips></v-select>
+                    </v-col>
+                  </v-row>
+                  <v-row>
+                    <v-col cols="12" md="6">
+                      <v-text-field v-model="config.directory_upload_uploadext" label="上传文件扩展名"
+                        hint="支持的媒体文件扩展名，多个用逗号分隔" persistent-hint density="compact" variant="outlined"
+                        hide-details="auto"></v-text-field>
+                    </v-col>
+                    <v-col cols="12" md="6">
+                      <v-text-field v-model="config.directory_upload_copyext" label="非上传文件扩展名"
+                        hint="下载的字幕等附属文件扩展名，多个用逗号分隔" persistent-hint density="compact" variant="outlined"
+                        hide-details="auto"></v-text-field>
+                    </v-col>
+                  </v-row>
+
+                  <v-row>
+                    <v-col cols="12">
+                      <div class="d-flex flex-column">
+                        <div v-for="(pair, index) in directoryUploadPaths" :key="`upload-${index}`"
+                          class="mb-3 d-flex align-center flex-wrap">
+                          <!-- 本地监控目录 -->
+                          <div class="path-selector flex-grow-1 mr-2" style="min-width: 200px;">
+                            <v-text-field v-model="pair.src" label="本地监控目录" density="compact" append-icon="mdi-folder"
+                              @click:append="openDirSelector(index, 'local', 'directoryUpload')"></v-text-field>
+                          </div>
+                          <v-icon class="mx-1">mdi-arrow-right</v-icon>
+                          <!-- 网盘上传目录 -->
+                          <div class="path-selector flex-grow-1 ml-2" style="min-width: 200px;">
+                            <v-text-field v-model="pair.dest_remote" label="网盘上传目录" density="compact"
+                              append-icon="mdi-folder-network"
+                              @click:append="openDirSelector(index, 'remote', 'directoryUpload')"></v-text-field>
+                          </div>
+                          <v-icon class="mx-1">mdi-arrow-right</v-icon>
+                          <!-- 非上传文件目标目录 -->
+                          <div class="path-selector flex-grow-1 ml-2" style="min-width: 200px;">
+                            <v-text-field v-model="pair.dest_local" label="非上传文件目标目录" density="compact"
+                              append-icon="mdi-folder"
+                              @click:append="openDirSelector(index, 'local', 'directoryUpload')"></v-text-field>
+                          </div>
+                          <!-- 删除源文件开关 -->
+                          <div class="mx-3 d-flex align-center" style="min-width: 150px;">
+                            <v-switch v-model="pair.delete" label="删除源文件" color="primary" hide-details
+                              density="compact"></v-switch>
+                          </div>
+                          <!-- 删除按钮 -->
+                          <v-btn icon size="small" color="error" class="ml-auto"
+                            @click="removePath(index, 'directoryUpload')">
+                            <v-icon>mdi-delete</v-icon>
+                          </v-btn>
+                        </div>
+                        <!-- 添加路径按钮 -->
+                        <v-btn size="small" prepend-icon="mdi-plus" variant="outlined" class="mt-2 align-self-start"
+                          @click="addPath('directoryUpload')">
+                          添加路径
+                        </v-btn>
+                      </div>
+
+                      <v-alert type="info" variant="tonal" density="compact" class="mt-2">
+                        监控本地目录，实现匹配到指定后缀名称的文件上传或直接复制到指定目录，最后按需删除源文件，无法匹配的扩展名不处理<br>
+                      </v-alert>
+                    </v-col>
+                  </v-row>
+                </v-card-text>
+              </v-window-item>
             </v-window>
           </v-card>
 
@@ -685,6 +765,11 @@ const config = reactive({
   cron_clear: '0 */7 * * *',
   pan_transfer_enabled: false,
   pan_transfer_paths: '',
+  directory_upload_enabled: false,
+  directory_upload_mode: 'compatibility',
+  directory_upload_uploadext: 'mp4,mkv,ts,iso,rmvb,avi,mov,mpeg,mpg,wmv,3gp,asf,m4v,flv,m2ts,tp,f4v',
+  directory_upload_copyext: 'srt,ssa,ass',
+  directory_upload_path: []
 });
 
 // 消息提示
@@ -1389,9 +1474,6 @@ const confirmDirSelection = () => {
         break;
       case 'panTransfer':
         panTransferPaths.value[dirDialog.index].path = processedPath;
-        break;
-      case 'mediawarpStrm':
-        mediawarpStrmLocalPaths.value[dirDialog.index] = processedPath;
         break;
     }
   } else if (dirDialog.type === 'sharePath') {
