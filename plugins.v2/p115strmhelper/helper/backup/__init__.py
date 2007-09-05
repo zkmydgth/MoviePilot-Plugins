@@ -119,7 +119,7 @@ class BackupStrmHelper:
                 for f in backup_dir.iterdir()
                 if f.name.startswith(prefix) and f.name.endswith(".tar.gz")
             ],
-            key=lambda f: f.stat().st_mtime,
+            key=lambda f: f.name,
             reverse=True,
         )
         deleted_count = 0
