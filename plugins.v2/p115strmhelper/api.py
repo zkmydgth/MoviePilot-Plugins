@@ -320,7 +320,7 @@ class Api:
             check_response(resp)
             resp_info = resp.get("data", {})
             _uid = resp_info.get("uid", "")
-            _time = resp_info.get("time", "")
+            _time = str(resp_info.get("time", ""))
             _sign = resp_info.get("sign", "")
             resp = P115Client.login_qrcode(_uid)
             qrcode_base64 = b64encode(resp).decode("utf-8")
