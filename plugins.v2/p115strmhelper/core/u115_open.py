@@ -532,17 +532,37 @@ class U115OpenHelper:
                                 f"【P115Open】上传速度状态 {resp.get('status')}，跳过秒传等待: {target_name}"
                             )
                             break
-                        logger.info(f"【P115Open】休眠，等待秒传: {target_name}")
+
+                        # 计算等待时间
+                        sleep_time = int(configer.get_config("upload_module_wait_time"))
+                        fastest_speed = resp.get("fastest_user_speed_mbps", None)
+                        user_speed = resp.get("user_average_speed_mbps", None)
+                        if fastest_speed and user_speed:
+                            bs = user_speed * 0.2 + fastest_speed * 0.8
+                            wt = file_size / (1024 * 1024) / bs
+                            if wt > 10 * 60:
+                                wt = wt / (wt // (10 * 60) + 1)
+                            sleep_time = int(wt)
+
+                        logger.info(
+                            f"【P115Open】休眠 {sleep_time} 秒，等待秒传: {target_name}"
+                        )
                         if not send_wait:
                             send_upload_wait(target_name)
                             send_wait = True
-                        sleep(int(configer.get_config("upload_module_wait_time")))
+                        sleep(sleep_time)
                     else:
                         logger.warn("【P115Open】获取用户上传速度错误，网络问题")
                         break
                 except Exception as e:
                     logger.warn(f"【P115Open】获取用户上传速度错误: {e}")
                     break
+
+        if configer.upload_module_skip_slow_upload:
+            logger.warn(
+                f"【P115Open】{target_name} 无法秒传，跳过上传 {configer.upload_module_skip_slow_upload}"
+            )
+            return None
 
         # Step 4: 获取上传凭证
         second_auth = False
