@@ -1,4 +1,3 @@
-from re import match as re_match
 from time import sleep
 from copy import deepcopy
 from dataclasses import asdict
@@ -34,10 +33,10 @@ from .interactive.handler import ActionHandler
 from .interactive.session import Session
 from .interactive.views import ViewRenderer
 from .helper.strm import FullSyncStrmHelper, TransferStrmHelper
-from .helper.share import U115_SHARE_URL_MATCH, ALIYUN_SHARE_URL_MATCH
 from .helper.mediasyncdel import MediaSyncDelHelper
 from .utils.path import PathUtils
 from .utils.sentry import sentry_manager
+from .utils.share_url import ShareUrlUtils
 from .utils.strm import StrmGenerater
 
 
@@ -1091,16 +1090,13 @@ class P115StrmHelper(_PluginBase):
         channel = event.event_data.get("channel")
         if not text:
             return
-        if not text.startswith("http"):
-            return
-        if not bool(re_match(U115_SHARE_URL_MATCH, text)) and not bool(
-            re_match(ALIYUN_SHARE_URL_MATCH, text)
-        ):
+        share_url = ShareUrlUtils.extract_share_url_from_text(text)
+        if not share_url:
             return
 
         if len(configer.share_recieve_paths) <= 1:
             servicer.sharetransferhelper.add_share(
-                url=text,
+                url=share_url,
                 channel=channel,
                 source=event.event_data.get("source"),
                 userid=self._get_event_userid(event.event_data),
@@ -1113,7 +1109,9 @@ class P115StrmHelper(_PluginBase):
             )
 
             action = Action(
-                command="share_recieve_path", view="share_recieve_paths", value=text
+                command="share_recieve_path",
+                view="share_recieve_paths",
+                value=share_url,
             )
 
             immediate_messages = self.action_handler.process(session, action)
@@ -1151,9 +1149,21 @@ class P115StrmHelper(_PluginBase):
                 )
                 return
 
+        share_url = ShareUrlUtils.extract_share_url_from_text(args) if args else None
+        if not share_url:
+            if args:
+                logger.error(f"【分享转存】无法从参数中解析分享链接：{event_data}")
+                post_message(
+                    channel=event_data.get("channel"),
+                    source=event_data.get("source"),
+                    title=i18n.translate("p115_add_share_parameter_error"),
+                    userid=self._get_event_userid(event_data),
+                )
+            return
+
         if len(configer.share_recieve_paths) <= 1:
             servicer.sharetransferhelper.add_share(
-                url=args,
+                url=share_url,
                 channel=event.event_data.get("channel"),
                 source=event.event_data.get("source"),
                 userid=self._get_event_userid(event_data),
@@ -1166,7 +1176,9 @@ class P115StrmHelper(_PluginBase):
             )
 
             action = Action(
-                command="share_recieve_path", view="share_recieve_paths", value=args
+                command="share_recieve_path",
+                view="share_recieve_paths",
+                value=share_url,
             )
 
             immediate_messages = self.action_handler.process(session, action)

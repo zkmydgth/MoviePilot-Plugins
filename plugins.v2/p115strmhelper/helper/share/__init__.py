@@ -25,10 +25,7 @@ from ...core.aliyunpan import BAligo
 from ...core.p115 import get_pid_by_path
 from ...helper.ali2115 import Ali2115Helper
 from ...utils.sentry import sentry_manager
-
-
-U115_SHARE_URL_MATCH = r"^https?://(.*\.)?115[^/]*\.[a-zA-Z]{2,}(?:/|$)"
-ALIYUN_SHARE_URL_MATCH = r"^https?://(.*\.)?(alipan|aliyundrive)\.[a-zA-Z]{2,}(?:/|$)"
+from ...utils.share_url import ALIYUN_SHARE_URL_MATCH
 
 
 @sentry_manager.capture_all_class_exceptions
