@@ -824,6 +824,7 @@ class FullSyncStrmHelper:
                             "type": "local",
                             "pickcode": pickcode,
                             "path": file_path,
+                            "sha1": item["sha1"],
                         }
                     )
                     return path_entry
@@ -1129,7 +1130,7 @@ class FullSyncStrmHelper:
                     )
 
         self.mediainfo_count, self.mediainfo_fail_count, self.mediainfo_fail_dict = (
-            self.mediainfodownloader.auto_downloader(
+            self.mediainfodownloader.batch_auto_downloader(
                 downloads_list=self.download_mediainfo_list
             )
         )
