@@ -31,7 +31,7 @@
 
                   <v-row>
                     <v-col cols="12" md="6">
-                      <v-card variant="outlined" class="pa-4 d-flex flex-column cache-card">
+                      <v-card variant="outlined" class="pa-4 d-flex flex-column cache-card" style="height: 100%;">
                         <div class="d-flex align-center mb-3">
                           <v-icon color="primary" class="mr-2">mdi-folder-cog</v-icon>
                           <span class="text-subtitle-1 font-weight-medium">清理文件路径ID缓存</span>
@@ -47,7 +47,7 @@
                     </v-col>
 
                     <v-col cols="12" md="6">
-                      <v-card variant="outlined" class="pa-4 d-flex flex-column cache-card">
+                      <v-card variant="outlined" class="pa-4 d-flex flex-column cache-card" style="height: 100%;">
                         <div class="d-flex align-center mb-3">
                           <v-icon color="warning" class="mr-2">mdi-skip-next</v-icon>
                           <span class="text-subtitle-1 font-weight-medium">清理增量同步跳过路径缓存</span>
@@ -63,7 +63,7 @@
                     </v-col>
 
                     <v-col cols="12" md="6">
-                      <v-card variant="outlined" class="pa-4 d-flex flex-column cache-card">
+                      <v-card variant="outlined" class="pa-4 d-flex flex-column cache-card" style="height: 100%;">
                         <div class="d-flex align-center mb-3">
                           <v-icon color="info" class="mr-2">mdi-link-off</v-icon>
                           <span class="text-subtitle-1 font-weight-medium">清理302跳转缓存</span>
