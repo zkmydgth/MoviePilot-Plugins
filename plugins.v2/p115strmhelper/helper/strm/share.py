@@ -1,13 +1,15 @@
-import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from itertools import batched
 from pathlib import Path
-from typing import List, Dict, Optional
+from time import perf_counter
+from typing import List, Dict, Optional, Set
 
 from p115client import P115Client
-from p115client.tool.iterdir import share_iterdir
 
 from app.log import logger
 
 from ...core.config import configer
+from ...core.p115 import iter_share_files_with_path
 from ...helper.mediainfo_download import MediaInfoDownloader
 from ...utils.path import PathUtils
 from ...utils.sentry import sentry_manager
@@ -20,23 +22,25 @@ class ShareStrmHelper:
     """
 
     def __init__(self, client: P115Client, mediainfodownloader: MediaInfoDownloader):
-        self.rmt_mediaext = [
+        self.rmt_mediaext: Set[str] = {
             f".{ext.strip()}"
             for ext in configer.get_config("user_rmt_mediaext")
             .replace("，", ",")
             .split(",")
-        ]
-        self.download_mediaext = [
+        }
+        self.download_mediaext: Set[str] = {
             f".{ext.strip()}"
             for ext in configer.get_config("user_download_mediaext")
             .replace("，", ",")
             .split(",")
-        ]
+        }
         self.auto_download_mediainfo = configer.get_config(
             "share_strm_auto_download_mediainfo_enabled"
         )
         self.client = client
         self.mediainfodownloader = mediainfodownloader
+        self.elapsed_time = 0
+        self.total_count = 0
         self.strm_count = 0
         self.strm_fail_count = 0
         self.mediainfo_count = 0
@@ -51,21 +55,23 @@ class ShareStrmHelper:
 
         self.strmurlgetter = StrmUrlGetter()
 
-    def generate_strm_files(
+    def __process_single_item(
         self,
         share_code: str,
         receive_code: str,
         file_id: str,
         file_path: str,
         pan_file_name: str,
-        file_size: Optional[str] = None,
+        file_size: int,
+        file_sha1: str,
+        thumb: Optional[str],
     ):
         """
-        生成 STRM 文件
+        处理单个 STRM 文件
         """
         if not PathUtils.has_prefix(file_path, self.share_media_path):
             logger.debug(
-                "【分享STRM生成】此文件不在用户设置分享目录下，跳过网盘路径: %s",
+                "【分享STRM生成】此文件不在用户设置分享目录下，跳过分享路径: %s",
                 str(file_path).replace(str(self.local_media_path), "", 1),
             )
             return
@@ -86,13 +92,15 @@ class ShareStrmHelper:
                             "receive_code": receive_code,
                             "file_id": file_id,
                             "path": file_path,
+                            "thumb": thumb,
+                            "sha1": file_sha1,
                         }
                     )
                     return
 
             if file_path.suffix.lower() not in self.rmt_mediaext:
                 logger.warn(
-                    "【分享STRM生成】文件后缀不匹配，跳过网盘路径: %s",
+                    "【分享STRM生成】文件后缀不匹配，跳过分享路径: %s",
                     str(file_path).replace(str(self.local_media_path), "", 1),
                 )
                 return
@@ -103,11 +111,9 @@ class ShareStrmHelper:
                 )
             )[1]:
                 logger.warn(
-                    f"【分享STRM生成】{result[0]}，跳过网盘路径: {str(file_path).replace(str(self.local_media_path), '', 1)}"
+                    f"【分享STRM生成】{result[0]}，跳过分享路径: {str(file_path).replace(str(self.local_media_path), '', 1)}"
                 )
                 return
-
-            new_file_path.parent.mkdir(parents=True, exist_ok=True)
 
             if not file_id:
                 logger.error(
@@ -116,20 +122,8 @@ class ShareStrmHelper:
                 self.strm_fail_dict[str(new_file_path)] = "不存在 id 值"
                 self.strm_fail_count += 1
                 return
-            if not share_code:
-                logger.error(
-                    f"【分享STRM生成】{original_file_name} 不存在 share_code 值，无法生成 STRM 文件"
-                )
-                self.strm_fail_dict[str(new_file_path)] = "不存在 share_code 值"
-                self.strm_fail_count += 1
-                return
-            if not receive_code:
-                logger.error(
-                    f"【分享STRM生成】{original_file_name} 不存在 receive_code 值，无法生成 STRM 文件"
-                )
-                self.strm_fail_dict[str(new_file_path)] = "不存在 receive_code 值"
-                self.strm_fail_count += 1
-                return
+
+            new_file_path.parent.mkdir(parents=True, exist_ok=True)
 
             strm_url = self.strmurlgetter.get_share_strm_url(
                 share_code, receive_code, file_id, pan_file_name
@@ -150,52 +144,55 @@ class ShareStrmHelper:
             self.strm_fail_dict[str(new_file_path)] = str(e)
             return
 
-    def get_share_list_creata_strm(
+    def generate_strm_files(
         self,
         cid: int = 0,
-        current_path: str = "",
         share_code: str = "",
         receive_code: str = "",
     ):
         """
         获取分享文件，生成 STRM
         """
-        for item in share_iterdir(
-            self.client, receive_code=receive_code, share_code=share_code, cid=int(cid)
+        start_time = perf_counter()
+        for batch in batched(
+            iter_share_files_with_path(
+                client=self.client,
+                share_code=share_code,
+                receive_code=receive_code,
+                cid=cid,
+            ),
+            1_000,
         ):
-            item_path = (
-                f"{current_path}/{item['name']}" if current_path else "/" + item["name"]
-            )
+            self.total_count += len(batch)
+            with ThreadPoolExecutor(max_workers=128) as executor:
+                future_to_item = {
+                    executor.submit(
+                        self.__process_single_item,
+                        share_code=share_code,
+                        receive_code=receive_code,
+                        file_id=item["id"],
+                        file_path=item["path"],
+                        pan_file_name=item["name"],
+                        file_size=item["size"],
+                        file_sha1=item["sha1"],
+                        thumb=item.get("thumb", None),
+                    ): item
+                    for item in batch
+                }
 
-            if item["is_dir"]:
-                if self.strm_count != 0 and self.strm_count % 100 == 0:
-                    logger.info("【分享STRM生成】休眠 1s 后继续生成")
-                    time.sleep(1)
-                self.get_share_list_creata_strm(
-                    cid=int(item["id"]),
-                    current_path=item_path,
-                    share_code=share_code,
-                    receive_code=receive_code,
-                )
-            else:
-                item_with_path = dict(item)
-                item_with_path["path"] = item_path
-                file_size = item_with_path.get("size", None)
-                self.generate_strm_files(
-                    share_code=share_code,
-                    receive_code=receive_code,
-                    file_id=item_with_path["id"],
-                    file_path=item_with_path["path"],
-                    pan_file_name=item_with_path["name"],
-                    file_size=int(file_size) if file_size else None,
-                )
+                for future in as_completed(future_to_item):
+                    item = future_to_item[future]
+                    try:
+                        future.result()
+                    except Exception as e:
+                        sentry_manager.sentry_hub.capture_exception(e)
+                        logger.error(f"【分享STRM生成】并发处理出错: {item} - {str(e)}")
 
-    def download_mediainfo(self):
-        """
-        下载媒体信息文件
-        """
+        end_time = perf_counter()
+        self.elapsed_time = end_time - start_time
+
         self.mediainfo_count, self.mediainfo_fail_count, self.mediainfo_fail_dict = (
-            self.mediainfodownloader.auto_downloader(
+            self.mediainfodownloader.batch_auto_share_downloader(
                 downloads_list=self.download_mediainfo_list
             )
         )
@@ -217,6 +214,9 @@ class ShareStrmHelper:
             logger.warn(
                 f"【分享STRM生成】{self.strm_fail_count} 个 STRM 文件生成失败，{self.mediainfo_fail_count} 个媒体数据文件下载失败"
             )
+        logger.debug(
+            f"【全量STRM生成】时间 {self.elapsed_time:.6f} 秒，总迭代文件数量 {self.total_count}"
+        )
         return (
             self.strm_count,
             self.mediainfo_count,

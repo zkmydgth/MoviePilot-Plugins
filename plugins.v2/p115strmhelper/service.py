@@ -309,12 +309,11 @@ class ServiceHelper:
             strm_helper = ShareStrmHelper(
                 client=self.client, mediainfodownloader=self.mediainfodownloader
             )
-            strm_helper.get_share_list_creata_strm(
+            strm_helper.generate_strm_files(
                 cid=0,
                 share_code=share_code,
                 receive_code=receive_code,
             )
-            strm_helper.download_mediainfo()
             strm_count, mediainfo_count, strm_fail_count, mediainfo_fail_count = (
                 strm_helper.get_generate_total()
             )

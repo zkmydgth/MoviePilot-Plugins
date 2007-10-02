@@ -4,19 +4,20 @@ from itertools import batched
 from pathlib import Path
 from uuid import uuid4
 from typing import List, cast, Dict, Set
-from errno import EIO, ENOENT
+from errno import EIO
 from urllib.parse import unquote, urlsplit
 
 import aiofiles
 import aiofiles.os
 import httpx
-from orjson import dumps, loads
+from orjson import loads
 from p115rsacipher import encrypt, decrypt
 from p115pickcode import pickcode_to_id
 from p115client import P115Client, check_response as p115_check_response
 from p115client.const import TYPE_TO_SUFFIXES
 from p115client.tool.util import reduce_image_url_layers
 from p115client.tool.iterdir import _iter_fs_files, iter_files
+from p115client.tool.download import iter_files_with_url
 
 from app.log import logger
 
@@ -36,7 +37,7 @@ class MediaInfoDownloader:
     # 批处理文件数量
     batch_size = 200
     # 最大同时下载线程（cdn_url）
-    max_workers = 8
+    max_workers = 4
 
     def __init__(self, cookie: str):
         self.cookie = cookie
@@ -68,23 +69,23 @@ class MediaInfoDownloader:
     @staticmethod
     def is_file_leq_1k(file_path):
         """
-        判断文件是否小于 1KB
+        判断文件是否小于 100B
         """
         file = Path(file_path)
         if not file.exists():
             return True
-        return file.stat().st_size <= 1024
+        return file.stat().st_size <= 100
 
     @staticmethod
     async def async_is_file_leq_1k(file_path: str | Path) -> bool:
         """
-        判断文件是否小于等于 1KB。
+        判断文件是否小于等于 100B。
 
         如果文件不存在，返回 True。
         """
         try:
             stat_result = await aiofiles.os.stat(file_path)
-            return stat_result.st_size <= 1024
+            return stat_result.st_size <= 100
         except FileNotFoundError:
             return True
         except Exception:
@@ -98,7 +99,7 @@ class MediaInfoDownloader:
             "http://proapi.115.com/android/2.0/ufile/download",
             data={"data": encrypt(f'{{"pick_code":"{pickcode}"}}').decode("utf-8")},
             headers=self.headers,
-            follow_redirects=True
+            follow_redirects=True,
         )
         if resp.status_code == 403:
             self.stop_all_flag = True
@@ -219,47 +220,6 @@ class MediaInfoDownloader:
             download_url=download_url,
         )
 
-    def share_downloader(
-        self, share_code: str, receive_code: str, file_id: str, path: Path
-    ):
-        """
-        下载分享链接文件
-        """
-        payload = {
-            "share_code": share_code,
-            "receive_code": receive_code,
-            "file_id": file_id,
-        }
-        resp = httpx.post(
-            "http://proapi.115.com/app/share/downurl",
-            data={"data": encrypt(dumps(payload)).decode("utf-8")},
-            headers=self.headers,
-            follow_redirects=True
-        )
-        if resp.status_code == 403:
-            self.stop_all_flag = True
-        check_response(resp)
-        json = loads(cast(bytes, resp.content))
-        if not json["state"]:
-            raise OSError(EIO, json)
-        data = json["data"] = loads(decrypt(json["data"]))
-        if not (data and (url_info := data["url"])):
-            raise FileNotFoundError(ENOENT, json)
-        data["file_id"] = data.pop("fid")
-        data["file_name"] = data.pop("fn")
-        data["file_size"] = int(data.pop("fs"))
-        download_url = Url.of(url_info["url"], data)
-        if not download_url:
-            logger.error(
-                f"【媒体信息文件下载】{path.name} 下载链接获取失败，无法下载该文件"
-            )
-            return
-        self.save_mediainfo_file(
-            file_path=path,
-            file_name=path.name,
-            download_url=download_url,
-        )
-
     def auto_downloader(self, downloads_list: List):
         """
         根据列表自动下载
@@ -288,30 +248,6 @@ class MediaInfoDownloader:
                         for _ in range(3):
                             self.local_downloader(
                                 pickcode=item["pickcode"], path=Path(item["path"])
-                            )
-                            if not self.is_file_leq_1k(item["path"]):
-                                mediainfo_count += 1
-                                download_success = True
-                                break
-                            logger.warn(
-                                f"【媒体信息文件下载】{item['path']} 下载该文件失败，自动重试"
-                            )
-                            time.sleep(1)
-                    except Exception as e:
-                        logger.error(
-                            f"【媒体信息文件下载】 {item['path']} 出现未知错误: {e}"
-                        )
-                    if not download_success:
-                        mediainfo_fail_count += 1
-                        mediainfo_fail_dict.append(item["path"])
-                elif item["type"] == "share":
-                    try:
-                        for _ in range(3):
-                            self.share_downloader(
-                                share_code=item["share_code"],
-                                receive_code=item["receive_code"],
-                                file_id=item["file_id"],
-                                path=Path(item["path"]),
                             )
                             if not self.is_file_leq_1k(item["path"]):
                                 mediainfo_count += 1
@@ -362,6 +298,26 @@ class MediaInfoDownloader:
             if tasks:
                 await asyncio.gather(*tasks)
 
+    async def __async_download_batch_share(self, item_list, value: str = "thumb"):
+        """
+        为单个批次分享创建并并发执行所有下载任务
+        """
+        semaphore = asyncio.Semaphore(256)
+        async with httpx.AsyncClient(follow_redirects=True) as client:
+            tasks = []
+            for item in item_list:
+                path = Path(item["path"])
+                task = self.async_save_mediainfo_file(
+                    client,
+                    semaphore,
+                    path,
+                    path.name,
+                    item.get(value),
+                )
+                tasks.append(task)
+            if tasks:
+                await asyncio.gather(*tasks)
+
     def batch_subtitle_downloader(self, downloads_list: List):
         """
         批量字幕文件下载
@@ -390,6 +346,51 @@ class MediaInfoDownloader:
                     [pickcode_to_id(item["pickcode"]) for item in item_list],
                     pid=scid,
                 )
+                p115_check_response(resp)
+                attr = next(
+                    _iter_fs_files(
+                        client=self.client,
+                        payload=scid,
+                        page_size=1,
+                        app="web",
+                    )
+                )
+                resp = self.client.fs_video_subtitle(
+                    attr["pickcode"],
+                )
+                p115_check_response(resp)
+                subtitles = {
+                    info["sha1"]: info["url"]
+                    for info in resp["data"]["list"]
+                    if info.get("file_id")
+                }
+                asyncio.run(
+                    self.__async_download_batch_subtitle_image(subtitles, item_list)
+                )
+            except Exception as e:
+                logger.error(f"【媒体信息文件下载】批处理字幕文件失败: {e}")
+            finally:
+                self.client.fs_delete(scid)
+
+    def batch_share_subtitle_downloader(self, downloads_list: List):
+        """
+        批量转存字幕下载
+        """
+        for item_list in batched(downloads_list, 50):
+            resp = self.client.fs_mkdir(
+                f"subtitle-{uuid4()}",
+            )
+            p115_check_response(resp)
+            scid = resp["cid"]
+            try:
+                payload = {
+                    "share_code": item_list[0]["share_code"],
+                    "receive_code": item_list[0]["receive_code"],
+                    "file_id": ",".join([str(file["file_id"]) for file in item_list]),
+                    "cid": scid,
+                    "is_check": 0,
+                }
+                resp = self.client.share_receive(payload)
                 p115_check_response(resp)
                 attr = next(
                     _iter_fs_files(
@@ -464,6 +465,49 @@ class MediaInfoDownloader:
             finally:
                 self.client.fs_delete(scid)
 
+    def batch_share_downloader(self, downloads_list: List):
+        """
+        批处理分享其它类型文件下载
+        """
+        for item_list in batched(downloads_list, 50):
+            sha1_to_path = {info["sha1"]: info["path"] for info in item_list}
+            resp = self.client.fs_mkdir(
+                f"receive_files-{uuid4()}",
+            )
+            p115_check_response(resp)
+            scid = resp["cid"]
+            try:
+                payload = {
+                    "share_code": item_list[0]["share_code"],
+                    "receive_code": item_list[0]["receive_code"],
+                    "file_id": ",".join([str(file["file_id"]) for file in item_list]),
+                    "cid": scid,
+                    "is_check": 0,
+                }
+                resp = self.client.share_receive(payload)
+                p115_check_response(resp)
+                for batch in batched(
+                    iter_files_with_url(
+                        client=self.client,
+                        cid=scid,
+                        user_agent=configer.get_user_agent(),
+                    ),
+                    self.max_workers,
+                ):
+                    asyncio.run(
+                        self.__async_download_batch_share(
+                            [
+                                {"url": i["url"], "path": sha1_to_path.get(i["sha1"])}
+                                for i in batch
+                            ],
+                            "url",
+                        )
+                    )
+            except Exception as e:
+                logger.error(f"【媒体信息文件下载】批处理下载文件失败: {e}")
+            finally:
+                self.client.fs_delete(scid)
+
     def batch_downloader(self, downloads_list: List, **request_kwargs):
         """
         批处理其它类型文件下载
@@ -522,5 +566,35 @@ class MediaInfoDownloader:
             self.batch_image_downloader(image_list)
         if other_list and not self.stop_all_flag:
             self.batch_downloader(other_list)
+
+        return self.mediainfo_count, self.mediainfo_fail_count, self.mediainfo_fail_dict
+
+    def batch_auto_share_downloader(self, downloads_list: List):
+        """
+        根据列表自动批量分享下载
+        """
+        subtitle_suffix: Set[str] = {".srt", ".ass", ".ssa"}
+
+        self.mediainfo_count: int = 0
+        self.mediainfo_fail_count: int = 0
+        self.mediainfo_fail_dict: List = []
+
+        image_list: List = []
+        subtitle_list: List = []
+        other_list: List = []
+        for item in downloads_list:
+            if item.get("thumb"):
+                image_list.append(item)
+            elif Path(item["path"]).suffix in subtitle_suffix:
+                subtitle_list.append(item)
+            else:
+                other_list.append(item)
+
+        if image_list:
+            asyncio.run(self.__async_download_batch_share(image_list))
+        if subtitle_list:
+            self.batch_share_subtitle_downloader(subtitle_list)
+        if other_list:
+            self.batch_share_downloader(other_list)
 
         return self.mediainfo_count, self.mediainfo_fail_count, self.mediainfo_fail_dict
