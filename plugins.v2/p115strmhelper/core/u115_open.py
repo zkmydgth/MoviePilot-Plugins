@@ -621,6 +621,12 @@ class U115OpenHelper:
                 )
                 return None
         except oss2.exceptions.OssError as e:
+            if e.code == "InvalidAccessKeyId":
+                logger.warn(
+                    f"【P115Open】上传凭证失效，将重新获取凭证并继续上传: {target_name}"
+                )
+                return self.upload(target_dir, local_path, new_name)
+
             if e.code == "FileAlreadyExists":
                 logger.warn(f"【P115Open】{target_name} 已存在")
             else:
