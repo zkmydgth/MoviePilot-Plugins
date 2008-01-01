@@ -92,14 +92,14 @@ class FullSyncStrmHelper:
 
     def __init__(
         self,
-        cookies: str,
+        client,
         user_rmt_mediaext: str,
         server_address: str,
     ):
         self.rmt_mediaext = [
             f".{ext.strip()}" for ext in user_rmt_mediaext.replace("，", ",").split(",")
         ]
-        self.client = P115Client(cookies)
+        self.client = client
         self.count = 0
         self.server_address = server_address.rstrip("/")
 
@@ -184,7 +184,7 @@ class ShareStrmHelper:
 
     def __init__(
         self,
-        cookies: str,
+        client,
         user_rmt_mediaext: str,
         share_media_path: str,
         local_media_path: str,
@@ -193,7 +193,7 @@ class ShareStrmHelper:
         self.rmt_mediaext = [
             f".{ext.strip()}" for ext in user_rmt_mediaext.replace("，", ",").split(",")
         ]
-        self.client = P115Client(cookies)
+        self.client = client
         self.count = 0
         self.share_media_path = share_media_path
         self.local_media_path = local_media_path
@@ -284,6 +284,9 @@ class ShareStrmHelper:
             )
 
             if item["is_directory"] or item["is_dir"]:
+                if self.count != 0 and self.count % 100 == 0:
+                    logger.info("【分享STRM生成】休眠 2s 后继续生成")
+                    time.sleep(2)
                 self.get_share_list_creata_strm(
                     cid=int(item["id"]),
                     current_path=item_path,
@@ -317,7 +320,7 @@ class P115StrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png"
     # 插件版本
-    plugin_version = "1.2.1"
+    plugin_version = "1.3.0"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -331,10 +334,12 @@ class P115StrmHelper(_PluginBase):
 
     # 私有属性
     mediaserver_helper = None
+    _client = None
     _scheduler = None
     _enabled = False
     _once_full_sync_strm = False
     _cookies = None
+    _password = None
     moviepilot_address = None
     _user_rmt_mediaext = None
     _transfer_monitor_enabled = False
@@ -352,6 +357,9 @@ class P115StrmHelper(_PluginBase):
     _user_receive_code = None
     _user_share_pan_path = None
     _user_share_local_path = None
+    _clear_recyclebin_enabled = False
+    _clear_receive_path_enabled = False
+    _cron_clear = None
     # 退出事件
     _event = ThreadEvent()
     monitor_stop_event = None
@@ -368,6 +376,7 @@ class P115StrmHelper(_PluginBase):
             self._enabled = config.get("enabled")
             self._once_full_sync_strm = config.get("once_full_sync_strm")
             self._cookies = config.get("cookies")
+            self._password = config.get("password")
             self.moviepilot_address = config.get("moviepilot_address")
             self._user_rmt_mediaext = config.get("user_rmt_mediaext")
             self._transfer_monitor_enabled = config.get("transfer_monitor_enabled")
@@ -388,10 +397,15 @@ class P115StrmHelper(_PluginBase):
             self._user_receive_code = config.get("user_receive_code")
             self._user_share_pan_path = config.get("user_share_pan_path")
             self._user_share_local_path = config.get("user_share_local_path")
+            self._clear_recyclebin_enabled = config.get("clear_recyclebin_enabled")
+            self._clear_receive_path_enabled = config.get("clear_receive_path_enabled")
+            self._cron_clear = config.get("cron_clear")
             if not self._user_rmt_mediaext:
                 self._user_rmt_mediaext = "mp4,mkv,ts,iso,rmvb,avi,mov,mpeg,mpg,wmv,3gp,asf,m4v,flv,m2ts,tp,f4v"
             if not self._cron_full_sync_strm:
                 self._cron_full_sync_strm = "0 */7 * * *"
+            if not self._cron_clear:
+                self._cron_clear = "0 */7 * * *"
             if not self._user_share_pan_path:
                 self._user_share_pan_path = "/"
             self.__update_config()
@@ -400,6 +414,11 @@ class P115StrmHelper(_PluginBase):
             self._enabled, self._once_full_sync_strm = False, False
             self.__update_config()
             return False
+
+        try:
+            self._client = P115Client(self._cookies)
+        except Exception as e:
+            logger.error(f"115网盘客户端创建失败: {e}")
 
         # 停止现有任务
         self.stop_service()
@@ -512,20 +531,35 @@ class P115StrmHelper(_PluginBase):
         """
         注册插件公共服务
         """
+        cron_service = []
         if (
             self._cron_full_sync_strm
             and self._timing_full_sync_strm
             and self._full_sync_strm_paths
         ):
-            return [
+            cron_service.append(
                 {
-                    "id": "P115StrmHelper",
+                    "id": "P115StrmHelper_full_sync_strm_files",
                     "name": "定期全量同步115媒体库",
                     "trigger": CronTrigger.from_crontab(self._cron_full_sync_strm),
                     "func": self.full_sync_strm_files,
                     "kwargs": {},
                 }
-            ]
+            )
+        if self._cron_clear and (
+            self._clear_recyclebin_enabled or self._clear_receive_path_enabled
+        ):
+            cron_service.append(
+                {
+                    "id": "P115StrmHelper_main_cleaner",
+                    "name": "定期清理115空间",
+                    "trigger": CronTrigger.from_crontab(self._cron_clear),
+                    "func": self.main_cleaner,
+                    "kwargs": {},
+                }
+            )
+        if cron_service:
+            return cron_service
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         """
@@ -686,6 +720,8 @@ class P115StrmHelper(_PluginBase):
                                             "label": "整理事件监控目录",
                                             "rows": 5,
                                             "placeholder": "配置格式为 本地STRM媒体库目录#网盘媒体库目录，一行一个",
+                                            "hint": "配置整理事件监控目录，格式为：本地STRM媒体库目录#网盘媒体库目录",
+                                            "persistent-hint": True,
                                         },
                                     }
                                 ],
@@ -771,6 +807,8 @@ class P115StrmHelper(_PluginBase):
                                             "label": "全量同步目录",
                                             "rows": 5,
                                             "placeholder": "配置格式为 本地STRM媒体库目录#网盘媒体库目录，一行一个",
+                                            "hint": "配置全量同步目录，格式为：本地STRM媒体库目录#网盘媒体库目录",
+                                            "persistent-hint": True,
                                         },
                                     }
                                 ],
@@ -830,6 +868,8 @@ class P115StrmHelper(_PluginBase):
                                             "label": "监控115生活事件目录",
                                             "rows": 5,
                                             "placeholder": "配置格式为 本地STRM媒体库目录#网盘媒体库目录，一行一个",
+                                            "hint": "配置监控115生活事件目录，格式为：本地STRM媒体库目录#网盘媒体库目录",
+                                            "persistent-hint": True,
                                         },
                                     }
                                 ],
@@ -932,12 +972,112 @@ class P115StrmHelper(_PluginBase):
                             },
                         ],
                     },
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {
+                                    "cols": 12,
+                                },
+                                "content": [
+                                    {
+                                        "component": "VAlert",
+                                        "props": {
+                                            "type": "info",
+                                            "variant": "tonal",
+                                            "text": "定期清理 回收站/我的接收 配置",
+                                        },
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {
+                                    "cols": 12,
+                                },
+                                "content": [
+                                    {
+                                        "component": "VAlert",
+                                        "props": {
+                                            "type": "info",
+                                            "variant": "tonal",
+                                            "text": "注意，清空 回收站/我的接收 后文件不可恢复，如果产生重要数据丢失本程序不负责！",
+                                        },
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 3},
+                                "content": [
+                                    {
+                                        "component": "VSwitch",
+                                        "props": {
+                                            "model": "clear_recyclebin_enabled",
+                                            "label": "清空回收站",
+                                        },
+                                    }
+                                ],
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 3},
+                                "content": [
+                                    {
+                                        "component": "VSwitch",
+                                        "props": {
+                                            "model": "clear_receive_path_enabled",
+                                            "label": "清空我的接收目录",
+                                        },
+                                    }
+                                ],
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 3},
+                                "content": [
+                                    {
+                                        "component": "VTextField",
+                                        "props": {
+                                            "model": "password",
+                                            "label": "115访问密码",
+                                        },
+                                    }
+                                ],
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 3},
+                                "content": [
+                                    {
+                                        "component": "VCronField",
+                                        "props": {
+                                            "model": "cron_clear",
+                                            "label": "清理周期",
+                                        },
+                                    }
+                                ],
+                            },
+                        ],
+                    },
                 ],
             },
         ], {
             "enable": False,
             "once_full_sync_strm": False,
             "cookies": "",
+            "password": "",
             "moviepilot_address": "",
             "user_rmt_mediaext": "mp4,mkv,ts,iso,rmvb,avi,mov,mpeg,mpg,wmv,3gp,asf,m4v,flv,m2ts,tp,f4v",
             "transfer_monitor_enabled": False,
@@ -953,6 +1093,9 @@ class P115StrmHelper(_PluginBase):
             "user_receive_code": "",
             "user_share_pan_path": "/",
             "user_share_local_path": "",
+            "clear_recyclebin_enabled": False,
+            "clear_receive_path_enabled": False,
+            "cron_clear": "0 */7 * * *",
         }
 
     def get_page(self) -> List[dict]:
@@ -964,6 +1107,7 @@ class P115StrmHelper(_PluginBase):
                 "enabled": self._enabled,
                 "once_full_sync_strm": self._once_full_sync_strm,
                 "cookies": self._cookies,
+                "password": self._password,
                 "moviepilot_address": self.moviepilot_address,
                 "user_rmt_mediaext": self._user_rmt_mediaext,
                 "transfer_monitor_enabled": self._transfer_monitor_enabled,
@@ -980,6 +1124,9 @@ class P115StrmHelper(_PluginBase):
                 "user_receive_code": self._user_receive_code,
                 "user_share_pan_path": self._user_share_pan_path,
                 "user_share_local_path": self._user_share_local_path,
+                "clear_recyclebin_enabled": self._clear_recyclebin_enabled,
+                "clear_receive_path_enabled": self._clear_receive_path_enabled,
+                "cron_clear": self._cron_clear,
             }
         )
 
@@ -1374,7 +1521,7 @@ class P115StrmHelper(_PluginBase):
 
         strm_helper = FullSyncStrmHelper(
             user_rmt_mediaext=self._user_rmt_mediaext,
-            cookies=self._cookies,
+            client=self._client,
             server_address=self.moviepilot_address,
         )
         strm_helper.generate_strm_files(
@@ -1397,7 +1544,7 @@ class P115StrmHelper(_PluginBase):
         try:
             strm_helper = ShareStrmHelper(
                 user_rmt_mediaext=self._user_rmt_mediaext,
-                cookies=self._cookies,
+                client=self._client,
                 server_address=self.moviepilot_address,
                 share_media_path=self._user_share_pan_path,
                 local_media_path=self._user_share_local_path,
@@ -1416,14 +1563,13 @@ class P115StrmHelper(_PluginBase):
         """
         监控115生活事件
         """
-        client = P115Client(self._cookies)
         rmt_mediaext = [
             f".{ext.strip()}"
             for ext in self._user_rmt_mediaext.replace("，", ",").split(",")
         ]
         logger.info("【监控生活事件】上传事件监控启动中...")
         try:
-            for events_batch in iter_life_behavior_list(client, cooldown=int(10)):
+            for events_batch in iter_life_behavior_list(self._client, cooldown=int(10)):
                 if self.monitor_stop_event.is_set():
                     logger.info("【监控生活事件】收到停止信号，退出上传事件监控")
                     break
@@ -1440,7 +1586,7 @@ class P115StrmHelper(_PluginBase):
                     pickcode = event["pick_code"]
                     file_name = event["file_name"]
                     file_path = (
-                        Path(get_path_to_cid(client, cid=int(event["parent_id"])))
+                        Path(get_path_to_cid(self._client, cid=int(event["parent_id"])))
                         / file_name
                     )
                     status, target_dir, pan_media_dir = self.__get_media_path(
@@ -1490,6 +1636,45 @@ class P115StrmHelper(_PluginBase):
             return
         logger.info("【监控生活事件】已退出上传事件监控")
         return
+
+    def main_cleaner(self):
+        """
+        主清理模块
+        """
+        if self._clear_receive_path_enabled:
+            self.clear_receive_path()
+
+        if self._clear_recyclebin_enabled:
+            self.clear_recyclebin()
+
+    def clear_recyclebin(self):
+        """
+        清空回收站
+        """
+        try:
+            logger.info("【回收站清理】开始清理回收站")
+            self._client.recyclebin_clean(password=self._password)
+            logger.info("【回收站清理】回收站已清空")
+        except Exception as e:
+            logger.error(f"【回收站清理】清理回收站运行失败: {e}")
+            return
+
+    def clear_receive_path(self):
+        """
+        清空我的接收
+        """
+        try:
+            logger.info("【我的接收清理】开始清理我的接收")
+            parent_id = int(self._client.fs_dir_getid("/我的接收")["id"])
+            if parent_id == 0:
+                logger.info("【我的接收清理】我的接收目录为空，无需清理")
+                return
+            logger.info(f"【我的接收清理】我的接收目录 ID 获取成功: {parent_id}")
+            self._client.fs_delete(parent_id)
+            logger.info("【我的接收清理】我的接收已清空")
+        except Exception as e:
+            logger.error(f"【我的接收清理】清理我的接收运行失败: {e}")
+            return
 
     def stop_service(self):
         """

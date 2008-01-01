@@ -87,11 +87,12 @@
         "name": "115网盘STRM助手",
         "description": "115网盘STRM生成一条龙服务",
         "labels": "云盘",
-        "version": "1.2.1",
+        "version": "1.3.0",
         "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png",
         "author": "DDSRem",
         "level": 1,
         "history": {
+            "v1.3.0": "增加我的接收和回收站定期清空",
             "v1.2.1": "建政佬最新库出错，指定旧版本安装依赖",
             "v1.2.0": "支持通过115分享生成本地STRM文件",
             "v1.1.0": "插件页面重写，支持监控115生活事件",
