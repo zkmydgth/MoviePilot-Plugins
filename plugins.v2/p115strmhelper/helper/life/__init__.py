@@ -24,7 +24,8 @@ from ...helper.mediasyncdel import MediaSyncDelHelper
 from ...helper.mediaserver import MediaServerRefresh
 from ...helper.life.queue import LifeTasksQueue
 
-from p115client import P115Client, AuthenticationError
+from p115client import P115Client
+from p115client.exception import P115AuthenticationError
 from p115client.tool.attr import get_path
 from p115client.tool.iterdir import iter_files_with_path
 from p115client.tool.life import (
@@ -828,7 +829,7 @@ class MonitorLife:
 
                 try:
                     first_event = next(events_iterator)
-                except AuthenticationError:
+                except P115AuthenticationError:
                     logger.error(f"【监控生活事件】登入失效，请重新扫码登入")
                     break
                 except StopIteration:
