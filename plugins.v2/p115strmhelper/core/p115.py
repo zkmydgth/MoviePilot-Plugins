@@ -54,17 +54,17 @@ def iter_share_files_with_path(
         api_callable=lambda p: client.share_snap_app(
             p, app="android", base_url="http://pro.api.115.com", **request_kwargs
         ),
-        cooldown=0.05,
+        cooldown=0.25,
     )
     snap_app_https = ApiEndpointCooldown(
         api_callable=lambda p: client.share_snap_app(
             p, app="android", base_url="https://proapi.115.com", **request_kwargs
         ),
-        cooldown=0.05,
+        cooldown=0.25,
     )
     snap_api = ApiEndpointCooldown(
         api_callable=lambda p: P115Client.share_snap(p, **request_kwargs),
-        cooldown=0.15,
+        cooldown=0.75,
     )
 
     repeating_pair = [snap_app_http, snap_app_https]
