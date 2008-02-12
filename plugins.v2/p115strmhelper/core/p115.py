@@ -26,6 +26,7 @@ def iter_share_files_with_path(
     ] = "user_ptime",
     asc: Literal[0, 1] = 1,
     max_workers: int = 100,
+    **request_kwargs,
 ) -> Iterator[dict]:
     """
     批量获取分享链接下的文件列表
@@ -69,15 +70,15 @@ def iter_share_files_with_path(
 
     if isinstance(client, (str, PathLike)):
         client = P115Client(client, check_for_relogin=True)
-
     if page_size <= 0:
         page_size = 1_500
-
+    request_kwargs.setdefault(
+        "base_url", cycle(("http://pro.api.115.com", "https://proapi.115.com")).__next__
+    )
     task_queue = Queue()
     result_queue = Queue(maxsize=max_workers * 2)
     active_tasks = AtomicCounter(1)
     task_queue.put((cid, "", 0))
-
     apps = [
         "ios",
         "android",
@@ -95,7 +96,12 @@ def iter_share_files_with_path(
         lambda payload: P115Client.share_snap(payload),
     ]
     apis.extend(
-        [lambda payload: client.share_snap_app({**payload, "app": app}) for app in apps]
+        [
+            lambda payload: client.share_snap_app(
+                {**payload, "app": app}, **request_kwargs
+            )
+            for app in apps
+        ]
     )
     api_cycler = cycle(apis)
 
