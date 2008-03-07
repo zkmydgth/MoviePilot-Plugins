@@ -13,10 +13,8 @@ from app.core.config import settings
 from app.core.event import eventmanager, Event
 from app.log import logger
 from app.plugins import _PluginBase
-from app.core.context import MediaInfo
 from app.schemas import TransferInfo, FileItem
-from app.schemas.types import EventType, MediaType
-from app.utils.http import RequestUtils
+from app.schemas.types import EventType
 from app.utils.system import SystemUtils
 
 
@@ -91,11 +89,17 @@ class P115StrmHelper(_PluginBase):
     # 私有属性
     _enabled = False
     cookies = None
+    pan_media_dir = None
+    local_media_dir = None
+    moviepilot_address = None
 
     def init_plugin(self, config: dict = None):
         if config:
             self._enabled = config.get("enabled")
             self.cookies = config.get("cookies")
+            self.pan_media_dir = config.get("pan_media_dir")
+            self.local_media_dir = config.get("local_media_dir")
+            self.moviepilot_address = config.get("moviepilot_address")
 
     def get_state(self) -> bool:
         return self._enabled
@@ -131,7 +135,7 @@ class P115StrmHelper(_PluginBase):
                         "content": [
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 4},
+                                "props": {"cols": 12, "md": 6},
                                 "content": [
                                     {
                                         "component": "VSwitch",
@@ -156,7 +160,63 @@ class P115StrmHelper(_PluginBase):
                                         "props": {
                                             "model": "cookies",
                                             "label": "115 Cookie",
-                                            "hint": "115 Cookie",
+                                            "persistent-hint": True,
+                                        },
+                                    }
+                                ],
+                            },
+                        ],
+                    },
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 6},
+                                "content": [
+                                    {
+                                        "component": "VTextField",
+                                        "props": {
+                                            "model": "moviepilot_address",
+                                            "label": "MoviePilot 外网访问地址",
+                                            "persistent-hint": True,
+                                        },
+                                    }
+                                ],
+                            },
+                        ],
+                    },
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 6},
+                                "content": [
+                                    {
+                                        "component": "VTextField",
+                                        "props": {
+                                            "model": "local_media_dir",
+                                            "label": "本地 STRM 媒体库路径",
+                                            "persistent-hint": True,
+                                        },
+                                    }
+                                ],
+                            },
+                        ],
+                    },
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 6},
+                                "content": [
+                                    {
+                                        "component": "VTextField",
+                                        "props": {
+                                            "model": "pan_media_dir",
+                                            "label": "115 网盘媒体库路径",
                                             "persistent-hint": True,
                                         },
                                     }
@@ -166,7 +226,13 @@ class P115StrmHelper(_PluginBase):
                     },
                 ],
             },
-        ], {"enable": False, "cookies": ""}
+        ], {
+            "enable": False,
+            "cookies": "",
+            "moviepilot_address": "",
+            "pan_media_dir": "",
+            "local_media_dir": "",
+        }
 
     def get_page(self) -> List[dict]:
         pass
@@ -264,25 +330,91 @@ class P115StrmHelper(_PluginBase):
         监控目录整理生成 STRM 文件
         """
 
-        def generate_strm_files(target_dir, pan_path, url):
+        def generate_strm_files(target_dir, pan_media_dir, pan_path, basename, url):
             """
             依据网盘路径生成 STRM 文件
             """
-            file_path = Path(target_dir) / Path(pan_path)
-            file_target_dir = file_path.parent
-            file_name = file_path.stem + ".strm"
-            new_file_path = file_target_dir / file_name
+            pan_media_dir = str(Path(pan_media_dir))
+            pan_path = str(Path(pan_path))
+            if pan_path.startswith(pan_media_dir):
+                pan_path = pan_path[len(pan_media_dir) :].lstrip("/").lstrip("\\")
+            file_path = Path(target_dir) / pan_path
+            file_name = basename + ".strm"
+            new_file_path = file_path / file_name
             new_file_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(new_file_path, "w", encoding="utf-8") as file:
-                file.write(url)
-            logger.info("生成 STRM 文件成功： %s", str(new_file_path))
+            if Path(new_file_path).exists(follow_symlinks=False):
+                logger.info(f"更新 STRM 文件: {new_file_path}")
+            else:
+                logger.info(f"生成 STRM 文件: {new_file_path}")
+            try:
+                with open(new_file_path, "w", encoding="utf-8") as file:
+                    file.write(url)
+                logger.info("生成 STRM 文件成功： %s", str(new_file_path))
+                return True
+            except Exception as e:  # noqa: F841
+                logger.error("生成 %s 文件失败: %s", str(new_file_path), e)
+                return False
 
-        if not self._enabled:
+        if (
+            not self._enabled
+            or not self.local_media_dir
+            or not self.pan_media_dir
+            or not self.moviepilot_address
+        ):
             return
+
         item = event.event_data
         if not item:
             return
-        print(item)
+
+        # 转移信息
+        item_transfer: TransferInfo = item.get("transferinfo")
+
+        if item_transfer.storage != "u115":
+            return
+
+        # 网盘目的地目录
+        itemdir_dest_path: FileItem = item_transfer.target_diritem.path
+        # 网盘目的地路径（包含文件名称）
+        item_dest_path: FileItem = item_transfer.target_item.path
+        # 网盘目的地文件名称
+        item_dest_name: FileItem = item_transfer.target_item.name
+        # 网盘目的地文件名称（不包含后缀）
+        item_dest_basename: FileItem = item_transfer.target_item.basename
+        # 网盘目的地文件 pickcode
+        item_dest_pickcode: FileItem = item_transfer.target_item.pickcode
+        # 是否蓝光原盘
+        item_bluray = SystemUtils.is_bluray_dir(Path(itemdir_dest_path))
+
+        if not itemdir_dest_path.startswith(self.pan_media_dir):
+            logger.debug(f"{item_dest_name} 路径匹配不符合，跳过整理")
+            return
+
+        if item_bluray:
+            logger.warning(
+                f"{item_dest_name} 为蓝光原盘，不支持生成 STRM 文件: {item_dest_path}"
+            )
+            return
+
+        if not item_dest_pickcode:
+            logger.error(f"{item_dest_name} 不存在 pickcode 值，无法生成 STRM 文件")
+            return
+        strm_url = f"{self.moviepilot_address.rstrip('/')}/api/v1/plugin/P115StrmHelper/redirect_url?apikey={settings.API_TOKEN}&pickcode={item_dest_pickcode}"
+
+        if not generate_strm_files(
+            self.local_media_dir,
+            self.pan_media_dir,
+            itemdir_dest_path,
+            item_dest_basename,
+            strm_url,
+        ):
+            return
+
+        eventmanager.send_event(EventType.MetadataScrape, {
+            'meta': item.meta,
+            'mediainfo': item.mediainfo,
+            'fileitem': item_transfer.target_diritem
+        })
 
     def stop_service(self):
         """
