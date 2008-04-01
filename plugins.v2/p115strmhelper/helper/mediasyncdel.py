@@ -2,11 +2,8 @@ from time import strftime, localtime, time
 from typing import List, Tuple, Optional, Dict, Any
 from pathlib import Path
 
-from jieba import cut as jieba_cut
-
 from app.log import logger
 from app.core.config import settings
-from app.db import DbOper
 from app.db.models.transferhistory import TransferHistory
 from app.db.transferhistory_oper import TransferHistoryOper
 from app.db.downloadhistory_oper import DownloadHistoryOper
@@ -19,32 +16,10 @@ from app.schemas.mediaserver import WebhookEventInfo
 from ..core.config import configer
 from ..core.message import post_message
 from ..core.plunins import PluginChian
+from ..db_manager.oper import TransferHBOper
 from ..helper.mediaserver import EmbyOperate
 from ..utils.path import PathUtils, PathRemoveUtils
 from ..utils.webhook import WebhookUtils
-
-
-class TransferHBOper(DbOper):
-    """
-    历史记录数据库操作扩展
-    """
-
-    def get_transfer_his_by_path_title(self, path: str) -> List[TransferHistory]:
-        """
-        通过路径查询转移记录
-        所有匹配项
-
-        :param path: 查询路径
-
-        :return List: 数据列表
-        """
-        words = jieba_cut(path, HMM=False)
-        title = "%".join(words)
-        total = TransferHistory.count_by_title(self._db, title=title)
-        result = TransferHistory.list_by_title(
-            self._db, title=title, page=1, count=total
-        )
-        return result
 
 
 class MediaSyncDelHelper:
@@ -452,6 +427,48 @@ class MediaSyncDelHelper:
             logger.error(f"【同步删除】获取115网盘媒体后缀失败: {e}")
         return None
 
+    @staticmethod
+    def __get_remove_type(
+        media_type: str,
+        season_num: Optional[str],
+        episode_num: Optional[str],
+    ) -> Optional[str]:
+        """
+        获取删除媒体的类型
+
+        :param media_type: 媒体类型
+        :param season_num: 季数
+        :param episode_num: 集数
+        """
+        # 季数
+        if season_num and str(season_num).isdigit():
+            season_num = str(season_num).rjust(2, "0")
+        else:
+            season_num = None
+        # 集数
+        if episode_num and str(episode_num).isdigit():
+            episode_num = str(episode_num).rjust(2, "0")
+        else:
+            episode_num = None
+        # 类型
+        mtype = MediaType.MOVIE if media_type in ["Movie", "MOV"] else MediaType.TV
+
+        # 删除电影
+        if mtype == MediaType.MOVIE:
+            msg = "movie"
+        # 删除电视剧
+        elif mtype == MediaType.TV and not season_num and not episode_num:
+            msg = "tv"
+        # 删除季
+        elif mtype == MediaType.TV and season_num and not episode_num:
+            msg = "tv_season"
+        # 删除集
+        elif mtype == MediaType.TV and season_num and episode_num:
+            msg = "tv_episode"
+        else:
+            return None
+        return msg
+
     def __get_transfer_his(
         self,
         media_type: str,
@@ -496,6 +513,20 @@ class MediaSyncDelHelper:
             transfer_history: List[TransferHistory] = self.transferhis.get_by(
                 tmdbid=tmdb_id, mtype=mtype.value
             )
+        # 季处理为集（多版本季删除）
+        elif (
+            mtype == MediaType.TV
+            and season_num
+            and not episode_num
+            and configer.sync_del_remove_versions_season
+        ):
+            msg, transfer_history = "", []
+            transfer_his = self.transferhis.get_by_dest(media_path)
+            if transfer_his:
+                msg, transfer_history = (
+                    f"剧集 {media_name} S{season_num}{transfer_his.episodes} {tmdb_id}",
+                    [transfer_his],
+                )
         # 删除季
         elif mtype == MediaType.TV and season_num and not episode_num:
             if not season_num or not str(season_num).isdigit():
@@ -584,6 +615,8 @@ class MediaSyncDelHelper:
         media_type = event_data.item_type
         # 媒体名称
         media_name = event_data.item_name
+        # 媒体路径
+        media_path = event_data.item_path
         # tmdb_id
         tmdb_id = event_data.tmdb_id
         # 季数
@@ -593,20 +626,30 @@ class MediaSyncDelHelper:
         # 原始数据
         json_object = getattr(event_data, "json_object", {})
 
-        description = json_object.get("Description", "")
-        item_paths = WebhookUtils.parse_item_paths_from_description(description)
+        remove_type = self.__get_remove_type(media_type, season_num, episode_num)
+        if remove_type == "tv_season" and configer.sync_del_remove_versions_season:
+            # 为了支持多版本删除，季删除统一退回为集删除
+            description = json_object.get("Description", "")
+            item_paths = WebhookUtils.parse_item_paths_from_description(description)
 
-        if not item_paths:
-            original_path = event_data.item_path
-            if original_path:
-                item_paths = [original_path]
-            else:
+            if not item_paths:
+                original_path = event_data.item_path
+                if original_path:
+                    item_paths = [original_path]
+                else:
+                    logger.warn(
+                        f"【同步删除】{media_name} 同步删除失败，未找到Item Path"
+                    )
+                    return None
+
+            logger.info(
+                f"【同步删除】{media_name} 从Description解析到 {len(item_paths)} 个Item Path: {item_paths}"
+            )
+        else:
+            if not media_path:
                 logger.warn(f"【同步删除】{media_name} 同步删除失败，未找到Item Path")
                 return None
-
-        logger.info(
-            f"【同步删除】{media_name} 从Description解析到 {len(item_paths)} 个Item Path: {item_paths}"
-        )
+            item_paths = [media_path]
 
         if not p115_library_path:
             return None

@@ -509,6 +509,9 @@ class ConfigManager(BaseModel):
     sync_del_p115_force_delete_files: bool = Field(
         default=False, description="115网盘强制删除文件"
     )
+    sync_del_remove_versions_season: bool = Field(
+        default=False, description="开启多版本季删除"
+    )
     sync_del_mediaservers: Optional[List[str]] = Field(
         default=None, description="同步删除媒体服务器"
     )

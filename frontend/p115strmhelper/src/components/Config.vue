@@ -903,8 +903,12 @@
 
                   <v-row>
                     <v-col cols="12" md="6">
+                      <v-switch v-model="config.sync_del_remove_versions_season" label="开启多版本季删除" color="info"
+                        density="compact" chips closable-chips hint="请查看下方警告提示了解详细说明" persistent-hint></v-switch>
+                    </v-col>
+                    <v-col cols="12" md="6">
                       <v-select v-model="config.sync_del_mediaservers" label="媒体服务器" :items="embyMediaservers" multiple
-                        chips closable-chips hint="用于获取TMDB ID，仅支持Emby" persistent-hint></v-select>
+                        density="compact" chips closable-chips hint="用于获取TMDB ID，仅支持Emby" persistent-hint></v-select>
                     </v-col>
                   </v-row>
 
@@ -958,7 +962,9 @@
                     <div class="text-caption">
                       <div class="mb-1">• 不正确配置会导致查询不到转移记录！</div>
                       <div class="mb-1">• 需要使用神医助手PRO且版本在v3.0.0.3及以上或神医助手社区版且版本在v2.0.0.27及以上！</div>
-                      <div>• 同步删除多版本功能需要使用助手Pro v3.0.0.22才支持！</div>
+                      <div class="mb-1">• 同步删除多版本功能需要使用助手Pro v3.0.0.22才支持！</div>
+                      <div>• <strong>开启多版本季删除：</strong>开启后会将季删除通过神医返回的路径改为集删除，从而防止误删其它版本，如果无多版本季删除的需求，推荐关闭此按钮，提升删除效率
+                      </div>
                     </div>
                   </v-alert>
                 </v-card-text>
@@ -2650,6 +2656,7 @@ const config = reactive({
   sync_del_source: false,
   sync_del_p115_library_path: '',
   sync_del_p115_force_delete_files: false,
+  sync_del_remove_versions_season: false,
   sync_del_mediaservers: []
 });
 
