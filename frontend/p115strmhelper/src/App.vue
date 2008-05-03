@@ -88,5 +88,74 @@ export default defineComponent({
   height: 100%;
   display: flex;
   flex-direction: column;
+  background: transparent;
+}
+
+/* 全局平滑过渡效果 */
+* {
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* 优化滚动条样式 */
+:deep(::-webkit-scrollbar) {
+  width: 8px;
+  height: 8px;
+}
+
+:deep(::-webkit-scrollbar-track) {
+  background: rgba(var(--v-theme-surface), 0.1);
+  border-radius: 4px;
+}
+
+:deep(::-webkit-scrollbar-thumb) {
+  background: rgba(var(--v-theme-on-surface), 0.2);
+  border-radius: 4px;
+  transition: background 0.2s ease;
+}
+
+:deep(::-webkit-scrollbar-thumb:hover) {
+  background: rgba(var(--v-theme-primary), 0.4);
+}
+
+/* 移动端优化 */
+@media (max-width: 768px) {
+  /* 优化滚动条在移动端（更细） */
+  :deep(::-webkit-scrollbar) {
+    width: 4px;
+    height: 4px;
+  }
+
+  /* 确保触摸事件正常工作 */
+  * {
+    -webkit-tap-highlight-color: rgba(var(--v-theme-primary), 0.1);
+    tap-highlight-color: rgba(var(--v-theme-primary), 0.1);
+  }
+
+  /* 优化文本选择 */
+  ::selection {
+    background: rgba(var(--v-theme-primary), 0.2);
+  }
+
+  ::-moz-selection {
+    background: rgba(var(--v-theme-primary), 0.2);
+  }
+
+  /* 防止文本在移动端被放大 */
+  input[type="text"],
+  input[type="password"],
+  input[type="email"],
+  input[type="number"],
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
+}
+
+/* 小屏幕优化 */
+@media (max-width: 600px) {
+  /* 进一步优化 */
+  .plugin-app {
+    overflow-x: hidden;
+  }
 }
 </style>

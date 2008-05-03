@@ -1526,14 +1526,14 @@
                               <div class="mb-2">
                                 <div class="text-caption text-medium-emphasis mb-1">普通 STRM:</div>
                                 <code class="text-caption pa-2 d-block"
-                                  style="background-color: rgba(var(--v-theme-on-surface), 0.05); border-radius: 4px; font-family: 'Courier New', monospace; word-break: break-all; display: block; white-space: pre-wrap; border: 1px solid rgba(var(--v-theme-on-surface), 0.1);">{{
+                                  style="background-color: rgba(var(--v-theme-on-surface), 0.05); border-radius: 8px; font-family: 'Courier New', monospace; word-break: break-all; display: block; white-space: pre-wrap; border: 1px solid rgba(var(--v-theme-on-surface), 0.12); padding: 10px;">{{
                         base_url }}?apikey={{ apikey }}&pickcode={{ pickcode }}{% if file_name %}&file_name={{ file_name
                         | urlencode }}{% endif %}</code>
                               </div>
                               <div>
                                 <div class="text-caption text-medium-emphasis mb-1">分享 STRM:</div>
                                 <code class="text-caption pa-2 d-block"
-                                  style="background-color: rgba(var(--v-theme-on-surface), 0.05); border-radius: 4px; font-family: 'Courier New', monospace; word-break: break-all; display: block; white-space: pre-wrap; border: 1px solid rgba(var(--v-theme-on-surface), 0.1);">{{
+                                  style="background-color: rgba(var(--v-theme-on-surface), 0.05); border-radius: 8px; font-family: 'Courier New', monospace; word-break: break-all; display: block; white-space: pre-wrap; border: 1px solid rgba(var(--v-theme-on-surface), 0.12); padding: 10px;">{{
                         base_url }}?apikey={{ apikey }}&share_code={{ share_code }}&receive_code={{ receive_code
                         }}&id={{ file_id }}{% if file_name %}&file_name={{ file_name | urlencode }}{% endif %}</code>
                               </div>
@@ -1623,19 +1623,19 @@
                               <div class="mb-2">
                                 <div class="text-caption text-medium-emphasis mb-1">默认格式:</div>
                                 <code class="text-caption pa-2 d-block"
-                                  style="background-color: rgba(var(--v-theme-on-surface), 0.05); border-radius: 4px; font-family: 'Courier New', monospace; display: block; border: 1px solid rgba(var(--v-theme-on-surface), 0.1);">{{
+                                  style="background-color: rgba(var(--v-theme-on-surface), 0.05); border-radius: 8px; font-family: 'Courier New', monospace; display: block; border: 1px solid rgba(var(--v-theme-on-surface), 0.12); padding: 10px;">{{
                         file_stem }}.strm</code>
                               </div>
                               <div class="mb-2">
                                 <div class="text-caption text-medium-emphasis mb-1">ISO 格式:</div>
                                 <code class="text-caption pa-2 d-block"
-                                  style="background-color: rgba(var(--v-theme-on-surface), 0.05); border-radius: 4px; font-family: 'Courier New', monospace; display: block; border: 1px solid rgba(var(--v-theme-on-surface), 0.1);">{{
+                                  style="background-color: rgba(var(--v-theme-on-surface), 0.05); border-radius: 8px; font-family: 'Courier New', monospace; display: block; border: 1px solid rgba(var(--v-theme-on-surface), 0.12); padding: 10px;">{{
                         file_stem }}.iso.strm</code>
                               </div>
                               <div>
                                 <div class="text-caption text-medium-emphasis mb-1">大写文件名:</div>
                                 <code class="text-caption pa-2 d-block"
-                                  style="background-color: rgba(var(--v-theme-on-surface), 0.05); border-radius: 4px; font-family: 'Courier New', monospace; display: block; border: 1px solid rgba(var(--v-theme-on-surface), 0.1);">{{
+                                  style="background-color: rgba(var(--v-theme-on-surface), 0.05); border-radius: 8px; font-family: 'Courier New', monospace; display: block; border: 1px solid rgba(var(--v-theme-on-surface), 0.12); padding: 10px;">{{
                         file_stem | upper }}.strm</code>
                               </div>
                             </div>
@@ -3838,16 +3838,42 @@ const removeExcludePathEntry = (index, type) => {
 }
 
 /* 基本配置卡片样式 */
-.config-card {
-  border-radius: 8px !important;
-  border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)) !important;
-  overflow: hidden;
-  /* 确保内部元素不会超出圆角 */
+.plugin-config {
+  padding: 12px;
 }
 
-.bg-primary-gradient {
-  background: linear-gradient(to right, rgba(var(--v-theme-primary), 0.1), rgba(var(--v-theme-primary), 0.03)) !important;
-  /* border-bottom: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); */
+.plugin-config :deep(.v-card) {
+  border-radius: 16px !important;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04) !important;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+.config-card {
+  border-radius: 12px !important;
+  border: 1px solid rgba(var(--v-border-color), 0.12) !important;
+  background: rgba(var(--v-theme-surface), 1) !important;
+  overflow: hidden;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  margin-bottom: 16px !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04) !important;
+}
+
+.config-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.08) !important;
+  border-color: rgba(var(--v-theme-primary), 0.2) !important;
+}
+
+.bg-primary-gradient,
+.bg-primary-lighten-5 {
+  background: linear-gradient(135deg, rgba(var(--v-theme-primary), 0.12), rgba(var(--v-theme-primary), 0.06)) !important;
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid rgba(var(--v-border-color), 0.08) !important;
+}
+
+.plugin-config :deep(.v-card-title) {
+  border-radius: 12px 12px 0 0;
 }
 
 .config-title {
@@ -3857,9 +3883,16 @@ const removeExcludePathEntry = (index, type) => {
 
 /* 路径输入框组 */
 .path-group {
-  padding: 8px;
-  border: 1px solid rgba(var(--v-border-color), 0.3);
-  border-radius: 6px;
+  padding: 12px;
+  border: 1px solid rgba(var(--v-border-color), 0.2);
+  border-radius: 10px;
+  background: rgba(var(--v-theme-surface), 0.5);
+  transition: all 0.25s ease !important;
+}
+
+.path-group:hover {
+  border-color: rgba(var(--v-theme-primary), 0.3);
+  background: rgba(var(--v-theme-primary), 0.02);
 }
 
 .path-input-row {
@@ -3889,31 +3922,39 @@ const removeExcludePathEntry = (index, type) => {
 
 /* Tab 样式调整 */
 :deep(.v-tabs) {
-  border-bottom: 2px solid rgba(var(--v-theme-primary), 0.5) !important;
+  border-bottom: 2px solid rgba(var(--v-theme-primary), 0.2) !important;
+  border-radius: 10px 10px 0 0;
 }
 
 :deep(.v-tab) {
   font-weight: 500;
-  transition: all 0.3s ease;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  border-radius: 10px 10px 0 0 !important;
+  margin: 0 2px;
+}
+
+:deep(.v-tab:hover) {
+  background-color: rgba(var(--v-theme-primary), 0.06) !important;
 }
 
 :deep(.v-tab--selected) {
-  background-color: rgba(var(--v-theme-primary), 0.1) !important;
+  background: linear-gradient(135deg, rgba(var(--v-theme-primary), 0.15), rgba(var(--v-theme-primary), 0.08)) !important;
   color: rgb(var(--v-theme-primary)) !important;
-  border-radius: 6px 6px 0 0 !important;
-  /* 左上和右上圆角 */
+  border-radius: 10px 10px 0 0 !important;
+  font-weight: 600 !important;
 }
 
 /* Switch 样式调整 */
 :deep(.v-switch .v-selection-control__input > .v-icon) {
   color: rgba(var(--v-theme-medium-emphasis));
-  /* 未激活时的滑块颜色 */
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
 }
 
 :deep(.v-switch .v-track) {
   background-color: rgba(var(--v-theme-medium-emphasis), 0.3) !important;
-  /* 未激活时的轨道颜色 */
+  border-radius: 12px !important;
   opacity: 1 !important;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
 }
 
 /* 调整字体大小 */
@@ -3930,6 +3971,53 @@ const removeExcludePathEntry = (index, type) => {
 :deep(.v-text-field input),
 :deep(.v-textarea textarea) {
   font-size: 0.875rem !important;
+}
+
+/* 优化输入框样式 */
+:deep(.v-field) {
+  border-radius: 10px !important;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+:deep(.v-field--focused) {
+  box-shadow: 0 0 0 2px rgba(var(--v-theme-primary), 0.2) !important;
+}
+
+:deep(.v-select .v-field),
+:deep(.v-text-field .v-field),
+:deep(.v-textarea .v-field) {
+  border-radius: 10px !important;
+}
+
+/* 优化按钮样式 */
+:deep(.v-btn) {
+  border-radius: 10px !important;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  font-weight: 500 !important;
+  text-transform: none !important;
+}
+
+:deep(.v-btn:hover) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
+}
+
+/* 优化警告框样式 */
+:deep(.v-alert) {
+  border-radius: 12px !important;
+  border-left-width: 4px !important;
+  transition: all 0.25s ease !important;
+}
+
+/* 优化列表项样式 */
+:deep(.v-list-item) {
+  border-radius: 8px;
+  margin: 2px 4px;
+  transition: all 0.2s ease !important;
+}
+
+:deep(.v-list-item:hover) {
+  background-color: rgba(var(--v-theme-primary), 0.04) !important;
 }
 
 /* Reduce vertical padding for columns within rows */
@@ -4008,9 +4096,162 @@ const removeExcludePathEntry = (index, type) => {
 
 /* 移动端优化 */
 @media (max-width: 959px) {
+  .plugin-config {
+    padding: 8px;
+  }
+
+  /* 移动端减小圆角 */
+  .plugin-config :deep(.v-card) {
+    border-radius: 12px !important;
+  }
+
+  .config-card {
+    border-radius: 10px !important;
+    margin-bottom: 12px !important;
+  }
+
+  .plugin-config :deep(.v-card-title) {
+    border-radius: 10px 10px 0 0;
+    padding: 12px !important;
+  }
+
+  /* 优化触摸目标大小 */
+  :deep(.v-btn) {
+    min-height: 44px !important;
+    min-width: 44px !important;
+    padding: 8px 16px !important;
+    font-size: 0.875rem !important;
+  }
+
+  :deep(.v-btn--icon) {
+    min-width: 44px !important;
+    min-height: 44px !important;
+  }
+
+  /* 优化输入框触摸区域 */
+  :deep(.v-field) {
+    border-radius: 8px !important;
+    min-height: 48px !important;
+  }
+
+  :deep(.v-text-field .v-field),
+  :deep(.v-select .v-field),
+  :deep(.v-textarea .v-field) {
+    min-height: 48px !important;
+  }
+
+  /* 优化开关触摸区域 */
+  :deep(.v-switch) {
+    min-height: 44px !important;
+    padding: 8px 0 !important;
+  }
+
+  /* 优化列表项触摸区域 */
+  :deep(.v-list-item) {
+    min-height: 48px !important;
+    padding: 8px 12px !important;
+  }
+
+  /* 优化Tab在移动端 */
+  :deep(.v-tab) {
+    min-height: 44px !important;
+    padding: 0 16px !important;
+    font-size: 0.875rem !important;
+  }
+
+  /* 优化对话框在移动端 */
+  :deep(.v-dialog > .v-card) {
+    margin: 16px !important;
+    max-height: calc(100vh - 32px) !important;
+    border-radius: 16px !important;
+  }
+
+  :deep(.v-dialog) {
+    max-width: calc(100vw - 32px) !important;
+  }
+
+  /* 路径输入组优化 */
+  .path-group {
+    padding: 10px !important;
+    border-radius: 8px !important;
+  }
+
+  /* 优化警告框 */
+  :deep(.v-alert) {
+    border-radius: 10px !important;
+    padding: 12px !important;
+  }
+
+  /* 优化卡片间距 */
+  :deep(.v-card-text) {
+    padding: 12px !important;
+  }
+
+  /* 优化芯片 */
+  :deep(.v-chip) {
+    font-size: 0.75rem !important;
+    height: 28px !important;
+    padding: 0 10px !important;
+    min-height: 28px !important;
+  }
+
+  /* 优化图标大小 */
+  :deep(.v-icon) {
+    font-size: 20px !important;
+  }
+
+  :deep(.v-icon--size-small) {
+    font-size: 18px !important;
+  }
+
+  /* 优化行和列的间距 */
+  :deep(.v-row) {
+    margin: -4px !important;
+  }
+
+  :deep(.v-row > .v-col) {
+    padding: 6px !important;
+  }
+
   .cache-card {
     min-height: auto;
     height: auto;
+  }
+}
+
+/* 移动端小屏幕优化 (max-width: 600px) */
+@media (max-width: 600px) {
+  .plugin-config {
+    padding: 6px;
+  }
+
+  .plugin-config :deep(.v-card) {
+    border-radius: 10px !important;
+  }
+
+  .config-card {
+    border-radius: 8px !important;
+    margin-bottom: 10px !important;
+  }
+
+  /* 对话框在小屏幕上全屏 */
+  :deep(.v-dialog) {
+    max-width: 100vw !important;
+  }
+
+  :deep(.v-dialog > .v-card) {
+    margin: 0 !important;
+    border-radius: 0 !important;
+    max-height: 100vh !important;
+  }
+
+  /* 进一步优化间距 */
+  :deep(.v-card-text) {
+    padding: 10px !important;
+  }
+
+  :deep(.v-card-title) {
+    padding: 10px !important;
   }
 }
 

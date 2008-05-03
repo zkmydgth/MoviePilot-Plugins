@@ -1158,13 +1158,13 @@
           <v-icon>mdi-close</v-icon>
         </v-btn>
       </v-card-title>
-      <v-card-text class="pa-0">
+      <v-card-text class="pa-0 sync-del-history-content">
         <v-skeleton-loader v-if="syncDelHistoryLoading" type="list-item-avatar-three-line@5"></v-skeleton-loader>
         <div v-else-if="syncDelHistory.length === 0" class="text-center py-8">
           <v-icon icon="mdi-information-outline" size="large" color="grey" class="mb-2"></v-icon>
           <div class="text-caption text-grey">暂无删除历史</div>
         </div>
-        <v-list v-else class="bg-transparent pa-0" style="max-height: 70vh; overflow-y: auto;">
+        <v-list v-else class="bg-transparent pa-0">
           <template v-for="(item, index) in syncDelHistory" :key="item.unique || index">
             <v-list-item class="px-3 py-2">
               <template v-slot:prepend>
@@ -2087,15 +2087,31 @@ async function fetchUserStorageStatus() {
 </script>
 
 <style scoped>
+.plugin-page {
+  padding: 12px;
+}
+
+.plugin-page :deep(.v-card) {
+  border-radius: 16px !important;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04) !important;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
 .config-card {
+  border-radius: 12px !important;
   box-shadow: none !important;
-  transition: all 0.2s ease;
-  margin-bottom: 10px !important;
+  border: 1px solid rgba(var(--v-border-color), 0.12) !important;
+  background: rgba(var(--v-theme-surface), 1) !important;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  margin-bottom: 16px !important;
+  overflow: hidden;
 }
 
 .config-card:hover {
   transform: translateY(-2px);
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.05) !important;
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.08) !important;
+  border-color: rgba(var(--v-theme-primary), 0.2) !important;
 }
 
 /* 统一字体 */
@@ -2123,17 +2139,27 @@ async function fetchUserStorageStatus() {
 
 /* 美化卡片标题 */
 .bg-primary-gradient {
-  background: linear-gradient(135deg, rgba(var(--v-theme-primary), 0.1), rgba(var(--v-theme-primary), 0.05)) !important;
+  background: linear-gradient(135deg, rgba(var(--v-theme-primary), 0.12), rgba(var(--v-theme-primary), 0.06)) !important;
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid rgba(var(--v-border-color), 0.08) !important;
+}
+
+.plugin-page :deep(.v-card-title) {
+  border-radius: 12px 12px 0 0;
 }
 
 /* 美化芯片 */
 :deep(.v-chip) {
-  font-weight: normal;
-  transition: all 0.2s ease;
+  font-weight: 500;
+  border-radius: 8px !important;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05) !important;
 }
 
-:deep(.v-chip--selected) {
-  transform: scale(1.05);
+:deep(.v-chip--selected),
+:deep(.v-chip:hover) {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1) !important;
 }
 
 :deep(.v-list-item) {
@@ -2174,10 +2200,41 @@ async function fetchUserStorageStatus() {
 .sticky-actions {
   position: sticky;
   bottom: 0;
-  background-color: var(--v-theme-surface, white);
-  /* Match card background */
+  background: linear-gradient(to top, rgba(var(--v-theme-surface), 0.98), rgba(var(--v-theme-surface), 0.95));
+  backdrop-filter: blur(10px);
   z-index: 2;
-  border-top: 1px solid rgba(var(--v-border-color, black), var(--v-border-opacity, 0.12));
+  border-top: 1px solid rgba(var(--v-border-color), 0.1);
+  border-radius: 0 0 16px 16px;
+}
+
+/* 优化按钮样式 */
+:deep(.v-btn) {
+  border-radius: 8px !important;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  font-weight: 500 !important;
+}
+
+:deep(.v-btn:hover) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
+}
+
+/* 优化警告框样式 */
+:deep(.v-alert) {
+  border-radius: 10px !important;
+  border-left-width: 4px !important;
+  transition: all 0.25s ease !important;
+}
+
+/* 优化列表项样式 */
+:deep(.v-list-item) {
+  border-radius: 8px;
+  margin: 2px 4px;
+  transition: all 0.2s ease !important;
+}
+
+:deep(.v-list-item:hover) {
+  background-color: rgba(var(--v-theme-primary), 0.04) !important;
 }
 
 /* Colorful Switches */
@@ -2240,19 +2297,78 @@ async function fetchUserStorageStatus() {
   }
 }
 
-/* 手机端离线下载表格优化 */
+/* 手机端优化 */
 @media (max-width: 768px) {
+  .plugin-page {
+    padding: 8px;
+  }
+
+  /* 移动端减小圆角 */
+  .plugin-page :deep(.v-card) {
+    border-radius: 12px !important;
+  }
+
+  .config-card {
+    border-radius: 10px !important;
+    margin-bottom: 12px !important;
+  }
+
+  .plugin-page :deep(.v-card-title) {
+    border-radius: 10px 10px 0 0;
+    padding: 12px !important;
+  }
+
+  /* 优化触摸目标大小 */
+  :deep(.v-btn) {
+    min-height: 44px !important;
+    min-width: 44px !important;
+    padding: 8px 16px !important;
+    font-size: 0.875rem !important;
+  }
+
+  :deep(.v-btn--icon) {
+    min-width: 44px !important;
+    min-height: 44px !important;
+  }
+
+  /* 优化列表项触摸区域 */
+  :deep(.v-list-item) {
+    min-height: 48px !important;
+    padding: 8px 12px !important;
+  }
+
+  /* 优化输入框 */
+  :deep(.v-field) {
+    border-radius: 8px !important;
+  }
+
+  :deep(.v-text-field .v-field),
+  :deep(.v-select .v-field),
+  :deep(.v-textarea .v-field) {
+    min-height: 48px !important;
+  }
+
+  /* 优化对话框在移动端 */
+  :deep(.v-dialog > .v-card) {
+    margin: 16px !important;
+    max-height: calc(100vh - 32px) !important;
+    border-radius: 16px !important;
+  }
+
+  /* 离线下载表格优化 */
   :deep(.v-data-table) {
     font-size: 0.8rem;
   }
 
   :deep(.v-data-table .v-data-table__td) {
-    padding: 8px 4px !important;
+    padding: 10px 6px !important;
+    min-height: 44px !important;
   }
 
   :deep(.v-data-table .v-data-table__th) {
-    padding: 8px 4px !important;
+    padding: 10px 6px !important;
     font-size: 0.75rem;
+    min-height: 44px !important;
   }
 
   /* 防止表格在手机上的触摸滑动触发标签页切换 */
@@ -2262,13 +2378,47 @@ async function fetchUserStorageStatus() {
 
   /* 优化进度条在手机上的显示 */
   :deep(.v-progress-linear) {
-    height: 6px !important;
+    height: 8px !important;
   }
 
   /* 优化芯片在手机上的显示 */
   :deep(.v-chip) {
-    font-size: 0.7rem;
-    height: 20px;
+    font-size: 0.75rem !important;
+    height: 28px !important;
+    padding: 0 10px !important;
+    min-height: 28px !important;
+  }
+
+  /* 优化警告框 */
+  :deep(.v-alert) {
+    border-radius: 10px !important;
+    padding: 12px !important;
+  }
+
+  /* 优化卡片间距 */
+  :deep(.v-card-text) {
+    padding: 12px !important;
+  }
+
+  /* 优化图标大小 */
+  :deep(.v-icon) {
+    font-size: 20px !important;
+  }
+
+  :deep(.v-icon--size-small) {
+    font-size: 18px !important;
+  }
+
+  /* 同步删除历史对话框在移动端的滚动优化 */
+  :deep(.sync-del-history-content) {
+    max-height: calc(100vh - 120px) !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+  }
+
+  :deep(.sync-del-history-content .v-list) {
+    max-height: none !important;
+    overflow-y: visible !important;
   }
 }
 </style>

@@ -196,11 +196,119 @@ onUnmounted(() => {
   width: 100%;
 }
 
+.dashboard-widget :deep(.v-card) {
+  border-radius: 16px !important;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04) !important;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  border: 1px solid rgba(var(--v-border-color), 0.1) !important;
+}
+
+.dashboard-widget :deep(.v-card:hover) {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08) !important;
+  transform: translateY(-1px);
+}
+
 .v-card-item {
   padding-bottom: 8px;
 }
 
-.v-list-item {
-  min-height: 28px;
+:deep(.v-card-title) {
+  font-weight: 600 !important;
+  color: rgba(var(--v-theme-on-surface), 0.87) !important;
+}
+
+:deep(.v-card-subtitle) {
+  color: rgba(var(--v-theme-on-surface), 0.6) !important;
+}
+
+:deep(.v-list-item) {
+  min-height: 36px;
+  border-radius: 8px;
+  margin: 2px 4px;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+:deep(.v-list-item:hover) {
+  background-color: rgba(var(--v-theme-primary), 0.04) !important;
+  transform: translateX(2px);
+}
+
+:deep(.v-list-item-title) {
+  font-weight: 500 !important;
+}
+
+:deep(.v-btn) {
+  border-radius: 8px !important;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+:deep(.v-btn:hover) {
+  transform: scale(1.1);
+  background-color: rgba(var(--v-theme-primary), 0.1) !important;
+}
+
+:deep(.v-icon) {
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+/* 移动端优化 */
+@media (max-width: 768px) {
+  .dashboard-widget :deep(.v-card) {
+    border-radius: 12px !important;
+  }
+
+  /* 优化触摸目标大小 */
+  :deep(.v-btn) {
+    min-height: 44px !important;
+    min-width: 44px !important;
+  }
+
+  :deep(.v-btn--icon) {
+    min-width: 44px !important;
+    min-height: 44px !important;
+  }
+
+  /* 优化列表项触摸区域 */
+  :deep(.v-list-item) {
+    min-height: 48px !important;
+    padding: 8px 12px !important;
+    margin: 4px 2px !important;
+  }
+
+  /* 优化卡片标题 */
+  :deep(.v-card-title) {
+    font-size: 0.875rem !important;
+    padding: 10px 12px !important;
+  }
+
+  :deep(.v-card-subtitle) {
+    font-size: 0.75rem !important;
+    padding: 0 12px 8px 12px !important;
+  }
+
+  /* 优化文本大小 */
+  :deep(.v-list-item-title) {
+    font-size: 0.8rem !important;
+  }
+
+  /* 优化图标大小 */
+  :deep(.v-icon) {
+    font-size: 20px !important;
+  }
+
+  :deep(.v-icon--size-small) {
+    font-size: 18px !important;
+  }
+
+  /* 优化卡片内容区域 */
+  :deep(.v-card-text) {
+    padding: 10px !important;
+  }
+
+  /* 优化卡片操作区域 */
+  :deep(.v-card-actions) {
+    padding: 8px 10px !important;
+  }
 }
 </style>
