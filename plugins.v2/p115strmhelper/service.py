@@ -9,6 +9,7 @@ from p115client.tool.util import share_extract_payload
 from watchdog.observers import Observer
 from watchdog.observers.polling import PollingObserver
 
+from .core.i18n import I18N
 from .helper.mediainfo_download import MediaInfoDownloader
 from .helper.life import MonitorLife
 from .helper.strm import FullSyncStrmHelper, ShareStrmHelper, IncrementSyncStrmHelper
@@ -43,6 +44,8 @@ class ServiceHelper:
 
         self.scheduler = None
 
+        self.i18n = I18N(locale=configer.get_config("language"))
+
         self.service_observer = []
 
     def init_service(self):
@@ -61,6 +64,7 @@ class ServiceHelper:
             self.offlinehelper = OfflineDownloadHelper(
                 client=self.client, monitorlife=self.monitorlife
             )
+            self.i18n = I18N(locale=configer.get_config("language"))
             return True
         except Exception as e:
             logger.error(f"服务项初始化失败: {e}")
@@ -152,7 +156,7 @@ class ServiceHelper:
                 text += f"🗑️ 清理无效STRM文件 {remove_unless_strm_count} 个"
             post_message(
                 mtype=NotificationType.Plugin,
-                title="✅【115网盘】全量生成 STRM 文件完成",
+                title=servicer.i18n.translate("full_sync_done_title"),
                 text=text,
             )
 

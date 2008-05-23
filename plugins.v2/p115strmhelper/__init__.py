@@ -490,7 +490,7 @@ class P115StrmHelper(_PluginBase):
             return
         self.post_message(
             channel=event.event_data.get("channel"),
-            title="开始115网盘媒体库全量同步 ...",
+            title=servicer.i18n.translate("start_full_sync"),
             userid=event.event_data.get("user"),
         )
         servicer.full_sync_strm_files()
@@ -507,7 +507,7 @@ class P115StrmHelper(_PluginBase):
             return
         self.post_message(
             channel=event.event_data.get("channel"),
-            title="开始115网盘媒体库增量同步 ...",
+            title=servicer.i18n.translate("start_inc_sync"),
             userid=event.event_data.get("user"),
         )
         servicer.increment_sync_strm_files(send_msg=True)
@@ -527,7 +527,7 @@ class P115StrmHelper(_PluginBase):
             logger.error(f"【全量STRM生成】缺少参数：{event_data}")
             self.post_message(
                 channel=event.event_data.get("channel"),
-                title="参数错误！ /p115_strm 网盘路径",
+                title=servicer.i18n.translate("p115_strm_parameter_error"),
                 userid=event.event_data.get("user"),
             )
             return
@@ -538,7 +538,7 @@ class P115StrmHelper(_PluginBase):
         ):
             self.post_message(
                 channel=event.event_data.get("channel"),
-                title="全量同步配置错误，请前往插件配置！",
+                title=servicer.i18n.translate("p115_strm_full_sync_config_error"),
                 userid=event.event_data.get("user"),
             )
             return
@@ -549,7 +549,7 @@ class P115StrmHelper(_PluginBase):
         if not status:
             self.post_message(
                 channel=event.event_data.get("channel"),
-                title=f"{args} 匹配目录失败，请检查输入路径和插件配置！",
+                title=f"{args} {servicer.i18n.translate('p115_strm_match_path_error')}",
                 userid=event.event_data.get("user"),
             )
             return
@@ -584,7 +584,7 @@ class P115StrmHelper(_PluginBase):
         self.post_message(
             channel=event.event_data.get("channel"),
             userid=event.event_data.get("user"),
-            title="✅【115网盘】全量生成 STRM 文件完成",
+            title=servicer.i18n.translate("full_sync_done_title"),
             text=text,
         )
 

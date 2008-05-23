@@ -1,0 +1,8 @@
+{
+    "start_full_sync": "主人，开始115网盘媒体库全量同步喵 ~~",
+    "start_inc_sync": "主人，开始115网盘媒体库增量同步喵 ~~",
+    "p115_strm_parameter_error": "主人，参数错误了喵 ~~ 正确格式是这样的喵：/p115_strm 网盘路径",
+    "p115_strm_full_sync_config_error": "全量同步配置错误了喵，劳烦主人前往插件配置喵 ~~",
+    "p115_strm_match_path_error": "匹配目录失败喵，劳烦主人请检查输入路径和插件配置喵 ~~",
+    "full_sync_done_title": "✅【115网盘】全量生成 STRM 文件完成喵！"
+}
