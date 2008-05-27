@@ -1,5 +1,5 @@
-import shutil
 import time
+from shutil import rmtree
 from collections import defaultdict
 from threading import Timer
 from typing import List, Set, Dict, Optional
@@ -25,7 +25,7 @@ from ..helper.mediaserver import MediaServerRefresh
 
 from p115client import P115Client
 from p115client.tool.attr import get_path
-from p115client.tool.iterdir import iter_files_with_path_skim
+from p115client.tool.iterdir import iter_files_with_path
 from p115client.tool.life import (
     iter_life_behavior_once,
     life_show,
@@ -181,8 +181,8 @@ class MonitorLife:
             # 缓存顶层文件夹ID
             if str(event["file_id"]) not in pantransfercacher.delete_pan_transfer_list:
                 pantransfercacher.delete_pan_transfer_list.append(str(event["file_id"]))
-            for item in iter_files_with_path_skim(
-                self._client, cid=int(file_id), with_ancestors=True
+            for item in iter_files_with_path(
+                self._client, cid=int(file_id), with_ancestors=True, cooldown=2
             ):
                 try:
                     check_iter_path_data(item)
@@ -319,11 +319,13 @@ class MonitorLife:
             mediainfo_count = 0
             strm_count = 0
             _databasehelper.upsert_batch(
-                _databasehelper.process_life_dir_item(event=event, file_path=file_path.as_posix())
+                _databasehelper.process_life_dir_item(
+                    event=event, file_path=file_path.as_posix()
+                )
             )
             for batch in batched(
-                iter_files_with_path_skim(
-                    self._client, cid=int(file_id), with_ancestors=True
+                iter_files_with_path(
+                    self._client, cid=int(file_id), with_ancestors=True, cooldown=2
                 ),
                 7_000,
             ):
@@ -475,7 +477,9 @@ class MonitorLife:
                     self._schedule_notification()
         else:
             _databasehelper.upsert_batch(
-                _databasehelper.process_life_file_item(event=event, file_path=file_path.as_posix())
+                _databasehelper.process_life_file_item(
+                    event=event, file_path=file_path.as_posix()
+                )
             )
             if "creata" in configer.get_config("monitor_life_event_modes"):  # pylint: disable=E1135
                 # 文件情况，直接生成
@@ -707,7 +711,7 @@ class MonitorLife:
                 return
             if file_category == 0:
                 # 删除目录
-                shutil.rmtree(Path(file_path))
+                rmtree(Path(file_path))
             else:
                 # 删除文件
                 Path(file_path).unlink(missing_ok=True)
