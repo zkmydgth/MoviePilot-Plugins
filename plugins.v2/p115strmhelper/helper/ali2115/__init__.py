@@ -5,7 +5,6 @@ from typing import List, Optional
 from urllib.parse import urlparse
 from pathlib import Path
 
-from aligo import GetShareTokenResponse
 from httpx import stream
 from p115client import P115Client
 
@@ -92,27 +91,38 @@ class Ali2115Helper:
         return folder_id
 
     def ali_tree_share(
-        self, share_token, rmt_mediaext: Optional[List] = None, parent_file_id="root"
+        self,
+        share_token,
+        rmt_mediaext: Optional[List] = None,
+        parent_file_id="root",
+        current_path: str = "",
     ):
         """
-        递归分享文件
+        递归遍历分享文件，携带相对路径信息
+
+        :return: 生成 (current_path, file) 二元组，current_path 为文件相对于分享根的父目录路径
         """
         file_list = self.ali_client.get_share_file_list(
             share_token, parent_file_id=parent_file_id
         )
         for file in file_list:
             if file.type == "folder":
-                yield from self.ali_tree_share(share_token, rmt_mediaext, file.file_id)
+                child_path = (
+                    f"{current_path}/{file.name}" if current_path else file.name
+                )
+                yield from self.ali_tree_share(
+                    share_token, rmt_mediaext, file.file_id, child_path
+                )
             else:
                 if rmt_mediaext:
                     if Path(file.name).suffix.lower() in rmt_mediaext:
-                        yield file
+                        yield current_path, file
                     else:
                         logger.warn(
                             f"【Ali2115】{file.name} 不符合媒体文件后缀，跳过秒传"
                         )
                 else:
-                    yield file
+                    yield current_path, file
 
     def get_share_one_path_name(self, share_token):
         """
@@ -135,7 +145,7 @@ class Ali2115Helper:
         if file_mediainfo:
             return file_mediainfo
 
-        all_files = list(self.ali_tree_share(share_token))
+        all_files = [f for _, f in self.ali_tree_share(share_token)]
         if all_files:
             all_files.sort(key=lambda f: f.size, reverse=True)
             file_name_list = [item.name for item in all_files]
@@ -152,12 +162,12 @@ class Ali2115Helper:
         """
         return self.ali_client.get_download_url(file_id=file_id)
 
-    def save_ali_share_to_pan(self, share_token: str):
+    def save_ali_share_to_pan(self, share_token):
         """
         保存分享文件到阿里云盘
         """
         self.ali_client.share_file_save_all_to_drive(
-            share_token=GetShareTokenResponse(share_token=share_token),
+            share_token=share_token,
             to_parent_file_id=self.get_ali_folder_id(),
         )
 
@@ -177,32 +187,46 @@ class Ali2115Helper:
         file_mediainfo: Optional[MediaInfo],
     ):
         """
-        运行分享秒传
+        运行分享秒传，按阿里云盘分享内的目录结构在 115 上原样重建
         """
 
         download_url_list: List = []
         remove_list: List = []
+        dir_id_cache: dict = {}
 
         def get_download_and_remove(path, info):
             """
-            获取下载链接并删除
+            获取下载链接并收集待删除条目，同时记录文件在分享内的相对子路径
             """
             if not path and info.file_id not in remove_list:
                 remove_list.append(info.file_id)
 
             if info.type == "file":
-                if info.name not in self.file_name_list:
+                norm_path = path.replace("\\", "/") if path else ""
+                if (norm_path, info.name) not in self.file_name_list:
                     return
                 url_info = self.get_ali_download_url(info.file_id)
+
+                if path_type == "folder" and norm_path:
+                    parts = norm_path.split("/")
+                    sub_path = (
+                        "/".join(parts[1:]) if parts[0] == path_name else norm_path
+                    )
+                else:
+                    sub_path = ""
+
                 info_list = [
                     url_info.url,
                     url_info.size,
                     info.name,
                     str(url_info.content_hash).upper(),
+                    sub_path,
                 ]
                 download_url_list.append(info_list)
                 self.file_name_list = [
-                    item for item in self.file_name_list if item != info.name
+                    item
+                    for item in self.file_name_list
+                    if item != (norm_path, info.name)
                 ]
 
         def clean_unless_path(path, info):
@@ -212,10 +236,30 @@ class Ali2115Helper:
             if not path and info.file_id not in remove_list:
                 remove_list.append(info.file_id)
 
+        def get_or_create_115_subdir(sub_path: str) -> int:
+            """
+            获取或创建 115 上 pid 根目录下的子目录，单次请求递归创建多层，带缓存
+
+            :param sub_path: 相对于 pid 的子目录路径，如 "Season 1" 或 "Season 1/Extras"
+            :return: 115 目录 ID
+            """
+            if not sub_path:
+                return pid
+            if sub_path in dir_id_cache:
+                return dir_id_cache[sub_path]
+            full_path = f"{unrecognized_path}/{path_name}/{sub_path}"
+            resp = self.u115_client.fs_makedirs_app(
+                full_path, pid=0, **configer.get_ios_ua_app()
+            )
+            dir_id = int(resp["cid"])
+            dir_id_cache[sub_path] = dir_id
+            return dir_id
+
         self.save_ali_share_to_pan(share_token)
         sleep(2)
         self.file_name_list = [
-            item.name for item in self.ali_tree_share(share_token, rmt_mediaext)
+            (path, item.name)
+            for path, item in self.ali_tree_share(share_token, rmt_mediaext)
         ]
 
         if not self.file_name_list:
@@ -260,11 +304,12 @@ class Ali2115Helper:
         success_upload = 0
         with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
             for url in download_url_list:
+                target_dir_id = get_or_create_115_subdir(url[4])
                 future = executor.submit(
                     self.upload_115,
                     file_name=url[2],
                     file_size=url[1],
-                    m115_dir_id=pid,
+                    m115_dir_id=target_dir_id,
                     full_sha1=url[3],
                     ali_download_url=url[0],
                 )
@@ -307,17 +352,17 @@ class Ali2115Helper:
 
                     if retries < 3:
                         new_retries = retries + 1
-
                         delay = 2 * (2**retries)
                         logger.warn(
                             f"【Ali2115】文件 '{file_name}' 将在 {delay} 秒后进行第 {new_retries} 次重试..."
                         )
                         sleep(delay)
+                        target_dir_id = get_or_create_115_subdir(url[4])
                         new_future = executor.submit(
                             self.upload_115,
                             file_name=url[2],
                             file_size=url[1],
-                            m115_dir_id=pid,
+                            m115_dir_id=target_dir_id,
                             full_sha1=url[3],
                             ali_download_url=url[0],
                         )
