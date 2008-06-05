@@ -18,6 +18,7 @@ from app.schemas import (
 )
 from app.core.meta import MetaVideo
 from app.schemas.types import EventType, MessageChannel, ChainEventType, MediaType
+from app.helper.directory import DirectoryHelper
 from app.chain.storage import StorageChain
 
 from apscheduler.triggers.cron import CronTrigger
@@ -1864,6 +1865,33 @@ class P115StrmHelper(_PluginBase):
         media_title = getattr(mediainfo, "title", "") or ""
         data.reason = f"媒体库已存在：{media_title}（{exist_info.server}）"
         logger.info(f"【媒体库存在拦截】拦截整理 {data.fileitem.path}，{data.reason}")
+
+        try:
+            target_path = data.target_path
+            if target_path.suffix:
+                rename_format = settings.RENAME_FORMAT(getattr(mediainfo, "type", None))
+                dir_to_clean = DirectoryHelper.get_media_root_path(
+                    rename_format, target_path
+                )
+            else:
+                dir_to_clean = target_path
+            if not dir_to_clean:
+                return
+            storage_chain = StorageChain()
+            dir_item = storage_chain.get_file_item(
+                storage=data.target_storage,
+                path=dir_to_clean,
+            )
+            if dir_item and dir_item.type == "dir":
+                files = storage_chain.list_files(dir_item)
+                if files is not None and not files:
+                    storage_chain.delete_file(dir_item)
+                    logger.info(f"【媒体库存在拦截】已清理空目录: {dir_to_clean}")
+        except Exception as e:
+            logger.debug(
+                f"【媒体库存在拦截】清理空目录异常: {e}",
+                exc_info=True,
+            )
 
     @eventmanager.register(ChainEventType.TransferOverwriteCheck)
     def share_strm_overwrite_check(self, event: Event) -> None:
