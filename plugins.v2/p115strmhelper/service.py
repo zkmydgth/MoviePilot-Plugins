@@ -17,6 +17,7 @@ from .helper.monitor import handle_file, FileMonitorHandler
 from .helper.offline import OfflineDownloadHelper
 from .helper.share import ShareTransferHelper
 from .helper.clean import Cleaner
+from .helper.r302 import Redirect
 from .core.config import configer
 from .core.message import post_message
 
@@ -42,6 +43,8 @@ class ServiceHelper:
 
         self.offlinehelper = None
 
+        self.redirect = None
+
         self.scheduler = None
 
         self.service_observer = []
@@ -62,6 +65,13 @@ class ServiceHelper:
             self.offlinehelper = OfflineDownloadHelper(
                 client=self.client, monitorlife=self.monitorlife
             )
+            pid = None
+            if configer.get_config("same_playback"):
+                pid = self.client.fs_dir_getid("/多端播放")["id"]
+                if pid == 0:
+                    payload = {"cname": "多端播放", "pid": 0}
+                    pid = self.client.fs_mkdir(payload)["file_id"]
+            self.redirect = Redirect(client=self.client, pid=pid)
             return True
         except Exception as e:
             logger.error(f"服务项初始化失败: {e}")

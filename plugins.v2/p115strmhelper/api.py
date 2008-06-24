@@ -2,29 +2,23 @@ import base64
 import time
 from datetime import datetime
 from dataclasses import asdict
-from typing import Dict, Any, Optional, cast
+from typing import Dict, Any, Optional
 from pathlib import Path
-from errno import EIO, ENOENT
-from urllib.parse import unquote, urlsplit, quote, urlencode
-from collections.abc import Mapping
+from urllib.parse import quote
 
 import requests
 from cachetools import cached, TTLCache
-from orjson import dumps, loads
+from orjson import dumps
 from p115client import P115Client
 from p115client.exception import DataError
 from p115client.tool.fs_files import iter_fs_files
-from p115rsacipher import encrypt, decrypt
 from fastapi import Request, Response
 
 from .service import servicer
 from .core.config import configer
-from .core.u115_open import U115OpenHelper
 from .core.cache import idpathcacher
 from .core.message import post_message
 from .core.i18n import i18n
-from .utils.http import check_response
-from .utils.url import Url
 
 from app.log import logger
 from app.helper.mediaserver import MediaServerHelper
@@ -38,7 +32,6 @@ class Api:
 
     def __init__(self, client: P115Client):
         self._client = client
-        self.u115openhelper = U115OpenHelper()
 
         self.browse_dir_pan_api_last = 0
 
@@ -452,7 +445,6 @@ class Api:
             uid=uid, _time=_time, sign=sign, client_type=client_type
         )
 
-    @cached(cache=TTLCache(maxsize=48, ttl=2 * 60))
     def redirect_url(
         self,
         request: Request,
@@ -461,175 +453,26 @@ class Api:
         id: int = 0,
         share_code: str = "",
         receive_code: str = "",
-        app: str = "",
     ):
         """
         115网盘302跳转
         """
-
-        def get_first(m: Mapping, *keys, default=None):
-            for k in keys:
-                if k in m:
-                    return m[k]
-            return default
-
-        def share_get_id_for_name(
-            share_code: str,
-            receive_code: str,
-            name: str,
-            parent_id: int = 0,
-        ) -> int:
-            api = "http://web.api.115.com/share/search"
-            payload = {
-                "share_code": share_code,
-                "receive_code": receive_code,
-                "search_value": name,
-                "cid": parent_id,
-                "limit": 1,
-                "type": 99,
-            }
-            suffix = name.rpartition(".")[-1]
-            if suffix.isalnum():
-                payload["suffix"] = suffix
-            resp = requests.get(
-                f"{api}?{urlencode(payload)}",
-                headers={"Cookie": configer.get_config("cookies")},
-            )
-            check_response(resp)
-            json = loads(cast(bytes, resp.content))
-            if get_first(json, "errno", "errNo") == 20021:
-                payload.pop("suffix")
-                resp = requests.get(
-                    f"{api}?{urlencode(payload)}",
-                    headers={"Cookie": configer.get_config("cookies")},
-                )
-                check_response(resp)
-                json = loads(cast(bytes, resp.content))
-            if not json["state"] or not json["data"]["count"]:
-                raise FileNotFoundError(ENOENT, json)
-            info = json["data"]["list"][0]
-            if info["n"] != name:
-                raise FileNotFoundError(ENOENT, f"name not found: {name!r}")
-            id = int(info["fid"])
-            return id
-
-        def get_receive_code(share_code: str) -> str:
-            resp = requests.get(
-                f"http://web.api.115.com/share/shareinfo?share_code={share_code}",
-                headers={"Cookie": configer.get_config("cookies")},
-            )
-            check_response(resp)
-            json = loads(cast(bytes, resp.content))
-            if not json["state"]:
-                raise FileNotFoundError(ENOENT, json)
-            receive_code = json["data"]["receive_code"]
-            return receive_code
-
-        def get_downurl(
-            pickcode: str,
-            user_agent: str = "",
-            app: str = "android",
-        ) -> Url:
-            """
-            获取下载链接
-            """
-            if app == "chrome":
-                resp = requests.post(
-                    "http://proapi.115.com/app/chrome/downurl",
-                    data={
-                        "data": encrypt(f'{{"pickcode":"{pickcode}"}}').decode("utf-8")
-                    },
-                    headers={
-                        "User-Agent": user_agent,
-                        "Cookie": configer.get_config("cookies"),
-                    },
-                )
-            else:
-                resp = requests.post(
-                    f"http://proapi.115.com/{app or 'android'}/2.0/ufile/download",
-                    data={
-                        "data": encrypt(f'{{"pick_code":"{pickcode}"}}').decode("utf-8")
-                    },
-                    headers={
-                        "User-Agent": user_agent,
-                        "Cookie": configer.get_config("cookies"),
-                    },
-                )
-            check_response(resp)
-            json = loads(cast(bytes, resp.content))
-            if not json["state"]:
-                raise OSError(EIO, json)
-            data = json["data"] = loads(decrypt(json["data"]))
-            if app == "chrome":
-                info = next(iter(data.values()))
-                url_info = info["url"]
-                if not url_info:
-                    raise FileNotFoundError(ENOENT, dumps(json).decode("utf-8"))
-                url = Url.of(url_info["url"], info)
-            else:
-                data["file_name"] = unquote(
-                    urlsplit(data["url"]).path.rpartition("/")[-1]
-                )
-                url = Url.of(data["url"], data)
-            return url
-
-        def get_share_downurl(
-            share_code: str,
-            receive_code: str,
-            file_id: int,
-            app: str = "",
-        ) -> Url:
-            payload = {
-                "share_code": share_code,
-                "receive_code": receive_code,
-                "file_id": file_id,
-            }
-            if app:
-                resp = requests.get(
-                    f"http://proapi.115.com/{app}/2.0/share/downurl?{urlencode(payload)}",
-                    headers={"Cookie": configer.get_config("cookies")},
-                )
-            else:
-                resp = requests.post(
-                    "http://proapi.115.com/app/share/downurl",
-                    data={"data": encrypt(dumps(payload)).decode("utf-8")},
-                    headers={"Cookie": configer.get_config("cookies")},
-                )
-            check_response(resp)
-            json = loads(cast(bytes, resp.content))
-            if not json["state"]:
-                if json.get("errno") == 4100008:
-                    receive_code = get_receive_code(share_code)
-                    return get_share_downurl(share_code, receive_code, file_id, app=app)
-                raise OSError(EIO, json)
-            if app:
-                data = json["data"]
-            else:
-                data = json["data"] = loads(decrypt(json["data"]))
-            if not (data and (url_info := data["url"])):
-                raise FileNotFoundError(ENOENT, json)
-            data["file_id"] = data.pop("fid")
-            data["file_name"] = data.pop("fn")
-            data["file_size"] = int(data.pop("fs"))
-            url = Url.of(url_info["url"], data)
-            return url
-
         if share_code:
             try:
                 if not receive_code:
-                    receive_code = get_receive_code(share_code)
+                    receive_code = servicer.redirect.get_receive_code(share_code)
                 elif len(receive_code) != 4:
                     return f"Bad receive_code: {receive_code}"
                 if not id:
                     if file_name:
-                        id = share_get_id_for_name(
+                        id = servicer.redirect.share_get_id_for_name(
                             share_code,
                             receive_code,
                             file_name,
                         )
                 if not id:
                     return f"Please specify id or name: share_code={share_code!r}"
-                url = get_share_downurl(share_code, receive_code, id, app=app)
+                url = servicer.redirect.get_share_downurl(share_code, receive_code, id)
                 logger.info(f"【302跳转服务】获取 115 下载地址成功: {url}")
             except Exception as e:
                 logger.error(f"【302跳转服务】获取 115 下载地址失败: {e}")
@@ -648,18 +491,15 @@ class Api:
 
             try:
                 if configer.get_config("link_redirect_mode") == "cookie":
-                    url = get_downurl(pickcode.lower(), user_agent, app=app)
+                    url = servicer.redirect.get_downurl_cookie(
+                        pickcode.lower(), user_agent
+                    )
                 else:
-                    resp_url = self.u115openhelper.get_download_url(
-                        pickcode=pickcode.lower(), user_agent=user_agent
+                    url = servicer.redirect.get_downurl_open(
+                        pickcode.lower(), user_agent
                     )
-                    data: Dict = {}
-                    data["file_name"] = unquote(
-                        urlsplit(resp_url).path.rpartition("/")[-1]
-                    )
-                    url = Url.of(resp_url, data)
                 logger.info(
-                    f"【302跳转服务】获取 115 下载地址成功: {url} {url['file_name']}"
+                    f"【302跳转服务】获取 115 下载地址成功: {url} {url['file_name']}"  # pylint: disable=E1126
                 )
             except Exception as e:
                 logger.error(f"【302跳转服务】获取 115 下载地址失败: {e}")
