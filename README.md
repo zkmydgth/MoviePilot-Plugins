@@ -18,3 +18,8 @@
 ### 媒体管理类
 
 - [神医媒体文件同步删除](https://github.com/DDS-Derek/MoviePilot-Plugins/tree/main/plugins.v2/samediasyncdel)：通过神医插件通知同步删除历史记录、源文件和下载任务。
+
+## 感谢名单
+
+- [p115client](https://github.com/ChenyangGao/p115client)
+- [python-123-client](https://github.com/ChenyangGao/web-mount-packs/tree/main/python-123-client)
