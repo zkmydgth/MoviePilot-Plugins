@@ -438,7 +438,9 @@ class MonitorLife:
                             )
                             continue
 
-                        strm_url = _get_url.get_strm_url(pickcode, original_file_name)
+                        strm_url = _get_url.get_strm_url(
+                            pickcode, original_file_name, item["path"]
+                        )
 
                         with open(new_file_path, "w", encoding="utf-8") as file:
                             file.write(strm_url)
@@ -576,7 +578,9 @@ class MonitorLife:
                     )
                     return
 
-                strm_url = _get_url.get_strm_url(pickcode, original_file_name)
+                strm_url = _get_url.get_strm_url(
+                    pickcode, original_file_name, file_path=file_path.as_posix()
+                )
 
                 with open(new_file_path, "w", encoding="utf-8") as file:
                     file.write(strm_url)

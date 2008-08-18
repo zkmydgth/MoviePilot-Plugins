@@ -326,8 +326,12 @@ class ConfigManager(BaseModel):
     # 115 整理增强
     transfer_module_enhancement: bool = False
 
-    # 高级配置，STRM URL 自定义配置
-    strm_url_mode_custom: Optional[str] = None
+    # STRM URL 自定义模板是否启用
+    strm_url_template_enabled: bool = False
+    # STRM URL 基础模板
+    strm_url_template: Optional[str] = None
+    # STRM URL 扩展名特定模板，格式：ext1,ext2 => template
+    strm_url_template_custom: Optional[str] = None
     # STRM 文件生成黑名单
     strm_generate_blacklist: Optional[List] = None
     # 媒体信息文件下载白名单

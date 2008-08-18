@@ -514,7 +514,9 @@ class FullSyncStrmHelper:
                     path_entry=path_entry,
                 )
 
-            strm_url = self.strmurlgetter.get_strm_url(pickcode, original_file_name)
+            strm_url = self.strmurlgetter.get_strm_url(
+                pickcode, original_file_name, item.get("path")
+            )
             self.write_queue.put((new_file_path, strm_url, original_file_name))
 
             return ProcessResult(
@@ -804,7 +806,9 @@ class FullSyncStrmHelper:
                                         f"【全量STRM生成】{new_file_path} 已存在，将进行覆盖。",
                                     )
                                 strm_url = self.strmurlgetter.get_strm_url(
-                                    strm_info.pickcode, strm_info.original_file_name
+                                    strm_info.pickcode,
+                                    strm_info.original_file_name,
+                                    strm_info.path_in_pan,
                                 )
                                 self.write_queue.put(
                                     (

@@ -27,10 +27,18 @@
                   <v-switch v-model="config.enabled" label="启用插件" color="success" density="compact"></v-switch>
                 </v-col>
                 <v-col cols="12" md="4">
-                  <v-select v-model="config.strm_url_format" label="STRM文件URL格式" :items="[
-                    { title: 'pickcode', value: 'pickcode' },
-                    { title: 'pickcode + name', value: 'pickname' }
-                  ]" chips closable-chips></v-select>
+                  <v-select 
+                    v-model="config.strm_url_format" 
+                    label="STRM文件URL格式" 
+                    :items="[
+                      { title: 'pickcode', value: 'pickcode' },
+                      { title: 'pickcode + name', value: 'pickname' }
+                    ]" 
+                    :hint="config.strm_url_template_enabled ? '已启用自定义模板时优先使用模板，模板渲染失败时将使用此设置作为后备方案' : '选择 STRM 文件的 URL 格式'"
+                    persistent-hint
+                    chips 
+                    closable-chips
+                  ></v-select>
                 </v-col>
                 <v-col cols="12" md="4">
                   <v-select v-model="config.link_redirect_mode" label="直链获取模式" :items="[
@@ -692,7 +700,7 @@
                       <v-switch v-model="config.clear_receive_path_enabled" label="清空最近接收目录" color="error"></v-switch>
                     </v-col>
                     <v-col cols="12" md="3">
-                      <v-text-field v-model="config.password" label="115访问密码" hint="115网盘登录密码" persistent-hint
+                      <v-text-field v-model="config.password" label="115访问密码" hint="115网盘安全密码" persistent-hint
                         type="password" density="compact" variant="outlined" hide-details="auto"></v-text-field>
                     </v-col>
                     <v-col cols="12" md="3">
@@ -1148,23 +1156,82 @@
               <v-window-item value="tab-advanced-configuration">
                 <v-card-text>
 
+                  <!-- STRM URL 自定义模板 -->
                   <v-row>
                     <v-col cols="12">
-                      <v-textarea v-model="config.strm_url_mode_custom" label="自定义STRM URL格式" variant="outlined"
-                        rows="5" persistent-hint hint="为特定文件扩展名指定URL格式，优先级高于基础设置。格式：ext1,ext2 => format"
-                        placeholder="例如：&#10;iso => pickname&#10;mp4,mkv => pickcode" clearable></v-textarea>
+                      <v-switch
+                        v-model="config.strm_url_template_enabled"
+                        label="启用 STRM URL 自定义模板 (Jinja2)"
+                        color="primary"
+                        density="compact"
+                        hint="启用后可以使用 Jinja2 模板语法自定义 STRM 文件的 URL 格式。启用后，将优先使用自定义模板；当模板渲染失败时，将回退使用基础设置中的「STRM文件URL格式」和「STRM URL 文件名称编码」作为后备方案。"
+                        persistent-hint
+                      ></v-switch>
                     </v-col>
                   </v-row>
-                  <v-alert type="info" variant="tonal" density="compact" class="mt-2 text-caption">
-                    <strong>格式说明:</strong><br>
-                    - 每行一条规则，格式为：`文件后缀 => URL格式`。<br>
-                    - 左侧为文件扩展名(不含`.`)，多个后缀用英文逗号(`,`)分隔。<br>
-                    - 右侧为URL格式，可选值为 `pickcode` 或 `pickname`。<br>
-                    - 此处未指定的扩展名将使用 “基础设置” 中的 “STRM文件URL格式” 配置。<br>
-                    - <strong>示例:</strong><br>
-                    &nbsp;&nbsp;<code>iso => pickname</code> (iso文件使用 pickcode+name 格式)<br>
-                    &nbsp;&nbsp;<code>mp4,mkv,ts => pickcode</code> (mp4, mkv, ts 文件使用 pickcode 格式)
-                  </v-alert>
+
+                  <v-expand-transition>
+                    <div v-if="config.strm_url_template_enabled">
+                      <v-row class="mt-2">
+                        <v-col cols="12">
+                          <v-textarea
+                            v-model="config.strm_url_template"
+                            label="STRM URL 基础模板 (Jinja2)"
+                            hint="支持 Jinja2 语法，可用变量和过滤器见下方说明"
+                            persistent-hint
+                            rows="4"
+                            variant="outlined"
+                            density="compact"
+                            placeholder="{{ base_url }}?apikey={{ apikey }}&pickcode={{ pickcode }}{% if file_name %}&file_name={{ file_name | urlencode }}{% endif %}"
+                            clearable
+                          ></v-textarea>
+                        </v-col>
+                      </v-row>
+
+                      <v-row class="mt-2">
+                        <v-col cols="12">
+                          <v-textarea
+                            v-model="config.strm_url_template_custom"
+                            label="STRM URL 扩展名特定模板 (Jinja2)"
+                            hint="为特定文件扩展名指定 URL 模板，优先级高于基础模板。格式：ext1,ext2 => template（每行一个）"
+                            persistent-hint
+                            rows="5"
+                            variant="outlined"
+                            density="compact"
+                            placeholder="例如：&#10;mkv,mp4 => {{ base_url }}?apikey={{ apikey }}&pickcode={{ pickcode }}&file_name={{ file_name | urlencode }}&file_path={{ file_path | path_encode }}&#10;iso => {{ base_url }}?apikey={{ apikey }}&pickcode={{ pickcode }}&file_name={{ file_name | urlencode }}"
+                            clearable
+                          ></v-textarea>
+                        </v-col>
+                      </v-row>
+
+                      <v-alert type="info" variant="tonal" density="compact" class="mt-2 text-caption" v-pre>
+                        <div>
+                          <strong>可用变量：</strong><br>
+                          <code>base_url</code> - 基础 URL<br>
+                          <code>apikey</code> - API Token<br>
+                          <code>pickcode</code> - 文件 pickcode（仅普通 STRM）<br>
+                          <code>share_code</code> - 分享码（仅分享 STRM）<br>
+                          <code>receive_code</code> - 提取码（仅分享 STRM）<br>
+                          <code>file_id</code> - 文件 ID<br>
+                          <code>file_name</code> - 文件名称<br>
+                          <code>file_path</code> - 文件网盘路径<br>
+                        </div>
+                        <div class="mt-2">
+                          <strong>可用过滤器：</strong><br>
+                          <code>urlencode</code> - URL 编码（如：{{ file_name | urlencode }}）<br>
+                          <code>path_encode</code> - 路径编码，保留斜杠（如：{{ file_path | path_encode }}）<br>
+                          <code>upper</code> - 转大写<br>
+                          <code>lower</code> - 转小写<br>
+                          <code>default</code> - 默认值（如：{{ file_name | default('unknown') }}）<br>
+                        </div>
+                        <div class="mt-2">
+                          <strong>模板示例：</strong><br>
+                          普通 STRM: <code>{{ base_url }}?apikey={{ apikey }}&pickcode={{ pickcode }}{% if file_name %}&file_name={{ file_name | urlencode }}{% endif %}</code><br>
+                          分享 STRM: <code>{{ base_url }}?apikey={{ apikey }}&share_code={{ share_code }}&receive_code={{ receive_code }}&id={{ file_id }}{% if file_name %}&file_name={{ file_name | urlencode }}{% endif %}</code>
+                        </div>
+                      </v-alert>
+                    </div>
+                  </v-expand-transition>
 
                   <v-row class="mt-4">
                     <v-col cols="12">
@@ -1192,8 +1259,14 @@
 
                   <v-row class="mt-4">
                     <v-col cols="12" md="4">
-                      <v-switch v-model="config.strm_url_encode" label="STRM URL 文件名称编码" color="info" density="compact"
-                        hint="启用后，STRM文件中的URL会对文件名进行编码处理"></v-switch>
+                      <v-switch 
+                        v-model="config.strm_url_encode" 
+                        label="STRM URL 文件名称编码" 
+                        color="info" 
+                        density="compact"
+                        :hint="config.strm_url_template_enabled ? '已启用自定义模板时优先使用模板，模板渲染失败时将使用此设置作为后备方案。在模板中可使用 urlencode 过滤器进行编码。' : '启用后，STRM文件中的URL会对文件名进行编码处理'"
+                        persistent-hint
+                      ></v-switch>
                     </v-col>
                   </v-row>
 
@@ -1617,7 +1690,9 @@ const config = reactive({
   upload_share_info: true,
   upload_offline_info: true,
   transfer_module_enhancement: false,
-  strm_url_mode_custom: '',
+  strm_url_template_enabled: false,
+  strm_url_template: '',
+  strm_url_template_custom: '',
   strm_generate_blacklist: [],
   mediainfo_download_whitelist: [],
   mediainfo_download_blacklist: [],

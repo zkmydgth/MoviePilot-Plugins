@@ -218,7 +218,11 @@ class ShareStrmHelper:
             new_file_path.parent.mkdir(parents=True, exist_ok=True)
 
             strm_url = self.strmurlgetter.get_share_strm_url(
-                config.share_code, config.share_receive, item["id"], item["name"]
+                config.share_code,
+                config.share_receive,
+                item["id"],
+                item["name"],
+                item["path"],
             )
 
             with open(new_file_path, "w", encoding="utf-8") as file:

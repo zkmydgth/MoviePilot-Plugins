@@ -1,13 +1,205 @@
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Dict, Any
 from urllib.parse import quote
 
 from app.core.config import settings
+from app.log import logger
 
 from ahocorasick import Automaton
+from p115pickcode import to_id
+from jinja2 import Template, Environment, select_autoescape
+from jinja2.exceptions import TemplateError
 
 from ..core.config import configer
 from ..schemas.size import CompareMinSize
+
+
+class StrmUrlTemplateResolver:
+    """
+    基于 Jinja2 的 STRM URL 模板解析器
+    """
+
+    def __init__(
+        self,
+        base_template: Optional[str] = None,
+        custom_rules: Optional[str] = None,
+        auto_escape: bool = False,
+    ):
+        """
+        初始化模板解析器
+
+        :param base_template: 基础 Jinja2 模板字符串
+        :param custom_rules: 扩展名特定模板规则，格式：ext1,ext2 => template
+        :param auto_escape: 是否自动转义
+        """
+        self.env = Environment(
+            autoescape=select_autoescape(["html", "xml"]) if auto_escape else False,
+            trim_blocks=True,
+            lstrip_blocks=True,
+        )
+
+        self._register_filters()
+
+        self.base_template = None
+        if base_template:
+            try:
+                self.base_template = self.env.from_string(base_template)
+            except TemplateError as e:
+                logger.error(f"【STRM URL 模板】基础模板解析失败: {e}")
+                raise
+
+        self.extension_templates: Dict[str, Template] = {}
+        if custom_rules:
+            self._parse_custom_rules(custom_rules)
+
+    def _register_filters(self):
+        """
+        注册自定义过滤器
+        """
+
+        def urlencode_filter(value: str) -> str:
+            """
+            URL 编码过滤器
+            """
+            if not value:
+                return ""
+            return quote(str(value), safe="")
+
+        def path_encode_filter(value: str) -> str:
+            """
+            路径编码过滤器（保留斜杠）
+            """
+            if not value:
+                return ""
+            return quote(str(value), safe="/")
+
+        def upper_filter(value: str) -> str:
+            """
+            转大写
+            """
+            return str(value).upper() if value else ""
+
+        def lower_filter(value: str) -> str:
+            """
+            转小写
+            """
+            return str(value).lower() if value else ""
+
+        self.env.filters["urlencode"] = urlencode_filter
+        self.env.filters["path_encode"] = path_encode_filter
+        self.env.filters["upper"] = upper_filter
+        self.env.filters["lower"] = lower_filter
+
+    def _parse_custom_rules(self, config_str: str):
+        """
+        解析扩展名特定模板规则
+
+        :param config_str: 规则字符串，格式：ext1,ext2 => template（每行一个）
+        """
+        for rule in config_str.strip().split("\n"):
+            rule = rule.strip()
+            if not rule or "=>" not in rule:
+                continue
+
+            try:
+                extensions_part, template_str = rule.split("=>", 1)
+                extensions = [ext.strip().lower() for ext in extensions_part.split(",")]
+                template_str = template_str.strip()
+
+                if not template_str:
+                    logger.warning(f"【STRM URL 模板】规则模板为空，跳过: {rule}")
+                    continue
+
+                # 解析模板
+                try:
+                    template = self.env.from_string(template_str)
+                except TemplateError as e:
+                    logger.error(
+                        f"【STRM URL 模板】扩展名模板解析失败: {rule}, 错误: {e}"
+                    )
+                    continue
+
+                # 为每个扩展名注册模板
+                for ext in extensions:
+                    if not ext:
+                        continue
+                    if not ext.startswith("."):
+                        ext = "." + ext
+                    self.extension_templates[ext] = template
+                    logger.debug(
+                        f"【STRM URL 模板】注册扩展名模板: {ext} => {template_str[:50]}..."
+                    )
+
+            except Exception as e:
+                logger.error(f"【STRM URL 模板】解析规则失败: {rule}, 错误: {e}")
+                continue
+
+    def get_template_for_file(self, file_name: str) -> Optional[Template]:
+        """
+        根据文件名获取对应的模板
+
+        :param file_name: 文件名
+
+        :return: 匹配的模板，如果没有匹配则返回基础模板，如果都没有则返回 None
+        """
+        extension = Path(file_name).suffix.lower()
+
+        if extension in self.extension_templates:
+            return self.extension_templates[extension]
+
+        return self.base_template
+
+    def render(
+        self,
+        file_name: str,
+        base_url: str,
+        apikey: str,
+        pickcode: Optional[str] = None,
+        share_code: Optional[str] = None,
+        receive_code: Optional[str] = None,
+        file_id: Optional[str] = None,
+        file_path: Optional[str] = None,
+        **kwargs: Any,
+    ) -> Optional[str]:
+        """
+        渲染 URL 模板
+
+        :param file_name: 文件名
+        :param base_url: 基础 URL
+        :param apikey: API Token
+        :param pickcode: 文件 pickcode
+        :param share_code: 分享码
+        :param receive_code: 提取码
+        :param file_id: 文件 ID
+        :param file_path: 文件网盘路径
+
+        :return: 渲染后的 URL 字符串，如果没有可用模板则返回 None
+        """
+        template = self.get_template_for_file(file_name)
+
+        if not template:
+            return None
+
+        context = {
+            "base_url": base_url.rstrip("/"),
+            "apikey": apikey,
+            "pickcode": pickcode or "",
+            "share_code": share_code or "",
+            "receive_code": receive_code or "",
+            "file_id": file_id or "",
+            "file_name": file_name or "",
+            "file_path": file_path or "",
+            **kwargs,
+        }
+
+        try:
+            return template.render(**context)
+        except TemplateError as e:
+            logger.error(f"【STRM URL 模板】模板渲染失败: {e}, 上下文: {context}")
+            raise
+        except Exception as e:
+            logger.error(f"【STRM URL 模板】渲染时发生未知错误: {e}")
+            raise
 
 
 class StrmUrlGetter:
@@ -16,27 +208,48 @@ class StrmUrlGetter:
     """
 
     def __init__(self):
-        self.strmurlmoderesolver = None
-        if configer.strm_url_mode_custom:
-            self.strmurlmoderesolver = StrmUrlModeResolver(
-                configer.strm_url_mode_custom, configer.strm_url_format
-            )
         self.strm_url_encode = configer.strm_url_encode
 
-    def get_strm_url(self, pickcode: str, file_name: str) -> str:
+        self.base_url_cache = f"{configer.moviepilot_address.rstrip('/')}/api/v1/plugin/P115StrmHelper/redirect_url"
+
+        self.url_template_resolver = None
+        if configer.strm_url_template_enabled:
+            try:
+                self.url_template_resolver = StrmUrlTemplateResolver(
+                    base_template=configer.strm_url_template,
+                    custom_rules=configer.strm_url_template_custom,
+                )
+            except Exception as e:
+                logger.error(f"【STRM URL 模板】初始化失败: {e}")
+                self.url_template_resolver = None
+
+    def get_strm_url(self, pickcode: str, file_name: str, file_path: str) -> str:
         """
         获取普通 STRM URL
+
+        :param: pickcode: 文件 pickcode
+        :param: file_name: 文件名称
+        :param: file_path: 文件网盘路径
         """
-        strm_url_format = None
+        if self.url_template_resolver:
+            try:
+                result = self.url_template_resolver.render(
+                    file_name=file_name,
+                    base_url=self.base_url_cache,
+                    apikey=settings.API_TOKEN,
+                    pickcode=pickcode,
+                    file_path=file_path,
+                    file_id=to_id(pickcode),
+                )
+                if result:
+                    return result
+            except Exception as e:
+                logger.error(f"【STRM URL 模板】渲染失败，使用默认格式: {e}")
 
-        if self.strmurlmoderesolver:
-            strm_url_format = self.strmurlmoderesolver.get_mode(file_name)
-
-        if strm_url_format not in {"pickname", "pickcode"}:
-            strm_url_format = configer.strm_url_format
-
-        strm_url = f"{configer.moviepilot_address.rstrip('/')}/api/v1/plugin/P115StrmHelper/redirect_url?apikey={settings.API_TOKEN}&pickcode={pickcode}"
-        if strm_url_format == "pickname":
+        strm_url = (
+            f"{self.base_url_cache}?apikey={settings.API_TOKEN}&pickcode={pickcode}"
+        )
+        if configer.strm_url_format == "pickname":
             if self.strm_url_encode:
                 file_name = quote(file_name)
             strm_url += f"&file_name={file_name}"
@@ -44,74 +257,43 @@ class StrmUrlGetter:
         return strm_url
 
     def get_share_strm_url(
-        self, share_code: str, receive_code: str, file_id: str, file_name: str
+        self,
+        share_code: str,
+        receive_code: str,
+        file_id: str,
+        file_name: str,
+        file_path: str,
     ) -> str:
         """
         获取分享 STRM URL
+
+        :param share_code: 分享码
+        :param receive_code: 提取码
+        :param file_id: 文件 ID
+        :param file_name: 文件名称
+        :param file_path: 文件网盘路径
         """
-        strm_url_format = None
+        if self.url_template_resolver:
+            try:
+                result = self.url_template_resolver.render(
+                    file_name=file_name,
+                    base_url=self.base_url_cache,
+                    apikey=settings.API_TOKEN,
+                    share_code=share_code,
+                    receive_code=receive_code,
+                    file_id=file_id,
+                    file_path=file_path,
+                )
+                if result:
+                    return result
+            except Exception as e:
+                logger.error(f"【STRM URL 模板】渲染失败，使用默认格式: {e}")
 
-        if self.strmurlmoderesolver:
-            strm_url_format = self.strmurlmoderesolver.get_mode(file_name)
-
-        if strm_url_format not in {"pickname", "pickcode"}:
-            strm_url_format = configer.strm_url_format
-
-        strm_url = f"{configer.moviepilot_address.rstrip('/')}/api/v1/plugin/P115StrmHelper/redirect_url?apikey={settings.API_TOKEN}&share_code={share_code}&receive_code={receive_code}&id={file_id}"
-        if strm_url_format == "pickname":
+        strm_url = f"{self.base_url_cache}?apikey={settings.API_TOKEN}&share_code={share_code}&receive_code={receive_code}&id={file_id}"
+        if configer.strm_url_format == "pickname":
             strm_url += f"&file_name={file_name}"
 
         return strm_url
-
-
-class StrmUrlModeResolver:
-    """
-    STRM文件URL格式解析器
-    """
-
-    def __init__(self, config_str: str, default_mode: str = "pickcode"):
-        self.default_mode = default_mode
-        self.rules = self._parse_config(config_str)
-
-    @staticmethod
-    def _parse_config(config_str: str) -> dict:
-        """
-        解析配置字符串并将其转换为一个易于查询的字典
-
-        Args:
-            config_str (str): 待解析的规则字符串
-
-        Returns:
-            dict: 一个从后缀名到模式的映射字典
-        """
-        rules_map = {}
-        for rule in config_str.strip().split("\n"):
-            if "=>" not in rule:
-                continue
-
-            extensions_part, mode = rule.split("=>")
-            extensions = [ext.strip().lower() for ext in extensions_part.split(",")]
-            mode = mode.strip()
-
-            for ext in extensions:
-                if not ext.startswith("."):
-                    ext = "." + ext
-                rules_map[ext] = mode
-        return rules_map
-
-    def get_mode(self, file: str) -> str:
-        """
-        根据输入的文件名后缀获取对应的模式。
-
-        Args:
-            file (str): 包含后缀的文件
-
-        Returns:
-            str: 匹配到的模式字符串，如果没有匹配则返回默认模式
-        """
-        extension = Path(file).suffix.lower()
-
-        return self.rules.get(extension, self.default_mode)
 
 
 class StrmGenerater:
@@ -178,7 +360,9 @@ class StrmGenerater:
         return "", True
 
     @staticmethod
-    def not_min_limit(mode: str, filesize: Optional[int] | CompareMinSize = None) -> tuple[str, bool]:
+    def not_min_limit(
+        mode: str, filesize: Optional[int] | CompareMinSize = None
+    ) -> tuple[str, bool]:
         """
         判断文件大小是否低于最低限制
         """

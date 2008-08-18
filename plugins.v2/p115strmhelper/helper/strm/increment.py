@@ -457,7 +457,9 @@ class IncrementSyncStrmHelper:
                 )
                 return
 
-            strm_url = self.strmurlgetter.get_strm_url(pickcode, pan_path_obj.name)
+            strm_url = self.strmurlgetter.get_strm_url(
+                pickcode, pan_path_obj.name, pan_path
+            )
 
             with open(new_file_path, "w", encoding="utf-8") as file:
                 file.write(strm_url)
