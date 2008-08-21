@@ -15,3 +15,4 @@ class ResourceItem(TypedDict):
     tags: List[str]
     cloud_type: Optional[str]
     channel_id: Optional[str]
+    channel_name: str

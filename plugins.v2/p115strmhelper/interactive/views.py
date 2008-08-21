@@ -422,7 +422,12 @@ class ViewRenderer(BaseViewRenderer):
             buttons.append(
                 self.get_navigation_buttons(session, refresh=True, close=True)
             )
-            return {"title": title, "text": text, "buttons": buttons}
+            return {
+                "title": title,
+                "text": text,
+                "buttons": buttons,
+                "disable_web_page_preview": True,
+            }
 
         else:
             resource_data = resource_info.get("data", [])
@@ -440,8 +445,14 @@ class ViewRenderer(BaseViewRenderer):
             button_row = []
             for i, data in enumerate(paged_items):
                 original_index = resource_data.index(data)
+                label = data.get("taskname", "未知名称")
+                ch_name = (data.get("channel_name") or "").strip()
+                display = f"【{ch_name}】{label}" if ch_name else label
+                share_url = (data.get("shareurl") or "").strip()
+                if share_url:
+                    display = f"{display} [🔗 链接]({share_url})"
                 text_lines.append(
-                    f"{StringUtils.to_emoji_number(start_index + i + 1)}. {data.get('taskname', '未知名称')}"
+                    f"{StringUtils.to_emoji_number(start_index + i + 1)}. {display}"
                 )
 
                 # 支持按钮时，生成按钮
@@ -480,7 +491,12 @@ class ViewRenderer(BaseViewRenderer):
             )
         )
 
-        return {"title": title, "text": text, "buttons": buttons}
+        return {
+            "title": title,
+            "text": text,
+            "buttons": buttons,
+            "disable_web_page_preview": True,
+        }
 
     @view_registry.view(name="subscribe_success", code="ss")
     def render_subscribe_success(self, _: Session) -> Dict:

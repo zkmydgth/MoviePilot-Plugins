@@ -131,7 +131,9 @@ class TgSearcher:
             )
             return [], ""
 
-    def get_channel(self, url: str, channel_id: str) -> List[ResourceItem]:
+    def get_channel(
+        self, url: str, channel_id: str, channel_name: str
+    ) -> List[ResourceItem]:
         """
         搜索单个频道资源
         """
@@ -218,6 +220,7 @@ class TgSearcher:
                 "tags": tags,
                 "cloud_type": cloud_type,
                 "channel_id": channel_id,
+                "channel_name": channel_name,
             }
             items.append(item)
 
@@ -230,13 +233,17 @@ class TgSearcher:
         results: List[ResourceItem] = []
         for item in channels:
             channel_id = item.get("id")
+            name_raw = item.get("name")
             if not channel_id:
                 continue
+            if not str(name_raw or "").strip():
+                continue
+            channel_name = str(name_raw).strip()
             url = UrlUtils.encode_url_fully(f"https://t.me/s/{channel_id}?q={key}")
             results.extend(
                 [
                     i
-                    for i in self.get_channel(url, channel_id)
+                    for i in self.get_channel(url, channel_id, channel_name)
                     if self._title_matches_search_key(key, i.get("title", ""))
                 ]
             )
@@ -294,6 +301,7 @@ class TgSearcher:
                     "content": content.strip(),
                     "tags": item.get("tags", []),
                     "channel_id": item.get("channel_id", ""),
+                    "channel_name": item["channel_name"],
                 }
             )
 
