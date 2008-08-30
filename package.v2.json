@@ -88,11 +88,12 @@
         "name": "115网盘STRM助手",
         "description": "115网盘STRM生成一条龙服务",
         "labels": "云盘",
-        "version": "1.6.9",
+        "version": "1.6.10",
         "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png",
         "author": "DDSRem",
         "level": 1,
         "history": {
+            "v1.6.10": "修复媒体信息文件下载报错",
             "v1.6.9": "优化媒体信息文件下载",
             "v1.6.8": "STRM文件URL格式",
             "v1.6.7": "通知系统大体完成",

@@ -329,48 +329,51 @@ class MediaInfoDownloader:
         """
         mediainfo_count: int = 0
         mediainfo_fail_count: int = 0
-        for item in downloads_list:
-            if not item:
-                continue
-            download_success = False
-            if item["type"] == "local":
-                for _ in range(3):
-                    self.local_downloader(
-                        pickcode=item["pickcode"], path=Path(item["path"])
-                    )
-                    if not self.is_file_leq_1k(item["path"]):
-                        mediainfo_count += 1
-                        download_success = True
-                        break
-                    logger.waring(
-                        f"【媒体信息文件下载】{item['path']} 下载该文件失败，自动重试"
-                    )
-                    time.sleep(1)
-                if not download_success:
-                    mediainfo_fail_count += 1
-            elif item["type"] == "share":
-                for _ in range(3):
-                    self.share_downloader(
-                        share_code=item["share_code"],
-                        receive_code=item["receive_code"],
-                        file_id=item["file_id"],
-                        path=Path(item["path"]),
-                    )
-                    if not self.is_file_leq_1k(item["path"]):
-                        mediainfo_count += 1
-                        download_success = True
-                        break
-                    logger.waring(
-                        f"【媒体信息文件下载】{item['path']} 下载该文件失败，自动重试"
-                    )
-                    time.sleep(1)
-                if not download_success:
-                    mediainfo_fail_count += 1
-            else:
-                continue
-            if mediainfo_count % 25 == 0:
-                logger.info("【媒体信息文件下载】休眠 2s 后继续下载")
-                time.sleep(2)
+        try:
+            for item in downloads_list:
+                if not item:
+                    continue
+                download_success = False
+                if item["type"] == "local":
+                    for _ in range(3):
+                        self.local_downloader(
+                            pickcode=item["pickcode"], path=Path(item["path"])
+                        )
+                        if not self.is_file_leq_1k(item["path"]):
+                            mediainfo_count += 1
+                            download_success = True
+                            break
+                        logger.warn(
+                            f"【媒体信息文件下载】{item['path']} 下载该文件失败，自动重试"
+                        )
+                        time.sleep(1)
+                    if not download_success:
+                        mediainfo_fail_count += 1
+                elif item["type"] == "share":
+                    for _ in range(3):
+                        self.share_downloader(
+                            share_code=item["share_code"],
+                            receive_code=item["receive_code"],
+                            file_id=item["file_id"],
+                            path=Path(item["path"]),
+                        )
+                        if not self.is_file_leq_1k(item["path"]):
+                            mediainfo_count += 1
+                            download_success = True
+                            break
+                        logger.warn(
+                            f"【媒体信息文件下载】{item['path']} 下载该文件失败，自动重试"
+                        )
+                        time.sleep(1)
+                    if not download_success:
+                        mediainfo_fail_count += 1
+                else:
+                    continue
+                if mediainfo_count % 25 == 0:
+                    logger.info("【媒体信息文件下载】休眠 2s 后继续下载")
+                    time.sleep(2)
+        except Exception as e:
+            logger.error(f"【媒体信息文件下载】出现未知错误: {e}")
         return mediainfo_count, mediainfo_fail_count
 
 
@@ -753,7 +756,7 @@ class P115StrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png"
     # 插件版本
-    plugin_version = "1.6.9"
+    plugin_version = "1.6.10"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
