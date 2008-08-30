@@ -119,7 +119,7 @@ def process_package_file(filepath, plugins_base_dir):
                 pass
 
             # 打包插件
-            zip_filename = f"{plugin_id.lower()}.zip"
+            zip_filename = f"{plugin_id.lower()}.v{new_version}.zip"
             zip_plugin_directory(plugin_dir, zip_filename)
 
             # 创建 GitHub Release
