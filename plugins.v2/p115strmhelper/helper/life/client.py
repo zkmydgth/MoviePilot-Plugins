@@ -177,6 +177,11 @@ class MonitorLife:
             if not dir_path:
                 logger.error(f"获取 {cid} 路径失败")
                 return None
+            if not isinstance(dir_path, (str, Path)):
+                logger.error(f"获取 {cid} 路径失败，路径类型异常: {type(dir_path)}")
+                return None
+            if isinstance(dir_path, Path):
+                dir_path = dir_path.as_posix()
             if dir_path.startswith("根目录"):
                 dir_path = dir_path[3:]
             idpathcacher.add_cache(id=cid, directory=str(dir_path))
@@ -230,6 +235,8 @@ class MonitorLife:
                     exc_info=True,
                 )
                 return
+            if not entries:
+                return
             for entry in entries:
                 parent_s = str(entry.parent_fileid)
                 if parent_s not in pantransfercacher.delete_pan_transfer_list:
@@ -237,7 +244,11 @@ class MonitorLife:
                 if entry.type == "dir":
                     walk_cd2_dir(entry)
                     continue
-                p = Path(entry.path)
+                entry_path = entry.path
+                if not entry_path:
+                    logger.warning("【网盘整理】路径为空，跳过: %s", entry)
+                    continue
+                p = Path(str(entry_path))
                 sfx = p.suffix.lower()
                 if sfx in rmt_mediaext:
                     fid_s = str(entry.fileid)
@@ -316,7 +327,11 @@ class MonitorLife:
                     except FileItemKeyMiss as e:
                         logger.warning(f"【网盘整理】数据拉取异常: {e}")
                         continue
-                    file_path = Path(item["path"])
+                    item_path = item.get("path")
+                    if not item_path:
+                        logger.warning("【网盘整理】数据路径为空，跳过: %s", item)
+                        continue
+                    file_path = Path(str(item_path))
                     if not PathUtils.has_prefix(file_path, org_file_path):
                         continue
                     # 缓存文件夹ID
@@ -449,7 +464,7 @@ class MonitorLife:
         status, target_dir, pan_media_dir = PathUtils.get_media_path(
             configer.get_config("monitor_life_paths"), file_path
         )
-        if not status:
+        if not status or target_dir is None or pan_media_dir is None:
             return
         logger.debug("【监控生活事件】匹配到网盘文件夹路径: %s", str(pan_media_dir))
 
@@ -845,7 +860,7 @@ class MonitorLife:
         status, target_dir, pan_media_dir = PathUtils.get_media_path(
             configer.get_config("monitor_life_paths"), file_path
         )
-        if not status:
+        if not status or target_dir is None or pan_media_dir is None:
             return
         logger.debug("【监控生活事件】匹配到网盘文件夹路径: %s", str(pan_media_dir))
 
@@ -960,6 +975,9 @@ class MonitorLife:
         # 1.获取绝对文件路径
         file_name = event["file_name"]
         dir_path = self._get_path_by_cid(int(event["parent_id"]))
+        if dir_path is None:
+            logger.warning(f"【监控生活事件】无法获取父目录路径，跳过处理: {event}")
+            return
         file_path = Path(dir_path) / file_name
         # 匹配逻辑 整理路径目录 > 生成STRM文件路径目录
         # 2.匹配是否为整理路径目录
@@ -1179,6 +1197,11 @@ class MonitorLife:
                 _databasehelper = FileDbHelper()
                 file_name = event["file_name"]
                 dir_path = self._get_path_by_cid(int(event["parent_id"]))
+                if dir_path is None:
+                    logger.warning(
+                        f"【监控生活事件】无法获取父目录路径，跳过写入数据库: {event}"
+                    )
+                    continue
                 file_path = Path(dir_path) / file_name
                 # 待整理目录跳过处理
                 if configer.pan_transfer_enabled and configer.pan_transfer_paths:
@@ -1271,7 +1294,7 @@ class MonitorLife:
                         item_name = "未知"
                         try:
                             item = normalize_attr(item)
-                            item_name = item.get("name")
+                            item_name = item.get("name") or ""
                             item_id = item.get("id")
                             item_type = "文件夹" if item.get("is_dir") else "文件"
 
@@ -1280,7 +1303,7 @@ class MonitorLife:
                             else:
                                 total_files += 1
 
-                            file_path = Path(path) / item_name
+                            file_path = Path(path) / str(item_name)
 
                             event = {
                                 "file_category": 0 if item.get("is_dir") else 1,
