@@ -35,7 +35,7 @@ class Cleaner:
         """
         try:
             logger.info("【最近接收清理】开始清理最近接收")
-            parent_id = int(self.client.fs_dir_getid("/最近接收")["id"])
+            parent_id = int(self.client.fs_sys_dir(0)["cid"])
             if parent_id == 0:
                 logger.info("【最近接收清理】最近接收目录为空，无需清理")
                 return
