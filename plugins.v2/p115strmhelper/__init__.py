@@ -451,6 +451,27 @@ class P115StrmHelper(_PluginBase):
                 "auth": "bear",
                 "summary": "一键删除所有同步删除历史记录",
             },
+            {
+                "path": "/fuse_mount",
+                "endpoint": self.api.fuse_mount_api,
+                "methods": ["POST"],
+                "auth": "bear",
+                "summary": "挂载 FUSE 文件系统",
+            },
+            {
+                "path": "/fuse_unmount",
+                "endpoint": self.api.fuse_unmount_api,
+                "methods": ["POST"],
+                "auth": "bear",
+                "summary": "卸载 FUSE 文件系统",
+            },
+            {
+                "path": "/fuse_status",
+                "endpoint": self.api.fuse_status_api,
+                "methods": ["GET"],
+                "auth": "bear",
+                "summary": "获取 FUSE 状态",
+            },
         ]
 
     def get_service(self) -> List[Dict[str, str | Dict[Any, Any] | Any]] | None:

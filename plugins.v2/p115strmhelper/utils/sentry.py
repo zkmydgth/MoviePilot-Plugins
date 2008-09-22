@@ -115,6 +115,7 @@ class SentryManager:
             {"type": OSError, "message": "Input/output error"},
             {"type": OSError, "message": "Host is down"},
             {"type": PermissionError, "message": "Permission denied"},
+            {"type": PermissionError, "message": "Operation not permitted"},
             {"type": FileNotFoundError, "message": "No such file or directory"},
             {"type": NotADirectoryError},
         ]

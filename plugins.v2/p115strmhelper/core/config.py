@@ -351,6 +351,12 @@ class ConfigManager(BaseModel):
         default_factory=list, description="离线下载目录"
     )
 
+    fuse_enabled: bool = Field(default=False, description="FUSE 文件系统开关")
+    fuse_mountpoint: Optional[str] = Field(default=None, description="FUSE 挂载点路径")
+    fuse_readdir_ttl: float = Field(
+        default=60, ge=0, description="FUSE 目录读取缓存 TTL（秒）"
+    )
+
     directory_upload_enabled: bool = Field(
         default=False, description="监控目录上传开关"
     )

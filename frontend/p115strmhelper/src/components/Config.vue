@@ -141,20 +141,23 @@
               <v-tab value="tab-api-strm" class="text-caption">
                 <v-icon size="small" start>mdi-api</v-icon>API STRM生成
               </v-tab>
-              <v-tab value="tab-cleanup" class="text-caption">
-                <v-icon size="small" start>mdi-broom</v-icon>定期清理
-              </v-tab>
               <v-tab value="tab-sync-del" class="text-caption">
                 <v-icon size="small" start>mdi-delete-sweep</v-icon>同步删除
               </v-tab>
               <v-tab value="tab-pan-transfer" class="text-caption">
                 <v-icon size="small" start>mdi-transfer</v-icon>网盘整理
               </v-tab>
+              <v-tab value="tab-pan-mount" class="text-caption">
+                <v-icon size="small" start>mdi-folder-network</v-icon>网盘挂载
+              </v-tab>
               <v-tab value="tab-directory-upload" class="text-caption">
                 <v-icon size="small" start>mdi-upload</v-icon>目录上传
               </v-tab>
               <v-tab value="tab-tg-search" class="text-caption">
                 <v-icon size="small" start>mdi-tab-search</v-icon>频道搜索
+              </v-tab>
+              <v-tab value="tab-cleanup" class="text-caption">
+                <v-icon size="small" start>mdi-broom</v-icon>定期清理
               </v-tab>
               <v-tab value="tab-same-playback" class="text-caption">
                 <v-icon size="small" start>mdi:code-block-parentheses</v-icon>多端播放
@@ -1428,7 +1431,8 @@
                         <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
                           <div class="text-body-2 mb-1"><strong>秒传失败直接退出：</strong></div>
                           <div class="text-caption">此功能开启后，对于无法秒传或者秒传等待超时的文件将直接跳过上传步骤，整理返回失败。</div>
-                          <div class="text-caption mt-1">如果设置了"秒传失败后跳过上传的文件大小阈值"，则只有大于等于该阈值的文件才会跳过上传，小于该阈值的文件将继续执行上传。</div>
+                          <div class="text-caption mt-1">如果设置了"秒传失败后跳过上传的文件大小阈值"，则只有大于等于该阈值的文件才会跳过上传，小于该阈值的文件将继续执行上传。
+                          </div>
                         </v-alert>
                       </v-expansion-panel-text>
                     </v-expansion-panel>
@@ -1449,6 +1453,49 @@
                     </div>
                   </v-alert>
 
+                </v-card-text>
+              </v-window-item>
+
+              <!-- 网盘挂载 -->
+              <v-window-item value="tab-pan-mount">
+                <v-card-text>
+                  <v-row>
+                    <v-col cols="12" md="6">
+                      <v-switch v-model="config.fuse_enabled" label="启用" color="success" density="compact"
+                        hint="将115网盘挂载为本地文件系统" persistent-hint></v-switch>
+                    </v-col>
+                    <v-col cols="12" md="6">
+                      <v-text-field v-model="config.fuse_mountpoint" label="挂载点路径" hint="文件系统挂载的本地路径" persistent-hint
+                        density="compact" variant="outlined" hide-details="auto" placeholder="/mnt/115"></v-text-field>
+                    </v-col>
+                  </v-row>
+                  <v-row>
+                    <v-col cols="12" md="6">
+                      <v-text-field v-model.number="config.fuse_readdir_ttl" label="目录读取缓存 TTL（秒）" type="number"
+                        hint="目录列表缓存时间，默认60秒" persistent-hint density="compact" variant="outlined" hide-details="auto"
+                        min="0"></v-text-field>
+                    </v-col>
+                  </v-row>
+                  <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
+                    <div class="text-body-2 mb-1"><strong>功能说明：</strong></div>
+                    <div class="text-caption mb-2">启用后，115网盘将挂载为容器内的文件系统，可通过文件管理器直接访问。</div>
+                    <div class="text-body-2 mt-2 mb-1"><strong>配置说明：</strong></div>
+                    <div class="text-caption">
+                      <div class="mb-1">• <strong>挂载点路径：</strong>容器内的挂载路径，必须是已存在的目录（例如：<code>/media/115</code> 或
+                        <code>/data/115</code>）
+                      </div>
+                      <div class="mb-1">• <strong>目录读取缓存 TTL：</strong>目录列表缓存时间，默认60秒</div>
+                      <div>• <strong>容器权限：</strong>需要容器以 <code>--privileged</code> 或 <code>--cap-add SYS_ADMIN</code>
+                        权限运行</div>
+                    </div>
+                  </v-alert>
+                  <v-alert type="warning" variant="tonal" density="compact" class="mt-3" icon="mdi-alert">
+                    <div class="text-body-2 mb-1"><strong>重要提示：</strong></div>
+                    <div class="text-caption">
+                      <div class="mb-1">• <strong>切勿直接使用媒体服务器刮削挂载路径</strong>，这会导致网盘风控</div>
+                      <div>• <strong>正确方法：</strong>使用本插件的 STRM 文件生成功能，在本地生成 STRM 文件后，再让媒体服务器对 STRM 文件进行刮削</div>
+                    </div>
+                  </v-alert>
                 </v-card-text>
               </v-window-item>
 

@@ -53,6 +53,7 @@ from .schemas.strm_api import (
     ManualTransferPayload,
 )
 from .schemas.sync_del_history import DeleteSyncDelHistoryPayload
+from .schemas.fuse import FuseMountPayload, FuseStatusData
 from .utils.sentry import sentry_manager
 from .utils.oopserver import OOPServerHelper
 
@@ -1127,3 +1128,72 @@ class Api:
             )
         else:
             return ApiResponse(code=-1, msg="启动整理任务失败", data=None)
+
+    @staticmethod
+    def fuse_mount_api(payload: FuseMountPayload) -> ApiResponse:
+        """
+        FUSE 挂载
+
+        :param payload: 挂载请求体
+        """
+        if not servicer.client:
+            return ApiResponse(code=-1, msg="115客户端未初始化", data=None)
+
+        mountpoint = payload.mountpoint.strip()
+        if not mountpoint:
+            return ApiResponse(code=-1, msg="挂载点路径不能为空", data=None)
+
+        try:
+            success = servicer.start_fuse(
+                mountpoint=mountpoint,
+                readdir_ttl=payload.readdir_ttl,
+            )
+            if success:
+                return ApiResponse(
+                    code=0,
+                    msg="FUSE 文件系统挂载成功",
+                    data={"mountpoint": mountpoint},
+                )
+            else:
+                return ApiResponse(code=-1, msg="FUSE 文件系统挂载失败", data=None)
+        except Exception as e:
+            logger.error(f"【FUSE】挂载失败: {e}", exc_info=True)
+            return ApiResponse(code=-1, msg=f"挂载失败: {str(e)}", data=None)
+
+    @staticmethod
+    def fuse_unmount_api() -> ApiResponse:
+        """
+        FUSE 卸载
+        """
+        try:
+            servicer.stop_fuse()
+            return ApiResponse(code=0, msg="FUSE 文件系统已卸载", data=None)
+        except Exception as e:
+            logger.error(f"【FUSE】卸载失败: {e}", exc_info=True)
+            return ApiResponse(code=-1, msg=f"卸载失败: {str(e)}", data=None)
+
+    @staticmethod
+    def fuse_status_api() -> ApiResponse[FuseStatusData]:
+        """
+        获取 FUSE 状态
+        """
+        try:
+            fuse_enabled = configer.fuse_enabled or False
+            fuse_manager = servicer.fuse_manager
+            mounted = bool(
+                fuse_manager
+                and fuse_manager.fuse_thread
+                and fuse_manager.fuse_thread.is_alive()
+                and fuse_manager.fuse_mountpoint
+            )
+
+            data = FuseStatusData(
+                enabled=fuse_enabled,
+                mounted=mounted,
+                mountpoint=fuse_manager.fuse_mountpoint if mounted else None,
+                readdir_ttl=configer.fuse_readdir_ttl or 60,
+            )
+            return ApiResponse(code=0, msg="获取状态成功", data=data)
+        except Exception as e:
+            logger.error(f"【FUSE】获取状态失败: {e}", exc_info=True)
+            return ApiResponse(code=-1, msg=f"获取状态失败: {str(e)}", data=None)

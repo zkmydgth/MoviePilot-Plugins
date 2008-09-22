@@ -5,6 +5,7 @@ __all__ = [
     "r302cacher",
     "DirectoryCache",
     "OofFastMiCache",
+    "IntKeyCacheAdapter",
 ]
 
 
@@ -18,7 +19,7 @@ from cachetools import TTLCache as MemoryTTLCache
 from diskcache import Cache as DiskCache
 from orjson import dumps
 
-from app.core.cache import Cache, LRUCache
+from app.core.cache import Cache, LRUCache, TTLCache
 from app.core.config import settings
 from app.helper.redis import RedisHelper
 
@@ -360,6 +361,36 @@ class OofFastMiCache:
 
     def close(self):
         self.cache.close()
+
+
+class IntKeyCacheAdapter(MutableMapping[int, Any]):
+    """
+    适配器类，将 int 键转换为字符串以兼容 Redis 后端
+    """
+
+    def __init__(self, cache: TTLCache):
+        self._cache = cache
+
+    def __getitem__(self, key: int) -> Any:
+        return self._cache[str(key)]
+
+    def __setitem__(self, key: int, value: Any) -> None:
+        self._cache[str(key)] = value
+
+    def __delitem__(self, key: int) -> None:
+        del self._cache[str(key)]
+
+    def __contains__(self, key: object) -> bool:
+        if not isinstance(key, int):
+            return False
+        return str(key) in self._cache
+
+    def __iter__(self):
+        for key in self._cache:
+            yield int(key)
+
+    def __len__(self) -> int:
+        return len(self._cache)
 
 
 idpathcacher = IdPathCache(maxsize=4096)

@@ -236,7 +236,89 @@
                       </template>
                     </v-list-item>
                     <v-divider class="my-0"></v-divider>
+                    <v-list-item class="px-3 py-0" style="min-height: 34px;">
+                      <template v-slot:prepend>
+                        <v-icon :color="fuseStatus.mounted ? 'success' : 'grey'" icon="mdi-folder-network"
+                          size="small" />
+                      </template>
+                      <v-list-item-title class="text-body-2">FUSE 文件系统</v-list-item-title>
+                      <template v-slot:append>
+                        <v-chip :color="fuseStatus.mounted ? 'success' : 'grey'" size="x-small" variant="tonal">
+                          {{ fuseStatus.mounted ? '已挂载' : '未挂载' }}
+                        </v-chip>
+                      </template>
+                    </v-list-item>
+                    <v-divider class="my-0"></v-divider>
                   </v-list>
+                </v-card-text>
+              </v-card>
+
+              <!-- FUSE 文件系统控制 -->
+              <v-card v-if="initialConfig?.fuse_enabled" flat class="rounded mb-3 border config-card">
+                <v-card-title class="text-subtitle-2 d-flex align-center px-3 py-1 bg-primary-gradient">
+                  <v-icon icon="mdi-folder-network" class="mr-2" color="primary" size="small" />
+                  <span>FUSE 文件系统</span>
+                  <v-spacer></v-spacer>
+                  <v-btn icon size="x-small" variant="text" @click="getFuseStatus" :loading="fuseStatus.loading"
+                    class="ml-1">
+                    <v-icon>mdi-refresh</v-icon>
+                  </v-btn>
+                </v-card-title>
+                <v-card-text class="pa-3">
+                  <v-skeleton-loader v-if="fuseStatus.loading" type="list-item-three-line"></v-skeleton-loader>
+                  <div v-else>
+                    <v-alert v-if="fuseStatus.error" type="warning" density="compact" class="mb-2" variant="tonal">
+                      {{ fuseStatus.error }}
+                    </v-alert>
+                    <v-list class="bg-transparent pa-0">
+                      <v-list-item class="px-0 py-1">
+                        <template v-slot:prepend>
+                          <v-icon :color="fuseStatus.mounted ? 'success' : 'grey'" icon="mdi-folder-network"
+                            size="small" />
+                        </template>
+                        <v-list-item-title class="text-body-2">挂载状态</v-list-item-title>
+                        <template v-slot:append>
+                          <v-chip :color="fuseStatus.mounted ? 'success' : 'grey'" size="x-small" variant="tonal">
+                            {{ fuseStatus.mounted ? '已挂载' : '未挂载' }}
+                          </v-chip>
+                        </template>
+                      </v-list-item>
+                      <v-list-item v-if="fuseStatus.mountpoint" class="px-0 py-1">
+                        <template v-slot:prepend>
+                          <v-icon icon="mdi-folder" size="small" color="primary" />
+                        </template>
+                        <v-list-item-title class="text-body-2">挂载点</v-list-item-title>
+                        <template v-slot:append>
+                          <span class="text-caption text-grey">{{ fuseStatus.mountpoint }}</span>
+                        </template>
+                      </v-list-item>
+                      <v-list-item class="px-0 py-1">
+                        <template v-slot:prepend>
+                          <v-icon icon="mdi-clock-outline" size="small" color="primary" />
+                        </template>
+                        <v-list-item-title class="text-body-2">目录缓存 TTL</v-list-item-title>
+                        <template v-slot:append>
+                          <span class="text-caption text-grey">{{ fuseStatus.readdir_ttl }} 秒</span>
+                        </template>
+                      </v-list-item>
+                    </v-list>
+                    <v-row class="mt-2">
+                      <v-col cols="12" md="6">
+                        <v-btn color="success" variant="elevated" block @click="mountFuse" :loading="fuseStatus.mounting"
+                          :disabled="fuseStatus.mounted">
+                          <v-icon start>mdi-folder-plus</v-icon>
+                          挂载
+                        </v-btn>
+                      </v-col>
+                      <v-col cols="12" md="6">
+                        <v-btn color="error" variant="elevated" block @click="unmountFuse"
+                          :loading="fuseStatus.unmounting" :disabled="!fuseStatus.mounted">
+                          <v-icon start>mdi-folder-remove</v-icon>
+                          卸载
+                        </v-btn>
+                      </v-col>
+                    </v-row>
+                  </div>
                 </v-card-text>
               </v-card>
 
@@ -1373,6 +1455,16 @@ const syncDelHistoryLoading = ref(false);
 const deletingHistoryId = ref(null);
 const deletingAllHistory = ref(false);
 const syncDelHistoryTotal = ref(0);
+
+const fuseStatus = reactive({
+  loading: false,
+  mounted: false,
+  mountpoint: null,
+  readdir_ttl: 60,
+  error: null,
+  mounting: false,
+  unmounting: false,
+});
 const syncDelHistoryPage = ref(1);
 const syncDelHistoryLimit = ref(20);
 let syncDelHistoryRefreshTimer = null;
@@ -1587,10 +1679,95 @@ const refreshStatus = async () => {
       storageInfo.error = "115客户端未连接或Cookie无效。";
     }
   }
+  if (props.initialConfig?.fuse_enabled) {
+    await getFuseStatus();
+  }
   refreshing.value = false;
   actionMessage.value = '状态已刷新';
   actionMessageType.value = 'success';
   setTimeout(() => { actionMessage.value = null; }, 3000);
+};
+
+const getFuseStatus = async () => {
+  fuseStatus.loading = true;
+  fuseStatus.error = null;
+  try {
+    const pluginId = "P115StrmHelper";
+    const result = await props.api.get(`plugin/${pluginId}/fuse_status`);
+    if (result && result.code === 0 && result.data) {
+      fuseStatus.mounted = Boolean(result.data.mounted);
+      fuseStatus.mountpoint = result.data.mountpoint || null;
+      fuseStatus.readdir_ttl = result.data.readdir_ttl || 60;
+    } else {
+      fuseStatus.error = result?.msg || '获取 FUSE 状态失败';
+    }
+  } catch (err) {
+    fuseStatus.error = `获取 FUSE 状态失败: ${err.message || '未知错误'}`;
+    console.error('获取 FUSE 状态失败:', err);
+  } finally {
+    fuseStatus.loading = false;
+  }
+};
+
+const mountFuse = async () => {
+  if (!props.initialConfig?.fuse_mountpoint) {
+    actionMessage.value = '请先配置挂载点路径';
+    actionMessageType.value = 'error';
+    setTimeout(() => { actionMessage.value = null; }, 3000);
+    return;
+  }
+  fuseStatus.mounting = true;
+  fuseStatus.error = null;
+  try {
+    const pluginId = "P115StrmHelper";
+    const result = await props.api.post(`plugin/${pluginId}/fuse_mount`, {
+      mountpoint: props.initialConfig.fuse_mountpoint,
+      readdir_ttl: props.initialConfig.fuse_readdir_ttl || 60,
+    });
+    if (result && result.code === 0) {
+      actionMessage.value = 'FUSE 文件系统挂载成功';
+      actionMessageType.value = 'success';
+      await getFuseStatus();
+    } else {
+      fuseStatus.error = result?.msg || '挂载失败';
+      actionMessage.value = result?.msg || '挂载失败';
+      actionMessageType.value = 'error';
+    }
+  } catch (err) {
+    fuseStatus.error = `挂载失败: ${err.message || '未知错误'}`;
+    actionMessage.value = `挂载失败: ${err.message || '未知错误'}`;
+    actionMessageType.value = 'error';
+    console.error('挂载 FUSE 失败:', err);
+  } finally {
+    fuseStatus.mounting = false;
+    setTimeout(() => { actionMessage.value = null; }, 3000);
+  }
+};
+
+const unmountFuse = async () => {
+  fuseStatus.unmounting = true;
+  fuseStatus.error = null;
+  try {
+    const pluginId = "P115StrmHelper";
+    const result = await props.api.post(`plugin/${pluginId}/fuse_unmount`);
+    if (result && result.code === 0) {
+      actionMessage.value = 'FUSE 文件系统卸载成功';
+      actionMessageType.value = 'success';
+      await getFuseStatus();
+    } else {
+      fuseStatus.error = result?.msg || '卸载失败';
+      actionMessage.value = result?.msg || '卸载失败';
+      actionMessageType.value = 'error';
+    }
+  } catch (err) {
+    fuseStatus.error = `卸载失败: ${err.message || '未知错误'}`;
+    actionMessage.value = `卸载失败: ${err.message || '未知错误'}`;
+    actionMessageType.value = 'error';
+    console.error('卸载 FUSE 失败:', err);
+  } finally {
+    fuseStatus.unmounting = false;
+    setTimeout(() => { actionMessage.value = null; }, 3000);
+  }
 };
 
 const handleConfirmFullSync = async () => {
@@ -2162,6 +2339,15 @@ const getParsedPanTransferPaths = (pathString) => {
   }
 };
 
+watch(() => props.initialConfig?.fuse_enabled, (enabled) => {
+  if (enabled) {
+    getFuseStatus();
+  } else {
+    fuseStatus.mounted = false;
+    fuseStatus.mountpoint = null;
+  }
+});
+
 watch(() => props.initialConfig, (newConfig) => {
   if (newConfig) {
     status.enabled = newConfig.enabled || false;
@@ -2340,6 +2526,9 @@ onMounted(async () => {
     }
   } catch (err) {
     console.error('加载媒体服务器列表失败:', err);
+  }
+  if (props.initialConfig?.fuse_enabled) {
+    await getFuseStatus();
   }
   if (props.initialConfig?.sync_del_enabled) {
     await loadSyncDelHistory();

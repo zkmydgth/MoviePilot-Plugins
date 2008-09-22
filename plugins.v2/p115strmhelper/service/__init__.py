@@ -18,6 +18,7 @@ from ..core.p115 import get_pid_by_path
 from ..helper.mediainfo_download import MediaInfoDownloader
 from ..helper.life import MonitorLife
 from ..service.life import monitor_life_thread_worker
+from ..service.fuse import FuseManager
 from ..helper.strm import FullSyncStrmHelper, ShareStrmHelper, IncrementSyncStrmHelper
 from ..helper.monitor import handle_file, FileMonitorHandler
 from ..helper.offline import OfflineDownloadHelper
@@ -61,6 +62,8 @@ class ServiceHelper:
         self.scheduler: Optional[BackgroundScheduler] = None
 
         self.service_observer: List = []
+
+        self.fuse_manager: Optional[FuseManager] = None
 
     def init_service(self):
         """
@@ -123,6 +126,12 @@ class ServiceHelper:
 
             # 302跳转初始化
             self.redirect = Redirect(client=self.client, pid=pid)
+
+            # FUSE 初始化
+            self.fuse_manager = FuseManager(client=self.client)
+            if configer.fuse_enabled and configer.fuse_mountpoint:
+                self.fuse_manager._start_fuse_internal()
+
             return True
         except Exception as e:
             logger.error(f"服务项初始化失败: {e}")
@@ -559,6 +568,26 @@ class ServiceHelper:
         if self.offlinehelper:
             self.offlinehelper.pull_status_to_task()
 
+    def start_fuse(self, mountpoint: Optional[str] = None, readdir_ttl: float = 60):
+        """
+        启动 FUSE 文件系统
+
+        :param mountpoint: 挂载点路径，如果为 None 则使用配置中的路径
+        :param readdir_ttl: 目录读取缓存 TTL（秒）
+        :return: 是否启动成功
+        """
+        if not self.fuse_manager:
+            logger.error("【FUSE】FuseManager 未初始化")
+            return False
+        return self.fuse_manager.start_fuse(mountpoint, readdir_ttl)
+
+    def stop_fuse(self):
+        """
+        停止 FUSE 文件系统
+        """
+        if self.fuse_manager:
+            self.fuse_manager.stop_fuse()
+
     def stop(self):
         """
         停止所有服务
@@ -585,6 +614,8 @@ class ServiceHelper:
                 elif self.monitor_stop_event:
                     self.monitor_stop_event.set()
                     self.monitor_stop_event = None
+            if self.fuse_manager:
+                self.fuse_manager.stop_fuse()
         except Exception as e:
             logger.error(f"发生错误: {e}")
 
