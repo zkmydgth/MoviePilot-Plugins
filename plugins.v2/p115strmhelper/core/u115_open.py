@@ -484,6 +484,8 @@ class U115OpenHelper:
         logger.debug(f"【P115Open】上传 Step 4 获取上传凭证结果: {token_resp}")
         # 上传凭证
         endpoint = token_resp.get("endpoint")
+        if endpoint and endpoint.startswith("http://"):
+            endpoint = endpoint.replace("http://", "https://")
         AccessKeyId = token_resp.get("AccessKeyId")
         AccessKeySecret = token_resp.get("AccessKeySecret")
         SecurityToken = token_resp.get("SecurityToken")
@@ -583,6 +585,12 @@ class U115OpenHelper:
                     logger.warn(f"【P115Open】{target_name} 上传重试")
                     return self.upload(target_dir, local_path, new_name)
                 return None
+        except oss2.exceptions.RequestError as e:
+            logger.warn(f"【P115Open】连接发生错误: {e}")
+            if self.upload_fail_count():
+                logger.warn(f"【P115Open】{target_name} 上传重试")
+                return self.upload(target_dir, local_path, new_name)
+            return None
         except Exception as e:
             logger.error(f"【P115Open】上传过程中发生未知错误: {e}")
             return None
