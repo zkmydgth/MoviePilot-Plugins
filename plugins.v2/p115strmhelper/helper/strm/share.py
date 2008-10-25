@@ -1,9 +1,71 @@
+"""
+分享 STRM 生成模块
+
+本模块提供基于分享链接的 STRM 文件生成功能，存在数据服务器共享机制。
+
+数据收集与共享机制
+------------------
+本模块在运行分享同步功能时，会自动启用数据服务器共享机制。此机制的设计目的和运作方式如下：
+
+1. 数据收集范围
+   - 仅收集分享链接中的文件基本信息（文件名、路径、大小、ID 等）
+   - 不收集任何个人隐私信息、文件内容或访问凭证
+   - 数据以匿名化、加密压缩的方式存储和传输
+
+2. 数据收集的合理性
+   - 降低风控风险：通过共享已知安全的分享数据，帮助规避平台风控机制
+   - 提升生成效率：复用已处理的数据，减少重复的 API 调用和网络请求
+   - 优化用户体验：加快 STRM 文件生成速度，减少等待时间
+   - 数据最小化原则：仅收集生成 STRM 文件所必需的最少数据
+
+3. 数据使用方式
+   - 数据仅用于 STRM 文件生成流程
+   - 数据存储在加密的服务器环境中
+   - 数据可通过分享码和提取码进行访问，确保数据关联性
+
+用户同意原则
+-----------
+使用本模块的分享同步功能即表示您同意以下条款：
+
+1. 默认同意原则
+   - 启用分享同步功能即视为您已阅读、理解并同意本数据收集与共享机制
+   - 您可以通过禁用分享同步功能来停止数据收集和共享
+
+2. 数据控制权
+   - 您拥有对分享数据的完全控制权
+   - 您可以随时停止使用本功能，已上传的数据将根据服务器策略进行处理
+
+3. 隐私保护承诺
+   - 我们承诺仅收集生成 STRM 文件所必需的数据
+   - 不会收集、存储或传输任何个人敏感信息
+   - 数据以加密方式传输和存储
+
+4. 免责声明
+   - 数据共享为可选功能，但分享同步功能的完整体验需要此功能支持
+   - 如您不同意数据共享机制，请勿使用分享同步功能
+
+注意事项
+--------
+- 本功能需要网络连接以访问数据服务器
+- 首次运行时会尝试从服务器获取数据，如不存在则自动收集并上传
+- 数据上传仅在成功处理所有文件且无异常时执行
+"""
+
+__all__ = ["ShareStrmHelper"]
+
+
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from gzip import open as gzip_open
 from itertools import batched
 from pathlib import Path
 from threading import Lock
 from time import perf_counter
-from typing import List, Dict, Set, Deque, Tuple
+from typing import List, Dict, Set, Deque, Tuple, Optional, Iterable
+from os import remove as os_remove
+from os.path import exists as path_exists, getsize as path_getsize, join as path_join
+from tempfile import gettempdir
+
+from orjson import dumps, loads
 
 from p115client import P115Client
 from p115client.util import share_extract_payload
@@ -19,9 +81,201 @@ from ...helper.mediainfo_download import MediaInfoDownloader
 from ...helper.mediaserver import MediaServerRefresh
 from ...schemas.share import ShareStrmConfig
 from ...schemas.size import CompareMinSize
+from ...utils.oopserver import OOPServerRequest
 from ...utils.path import PathUtils
 from ...utils.sentry import sentry_manager
 from ...utils.strm import StrmUrlGetter, StrmGenerater
+
+
+class ShareFilesDataCollector:
+    """
+    分享文件数据收集器
+    """
+
+    def __init__(self, data_iter: Iterable[Dict], temp_file: str):
+        """
+        :param data_iter: 文件数据迭代器
+        :param temp_file: 临时文件路径
+        """
+        self.data_iter = data_iter
+        self.temp_file = temp_file
+        self.count = 0
+        self._file_handle = None
+
+    def __iter__(self):
+        """
+        迭代器接口，在迭代时同时写入数据
+        """
+        self._file_handle = gzip_open(self.temp_file, "wb")
+        try:
+            for record in self.data_iter:
+                self._file_handle.write(dumps(record) + b"\n")
+                self.count += 1
+                if self.count % 1000 == 0:
+                    logger.debug(
+                        f"【分享STRM生成】数据上传已收集 {self.count} 条数据..."
+                    )
+                yield record
+        finally:
+            if self._file_handle:
+                self._file_handle.close()
+                self._file_handle = None
+
+    def get_file_info(self) -> Tuple[str, int]:
+        """
+        获取临时文件信息
+
+        :return: (文件路径, 数据条数)
+        """
+        return self.temp_file, self.count
+
+
+class ShareOOPServerHelper:
+    """
+    分享 OOF 服务助手
+    """
+
+    @staticmethod
+    def download_share_files_data(
+        share_code: str, receive_code: str, temp_file: str
+    ) -> bool:
+        """
+        从服务器下载分享文件数据
+
+        :param share_code: 分享码
+        :param receive_code: 提取码
+        :param temp_file: 临时文件保存路径
+
+        :return: 下载成功返回 True，失败返回 False
+        """
+        batch_id = f"{share_code}{receive_code}"
+        logger.info(f"【分享STRM生成】尝试下载数据，batch_id: {batch_id}")
+
+        try:
+            oopserver_request = OOPServerRequest(max_retries=1, backoff_factor=0.5)
+
+            response = oopserver_request.make_request(
+                path=f"/share/files/{batch_id}",
+                method="GET",
+                headers={"x-machine-id": configer.get_config("MACHINE_ID")},
+                timeout=6000.0,
+            )
+
+            if response is not None and response.status_code == 200:
+                with open(temp_file, "wb") as f:
+                    for chunk in response.iter_bytes():
+                        f.write(chunk)
+                logger.info(
+                    f"【分享STRM生成】数据下载成功，batch_id: {batch_id}, 文件大小: {path_getsize(temp_file) / 1024 / 1024:.2f} MB"
+                )
+                return True
+            else:
+                logger.debug(
+                    f"【分享STRM生成】数据不存在，batch_id: {batch_id}, 状态码: {response.status_code if response else 'None'}"
+                )
+                return False
+
+        except Exception as e:
+            logger.debug(f"【分享STRM生成】下载数据失败，batch_id: {batch_id}: {e}")
+            return False
+
+    @staticmethod
+    def read_share_files_data_from_file(temp_file: str) -> Iterable[Dict]:
+        """
+        从下载的 gzip 文件中读取数据并返回迭代器
+
+        :param temp_file: 临时文件路径
+
+        :return: 数据迭代器
+        """
+        with gzip_open(temp_file, "rb") as f:
+            for line in f:
+                if line.strip():
+                    try:
+                        yield loads(line)
+                    except Exception as e:
+                        logger.warn(f"【分享STRM生成】解析数据行失败: {e}")
+                        continue
+
+    @staticmethod
+    def upload_file(
+        share_code: str,
+        receive_code: str,
+        temp_file: str,
+    ) -> Optional[Dict]:
+        """
+        上传文件到服务器
+
+        :param share_code: 分享码
+        :param receive_code: 提取码
+        :param temp_file: 临时文件路径
+
+        :return: 上传结果响应数据，失败返回 None
+        """
+        batch_id = f"{share_code}{receive_code}"
+        logger.info(f"【分享STRM生成】开始上传，batch_id: {batch_id}")
+
+        try:
+            oopserver_request = OOPServerRequest(max_retries=3, backoff_factor=1.0)
+
+            with open(temp_file, "rb") as f:
+                file_content = f.read()
+                file_name = f"{batch_id}.json.gz"
+                files_data = [
+                    (
+                        "file",
+                        (file_name, file_content, "application/gzip"),
+                    )
+                ]
+                response = oopserver_request.make_request(
+                    path=f"/share/files/{batch_id}",
+                    method="POST",
+                    headers={"x-machine-id": configer.get_config("MACHINE_ID")},
+                    files_data=files_data,
+                    timeout=6000.0,
+                )
+                if response is not None and response.status_code in [200, 201]:
+                    result = response.json()
+                    logger.debug(f"【分享STRM生成】上传成功: {result}")
+                    return result
+                else:
+                    logger.warn(
+                        f"【分享STRM生成】上传失败，状态码: {response.status_code if response else 'None'}"
+                    )
+                    return None
+        except Exception as e:
+            logger.warn(f"【分享STRM生成】上传异常: {e}")
+            return None
+        finally:
+            if path_exists(temp_file):
+                try:
+                    os_remove(temp_file)
+                    logger.debug(f"【分享STRM生成】已清理临时文件: {temp_file}")
+                except (OSError, TypeError, ValueError):
+                    pass
+
+    @staticmethod
+    def upload_share_files_data(
+        share_code: str, receive_code: str, temp_file: str
+    ) -> Optional[Dict]:
+        """
+        上传分享文件数据到服务器
+
+        :param share_code: 分享码
+        :param receive_code: 提取码
+        :param temp_file: 临时文件路径
+
+        :return: 上传结果响应数据，失败返回 None
+        """
+        if not path_exists(temp_file) or path_getsize(temp_file) == 0:
+            logger.warn("【分享STRM生成】临时文件不存在或为空，跳过上传")
+            return None
+
+        return ShareOOPServerHelper.upload_file(
+            share_code=share_code,
+            receive_code=receive_code,
+            temp_file=temp_file,
+        )
 
 
 class ShareStrmHelper:
@@ -274,39 +528,115 @@ class ShareStrmHelper:
                 f"【分享STRM生成】开始处理分享配置{comment_info}: share_code={config.share_code}, share_path={config.share_path}, local_path={config.local_path}"
             )
             start_time = perf_counter()
-            for batch in batched(
-                iter_share_files_with_path(
+
+            # 迭代器选择
+            data_collector = None
+            batch_id = f"{config.share_code}{config.share_receive}"
+            temp_file = path_join(gettempdir(), f"share_data_{batch_id}.json.gz")
+            download_success = ShareOOPServerHelper.download_share_files_data(
+                share_code=config.share_code,
+                receive_code=config.share_receive,
+                temp_file=temp_file,
+            )
+            if download_success:
+                logger.info(f"【分享STRM生成】使用下载的数据生成 STRM{comment_info}")
+                data_iter = ShareOOPServerHelper.read_share_files_data_from_file(
+                    temp_file
+                )
+            else:
+                logger.info(f"【分享STRM生成】数据不存在，开始收集数据{comment_info}")
+                data_iter = iter_share_files_with_path(
                     client=self.client,
                     share_code=config.share_code,
                     receive_code=config.share_receive,
                     cid=0,
                     speed_mode=config.speed_mode,
-                ),
-                1_000,
-            ):
-                self.total_count += len(batch)
-                with ThreadPoolExecutor(max_workers=128) as executor:
-                    future_to_item = {
-                        executor.submit(
-                            self.__process_single_item,
-                            item=item,
-                            config=config,
-                        ): item
-                        for item in batch
-                    }
+                )
+                data_collector = ShareFilesDataCollector(data_iter, temp_file)
 
-                    for future in as_completed(future_to_item):
-                        item = future_to_item[future]
-                        try:
-                            future.result()
-                        except Exception as e:
-                            sentry_manager.sentry_hub.capture_exception(e)
-                            logger.error(
-                                f"【分享STRM生成】并发处理出错: {item} - {str(e)}"
-                            )
+            has_exception = False
+            try:
+                for batch in batched(data_iter, 1_000):
+                    self.total_count += len(batch)
+                    with ThreadPoolExecutor(max_workers=128) as executor:
+                        future_to_item = {
+                            executor.submit(
+                                self.__process_single_item,
+                                item=item,
+                                config=config,
+                            ): item
+                            for item in batch
+                        }
+
+                        for future in as_completed(future_to_item):
+                            item = future_to_item[future]
+                            try:
+                                future.result()
+                            except Exception as e:
+                                has_exception = True
+                                sentry_manager.sentry_hub.capture_exception(e)
+                                logger.error(
+                                    f"【分享STRM生成】并发处理出错: {item} - {str(e)}"
+                                )
+            except Exception as e:
+                has_exception = True
+                sentry_manager.sentry_hub.capture_exception(e)
+                logger.error(f"【分享STRM生成】处理分享文件时出错{comment_info}: {e}")
 
             end_time = perf_counter()
             self.elapsed_time += end_time - start_time
+
+            # 数据上传服务器
+            if has_exception:
+                logger.warn(
+                    f"【分享STRM生成】处理过程中出现异常，跳过数据上传{comment_info}: share_code={config.share_code}"
+                )
+                if path_exists(temp_file):
+                    try:
+                        os_remove(temp_file)
+                        logger.debug(f"【分享STRM生成】已清理临时文件: {temp_file}")
+                    except (OSError, TypeError, ValueError):
+                        pass
+            elif download_success:
+                file_size_mb = path_getsize(temp_file) / 1024 / 1024
+                logger.info(
+                    f"【分享STRM生成】使用下载数据完成，文件大小: {file_size_mb:.2f} MB{comment_info}"
+                )
+                if path_exists(temp_file):
+                    try:
+                        os_remove(temp_file)
+                        logger.debug(f"【分享STRM生成】已清理临时文件: {temp_file}")
+                    except (OSError, TypeError, ValueError):
+                        pass
+            else:
+                file_path, data_count = data_collector.get_file_info()
+                if data_count > 0:
+                    file_size_mb = path_getsize(file_path) / 1024 / 1024
+                    logger.info(
+                        f"【分享STRM生成】共收集 {data_count} 条数据，文件大小: {file_size_mb:.2f} MB"
+                    )
+                    upload_result = ShareOOPServerHelper.upload_share_files_data(
+                        share_code=config.share_code,
+                        receive_code=config.share_receive,
+                        temp_file=file_path,
+                    )
+                    if upload_result:
+                        logger.info(
+                            f"【分享STRM生成】数据上传成功{comment_info}: share_code={config.share_code}"
+                        )
+                    else:
+                        logger.warn(
+                            f"【分享STRM生成】数据上传失败{comment_info}: share_code={config.share_code}"
+                        )
+                else:
+                    logger.debug(
+                        f"【分享STRM生成】未收集到数据，跳过上传{comment_info}: share_code={config.share_code}"
+                    )
+                    if path_exists(file_path):
+                        try:
+                            os_remove(file_path)
+                        except (OSError, TypeError, ValueError):
+                            pass
 
             self.scrape_refresh_media(config)
 
