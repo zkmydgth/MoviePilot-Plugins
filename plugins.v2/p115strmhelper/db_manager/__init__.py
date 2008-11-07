@@ -87,9 +87,9 @@ class __DBManager:
         if pool_class == QueuePool:
             db_kwargs.update(
                 {
-                    "pool_size": settings.CONF.dbpool,
+                    "pool_size": getattr(settings, "DB_SQLITE_POOL_SIZE", 30),
                     "pool_timeout": settings.DB_POOL_TIMEOUT,
-                    "max_overflow": settings.CONF.dbpooloverflow,
+                    "max_overflow": getattr(settings, "DB_SQLITE_MAX_OVERFLOW", 50),
                 }
             )
 
