@@ -24,6 +24,7 @@ from .core.message import post_message
 from .db_manager import ct_db_manager
 from .db_manager.init import init_db, migration_db, init_migration_scripts
 from .db_manager.oper import FileDbHelper
+from .mcp import MCPManager
 from .patch.u115_open import U115Patcher
 from .patch.p115disk_upload import P115DiskPatcher
 from .interactive.framework.callbacks import decode_action, Action
@@ -66,6 +67,7 @@ class P115StrmHelper(_PluginBase):
     auth_level = 1
 
     api = None
+    mcp_manager = None
 
     @staticmethod
     def logs_oper(oper_name: str):
@@ -144,6 +146,12 @@ class P115StrmHelper(_PluginBase):
             servicer.start_directory_upload()
 
             servicer.start_monitor_life()
+
+        try:
+            self.mcp_manager = MCPManager(api=self.api)
+        except Exception as e:
+            logger.warning(f"MCP 初始化跳过: {e}")
+            self.mcp_manager = None
 
     @logs_oper("初始化数据库")
     def init_database(self) -> bool:
@@ -512,6 +520,23 @@ class P115StrmHelper(_PluginBase):
                 "summary": "获取 FUSE 状态",
             },
         ]
+        if getattr(self, "mcp_manager", None) is not None:
+            apis.extend(
+                [
+                    {
+                        "path": "/mcp/sse",
+                        "endpoint": self.mcp_manager.handle_sse,
+                        "methods": ["GET"],
+                        "summary": "MCP SSE 端点",
+                    },
+                    {
+                        "path": "/mcp/messages",
+                        "endpoint": self.mcp_manager.handle_messages,
+                        "methods": ["POST"],
+                        "summary": "MCP 消息端点",
+                    },
+                ]
+            )
         if servicer.webdav_core:
             apis.extend(
                 [
