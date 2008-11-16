@@ -27,7 +27,6 @@ https://github.com/zkmydgth/MoviePilot-Plugins
 
 | 项目 | 说明 |
 | --- | --- |
-| 版本 | v3.2.1 |
 | 标签 | 云盘 |
 | 适用版本 | MoviePilot >= 3.0.0 |
 | 源码目录 | `plugins.v3/p115strmhelper` |
@@ -68,7 +67,6 @@ https://github.com/zkmydgth/MoviePilot-Plugins
 
 | 项目 | 说明 |
 | --- | --- |
-| 版本 | v3.0.0 |
 | 标签 | 系统工具, 备份 |
 | 适用版本 | MoviePilot >= 3.0.0 |
 | 源码目录 | `plugins.v3/configbackup` |
@@ -104,7 +102,6 @@ https://github.com/zkmydgth/MoviePilot-Plugins
 
 | 项目 | 说明 |
 | --- | --- |
-| 版本 | v3.0.0 |
 | 标签 | 存储管理 |
 | 适用版本 | MoviePilot >= 3.0.0 |
 | 源码目录 | `plugins.v3/seedspaceguard` |
@@ -185,16 +182,15 @@ https://github.com/zkmydgth/MoviePilot-Plugins
 
 | 项目 | 说明 |
 | --- | --- |
-| 最新版本 | v1.3.8 |
 | 适用版本 | MoviePilot >= 2.12.0 |
 | 源码目录 | `plugins.v2/seedspaceguard` |
 | 发布状态 | 已停更 |
 
-V2 版功能与 V3 v3.0.0 一致，区别仅在宿主 API 写法（`ModuleManager` / `ServiceConfigHelper` 等 V3 已移除的接口）。
+V2 版功能与 V3 版一致，区别仅在宿主 API 写法（`ModuleManager` / `ServiceConfigHelper` 等 V3 已移除的接口）。
 
-#### V3 适配说明（v3.0.0）
+#### V3 适配说明
 
-V3 版功能与 V2 v1.3.8 完全一致，改动全部集中在宿主机 API 适配上：
+V3 版功能与 V2 版完全一致，改动全部集中在宿主机 API 适配上：
 
 | 原 V2 依赖 | V3 替代 |
 | --- | --- |
@@ -215,14 +211,13 @@ V3 版功能与 V2 v1.3.8 完全一致，改动全部集中在宿主机 API 适�
 
 | 项目 | 说明 |
 | --- | --- |
-| 最新版本 | v1.3.4 |
 | 适用版本 | MoviePilot >= 2.0.0 |
 | 源码目录 | `plugins.v2/configbackup` |
 | 发布状态 | 已停更 |
 
-V2 版功能与 V3 v3.0.0 一致，区别仅在宿主 API 写法。
+V2 版功能与 V3 版一致，区别仅在宿主 API 写法。
 
-#### V3 适配说明（v3.0.0）
+#### V3 适配说明
 
 | 原 V2 依赖 | V3 替代 |
 | --- | --- |
