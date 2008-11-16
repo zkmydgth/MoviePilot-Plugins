@@ -18,6 +18,8 @@ from .db_manager.init import init_db, update_db
 from ...core.event import eventmanager, Event
 from ...schemas.types import EventType
 
+from p115updatedb import u115updatedb
+
 notify_lock = threading.Lock()
 
 

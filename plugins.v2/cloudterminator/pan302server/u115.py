@@ -6,7 +6,7 @@ from functools import partial
 from app.log import logger
 
 
-class Pan302Server:
+class Pan115:
     """
     115 网盘 302 服务
     """
