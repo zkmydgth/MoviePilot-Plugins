@@ -165,7 +165,7 @@ class TencentVideoDiscover(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/DDSRem-Dev/MoviePilot-Plugins/main/icons/tencentvideo_A.png"
     # 插件版本
-    plugin_version = "1.0.4"
+    plugin_version = "1.0.5"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -403,7 +403,7 @@ class TencentVideoDiscover(_PluginBase):
                 title=movie_info.get("title"),
                 year=movie_info.get("year"),
                 title_year=f"{movie_info.get('title')} ({movie_info.get('year')})",
-                mediaid_prefix="tencentvideo",
+                mediaid_prefix="",
                 media_id=str(movie_info.get("cid")),
                 poster_path=poster_url,
             )
@@ -441,7 +441,7 @@ class TencentVideoDiscover(_PluginBase):
                 title=series_info.get("title"),
                 year=series_info.get("year"),
                 title_year=f"{series_info.get('title')} ({series_info.get('year')})",
-                mediaid_prefix="tencentvideo",
+                mediaid_prefix="",
                 media_id=str(series_info.get("cid")),
                 poster_path=poster_url,
             )

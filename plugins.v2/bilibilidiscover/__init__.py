@@ -83,7 +83,7 @@ class BilibiliDiscover(_PluginBase):
     # 插件图标
     plugin_icon = "Bilibili_E.png"
     # 插件版本
-    plugin_version = "1.0.5"
+    plugin_version = "1.0.6"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -241,7 +241,7 @@ class BilibiliDiscover(_PluginBase):
             return schemas.MediaInfo(
                 type="电影",
                 title=movie_info.get("title"),
-                mediaid_prefix="bilibili",
+                mediaid_prefix="",
                 media_id=str(movie_info.get("media_id")),
                 poster_path=movie_info.get("cover"),
                 vote_average=vote_average,
@@ -257,7 +257,7 @@ class BilibiliDiscover(_PluginBase):
             return schemas.MediaInfo(
                 type="电视剧",
                 title=series_info.get("title"),
-                mediaid_prefix="bilibili",
+                mediaid_prefix="",
                 media_id=str(series_info.get("media_id")),
                 poster_path=series_info.get("cover"),
                 vote_average=vote_average,

@@ -62,7 +62,7 @@ class CCTVDiscover(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/DDSRem-Dev/MoviePilot-Plugins/main/icons/CCTV_A.png"
     # 插件版本
-    plugin_version = "1.2.3"
+    plugin_version = "1.2.4"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -231,7 +231,7 @@ class CCTVDiscover(_PluginBase):
             return schemas.MediaInfo(
                 type="电影",
                 title=re.sub("[《》]", "", movie_info.title),
-                mediaid_prefix="cctv",
+                mediaid_prefix="",
                 media_id=movie_info.id,
                 poster_path=movie_info.image,
             )
@@ -240,7 +240,7 @@ class CCTVDiscover(_PluginBase):
             return schemas.MediaInfo(
                 type="电视剧",
                 title=re.sub("[《》]", "", series_info.title),
-                mediaid_prefix="cctv",
+                mediaid_prefix="",
                 media_id=series_info.id,
                 poster_path=series_info.image,
             )

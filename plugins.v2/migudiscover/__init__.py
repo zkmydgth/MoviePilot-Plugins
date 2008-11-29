@@ -23,7 +23,7 @@ class MiGuDiscover(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/DDSRem-Dev/MoviePilot-Plugins/main/icons/migu_A.png"
     # 插件版本
-    plugin_version = "1.0.6"
+    plugin_version = "1.0.7"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -169,15 +169,16 @@ class MiGuDiscover(_PluginBase):
             """
             电影数据转换为MediaInfo
             """
+            year = str(movie_info.get("year") or "").strip() or None
             first_air_date = None
             if movie_info.get("publishTime"):
                 first_air_date = movie_info.get("publishTime")
             return schemas.MediaInfo(
                 type="电影",
                 title=movie_info.get("name"),
-                year=movie_info.get("year"),
-                title_year=f"{movie_info.get('name')} ({movie_info.get('year')})",
-                mediaid_prefix="migu",
+                year=year,
+                title_year=f"{movie_info.get('name')} ({year})",
+                mediaid_prefix="",
                 media_id=str(movie_info.get("pID")),
                 poster_path=movie_info.get("h5pics")
                 .get("highResolutionV")
@@ -190,15 +191,16 @@ class MiGuDiscover(_PluginBase):
             """
             电视剧数据转换为MediaInfo
             """
+            year = str(series_info.get("year") or "").strip() or None
             first_air_date = None
             if series_info.get("publishTime"):
                 first_air_date = series_info.get("publishTime")
             return schemas.MediaInfo(
                 type="电视剧",
                 title=series_info.get("name"),
-                year=series_info.get("year"),
-                title_year=f"{series_info.get('name')} ({series_info.get('year')})",
-                mediaid_prefix="migu",
+                year=year,
+                title_year=f"{series_info.get('name')} ({year})",
+                mediaid_prefix="",
                 media_id=str(series_info.get("pID")),
                 release_date=series_info.get("publishTime"),
                 poster_path=series_info.get("h5pics")

@@ -97,7 +97,7 @@ class MangGuoDiscover(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/DDSRem-Dev/MoviePilot-Plugins/main/icons/mangguo_A.jpg"
     # 插件版本
-    plugin_version = "1.0.4"
+    plugin_version = "1.0.5"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -236,7 +236,7 @@ class MangGuoDiscover(_PluginBase):
                 title=movie_info.get("title"),
                 year=movie_info.get("year"),
                 title_year=f"{movie_info.get('title')} ({movie_info.get('year')})",
-                mediaid_prefix="mangguo",
+                mediaid_prefix="",
                 media_id=str(movie_info.get("clipId")),
                 poster_path=movie_info.get("img"),
             )
@@ -250,7 +250,7 @@ class MangGuoDiscover(_PluginBase):
                 title=series_info.get("title"),
                 year=series_info.get("year"),
                 title_year=f"{series_info.get('title')} ({series_info.get('year')})",
-                mediaid_prefix="mangguo",
+                mediaid_prefix="",
                 media_id=str(series_info.get("clipId")),
                 poster_path=series_info.get("img"),
             )
