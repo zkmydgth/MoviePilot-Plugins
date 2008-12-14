@@ -82,7 +82,7 @@ class TransferStrmHelper:
         meta: MetaBase = item.get("meta")
 
         # 判断储存类型是否匹配
-        if item_transfer.target_item.storage != configer.storage_module:
+        if item_transfer.target_item.storage not in ["u115", "115网盘Plus"]:
             return
 
         # 网盘目的地目录
