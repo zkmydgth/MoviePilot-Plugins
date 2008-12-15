@@ -10,7 +10,7 @@ from app.core.cache import TTLCache
 from app.core.event import Event, eventmanager
 from app.log import logger
 from app.plugins import _PluginBase
-from app.schemas import TransferRenameEventData
+from app.schemas import TransferRenameEventData, FileItem
 from app.schemas.types import ChainEventType
 
 
@@ -611,8 +611,14 @@ class FFprobeNamingSupplement(_PluginBase):
         if not isinstance(data, TransferRenameEventData):
             return
         source_path = data.source_path
-        if not source_path or not str(source_path).strip():
+        source_item: Optional[FileItem] = getattr(data, "source_item", None)
+        if not source_path or not str(source_path).strip() or not source_item:
             logger.debug("【ffprobe命名补充】source_path 为空，跳过本次重命名补全")
+            return
+        if source_item.storage != "local":
+            logger.debug(
+                "【ffprobe命名补充】source_item 不是本地文件，跳过本次重命名补全"
+            )
             return
         source_path = str(source_path).strip()
         rename_dict = data.rename_dict
