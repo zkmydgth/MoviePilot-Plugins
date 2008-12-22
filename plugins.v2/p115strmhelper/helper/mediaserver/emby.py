@@ -80,12 +80,15 @@ class EmbyOperate:
             )
             return None
 
-    def get_item_id_by_path(self, name: str, path: str) -> Optional[str]:
+    def get_item_id_by_path(
+        self, name: str, path: str, log_warning: bool = True
+    ) -> Optional[str]:
         """
         依据路径获取 Emby 项目 ID
 
         :param name: Emby Server Name
         :param path: 项目路径
+        :param log_warning: 是否输出 warn 日志，当在遍历父目录等场景下可设为 False
 
         :return: 项目 ID
         """
@@ -108,9 +111,14 @@ class EmbyOperate:
                     for item in items:
                         if item.get("Path") == path:
                             return item.get("Id")
-                    logger.warning(
-                        f"{self.func_name}无法获取项目 Id，未匹配到路径 name={name!r} path={path!r}"
-                    )
+                    if log_warning:
+                        logger.warning(
+                            f"{self.func_name}无法获取项目 Id，未匹配到路径 name={name!r} path={path!r}"
+                        )
+                    else:
+                        logger.debug(
+                            f"{self.func_name}未匹配到路径 name={name!r} path={path!r}"
+                        )
                 else:
                     logger.warning(
                         f"{self.func_name}获取项目 Id 失败，Emby 未返回有效响应 name={name!r} path={path!r}"
@@ -202,7 +210,9 @@ class EmbyOperate:
         for parent in path_obj.parents:
             if len(parent.parts) <= 1:
                 break
-            item_id = self.get_item_id_by_path(name, parent.as_posix())
+            item_id = self.get_item_id_by_path(
+                name, parent.as_posix(), log_warning=False
+            )
             if not item_id:
                 continue
             return self.trigger_refresh_by_id(
@@ -387,7 +397,9 @@ class EmbyMediaInfoOperate:
             logger.info(f"{self.func_name}提取媒体信息目录: {file_path}")
 
         for service_name, _ in media_server.items():
-            item_id = self.emby_operate.get_item_id_by_path(service_name, file_path)
+            item_id = self.emby_operate.get_item_id_by_path(
+                service_name, file_path, log_warning=False
+            )
             if not item_id:
                 sleep(10)
                 if self.emby_operate.trigger_refresh_by_path(service_name, file_path):
@@ -473,7 +485,9 @@ class EmbyMediaInfoOperate:
                 logger.info(
                     f"{self.func_name}尝试获取媒体 Id 提取媒体信息: {file_path}"
                 )
-                item_id = self.emby_operate.get_item_id_by_path(service_name, file_path)
+                item_id = self.emby_operate.get_item_id_by_path(
+                    service_name, file_path, log_warning=False
+                )
                 if not item_id:
                     sleep(10)
                     if self.emby_operate.trigger_refresh_by_path(
