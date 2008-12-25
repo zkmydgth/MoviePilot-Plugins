@@ -134,7 +134,42 @@ class P115Api:
                         )
                     )
         except Exception as e:
-            logger.debug(f"【P115Disk】获取信息失败: {str(e)}")
+            logger.warn(f"【P115Disk】获取信息失败: {str(e)}")
+            try:
+                storage_chain = StorageChain()
+                fileitem = FileItem(
+                    storage="u115",
+                    **fileitem.model_dump(exclude={"storage"}),
+                )
+                fallback_items = storage_chain.list_files(
+                    fileitem=fileitem, recursion=False
+                )
+                if fallback_items:
+                    result_items = []
+                    for item in fallback_items:
+                        if item.fileid:
+                            self._id_cache.add_cache(
+                                id=int(item.fileid), directory=item.path.rstrip("/")
+                            )
+                            self._id_item_cache.add_cache(
+                                id=int(item.fileid),
+                                item={
+                                    "path": item.path,
+                                    "id": int(item.fileid),
+                                    "size": item.size,
+                                    "modify_time": item.modify_time,
+                                    "pickcode": item.pickcode,
+                                    "is_dir": bool(item.type == "dir"),
+                                },
+                            )
+                        result_item = FileItem(
+                            storage=self._disk_name,
+                            **item.model_dump(exclude={"storage"}),
+                        )
+                        result_items.append(result_item)
+                    return result_items
+            except Exception as e:
+                logger.error(f"【P115Disk】获取信息失败（原版）: {str(e)}")
             return items
         return items
 
@@ -158,7 +193,7 @@ class P115Api:
             }
             resp = self.client.fs_mkdir(payload)
             check_response(resp)
-            logger.debug(f"【P115Disk】创建目录: {resp}")
+            logger.info(f"【P115Disk】创建目录: {resp}")
             data = resp.get("cid", resp.get("file_id", None))
             if not data:
                 logger.error(f"【P115Disk】创建目录失败: {resp}")
@@ -187,7 +222,7 @@ class P115Api:
                 pickcode=to_pickcode(data),
             )
         except Exception as e:
-            logger.debug(f"【P115Disk】创建目录失败: {str(e)}")
+            logger.error(f"【P115Disk】创建目录失败: {str(e)}")
             return None
 
     def get_folder(self, path: Path) -> Optional[FileItem]:
@@ -205,7 +240,7 @@ class P115Api:
         try:
             resp = self.client.fs_makedirs_app(path.as_posix(), pid=0)
             check_response(resp)
-            logger.debug(f"【P115Disk】创建目录: {resp}")
+            logger.info(f"【P115Disk】创建目录: {resp}")
             self._id_cache.add_cache(id=int(resp["cid"]), directory=path.as_posix())
             modify_time = int(time())
             self._id_item_cache.add_cache(
@@ -409,7 +444,7 @@ class P115Api:
             else:
                 resp = self.client.fs_delete_app(fileitem.fileid)
             check_response(resp)
-            logger.debug(f"【P115Disk】删除文件: {resp}")
+            logger.info(f"【P115Disk】删除文件: {resp}")
             self._id_cache.remove(id=int(fileitem.fileid))
             self._id_item_cache.remove(int(fileitem.fileid))
             return True
@@ -466,7 +501,8 @@ class P115Api:
                     },
                 )
             return True
-        except Exception:
+        except Exception as e:
+            logger.error(f"【P115Disk】重命名文件错误: {e}")
             return False
 
     def download(self, fileitem: FileItem, path: Path = None) -> Optional[Path]:
@@ -551,7 +587,8 @@ class P115Api:
             new_item = self.get_item(new_path)
             self.rename(new_item, new_name)
             return True
-        except Exception:
+        except Exception as e:
+            logger.error(f"【P115Disk】复制文件出错: {e}")
             return False
 
     def move(self, fileitem: FileItem, path: Path, new_name: str) -> bool:
@@ -601,7 +638,8 @@ class P115Api:
             new_item = self.get_item(new_path)
             self.rename(new_item, new_name)
             return True
-        except Exception:
+        except Exception as e:
+            logger.error(f"移动文件出错: {e}")
             return False
 
     def link(self, fileitem: FileItem, target_file: Path) -> bool:
