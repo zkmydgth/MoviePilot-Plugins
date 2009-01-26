@@ -2412,7 +2412,7 @@
                 <v-icon start>mdi-wechat</v-icon>微信
               </v-tab>
               <v-tab v-if="donateDialog.donateInfo.alipay?.enabled" value="alipay">
-                <v-icon start>mdi-alipay</v-icon>支付宝
+                <v-icon start>mdi-wallet</v-icon>支付宝
               </v-tab>
             </v-tabs>
 
@@ -3710,11 +3710,11 @@ const openDonateDialog = async () => {
     // 处理捐赠信息
     if (donateResult && donateResult.code === 0 && donateResult.data) {
       donateDialog.donateInfo = donateResult.data;
-      // 设置默认激活的tab
-      if (donateResult.data.alipay?.enabled) {
-        donateDialog.activeTab = 'alipay';
-      } else if (donateResult.data.wechat?.enabled) {
+      // 设置默认激活的tab（默认优先微信）
+      if (donateResult.data.wechat?.enabled) {
         donateDialog.activeTab = 'wechat';
+      } else if (donateResult.data.alipay?.enabled) {
+        donateDialog.activeTab = 'alipay';
       }
     } else {
       throw new Error(donateResult?.msg || '获取捐赠信息失败');
