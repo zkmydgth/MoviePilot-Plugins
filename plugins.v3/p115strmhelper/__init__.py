@@ -108,8 +108,8 @@ class P115StrmHelper(_PluginBase):
         "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/"
         "refs/heads/v2/src/assets/images/misc/u115.png"
     )
-    # 插件版本
-    plugin_version = "3.2.0"
+    # 插件版本（统一以 version.py 为唯一来源，避免多处写死导致版本漂移）
+    plugin_version = VERSION
     # 插件作者
     plugin_author = "zkmydgth"
     # 作者主页

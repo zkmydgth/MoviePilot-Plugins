@@ -5,9 +5,13 @@ from pathlib import Path
 from typing import Iterable, Generator, List, Optional, Union
 
 from app.sdk.config import settings
+from app.sdk.logging import logger
 from app.adapters.cache.redis import RedisHelper
 
-import txt_tree_storage
+try:
+    import txt_tree_storage
+except ImportError:  # pragma: no cover - 取决于宿主是否装了 Rust 扩展
+    txt_tree_storage = None
 
 
 class DirectoryTreeStorage(ABC):
@@ -81,6 +85,26 @@ class TxtFileStorage(DirectoryTreeStorage):
         self._rust = txt_tree_storage
         self.file_path = Path(file_path)
         self.file_path.parent.mkdir(parents=True, exist_ok=True)
+        if self._rust is None:
+            logger.warning(
+                f"【目录树】Rust 扩展 txt_tree_storage 不可用（当前 Python 版本无匹配的 wheel），"
+                f"目录树 {self.file_path.name} 将使用纯 Python 存储后端："
+                f"功能一致但大目录场景会变慢，建议把缓存后端切换为 Redis 以获得原生效能。"
+            )
+
+    def _iter_lines(self) -> Generator[str, None, None]:
+        """
+        逐行读取 TXT 树文件，跳过空行
+
+        :return Generator: 路径字符串的生成器
+        """
+        if not self.file_path.exists():
+            return
+        with self.file_path.open("r", encoding="utf-8") as file_handle:
+            for line in file_handle:
+                path = line.strip()
+                if path:
+                    yield path
 
     def add_paths(self, paths: Iterable[str], append: bool = False):
         """
@@ -89,9 +113,18 @@ class TxtFileStorage(DirectoryTreeStorage):
         :param paths (Iterable): 路径字符串迭代器
         :param append (bool): True 时追加，False 时覆盖
         """
-        return self._rust.add_paths(
-            self.file_path, (p if isinstance(p, str) else str(p) for p in paths), append
-        )
+        if self._rust is not None:
+            return self._rust.add_paths(
+                self.file_path,
+                (p if isinstance(p, str) else str(p) for p in paths),
+                append,
+            )
+        mode = "a" if append else "w"
+        with self.file_path.open(mode, encoding="utf-8") as file_handle:
+            for path in paths:
+                if not path:
+                    continue
+                file_handle.write(f"{path}\n")
 
     def compare_trees(
         self, other_storage: "DirectoryTreeStorage"
@@ -106,8 +139,15 @@ class TxtFileStorage(DirectoryTreeStorage):
         if not isinstance(other_storage, TxtFileStorage):
             raise TypeError("TxtFileStorage 只能与同类型的树进行比较")
 
-        diff = self._rust.compare_trees(self.file_path, other_storage.file_path)
-        yield from diff
+        if self._rust is not None:
+            diff = self._rust.compare_trees(self.file_path, other_storage.file_path)
+            yield from diff
+            return
+
+        other_paths = set(other_storage._iter_lines())
+        for path in self._iter_lines():
+            if path not in other_paths:
+                yield path
 
     def compare_trees_lines(
         self, other_storage: "DirectoryTreeStorage"
@@ -122,8 +162,17 @@ class TxtFileStorage(DirectoryTreeStorage):
         if not isinstance(other_storage, TxtFileStorage):
             raise TypeError("TxtFileStorage 只能与同类型的树进行比较")
 
-        lines = self._rust.compare_trees_lines(self.file_path, other_storage.file_path)
-        yield from lines
+        if self._rust is not None:
+            lines = self._rust.compare_trees_lines(
+                self.file_path, other_storage.file_path
+            )
+            yield from lines
+            return
+
+        other_paths = set(other_storage._iter_lines())
+        for line_number, path in enumerate(self._iter_lines(), start=1):
+            if path not in other_paths:
+                yield line_number
 
     def get_path_by_line_number(self, line_number: int) -> Union[str, None]:
         """
@@ -132,7 +181,14 @@ class TxtFileStorage(DirectoryTreeStorage):
         :param line_number (int): 行号（从 1 开始）
         :return str: 路径字符串，无效行号时返回 None
         """
-        return self._rust.get_path_by_line_number(self.file_path, line_number)
+        if self._rust is not None:
+            return self._rust.get_path_by_line_number(self.file_path, line_number)
+        if line_number <= 0:
+            return None
+        for current_number, path in enumerate(self._iter_lines(), start=1):
+            if current_number == line_number:
+                return path
+        return None
 
     def count(self) -> int:
         """
@@ -140,13 +196,17 @@ class TxtFileStorage(DirectoryTreeStorage):
 
         :return: 条目总数
         """
-        return int(self._rust.count(self.file_path))
+        if self._rust is not None:
+            return int(self._rust.count(self.file_path))
+        return sum(1 for _ in self._iter_lines())
 
     def clear(self):
         """
         清空 TXT 文件的所有内容
         """
-        return self._rust.clear(self.file_path)
+        if self._rust is not None:
+            return self._rust.clear(self.file_path)
+        self.file_path.write_text("", encoding="utf-8")
 
 
 class RedisStorage(DirectoryTreeStorage):

@@ -2,7 +2,7 @@ p115client==0.0.9.6.5.1
 sentry-sdk~=2.67.1
 aligo~=6.2.8
 qrcode_terminal~=0.8
-pyahocorasick~=2.3.0
+pyahocorasick>=2.3.1
 diskcache~=5.6.3
 zstandard~=0.25.0
 mfusepy~=3.1.0
@@ -21,7 +21,15 @@ jieba~=0.42.1
 jinja2~=3.1
 aiofiles~=25.1
 
-# Rust Mode
-full_strm_sync==0.1.6
-txt_tree_storage==0.2.1
-share_strm_scan==0.2.2
+# Rust Mode —— 可选加速依赖
+#
+# 这 3 个是 Rust 编译的 CPython 扩展，上游目前只发布了 cp312 ABI 的 wheel。
+# MoviePilot V3 运行于 Python 3.14（cp314），无法安装它们，若声明为必需依赖，
+# uv 解析会整体失败导致插件装不上。因此这里改为可选：可用时自动启用 Rust 加速，
+# 不可用时走纯 Python 降级路径（功能完整，仅大目录/大批量场景慢一些）。
+#
+# 想启用加速（且宿主 Python ≤3.12）时手动安装：
+#   uv pip install full_strm_sync==0.1.6 txt_tree_storage==0.2.1 share_strm_scan==0.2.2
+full_strm_sync==0.1.6; python_version < "3.13"
+txt_tree_storage==0.2.1; python_version < "3.13"
+share_strm_scan==0.2.2; python_version < "3.13"

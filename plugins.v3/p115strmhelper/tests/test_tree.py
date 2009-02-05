@@ -124,6 +124,39 @@ class TestRedisStorageAddPaths(TestCase):
         self.assertEqual(str(ctx.exception), "random connection error")
 
 
+class TestRedisStorageLineNumberBoundary(TestCase):
+    """
+    RedisStorage.get_path_by_line_number 的非正数行号防护
+
+    这里的 ``line_number <= 0`` 不是可有可无的防御：Redis 的 ``lindex`` 接受负数
+    下标，-1 表示"最后一个元素"。若放行 0，会退化成 ``lindex(-1)`` 返回最后一条
+    路径——调用方拿到的不是"无效行号"，而是一条**真实但错误**的路径。
+    """
+
+    def _storage(self):
+        with patch("utils.tree.RedisHelper") as mock_redis_helper:
+            mock_redis_helper.return_value.client = MagicMock()
+            storage = RedisStorage("test_tree")
+        return storage
+
+    def test_get_path_by_line_number_rejects_non_positive(self):
+        """0 与负数行号都应返回 None，且不穿透到 Redis"""
+        storage = self._storage()
+
+        self.assertIsNone(storage.get_path_by_line_number(0))
+        self.assertIsNone(storage.get_path_by_line_number(-1))
+        self.assertIsNone(storage.get_path_by_line_number(-100))
+        storage.client.lindex.assert_not_called()
+
+    def test_get_path_by_line_number_valid(self):
+        """正数行号正常查询，下标换算为 line_number - 1"""
+        storage = self._storage()
+        storage.client.lindex.return_value = b"/a/1.mkv"
+
+        self.assertEqual(storage.get_path_by_line_number(1), "/a/1.mkv")
+        storage.client.lindex.assert_called_once_with("dirtree:list:test_tree", 0)
+
+
 if __name__ == "__main__":
     from unittest import main
 
