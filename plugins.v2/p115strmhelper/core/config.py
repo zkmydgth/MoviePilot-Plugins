@@ -1,6 +1,5 @@
 import json
 import platform
-import machineid
 from typing import Dict, Any, Optional, List, Union
 from pathlib import Path
 
@@ -10,6 +9,8 @@ from app.log import logger
 from app.core.config import settings
 from app.utils.system import SystemUtils
 from app.db.systemconfig_oper import SystemConfigOper
+
+from ..utils.machineid import MachineIDGenerator
 
 
 class BaseConfig(BaseModel):
@@ -268,7 +269,8 @@ class ConfigManager:
         ]:
             return Path(self._configs.get(key))
         elif key == "MACHINE_ID":
-            return machineid.hashed_id(self._configs.get("PLUSIN_NAME"))
+            generator = MachineIDGenerator()
+            return generator.get_id()
         return self._configs.get(key)
 
     def get_all_configs(self) -> Dict[str, Any]:
