@@ -72,10 +72,12 @@ class StringUtils:
         return normalized_text.strip()
 
     @staticmethod
-    def media_type_i18n(media_type: str) -> str:
+    def media_type_i18n(media_type: str | None) -> str:
         """
         媒体类型
         """
+        if media_type is None:
+            return "未知类型"
         if media_type == "movie":
             return i18n.translate("media_type_movie")
         elif media_type == "tv":
