@@ -766,7 +766,11 @@ class MonitorLife:
                     torrent_cnt_msg = ""
                     if del_torrent_hashs:
                         torrent_cnt_msg += (
-                            f"删除种子 {len(set(del_torrent_hashs))} 个\n"
+                            i18n.translate(
+                                "sync_del_torrent_count",
+                                count=len(set(del_torrent_hashs)),
+                            )
+                            + "\n"
                         )
                     if stop_torrent_hashs:
                         stop_cnt = 0
@@ -775,14 +779,25 @@ class MonitorLife:
                             if stop_hash not in set(del_torrent_hashs):
                                 stop_cnt += 1
                         if stop_cnt > 0:
-                            torrent_cnt_msg += f"暂停种子 {stop_cnt} 个\n"
+                            torrent_cnt_msg += (
+                                i18n.translate("sync_del_stop_count", count=stop_cnt)
+                                + "\n"
+                            )
                     if error_cnt:
-                        torrent_cnt_msg += f"删种失败 {error_cnt} 个\n"
+                        torrent_cnt_msg += (
+                            i18n.translate("sync_del_error_count", count=error_cnt)
+                            + "\n"
+                        )
+                    del_type_text = (
+                        i18n.translate("life_del_folder", path=pan_file_path)
+                        if file_category == 0
+                        else i18n.translate("life_del_file", path=pan_file_path)
+                    )
                     post_message(
                         mtype=NotificationType.Plugin,
                         title=i18n.translate("life_sync_media_del_title"),
-                        text=f"\n删除{'文件夹' if file_category == 0 else '文件'} {pan_file_path}\n"
-                        f"删除记录{len(transfer_history) if transfer_history else '0'}个\n"
+                        text=f"\n{del_type_text}\n"
+                        f"{i18n.translate('sync_del_record_count', count=len(transfer_history) if transfer_history else 0)}\n"
                         f"{torrent_cnt_msg}"
                         f"时间 {strftime('%Y-%m-%d %H:%M:%S', localtime(time()))}\n",
                     )

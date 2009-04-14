@@ -15,6 +15,7 @@ from app.schemas.types import MediaType, MediaImageType, NotificationType
 from app.schemas.mediaserver import WebhookEventInfo
 
 from ...core.config import configer
+from ...core.i18n import i18n
 from ...core.message import post_message
 from ...core.plunins import PluginChian
 from ...db_manager.oper import TransferHBOper
@@ -967,22 +968,31 @@ class MediaSyncDelHelper:
 
             torrent_cnt_msg = ""
             if del_torrent_hashs:
-                torrent_cnt_msg += f"删除种子{len(set(del_torrent_hashs))}个\n"
+                torrent_cnt_msg += (
+                    i18n.translate(
+                        "sync_del_torrent_count", count=len(set(del_torrent_hashs))
+                    )
+                    + "\n"
+                )
             if stop_torrent_hashs:
                 stop_cnt = 0
                 for stop_hash in set(stop_torrent_hashs):
                     if stop_hash not in set(del_torrent_hashs):
                         stop_cnt += 1
                 if stop_cnt > 0:
-                    torrent_cnt_msg += f"暂停种子{stop_cnt}个\n"
+                    torrent_cnt_msg += (
+                        i18n.translate("sync_del_stop_count", count=stop_cnt) + "\n"
+                    )
             if error_cnt:
-                torrent_cnt_msg += f"删种失败{error_cnt}个\n"
+                torrent_cnt_msg += (
+                    i18n.translate("sync_del_error_count", count=error_cnt) + "\n"
+                )
             post_message(
                 mtype=NotificationType.Plugin,
-                title="媒体库同步删除任务完成",
+                title=i18n.translate("media_sync_del_done_title"),
                 image=backrop_image,
                 text=f"{msg}\n"
-                f"删除记录{len(transfer_history) if transfer_history else '0'}个\n"
+                f"{i18n.translate('sync_del_record_count', count=len(transfer_history) if transfer_history else 0)}\n"
                 f"{torrent_cnt_msg}"
                 f"时间 {strftime('%Y-%m-%d %H:%M:%S', localtime(time()))}",
             )

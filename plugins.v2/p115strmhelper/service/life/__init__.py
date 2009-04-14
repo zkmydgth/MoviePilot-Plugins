@@ -2,6 +2,7 @@ from threading import Event
 from time import time
 
 from ...core.config import configer
+from ...core.i18n import i18n
 from ...core.message import post_message
 from ...helper.life import MonitorLife
 from ...utils.exception import NotifyExceptionFormatter
@@ -69,10 +70,9 @@ def monitor_life_thread_worker(
                 if configer.notify:
                     post_message(
                         mtype=NotificationType.Plugin,
-                        title="【监控生活事件】运行异常",
+                        title=i18n.translate("monitor_life_error_title"),
                         text=(
-                            "生活事件监控出现异常，将在 30 秒后自动重启。\n"
-                            f"错误摘要：{NotifyExceptionFormatter.format_exception_for_notify(e)}"
+                            f"\n{i18n.translate('monitor_life_error_text', error=NotifyExceptionFormatter.format_exception_for_notify(e))}\n"
                         ),
                     )
                 logger.info("【监控生活事件】30s 后尝试重新启动生活事件监控")
@@ -86,10 +86,9 @@ def monitor_life_thread_worker(
         if configer.notify:
             post_message(
                 mtype=NotificationType.Plugin,
-                title="【监控生活事件】线程异常退出",
+                title=i18n.translate("monitor_life_exit_title"),
                 text=(
-                    "生活事件监控线程因异常退出，守护线程将在检测到停止后自动重启。\n"
-                    f"错误摘要：{NotifyExceptionFormatter.format_exception_for_notify(e)}"
+                    f"\n{i18n.translate('monitor_life_exit_text', error=NotifyExceptionFormatter.format_exception_for_notify(e))}\n"
                 ),
             )
         raise

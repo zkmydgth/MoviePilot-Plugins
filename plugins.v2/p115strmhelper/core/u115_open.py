@@ -42,6 +42,7 @@ from app.schemas import NotificationType
 from app.utils.string import StringUtils
 
 from ..core.config import configer
+from ..core.i18n import i18n
 from ..core.message import post_message
 from ..core.cache import idpathcacher
 from ..db_manager.oper import FileDbHelper, OpenFileOper
@@ -395,8 +396,8 @@ class U115OpenHelper:
             if configer.notify and configer.upload_module_notify:
                 post_message(
                     mtype=NotificationType.Plugin,
-                    title="【115网盘】上传模块增强",
-                    text=f"\n触发秒传等待：{target_name}\n",
+                    title=i18n.translate("upload_module_title"),
+                    text=f"\n{i18n.translate('upload_wait_text', name=target_name)}\n",
                 )
 
             try:
@@ -433,17 +434,17 @@ class U115OpenHelper:
                 time_str = f"{elapsed_time:.1f}秒" if elapsed_time else "未知"
                 post_message(
                     mtype=NotificationType.Plugin,
-                    title="【115网盘】上传成功",
-                    text=f"\n文件名：{target_name}\n文件大小：{size_str}\n耗时：{time_str}\n",
+                    title=i18n.translate("upload_success_title"),
+                    text=f"\n{i18n.translate('upload_success_text', name=target_name, size=size_str, time=time_str)}\n",
                 )
             else:
                 size_str = StringUtils.str_filesize(file_size)
-                error_text = f"\n文件名：{target_name}\n文件大小：{size_str}\n"
+                error_text = f"\n{i18n.translate('upload_fail_text', name=target_name, size=size_str)}\n"
                 if error_msg:
-                    error_text += f"错误信息：{error_msg}\n"
+                    error_text += f"{i18n.translate('upload_fail_error', error=error_msg)}\n"
                 post_message(
                     mtype=NotificationType.Plugin,
-                    title="【115网盘】上传失败",
+                    title=i18n.translate("upload_fail_title"),
                     text=error_text,
                 )
 
