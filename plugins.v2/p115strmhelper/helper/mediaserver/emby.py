@@ -120,12 +120,27 @@ class EmbyOperate:
             )
             return None
 
-    def trigger_refresh_by_id(self, name: str, item_id: str) -> bool:
+    def trigger_refresh_by_id(
+        self,
+        name: str,
+        item_id: str,
+        *,
+        recursive: bool = True,
+        metadata_refresh_mode: str = "FullRefresh",
+        image_refresh_mode: str = "FullRefresh",
+        replace_all_metadata: bool = False,
+        replace_all_images: bool = False,
+    ) -> bool:
         """
         触发指定 ID 的刷新任务
 
         :param name: Emby Server Name
         :param item_id: ID
+        :param recursive: 是否递归刷新子项
+        :param metadata_refresh_mode: 元数据刷新模式（如 Default、FullRefresh）
+        :param image_refresh_mode: 图片刷新模式（如 Default、FullRefresh）
+        :param replace_all_metadata: 是否替换全部元数据
+        :param replace_all_images: 是否替换全部图片
 
         :return: 是否触发成功
         """
@@ -135,11 +150,11 @@ class EmbyOperate:
 
         req_url = f"{emby_host}emby/Items/{item_id}/Refresh"
         params = {
-            "Recursive": True,
-            "MetadataRefreshMode": "FullRefresh",
-            "ImageRefreshMode": "FullRefresh",
-            "ReplaceAllMetadata": False,
-            "ReplaceAllImages": False,
+            "Recursive": str(recursive).lower(),
+            "MetadataRefreshMode": metadata_refresh_mode,
+            "ImageRefreshMode": image_refresh_mode,
+            "ReplaceAllMetadata": str(replace_all_metadata).lower(),
+            "ReplaceAllImages": str(replace_all_images).lower(),
             "api_key": emby_apikey,
         }
         try:
@@ -157,12 +172,27 @@ class EmbyOperate:
             )
             return False
 
-    def trigger_refresh_by_path(self, name: str, path: str) -> bool:
+    def trigger_refresh_by_path(
+        self,
+        name: str,
+        path: str,
+        *,
+        recursive: bool = True,
+        metadata_refresh_mode: str = "FullRefresh",
+        image_refresh_mode: str = "FullRefresh",
+        replace_all_metadata: bool = False,
+        replace_all_images: bool = False,
+    ) -> bool:
         """
         依据路径触发刷新任务
 
         :param name: Emby Server Name
         :param path: 项目路径
+        :param recursive: 是否递归刷新子项
+        :param metadata_refresh_mode: 元数据刷新模式（如 Default、FullRefresh）
+        :param image_refresh_mode: 图片刷新模式（如 Default、FullRefresh）
+        :param replace_all_metadata: 是否替换全部元数据
+        :param replace_all_images: 是否替换全部图片
 
         :return: 是否触发成功
         """
@@ -173,7 +203,15 @@ class EmbyOperate:
             item_id = self.get_item_id_by_path(name, parent.as_posix())
             if not item_id:
                 continue
-            return self.trigger_refresh_by_id(name, item_id)
+            return self.trigger_refresh_by_id(
+                name,
+                item_id,
+                recursive=recursive,
+                metadata_refresh_mode=metadata_refresh_mode,
+                image_refresh_mode=image_refresh_mode,
+                replace_all_metadata=replace_all_metadata,
+                replace_all_images=replace_all_images,
+            )
         return False
 
 
