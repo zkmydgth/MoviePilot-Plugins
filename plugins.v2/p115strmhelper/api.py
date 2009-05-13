@@ -628,6 +628,20 @@ class Api:
         except Exception as e:
             return {"code": 1, "msg": f"启动全量同步任务失败: {str(e)}"}
 
+    def trigger_full_sync_db_api(self) -> Dict:
+        """
+        触发全量同步数据库
+        """
+        try:
+            if not configer.get_config("enabled") or not configer.get_config("cookies"):
+                return {"code": 1, "msg": "插件未启用或未配置cookie"}
+
+            servicer.start_full_sync_db()
+
+            return {"code": 0, "msg": "全量同步数据库任务已启动"}
+        except Exception as e:
+            return {"code": 1, "msg": f"启动全量同步数据库任务失败: {str(e)}"}
+
     def trigger_share_sync_api(self) -> Dict:
         """
         触发分享同步

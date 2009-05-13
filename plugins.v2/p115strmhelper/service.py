@@ -228,6 +228,40 @@ class ServiceHelper:
             self.scheduler.print_jobs()
             self.scheduler.start()
 
+    def full_sync_database(self):
+        """
+        全量同步数据库
+        """
+        if (
+            not configer.get_config("full_sync_strm_paths")
+            or not configer.get_config("moviepilot_address")
+            or not configer.get_config("user_download_mediaext")
+        ):
+            return
+
+        strm_helper = FullSyncStrmHelper(
+            client=self.client,
+            mediainfodownloader=self.mediainfodownloader,
+        )
+        strm_helper.generate_database(
+            full_sync_strm_paths=configer.get_config("full_sync_strm_paths"),
+        )
+
+    def start_full_sync_db(self):
+        """
+        启动全量同步数据库
+        """
+        self.scheduler = BackgroundScheduler(timezone=settings.TZ)
+        self.scheduler.add_job(
+            func=self.full_sync_database,
+            trigger="date",
+            run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=3),
+            name="115网盘助手全量同步数据库",
+        )
+        if self.scheduler.get_jobs():
+            self.scheduler.print_jobs()
+            self.scheduler.start()
+
     def share_strm_files(self):
         """
         分享生成STRM

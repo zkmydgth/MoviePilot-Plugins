@@ -815,6 +815,79 @@ class FullSyncStrmHelper:
             self.strm_fail_dict[str(new_file_path)] = str(e)
             return _process_item, path_entry
 
+    def generate_database(self, full_sync_strm_paths):
+        """
+        全量更新数据库
+        """
+        media_paths = full_sync_strm_paths.split("\n")
+        for path in media_paths:
+            if not path:
+                continue
+            parts = path.split("#", 1)
+            pan_media_dir = parts[1]
+
+            try:
+                if pan_media_dir == "/":
+                    parent_id = 0
+                else:
+                    parent_id = int(self.client.fs_dir_getid(pan_media_dir)["id"])
+                logger.info(
+                    f"【全量STRM生成】网盘媒体目录 ID 获取成功: {pan_media_dir} {parent_id}"
+                )
+            except Exception as e:
+                sentry_manager.sentry_hub.capture_exception(e)
+                logger.error(
+                    f"【全量STRM生成】网盘媒体目录 ID 获取失败: {pan_media_dir} {e}"
+                )
+                return False
+
+            try:
+                if (
+                    configer.get_config("full_sync_iter_function")
+                    == "iter_files_with_path_skim"
+                ):
+                    iter_func = iter_files_with_path_skim
+                    iter_kwargs = {"cid": parent_id, "with_ancestors": True}
+                else:
+                    iter_func = iter_files_with_path
+                    iter_kwargs = {
+                        "cid": parent_id,
+                        "with_ancestors": True,
+                        "cooldown": 1.5,
+                    }
+                logger.debug(
+                    f"【全量STRM生成】迭代函数 {iter_func}; 参数 {iter_kwargs}"
+                )
+                start_time = time.perf_counter()
+                for batch in batched(
+                    iter_func(self.client, **iter_kwargs),
+                    int(configer.get_config("full_sync_batch_num")),
+                ):
+                    processed: List = []
+
+                    for item in batch:
+                        processed.extend(self.databasehelper.process_item(item))
+
+                    self.databasehelper.upsert_batch(processed)
+                    self.total_db_write_count += len(processed)
+
+                end_time = time.perf_counter()
+                self.elapsed_time += end_time - start_time
+            except Exception as e:
+                sentry_manager.sentry_hub.capture_exception(e)
+                logger.error(
+                    f"【全量STRM生成】全量更新数据库失败: {pan_media_dir} {e}",
+                    exc_info=True,
+                )
+                return False
+
+        logger.info("【全量STRM生成】全量更新数据库清空缓存数据...")
+        idpathcacher.clear()
+
+        logger.info(
+            f"【全量STRM生成】全量更新数据库完成，时间 {self.elapsed_time:.6f} 秒，总迭代文件数量 {self.total_count} 个，数据库写入量 {self.total_db_write_count} 条"
+        )
+
     def generate_strm_files(self, full_sync_strm_paths):
         """
         生成 STRM 文件

@@ -296,6 +296,13 @@ class P115StrmHelper(_PluginBase):
                 "summary": "执行全量同步",
             },
             {
+                "path": "/full_sync_db",
+                "endpoint": self.api.trigger_full_sync_db_api,
+                "methods": ["POST"],
+                "auth": "bear",
+                "summary": "执行全量同步",
+            },
+            {
                 "path": "/share_sync",
                 "endpoint": self.api.trigger_share_sync_api,
                 "methods": ["POST"],
