@@ -14,7 +14,8 @@ class FileDbHelper(DbOper):
     文件类数据库操作
     """
 
-    def process_item(self, item: Dict) -> List[Dict]:
+    @staticmethod
+    def process_item(item: Dict) -> List[Dict]:
         """
         处理单个项目，分离文件夹和文件数据
         """
@@ -60,7 +61,8 @@ class FileDbHelper(DbOper):
 
         return results
 
-    def process_life_file_item(self, event, file_path: str) -> List[Dict]:
+    @staticmethod
+    def process_life_file_item(event, file_path: str) -> List[Dict]:
         """
         处理115生活事件文件 event
         """
@@ -82,7 +84,8 @@ class FileDbHelper(DbOper):
             }
         ]
 
-    def process_life_dir_item(self, event, file_path: str) -> List[Dict]:
+    @staticmethod
+    def process_life_dir_item(event, file_path: str) -> List[Dict]:
         """
         处理115生活事件文件夹 event
         """
@@ -98,7 +101,8 @@ class FileDbHelper(DbOper):
             }
         ]
 
-    def process_fs_files_item(self, item) -> List[Dict]:
+    @staticmethod
+    def process_fs_files_item(item) -> List[Dict]:
         """
         处理115原始返回数据
         """
@@ -136,7 +140,8 @@ class FileDbHelper(DbOper):
                 }
             ]
 
-    def process_fileitem(self, fileitem: FileItem) -> List[Dict]:
+    @staticmethod
+    def process_fileitem(fileitem: FileItem) -> List[Dict]:
         """
         处理MP fileitem 类型数据
         """

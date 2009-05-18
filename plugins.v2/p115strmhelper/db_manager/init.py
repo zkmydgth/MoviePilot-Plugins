@@ -6,7 +6,6 @@ from orjson import loads
 from alembic import command
 from alembic.config import Config
 from alembic.runtime.environment import EnvironmentContext
-from alembic.runtime.migration import MigrationContext
 from alembic.script import ScriptDirectory
 from sqlalchemy.exc import SQLAlchemyError
 

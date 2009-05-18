@@ -31,7 +31,8 @@ class TgSearcher:
         if settings.PROXY:
             self.session.proxies.update(settings.PROXY)
 
-    def extract_cloud_links(self, text: str) -> tuple[List[str], str]:
+    @staticmethod
+    def extract_cloud_links(text: str) -> tuple[List[str], str]:
         """
         提取云盘链接
         """

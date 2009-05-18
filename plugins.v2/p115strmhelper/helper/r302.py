@@ -105,7 +105,8 @@ class Redirect:
         id = int(info["fid"])
         return id
 
-    def get_receive_code(self, share_code: str) -> str:
+    @staticmethod
+    def get_receive_code(share_code: str) -> str:
         """
         获取接收码
         """

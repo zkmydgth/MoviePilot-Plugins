@@ -1499,8 +1499,8 @@ class TransferStrmHelper:
                     f"【监控整理STRM生成】 {item_dest_name} {name} 不支持刷新"
                 )
 
+    @staticmethod
     def generate_strm_files(
-        self,
         target_dir: str,
         pan_media_dir: str,
         item_dest_path: Path,

@@ -147,7 +147,7 @@ class U115OpenHelper:
         # 检查会话
         self._check_session()
 
-        request_headers = self.session.headers.copy()
+        request_headers = copy(self.session.headers)
         if headers:
             request_headers.update(headers)
         kwargs["headers"] = request_headers
@@ -190,7 +190,8 @@ class U115OpenHelper:
             return ret_data.get(result_key)
         return ret_data
 
-    def _delay_get_item(self, path: Path) -> Optional[schemas.FileItem]:
+    @staticmethod
+    def _delay_get_item(path: Path) -> Optional[schemas.FileItem]:
         """
         自动延迟重试 get_item 模块
         """
