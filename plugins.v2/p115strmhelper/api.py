@@ -44,7 +44,8 @@ class Api:
         )
         self.browse_dir_pan_api_last = 0
 
-    def get_config_api(self) -> Dict:
+    @staticmethod
+    def get_config_api() -> Dict:
         """
         获取配置
         """
@@ -57,7 +58,8 @@ class Api:
         ]
         return config
 
-    def get_machine_id_api(self) -> Dict:
+    @staticmethod
+    def get_machine_id_api() -> Dict:
         """
         获取 Machine ID
         """
@@ -264,8 +266,9 @@ class Api:
                 logger.error(f"浏览网盘目录 API 原始错误: {str(e)}")
                 return {"code": 1, "msg": f"浏览网盘目录失败: {str(e)}"}
 
+    @staticmethod
     def get_qrcode_api(
-        self, request: Request = None, client_type_override: Optional[str] = None
+        request: Request = None, client_type_override: Optional[str] = None
     ) -> Dict:
         """
         获取登录二维码
@@ -472,7 +475,8 @@ class Api:
             uid=uid, _time=_time, sign=sign, client_type=client_type
         )
 
-    def get_aliyundrive_qrcode_api(self):
+    @staticmethod
+    def get_aliyundrive_qrcode_api():
         """
         获取阿里云盘登入二维码
         """
@@ -505,7 +509,8 @@ class Api:
         except Exception as e:
             return {"code": -1, "msg": f"获取二维码失败: {e}"}
 
-    def check_aliyundrive_qrcode_api(self, request: Request):
+    @staticmethod
+    def check_aliyundrive_qrcode_api(request: Request):
         """
         轮询检查二维码的扫描和确认状态
         """
@@ -542,8 +547,8 @@ class Api:
         except Exception as e:
             return {"code": -1, "msg": f"检查状态时出错: {e}"}
 
+    @staticmethod
     def redirect_url(
-        self,
         request: Request,
         pickcode: str = "",
         file_name: str = "",
@@ -614,6 +619,7 @@ class Api:
             content=dumps({"status": "redirecting", "url": url}),
         )
 
+    @staticmethod
     def trigger_full_sync_api(self) -> Dict:
         """
         触发全量同步
@@ -628,7 +634,8 @@ class Api:
         except Exception as e:
             return {"code": 1, "msg": f"启动全量同步任务失败: {str(e)}"}
 
-    def trigger_full_sync_db_api(self) -> Dict:
+    @staticmethod
+    def trigger_full_sync_db_api() -> Dict:
         """
         触发全量同步数据库
         """
@@ -642,7 +649,8 @@ class Api:
         except Exception as e:
             return {"code": 1, "msg": f"启动全量同步数据库任务失败: {str(e)}"}
 
-    def trigger_share_sync_api(self) -> Dict:
+    @staticmethod
+    def trigger_share_sync_api() -> Dict:
         """
         触发分享同步
         """
@@ -662,7 +670,8 @@ class Api:
         except Exception as e:
             return {"code": 1, "msg": f"启动分享同步任务失败: {str(e)}"}
 
-    def get_status_api(self) -> Dict:
+    @staticmethod
+    def get_status_api() -> Dict:
         """
         获取插件状态
         """
@@ -682,7 +691,8 @@ class Api:
             },
         }
 
-    def add_transfer_share(self, share_url: str = "") -> Dict:
+    @staticmethod
+    def add_transfer_share(share_url: str = "") -> Dict:
         """
         添加分享转存整理
         """
@@ -782,7 +792,8 @@ class Api:
             "message": resp["error"],
         }
 
-    def offline_tasks_api(self, payload: Dict) -> Dict:
+    @staticmethod
+    def offline_tasks_api(payload: Dict) -> Dict:
         """
         离线任务列表
         """
@@ -807,7 +818,8 @@ class Api:
 
         return response
 
-    def add_offline_task_api(self, payload: Dict) -> Dict:
+    @staticmethod
+    def add_offline_task_api(payload: Dict) -> Dict:
         """
         添加离线下载任务
         """
@@ -831,7 +843,8 @@ class Api:
             "data": "",
         }
 
-    def check_feature_api(self, name: str = "") -> Dict:
+    @staticmethod
+    def check_feature_api(name: str = "") -> Dict:
         """
         判断是否有权限使用此增强功能
         """
