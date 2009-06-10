@@ -87,11 +87,12 @@
         "name": "115网盘STRM助手",
         "description": "115网盘STRM生成一条龙服务",
         "labels": "云盘",
-        "version": "1.0.0",
+        "version": "1.1.0",
         "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png",
         "author": "DDSRem",
         "level": 1,
         "history": {
+            "v1.1.0": "插件页面重写，支持监控115生活事件",
             "v1.0.0": "功能基本完善，可以正常使用",
             "v0.1.1": "支持分享链接获取302直链",
             "v0.1.0": "功能基本完善",

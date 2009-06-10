@@ -1,24 +1,25 @@
 import threading
 import sys
+import time
 from collections.abc import Mapping
 from datetime import datetime, timedelta
 from threading import Event as ThreadEvent
-from typing import Any, List, Dict, Tuple, Self, cast
+from typing import Any, List, Dict, Tuple, Self, cast, Optional
 from errno import EIO, ENOENT
 from urllib.parse import quote, unquote, urlsplit, urlencode
 from pathlib import Path
 
 import pytz
 from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
 from fastapi import Request, Response
 import requests
 from requests.exceptions import HTTPError
 from orjson import dumps, loads
 from cachetools import cached, TTLCache
 from p115client import P115Client
-from p115client.tool.iterdir import (
-    iter_files_with_path,
-)
+from p115client.tool.iterdir import iter_files_with_path, get_path_to_cid
+from p115client.tool.life import iter_life_behavior_list
 from p115rsacipher import encrypt, decrypt
 
 from app import schemas
@@ -26,7 +27,9 @@ from app.core.config import settings
 from app.core.event import eventmanager, Event
 from app.log import logger
 from app.plugins import _PluginBase
-from app.schemas import TransferInfo, FileItem
+from app.schemas import TransferInfo, FileItem, RefreshMediaItem, ServiceInfo
+from app.core.context import MediaInfo
+from app.helper.mediaserver import MediaServerHelper
 from app.schemas.types import EventType
 from app.utils.system import SystemUtils
 
@@ -98,72 +101,79 @@ class FullSyncStrmHelper:
         self.client = P115Client(cookies)
         self.count = 0
 
-    def generate_strm_files_db(self, pan_media_dir, target_dir, server_address):
+    def generate_strm_files_db(self, full_sync_strm_paths, server_address):
         """
         生成 STRM 文件
         """
-        pan_media_dir = pan_media_dir.rstrip("/")
-        target_dir = target_dir.rstrip("/")
         server_address = server_address.rstrip("/")
+        media_paths = full_sync_strm_paths.split("\n")
+        for path in media_paths:
+            if not path:
+                continue
+            parts = path.split("#", 1)
+            pan_media_dir = parts[1]
+            target_dir = parts[0]
 
-        try:
-            parent_id = int(self.client.fs_dir_getid(pan_media_dir)["id"])
-            logger.info(f"【全量STRM生成】网盘媒体目录 ID 获取成功: {parent_id}")
-        except Exception as e:
-            logger.error(f"【全量STRM生成】网盘媒体目录 ID 获取失败: {e}")
-            return False
+            try:
+                parent_id = int(self.client.fs_dir_getid(pan_media_dir)["id"])
+                logger.info(f"【全量STRM生成】网盘媒体目录 ID 获取成功: {parent_id}")
+            except Exception as e:
+                logger.error(f"【全量STRM生成】网盘媒体目录 ID 获取失败: {e}")
+                return False
 
-        try:
-            for item in iter_files_with_path(self.client, cid=parent_id, cooldown=2):
-                if item["is_dir"] or item["is_directory"]:
-                    continue
-                file_path = item["path"]
-                file_path = Path(target_dir) / Path(file_path).relative_to(
-                    pan_media_dir
-                )
-                file_target_dir = file_path.parent
-                original_file_name = file_path.name
-                file_name = file_path.stem + ".strm"
-                new_file_path = file_target_dir / file_name
-
-                if file_path.suffix not in self.rmt_mediaext:
-                    logger.warn(
-                        "【全量STRM生成】跳过网盘路径: %s",
-                        str(file_path).replace(str(target_dir), "", 1),
+            try:
+                for item in iter_files_with_path(
+                    self.client, cid=parent_id, cooldown=2
+                ):
+                    if item["is_dir"] or item["is_directory"]:
+                        continue
+                    file_path = item["path"]
+                    file_path = Path(target_dir) / Path(file_path).relative_to(
+                        pan_media_dir
                     )
-                    continue
+                    file_target_dir = file_path.parent
+                    original_file_name = file_path.name
+                    file_name = file_path.stem + ".strm"
+                    new_file_path = file_target_dir / file_name
 
-                pickcode = item["pickcode"]
-                if not pickcode:
-                    pickcode = item["pick_code"]
+                    if file_path.suffix not in self.rmt_mediaext:
+                        logger.warn(
+                            "【全量STRM生成】跳过网盘路径: %s",
+                            str(file_path).replace(str(target_dir), "", 1),
+                        )
+                        continue
 
-                new_file_path.parent.mkdir(parents=True, exist_ok=True)
+                    pickcode = item["pickcode"]
+                    if not pickcode:
+                        pickcode = item["pick_code"]
 
-                if not pickcode:
-                    logger.error(
-                        f"【全量STRM生成】{original_file_name} 不存在 pickcode 值，无法生成 STRM 文件"
+                    new_file_path.parent.mkdir(parents=True, exist_ok=True)
+
+                    if not pickcode:
+                        logger.error(
+                            f"【全量STRM生成】{original_file_name} 不存在 pickcode 值，无法生成 STRM 文件"
+                        )
+                        continue
+                    if not (len(pickcode) == 17 and str(pickcode).isalnum()):
+                        logger.error(
+                            f"【全量STRM生成】错误的 pickcode 值 {pickcode}，无法生成 STRM 文件"
+                        )
+                        continue
+                    strm_url = f"{server_address}/api/v1/plugin/P115StrmHelper/redirect_url?apikey={settings.API_TOKEN}&pickcode={pickcode}"
+
+                    with open(new_file_path, "w", encoding="utf-8") as file:
+                        file.write(strm_url)
+                    self.count += 1
+                    logger.info(
+                        "【全量STRM生成】生成 STRM 文件成功: %s", str(new_file_path)
                     )
-                    continue
-                if not (len(pickcode) == 17 and str(pickcode).isalnum()):
-                    logger.error(
-                        f"【全量STRM生成】错误的 pickcode 值 {pickcode}，无法生成 STRM 文件"
-                    )
-                    continue
-                strm_url = f"{server_address}/api/v1/plugin/P115StrmHelper/redirect_url?apikey={settings.API_TOKEN}&pickcode={pickcode}"
-
-                with open(new_file_path, "w", encoding="utf-8") as file:
-                    file.write(strm_url)
-                self.count += 1
-                logger.info(
-                    "【全量STRM生成】生成 STRM 文件成功: %s", str(new_file_path)
-                )
-            logger.info(
-                f"【全量STRM生成】全量生成 STRM 文件完成，总共生成 {self.count} 个文件"
-            )
-            return True
-        except Exception as e:
-            logger.error(f"【全量STRM生成】全量生成 STRM 文件失败: {e}")
-            return False
+            except Exception as e:
+                logger.error(f"【全量STRM生成】全量生成 STRM 文件失败: {e}")
+                return False
+        logger.info(
+            f"【全量STRM生成】全量生成 STRM 文件完成，总共生成 {self.count} 个文件"
+        )
+        return True
 
 
 class P115StrmHelper(_PluginBase):
@@ -174,7 +184,7 @@ class P115StrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png"
     # 插件版本
-    plugin_version = "1.0.0"
+    plugin_version = "1.1.0"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -187,32 +197,58 @@ class P115StrmHelper(_PluginBase):
     auth_level = 1
 
     # 私有属性
+    mediaserver_helper = None
     _scheduler = None
     _enabled = False
     _once_full_sync_strm = False
-    cookies = None
-    pan_media_dir = None
-    local_media_dir = None
+    _cookies = None
     moviepilot_address = None
     _user_rmt_mediaext = None
+    _transfer_monitor_enabled = False
+    _transfer_monitor_paths = None
+    _transfer_monitor_mediaservers = None
+    _transfer_monitor_media_server_refresh_enabled = False
+    _timing_full_sync_strm = False
+    _cron_full_sync_strm = None
+    _full_sync_strm_paths = None
+    _mediaservers = None
+    _monitor_life_enabled = False
+    _monitor_life_paths = None
     # 退出事件
     _event = ThreadEvent()
+    monitor_stop_event = None
+    monitor_life_thread = None
 
     def init_plugin(self, config: dict = None):
         """
         初始化插件
         """
+        self.mediaserver_helper = MediaServerHelper()
+        self.monitor_stop_event = threading.Event()
 
         if config:
             self._enabled = config.get("enabled")
             self._once_full_sync_strm = config.get("once_full_sync_strm")
-            self.cookies = config.get("cookies")
-            self.pan_media_dir = config.get("pan_media_dir")
-            self.local_media_dir = config.get("local_media_dir")
+            self._cookies = config.get("cookies")
             self.moviepilot_address = config.get("moviepilot_address")
             self._user_rmt_mediaext = config.get("user_rmt_mediaext")
+            self._transfer_monitor_enabled = config.get("transfer_monitor_enabled")
+            self._transfer_monitor_paths = config.get("transfer_monitor_paths")
+            self._transfer_monitor_media_server_refresh_enabled = config.get(
+                "transfer_monitor_media_server_refresh_enabled"
+            )
+            self._transfer_monitor_mediaservers = (
+                config.get("transfer_monitor_mediaservers") or []
+            )
+            self._timing_full_sync_strm = config.get("timing_full_sync_strm")
+            self._cron_full_sync_strm = config.get("cron_full_sync_strm")
+            self._full_sync_strm_paths = config.get("full_sync_strm_paths")
+            self._monitor_life_enabled = config.get("monitor_life_enabled")
+            self._monitor_life_paths = config.get("monitor_life_paths")
             if not self._user_rmt_mediaext:
                 self._user_rmt_mediaext = "mp4,mkv,ts,iso,rmvb,avi,mov,mpeg,mpg,wmv,3gp,asf,m4v,flv,m2ts,tp,f4v"
+            if not self._cron_full_sync_strm:
+                self._cron_full_sync_strm = "0 */7 * * *"
             self.__update_config()
 
         if self.__check_python_version() is False:
@@ -223,7 +259,7 @@ class P115StrmHelper(_PluginBase):
         # 停止现有任务
         self.stop_service()
 
-        if self._once_full_sync_strm:
+        if self._enabled and self._once_full_sync_strm:
             self._scheduler = BackgroundScheduler(timezone=settings.TZ)
             self._scheduler.add_job(
                 func=self.full_sync_strm_files,
@@ -238,8 +274,51 @@ class P115StrmHelper(_PluginBase):
                 self._scheduler.print_jobs()
                 self._scheduler.start()
 
+        if self._monitor_life_enabled and self._monitor_life_paths:
+            self.monitor_stop_event.clear()
+            if self.monitor_life_thread:
+                if not self.monitor_life_thread.is_alive():
+                    self.monitor_life_thread = threading.Thread(
+                        target=self.monitor_life_strm_files, daemon=True
+                    )
+                    self.monitor_life_thread.start()
+            else:
+                self.monitor_life_thread = threading.Thread(
+                    target=self.monitor_life_strm_files, daemon=True
+                )
+                self.monitor_life_thread.start()
+
     def get_state(self) -> bool:
         return self._enabled
+
+    @property
+    def service_infos(self) -> Optional[Dict[str, ServiceInfo]]:
+        """
+        服务信息
+        """
+        if not self._transfer_monitor_mediaservers:
+            logger.warning("尚未配置媒体服务器，请检查配置")
+            return None
+
+        services = self.mediaserver_helper.get_services(
+            name_filters=self._transfer_monitor_mediaservers
+        )
+        if not services:
+            logger.warning("获取媒体服务器实例失败，请检查配置")
+            return None
+
+        active_services = {}
+        for service_name, service_info in services.items():
+            if service_info.instance.is_inactive():
+                logger.warning(f"媒体服务器 {service_name} 未连接，请检查配置")
+            else:
+                active_services[service_name] = service_info
+
+        if not active_services:
+            logger.warning("没有已连接的媒体服务器，请检查配置")
+            return None
+
+        return active_services
 
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:
@@ -269,6 +348,25 @@ class P115StrmHelper(_PluginBase):
             }
         ]
 
+    def get_service(self) -> List[Dict[str, Any]]:
+        """
+        注册插件公共服务
+        """
+        if (
+            self._cron_full_sync_strm
+            and self._timing_full_sync_strm
+            and self._full_sync_strm_paths
+        ):
+            return [
+                {
+                    "id": "P115StrmHelper",
+                    "name": "定期全量同步115媒体库",
+                    "trigger": CronTrigger.from_crontab(self._cron_full_sync_strm),
+                    "func": self.full_sync_strm_files,
+                    "kwargs": {},
+                }
+            ]
+
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         """
         拼装插件配置页面，需要返回两块数据：1、页面配置；2、数据结构
@@ -282,7 +380,7 @@ class P115StrmHelper(_PluginBase):
                         "content": [
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 6},
+                                "props": {"cols": 12, "md": 4},
                                 "content": [
                                     {
                                         "component": "VSwitch",
@@ -295,25 +393,7 @@ class P115StrmHelper(_PluginBase):
                             },
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 6},
-                                "content": [
-                                    {
-                                        "component": "VSwitch",
-                                        "props": {
-                                            "model": "once_full_sync_strm",
-                                            "label": "立刻全量同步",
-                                        },
-                                    }
-                                ],
-                            },
-                        ],
-                    },
-                    {
-                        "component": "VRow",
-                        "content": [
-                            {
-                                "component": "VCol",
-                                "props": {"cols": 12, "md": 6},
+                                "props": {"cols": 12, "md": 4},
                                 "content": [
                                     {
                                         "component": "VTextField",
@@ -326,44 +406,13 @@ class P115StrmHelper(_PluginBase):
                             },
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 6},
+                                "props": {"cols": 12, "md": 4},
                                 "content": [
                                     {
                                         "component": "VTextField",
                                         "props": {
                                             "model": "moviepilot_address",
                                             "label": "MoviePilot 外网访问地址",
-                                        },
-                                    }
-                                ],
-                            },
-                        ],
-                    },
-                    {
-                        "component": "VRow",
-                        "content": [
-                            {
-                                "component": "VCol",
-                                "props": {"cols": 12, "md": 6},
-                                "content": [
-                                    {
-                                        "component": "VTextField",
-                                        "props": {
-                                            "model": "local_media_dir",
-                                            "label": "本地 STRM 媒体库路径",
-                                        },
-                                    }
-                                ],
-                            },
-                            {
-                                "component": "VCol",
-                                "props": {"cols": 12, "md": 6},
-                                "content": [
-                                    {
-                                        "component": "VTextField",
-                                        "props": {
-                                            "model": "pan_media_dir",
-                                            "label": "115 网盘媒体库路径",
                                         },
                                     }
                                 ],
@@ -388,6 +437,245 @@ class P115StrmHelper(_PluginBase):
                             },
                         ],
                     },
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {
+                                    "cols": 12,
+                                },
+                                "content": [
+                                    {
+                                        "component": "VAlert",
+                                        "props": {
+                                            "type": "info",
+                                            "variant": "tonal",
+                                            "text": "监控MP整理自动生成STRM配置",
+                                        },
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 4},
+                                "content": [
+                                    {
+                                        "component": "VSwitch",
+                                        "props": {
+                                            "model": "transfer_monitor_enabled",
+                                            "label": "整理事件监控",
+                                        },
+                                    }
+                                ],
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 4},
+                                "content": [
+                                    {
+                                        "component": "VSwitch",
+                                        "props": {
+                                            "model": "transfer_monitor_media_server_refresh_enabled",
+                                            "label": "媒体库服务器刷新",
+                                        },
+                                    }
+                                ],
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 4},
+                                "content": [
+                                    {
+                                        "component": "VSelect",
+                                        "props": {
+                                            "multiple": True,
+                                            "chips": True,
+                                            "clearable": True,
+                                            "model": "transfer_monitor_mediaservers",
+                                            "label": "媒体服务器",
+                                            "items": [
+                                                {
+                                                    "title": config.name,
+                                                    "value": config.name,
+                                                }
+                                                for config in self.mediaserver_helper.get_configs().values()
+                                            ],
+                                        },
+                                    }
+                                ],
+                            },
+                        ],
+                    },
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12},
+                                "content": [
+                                    {
+                                        "component": "VTextarea",
+                                        "props": {
+                                            "model": "transfer_monitor_paths",
+                                            "label": "整理事件监控目录",
+                                            "rows": 5,
+                                            "placeholder": "配置格式为 本地STRM媒体库目录#网盘媒体库目录，一行一个",
+                                        },
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {
+                                    "cols": 12,
+                                },
+                                "content": [
+                                    {
+                                        "component": "VAlert",
+                                        "props": {
+                                            "type": "info",
+                                            "variant": "tonal",
+                                            "text": "全量同步配置",
+                                        },
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 4},
+                                "content": [
+                                    {
+                                        "component": "VSwitch",
+                                        "props": {
+                                            "model": "once_full_sync_strm",
+                                            "label": "立刻全量同步",
+                                        },
+                                    }
+                                ],
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 4},
+                                "content": [
+                                    {
+                                        "component": "VSwitch",
+                                        "props": {
+                                            "model": "timing_full_sync_strm",
+                                            "label": "定期全量同步",
+                                        },
+                                    }
+                                ],
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 4},
+                                "content": [
+                                    {
+                                        "component": "VCronField",
+                                        "props": {
+                                            "model": "cron_full_sync_strm",
+                                            "label": "运行全量同步周期",
+                                        },
+                                    }
+                                ],
+                            },
+                        ],
+                    },
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12},
+                                "content": [
+                                    {
+                                        "component": "VTextarea",
+                                        "props": {
+                                            "model": "full_sync_strm_paths",
+                                            "label": "全量同步目录",
+                                            "rows": 5,
+                                            "placeholder": "配置格式为 本地STRM媒体库目录#网盘媒体库目录，一行一个",
+                                        },
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {
+                                    "cols": 12,
+                                },
+                                "content": [
+                                    {
+                                        "component": "VAlert",
+                                        "props": {
+                                            "type": "info",
+                                            "variant": "tonal",
+                                            "text": "115生活事件监控配置",
+                                        },
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 4},
+                                "content": [
+                                    {
+                                        "component": "VSwitch",
+                                        "props": {
+                                            "model": "monitor_life_enabled",
+                                            "label": "监控115生活事件",
+                                        },
+                                    }
+                                ],
+                            },
+                        ],
+                    },
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12},
+                                "content": [
+                                    {
+                                        "component": "VTextarea",
+                                        "props": {
+                                            "model": "monitor_life_paths",
+                                            "label": "监控115生活事件目录",
+                                            "rows": 5,
+                                            "placeholder": "配置格式为 本地STRM媒体库目录#网盘媒体库目录，一行一个",
+                                        },
+                                    }
+                                ],
+                            }
+                        ],
+                    },
                 ],
             },
         ], {
@@ -395,9 +683,15 @@ class P115StrmHelper(_PluginBase):
             "once_full_sync_strm": False,
             "cookies": "",
             "moviepilot_address": "",
-            "pan_media_dir": "",
-            "local_media_dir": "",
             "user_rmt_mediaext": "mp4,mkv,ts,iso,rmvb,avi,mov,mpeg,mpg,wmv,3gp,asf,m4v,flv,m2ts,tp,f4v",
+            "transfer_monitor_enabled": False,
+            "transfer_monitor_paths": "",
+            "transfer_monitor_media_server_refresh_enabled": False,
+            "timing_full_sync_strm": False,
+            "cron_full_sync_strm": "0 */7 * * *",
+            "full_sync_strm_paths": "",
+            "monitor_life_enabled": False,
+            "monitor_life_paths": "",
         }
 
     def get_page(self) -> List[dict]:
@@ -408,11 +702,18 @@ class P115StrmHelper(_PluginBase):
             {
                 "enabled": self._enabled,
                 "once_full_sync_strm": self._once_full_sync_strm,
-                "cookies": self.cookies,
+                "cookies": self._cookies,
                 "moviepilot_address": self.moviepilot_address,
-                "pan_media_dir": self.pan_media_dir,
-                "local_media_dir": self.local_media_dir,
                 "user_rmt_mediaext": self._user_rmt_mediaext,
+                "transfer_monitor_enabled": self._transfer_monitor_enabled,
+                "transfer_monitor_paths": self._transfer_monitor_paths,
+                "transfer_monitor_media_server_refresh_enabled": self._transfer_monitor_media_server_refresh_enabled,
+                "transfer_monitor_mediaservers": self._transfer_monitor_mediaservers,
+                "timing_full_sync_strm": self._timing_full_sync_strm,
+                "cron_full_sync_strm": self._cron_full_sync_strm,
+                "full_sync_strm_paths": self._full_sync_strm_paths,
+                "monitor_life_enabled": self._monitor_life_enabled,
+                "monitor_life_paths": self._monitor_life_paths,
             }
         )
 
@@ -427,6 +728,31 @@ class P115StrmHelper(_PluginBase):
             )
             return False
         return True
+
+    def has_prefix(self, full_path, prefix_path):
+        """
+        判断路径是否包含
+        """
+        full = Path(full_path).parts
+        prefix = Path(prefix_path).parts
+
+        if len(prefix) > len(full):
+            return False
+
+        return full[: len(prefix)] == prefix
+
+    def __get_media_path(self, paths, media_path):
+        """
+        获取媒体目录路径
+        """
+        media_paths = paths.split("\n")
+        for path in media_paths:
+            if not path:
+                continue
+            parts = path.split("#", 1)
+            if self.has_prefix(media_path, parts[1]):
+                return True, parts[0], parts[1]
+        return False, None, None
 
     @cached(cache=TTLCache(maxsize=1, ttl=2 * 60))
     def redirect_url(
@@ -478,14 +804,14 @@ class P115StrmHelper(_PluginBase):
             if suffix.isalnum():
                 payload["suffix"] = suffix
             resp = requests.get(
-                f"{api}?{urlencode(payload)}", headers={"Cookie": self.cookies}
+                f"{api}?{urlencode(payload)}", headers={"Cookie": self._cookies}
             )
             check_response(resp)
             json = loads(cast(bytes, resp.content))
             if get_first(json, "errno", "errNo") == 20021:
                 payload.pop("suffix")
                 resp = requests.get(
-                    f"{api}?{urlencode(payload)}", headers={"Cookie": self.cookies}
+                    f"{api}?{urlencode(payload)}", headers={"Cookie": self._cookies}
                 )
                 check_response(resp)
                 json = loads(cast(bytes, resp.content))
@@ -500,7 +826,7 @@ class P115StrmHelper(_PluginBase):
         def get_receive_code(share_code: str) -> str:
             resp = requests.get(
                 f"http://web.api.115.com/share/shareinfo?share_code={share_code}",
-                headers={"Cookie": self.cookies},
+                headers={"Cookie": self._cookies},
             )
             check_response(resp)
             json = loads(cast(bytes, resp.content))
@@ -523,7 +849,7 @@ class P115StrmHelper(_PluginBase):
                     data={
                         "data": encrypt(f'{{"pickcode":"{pickcode}"}}').decode("utf-8")
                     },
-                    headers={"User-Agent": user_agent, "Cookie": self.cookies},
+                    headers={"User-Agent": user_agent, "Cookie": self._cookies},
                 )
             else:
                 resp = requests.post(
@@ -531,7 +857,7 @@ class P115StrmHelper(_PluginBase):
                     data={
                         "data": encrypt(f'{{"pick_code":"{pickcode}"}}').decode("utf-8")
                     },
-                    headers={"User-Agent": user_agent, "Cookie": self.cookies},
+                    headers={"User-Agent": user_agent, "Cookie": self._cookies},
                 )
             check_response(resp)
             json = loads(cast(bytes, resp.content))
@@ -565,13 +891,13 @@ class P115StrmHelper(_PluginBase):
             if app:
                 resp = requests.get(
                     f"http://proapi.115.com/{app}/2.0/share/downurl?{urlencode(payload)}",
-                    headers={"Cookie": self.cookies},
+                    headers={"Cookie": self._cookies},
                 )
             else:
                 resp = requests.post(
                     "http://proapi.115.com/app/share/downurl",
                     data={"data": encrypt(dumps(payload)).decode("utf-8")},
-                    headers={"Cookie": self.cookies},
+                    headers={"Cookie": self._cookies},
                 )
             check_response(resp)
             json = loads(cast(bytes, resp.content))
@@ -661,7 +987,7 @@ class P115StrmHelper(_PluginBase):
                 pan_media_dir = str(Path(pan_media_dir))
                 pan_path = Path(item_dest_path).parent
                 pan_path = str(Path(pan_path))
-                if pan_path.startswith(pan_media_dir):
+                if self.has_prefix(pan_path, pan_media_dir):
                     pan_path = pan_path[len(pan_media_dir) :].lstrip("/").lstrip("\\")
                 file_path = Path(target_dir) / pan_path
                 file_name = basename + ".strm"
@@ -672,17 +998,17 @@ class P115StrmHelper(_PluginBase):
                 logger.info(
                     "【监控整理STRM生成】生成 STRM 文件成功: %s", str(new_file_path)
                 )
-                return True
+                return True, new_file_path
             except Exception as e:  # noqa: F841
                 logger.error(
                     "【监控整理STRM生成】生成 %s 文件失败: %s", str(new_file_path), e
                 )
-                return False
+                return False, None
 
         if (
             not self._enabled
-            or not self.local_media_dir
-            or not self.pan_media_dir
+            or not self._transfer_monitor_enabled
+            or not self._transfer_monitor_paths
             or not self.moviepilot_address
         ):
             return
@@ -711,11 +1037,15 @@ class P115StrmHelper(_PluginBase):
         # 是否蓝光原盘
         item_bluray = SystemUtils.is_bluray_dir(Path(itemdir_dest_path))
 
-        if not itemdir_dest_path.startswith(self.pan_media_dir):
+        __itemdir_dest_path, local_media_dir, pan_media_dir = self.__get_media_path(
+            self._transfer_monitor_paths, itemdir_dest_path
+        )
+        if not __itemdir_dest_path:
             logger.debug(
                 f"【监控整理STRM生成】{item_dest_name} 路径匹配不符合，跳过整理"
             )
             return
+        logger.info("【监控整理STRM生成】匹配到网盘文件夹路径: %s", str(pan_media_dir))
 
         if item_bluray:
             logger.warning(
@@ -735,28 +1065,133 @@ class P115StrmHelper(_PluginBase):
             return
         strm_url = f"{self.moviepilot_address.rstrip('/')}/api/v1/plugin/P115StrmHelper/redirect_url?apikey={settings.API_TOKEN}&pickcode={item_dest_pickcode}"
 
-        if not generate_strm_files(
-            self.local_media_dir,
-            self.pan_media_dir,
+        status, strm_target_path = generate_strm_files(
+            local_media_dir,
+            pan_media_dir,
             item_dest_path,
             item_dest_basename,
             strm_url,
-        ):
+        )
+        if not status:
             return
 
-        # TODO 生成后调用主程序刮削
+        if self._transfer_monitor_media_server_refresh_enabled:
+            if not self.service_infos:
+                return
+
+            time.sleep(2)
+            mediainfo: MediaInfo = item.get("mediainfo")
+            items = [
+                RefreshMediaItem(
+                    title=mediainfo.title,
+                    year=mediainfo.year,
+                    type=mediainfo.type,
+                    category=mediainfo.category,
+                    target_path=Path(strm_target_path),
+                )
+            ]
+
+            for name, service in self.service_infos.items():
+                if hasattr(service.instance, "refresh_library_by_items"):
+                    service.instance.refresh_library_by_items(items)
+                elif hasattr(service.instance, "refresh_root_library"):
+                    service.instance.refresh_root_library()
+                else:
+                    logger.warning(f"【监控整理STRM生成】{name} 不支持刷新")
 
     def full_sync_strm_files(self):
         """
         全量同步
         """
+        if not self._full_sync_strm_paths:
+            return
+
         strm_helper = FullSyncStrmHelper(
             user_rmt_mediaext=self._user_rmt_mediaext,
-            cookies=self.cookies,
+            cookies=self._cookies,
         )
         strm_helper.generate_strm_files_db(
-            self.pan_media_dir, self.local_media_dir, self.moviepilot_address
+            self._full_sync_strm_paths, self.moviepilot_address
         )
+
+    def monitor_life_strm_files(self):
+        """
+        监控115生活事件
+        """
+        client = P115Client(self._cookies)
+        rmt_mediaext = [
+            f".{ext.strip()}"
+            for ext in self._user_rmt_mediaext.replace("，", ",").split(",")
+        ]
+        logger.info("【监控生活事件】上传事件监控启动中...")
+        try:
+            for events_batch in iter_life_behavior_list(client, cooldown=int(10)):
+                if self.monitor_stop_event.is_set():
+                    logger.info("【监控生活事件】收到停止信号，退出上传事件监控")
+                    break
+                if not events_batch:
+                    time.sleep(10)
+                    continue
+                for event in events_batch:
+                    if (
+                        int(event["type"]) != 1
+                        and int(event["type"]) != 2
+                        and int(event["type"]) != 6
+                    ):
+                        continue
+                    pickcode = event["pick_code"]
+                    file_name = event["file_name"]
+                    file_path = (
+                        Path(get_path_to_cid(client, cid=int(event["parent_id"])))
+                        / file_name
+                    )
+                    status, target_dir, pan_media_dir = self.__get_media_path(
+                        self._monitor_life_paths, file_path
+                    )
+                    if not status:
+                        continue
+                    logger.info(
+                        "【监控生活事件】匹配到网盘文件夹路径: %s", str(pan_media_dir)
+                    )
+                    file_path = Path(target_dir) / Path(file_path).relative_to(
+                        pan_media_dir
+                    )
+                    file_target_dir = file_path.parent
+                    original_file_name = file_path.name
+                    file_name = file_path.stem + ".strm"
+                    new_file_path = file_target_dir / file_name
+
+                    if file_path.suffix not in rmt_mediaext:
+                        logger.warn(
+                            "【监控生活事件】跳过网盘路径: %s",
+                            str(file_path).replace(str(target_dir), "", 1),
+                        )
+                        continue
+
+                    new_file_path.parent.mkdir(parents=True, exist_ok=True)
+
+                    if not pickcode:
+                        logger.error(
+                            f"【监控生活事件】{original_file_name} 不存在 pickcode 值，无法生成 STRM 文件"
+                        )
+                        continue
+                    if not (len(pickcode) == 17 and str(pickcode).isalnum()):
+                        logger.error(
+                            f"【监控生活事件】错误的 pickcode 值 {pickcode}，无法生成 STRM 文件"
+                        )
+                        continue
+                    strm_url = f"{self.moviepilot_address}/api/v1/plugin/P115StrmHelper/redirect_url?apikey={settings.API_TOKEN}&pickcode={pickcode}"
+
+                    with open(new_file_path, "w", encoding="utf-8") as file:
+                        file.write(strm_url)
+                    logger.info(
+                        "【监控生活事件】生成 STRM 文件成功: %s", str(new_file_path)
+                    )
+        except Exception as e:
+            logger.error(f"【监控生活事件】上传事件监控运行失败: {e}")
+            return
+        logger.info("【监控生活事件】已退出上传事件监控")
+        return
 
     def stop_service(self):
         """
@@ -770,5 +1205,6 @@ class P115StrmHelper(_PluginBase):
                     self._scheduler.shutdown()
                     self._event.clear()
                 self._scheduler = None
+            self.monitor_stop_event.set()
         except Exception as e:
             print(str(e))
