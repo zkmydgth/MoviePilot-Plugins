@@ -98,7 +98,6 @@ class P115FuseOperations(Operations):
         self._opened: dict[int, Any] = {}
         self._get_id: Callable[[], int] = count(1).__next__
 
-    @log
     def getattr(self, /, path: str, fh: int = 0) -> dict[str, Any]:
         return attr_to_stat(self.fs.get_attr(path))
 

@@ -52,7 +52,7 @@ def fuse_thread_worker(
             mountpoint=mountpoint,
             foreground=True,
             nothreads=False,
-            allow_other=False,
+            allow_other=True,  # Docker 容器内非 root 挂载
             noauto_cache=True,
         )
         logger.info("【FUSE】FUSE 文件系统已卸载")
@@ -147,8 +147,26 @@ class FuseManager:
                     timeout=2,
                 )
                 if result.returncode == 0:
-                    logger.info(f"【FUSE】挂载点已被占用，先卸载: {mountpoint}")
-                    self._unmount_fuse(mountpoint)
+                    if self._is_fuse_mount(mountpoint):
+                        logger.info(
+                            f"【FUSE】检测到 FUSE 挂载点已被占用，先卸载: {mountpoint}"
+                        )
+                        try:
+                            self._unmount_fuse(mountpoint)
+                        except Exception as e:
+                            logger.warning(
+                                f"【FUSE】常规卸载失败，尝试懒卸载: {mountpoint} - {e}"
+                            )
+                            try:
+                                self._unmount_fuse_lazy(mountpoint)
+                            except Exception as e2:
+                                logger.warning(
+                                    f"【FUSE】懒卸载也失败，将尝试强制挂载（可能会覆盖现有挂载）: {mountpoint} - {e2}"
+                                )
+                    else:
+                        logger.debug(
+                            f"【FUSE】挂载点是其他类型的挂载（非FUSE），跳过卸载: {mountpoint}"
+                        )
         except (TimeoutExpired, FileNotFoundError):
             pass
 
@@ -201,6 +219,41 @@ class FuseManager:
         self.fuse_mountpoint = None
 
     @staticmethod
+    def _is_fuse_mount(mountpoint: str) -> bool:
+        """
+        检查挂载点是否是 FUSE 类型的挂载
+
+        :param mountpoint: 挂载点路径
+
+        :return: 如果是 FUSE 挂载返回 True，否则返回 False
+        """
+        try:
+            if system() == "Linux":
+                result = run(
+                    ["findmnt", "-n", "-o", "FSTYPE", mountpoint],
+                    capture_output=True,
+                    timeout=2,
+                    text=True,
+                )
+                if result.returncode == 0:
+                    fstype = result.stdout.strip()
+                    return fstype.startswith("fuse") or fstype == "fuseblk"
+            return False
+        except (TimeoutExpired, FileNotFoundError):
+            try:
+                with open("/proc/mounts", "r") as f:
+                    for line in f:
+                        parts = line.split()
+                        if len(parts) >= 3:
+                            mount_path = parts[1]
+                            fstype = parts[2]
+                            if Path(mount_path).resolve() == Path(mountpoint).resolve():
+                                return fstype.startswith("fuse") or fstype == "fuseblk"
+            except (OSError, FileNotFoundError):
+                pass
+            return False
+
+    @staticmethod
     def _unmount_fuse(mountpoint: str):
         """
         卸载 FUSE 文件系统
@@ -218,6 +271,29 @@ class FuseManager:
             logger.info(f"【FUSE】成功卸载挂载点: {mountpoint}")
         except CalledProcessError as e:
             logger.error(f"【FUSE】卸载命令执行失败: {e}")
+            raise
+        except FileNotFoundError:
+            logger.error("【FUSE】未找到卸载命令，请确保已安装 FUSE")
+            raise
+
+    @staticmethod
+    def _unmount_fuse_lazy(mountpoint: str):
+        """
+        懒卸载 FUSE 文件系统
+
+        :param mountpoint: 挂载点路径
+        """
+        sys_name = system()
+        if sys_name == "Linux":
+            cmd = ["fusermount", "-uz", mountpoint]
+        else:
+            cmd = ["umount", "-l", mountpoint]
+
+        try:
+            run(cmd, check=True, timeout=5, capture_output=True)
+            logger.info(f"【FUSE】成功懒卸载挂载点: {mountpoint}")
+        except CalledProcessError as e:
+            logger.error(f"【FUSE】懒卸载命令执行失败: {e}")
             raise
         except FileNotFoundError:
             logger.error("【FUSE】未找到卸载命令，请确保已安装 FUSE")
