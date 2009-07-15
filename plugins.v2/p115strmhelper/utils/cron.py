@@ -72,7 +72,31 @@ class CronUtils:
         if field == "*":
             return field
 
-        # 处理范围表达式 (如 1-5)
+        # 逗号分隔的列表是最高级别的结构
+        if "," in field:
+            values = field.split(",")
+            fixed_values = [
+                CronUtils._fix_cron_field(val.strip(), min_val, max_val)
+                for val in values
+            ]
+            return ",".join(fixed_values)
+
+        # 其次是步长
+        if "/" in field:
+            base_part, step_str = field.split("/", 1)
+            # 递归修复 base_part
+            fixed_base = CronUtils._fix_cron_field(base_part, min_val, max_val)
+            try:
+                step_val = int(step_str)
+                if step_val > max_val:
+                    step_val = max_val
+                elif step_val < 1:
+                    step_val = 1
+                return f"{fixed_base}/{step_val}"
+            except ValueError:
+                return field  # 无法修复
+
+        # 然后是范围
         if "-" in field:
             start, end = field.split("-", 1)
             try:
@@ -85,45 +109,7 @@ class CronUtils:
             except ValueError:
                 return field
 
-        # 处理步长表达式 (如 */5, 0/10)
-        if "/" in field:
-            start, step = field.split("/", 1)
-            try:
-                step_val = int(step)
-                if step_val > max_val:
-                    step_val = max_val
-                elif step_val < 1:
-                    step_val = 1
-
-                if start == "*":
-                    return f"*/{step_val}"
-                else:
-                    start_val = int(start)
-                    if start_val > max_val:
-                        start_val = max_val
-                    elif start_val < min_val:
-                        start_val = min_val
-                    return f"{start_val}/{step_val}"
-            except ValueError:
-                return field
-
-        # 处理逗号分隔的列表 (如 1,3,5)
-        if "," in field:
-            values = field.split(",")
-            fixed_values = []
-            for val in values:
-                try:
-                    int_val = int(val.strip())
-                    if int_val > max_val:
-                        int_val = max_val
-                    elif int_val < min_val:
-                        int_val = min_val
-                    fixed_values.append(str(int_val))
-                except ValueError:
-                    fixed_values.append(val.strip())
-            return ",".join(fixed_values)
-
-        # 处理单个数值
+        # 最后是单个值
         try:
             int_val = int(field)
             if int_val > max_val:
