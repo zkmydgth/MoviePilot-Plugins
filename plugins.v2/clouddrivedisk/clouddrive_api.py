@@ -660,6 +660,9 @@ class CloudDriveApi:
                                 is_last_chunk=is_last,
                                 lazy_read=getattr(req, "lazy_read", False),
                             )
+                            logger.info(
+                                f"【CloudDrive】RemoteReadData {offset} {len(data)}"
+                            )
                         except Exception as e:
                             logger.error("【CloudDrive】RemoteReadData 失败: %s", e)
                             self._cancel_upload(upload_id)
@@ -699,7 +702,7 @@ class CloudDriveApi:
                             if global_vars.is_transfer_stopped(target_path):
                                 cancelled_ref[0] = True
                                 try:
-                                    self.client.remote_hash_progress(
+                                    resp = self.client.remote_hash_progress(
                                         upload_id=upload_id,
                                         bytes_hashed=bh,
                                         total_bytes=tb,
@@ -707,11 +710,13 @@ class CloudDriveApi:
                                         hash_value="",
                                         block_hashes=None,
                                     )
-                                except Exception:
+                                    logger.info(f"【CloudDrive】{resp}")
+                                except Exception as e:
+                                    logger.error(f"【CloudDrive】{e}")
                                     pass
                                 return
                             try:
-                                self.client.remote_hash_progress(
+                                resp = self.client.remote_hash_progress(
                                     upload_id=upload_id,
                                     bytes_hashed=bh,
                                     total_bytes=tb,
@@ -719,7 +724,9 @@ class CloudDriveApi:
                                     hash_value="",
                                     block_hashes=None,
                                 )
-                            except Exception:
+                                logger.info(f"【CloudDrive】{resp}")
+                            except Exception as e:
+                                logger.error(f"【CloudDrive】{e}")
                                 pass
 
                         if ht == HashType.MD5 and block_size > 0:
@@ -738,7 +745,7 @@ class CloudDriveApi:
                                 hash_val = self._compute_file_hash(local_path, ht)
                         if global_vars.is_transfer_stopped(target_path):
                             try:
-                                self.client.remote_hash_progress(
+                                resp = self.client.remote_hash_progress(
                                     upload_id=upload_id,
                                     bytes_hashed=file_size,
                                     total_bytes=file_size,
@@ -746,12 +753,14 @@ class CloudDriveApi:
                                     hash_value="",
                                     block_hashes=None,
                                 )
-                            except Exception:
+                                logger.info(f"【CloudDrive】{resp}")
+                            except Exception as e:
+                                logger.error(f"【CloudDrive】{e}")
                                 pass
                             self._cancel_upload(upload_id)
                             return None
                         try:
-                            self.client.remote_hash_progress(
+                            resp = self.client.remote_hash_progress(
                                 upload_id=upload_id,
                                 bytes_hashed=file_size,
                                 total_bytes=file_size,
@@ -759,6 +768,7 @@ class CloudDriveApi:
                                 hash_value=hash_val or "",
                                 block_hashes=block_hashes,
                             )
+                            logger.info(f"【CloudDrive】{resp}")
                         except Exception as e:
                             logger.warning(
                                 "【CloudDrive】RemoteHashProgress 失败: %s", e
@@ -770,6 +780,7 @@ class CloudDriveApi:
                         if st == UploadStatus.FINISH:
                             progress_callback(100)
                             upload_finished = True
+                            logger.info(f"【CloudDrive】上传完成: {st}")
                             break
                         if st in (UploadStatus.ERROR, UploadStatus.FATAL_ERROR):
                             msg = reply.status_changed.error_message or "上传失败"
@@ -800,6 +811,7 @@ class CloudDriveApi:
                         stream.cancel()
                     except Exception:
                         pass
+        logger.info(f"【CloudDrive】上传完成: {target_path}")
         return self.get_item(Path(target_path))
 
     def link(self, fileitem: FileItem, target_file: Path) -> bool:
