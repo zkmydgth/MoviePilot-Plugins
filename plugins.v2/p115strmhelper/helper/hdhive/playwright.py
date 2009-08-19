@@ -1,6 +1,8 @@
 __all__ = ["HDHivePlaywrightClient", "HDHiveLoginError"]
 
 from contextlib import contextmanager
+from datetime import datetime
+from pathlib import Path
 from socket import (
     AF_INET,
     SO_REUSEADDR,
@@ -63,6 +65,170 @@ class HDHiveLoginError(Exception):
     """
     HDHive 网页登录失败或超时
     """
+
+
+class _CheckinDebugSession:
+    """
+    签到流程 Debug 会话：记录日志、保存截图和 HTML
+    """
+
+    _MAX_SESSIONS = 3
+
+    def __init__(self, label: str) -> None:
+        self._enabled = False
+        self._step = 0
+        self._dir: Optional[Path] = None
+        self._log_path: Optional[Path] = None
+        try:
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            base = (
+                Path(settings.PLUGIN_DATA_PATH) / "p115strmhelper" / "temp" / "hdhive"
+            )
+            self._dir = base / f"debug_{ts}"
+            self._dir.mkdir(parents=True, exist_ok=True)
+            self._log_path = self._dir / "checkin.log"
+            self._enabled = True
+            self._log(f"{'=' * 60}")
+            self._log(f"HDHive {label} Debug Session")
+            self._log(f"时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            self._log(f"输出目录: {self._dir}")
+            self._log(
+                f"后端: cloakbrowser={_CLOAKBROWSER_AVAILABLE}  playwright={_PLAYWRIGHT_AVAILABLE}"
+            )
+            self._log(f"平台: {platform}  机器架构: {_machine()}")
+            self._log(f"{'=' * 60}")
+            self._cleanup_old_sessions(base)
+        except Exception:
+            pass
+
+    @staticmethod
+    def _cleanup_old_sessions(base: Path) -> None:
+        try:
+            sessions = sorted(base.glob("debug_*"), key=lambda p: p.name)
+            for old in sessions[
+                : max(0, len(sessions) - _CheckinDebugSession._MAX_SESSIONS)
+            ]:
+                import shutil
+
+                shutil.rmtree(old, ignore_errors=True)
+        except Exception:
+            pass
+
+    def _log(self, msg: str) -> None:
+        if not self._enabled or self._log_path is None:
+            return
+        try:
+            ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+            with open(self._log_path, "a", encoding="utf-8") as f:
+                f.write(f"[{ts}] {msg}\n")
+        except Exception:
+            pass
+
+    def log(self, msg: str) -> None:
+        self._log(msg)
+
+    def screenshot(self, page: Any, name: str, note: str = "") -> None:
+        if not self._enabled or self._dir is None:
+            return
+        self._step += 1
+        step_name = f"{self._step:02d}_{name}"
+        try:
+            url = page.url
+        except Exception:
+            url = "unknown"
+        try:
+            title = page.title()
+        except Exception:
+            title = "unknown"
+        self._log(f"[截图] {step_name}" + (f" — {note}" if note else ""))
+        self._log(f"  URL  : {url}")
+        self._log(f"  Title: {title}")
+        try:
+            path = self._dir / f"{step_name}.png"
+            page.screenshot(path=str(path), full_page=True, timeout=10000)
+            self._log(f"  保存 : {path.name}")
+        except Exception as e:
+            self._log(f"  截图失败: {e}")
+
+    def save_html(self, page: Any, name: str) -> None:
+        if not self._enabled or self._dir is None:
+            return
+        try:
+            html = page.content()
+            path = self._dir / f"{name}.html"
+            path.write_text(html, encoding="utf-8")
+            self._log(f"  HTML : {path.name} ({len(html)} 字节)")
+        except Exception as e:
+            self._log(f"  HTML 保存失败: {e}")
+
+    def log_page_state(self, page: Any, tag: str = "") -> None:
+        if not self._enabled:
+            return
+        try:
+            url = page.url
+            title = page.title()
+            self._log(f"[页面状态{' ' + tag if tag else ''}]")
+            self._log(f"  URL  : {url}")
+            self._log(f"  Title: {title}")
+            cf_signals = self._detect_cf_signals(page)
+            if cf_signals:
+                self._log(f"  CF信号: {', '.join(cf_signals)}")
+            else:
+                self._log("  CF信号: 无")
+        except Exception as e:
+            self._log(f"  页面状态读取失败: {e}")
+
+    @staticmethod
+    def _detect_cf_signals(page: Any) -> list:
+        signals = []
+        try:
+            title = page.title()
+            if any(
+                k in title
+                for k in (
+                    "Just a moment",
+                    "Checking your browser",
+                    "Attention Required",
+                )
+            ):
+                signals.append(f"可疑标题='{title}'")
+        except Exception:
+            pass
+        cf_selectors = {
+            "CF-iframe(challenges)": "iframe[src*='challenges.cloudflare.com']",
+            "CF-iframe(cf)": "iframe[src*='cloudflare.com']",
+            "CF-wrapper-div": "div#cf-wrapper",
+            "CF-browser-verify": "div.cf-browser-verification",
+            "CF-turnstile": "div.cf-turnstile",
+            "CF-challenge": "div#challenge-form",
+            "CF-ray-id": "[id*='cf-']",
+        }
+        for label, sel in cf_selectors.items():
+            try:
+                el = page.query_selector(sel)
+                if el:
+                    signals.append(label)
+            except Exception:
+                pass
+        cf_texts = (
+            "完成验证后签到",
+            "请验证您是真人",
+            "当前操作需要完成验证码验证后继续",
+        )
+        try:
+            body_text = page.evaluate("() => document.body.innerText || ''")
+            for t in cf_texts:
+                if t in body_text:
+                    signals.append(f"CF-modal-text='{t}'")
+        except Exception:
+            pass
+        return signals
+
+    def finalize(self, success: bool, result: str) -> None:
+        self._log(f"{'=' * 60}")
+        self._log(f"签到结束: {'成功' if success else '失败'}")
+        self._log(f"结果: {result}")
+        self._log(f"{'=' * 60}")
 
 
 @sentry_manager.capture_all_class_exceptions
@@ -600,59 +766,103 @@ class HDHivePlaywrightClient:
         domain = root.replace("https://", "").replace("http://", "")
         label = "赌狗签到" if gamble else "每日签到"
 
-        def _do_checkin(page: Any) -> Tuple[bool, str]:
-            page.goto(root, wait_until="domcontentloaded", timeout=30000)
+        debug = _CheckinDebugSession(label)
+        backend = self._check_backend()
+        proxy_url = self._proxy_url_from_settings()
+        debug.log(f"后端: {backend}")
+        debug.log(f"代理配置: {proxy_url if proxy_url else '无'}")
+        debug.log(f"Cookie 数量: {len(cookies)}  键名: {list(cookies.keys())}")
+        debug.log(f"headless: {self._headless}")
 
+        def _do_checkin(page: Any) -> Tuple[bool, str]:
+            debug.log(f"导航到主页: {root}")
+            page.goto(root, wait_until="domcontentloaded", timeout=30000)
+            debug.screenshot(page, "homepage", "主页加载完毕")
+            debug.log_page_state(page, "主页")
+
+            debug.log("检测关闭弹窗按钮（'我知道了'）")
             try:
                 dismiss_loc = page.locator("button:has-text('我知道了')")
                 dismiss_loc.first.wait_for(state="visible", timeout=8000)
-                for _ in range(20):
+                debug.log("发现关闭弹窗按钮，开始关闭")
+                debug.screenshot(page, "dismiss_btn_visible", "关闭弹窗按钮出现")
+                for attempt in range(20):
                     try:
                         dismiss_loc.first.click()
-                    except Exception:
-                        pass
+                        debug.log(f"  第 {attempt + 1} 次点击关闭弹窗")
+                    except Exception as e:
+                        debug.log(f"  第 {attempt + 1} 次点击关闭弹窗失败: {e}")
                     try:
                         dismiss_loc.first.wait_for(state="hidden", timeout=1500)
+                        debug.log("  弹窗已关闭")
                         break
                     except PlaywrightTimeoutError:
                         sleep(1)
-            except Exception:
-                pass
+                debug.screenshot(page, "after_dismiss", "关闭弹窗后")
+            except Exception as e:
+                debug.log(f"未检测到关闭弹窗或已关闭: {e}")
+                debug.screenshot(page, "no_dismiss_btn", "无关闭弹窗按钮")
 
+            debug.log("开始查找头像按钮")
             clicked_avatar = False
             for avatar_sel, force in (
                 ("button:has(div.MuiAvatar-root)", False),
                 ("div.MuiAvatar-root", True),
             ):
                 try:
+                    debug.log(f"  尝试头像选择器: {avatar_sel}  force={force}")
                     page.wait_for_selector(avatar_sel, timeout=15000)
+                    debug.log("  头像元素已找到，准备点击")
+                    debug.screenshot(
+                        page, "before_avatar_click", f"点击头像前 ({avatar_sel})"
+                    )
                     page.click(avatar_sel, force=force)
                     clicked_avatar = True
+                    debug.log("  头像点击成功")
+                    debug.screenshot(
+                        page, "after_avatar_click", "头像点击后（菜单应出现）"
+                    )
                     break
                 except PlaywrightTimeoutError:
+                    debug.log(f"  头像选择器超时: {avatar_sel}")
+                    debug.log_page_state(page, f"头像超时({avatar_sel})")
                     continue
-                except Exception:
+                except Exception as e:
+                    debug.log(f"  头像选择器异常: {avatar_sel}  错误: {e}")
                     continue
+
             if not clicked_avatar:
+                debug.log("所有头像选择器均失败！")
+                debug.screenshot(page, "avatar_all_failed", "头像查找全部失败")
+                debug.save_html(page, "avatar_all_failed")
                 return False, "等待头像按钮超时，可能未登录成功"
 
+            debug.log(f"等待签到按钮出现: '{label}'")
             btn_loc = page.locator(f"button:has-text('{label}')")
             try:
                 btn_loc.first.wait_for(state="visible", timeout=15000)
+                debug.log("签到按钮已出现")
+                debug.screenshot(page, "checkin_btn_visible", f"签到按钮可见: {label}")
             except PlaywrightTimeoutError:
+                debug.log("等待签到按钮超时！用户菜单未出现或按钮文本不匹配")
+                debug.screenshot(page, "checkin_btn_timeout", "签到按钮等待超时")
+                debug.save_html(page, "checkin_btn_timeout")
                 return False, f"等待{label}按钮超时，用户菜单未出现"
 
+            debug.log("等待签到按钮位置稳定（bounding box）")
             _prev_box: dict = {}
-            for _ in range(20):
+            for i in range(20):
                 try:
                     _box = btn_loc.first.bounding_box() or {}
                 except Exception:
                     _box = {}
                 if _box and _box == _prev_box:
+                    debug.log(f"  按钮位置稳定（第 {i + 1} 次检测）: {_box}")
                     break
                 _prev_box = _box
                 sleep(0.1)
 
+            debug.log("安装 MutationObserver 监听签到结果弹窗")
             page.evaluate("""
                 () => {
                     window.__checkinResult = null;
@@ -684,25 +894,67 @@ class HDHivePlaywrightClient:
                 }
             """)
 
+            debug.log("点击签到按钮")
             btn_loc.first.click()
+            debug.screenshot(page, "after_checkin_click", "签到按钮点击后")
 
             cf_iframe_sel = "iframe[src*='challenges.cloudflare.com']"
+            debug.log("等待 CloudFlare 挑战 iframe (8s)")
             try:
                 page.wait_for_selector(cf_iframe_sel, timeout=8000)
+                debug.log("【CF挑战】检测到 CloudFlare iframe！")
+                debug.screenshot(page, "cf_challenge_detected", "CF挑战iframe已出现")
+                debug.log_page_state(page, "CF挑战")
+                debug.save_html(page, "cf_challenge_detected")
+
                 cf_frame = page.frame_locator(cf_iframe_sel)
-                for cf_sel in (
+                cf_click_success = False
+                cf_selectors = (
                     "input[type='checkbox']",
                     "[class*='ctp-checkbox']",
                     ".mark",
                     "label",
-                ):
+                )
+                for cf_sel in cf_selectors:
                     try:
+                        debug.log(f"  尝试 CF 选择器: {cf_sel}")
                         cf_frame.locator(cf_sel).click(timeout=3000)
+                        debug.log(f"  CF 选择器点击成功: {cf_sel}")
+                        cf_click_success = True
+                        sleep(0.5)
+                        debug.screenshot(
+                            page, "after_cf_click", f"CF点击后 (sel={cf_sel})"
+                        )
                         break
-                    except Exception:
-                        continue
+                    except Exception as e:
+                        debug.log(f"  CF 选择器失败: {cf_sel}  错误: {e}")
+
+                if not cf_click_success:
+                    debug.log("【CF挑战】所有 CF 选择器均失败，CF 可能未被解决！")
+                    debug.screenshot(page, "cf_click_all_failed", "CF所有选择器失败")
+
+                debug.log("等待 CF iframe 消失（验证通过），超时 15s")
+                try:
+                    page.wait_for_selector(cf_iframe_sel, state="hidden", timeout=15000)
+                    debug.log("CF iframe 已消失，验证通过")
+                    debug.screenshot(page, "cf_resolved", "CF验证通过后")
+                except PlaywrightTimeoutError:
+                    debug.log("【CF挑战】等待 CF iframe 消失超时，CF 验证可能未通过！")
+                    debug.screenshot(page, "cf_not_resolved", "CF验证未通过超时")
+                    debug.log_page_state(page, "CF未通过")
+                    debug.save_html(page, "cf_not_resolved")
+
             except PlaywrightTimeoutError:
-                pass
+                debug.log("未检测到 CF 挑战 iframe（正常情况）")
+                cf_signals = _CheckinDebugSession._detect_cf_signals(page)
+                if cf_signals:
+                    debug.log(
+                        f"【警告】未检测到 CF iframe，但页面有 CF 信号: {cf_signals}"
+                    )
+                    debug.screenshot(page, "cf_signals_no_iframe", "有CF信号但无iframe")
+                    debug.save_html(page, "cf_signals_no_iframe")
+
+            debug.log("开始轮询签到结果（最长 30s）")
             _RESULT_PHRASES = [
                 "签到成功",
                 "签到失败",
@@ -726,25 +978,49 @@ class HDHivePlaywrightClient:
             interval_ms = 500
             elapsed = 0
             result_text = None
+            _screenshot_interval = 5000
+            _last_screenshot_at = 0
             while elapsed < deadline_ms:
                 captured = page.evaluate("() => window.__checkinResult")
                 if captured:
                     result_text = str(captured)
+                    debug.log(
+                        f"MutationObserver 捕获结果 (elapsed={elapsed}ms): {result_text!r}"
+                    )
                     break
                 scanned = page.evaluate(_SCAN_JS)
                 if scanned:
                     result_text = str(scanned)
+                    debug.log(
+                        f"页面扫描捕获结果 (elapsed={elapsed}ms): {result_text!r}"
+                    )
                     break
+
+                if elapsed - _last_screenshot_at >= _screenshot_interval:
+                    debug.screenshot(
+                        page, f"poll_{elapsed // 1000}s", f"轮询中 {elapsed // 1000}s"
+                    )
+                    _last_screenshot_at = elapsed
+
                 page.wait_for_timeout(interval_ms)
                 elapsed += interval_ms
 
             if result_text:
-                return HDHivePlaywrightClient._parse_checkin_result_text(
+                debug.log(f"原始结果文本: {result_text!r}")
+                ok, msg = HDHivePlaywrightClient._parse_checkin_result_text(
                     result_text, label
                 )
+                debug.screenshot(
+                    page, "final_result", f"签到{'成功' if ok else '失败'}: {msg}"
+                )
+                return ok, msg
+
+            debug.log("轮询超时，未捕获到任何签到结果文本")
+            debug.screenshot(page, "result_timeout", "等待签到结果超时")
+            debug.log_page_state(page, "结果超时")
+            debug.save_html(page, "result_timeout")
             return False, f"{label}：等待结果超时"
 
-        backend = self._check_backend()
         try:
             if backend == "cloakbrowser":
                 context = self._make_cloak_context(self._headless)
@@ -761,7 +1037,7 @@ class HDHivePlaywrightClient:
                             ]
                         )
                     page = context.new_page()
-                    return _do_checkin(page)
+                    result = _do_checkin(page)
                 finally:
                     context.close()
             else:
@@ -788,13 +1064,16 @@ class HDHivePlaywrightClient:
                                     ]
                                 )
                             page = context.new_page()
-                            return _do_checkin(page)
+                            result = _do_checkin(page)
                         finally:
                             browser.close()
         except PlaywrightTimeoutError as e:
-            return False, f"{label}操作超时: {e}"
+            result = (False, f"{label}操作超时: {e}")
         except Exception as e:
-            return False, f"{label}浏览器签到失败: {e}"
+            result = (False, f"{label}浏览器签到失败: {e}")
+
+        debug.finalize(*result)
+        return result
 
     def checkin(self, gamble: bool) -> Tuple[bool, str]:
         """
