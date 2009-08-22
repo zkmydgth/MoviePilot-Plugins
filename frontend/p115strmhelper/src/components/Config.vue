@@ -91,7 +91,7 @@
                 <v-icon size="small" start>mdi-sync</v-icon>全量同步
               </v-tab>
               <v-tab value="tab-increment-sync" class="text-caption">
-                <v-icon size="small" start>book-sync</v-icon>增量同步
+                <v-icon size="small" start>mdi-book-sync</v-icon>增量同步
               </v-tab>
               <v-tab value="tab-life" class="text-caption">
                 <v-icon size="small" start>mdi-calendar-heart</v-icon>监控115生活事件
@@ -114,7 +114,7 @@
                 <v-card-text>
                   <v-row>
                     <v-col cols="12" md="3">
-                      <v-switch v-model="config.transfer_monitor_enabled" label="整理事件监控" color="info"></v-switch>
+                      <v-switch v-model="config.transfer_monitor_enabled" label="启用" color="info"></v-switch>
                     </v-col>
                     <v-col cols="12" md="3">
                       <v-switch v-model="config.transfer_monitor_scrape_metadata_enabled" label="STRM自动刮削"
@@ -347,7 +347,7 @@
                 <v-card-text>
                   <v-row>
                     <v-col cols="12" md="3">
-                      <v-switch v-model="config.monitor_life_enabled" label="监控115生活事件" color="info"></v-switch>
+                      <v-switch v-model="config.monitor_life_enabled" label="启用" color="info"></v-switch>
                     </v-col>
                     <v-col cols="12" md="3">
                       <v-select v-model="config.monitor_life_event_modes" label="处理事件类型" :items="[
@@ -505,7 +505,7 @@
                 <v-card-text>
                   <v-row>
                     <v-col cols="12" md="4">
-                      <v-switch v-model="config.pan_transfer_enabled" label="网盘整理" color="info"></v-switch>
+                      <v-switch v-model="config.pan_transfer_enabled" label="启用" color="info"></v-switch>
                     </v-col>
                   </v-row>
 
@@ -552,7 +552,7 @@
                 <v-card-text>
                   <v-row>
                     <v-col cols="12" md="4">
-                      <v-switch v-model="config.directory_upload_enabled" label="启用目录上传" color="info" density="compact"
+                      <v-switch v-model="config.directory_upload_enabled" label="启用" color="info" density="compact"
                         hide-details></v-switch>
                     </v-col>
                     <v-col cols="12" md="8">
