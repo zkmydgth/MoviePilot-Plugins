@@ -335,6 +335,7 @@ def create_app(
         app.state.playback_cache_lock = Lock()
         app.state.strm_source_cache = {}
         app.state.strm_source_lock = Lock()
+        app.state.token_userid_cache: dict[str, str] = {}
         yield
         await app.state.http_client_follow.aclose()
         await app.state.http_client_no_follow.aclose()
@@ -418,7 +419,10 @@ def create_app(
         return await _reverse_proxy(request)
 
     async def _resolve_redirect(
-        client: AsyncClient, url: str, headers: dict[str, str]
+        client: AsyncClient,
+        url: str,
+        headers: dict[str, str],
+        user_id: str | None = None,
     ) -> str:
         """
         跟随重定向链，返回最终 URL。
@@ -426,8 +430,11 @@ def create_app(
         :param client: 共享的 httpx 客户端（follow_redirects=True）。
         :param url: 起始 URL。
         :param headers: 请求头。
+        :param user_id: Emby 用户 ID，可为 None。
         :return: 最终 URL；失败时返回原始 url。
         """
+        if user_id:
+            headers = {**headers, "X-Emby-UserId": user_id}
         try:
             resp = await client.head(url, headers=headers, timeout=10)
             return str(resp.url)
@@ -546,7 +553,10 @@ def create_app(
 
         client_follow = request.app.state.http_client_follow
         fwd_headers = _build_forward_headers(request)
-        final_url = await _resolve_redirect(client_follow, http_path, fwd_headers)
+        user_id = request.app.state.token_userid_cache.get(item_id)
+        final_url = await _resolve_redirect(
+            client_follow, http_path, fwd_headers, user_id
+        )
 
         async with lock:
             now = monotonic()
@@ -850,6 +860,12 @@ def create_app(
                     strm_sources,
                     monotonic() + PLAYBACK_STRM_CACHE_TTL_SECONDS,
                 )
+
+        userid_cache = request.app.state.token_userid_cache
+        if item_id not in userid_cache:
+            uid = request.query_params.get("UserId")
+            if uid:
+                userid_cache[item_id] = uid
 
         reason = "STRM" if is_strm else "路径替换"
         logger.info(
