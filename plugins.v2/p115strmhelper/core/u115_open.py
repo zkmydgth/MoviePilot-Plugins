@@ -1175,6 +1175,21 @@ class U115OpenHelper:
                 raise CanNotFindPathToCid("无法获取目录信息")
             path = file_item.fileid
         initial_cid = int(path)
+        full_path = ""
+        if initial_cid != 0:
+            resp = self._request_api(
+                "GET",
+                "/open/folder/get_info",
+                params={"file_id": initial_cid},
+            )
+            if not resp:
+                raise OSError("获取目录信息失败")
+            data: Dict = resp.get("data")
+            paths: List[Dict] = data.get("paths")
+            if len(paths) > 1:
+                for p in paths[1:]:
+                    full_path += f"/{p.get('file_name')}"
+            full_path += f"/{data.get("file_name")}"
         if page_size <= 0 or page_size > 10_000:
             page_size = 7, 000
 
@@ -1226,7 +1241,8 @@ class U115OpenHelper:
             while pid != initial_cid:
                 path = f"/{dir_nodes[pid].name}" + path
                 pid = dir_nodes[pid].parent_id
-            file["path"] = path
+            file["relpath"] = path
+            file["path"] = full_path + path
             yield file
         if files_info_path.exists():
             rmtree(files_info_path)
@@ -1310,7 +1326,8 @@ class U115OpenHelper:
                 if attr.get("is_dir"):
                     sub_dirs_to_scan.append((int(attr["id"]), path, 0))
                 else:
-                    attr["path"] = path
+                    attr["relpath"] = path
+                    attr["path"] = full_path + path
                     files_found.append(attr)
             new_offset = offset + len(items)
             if new_offset < count and len(items) > 0:
@@ -1324,6 +1341,21 @@ class U115OpenHelper:
                 raise CanNotFindPathToCid("无法获取目录信息")
             path = file_item.fileid
         initial_cid = int(path)
+        full_path = ""
+        if initial_cid != 0:
+            resp = self._request_api(
+                "GET",
+                "/open/folder/get_info",
+                params={"file_id": initial_cid},
+            )
+            if not resp:
+                raise OSError("获取目录信息失败")
+            data: Dict = resp.get("data")
+            paths: List[Dict] = data.get("paths")
+            if len(paths) > 1:
+                for p in paths[1:]:
+                    full_path += f"/{p.get('file_name')}"
+            full_path += f"/{data.get("file_name")}"
         if page_size <= 0 or page_size > 10_000:
             page_size = 7, 000
 
