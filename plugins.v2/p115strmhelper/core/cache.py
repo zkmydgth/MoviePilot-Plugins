@@ -84,7 +84,6 @@ class PanTransferCache:
     def __init__(self):
         self.delete_pan_transfer_list = []
         self.creata_pan_transfer_list = []
-        self.top_delete_pan_transfer_list: Dict[str, List] = {}
         self.file_item_dict: Dict[str, Dict] = MemoryTTLCache(
             maxsize=1_000_000, ttl=36000
         )

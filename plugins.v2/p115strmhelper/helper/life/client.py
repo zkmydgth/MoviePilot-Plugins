@@ -2,9 +2,9 @@ from shutil import move as shutil_move, rmtree
 from collections import defaultdict
 from threading import Timer, Event, Thread
 from time import sleep, strftime, localtime, time
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Set
 from pathlib import Path
-from itertools import batched, chain
+from itertools import batched
 
 from ...core.config import configer
 from ...core.message import post_message
@@ -195,14 +195,13 @@ class MonitorLife:
         org_file_path: str,
         rmt_mediaext: List,
         transferchain: TransferChain,
-    ) -> Tuple[bool, List[str]]:
+    ) -> None:
         """
         在 CloudDrive2 挂载路径上递归 list_files，将媒体文件加入整理队列
 
         :param org_file_path: 115 侧目录路径（posix）
         :param rmt_mediaext: 待整理媒体扩展名列表（含前导点）
         :param transferchain: 整理链实例
-        :return: (cache_top_path, cache_file_id_list)；根路径无法解析时为 (False, [])
         """
         cd2_root = Path(
             configer.pan_transfer_clouddrive2_config.prefix
@@ -214,17 +213,12 @@ class MonitorLife:
             log_label="【网盘整理】",
         )
         if not root:
-            return False, []
-
-        cache_top_path = False
-        cache_file_id_list: List[str] = []
+            return
 
         if str(root.fileid) not in pantransfercacher.delete_pan_transfer_list:
             pantransfercacher.delete_pan_transfer_list.append(str(root.fileid))
-        root_id_str = str(root.fileid)
 
         def walk_cd2_dir(dir_item: FileItem) -> None:
-            nonlocal cache_top_path
             try:
                 entries = self.storagechain.list_files(dir_item)
             except Exception as e:
@@ -254,10 +248,6 @@ class MonitorLife:
                     fid_s = str(entry.fileid)
                     if fid_s not in pantransfercacher.creata_pan_transfer_list:
                         pantransfercacher.creata_pan_transfer_list.append(fid_s)
-                    if parent_s != root_id_str:
-                        cache_top_path = True
-                    if fid_s not in cache_file_id_list:
-                        cache_file_id_list.append(fid_s)
                     fileitem = FileItem(
                         storage="CloudDrive储存",
                         fileid=fid_s,
@@ -294,7 +284,6 @@ class MonitorLife:
                     logger.info("【网盘整理】%s 加入整理列队", p)
 
         walk_cd2_dir(root)
-        return cache_top_path, cache_file_id_list
 
     def media_transfer(self, event: Dict, file_path: Path, rmt_mediaext):
         """
@@ -310,14 +299,12 @@ class MonitorLife:
         file_category = event["file_category"]
         file_id = event["file_id"]
         if file_category == 0:
-            cache_top_path = False
-            cache_file_id_list = []
             logger.info(f"【网盘整理】开始处理 {file_path} 文件夹中...")
             _databasehelper.remove_by_id_batch(int(event["file_id"]), False)
             # 文件夹情况，遍历文件夹，获取整理文件
             if configer.pan_transfer_clouddrive2_config.enabled:
                 sleep(2)
-                cache_top_path, cache_file_id_list = self._media_transfer_folder_cd2(
+                self._media_transfer_folder_cd2(
                     org_file_path,
                     rmt_mediaext,
                     transferchain,
@@ -376,11 +363,6 @@ class MonitorLife:
                                 "sha1": item["sha1"],
                                 "size": item["size"],
                             }
-                        # 判断此顶层目录MP是否能处理
-                        if str(item["parent_id"]) != event["file_id"]:
-                            cache_top_path = True
-                        if str(item["id"]) not in cache_file_id_list:
-                            cache_file_id_list.append(str(item["id"]))
                         fileitem = FileItem(
                             storage=configer.storage_module,
                             fileid=str(item["id"]),
@@ -423,30 +405,6 @@ class MonitorLife:
                         )
                         transferchain.do_transfer(fileitem=fileitem)
                         logger.info(f"【网盘整理】{file_path} 加入整理列队")
-
-            # 顶层目录MP无法处理时添加到缓存字典中
-            if cache_top_path and cache_file_id_list:
-                if (
-                    str(event["file_id"])
-                    in pantransfercacher.top_delete_pan_transfer_list
-                ):
-                    # 如果存在相同ID的根目录则合并
-                    cache_file_id_list = list(
-                        dict.fromkeys(
-                            chain(
-                                cache_file_id_list,
-                                pantransfercacher.top_delete_pan_transfer_list[
-                                    str(event["file_id"])
-                                ],
-                            )
-                        )
-                    )
-                    del pantransfercacher.top_delete_pan_transfer_list[
-                        str(event["file_id"])
-                    ]
-                pantransfercacher.top_delete_pan_transfer_list[
-                    str(event["file_id"])
-                ] = cache_file_id_list
         else:
             # 文件情况，直接整理
             if file_path.suffix.lower() in rmt_mediaext:
