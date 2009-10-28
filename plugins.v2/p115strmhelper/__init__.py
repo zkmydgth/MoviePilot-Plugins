@@ -321,7 +321,7 @@ class P115StrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png"
     # 插件版本
-    plugin_version = "1.4.1"
+    plugin_version = "1.4.2"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -345,6 +345,7 @@ class P115StrmHelper(_PluginBase):
     _user_rmt_mediaext = None
     _transfer_monitor_enabled = False
     _transfer_monitor_paths = None
+    _transfer_mp_mediaserver_paths = None
     _transfer_monitor_mediaservers = None
     _transfer_monitor_media_server_refresh_enabled = False
     _timing_full_sync_strm = False
@@ -383,6 +384,9 @@ class P115StrmHelper(_PluginBase):
             self._user_rmt_mediaext = config.get("user_rmt_mediaext")
             self._transfer_monitor_enabled = config.get("transfer_monitor_enabled")
             self._transfer_monitor_paths = config.get("transfer_monitor_paths")
+            self._transfer_mp_mediaserver_paths = config.get(
+                "transfer_mp_mediaserver_paths"
+            )
             self._transfer_monitor_media_server_refresh_enabled = config.get(
                 "transfer_monitor_media_server_refresh_enabled"
             )
@@ -657,6 +661,47 @@ class P115StrmHelper(_PluginBase):
                                         "component": "div",
                                         "props": {"class": "ml-2"},
                                         "text": "本地路径2#网盘路径2",
+                                    },
+                                ],
+                            },
+                        ],
+                    }
+                ],
+            },
+            {
+                "component": "VRow",
+                "content": [
+                    {
+                        "component": "VCol",
+                        "props": {"cols": 12},
+                        "content": [
+                            {
+                                "component": "VTextarea",
+                                "props": {
+                                    "model": "transfer_mp_mediaserver_paths",
+                                    "label": "媒体服务器映射替换",
+                                    "rows": 2,
+                                    "placeholder": "一行一个，格式：媒体库服务器映射目录#MP映射目录\n例如：\n/media#/data",
+                                    "hint": "用于媒体服务器映射路径和MP映射路径不一样时自动刷新媒体服务器入库",
+                                    "persistent-hint": True,
+                                },
+                            },
+                            {
+                                "component": "VAlert",
+                                "props": {
+                                    "type": "info",
+                                    "variant": "tonal",
+                                    "density": "compact",
+                                    "class": "mt-2",
+                                },
+                                "content": [
+                                    {
+                                        "component": "div",
+                                        "text": "媒体服务器映射路径和MP映射路径不一样时请配置此项，如果不配置则无法正常刷新",
+                                    },
+                                    {
+                                        "component": "div",
+                                        "text": "当映射路径一样时可省略此配置",
                                     },
                                 ],
                             },
@@ -1248,6 +1293,7 @@ class P115StrmHelper(_PluginBase):
             "user_rmt_mediaext": "mp4,mkv,ts,iso,rmvb,avi,mov,mpeg,mpg,wmv,3gp,asf,m4v,flv,m2ts,tp,f4v",
             "transfer_monitor_enabled": False,
             "transfer_monitor_paths": "",
+            "transfer_mp_mediaserver_paths": "",
             "transfer_monitor_media_server_refresh_enabled": False,
             "transfer_monitor_mediaservers": [],
             "timing_full_sync_strm": False,
@@ -1281,6 +1327,7 @@ class P115StrmHelper(_PluginBase):
                 "user_rmt_mediaext": self._user_rmt_mediaext,
                 "transfer_monitor_enabled": self._transfer_monitor_enabled,
                 "transfer_monitor_paths": self._transfer_monitor_paths,
+                "transfer_mp_mediaserver_paths": self._transfer_mp_mediaserver_paths,
                 "transfer_monitor_media_server_refresh_enabled": self._transfer_monitor_media_server_refresh_enabled,
                 "transfer_monitor_mediaservers": self._transfer_monitor_mediaservers,
                 "timing_full_sync_strm": self._timing_full_sync_strm,
@@ -1661,6 +1708,24 @@ class P115StrmHelper(_PluginBase):
         if self._transfer_monitor_media_server_refresh_enabled:
             if not self.service_infos:
                 return
+
+            logger.info("【监控整理STRM生成】开始刷新媒体服务器")
+
+            if self._transfer_mp_mediaserver_paths:
+                status, mediaserver_path, moviepilot_path = self.__get_media_path(
+                    self._transfer_mp_mediaserver_paths, strm_target_path
+                )
+                if status:
+                    logger.info("【监控整理STRM生成】刷新媒体服务器目录替换中...")
+                    strm_target_path = strm_target_path.replace(
+                        moviepilot_path, mediaserver_path
+                    ).replace("\\", "/")
+                    logger.info(
+                        f"【监控整理STRM生成】刷新媒体服务器目录替换: {moviepilot_path} --> {mediaserver_path}"
+                    )
+                    logger.info(
+                        f"【监控整理STRM生成】刷新媒体服务器目录: {strm_target_path}"
+                    )
 
             time.sleep(2)
             mediainfo: MediaInfo = item.get("mediainfo")

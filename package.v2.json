@@ -87,11 +87,12 @@
         "name": "115网盘STRM助手",
         "description": "115网盘STRM生成一条龙服务",
         "labels": "云盘",
-        "version": "1.4.1",
+        "version": "1.4.2",
         "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png",
         "author": "DDSRem",
         "level": 1,
         "history": {
+            "v1.4.2": "兼容媒体服务器目录映射和MP目录映射不一致时的媒体服务器自动刷新",
             "v1.4.1": "自动解析分享链接",
             "v1.4.0": "美化界面，感谢@raysmads",
             "v1.3.1": "115生活事件监控增加监控转存事件",
