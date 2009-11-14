@@ -10,7 +10,6 @@ from urllib.parse import quote
 
 import qrcode
 import requests
-from cachetools import cached, TTLCache
 from orjson import dumps
 from p115client import P115Client
 from p115client.exception import DataError
@@ -26,6 +25,7 @@ from .core.aliyunpan import AliyunPanLogin
 from .utils.sentry import sentry_manager
 
 from app.log import logger
+from app.core.cache import cached
 from app.helper.mediaserver import MediaServerHelper
 from app.schemas import NotificationType
 
@@ -60,7 +60,9 @@ class Api:
         """
         return {"machine_id": configer.get_config("MACHINE_ID")}
 
-    @cached(cache=TTLCache(maxsize=1, ttl=60 * 60))
+    @cached(
+        region="p115strmhelper_api_get_user_storage_status", ttl=60 * 60, skip_none=True
+    )
     def get_user_storage_status(self) -> Dict[str, Any]:
         """
         获取115用户基本信息和空间使用情况。
@@ -183,7 +185,7 @@ class Api:
             }
             return result_to_return
 
-    @cached(cache=TTLCache(maxsize=64, ttl=2 * 60))
+    @cached(region="p115strmhelper_api_browse_dir_api", ttl=2 * 60, skip_none=True)
     def browse_dir_api(self, request: Request) -> Dict:
         """
         浏览目录

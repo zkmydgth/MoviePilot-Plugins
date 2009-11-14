@@ -1,7 +1,7 @@
 from typing import List, Dict, MutableMapping
 from time import time
 
-from cachetools import LRUCache, TTLCache
+from app.core.cache import TTLCache
 
 
 class IdPathCache:
@@ -9,9 +9,17 @@ class IdPathCache:
     文件路径ID缓存
     """
 
-    def __init__(self, maxsize=128):
-        self.id_to_dir = LRUCache(maxsize=maxsize)
-        self.dir_to_id = LRUCache(maxsize=maxsize)
+    def __init__(self, maxsize=1024):
+        self.id_to_dir = TTLCache(
+            region="p115strmhelper_id_path_cache_id_to_dir",
+            maxsize=maxsize,
+            ttl=60 * 60 * 24 * 365 * 10,
+        )
+        self.dir_to_id = TTLCache(
+            region="p115strmhelper_id_path_cache_dir_to_id",
+            maxsize=maxsize,
+            ttl=60 * 60 * 24 * 365 * 10,
+        )
 
     def add_cache(self, id: int, directory: str):
         """
@@ -58,7 +66,9 @@ class LifeEventCache:
 
     def __init__(self):
         self.create_strm_file_dict: MutableMapping[str, List] = TTLCache(
-            maxsize=1_000_000, ttl=600
+            region="p115strmhelper_life_event_cache_create_strm_file_dict",
+            maxsize=1_000_000,
+            ttl=600,
         )
 
 
@@ -74,7 +84,11 @@ class R302Cache:
         参数:
         maxsize (int): 缓存可以容纳的最大条目数
         """
-        self._cache = LRUCache(maxsize=maxsize)
+        self._cache = TTLCache(
+            region="p115strmhelper_r302_cache",
+            maxsize=maxsize,
+            ttl=60 * 60 * 24 * 365 * 10,
+        )
 
     def set(self, pick_code, ua_code, url, expires_time):
         """
