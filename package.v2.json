@@ -502,6 +502,18 @@
             "v1.0.0": "发布，前置依赖123云盘储存插件"
         }
     },
+    "CloudDriveDisk": {
+        "name": "CloudDrive2储存",
+        "description": "使存储支持 CloudDrive2，grpc 原生 API 操作。",
+        "labels": "云盘",
+        "version": "0.0.1",
+        "icon": "Cloudrive_A.png",
+        "author": "DDSRem",
+        "level": 1,
+        "history": {
+            "v0.0.1": "发布测试版本"
+        }
+    },
     "MediaWarp": {
         "name": "MediaWarp",
         "description": "EmbyServer/Jellyfin 中间件：优化播放 Strm 文件、自定义前端样式、自定义允许访问客户端、嵌入脚本。",
