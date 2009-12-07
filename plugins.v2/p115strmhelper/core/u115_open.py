@@ -999,14 +999,17 @@ class U115OpenHelper:
 
         Cookie / OpenAPI 随机轮换
         """
-        if randint(0, 1) == 0:
+        r = randint(0, 2)
+        if r == 0:
             resp = self._request_api(
                 "POST",
                 "/open/ufile/update",
                 data={"file_id": int(fileitem.fileid), "file_name": name},
             )
-        else:
+        elif r == 1:
             resp = self.cookie_client.fs_rename((int(fileitem.fileid), name))
+        else:
+            resp = self.cookie_client.fs_rename_app((int(fileitem.fileid), name))
         if not resp:
             return False
         if resp.get("state"):
