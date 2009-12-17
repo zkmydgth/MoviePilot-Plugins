@@ -122,7 +122,7 @@ class P115StrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png"
     # 插件版本
-    plugin_version = "1.8.25"
+    plugin_version = "1.8.26"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -433,15 +433,13 @@ class P115StrmHelper(_PluginBase):
         定义远程控制命令
         :return: 命令关键字、事件、描述、附带数据
         """
-        """
-            {
-                "cmd": "/p115_search",
-                "event": EventType.PluginAction,
-                "desc": "搜索指定资源",
-                "category": "",
-                "data": {"action": "p115_search"},
-            },
-        """
+        # {
+        #     "cmd": "/p115_search",
+        #     "event": EventType.PluginAction,
+        #     "desc": "搜索指定资源",
+        #     "category": "",
+        #     "data": {"action": "p115_search"},
+        # },
         return [
             {
                 "cmd": "/p115_full_sync",
