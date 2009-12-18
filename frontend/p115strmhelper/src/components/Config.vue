@@ -293,8 +293,8 @@
                           color="warning"></v-switch>
                       </v-col>
                       <v-col cols="12" md="3">
-                        <v-switch v-model="config.full_sync_remove_unless_dir" label="清理无效STRM目录"
-                          color="warning" :disabled="!config.full_sync_remove_unless_strm"></v-switch>
+                        <v-switch v-model="config.full_sync_remove_unless_dir" label="清理无效STRM目录" color="warning"
+                          :disabled="!config.full_sync_remove_unless_strm"></v-switch>
                       </v-col>
                       <v-col cols="12" md="3">
                         <v-switch v-model="config.full_sync_remove_unless_file" label="清理无效STRM文件关联的媒体信息文件"
@@ -369,7 +369,8 @@
                             <v-switch v-model="config.full_sync_strm_log" label="输出STRM同步日志" color="primary"></v-switch>
                           </v-col>
                           <v-col cols="12" md="3">
-                            <v-switch v-model="config.full_sync_process_rust" label="Rust模式处理数据" color="primary"></v-switch>
+                            <v-switch v-model="config.full_sync_process_rust" label="Rust模式处理数据"
+                              color="primary"></v-switch>
                           </v-col>
                           <v-col cols="12" md="6">
                             <v-select v-model="config.full_sync_iter_function" label="迭代函数" :items="[
@@ -561,18 +562,22 @@
                   </v-row>
 
                   <v-row>
-                    <v-col cols="12" md="4">
+                    <v-col cols="12" md="3">
                       <v-switch v-model="config.monitor_life_auto_download_mediainfo_enabled" label="下载媒体数据文件"
                         color="warning"></v-switch>
                     </v-col>
-                    <v-col cols="12" md="4">
+                    <v-col cols="12" md="3">
                       <v-switch v-model="config.monitor_life_scrape_metadata_enabled" label="STRM自动刮削"
                         color="primary"></v-switch>
                     </v-col>
-                    <v-col cols="12" md="4">
+                    <v-col cols="12" md="3">
                       <v-text-field v-model="monitorLifeMinFileSizeFormatted" label="STRM最小文件大小"
                         hint="小于此值的文件将不生成STRM(单位K,M,G)" persistent-hint density="compact" placeholder="例如: 100M (可为空)"
                         clearable></v-text-field>
+                    </v-col>
+                    <v-col cols="12" md="3">
+                      <v-text-field v-model.number="config.monitor_life_event_wait_time" label="事件处理延迟时间" type="number"
+                        hint="接收到事件后等待的时间，0 则代表不等待 (单位秒)" persistent-hint density="compact"></v-text-field>
                     </v-col>
                   </v-row>
 
@@ -738,8 +743,8 @@
 
                       <v-row class="mt-4">
                         <v-col cols="12">
-                          <v-text-field v-model="config.pan_transfer_unrecognized_path" label="网盘整理未识别目录" density="compact"
-                            append-icon="mdi-folder-network"
+                          <v-text-field v-model="config.pan_transfer_unrecognized_path" label="网盘整理未识别目录"
+                            density="compact" append-icon="mdi-folder-network"
                             @click:append="openDirSelector('unrecognized', 'remote', 'panTransferUnrecognized')"></v-text-field>
                           <v-alert type="info" variant="tonal" density="compact" class="mt-2">
                             提示：此目录用于存放整理过程中未能识别的媒体文件。
@@ -768,7 +773,8 @@
                                 append-icon="mdi-folder-network"
                                 @click:append="openDirSelector(index, 'remote', 'shareReceive')"
                                 class="flex-grow-1"></v-text-field>
-                              <v-btn icon size="small" color="error" class="ml-2" @click="removeShareReceivePath(index)">
+                              <v-btn icon size="small" color="error" class="ml-2"
+                                @click="removeShareReceivePath(index)">
                                 <v-icon>mdi-delete</v-icon>
                               </v-btn>
                             </div>
@@ -801,7 +807,8 @@
                                 append-icon="mdi-folder-network"
                                 @click:append="openDirSelector(index, 'remote', 'offlineDownload')"
                                 class="flex-grow-1"></v-text-field>
-                              <v-btn icon size="small" color="error" class="ml-2" @click="removeOfflineDownloadPath(index)">
+                              <v-btn icon size="small" color="error" class="ml-2"
+                                @click="removeOfflineDownloadPath(index)">
                                 <v-icon>mdi-delete</v-icon>
                               </v-btn>
                             </div>
@@ -1209,7 +1216,7 @@
                           <v-alert type="info" variant="tonal" density="compact" class="mb-4">
                             缓存清理功能可以帮助您清理插件运行过程中产生的缓存数据，解决部分因缓存导致的问题。
                           </v-alert>
-                          
+
                           <v-row>
                             <v-col cols="12" md="6">
                               <v-card variant="outlined" class="pa-4 d-flex flex-column cache-card">
@@ -1220,19 +1227,13 @@
                                 <p class="text-body-2 text-grey-darken-1 mb-3 flex-grow-1">
                                   清理文件路径ID缓存，包括目录ID到路径的映射缓存。
                                 </p>
-                                <v-btn 
-                                  color="primary" 
-                                  variant="outlined" 
-                                  :loading="clearIdPathCacheLoading"
-                                  @click="clearIdPathCache"
-                                  prepend-icon="mdi-folder-cog"
-                                  block
-                                >
+                                <v-btn color="primary" variant="outlined" :loading="clearIdPathCacheLoading"
+                                  @click="clearIdPathCache" prepend-icon="mdi-folder-cog" block>
                                   清理文件路径ID缓存
                                 </v-btn>
                               </v-card>
                             </v-col>
-                            
+
                             <v-col cols="12" md="6">
                               <v-card variant="outlined" class="pa-4 d-flex flex-column cache-card">
                                 <div class="d-flex align-center mb-3">
@@ -1242,14 +1243,8 @@
                                 <p class="text-body-2 text-grey-darken-1 mb-3 flex-grow-1">
                                   清理增量同步跳过路径缓存，重置增量同步的跳过路径记录，用于重新处理之前跳过的文件。
                                 </p>
-                                <v-btn 
-                                  color="warning" 
-                                  variant="outlined" 
-                                  :loading="clearIncrementSkipCacheLoading"
-                                  @click="clearIncrementSkipCache"
-                                  prepend-icon="mdi-skip-next"
-                                  block
-                                >
+                                <v-btn color="warning" variant="outlined" :loading="clearIncrementSkipCacheLoading"
+                                  @click="clearIncrementSkipCache" prepend-icon="mdi-skip-next" block>
                                   清理增量同步跳过路径缓存
                                 </v-btn>
                               </v-card>
@@ -1591,6 +1586,7 @@ const config = reactive({
   monitor_life_remove_mp_history: false,
   monitor_life_remove_mp_source: false,
   monitor_life_min_file_size: 0,
+  monitor_life_event_wait_time: 0,
   share_strm_auto_download_mediainfo_enabled: false,
   user_share_code: '',
   user_receive_code: '',

@@ -909,7 +909,9 @@ class MonitorLife:
                         f"【监控生活事件】{event['id']} 文件名称改变：{old_event['file_name']} -> {event['file_name']}"
                     )
                 process_item = True
-            elif self.tasks_queue.inq(event) and self.tasks_queue.time_done(process_time):
+            elif self.tasks_queue.inq(event) and self.tasks_queue.time_done(
+                process_time
+            ):
                 logger.warning("【监控生活事件】生活事件等待队列出错，清空重新拉取...")
                 self.tasks_queue.clear()
                 break
