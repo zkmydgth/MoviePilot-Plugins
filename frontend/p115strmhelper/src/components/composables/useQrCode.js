@@ -61,7 +61,15 @@ export function useQrCode(api, config, message, PLUGIN_ID) {
   const checkQrCodeStatus = async () => {
     if (!qrDialog.uid || !qrDialog.show || !qrDialog.time || !qrDialog.sign) return;
     try {
-      const response = await api.get(`plugin/${PLUGIN_ID}/check_qrcode?uid=${qrDialog.uid}&time=${qrDialog.time}&sign=${qrDialog.sign}&client_type=${qrDialog.clientType}`);
+      const params = new URLSearchParams({
+        uid: qrDialog.uid,
+        time: qrDialog.time,
+        sign: qrDialog.sign,
+        client_type: qrDialog.clientType,
+      });
+      const response = await api.get(
+        `plugin/${PLUGIN_ID}/check_qrcode?${params.toString()}`
+      );
       if (response && response.code === 0 && response.data) {
         const data = response.data;
         if (data.status === 'waiting') qrDialog.status = '等待扫码';
@@ -107,7 +115,10 @@ export function useQrCode(api, config, message, PLUGIN_ID) {
     qrDialog.sign = '';
     console.warn(`【115STRM助手 DEBUG】准备获取二维码，前端选择的 clientType: ${qrDialog.clientType}`);
     try {
-      const response = await api.get(`plugin/${PLUGIN_ID}/get_qrcode?client_type=${qrDialog.clientType}`);
+      const params = new URLSearchParams({ client_type: qrDialog.clientType });
+      const response = await api.get(
+        `plugin/${PLUGIN_ID}/get_qrcode?${params.toString()}`
+      );
       if (response && response.code === 0 && response.data) {
         qrDialog.uid = response.data.uid;
         qrDialog.time = response.data.time;

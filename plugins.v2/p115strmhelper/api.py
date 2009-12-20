@@ -12,6 +12,7 @@ from p115center import P115Center
 from qrcode import make as qr_make
 from orjson import dumps, loads
 from p115client import P115Client, check_response
+from p115client.const import APP_TO_SSOENT
 from p115client.exception import P115DataError
 from p115client.tool.fs_files import iter_fs_files
 from fastapi import Body, Request, Response, Depends, status, Query
@@ -519,33 +520,28 @@ class Api:
         获取登录二维码
         """
         try:
-            final_client_type = params.client_type
-            allowed_types = [
-                "web",
-                "android",
-                "115android",
-                "ios",
-                "115ios",
-                "alipaymini",
-                "wechatmini",
-                "115ipad",
-                "tv",
-                "qandroid",
-            ]
-            if final_client_type not in allowed_types:
+            final_client_type = (params.client_type or "").strip()
+            if final_client_type not in APP_TO_SSOENT:
                 final_client_type = "alipaymini"
             logger.info(f"【扫码登入】二维码API - 使用客户端类型: {final_client_type}")
 
             resp = P115Client.login_qrcode_token()
             check_response(resp)
-            resp_info = resp.get("data", {})
+            resp_info = resp.get("data") or {}
             _uid = str(resp_info.get("uid", ""))
             _time = str(resp_info.get("time", ""))
             _sign = str(resp_info.get("sign", ""))
-            resp = P115Client.login_qrcode(_uid)
-            if not isinstance(resp, (bytes, bytearray)):
-                return ApiResponse(code=-1, msg="获取二维码失败: 返回内容类型异常")
-            qrcode_base64 = b64encode(resp).decode("utf-8")
+            if not _uid or not _time or not _sign:
+                return ApiResponse(code=-1, msg="获取二维码失败: 返回登录参数不完整")
+
+            qrcode_content = str(resp_info.get("qrcode") or "")
+            if not qrcode_content:
+                qrcode_content = f"https://115.com/scan/dg-{_uid}"
+
+            img = qr_make(qrcode_content)
+            buffered = BytesIO()
+            img.save(buffered, format="PNG")
+            qrcode_base64 = b64encode(buffered.getvalue()).decode("utf-8")
 
             return ApiResponse(
                 data=QRCodeData(
@@ -571,6 +567,9 @@ class Api:
         try:
             if not uid:
                 return ApiResponse(code=-1, msg="无效的二维码ID，参数uid不能为空")
+            final_client_type = (client_type or "").strip()
+            if final_client_type not in APP_TO_SSOENT:
+                final_client_type = "alipaymini"
             payload = {
                 "uid": uid,
                 "time": _time,
@@ -580,7 +579,7 @@ class Api:
             if not isinstance(resp, dict):
                 return ApiResponse(code=-1, msg="检查二维码状态异常: 返回数据类型异常")
             check_response(resp)
-            status_code = resp.get("data").get("status")
+            status_code = (resp.get("data") or {}).get("status")
         except Exception as e:
             error_msg = f"检查二维码状态异常: {str(e)}"
             logger.error(f"【扫码登入】检查二维码状态异常: {e}", exc_info=True)
@@ -601,7 +600,7 @@ class Api:
 
         if status_code == 2:
             try:
-                resp = P115Client.login_qrcode_scan_result(uid, app=client_type)
+                resp = P115Client.login_qrcode_scan_result(uid, app=final_client_type)
                 if not isinstance(resp, dict):
                     return ApiResponse(
                         code=-1, msg="获取登录结果失败: 返回数据类型异常"
