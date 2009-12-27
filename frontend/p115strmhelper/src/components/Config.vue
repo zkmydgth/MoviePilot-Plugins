@@ -477,75 +477,99 @@
                 <v-card-text>
                   <v-row>
                     <v-col cols="12" md="4">
-                      <v-switch v-model="config.directory_upload_enabled" label="目录上传" color="info"></v-switch>
+                      <v-switch v-model="config.directory_upload_enabled" label="启用目录上传" color="info" density="compact"
+                        hide-details></v-switch>
                     </v-col>
-                    <v-col cols="12" md="4">
+                    <v-col cols="12" md="8">
                       <v-select v-model="config.directory_upload_mode" label="监控模式" :items="[
-                        { title: '兼容模式', value: 'compatibility' },
-                        { title: '性能模式', value: 'fast' }
-                      ]" chips closable-chips></v-select>
+                        { title: '兼容模式 (推荐Docker或SMB挂载)', value: 'compatibility' },
+                        { title: '性能模式 (仅本地物理路径)', value: 'fast' }
+                      ]" chips closable-chips density="compact" hide-details></v-select>
                     </v-col>
                   </v-row>
                   <v-row>
                     <v-col cols="12" md="6">
                       <v-text-field v-model="config.directory_upload_uploadext" label="上传文件扩展名"
-                        hint="支持的媒体文件扩展名，多个用逗号分隔" persistent-hint density="compact" variant="outlined"
+                        hint="指定哪些扩展名的文件会被上传到115网盘，多个用逗号分隔" persistent-hint density="compact" variant="outlined"
                         hide-details="auto"></v-text-field>
                     </v-col>
                     <v-col cols="12" md="6">
-                      <v-text-field v-model="config.directory_upload_copyext" label="非上传文件扩展名"
-                        hint="下载的字幕等附属文件扩展名，多个用逗号分隔" persistent-hint density="compact" variant="outlined"
+                      <v-text-field v-model="config.directory_upload_copyext" label="复制文件扩展名"
+                        hint="指定哪些扩展名的文件会被复制到本地目标目录，多个用逗号分隔" persistent-hint density="compact" variant="outlined"
                         hide-details="auto"></v-text-field>
                     </v-col>
                   </v-row>
 
-                  <v-row>
-                    <v-col cols="12">
-                      <div class="d-flex flex-column">
-                        <div v-for="(pair, index) in directoryUploadPaths" :key="`upload-${index}`"
-                          class="mb-3 d-flex align-center flex-wrap">
-                          <!-- 本地监控目录 -->
-                          <div class="path-selector flex-grow-1 mr-2" style="min-width: 200px;">
-                            <v-text-field v-model="pair.src" label="本地监控目录" density="compact" append-icon="mdi-folder"
-                              @click:append="openDirSelector(index, 'local', 'directoryUpload')"></v-text-field>
-                          </div>
-                          <v-icon class="mx-1">mdi-arrow-right</v-icon>
-                          <!-- 网盘上传目录 -->
-                          <div class="path-selector flex-grow-1 ml-2" style="min-width: 200px;">
-                            <v-text-field v-model="pair.dest_remote" label="网盘上传目录" density="compact"
-                              append-icon="mdi-folder-network"
-                              @click:append="openDirSelector(index, 'remote', 'directoryUpload')"></v-text-field>
-                          </div>
-                          <v-icon class="mx-1">mdi-arrow-right</v-icon>
-                          <!-- 非上传文件目标目录 -->
-                          <div class="path-selector flex-grow-1 ml-2" style="min-width: 200px;">
-                            <v-text-field v-model="pair.dest_local" label="非上传文件目标目录" density="compact"
-                              append-icon="mdi-folder"
-                              @click:append="openDirSelector(index, 'local', 'directoryUpload')"></v-text-field>
-                          </div>
-                          <!-- 删除源文件开关 -->
-                          <div class="mx-3 d-flex align-center" style="min-width: 150px;">
-                            <v-switch v-model="pair.delete" label="删除源文件" color="primary" hide-details
-                              density="compact"></v-switch>
-                          </div>
-                          <!-- 删除按钮 -->
-                          <v-btn icon size="small" color="error" class="ml-auto"
-                            @click="removePath(index, 'directoryUpload')">
-                            <v-icon>mdi-delete</v-icon>
-                          </v-btn>
-                        </div>
-                        <!-- 添加路径按钮 -->
-                        <v-btn size="small" prepend-icon="mdi-plus" variant="outlined" class="mt-2 align-self-start"
-                          @click="addPath('directoryUpload')">
-                          添加路径
-                        </v-btn>
-                      </div>
+                  <v-divider class="my-3"></v-divider>
+                  <div class="text-subtitle-2 mb-2">路径配置:</div>
 
-                      <v-alert type="info" variant="tonal" density="compact" class="mt-2">
-                        监控本地目录，实现匹配到指定后缀名称的文件上传或直接复制到指定目录，最后按需删除源文件，无法匹配的扩展名不处理<br>
-                      </v-alert>
-                    </v-col>
-                  </v-row>
+                  <div v-for="(pair, index) in directoryUploadPaths" :key="`upload-${index}`"
+                    class="path-group mb-3 pa-2 border rounded">
+                    <v-row dense>
+                      <!-- 本地监控目录 -->
+                      <v-col cols="12" md="6">
+                        <v-text-field v-model="pair.src" label="本地监控目录 (源)" density="compact" variant="outlined"
+                          hide-details append-icon="mdi-folder-search-outline"
+                          @click:append="openDirSelector(index, 'local', 'directoryUpload', 'src')">
+                          <template v-slot:prepend-inner>
+                            <v-icon color="blue">mdi-folder-table</v-icon>
+                          </template>
+                        </v-text-field>
+                      </v-col>
+                      <!-- 网盘上传目录 -->
+                      <v-col cols="12" md="6">
+                        <v-text-field v-model="pair.dest_remote" label="网盘上传目标目录" density="compact" variant="outlined"
+                          hide-details append-icon="mdi-folder-network-outline"
+                          @click:append="openDirSelector(index, 'remote', 'directoryUpload', 'dest_remote')">
+                          <template v-slot:prepend-inner>
+                            <v-icon color="green">mdi-cloud-upload</v-icon>
+                          </template>
+                        </v-text-field>
+                      </v-col>
+                    </v-row>
+                    <v-row dense class="mt-1">
+                      <!-- 非上传文件目标目录 -->
+                      <v-col cols="12" md="6">
+                        <v-text-field v-model="pair.dest_local" label="本地复制目标目录 (可选)" density="compact"
+                          variant="outlined" hide-details append-icon="mdi-folder-plus-outline"
+                          @click:append="openDirSelector(index, 'local', 'directoryUpload', 'dest_local')">
+                          <template v-slot:prepend-inner>
+                            <v-icon color="orange">mdi-content-copy</v-icon>
+                          </template>
+                        </v-text-field>
+                      </v-col>
+                      <!-- 删除源文件开关 -->
+                      <v-col cols="12" md="4" class="d-flex align-center">
+                        <v-switch v-model="pair.delete" label="处理后删除源文件" color="error" density="compact"
+                          hide-details></v-switch>
+                      </v-col>
+                      <!-- 删除按钮 -->
+                      <v-col cols="12" md="2" class="d-flex align-center justify-end">
+                        <v-btn icon="mdi-delete-outline" size="small" color="error" variant="text" title="删除此路径配置"
+                          @click="removePath(index, 'directoryUpload')">
+                        </v-btn>
+                      </v-col>
+                    </v-row>
+                  </div>
+
+                  <v-btn size="small" prepend-icon="mdi-plus-box-multiple-outline" variant="tonal" class="mt-2"
+                    color="primary" @click="addPath('directoryUpload')">
+                    添加监控路径组
+                  </v-btn>
+
+                  <v-alert type="info" variant="tonal" density="compact" class="mt-3 text-caption">
+                    <strong>功能说明:</strong><br>
+                    - 监控指定的"本地监控目录"。<br>
+                    - 当目录中出现新文件时：<br>
+                    &nbsp;&nbsp;- 如果文件扩展名匹配"上传文件扩展名"，则将其上传到对应的"网盘上传目标目录"。<br>
+                    &nbsp;&nbsp;- 如果文件扩展名匹配"复制文件扩展名"，则将其复制到对应的"本地复制目标目录"。<br>
+                    - 处理完成后，如果"删除源文件"开关打开，则会删除原始文件。<br>
+                    - 扩展名不匹配的文件将被忽略。<br>
+                    <strong>注意:</strong><br>
+                    - 请确保MoviePilot对本地目录有读写权限，对网盘目录有写入权限。<br>
+                    - "本地复制目标目录"是可选的，如果不填，则仅执行上传操作（如果匹配）。<br>
+                    - 监控模式："兼容模式"适用于Docker或网络共享目录（如SMB），性能较低；"性能模式"仅适用于物理路径，性能较高。
+                  </v-alert>
                 </v-card-text>
               </v-window-item>
             </v-window>
@@ -787,6 +811,7 @@ const monitorLifeMpPaths = ref([{ local: '', remote: '' }]);
 const panTransferPaths = ref([{ path: '' }]);
 const transferExcludePaths = ref([{ path: '' }]);
 const monitorLifeExcludePaths = ref([{ path: '' }]);
+const directoryUploadPaths = ref([{ src: '', dest_remote: '', dest_local: '', delete: false }]);
 
 // 目录选择器对话框
 const dirDialog = reactive({
@@ -800,6 +825,7 @@ const dirDialog = reactive({
   callback: null,
   type: '',
   index: -1,
+  fieldKey: null,
   targetConfigKeyForExclusion: null,
   originalPathTypeBackup: '',
   originalIndexBackup: -1
@@ -1048,6 +1074,11 @@ const loadConfig = async () => {
       // 更新配置
       Object.assign(config, data);
 
+      // 初始化 directoryUploadPaths
+      directoryUploadPaths.value = (Array.isArray(config.directory_upload_path) && config.directory_upload_path.length > 0)
+        ? JSON.parse(JSON.stringify(config.directory_upload_path))
+        : [{ src: '', dest_remote: '', dest_local: '', delete: false }];
+
       // 保存媒体服务器列表
       if (data.mediaservers) {
         mediaservers.value = data.mediaservers;
@@ -1091,6 +1122,7 @@ const saveConfig = async () => {
     config.monitor_life_paths = generatePathsConfig(monitorLifePaths.value, 'monitorLife');
     config.monitor_life_mp_mediaserver_paths = generatePathsConfig(monitorLifeMpPaths.value, 'monitorLifeMp');
     config.pan_transfer_paths = generatePathsConfig(panTransferPaths.value, 'panTransfer');
+    config.directory_upload_path = directoryUploadPaths.value.filter(p => p.src?.trim() || p.dest_remote?.trim() || p.dest_local?.trim());
 
     // 2. 【重要】通过 emit 事件将配置数据发送给 MoviePilot 框架
     //    使用 JSON.parse(JSON.stringify(...)) 确保传递的是纯对象
@@ -1228,6 +1260,9 @@ const addPath = (type) => {
     case 'monitorLifeMp':
       monitorLifeMpPaths.value.push({ local: '', remote: '' });
       break;
+    case 'directoryUpload':
+      directoryUploadPaths.value.push({ src: '', dest_remote: '', dest_local: '', delete: false });
+      break;
   }
 };
 
@@ -1263,6 +1298,12 @@ const removePath = (index, type) => {
         monitorLifeMpPaths.value = [{ local: '', remote: '' }];
       }
       break;
+    case 'directoryUpload':
+      directoryUploadPaths.value.splice(index, 1);
+      if (directoryUploadPaths.value.length === 0) {
+        directoryUploadPaths.value = [{ src: '', dest_remote: '', dest_local: '', delete: false }];
+      }
+      break;
   }
 };
 
@@ -1278,7 +1319,7 @@ const removePanTransferPath = (index) => {
 };
 
 // 目录选择器方法
-const openDirSelector = (index, locationType, pathType) => {
+const openDirSelector = (index, locationType, pathType, fieldKey = null) => {
   dirDialog.show = true;
   dirDialog.isLocal = locationType === 'local';
   dirDialog.loading = false;
@@ -1286,6 +1327,7 @@ const openDirSelector = (index, locationType, pathType) => {
   dirDialog.items = [];
   dirDialog.index = index;
   dirDialog.type = pathType;
+  dirDialog.fieldKey = fieldKey;
   dirDialog.targetConfigKeyForExclusion = null;
   dirDialog.originalPathTypeBackup = '';
   dirDialog.originalIndexBackup = -1;
@@ -1474,6 +1516,11 @@ const confirmDirSelection = () => {
         break;
       case 'panTransfer':
         panTransferPaths.value[dirDialog.index].path = processedPath;
+        break;
+      case 'directoryUpload':
+        if (dirDialog.fieldKey && directoryUploadPaths.value[dirDialog.index]) {
+          directoryUploadPaths.value[dirDialog.index][dirDialog.fieldKey] = processedPath;
+        }
         break;
     }
   } else if (dirDialog.type === 'sharePath') {
