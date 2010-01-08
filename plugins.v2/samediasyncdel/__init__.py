@@ -48,6 +48,7 @@ class SaMediaSyncDel(_PluginBase):
     _del_history = False
     _local_library_path = None
     _p115_library_path = None
+    _p115_force_delete_files = None
     _transferchain = None
     _downloader_helper = None
     _transferhis = None
@@ -78,6 +79,7 @@ class SaMediaSyncDel(_PluginBase):
             self._del_history = config.get("del_history")
             self._local_library_path = config.get("local_library_path")
             self._p115_library_path = config.get("p115_library_path")
+            self._p115_force_delete_files = config.get("p115_force_delete_files")
             self._mediaservers = config.get("mediaservers") or []
 
             # 获取媒体服务器
@@ -102,6 +104,7 @@ class SaMediaSyncDel(_PluginBase):
                     "del_history": False,
                     "local_library_path": self._local_library_path,
                     "p115_library_path": self._p115_library_path,
+                    "p115_force_delete_files": self._p115_force_delete_files,
                     "mediaservers": self._mediaserver,
                 }
             )
@@ -237,6 +240,30 @@ class SaMediaSyncDel(_PluginBase):
         ]
 
         p115_media_tab = [
+            {
+                "component": "VCardText",
+                "content": [
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 12},
+                                "content": [
+                                    {
+                                        "component": "VSwitch",
+                                        "props": {
+                                            "model": "p115_force_delete_files",
+                                            "label": "强制网盘删除",
+                                            "hint": "MP不存在历史记录时强制删除网盘文件",
+                                        },
+                                    }
+                                ],
+                            },
+                        ],
+                    }
+                ],
+            },
             {
                 "component": "VRow",
                 "content": [
@@ -512,6 +539,7 @@ class SaMediaSyncDel(_PluginBase):
             "del_history": False,
             "local_library_path": "",
             "p115_library_path": "",
+            "p115_force_delete_files": False,
             "mediaservers": [],
             "tab": "local_media_tab",
         }
@@ -751,15 +779,15 @@ class SaMediaSyncDel(_PluginBase):
             logger.error(f"{media_name} 同步删除失败，未识别到储存类型")
             return
 
-        if media_type == "TV" and not episode_num:
-            logger.debug(f"{media_name} 跳过识别媒体后缀名")
-        else:
+        if Path(media_path).suffix:
             media_container = event_data.json_object.get("Item", {}).get(
                 "Container", None
             )
             if media_storage == "p115" and (not media_container):
                 logger.error(f"{media_name} 同步删除失败，未识别媒体后缀名")
                 return
+        else:
+            logger.debug(f"{media_name} 跳过识别媒体后缀名")
 
         # 单集或单季缺失 TMDB ID 获取
         if (episode_num or season_num) and (not tmdb_id or not str(tmdb_id).isdigit()):
@@ -899,10 +927,8 @@ class SaMediaSyncDel(_PluginBase):
                 media_path = media_path.replace(sub_paths[0], sub_paths[2]).replace(
                     "\\", "/"
                 )
-            if media_type == "TV" and not episode_num:
-                # 对于季删除和电视节目全部删除无需替换媒体后缀
-                media_path_2 = media_path
-            else:
+
+            if Path(media_path).suffix:
                 # 自动替换媒体文件后缀名称为真实名称
                 media_path = str(
                     Path(media_path).parent
@@ -917,6 +943,8 @@ class SaMediaSyncDel(_PluginBase):
                     Path(media_path).parent
                     / str(Path(media_path).stem + "." + media_container)
                 )
+            else:
+                media_path_2 = media_path
 
             # 兼容重新整理的场景
             if Path(mp_media_path).exists():
@@ -945,71 +973,79 @@ class SaMediaSyncDel(_PluginBase):
                     episode_num=episode_num,
                 )
                 if not transfer_history:
-                    logger.warn(
-                        f"{media_type} {media_name} 未获取到可删除数据，请检查路径映射是否配置错误，请检查tmdbid获取是否正确"
-                    )
-                    return
+                    if self._p115_force_delete_files:
+                        logger.warn(f"{media_name} 强制删除网盘媒体文件")
+                        self.__delete_p115_files(
+                            file_path=media_path,
+                            media_name=media_name,
+                            media_type=media_type,
+                        )
+                    else:
+                        logger.warn(
+                            f"{media_type} {media_name} 未获取到可删除数据，请检查路径映射是否配置错误，请检查tmdbid获取是否正确"
+                        )
+                        return
                 else:
                     media_path = media_path_2
 
-            logger.info(f"获取到 {len(transfer_history)} 条转移记录，开始同步删除")
-            # 开始删除
-            year = None
-            del_torrent_hashs = []
-            stop_torrent_hashs = []
-            error_cnt = 0
-            image = "https://emby.media/notificationicon.png"
-            for transferhis in transfer_history:
-                title = transferhis.title
-                if title not in media_name:
-                    logger.warn(
-                        f"当前转移记录 {transferhis.id} {title} {transferhis.tmdbid} 与删除媒体{media_name}不符，防误删，暂不自动删除"
-                    )
-                    continue
-                image = transferhis.image or image
-                year = transferhis.year
-
-                # 0、删除转移记录
-                self._transferhis.delete(transferhis.id)
-
-                # 1、删除网盘文件
+            if len(transfer_history) > 0:
+                logger.info(f"获取到 {len(transfer_history)} 条转移记录，开始同步删除")
+                # 提前删除网盘文件
                 self.__delete_p115_files(
                     file_path=media_path, media_name=media_name, media_type=media_type
                 )
+                # 开始删除
+                year = None
+                del_torrent_hashs = []
+                stop_torrent_hashs = []
+                error_cnt = 0
+                image = "https://emby.media/notificationicon.png"
+                for transferhis in transfer_history:
+                    title = transferhis.title
+                    if title not in media_name:
+                        logger.warn(
+                            f"当前转移记录 {transferhis.id} {title} {transferhis.tmdbid} 与删除媒体{media_name}不符，防误删，暂不自动删除"
+                        )
+                        continue
+                    image = transferhis.image or image
+                    year = transferhis.year
 
-                # 删除种子任务
-                if self._del_source:
-                    # 1、直接删除源文件
-                    if (
-                        transferhis.src
-                        and Path(transferhis.src).suffix in settings.RMT_MEDIAEXT
-                    ):
-                        # 删除源文件
-                        if Path(transferhis.src).exists():
-                            logger.info(f"源文件 {transferhis.src} 开始删除")
-                            Path(transferhis.src).unlink(missing_ok=True)
-                            logger.info(f"源文件 {transferhis.src} 已删除")
-                            self.__remove_parent_dir(Path(transferhis.src))
+                    # 0、删除转移记录
+                    self._transferhis.delete(transferhis.id)
 
-                        if transferhis.download_hash:
-                            try:
-                                # 2、判断种子是否被删除完
-                                delete_flag, success_flag, handle_torrent_hashs = (
-                                    self.handle_torrent(
-                                        type=transferhis.type,
-                                        src=transferhis.src,
-                                        torrent_hash=transferhis.download_hash,
+                    # 删除种子任务
+                    if self._del_source:
+                        # 1、直接删除源文件
+                        if (
+                            transferhis.src
+                            and Path(transferhis.src).suffix in settings.RMT_MEDIAEXT
+                        ):
+                            # 删除源文件
+                            if Path(transferhis.src).exists():
+                                logger.info(f"源文件 {transferhis.src} 开始删除")
+                                Path(transferhis.src).unlink(missing_ok=True)
+                                logger.info(f"源文件 {transferhis.src} 已删除")
+                                self.__remove_parent_dir(Path(transferhis.src))
+
+                            if transferhis.download_hash:
+                                try:
+                                    # 2、判断种子是否被删除完
+                                    delete_flag, success_flag, handle_torrent_hashs = (
+                                        self.handle_torrent(
+                                            type=transferhis.type,
+                                            src=transferhis.src,
+                                            torrent_hash=transferhis.download_hash,
+                                        )
                                     )
-                                )
-                                if not success_flag:
-                                    error_cnt += 1
-                                else:
-                                    if delete_flag:
-                                        del_torrent_hashs += handle_torrent_hashs
+                                    if not success_flag:
+                                        error_cnt += 1
                                     else:
-                                        stop_torrent_hashs += handle_torrent_hashs
-                            except Exception as e:
-                                logger.error("删除种子失败：%s" % str(e))
+                                        if delete_flag:
+                                            del_torrent_hashs += handle_torrent_hashs
+                                        else:
+                                            stop_torrent_hashs += handle_torrent_hashs
+                                except Exception as e:
+                                    logger.error("删除种子失败：%s" % str(e))
 
         logger.info(f"同步删除 {msg} 完成！")
 
