@@ -704,6 +704,17 @@
                   <v-alert type="warning" variant="tonal" density="compact" class="mt-3" icon="mdi-alert">
                     <div class="text-caption">注意：当 MoviePilot 主程序运行整理任务时 115生活事件 监控会自动暂停，整理运行完成后会继续监控。</div>
                   </v-alert>
+
+                  <v-row class="mt-4">
+                    <v-col cols="12">
+                      <v-btn color="info" variant="outlined" prepend-icon="mdi-bug-check" @click="checkLifeEventStatus">
+                        故障检查
+                      </v-btn>
+                      <div class="text-caption text-grey mt-2">
+                        检查115生活事件进程状态，测试数据拉取功能，并提供详细的调试信息
+                      </div>
+                    </v-col>
+                  </v-row>
                 </v-card-text>
               </v-window-item>
 
@@ -991,6 +1002,17 @@
                   <v-alert type="warning" variant="tonal" density="compact" class="mt-3" icon="mdi-alert">
                     <div class="text-caption">注意：115生活事件监控默认会忽略网盘整理触发的移动事件，所以推荐使用MP整理事件监控生成STRM</div>
                   </v-alert>
+
+                  <v-row class="mt-4">
+                    <v-col cols="12">
+                      <v-btn color="info" variant="outlined" prepend-icon="mdi-bug-check" @click="checkLifeEventStatus">
+                        故障检查
+                      </v-btn>
+                      <div class="text-caption text-grey mt-2">
+                        检查115生活事件进程状态，测试数据拉取功能，并提供详细的调试信息
+                      </div>
+                    </v-col>
+                  </v-row>
                 </v-card-text>
               </v-window-item>
 
@@ -1219,6 +1241,12 @@
                     <v-col cols="12" md="4">
                       <v-switch v-model="config.upload_offline_info" label="上传离线下载链接" color="info"
                         density="compact"></v-switch>
+                    </v-col>
+                    <v-col cols="12" md="4">
+                      <v-select v-model="config.storage_module" label="存储模块选择" :items="[
+                        { title: '115网盘', value: 'u115' },
+                        { title: '115网盘Plus', value: '115网盘Plus' }
+                      ]" chips closable-chips hint="选择使用的存储模块" persistent-hint></v-select>
                     </v-col>
                   </v-row>
                   <v-row>
@@ -1824,6 +1852,136 @@
       </v-card>
     </v-dialog>
 
+    <!-- 生活事件故障检查对话框 -->
+    <v-dialog v-model="lifeEventCheckDialog.show" max-width="1000" scrollable>
+      <v-card>
+        <v-card-title class="d-flex align-center px-3 py-2 bg-primary-lighten-5">
+          <v-icon icon="mdi-bug-check" class="mr-2" color="primary" size="small" />
+          <span>115生活事件故障检查</span>
+        </v-card-title>
+        <v-card-text class="px-3 py-3">
+          <v-alert v-if="lifeEventCheckDialog.error" type="error" density="compact" class="mb-3" variant="tonal"
+            closable>
+            {{ lifeEventCheckDialog.error }}
+          </v-alert>
+          <div v-if="lifeEventCheckDialog.loading" class="d-flex flex-column align-center py-3">
+            <v-progress-circular indeterminate color="primary" size="48" class="mb-3"></v-progress-circular>
+            <div class="text-body-2 text-grey">正在检查...</div>
+          </div>
+          <div v-else-if="lifeEventCheckDialog.result">
+            <v-alert :type="lifeEventCheckDialog.result.data?.success ? 'success' : 'warning'" density="compact"
+              class="mb-3" variant="tonal">
+              <div class="text-subtitle-2 mb-1">
+                <v-icon :icon="lifeEventCheckDialog.result.data?.success ? 'mdi-check-circle' : 'mdi-alert-circle'"
+                  class="mr-1" size="small"></v-icon>
+                {{ lifeEventCheckDialog.result.msg }}
+              </div>
+              <div v-if="lifeEventCheckDialog.result.data?.error_messages?.length" class="mt-2">
+                <div class="text-caption mb-1"><strong>发现的问题：</strong></div>
+                <div v-for="(msg, idx) in lifeEventCheckDialog.result.data.error_messages" :key="idx"
+                  class="text-caption d-flex align-start mb-1">
+                  <v-icon icon="mdi-alert" size="x-small" class="mr-1 mt-1" color="warning"></v-icon>
+                  <span>{{ msg }}</span>
+                </div>
+              </div>
+            </v-alert>
+
+            <div class="mb-3">
+              <div class="d-flex align-center mb-2">
+                <v-icon icon="mdi-information" size="small" class="mr-2" color="info"></v-icon>
+                <strong class="text-body-2">检查结果摘要</strong>
+                <v-spacer></v-spacer>
+                <v-btn size="small" variant="outlined" prepend-icon="mdi-content-copy" @click="copyDebugInfo">
+                  复制调试信息
+                </v-btn>
+              </div>
+              <v-card variant="outlined" class="pa-3">
+                <v-row dense>
+                  <v-col cols="12" md="6">
+                    <div class="d-flex align-center mb-2">
+                      <v-icon
+                        :icon="lifeEventCheckDialog.result.data?.summary?.plugin_enabled ? 'mdi-check-circle' : 'mdi-close-circle'"
+                        :color="lifeEventCheckDialog.result.data?.summary?.plugin_enabled ? 'success' : 'error'"
+                        size="small" class="mr-2"></v-icon>
+                      <span class="text-caption">插件启用:
+                        <strong>{{ lifeEventCheckDialog.result.data?.summary?.plugin_enabled ? '是' : '否' }}</strong>
+                      </span>
+                    </div>
+                  </v-col>
+                  <v-col cols="12" md="6">
+                    <div class="d-flex align-center mb-2">
+                      <v-icon
+                        :icon="lifeEventCheckDialog.result.data?.summary?.client_initialized ? 'mdi-check-circle' : 'mdi-close-circle'"
+                        :color="lifeEventCheckDialog.result.data?.summary?.client_initialized ? 'success' : 'error'"
+                        size="small" class="mr-2"></v-icon>
+                      <span class="text-caption">客户端初始化:
+                        <strong>{{ lifeEventCheckDialog.result.data?.summary?.client_initialized ? '是' : '否' }}</strong>
+                      </span>
+                    </div>
+                  </v-col>
+                  <v-col cols="12" md="6">
+                    <div class="d-flex align-center mb-2">
+                      <v-icon
+                        :icon="lifeEventCheckDialog.result.data?.summary?.monitorlife_initialized ? 'mdi-check-circle' : 'mdi-close-circle'"
+                        :color="lifeEventCheckDialog.result.data?.summary?.monitorlife_initialized ? 'success' : 'error'"
+                        size="small" class="mr-2"></v-icon>
+                      <span class="text-caption">MonitorLife初始化:
+                        <strong>{{ lifeEventCheckDialog.result.data?.summary?.monitorlife_initialized ? '是' : '否'
+                          }}</strong>
+                      </span>
+                    </div>
+                  </v-col>
+                  <v-col cols="12" md="6">
+                    <div class="d-flex align-center mb-2">
+                      <v-icon
+                        :icon="lifeEventCheckDialog.result.data?.summary?.thread_running ? 'mdi-check-circle' : 'mdi-close-circle'"
+                        :color="lifeEventCheckDialog.result.data?.summary?.thread_running ? 'success' : 'error'"
+                        size="small" class="mr-2"></v-icon>
+                      <span class="text-caption">线程运行:
+                        <strong>{{ lifeEventCheckDialog.result.data?.summary?.thread_running ? '是' : '否' }}</strong>
+                      </span>
+                    </div>
+                  </v-col>
+                  <v-col cols="12">
+                    <div class="d-flex align-center mb-2">
+                      <v-icon
+                        :icon="lifeEventCheckDialog.result.data?.summary?.config_valid ? 'mdi-check-circle' : 'mdi-close-circle'"
+                        :color="lifeEventCheckDialog.result.data?.summary?.config_valid ? 'success' : 'error'"
+                        size="small" class="mr-2"></v-icon>
+                      <span class="text-caption">配置有效:
+                        <strong>{{ lifeEventCheckDialog.result.data?.summary?.config_valid ? '是' : '否' }}</strong>
+                      </span>
+                    </div>
+                  </v-col>
+                </v-row>
+              </v-card>
+            </div>
+
+            <div>
+              <div class="d-flex align-center mb-2">
+                <v-icon icon="mdi-code-tags" size="small" class="mr-2" color="primary"></v-icon>
+                <strong class="text-body-2">详细调试信息</strong>
+              </div>
+              <v-textarea :model-value="lifeEventCheckDialog.result.data?.debug_info || ''" readonly variant="outlined"
+                rows="15" auto-grow class="text-caption font-monospace debug-info-textarea"
+                style="font-size: 0.75rem; line-height: 1.6; white-space: pre-wrap;" hint="此信息可用于开发者诊断问题，请复制给开发者"
+                persistent-hint></v-textarea>
+            </div>
+          </div>
+        </v-card-text>
+        <v-divider></v-divider>
+        <v-card-actions class="px-3 py-2">
+          <v-btn color="grey" variant="text" @click="closeLifeEventCheckDialog" size="small"
+            prepend-icon="mdi-close">关闭</v-btn>
+          <v-spacer></v-spacer>
+          <v-btn color="primary" variant="text" @click="checkLifeEventStatus" :disabled="lifeEventCheckDialog.loading"
+            size="small" prepend-icon="mdi-refresh">
+            重新检查
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <!-- 一键导入频道配置对话框 -->
     <v-dialog v-model="importDialog.show" max-width="600" persistent>
       <v-card>
@@ -1989,7 +2147,8 @@ const config = reactive({
   strm_generate_blacklist: [],
   mediainfo_download_whitelist: [],
   mediainfo_download_blacklist: [],
-  strm_url_encode: false
+  strm_url_encode: false,
+  storage_module: 'u115'
 });
 
 // 消息提示
@@ -2176,6 +2335,14 @@ const aliQrDialog = reactive({
   ck: '',
   status: '等待扫码',
   checkIntervalId: null,
+});
+
+// 生活事件故障检查对话框
+const lifeEventCheckDialog = reactive({
+  show: false,
+  loading: false,
+  error: null,
+  result: null,
 });
 
 watch(() => config.transfer_monitor_paths, (newVal) => {
@@ -3191,6 +3358,46 @@ const refreshAliQrCode = () => {
 const closeAliQrCodeDialog = () => {
   clearAliQrCodeCheckInterval();
   aliQrDialog.show = false;
+};
+
+// 生活事件故障检查
+const checkLifeEventStatus = async () => {
+  lifeEventCheckDialog.show = true;
+  lifeEventCheckDialog.loading = true;
+  lifeEventCheckDialog.error = null;
+  lifeEventCheckDialog.result = null;
+
+  try {
+    const response = await props.api.post(`plugin/${PLUGIN_ID}/check_life_event_status`);
+    if (response.code === 0) {
+      lifeEventCheckDialog.result = response;
+    } else {
+      lifeEventCheckDialog.error = response.msg || '检查失败';
+    }
+  } catch (error) {
+    lifeEventCheckDialog.error = error.message || '检查时发生错误';
+  } finally {
+    lifeEventCheckDialog.loading = false;
+  }
+};
+
+const closeLifeEventCheckDialog = () => {
+  lifeEventCheckDialog.show = false;
+  lifeEventCheckDialog.error = null;
+  lifeEventCheckDialog.result = null;
+};
+
+const copyDebugInfo = async () => {
+  if (lifeEventCheckDialog.result?.data?.debug_info) {
+    try {
+      await navigator.clipboard.writeText(lifeEventCheckDialog.result.data.debug_info);
+      message.text = '调试信息已复制到剪贴板';
+      message.type = 'success';
+    } catch (error) {
+      message.text = '复制失败，请手动选择文本复制';
+      message.type = 'error';
+    }
+  }
 };
 
 const clearQrCodeCheckInterval = () => {

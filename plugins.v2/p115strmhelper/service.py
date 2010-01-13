@@ -175,6 +175,25 @@ class ServiceHelper:
         logger.info("【监控生活事件】已退出生活事件监控")
         return
 
+    def check_monitor_life_guard(self):
+        """
+        检查并守护生活事件监控进程
+        """
+        should_run = (
+            configer.monitor_life_enabled
+            and configer.monitor_life_paths
+            and configer.monitor_life_event_modes
+        ) or (configer.pan_transfer_enabled and configer.pan_transfer_paths)
+
+        if should_run:
+            if not self.monitor_life_thread or not self.monitor_life_thread.is_alive():
+                logger.warning("【监控生活事件】检测到线程已停止，正在重新启动...")
+                self.start_monitor_life()
+        else:
+            if self.monitor_life_thread and self.monitor_life_thread.is_alive():
+                logger.info("【监控生活事件】配置已关闭，守护进程正在停止线程")
+                self.start_monitor_life()
+
     def start_monitor_life(self):
         """
         启动生活事件监控

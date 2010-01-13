@@ -415,6 +415,13 @@ class P115StrmHelper(_PluginBase):
                 "auth": "bear",
                 "summary": "判断是否有权限使用此增强功能",
             },
+            {
+                "path": "/check_life_event_status",
+                "endpoint": self.api.check_life_event_status_api,
+                "methods": ["POST"],
+                "auth": "bear",
+                "summary": "检查115生活事件进程状态并测试拉取数据",
+            },
         ]
 
     def get_service(self) -> List[Dict[str, str | Dict[Any, Any] | Any]] | None:
@@ -430,6 +437,20 @@ class P115StrmHelper(_PluginBase):
                 "kwargs": {},
             }
         ]
+        if (
+            configer.monitor_life_enabled
+            and configer.monitor_life_paths
+            and configer.monitor_life_event_modes
+        ) or (configer.pan_transfer_enabled and configer.pan_transfer_paths):
+            cron_service.append(
+                {
+                    "id": "P115StrmHelper_monitor_life_guard",
+                    "name": "115生活事件进程守护",
+                    "trigger": CronTrigger.from_crontab("* * * * *"),
+                    "func": servicer.check_monitor_life_guard,
+                    "kwargs": {},
+                }
+            )
         if (
             configer.cron_full_sync_strm
             and configer.timing_full_sync_strm
@@ -519,7 +540,10 @@ class P115StrmHelper(_PluginBase):
         if item_transfer.transfer_type != "move":
             return
 
-        if dest_fileitem.storage != "u115" or src_fileitem.storage != "u115":
+        if (
+            dest_fileitem.storage != configer.storage_module
+            or src_fileitem.storage != configer.storage_module
+        ):
             return
 
         if not PathUtils.get_run_transfer_path(
@@ -1101,12 +1125,16 @@ class P115StrmHelper(_PluginBase):
         storagechain = StorageChain()
         if subtitle_list:
             for _path in subtitle_list:
-                fileitem = storagechain.get_file_item(storage="u115", path=Path(_path))
+                fileitem = storagechain.get_file_item(
+                    storage=configer.storage_module, path=Path(_path)
+                )
                 file_rename(fileitem=fileitem)
 
         if audio_list:
             for _path in audio_list:
-                fileitem = storagechain.get_file_item(storage="u115", path=Path(_path))
+                fileitem = storagechain.get_file_item(
+                    storage=configer.storage_module, path=Path(_path)
+                )
                 file_rename(fileitem=fileitem)
 
     def stop_service(self):

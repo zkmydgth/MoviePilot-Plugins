@@ -1,5 +1,5 @@
 from platform import system, release
-from typing import Dict, Any, Optional, List, Union
+from typing import Dict, Any, Optional, List, Union, Literal
 from pathlib import Path
 
 from orjson import loads, JSONDecodeError
@@ -370,6 +370,8 @@ class ConfigManager(BaseModel):
     upload_offline_info: bool = True
     # 115 整理增强
     transfer_module_enhancement: bool = False
+    # 存储模块选择
+    storage_module: Literal["u115", "115网盘Plus"] = "u115"
 
     # STRM URL 自定义模板是否启用
     strm_url_template_enabled: bool = False

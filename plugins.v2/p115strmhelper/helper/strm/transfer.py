@@ -75,7 +75,7 @@ class TransferStrmHelper:
         meta: MetaBase = item.get("meta")
 
         item_dest_storage = item_transfer.target_item.storage
-        if item_dest_storage != "u115":
+        if item_dest_storage != configer.storage_module:
             return
 
         # 网盘目的地目录
@@ -147,7 +147,7 @@ class TransferStrmHelper:
                 logger.info("【监控整理STRM生成】开始下载字幕文件")
                 for _path in subtitle_list:
                     fileitem = storagechain.get_file_item(
-                        storage="u115", path=Path(_path)
+                        storage=configer.storage_module, path=Path(_path)
                     )
                     _databasehelper.upsert_batch(
                         _databasehelper.process_fileitem(fileitem)
@@ -173,7 +173,7 @@ class TransferStrmHelper:
                 logger.info("【监控整理STRM生成】开始下载音频文件")
                 for _path in audio_list:
                     fileitem = storagechain.get_file_item(
-                        storage="u115", path=Path(_path)
+                        storage=configer.storage_module, path=Path(_path)
                     )
                     _databasehelper.upsert_batch(
                         _databasehelper.process_fileitem(fileitem)

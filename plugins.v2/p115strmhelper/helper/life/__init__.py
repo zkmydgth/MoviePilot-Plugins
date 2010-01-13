@@ -228,7 +228,7 @@ class MonitorLife:
                         cache_file_id_list.append(str(item["id"]))
                     transferchain.do_transfer(
                         fileitem=FileItem(
-                            storage="u115",
+                            storage=configer.storage_module,
                             fileid=str(item["id"]),
                             parent_fileid=str(item["parent_id"]),
                             path=file_path.as_posix(),
@@ -292,7 +292,7 @@ class MonitorLife:
                     )
                 transferchain.do_transfer(
                     fileitem=FileItem(
-                        storage="u115",
+                        storage=configer.storage_module,
                         fileid=str(file_id),
                         parent_fileid=str(event["parent_id"]),
                         path=file_path.as_posix(),
@@ -703,7 +703,9 @@ class MonitorLife:
         )
 
         storagechain = StorageChain()
-        fileitem = storagechain.get_file_item(storage="u115", path=Path(file_path))
+        fileitem = storagechain.get_file_item(
+            storage=configer.storage_module, path=Path(file_path)
+        )
         if fileitem:
             logger.warn(
                 f"【监控生活事件】网盘 {file_path} 目录存在，跳过本地删除: {fileitem}"
@@ -814,18 +816,48 @@ class MonitorLife:
             else:
                 self.creata_strm(event=event, file_path=file_path)
 
+    def _wait_for_transfer_complete(self):
+        """
+        等待 MoviePilot 整理任务完成
+        """
+        wait_start_time = None
+        last_info_time = None
+
+        while True:
+            if not TransferChain().get_queue_tasks():
+                break
+
+            if wait_start_time is None:
+                wait_start_time = time()
+                last_info_time = wait_start_time
+
+            wait_duration = time() - wait_start_time
+            wait_duration_minutes = int(wait_duration // 60)
+
+            if wait_duration >= 15 * 60:
+                time_since_last_info = time() - last_info_time
+                if time_since_last_info >= 60:
+                    logger.info(
+                        f"【监控生活事件】MoviePilot 整理运行中，已等待 {wait_duration_minutes} 分钟，"
+                        "等待整理完成后继续监控生活事件..."
+                    )
+                    last_info_time = time()
+            else:
+                logger.debug(
+                    "【监控生活事件】MoviePilot 整理运行中，等待整理完成后继续监控生活事件..."
+                )
+
+            if self.stop_event and self.stop_event.wait(timeout=20):
+                return True
+
+        return False
+
     def once_pull(self, from_time, from_id):
         """
         单次拉取
         """
-        while True:
-            if not TransferChain().get_queue_tasks():
-                break
-            logger.debug(
-                "【监控生活事件】MoviePilot 整理运行中，等待整理完成后继续监控生活事件..."
-            )
-            if self.stop_event and self.stop_event.wait(timeout=20):
-                return from_time, from_id
+        if self._wait_for_transfer_complete():
+            return from_time, from_id
 
         events_batch: List = []
         for attempt in range(3, -1, -1):
@@ -1011,3 +1043,82 @@ class MonitorLife:
             logger.error(f"【监控生活事件】生活事件开启失败: {resp}")
             return False
         return True
+
+    @staticmethod
+    def test_life_event_status(client):
+        """
+        测试生活事件开启状态
+
+        :param client: P115Client实例
+
+        :return: tuple (success: bool, debug_info: List[str], error_message: Optional[str])
+        """
+        debug_info = []
+        try:
+            resp = life_show(client)
+            if resp.get("state"):
+                debug_info.append("   生活事件开启: 是")
+                return True, debug_info, None
+            else:
+                debug_info.append("   生活事件开启: 否")
+                debug_info.append(f"   错误信息: {resp}")
+                return False, debug_info, "生活事件未开启"
+        except Exception as e:
+            debug_info.append(f"   生活事件检查异常: {str(e)}")
+            return False, debug_info, f"生活事件检查异常: {str(e)}"
+
+    @staticmethod
+    def test_life_event_pull(client):
+        """
+        测试拉取生活事件数据
+
+        :param client: P115Client实例
+
+        :return: tuple (success: bool, debug_info: List[str], error_messages: List[str])
+        """
+        debug_info = []
+        error_messages = []
+        success = True
+
+        try:
+            events_iterator = iter_life_behavior_once(
+                client=client,
+                from_time=int(time()),
+                from_id=0,
+                app="web",
+                cooldown=1,
+            )
+            try:
+                first_event = next(events_iterator)
+                debug_info.append("   拉取测试: 成功")
+                debug_info.append("   获取到事件: 是")
+                debug_info.append(f"   事件类型: {first_event.get('type', '未知')}")
+                debug_info.append(f"   事件ID: {first_event.get('id', '未知')}")
+                event_count = 1
+                for _ in range(9):
+                    try:
+                        next(events_iterator)
+                        event_count += 1
+                    except StopIteration:
+                        break
+                debug_info.append(f"   拉取到事件数: {event_count}个")
+            except StopIteration:
+                debug_info.append("   拉取测试: 成功")
+                debug_info.append("   获取到事件: 否（无新事件，正常情况）")
+            except P115AuthenticationError:
+                debug_info.append("   拉取测试: 失败")
+                debug_info.append("   错误: 登入失效，请重新扫码登入")
+                success = False
+                error_messages.append("115登入失效")
+            except Exception as e:
+                debug_info.append("   拉取测试: 失败")
+                debug_info.append(f"   错误: {str(e)}")
+                success = False
+                error_messages.append(f"拉取数据失败: {str(e)}")
+        except Exception as e:
+            debug_info.append("   拉取测试: 异常")
+            debug_info.append(f"   异常信息: {str(e)}")
+            success = False
+            error_messages.append(f"拉取数据异常: {str(e)}")
+
+        return success, debug_info, error_messages

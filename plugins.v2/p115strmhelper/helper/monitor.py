@@ -123,11 +123,13 @@ def handle_file(event_path: str, mon_path: str):
                     return None
 
                 target_fileitem = storagechain.get_file_item(
-                    storage="u115", path=target_file_path.parent
+                    storage=configer.storage_module, path=target_file_path.parent
                 )
                 if not target_fileitem:
                     # 逐级查找和创建目录
-                    target_fileitem = FileItem(storage="u115", path="/")
+                    target_fileitem = FileItem(
+                        storage=configer.storage_module, path="/"
+                    )
                     for part in target_file_path.parent.parts[1:]:
                         dir_file = __find_dir(target_fileitem, part)
                         if dir_file:

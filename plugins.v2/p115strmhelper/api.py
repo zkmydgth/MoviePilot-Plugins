@@ -42,7 +42,7 @@ from .schemas.u115 import (
     UserStorageStatusResponse,
     StorageInfo,
 )
-from .schemas.plugin import PluginStatusData
+from .schemas.plugin import PluginStatusData, LifeEventCheckData, LifeEventCheckSummary
 from .schemas.api import ApiResponse
 from .schemas.share import ShareApiData, ShareResponseData, ShareSaveParent
 from .schemas.strm_api import (
@@ -823,6 +823,188 @@ class Api:
         判断是否有权限使用此增强功能
         """
         return OOPServerHelper.check_feature(name)
+
+    @staticmethod
+    def check_life_event_status_api() -> ApiResponse:
+        """
+        检查生活事件进程状态并测试拉取数据
+        提供详细的debug信息供开发者判断
+        """
+        debug_info = []
+        success = True
+        error_messages = []
+
+        debug_info.append("=" * 60)
+        debug_info.append("115生活事件故障检查报告")
+        debug_info.append("=" * 60)
+        debug_info.append("")
+
+        debug_info.append("1. 插件基础状态")
+        debug_info.append(f"   插件启用: {configer.get_config('enabled')}")
+        cookies_configured = "是" if configer.get_config("cookies") else "否"
+        debug_info.append(f"   Cookies配置: {cookies_configured}")
+        debug_info.append("")
+
+        debug_info.append("2. 生活事件配置")
+        monitor_life_enabled = configer.get_config("monitor_life_enabled")
+        monitor_life_paths = configer.get_config("monitor_life_paths")
+        monitor_life_event_modes = configer.get_config("monitor_life_event_modes")
+        debug_info.append(f"   启用状态: {monitor_life_enabled}")
+        debug_info.append(
+            f"   监控路径: {monitor_life_paths if monitor_life_paths else '未配置'}"
+        )
+        debug_info.append(
+            f"   事件模式: {monitor_life_event_modes if monitor_life_event_modes else '未配置'}"
+        )
+        debug_info.append("")
+
+        debug_info.append("3. 网盘整理配置")
+        pan_transfer_enabled = configer.get_config("pan_transfer_enabled")
+        pan_transfer_paths = configer.get_config("pan_transfer_paths")
+        debug_info.append(f"   启用状态: {pan_transfer_enabled}")
+        debug_info.append(
+            f"   整理路径: {pan_transfer_paths if pan_transfer_paths else '未配置'}"
+        )
+        debug_info.append("")
+
+        debug_info.append("4. 生活事件线程状态")
+        monitor_life_thread = servicer.monitor_life_thread
+        if monitor_life_thread:
+            is_alive = monitor_life_thread.is_alive()
+            debug_info.append("   线程存在: 是")
+            debug_info.append(f"   线程运行: {is_alive}")
+            debug_info.append(f"   线程名称: {monitor_life_thread.name}")
+            debug_info.append(f"   线程ID: {monitor_life_thread.ident}")
+        else:
+            debug_info.append("   线程存在: 否")
+            debug_info.append("   线程运行: 否")
+        debug_info.append("")
+
+        debug_info.append("5. 115客户端状态")
+        client = servicer.client
+        if client:
+            debug_info.append("   客户端初始化: 是")
+            try:
+                test_resp = client.user_my_info()
+                if test_resp.get("state"):
+                    debug_info.append("   客户端可用: 是")
+                    user_info = test_resp.get("data", {})
+                    debug_info.append(f"   用户名: {user_info.get('uname', '未知')}")
+                else:
+                    debug_info.append("   客户端可用: 否")
+                    debug_info.append(
+                        f"   错误信息: {test_resp.get('message', '未知错误')}"
+                    )
+                    success = False
+                    error_messages.append("115客户端不可用")
+            except Exception as e:
+                debug_info.append("   客户端可用: 否")
+                debug_info.append(f"   异常信息: {str(e)}")
+                success = False
+                error_messages.append(f"115客户端异常: {str(e)}")
+        else:
+            debug_info.append("   客户端初始化: 否")
+            success = False
+            error_messages.append("115客户端未初始化")
+        debug_info.append("")
+
+        from .helper.life import MonitorLife  # 避免循环导入
+
+        debug_info.append("6. MonitorLife实例状态")
+        monitorlife = servicer.monitorlife
+        if monitorlife:
+            debug_info.append("   实例存在: 是")
+            client_associated = "是" if monitorlife._client else "否"
+            debug_info.append(f"   客户端关联: {client_associated}")
+
+            test_client = monitorlife._client if monitorlife._client else client
+            if test_client:
+                test_success, test_debug_info, test_error = (
+                    MonitorLife.test_life_event_status(test_client)
+                )
+                debug_info.extend(test_debug_info)
+                if not test_success:
+                    success = False
+                    if test_error:
+                        error_messages.append(test_error)
+            else:
+                debug_info.append("   生活事件检查: 跳过（客户端不存在）")
+                success = False
+        else:
+            debug_info.append("   实例存在: 否")
+            success = False
+            error_messages.append("MonitorLife实例不存在")
+        debug_info.append("")
+
+        debug_info.append("7. 测试拉取生活事件数据")
+        if monitorlife and monitorlife._client:
+            pull_success, pull_debug_info, pull_errors = (
+                MonitorLife.test_life_event_pull(monitorlife._client)
+            )
+            debug_info.extend(pull_debug_info)
+            if not pull_success:
+                success = False
+                error_messages.extend(pull_errors)
+        elif monitorlife and client:
+            pull_success, pull_debug_info, pull_errors = (
+                MonitorLife.test_life_event_pull(client)
+            )
+            debug_info.extend(pull_debug_info)
+            if not pull_success:
+                success = False
+                error_messages.extend(pull_errors)
+        else:
+            debug_info.append("   拉取测试: 跳过（MonitorLife或客户端不存在）")
+            success = False
+        debug_info.append("")
+
+        debug_info.append("8. 配置完整性检查")
+        should_run = (
+            monitor_life_enabled and monitor_life_paths and monitor_life_event_modes
+        ) or (pan_transfer_enabled and pan_transfer_paths)
+        debug_info.append(f"   应运行: {should_run}")
+        if should_run:
+            if not monitor_life_thread or not monitor_life_thread.is_alive():
+                debug_info.append("   线程状态: 未运行（应运行但未运行，可能存在问题）")
+                success = False
+                error_messages.append("配置应运行但线程未运行")
+            else:
+                debug_info.append("   线程状态: 正常运行")
+        else:
+            debug_info.append("   线程状态: 未配置运行（配置未启用或配置不完整）")
+        debug_info.append("")
+
+        debug_info.append("=" * 60)
+        debug_info.append("检查总结")
+        debug_info.append("=" * 60)
+        if success:
+            debug_info.append("✓ 所有检查通过")
+        else:
+            debug_info.append("✗ 发现问题:")
+            for msg in error_messages:
+                debug_info.append(f"  - {msg}")
+        debug_info.append("=" * 60)
+
+        debug_text = "\n".join(debug_info)
+
+        return ApiResponse(
+            code=0 if success else 1,
+            msg="检查完成" if success else "发现问题",
+            data=LifeEventCheckData(
+                success=success,
+                error_messages=error_messages,
+                debug_info=debug_text,
+                summary=LifeEventCheckSummary(
+                    plugin_enabled=configer.get_config("enabled"),
+                    client_initialized=bool(client),
+                    monitorlife_initialized=bool(monitorlife),
+                    thread_running=bool(
+                        monitor_life_thread and monitor_life_thread.is_alive()
+                    ),
+                    config_valid=should_run,
+                ),
+            ),
+        )
 
     def api_strm_sync_creata(self, payload: StrmApiPayloadData) -> ApiResponse:
         """
