@@ -1,5 +1,6 @@
 from pathlib import Path
 from platform import system, release
+from re import fullmatch as re_fullmatch
 from typing import Dict, Any, Optional, List, Union, Literal
 
 from orjson import loads, JSONDecodeError
@@ -194,6 +195,44 @@ class ConfigManager(BaseModel):
                 )
                 data[field] = CronUtils.get_default_cron()
         return data
+
+    @field_validator("hdhive_checkin_time_range", mode="before")
+    @classmethod
+    def _validate_hdhive_checkin_time_range(cls, v: Any) -> str:
+        """
+        校验 HDHive 签到时间窗口字符串
+        """
+        if v is None or (isinstance(v, str) and not v.strip()):
+            return "06:00-09:00"
+        s = str(v).strip()
+        m = re_fullmatch(
+            r"([01]\d|2[0-3]):([0-5]\d)-([01]\d|2[0-3]):([0-5]\d)",
+            s,
+        )
+        if not m:
+            raise ValueError(
+                "hdhive_checkin_time_range 须为 HH:MM-HH:MM 格式（如 06:30-09:45）"
+            )
+        h1, m1, h2, m2 = (
+            int(m.group(1)),
+            int(m.group(2)),
+            int(m.group(3)),
+            int(m.group(4)),
+        )
+        start_min = h1 * 60 + m1
+        end_min = h2 * 60 + m2
+        if start_min >= end_min:
+            raise ValueError("签到随机时间段结束时间须晚于开始时间")
+        return s
+
+    @model_validator(mode="after")
+    def _hdhive_checkin_mutual_exclusive(self) -> "ConfigManager":
+        """
+        每日签到与赌狗签到二选一：同时开启时关闭赌狗
+        """
+        if self.hdhive_checkin_daily_enabled and self.hdhive_checkin_gamble_enabled:
+            self.hdhive_checkin_gamble_enabled = False
+        return self
 
     PLUSIN_NAME: str = Field(
         default="P115StrmHelper", min_length=1, description="插件名称"
@@ -532,6 +571,26 @@ class ConfigManager(BaseModel):
     hdhive_api_key: Optional[str] = Field(
         default=None,
         description="HDHive API Key",
+    )
+    hdhive_checkin_username: Optional[str] = Field(
+        default=None,
+        description="HDHive 签到账户",
+    )
+    hdhive_checkin_password: Optional[str] = Field(
+        default=None,
+        description="HDHive 签到密码",
+    )
+    hdhive_checkin_daily_enabled: bool = Field(
+        default=False,
+        description="HDHive 每日签到",
+    )
+    hdhive_checkin_gamble_enabled: bool = Field(
+        default=False,
+        description="HDHive 赌狗签到",
+    )
+    hdhive_checkin_time_range: Optional[str] = Field(
+        default="06:00-09:00",
+        description="HDHive 签到随机时间段 HH:MM-HH:MM",
     )
     same_playback: bool = Field(default=False, description="多端播放同一个文件")
 

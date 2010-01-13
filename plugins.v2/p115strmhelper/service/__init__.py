@@ -41,6 +41,7 @@ from ..patch import TransferChainPatcher
 from ..schemas.monitor import ObserverInfo
 from ..service.fuse import FuseManager
 from ..service.life import monitor_life_thread_worker
+from ..service.hdhive_checkin.scheduler import hdhive_checkin_scheduler_tick
 from ..utils.sentry import sentry_manager
 
 from app.log import logger
@@ -570,6 +571,12 @@ class ServiceHelper:
                 title=i18n.translate("inc_sync_done_title"),
                 text=text,
             )
+
+    def hdhive_checkin_scheduler_tick(self) -> None:
+        """
+        HDHive 签到调度
+        """
+        hdhive_checkin_scheduler_tick()
 
     def start_directory_upload(self):
         """

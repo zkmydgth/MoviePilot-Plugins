@@ -13,6 +13,9 @@
       <v-tab value="tab-same-playback" class="sub-tab">
         <v-icon size="small" start>mdi:code-block-parentheses</v-icon>多端播放
       </v-tab>
+      <v-tab value="tab-hdhive-checkin" class="sub-tab">
+        <v-icon size="small" start>mdi-calendar-check</v-icon>HDHive 签到
+      </v-tab>
     </v-tabs>
     <v-divider></v-divider>
     <v-window v-model="otherSubTab" :touch="false" class="tab-window">
@@ -209,12 +212,46 @@
           </v-alert>
         </v-card-text>
       </v-window-item>
+      <v-window-item value="tab-hdhive-checkin">
+        <v-card-text>
+          <v-row>
+            <v-col cols="12" md="6">
+              <v-text-field v-model="config.hdhive_checkin_username" label="HDHive账户" density="compact"
+                variant="outlined" autocomplete="username" />
+            </v-col>
+            <v-col cols="12" md="6">
+              <v-text-field v-model="config.hdhive_checkin_password" label="HDHive密码" type="password" density="compact"
+                variant="outlined" autocomplete="new-password" />
+            </v-col>
+          </v-row>
+          <v-row>
+            <v-col cols="12" md="4">
+              <v-switch v-model="config.hdhive_checkin_daily_enabled" label="每日签到" color="primary" density="compact" />
+            </v-col>
+            <v-col cols="12" md="4">
+              <v-switch v-model="config.hdhive_checkin_gamble_enabled" label="赌狗签到" color="warning" density="compact" />
+            </v-col>
+            <v-col cols="12" md="4">
+              <v-text-field v-model="config.hdhive_checkin_time_range" label="签到随机时间段"
+                hint="格式 HH:MM-HH:MM，例如 06:30-09:45" persistent-hint density="compact" variant="outlined" />
+            </v-col>
+          </v-row>
+          <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
+            <div class="text-body-2 mb-1"><strong>HDHive 签到</strong></div>
+            <div class="text-caption">
+              <div class="mb-1">• 请填写 HDHive 账户与密码；每日签到与赌狗签到<strong>只能二选一</strong>开启</div>
+              <div class="mb-1">• 启用后将在设定时间窗口内<strong>每天随机一刻</strong>执行一次登录并签到</div>
+              <div>• 也可在 Telegram 等渠道发送 <code>/hdhivechin</code> 手动触发签到</div>
+            </div>
+          </v-alert>
+        </v-card-text>
+      </v-window-item>
     </v-window>
   </v-card-text>
 </template>
 
 <script setup>
-import { ref, inject } from 'vue';
+import { ref, inject, watch } from 'vue';
 
 const otherSubTab = ref('tab-sync-del');
 
@@ -228,4 +265,22 @@ const openDirSelector = inject('openDirSelector');
 const addTgChannel = inject('addTgChannel');
 const removeTgChannel = inject('removeTgChannel');
 const openImportDialog = inject('openImportDialog');
+
+watch(
+  () => config.hdhive_checkin_daily_enabled,
+  (v) => {
+    if (v) {
+      config.hdhive_checkin_gamble_enabled = false;
+    }
+  },
+);
+
+watch(
+  () => config.hdhive_checkin_gamble_enabled,
+  (v) => {
+    if (v) {
+      config.hdhive_checkin_daily_enabled = false;
+    }
+  },
+);
 </script>

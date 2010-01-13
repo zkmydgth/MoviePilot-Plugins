@@ -1,0 +1,104 @@
+from datetime import datetime
+from typing import Tuple
+
+from pytz import timezone as pytz_timezone
+
+from app.core.config import settings
+from app.log import logger
+from app.schemas import NotificationType
+
+from ...core.config import configer
+from ...core.message import post_message
+from ...helper.hdhive.playwright import HDHiveLoginError, HDHivePlaywrightClient
+from .scheduler import _KEY_LAST_DONE
+
+
+def run_hdhive_checkin_once(
+    manual: bool = False,
+    send_notify: bool = True,
+) -> Tuple[bool, str]:
+    """
+    使用 Playwright 登录 HDHive 并执行签到
+
+    :param manual: 为 True 时表示远程命令触发，不强制要求已开启每日/赌狗开关
+    :param send_notify: 是否在结果时按全局通知开关发送插件消息
+    :return: (是否成功, 说明文案)
+    """
+    if not configer.enabled:
+        return False, "插件未启用"
+
+    user = (configer.hdhive_checkin_username or "").strip()
+    pwd = (configer.hdhive_checkin_password or "").strip()
+    if not user or not pwd:
+        msg = "未配置 HDHive 账户或密码"
+        logger.warning("【HDHive 签到】%s", msg)
+        return False, msg
+
+    if not manual:
+        if (
+            not configer.hdhive_checkin_daily_enabled
+            and not configer.hdhive_checkin_gamble_enabled
+        ):
+            return False, "未启用每日或赌狗签到"
+
+    gamble = bool(configer.hdhive_checkin_gamble_enabled)
+    if (
+        manual
+        and not configer.hdhive_checkin_daily_enabled
+        and not configer.hdhive_checkin_gamble_enabled
+    ):
+        gamble = False
+        logger.info("【HDHive 签到】手动触发：每日/赌狗均未开启，按每日签到执行")
+
+    client = HDHivePlaywrightClient(headless=True)
+    try:
+        login_result = client.login(username=user, password=pwd)
+        if not login_result:
+            err = "登录失败（未返回 Cookie）"
+            logger.error("【HDHive 签到】%s", err)
+            if send_notify and configer.notify:
+                post_message(
+                    mtype=NotificationType.Plugin,
+                    title="HDHive 签到失败",
+                    text="\n" + err + "\n",
+                )
+            return False, err
+
+        ok, detail = client.checkin(gamble=gamble)
+        label = "赌狗签到" if gamble else "每日签到"
+        if ok:
+            logger.info("【HDHive 签到】%s 成功：%s", label, detail)
+            if manual:
+                tz = pytz_timezone(settings.TZ)
+                today_str = datetime.now(tz=tz).strftime("%Y-%m-%d")
+                configer.save_plugin_data(_KEY_LAST_DONE, today_str)
+        else:
+            logger.warning("【HDHive 签到】%s 未成功：%s", label, detail)
+
+        if send_notify and configer.notify:
+            post_message(
+                mtype=NotificationType.Plugin,
+                title=f"HDHive {label} {'成功' if ok else '失败'}",
+                text="\n" + detail + "\n",
+            )
+        return ok, detail
+    except HDHiveLoginError as e:
+        logger.error("【HDHive 签到】登录异常：%s", e, exc_info=True)
+        err = str(e)
+        if send_notify and configer.notify:
+            post_message(
+                mtype=NotificationType.Plugin,
+                title="HDHive 签到失败",
+                text="\n" + err + "\n",
+            )
+        return False, err
+    except Exception as e:
+        logger.error("【HDHive 签到】执行异常：%s", e, exc_info=True)
+        err = str(e)
+        if send_notify and configer.notify:
+            post_message(
+                mtype=NotificationType.Plugin,
+                title="HDHive 签到异常",
+                text="\n" + err + "\n",
+            )
+        return False, err
