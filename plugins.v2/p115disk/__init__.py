@@ -1,3 +1,12 @@
+# 兼容 python-asynctools 0.2.x 在 Python 3.12 下缺失 _check_methods 的问题
+import collections.abc
+
+if not hasattr(collections.abc, "_check_methods"):
+    import _collections_abc
+
+    _check_methods = getattr(_collections_abc, "_check_methods")
+    setattr(collections.abc, "_check_methods", _check_methods)
+
 from pathlib import Path
 from typing import Any, List, Dict, Tuple, Optional
 
