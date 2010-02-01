@@ -2,6 +2,7 @@ import threading
 import sys
 import time
 import shutil
+import base64
 from collections.abc import Mapping
 from datetime import datetime, timedelta
 from threading import Event as ThreadEvent
@@ -21,12 +22,8 @@ from orjson import dumps, loads
 from cachetools import cached, TTLCache, LRUCache
 from cachetools.keys import hashkey
 from p115client import P115Client
-from p115client.tool.iterdir import (
-    iter_files_with_path,
-    get_path_to_cid,
-    share_iterdir,
-    get_id_to_path,
-)
+from p115client.exception import DataError
+from p115client.tool.iterdir import iter_files_with_path, get_path_to_cid, share_iterdir
 from p115client.tool.life import iter_life_behavior_list, life_show
 from p115client.tool.util import share_extract_payload
 from p115rsacipher import encrypt, decrypt
@@ -659,7 +656,6 @@ class P115StrmHelper(_PluginBase):
     _client = None
     _scheduler = None
     _enabled = False
-    _once_full_sync_strm = False
     _cookies = None
     _password = None
     moviepilot_address = None
@@ -684,7 +680,6 @@ class P115StrmHelper(_PluginBase):
     _monitor_life_mediaservers = None
     _monitor_life_auto_remove_local_enabled = False
     _monitor_life_scrape_metadata_enabled = False
-    _share_strm_enabled = False
     _share_strm_auto_download_mediainfo_enabled = False
     _user_share_code = None
     _user_receive_code = None
@@ -717,141 +712,106 @@ class P115StrmHelper(_PluginBase):
         self.cache_top_delete_pan_transfer_list: Dict[str, List] = {}
 
         if config:
-            self._enabled = config.get("enabled")
-            self._once_full_sync_strm = config.get("once_full_sync_strm")
+            self._enabled = config.get("enabled", False)
             self._cookies = config.get("cookies")
             self._password = config.get("password")
             self.moviepilot_address = config.get("moviepilot_address")
-            self._user_rmt_mediaext = config.get("user_rmt_mediaext")
-            self._user_download_mediaext = config.get("user_download_mediaext")
-            self._transfer_monitor_enabled = config.get("transfer_monitor_enabled")
+            self._user_rmt_mediaext = config.get(
+                "user_rmt_mediaext",
+                "mp4,mkv,ts,iso,rmvb,avi,mov,mpeg,mpg,wmv,3gp,asf,m4v,flv,m2ts,tp,f4v",
+            )
+            self._user_download_mediaext = config.get(
+                "user_download_mediaext", "srt,ssa,ass"
+            )
+            self._transfer_monitor_enabled = config.get(
+                "transfer_monitor_enabled", False
+            )
             self._transfer_monitor_scrape_metadata_enabled = config.get(
-                "transfer_monitor_scrape_metadata_enabled"
+                "transfer_monitor_scrape_metadata_enabled", False
             )
             self._transfer_monitor_paths = config.get("transfer_monitor_paths")
             self._transfer_mp_mediaserver_paths = config.get(
                 "transfer_mp_mediaserver_paths"
             )
+            self._transfer_monitor_mediaservers = config.get(
+                "transfer_monitor_mediaservers"
+            )
             self._transfer_monitor_media_server_refresh_enabled = config.get(
-                "transfer_monitor_media_server_refresh_enabled"
+                "transfer_monitor_media_server_refresh_enabled", False
             )
-            self._transfer_monitor_mediaservers = (
-                config.get("transfer_monitor_mediaservers") or []
-            )
-            self._timing_full_sync_strm = config.get("timing_full_sync_strm")
+            self._timing_full_sync_strm = config.get("timing_full_sync_strm", False)
             self._full_sync_auto_download_mediainfo_enabled = config.get(
-                "full_sync_auto_download_mediainfo_enabled"
+                "full_sync_auto_download_mediainfo_enabled", False
             )
-            self._cron_full_sync_strm = config.get("cron_full_sync_strm")
+            self._cron_full_sync_strm = config.get("cron_full_sync_strm", "0 */7 * * *")
             self._full_sync_strm_paths = config.get("full_sync_strm_paths")
-            self._monitor_life_enabled = config.get("monitor_life_enabled")
+            self._monitor_life_enabled = config.get("monitor_life_enabled", False)
             self._monitor_life_auto_download_mediainfo_enabled = config.get(
-                "monitor_life_auto_download_mediainfo_enabled"
+                "monitor_life_auto_download_mediainfo_enabled", False
             )
             self._monitor_life_paths = config.get("monitor_life_paths")
             self._monitor_life_mp_mediaserver_paths = config.get(
                 "monitor_life_mp_mediaserver_paths"
             )
             self._monitor_life_media_server_refresh_enabled = config.get(
-                "monitor_life_media_server_refresh_enabled"
+                "monitor_life_media_server_refresh_enabled", False
             )
-            self._monitor_life_mediaservers = (
-                config.get("monitor_life_mediaservers") or []
-            )
+            self._monitor_life_mediaservers = config.get("monitor_life_mediaservers")
             self._monitor_life_auto_remove_local_enabled = config.get(
-                "monitor_life_auto_remove_local_enabled"
+                "monitor_life_auto_remove_local_enabled", False
             )
             self._monitor_life_scrape_metadata_enabled = config.get(
-                "monitor_life_scrape_metadata_enabled"
+                "monitor_life_scrape_metadata_enabled", False
             )
-            self._share_strm_enabled = config.get("share_strm_enabled")
             self._share_strm_auto_download_mediainfo_enabled = config.get(
-                "share_strm_auto_download_mediainfo_enabled"
+                "share_strm_auto_download_mediainfo_enabled", False
             )
             self._user_share_code = config.get("user_share_code")
             self._user_receive_code = config.get("user_receive_code")
             self._user_share_link = config.get("user_share_link")
             self._user_share_pan_path = config.get("user_share_pan_path")
             self._user_share_local_path = config.get("user_share_local_path")
-            self._clear_recyclebin_enabled = config.get("clear_recyclebin_enabled")
-            self._clear_receive_path_enabled = config.get("clear_receive_path_enabled")
-            self._cron_clear = config.get("cron_clear")
-            self._pan_transfer_enabled = config.get("pan_transfer_enabled")
+            self._clear_recyclebin_enabled = config.get(
+                "clear_recyclebin_enabled", False
+            )
+            self._clear_receive_path_enabled = config.get(
+                "clear_receive_path_enabled", False
+            )
+            self._cron_clear = config.get("cron_clear", "0 */7 * * *")
+            self._pan_transfer_enabled = config.get("pan_transfer_enabled", False)
             self._pan_transfer_paths = config.get("pan_transfer_paths")
-            if not self._user_rmt_mediaext:
-                self._user_rmt_mediaext = "mp4,mkv,ts,iso,rmvb,avi,mov,mpeg,mpg,wmv,3gp,asf,m4v,flv,m2ts,tp,f4v"
-            if not self._user_download_mediaext:
-                self._user_download_mediaext = "srt,ssa,ass"
-            if not self._cron_full_sync_strm:
-                self._cron_full_sync_strm = "0 */7 * * *"
-            if not self._cron_clear:
-                self._cron_clear = "0 */7 * * *"
-            if not self._user_share_pan_path:
-                self._user_share_pan_path = "/"
             self.__update_config()
-
-        if self.__check_python_version() is False:
-            self._enabled, self._once_full_sync_strm = False, False
-            self.__update_config()
-            return False
-
-        try:
-            self._client = P115Client(self._cookies)
-            self.mediainfodownloader = MediaInfoDownloader(cookie=self._cookies)
-        except Exception as e:
-            logger.error(f"115网盘客户端创建失败: {e}")
 
         # 停止现有任务
         self.stop_service()
 
-        if self._enabled and self._once_full_sync_strm:
-            self._scheduler = BackgroundScheduler(timezone=settings.TZ)
-            self._scheduler.add_job(
-                func=self.full_sync_strm_files,
-                trigger="date",
-                run_date=datetime.now(tz=pytz.timezone(settings.TZ))
-                + timedelta(seconds=3),
-                name="115网盘助手立刻全量同步",
-            )
-            self._once_full_sync_strm = False
-            self.__update_config()
-            if self._scheduler.get_jobs():
-                self._scheduler.print_jobs()
-                self._scheduler.start()
+        if self._enabled:
+            try:
+                self._client = P115Client(self._cookies)
+                self.mediainfodownloader = MediaInfoDownloader(cookie=self._cookies)
+            except Exception as e:
+                logger.error(f"115网盘客户端创建失败: {e}")
 
-        if self._enabled and self._share_strm_enabled:
-            self._scheduler = BackgroundScheduler(timezone=settings.TZ)
-            self._scheduler.add_job(
-                func=self.share_strm_files,
-                trigger="date",
-                run_date=datetime.now(tz=pytz.timezone(settings.TZ))
-                + timedelta(seconds=3),
-                name="115网盘助手分享生成STRM",
-            )
-            self._share_strm_enabled = False
-            self.__update_config()
-            if self._scheduler.get_jobs():
-                self._scheduler.print_jobs()
-                self._scheduler.start()
-
-        if self._enabled and (
-            (self._monitor_life_enabled and self._monitor_life_paths)
-            or (self._pan_transfer_enabled and self._pan_transfer_paths)
-        ):
-            self.monitor_stop_event.clear()
-            if self.monitor_life_thread:
-                if not self.monitor_life_thread.is_alive():
+            if (self._monitor_life_enabled and self._monitor_life_paths) or (
+                self._pan_transfer_enabled and self._pan_transfer_paths
+            ):
+                self.monitor_stop_event.clear()
+                if self.monitor_life_thread:
+                    if not self.monitor_life_thread.is_alive():
+                        self.monitor_life_thread = threading.Thread(
+                            target=self.monitor_life_strm_files, daemon=True
+                        )
+                        self.monitor_life_thread.start()
+                else:
                     self.monitor_life_thread = threading.Thread(
                         target=self.monitor_life_strm_files, daemon=True
                     )
                     self.monitor_life_thread.start()
-            else:
-                self.monitor_life_thread = threading.Thread(
-                    target=self.monitor_life_strm_files, daemon=True
-                )
-                self.monitor_life_thread.start()
 
     def get_state(self) -> bool:
+        """
+        插件状态
+        """
         return self._enabled
 
     @property
@@ -956,7 +916,70 @@ class P115StrmHelper(_PluginBase):
                 "methods": ["GET", "POST", "HEAD"],
                 "summary": "302跳转",
                 "description": "115网盘302跳转",
-            }
+            },
+            {
+                "path": "/user_storage_status",
+                "endpoint": self._get_user_storage_status,
+                "methods": ["GET"],
+                "auth": "bear",
+                "summary": "获取115用户基本信息和空间状态",
+            },
+            {
+                "path": "/get_config",
+                "endpoint": self._get_config_api,
+                "methods": ["GET"],
+                "auth": "bear",
+                "summary": "获取配置",
+            },
+            {
+                "path": "/save_config",
+                "endpoint": self._save_config_api,
+                "methods": ["POST"],
+                "auth": "bear",
+                "summary": "保存配置",
+            },
+            {
+                "path": "/get_status",
+                "endpoint": self._get_status_api,
+                "methods": ["GET"],
+                "auth": "bear",
+                "summary": "获取状态",
+            },
+            {
+                "path": "/full_sync",
+                "endpoint": self._trigger_full_sync_api,
+                "methods": ["POST"],
+                "auth": "bear",
+                "summary": "执行全量同步",
+            },
+            {
+                "path": "/share_sync",
+                "endpoint": self._trigger_share_sync_api,
+                "methods": ["POST"],
+                "auth": "bear",
+                "summary": "执行分享同步",
+            },
+            {
+                "path": "/browse_dir",
+                "endpoint": self._browse_dir_api,
+                "methods": ["GET"],
+                "auth": "bear",
+                "summary": "浏览目录",
+            },
+            {
+                "path": "/get_qrcode",
+                "endpoint": self._get_qrcode_api,
+                "methods": ["GET"],
+                "auth": "bear",
+                "summary": "获取登录二维码",
+            },
+            {
+                "path": "/check_qrcode",
+                "endpoint": self._check_qrcode_api,
+                "methods": ["GET"],
+                "auth": "bear",
+                "summary": "检查二维码状态",
+            },
         ]
 
     def get_service(self) -> List[Dict[str, Any]]:
@@ -993,1066 +1016,10 @@ class P115StrmHelper(_PluginBase):
         if cron_service:
             return cron_service
 
-    def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
-        """
-        拼装插件配置页面，需要返回两块数据：1、页面配置；2、数据结构
-        """
-        transfer_monitor_tab = [
-            {
-                "component": "VRow",
-                "content": [
-                    {
-                        "component": "VCol",
-                        "props": {"cols": 12, "md": 3},
-                        "content": [
-                            {
-                                "component": "VSwitch",
-                                "props": {
-                                    "model": "transfer_monitor_enabled",
-                                    "label": "整理事件监控",
-                                },
-                            }
-                        ],
-                    },
-                    {
-                        "component": "VCol",
-                        "props": {"cols": 12, "md": 3},
-                        "content": [
-                            {
-                                "component": "VSwitch",
-                                "props": {
-                                    "model": "transfer_monitor_scrape_metadata_enabled",
-                                    "label": "STRM自动刮削",
-                                },
-                            }
-                        ],
-                    },
-                    {
-                        "component": "VCol",
-                        "props": {"cols": 12, "md": 3},
-                        "content": [
-                            {
-                                "component": "VSwitch",
-                                "props": {
-                                    "model": "transfer_monitor_media_server_refresh_enabled",
-                                    "label": "媒体服务器刷新",
-                                },
-                            }
-                        ],
-                    },
-                    {
-                        "component": "VCol",
-                        "props": {"cols": 12, "md": 3},
-                        "content": [
-                            {
-                                "component": "VSelect",
-                                "props": {
-                                    "multiple": True,
-                                    "chips": True,
-                                    "clearable": True,
-                                    "model": "transfer_monitor_mediaservers",
-                                    "label": "媒体服务器",
-                                    "items": [
-                                        {"title": config.name, "value": config.name}
-                                        for config in self.mediaserver_helper.get_configs().values()
-                                    ],
-                                },
-                            }
-                        ],
-                    },
-                ],
-            },
-            {
-                "component": "VRow",
-                "content": [
-                    {
-                        "component": "VCol",
-                        "props": {"cols": 12},
-                        "content": [
-                            {
-                                "component": "VTextarea",
-                                "props": {
-                                    "model": "transfer_monitor_paths",
-                                    "label": "整理事件监控目录",
-                                    "rows": 5,
-                                    "placeholder": "一行一个，格式：本地STRM目录#网盘媒体库目录\n例如：\n/volume1/strm/movies#/媒体库/电影\n/volume1/strm/tv#/媒体库/剧集",
-                                    "hint": "监控MoviePilot整理入库事件，自动在此处配置的本地目录生成对应的STRM文件。",
-                                    "persistent-hint": True,
-                                },
-                            },
-                            {
-                                "component": "VAlert",
-                                "props": {
-                                    "type": "info",
-                                    "variant": "tonal",
-                                    "density": "compact",
-                                    "class": "mt-2",
-                                },
-                                "content": [
-                                    {"component": "div", "text": "格式示例："},
-                                    {
-                                        "component": "div",
-                                        "props": {"class": "ml-2"},
-                                        "text": "本地路径1#网盘路径1",
-                                    },
-                                    {
-                                        "component": "div",
-                                        "props": {"class": "ml-2"},
-                                        "text": "本地路径2#网盘路径2",
-                                    },
-                                ],
-                            },
-                        ],
-                    }
-                ],
-            },
-            {
-                "component": "VRow",
-                "content": [
-                    {
-                        "component": "VCol",
-                        "props": {"cols": 12},
-                        "content": [
-                            {
-                                "component": "VTextarea",
-                                "props": {
-                                    "model": "transfer_mp_mediaserver_paths",
-                                    "label": "媒体服务器映射替换",
-                                    "rows": 2,
-                                    "placeholder": "一行一个，格式：媒体库服务器映射目录#MP映射目录\n例如：\n/media#/data",
-                                    "hint": "用于媒体服务器映射路径和MP映射路径不一样时自动刷新媒体服务器入库",
-                                    "persistent-hint": True,
-                                },
-                            },
-                            {
-                                "component": "VAlert",
-                                "props": {
-                                    "type": "info",
-                                    "variant": "tonal",
-                                    "density": "compact",
-                                    "class": "mt-2",
-                                },
-                                "content": [
-                                    {
-                                        "component": "div",
-                                        "text": "媒体服务器映射路径和MP映射路径不一样时请配置此项，如果不配置则无法正常刷新",
-                                    },
-                                    {
-                                        "component": "div",
-                                        "text": "当映射路径一样时可省略此配置",
-                                    },
-                                ],
-                            },
-                        ],
-                    }
-                ],
-            },
-        ]
-
-        full_sync_tab = [
-            {
-                "component": "VRow",
-                "content": [
-                    {
-                        "component": "VCol",
-                        "props": {"cols": 12, "md": 3},
-                        "content": [
-                            {
-                                "component": "VSwitch",
-                                "props": {
-                                    "model": "once_full_sync_strm",
-                                    "label": "立刻全量同步",
-                                },
-                            }
-                        ],
-                    },
-                    {
-                        "component": "VCol",
-                        "props": {"cols": 12, "md": 3},
-                        "content": [
-                            {
-                                "component": "VSwitch",
-                                "props": {
-                                    "model": "timing_full_sync_strm",
-                                    "label": "定期全量同步",
-                                },
-                            }
-                        ],
-                    },
-                    {
-                        "component": "VCol",
-                        "props": {"cols": 12, "md": 3},
-                        "content": [
-                            {
-                                "component": "VCronField",
-                                "props": {
-                                    "model": "cron_full_sync_strm",
-                                    "label": "运行全量同步周期",
-                                },
-                            }
-                        ],
-                    },
-                    {
-                        "component": "VCol",
-                        "props": {"cols": 12, "md": 3},
-                        "content": [
-                            {
-                                "component": "VSwitch",
-                                "props": {
-                                    "model": "full_sync_auto_download_mediainfo_enabled",
-                                    "label": "下载媒体数据文件",
-                                },
-                            }
-                        ],
-                    },
-                ],
-            },
-            {
-                "component": "VRow",
-                "content": [
-                    {
-                        "component": "VCol",
-                        "props": {"cols": 12},
-                        "content": [
-                            {
-                                "component": "VTextarea",
-                                "props": {
-                                    "model": "full_sync_strm_paths",
-                                    "label": "全量同步目录",
-                                    "rows": 5,
-                                    "placeholder": "一行一个，格式：本地STRM目录#网盘媒体库目录\n例如：\n/volume1/strm/movies#/媒体库/电影\n/volume1/strm/tv#/媒体库/剧集",
-                                    "hint": "全量扫描配置的网盘目录，并在对应的本地目录生成STRM文件。",
-                                    "persistent-hint": True,
-                                },
-                            },
-                            {
-                                "component": "VAlert",
-                                "props": {
-                                    "type": "info",
-                                    "variant": "tonal",
-                                    "density": "compact",
-                                    "class": "mt-2",
-                                },
-                                "content": [
-                                    {"component": "div", "text": "格式示例："},
-                                    {
-                                        "component": "div",
-                                        "props": {"class": "ml-2"},
-                                        "text": "本地路径1#网盘路径1",
-                                    },
-                                    {
-                                        "component": "div",
-                                        "props": {"class": "ml-2"},
-                                        "text": "本地路径2#网盘路径2",
-                                    },
-                                ],
-                            },
-                        ],
-                    }
-                ],
-            },
-        ]
-
-        life_events_tab = [
-            {
-                "component": "VRow",
-                "content": [
-                    {
-                        "component": "VCol",
-                        "props": {"cols": 12, "md": 3},
-                        "content": [
-                            {
-                                "component": "VSwitch",
-                                "props": {
-                                    "model": "monitor_life_enabled",
-                                    "label": "监控115生活事件",
-                                },
-                            }
-                        ],
-                    },
-                    {
-                        "component": "VCol",
-                        "props": {"cols": 12, "md": 3},
-                        "content": [
-                            {
-                                "component": "VSwitch",
-                                "props": {
-                                    "model": "monitor_life_auto_download_mediainfo_enabled",
-                                    "label": "下载媒体数据文件",
-                                },
-                            }
-                        ],
-                    },
-                    {
-                        "component": "VCol",
-                        "props": {"cols": 12, "md": 3},
-                        "content": [
-                            {
-                                "component": "VSwitch",
-                                "props": {
-                                    "model": "monitor_life_scrape_metadata_enabled",
-                                    "label": "STRM自动刮削",
-                                },
-                            }
-                        ],
-                    },
-                    {
-                        "component": "VCol",
-                        "props": {"cols": 12, "md": 3},
-                        "content": [
-                            {
-                                "component": "VSwitch",
-                                "props": {
-                                    "model": "monitor_life_auto_remove_local_enabled",
-                                    "label": "网盘删除本地同步删除",
-                                },
-                            }
-                        ],
-                    },
-                ],
-            },
-            {
-                "component": "VRow",
-                "content": [
-                    {
-                        "component": "VCol",
-                        "props": {"cols": 12, "md": 4},
-                        "content": [
-                            {
-                                "component": "VSwitch",
-                                "props": {
-                                    "model": "monitor_life_media_server_refresh_enabled",
-                                    "label": "媒体服务器刷新",
-                                },
-                            }
-                        ],
-                    },
-                    {
-                        "component": "VCol",
-                        "props": {"cols": 12, "md": 4},
-                        "content": [
-                            {
-                                "component": "VSelect",
-                                "props": {
-                                    "multiple": True,
-                                    "chips": True,
-                                    "clearable": True,
-                                    "model": "monitor_life_mediaservers",
-                                    "label": "媒体服务器",
-                                    "items": [
-                                        {"title": config.name, "value": config.name}
-                                        for config in self.mediaserver_helper.get_configs().values()
-                                    ],
-                                },
-                            }
-                        ],
-                    },
-                ],
-            },
-            {
-                "component": "VRow",
-                "content": [
-                    {
-                        "component": "VCol",
-                        "props": {"cols": 12},
-                        "content": [
-                            {
-                                "component": "VTextarea",
-                                "props": {
-                                    "model": "monitor_life_paths",
-                                    "label": "监控115生活事件目录",
-                                    "rows": 5,
-                                    "placeholder": "一行一个，格式：本地STRM目录#网盘媒体库目录\n例如：\n/volume1/strm/movies#/媒体库/电影\n/volume1/strm/tv#/媒体库/剧集",
-                                    "hint": "监控115生活（上传、移动、接收文件、删除、复制）事件，自动在此处配置的本地目录生成对应的STRM文件或删除。",
-                                    "persistent-hint": True,
-                                },
-                            },
-                            {
-                                "component": "VAlert",
-                                "props": {
-                                    "type": "info",
-                                    "variant": "tonal",
-                                    "density": "compact",
-                                    "class": "mt-2",
-                                },
-                                "content": [
-                                    {"component": "div", "text": "格式示例："},
-                                    {
-                                        "component": "div",
-                                        "props": {"class": "ml-2"},
-                                        "text": "本地路径1#网盘路径1",
-                                    },
-                                    {
-                                        "component": "div",
-                                        "props": {"class": "ml-2"},
-                                        "text": "本地路径2#网盘路径2",
-                                    },
-                                ],
-                            },
-                        ],
-                    }
-                ],
-            },
-            {
-                "component": "VRow",
-                "content": [
-                    {
-                        "component": "VCol",
-                        "props": {"cols": 12},
-                        "content": [
-                            {
-                                "component": "VTextarea",
-                                "props": {
-                                    "model": "monitor_life_mp_mediaserver_paths",
-                                    "label": "媒体服务器映射替换",
-                                    "rows": 2,
-                                    "placeholder": "一行一个，格式：媒体库服务器映射目录#MP映射目录\n例如：\n/media#/data",
-                                    "hint": "用于媒体服务器映射路径和MP映射路径不一样时自动刷新媒体服务器入库",
-                                    "persistent-hint": True,
-                                },
-                            },
-                            {
-                                "component": "VAlert",
-                                "props": {
-                                    "type": "info",
-                                    "variant": "tonal",
-                                    "density": "compact",
-                                    "class": "mt-2",
-                                },
-                                "content": [
-                                    {
-                                        "component": "div",
-                                        "text": "媒体服务器映射路径和MP映射路径不一样时请配置此项，如果不配置则无法正常刷新",
-                                    },
-                                    {
-                                        "component": "div",
-                                        "text": "当映射路径一样时可省略此配置",
-                                    },
-                                ],
-                            },
-                        ],
-                    }
-                ],
-            },
-        ]
-
-        share_generate_tab = [
-            {
-                "component": "VRow",
-                "content": [
-                    {
-                        "component": "VCol",
-                        "props": {"cols": 12, "md": 4},
-                        "content": [
-                            {
-                                "component": "VSwitch",
-                                "props": {
-                                    "model": "share_strm_enabled",
-                                    "label": "运行分享生成STRM",
-                                },
-                            }
-                        ],
-                    },
-                    {
-                        "component": "VCol",
-                        "props": {"cols": 12, "md": 4},
-                        "content": [
-                            {
-                                "component": "VSwitch",
-                                "props": {
-                                    "model": "share_strm_auto_download_mediainfo_enabled",
-                                    "label": "下载媒体数据文件",
-                                },
-                            }
-                        ],
-                    },
-                ],
-            },
-            {
-                "component": "VRow",
-                "content": [
-                    {
-                        "component": "VCol",
-                        "props": {"cols": 12, "md": 4},
-                        "content": [
-                            {
-                                "component": "VTextField",
-                                "props": {
-                                    "model": "user_share_link",
-                                    "label": "分享链接",
-                                },
-                            }
-                        ],
-                    },
-                    {
-                        "component": "VCol",
-                        "props": {"cols": 12, "md": 4},
-                        "content": [
-                            {
-                                "component": "VTextField",
-                                "props": {
-                                    "model": "user_share_code",
-                                    "label": "分享码",
-                                },
-                            }
-                        ],
-                    },
-                    {
-                        "component": "VCol",
-                        "props": {"cols": 12, "md": 4},
-                        "content": [
-                            {
-                                "component": "VTextField",
-                                "props": {
-                                    "model": "user_receive_code",
-                                    "label": "分享密码",
-                                },
-                            }
-                        ],
-                    },
-                ],
-            },
-            {
-                "component": "VRow",
-                "content": [
-                    {
-                        "component": "VCol",
-                        "props": {"cols": 12, "md": 6},
-                        "content": [
-                            {
-                                "component": "VTextField",
-                                "props": {
-                                    "model": "user_share_pan_path",
-                                    "label": "分享文件夹路径",
-                                },
-                            }
-                        ],
-                    },
-                    {
-                        "component": "VCol",
-                        "props": {"cols": 12, "md": 6},
-                        "content": [
-                            {
-                                "component": "VTextField",
-                                "props": {
-                                    "model": "user_share_local_path",
-                                    "label": "本地生成STRM路径",
-                                },
-                            }
-                        ],
-                    },
-                ],
-            },
-            {
-                "component": "VRow",
-                "content": [
-                    {
-                        "component": "VAlert",
-                        "props": {
-                            "type": "info",
-                            "variant": "tonal",
-                            "density": "compact",
-                            "class": "mt-2",
-                        },
-                        "content": [
-                            {
-                                "component": "div",
-                                "text": "分享链接/分享码和分享密码 只需要二选一配置即可",
-                            },
-                            {
-                                "component": "div",
-                                "text": "同时填写分享链接，分享码和分享密码时，优先读取分享链接",
-                            },
-                        ],
-                    },
-                ],
-            },
-        ]
-
-        cleanup_tab = [
-            {
-                "component": "VRow",
-                "content": [
-                    {
-                        "component": "VCol",
-                        "props": {"cols": 12},
-                        "content": [
-                            {
-                                "component": "VAlert",
-                                "props": {
-                                    "type": "warning",
-                                    "variant": "tonal",
-                                    "density": "compact",
-                                    "text": "注意，清空 回收站/我的接收 后文件不可恢复，如果产生重要数据丢失本程序不负责！",
-                                },
-                            }
-                        ],
-                    }
-                ],
-            },
-            {
-                "component": "VRow",
-                "content": [
-                    {
-                        "component": "VCol",
-                        "props": {"cols": 12, "md": 3},
-                        "content": [
-                            {
-                                "component": "VSwitch",
-                                "props": {
-                                    "model": "clear_recyclebin_enabled",
-                                    "label": "清空回收站",
-                                },
-                            }
-                        ],
-                    },
-                    {
-                        "component": "VCol",
-                        "props": {"cols": 12, "md": 3},
-                        "content": [
-                            {
-                                "component": "VSwitch",
-                                "props": {
-                                    "model": "clear_receive_path_enabled",
-                                    "label": "清空我的接收目录",
-                                },
-                            }
-                        ],
-                    },
-                    {
-                        "component": "VCol",
-                        "props": {"cols": 12, "md": 3},
-                        "content": [
-                            {
-                                "component": "VTextField",
-                                "props": {"model": "password", "label": "115访问密码"},
-                            }
-                        ],
-                    },
-                    {
-                        "component": "VCol",
-                        "props": {"cols": 12, "md": 3},
-                        "content": [
-                            {
-                                "component": "VCronField",
-                                "props": {"model": "cron_clear", "label": "清理周期"},
-                            }
-                        ],
-                    },
-                ],
-            },
-        ]
-
-        pan_transfer_tab = [
-            {
-                "component": "VRow",
-                "content": [
-                    {
-                        "component": "VCol",
-                        "props": {"cols": 12, "md": 4},
-                        "content": [
-                            {
-                                "component": "VSwitch",
-                                "props": {
-                                    "model": "pan_transfer_enabled",
-                                    "label": "网盘整理",
-                                },
-                            }
-                        ],
-                    },
-                ],
-            },
-            {
-                "component": "VRow",
-                "content": [
-                    {
-                        "component": "VCol",
-                        "props": {"cols": 12},
-                        "content": [
-                            {
-                                "component": "VTextarea",
-                                "props": {
-                                    "model": "pan_transfer_paths",
-                                    "label": "网盘待整理目录",
-                                    "rows": 5,
-                                    "placeholder": "一行一个，格式：网盘待整理目录\n例如：\n/影视/待整理",
-                                    "hint": "网盘待整理目录",
-                                    "persistent-hint": True,
-                                },
-                            },
-                        ],
-                    }
-                ],
-            },
-            {
-                "component": "VAlert",
-                "props": {
-                    "type": "info",
-                    "variant": "tonal",
-                    "density": "compact",
-                    "class": "mt-2",
-                },
-                "content": [
-                    {
-                        "component": "div",
-                        "text": "使用本功能需要先进入 设定-目录 进行配置",
-                    },
-                    {
-                        "component": "div",
-                        "text": "添加目录配置卡，按需配置媒体类型和媒体类别，资源存储选择115网盘，资源目录输入网盘待整理文件夹",
-                    },
-                    {
-                        "component": "div",
-                        "text": "自动整理模式选择手动整理，媒体库存储依旧选择115网盘，并配置好媒体库路径，整理方式选择移动，按需配置分类、重命名、通知",
-                    },
-                    {
-                        "component": "div",
-                        "text": "配置完成目录设置后只需要在上方 网盘待整理目录 填入 网盘待整理文件夹 即可",
-                    },
-                ],
-            },
-            {
-                "component": "VAlert",
-                "props": {
-                    "type": "warning",
-                    "variant": "tonal",
-                    "density": "compact",
-                    "class": "mt-2",
-                    "text": "注意：配置目录时不能选择刮削元数据，否则可能导致风控！",
-                },
-            },
-            {
-                "component": "VAlert",
-                "props": {
-                    "type": "warning",
-                    "variant": "tonal",
-                    "density": "compact",
-                    "class": "mt-2",
-                    "text": "注意：115生活事件监控会忽略网盘整理触发的移动事件，所以必须使用MP整理事件监控生成STRM",
-                },
-            },
-        ]
-
-        return [
-            {
-                "component": "VCard",
-                "props": {"variant": "outlined", "class": "mb-3"},
-                "content": [
-                    {
-                        "component": "VCardTitle",
-                        "props": {"class": "d-flex align-center"},
-                        "content": [
-                            {
-                                "component": "VIcon",
-                                "props": {
-                                    "icon": "mdi-cog",
-                                    "color": "primary",
-                                    "class": "mr-2",
-                                },
-                            },
-                            {"component": "span", "text": "基础设置"},
-                        ],
-                    },
-                    {"component": "VDivider"},
-                    {
-                        "component": "VCardText",
-                        "content": [
-                            {
-                                "component": "VRow",
-                                "content": [
-                                    {
-                                        "component": "VCol",
-                                        "props": {"cols": 12, "md": 4},
-                                        "content": [
-                                            {
-                                                "component": "VSwitch",
-                                                "props": {
-                                                    "model": "enabled",
-                                                    "label": "启用插件",
-                                                },
-                                            }
-                                        ],
-                                    },
-                                    {
-                                        "component": "VCol",
-                                        "props": {"cols": 12, "md": 4},
-                                        "content": [
-                                            {
-                                                "component": "VTextField",
-                                                "props": {
-                                                    "model": "cookies",
-                                                    "label": "115 Cookie",
-                                                },
-                                            }
-                                        ],
-                                    },
-                                    {
-                                        "component": "VCol",
-                                        "props": {"cols": 12, "md": 4},
-                                        "content": [
-                                            {
-                                                "component": "VTextField",
-                                                "props": {
-                                                    "model": "moviepilot_address",
-                                                    "label": "MoviePilot 内网访问地址",
-                                                },
-                                            }
-                                        ],
-                                    },
-                                ],
-                            },
-                            {
-                                "component": "VRow",
-                                "content": [
-                                    {
-                                        "component": "VCol",
-                                        "props": {"cols": 12},
-                                        "content": [
-                                            {
-                                                "component": "VTextField",
-                                                "props": {
-                                                    "model": "user_rmt_mediaext",
-                                                    "label": "可整理媒体文件扩展名",
-                                                },
-                                            }
-                                        ],
-                                    }
-                                ],
-                            },
-                            {
-                                "component": "VRow",
-                                "content": [
-                                    {
-                                        "component": "VCol",
-                                        "props": {"cols": 12},
-                                        "content": [
-                                            {
-                                                "component": "VTextField",
-                                                "props": {
-                                                    "model": "user_download_mediaext",
-                                                    "label": "可下载媒体数据文件扩展名",
-                                                },
-                                            }
-                                        ],
-                                    }
-                                ],
-                            },
-                        ],
-                    },
-                ],
-            },
-            {
-                "component": "VCard",
-                "props": {"variant": "outlined"},
-                "content": [
-                    {
-                        "component": "VTabs",
-                        "props": {"model": "tab", "grow": True, "color": "primary"},
-                        "content": [
-                            {
-                                "component": "VTab",
-                                "props": {"value": "tab-transfer"},
-                                "content": [
-                                    {
-                                        "component": "VIcon",
-                                        "props": {
-                                            "icon": "mdi-file-move-outline",
-                                            "start": True,
-                                            "color": "#1976D2",
-                                        },
-                                    },
-                                    {"component": "span", "text": "监控MP整理"},
-                                ],
-                            },
-                            {
-                                "component": "VTab",
-                                "props": {"value": "tab-sync"},
-                                "content": [
-                                    {
-                                        "component": "VIcon",
-                                        "props": {
-                                            "icon": "mdi-sync",
-                                            "start": True,
-                                            "color": "#4CAF50",
-                                        },
-                                    },
-                                    {"component": "span", "text": "全量同步"},
-                                ],
-                            },
-                            {
-                                "component": "VTab",
-                                "props": {"value": "tab-life"},
-                                "content": [
-                                    {
-                                        "component": "VIcon",
-                                        "props": {
-                                            "icon": "mdi-calendar-heart",
-                                            "start": True,
-                                            "color": "#9C27B0",
-                                        },
-                                    },
-                                    {"component": "span", "text": "监控115生活事件"},
-                                ],
-                            },
-                            {
-                                "component": "VTab",
-                                "props": {"value": "tab-share"},
-                                "content": [
-                                    {
-                                        "component": "VIcon",
-                                        "props": {
-                                            "icon": "mdi-share-variant-outline",
-                                            "start": True,
-                                            "color": "#009688",
-                                        },
-                                    },
-                                    {"component": "span", "text": "分享生成STRM"},
-                                ],
-                            },
-                            {
-                                "component": "VTab",
-                                "props": {"value": "tab-cleanup"},
-                                "content": [
-                                    {
-                                        "component": "VIcon",
-                                        "props": {
-                                            "icon": "mdi-broom",
-                                            "start": True,
-                                            "color": "#FF9800",
-                                        },
-                                    },
-                                    {"component": "span", "text": "定期清理"},
-                                ],
-                            },
-                            {
-                                "component": "VTab",
-                                "props": {"value": "tab-pan-transfer"},
-                                "content": [
-                                    {
-                                        "component": "VIcon",
-                                        "props": {
-                                            "icon": "mdi-transfer",
-                                            "start": True,
-                                            "color": "#418291",
-                                        },
-                                    },
-                                    {"component": "span", "text": "网盘整理"},
-                                ],
-                            },
-                        ],
-                    },
-                    {"component": "VDivider"},
-                    {
-                        "component": "VWindow",
-                        "props": {"model": "tab"},
-                        "content": [
-                            {
-                                "component": "VWindowItem",
-                                "props": {"value": "tab-transfer"},
-                                "content": [
-                                    {
-                                        "component": "VCardText",
-                                        "content": transfer_monitor_tab,
-                                    }
-                                ],
-                            },
-                            {
-                                "component": "VWindowItem",
-                                "props": {"value": "tab-sync"},
-                                "content": [
-                                    {"component": "VCardText", "content": full_sync_tab}
-                                ],
-                            },
-                            {
-                                "component": "VWindowItem",
-                                "props": {"value": "tab-life"},
-                                "content": [
-                                    {
-                                        "component": "VCardText",
-                                        "content": life_events_tab,
-                                    }
-                                ],
-                            },
-                            {
-                                "component": "VWindowItem",
-                                "props": {"value": "tab-share"},
-                                "content": [
-                                    {
-                                        "component": "VCardText",
-                                        "content": share_generate_tab,
-                                    }
-                                ],
-                            },
-                            {
-                                "component": "VWindowItem",
-                                "props": {"value": "tab-cleanup"},
-                                "content": [
-                                    {"component": "VCardText", "content": cleanup_tab}
-                                ],
-                            },
-                            {
-                                "component": "VWindowItem",
-                                "props": {"value": "tab-pan-transfer"},
-                                "content": [
-                                    {
-                                        "component": "VCardText",
-                                        "content": pan_transfer_tab,
-                                    }
-                                ],
-                            },
-                        ],
-                    },
-                ],
-            },
-        ], {
-            "enabled": False,
-            "once_full_sync_strm": False,
-            "cookies": "",
-            "password": "",
-            "moviepilot_address": "",
-            "user_rmt_mediaext": "mp4,mkv,ts,iso,rmvb,avi,mov,mpeg,mpg,wmv,3gp,asf,m4v,flv,m2ts,tp,f4v",
-            "user_download_mediaext": "srt,ssa,ass",
-            "transfer_monitor_enabled": False,
-            "transfer_monitor_scrape_metadata_enabled": False,
-            "transfer_monitor_paths": "",
-            "transfer_mp_mediaserver_paths": "",
-            "transfer_monitor_media_server_refresh_enabled": False,
-            "transfer_monitor_mediaservers": [],
-            "timing_full_sync_strm": False,
-            "full_sync_auto_download_mediainfo_enabled": False,
-            "cron_full_sync_strm": "0 */7 * * *",
-            "full_sync_strm_paths": "",
-            "monitor_life_enabled": False,
-            "monitor_life_auto_download_mediainfo_enabled": False,
-            "monitor_life_paths": "",
-            "monitor_life_mp_mediaserver_paths": "",
-            "monitor_life_media_server_refresh_enabled": False,
-            "monitor_life_mediaservers": [],
-            "monitor_life_auto_remove_local_enabled": False,
-            "monitor_life_scrape_metadata_enabled": False,
-            "share_strm_enabled": False,
-            "share_strm_auto_download_mediainfo_enabled": False,
-            "user_share_code": "",
-            "user_receive_code": "",
-            "user_share_link": "",
-            "user_share_pan_path": "/",
-            "user_share_local_path": "",
-            "clear_recyclebin_enabled": False,
-            "clear_receive_path_enabled": False,
-            "cron_clear": "0 */7 * * *",
-            "pan_transfer_enabled": False,
-            "pan_transfer_paths": "",
-            "tab": "tab-transfer",
-        }
-
-    def get_page(self) -> List[dict]:
-        pass
-
     def __update_config(self):
         self.update_config(
             {
                 "enabled": self._enabled,
-                "once_full_sync_strm": self._once_full_sync_strm,
                 "cookies": self._cookies,
                 "password": self._password,
                 "moviepilot_address": self.moviepilot_address,
@@ -2076,7 +1043,6 @@ class P115StrmHelper(_PluginBase):
                 "monitor_life_mediaservers": self._monitor_life_mediaservers,
                 "monitor_life_auto_remove_local_enabled": self._monitor_life_auto_remove_local_enabled,
                 "monitor_life_scrape_metadata_enabled": self._monitor_life_scrape_metadata_enabled,
-                "share_strm_enabled": self._share_strm_enabled,
                 "share_strm_auto_download_mediainfo_enabled": self._share_strm_auto_download_mediainfo_enabled,
                 "user_share_code": self._user_share_code,
                 "user_receive_code": self._user_receive_code,
@@ -2092,16 +1058,25 @@ class P115StrmHelper(_PluginBase):
         )
 
     @staticmethod
-    def __check_python_version() -> bool:
+    def get_render_mode() -> Tuple[str, Optional[str]]:
         """
-        检查Python版本
+        返回插件使用的前端渲染模式
+        :return: 前端渲染模式，前端文件目录
         """
-        if not (sys.version_info.major == 3 and sys.version_info.minor >= 12):
-            logger.error(
-                "当前MoviePilot使用的Python版本不支持本插件，请升级到Python 3.12及以上的版本使用！"
-            )
-            return False
-        return True
+        return "vue", "dist/assets"
+
+    def get_form(self) -> Tuple[Optional[List[dict]], Dict[str, Any]]:
+        """
+        为Vue组件模式返回初始配置数据。
+        Vue模式下，第一个参数返回None，第二个参数返回初始配置数据。
+        """
+        return None, self._get_config_api()
+
+    def get_page(self) -> Optional[List[dict]]:
+        """
+        Vue模式不使用Vuetify页面定义
+        """
+        return None
 
     def media_transfer(self, event, file_path: Path, rmt_mediaext):
         """
@@ -2282,6 +1257,9 @@ class P115StrmHelper(_PluginBase):
                         finish_path = Path(path).parent
                         meta = MetaInfoPath(finish_path)
                         mediainfo = self.mediachain.recognize_by_meta(meta)
+                else:
+                    # 电影情况，使用当前目录和元数据
+                    finish_path = dir_path
             fileitem = FileItem(
                 storage="local",
                 type="dir",
@@ -2780,7 +1758,7 @@ class P115StrmHelper(_PluginBase):
             parent_path = self._pan_transfer_paths.split("\n")[0]
             parent_id = self.id_path_cache.get_id_by_dir(directory=str(parent_path))
             if not parent_id:
-                parent_id = get_id_to_path(self._client, path=parent_path)
+                parent_id = self._client.fs_dir_getid(parent_path)["id"]
                 logger.info(f"【分享转存】获取到转存目录 ID：{parent_id}")
                 self.id_path_cache.add_cache(
                     id=int(parent_id), directory=str(parent_path)
@@ -3380,3 +2358,593 @@ class P115StrmHelper(_PluginBase):
             self.monitor_stop_event.set()
         except Exception as e:
             print(str(e))
+
+    @cached(cache=TTLCache(maxsize=1, ttl=60 * 60))
+    def _get_user_storage_status(self) -> Dict[str, Any]:
+        """
+        获取115用户基本信息和空间使用情况。
+        """
+        if not self._cookies:
+            return {
+                "success": False,
+                "error_message": "115 Cookies 未配置，无法获取信息。",
+                "user_info": None,
+                "storage_info": None,
+            }
+
+        try:
+            if not self._client:
+                try:
+                    _temp_client = P115Client(self._cookies)
+                    logger.info("【用户存储状态】P115Client 初始化成功")
+                except Exception as e:
+                    logger.error(f"【用户存储状态】P115Client 初始化失败: {e}")
+                    return {
+                        "success": False,
+                        "error_message": f"115客户端初始化失败: {e}",
+                        "user_info": None,
+                        "storage_info": None,
+                    }
+            else:
+                _temp_client = self._client
+
+            # 获取用户信息
+            user_info_resp = _temp_client.user_my_info()
+            user_details: Dict = None
+            if user_info_resp.get("state"):
+                data = user_info_resp.get("data", {})
+                vip_data = data.get("vip", {})
+                face_data = data.get("face", {})
+                user_details = {
+                    "name": data.get("uname"),
+                    "is_vip": vip_data.get("is_vip"),
+                    "is_forever_vip": vip_data.get("is_forever"),
+                    "vip_expire_date": vip_data.get("expire_str")
+                    if not vip_data.get("is_forever")
+                    else "永久",
+                    "avatar": face_data.get("face_s"),
+                }
+                logger.info(
+                    f"【用户存储状态】获取用户信息成功: {user_details.get('name')}"
+                )
+            else:
+                error_msg = (
+                    user_info_resp.get("message", "获取用户信息失败")
+                    if user_info_resp
+                    else "获取用户信息响应为空"
+                )
+                logger.error(f"【用户存储状态】获取用户信息失败: {error_msg}")
+                return {
+                    "success": False,
+                    "error_message": f"获取115用户信息失败: {error_msg}",
+                    "user_info": None,
+                    "storage_info": None,
+                }
+
+            # 获取空间信息
+            space_info_resp = _temp_client.fs_index_info(payload=0)
+            storage_details = None
+            if space_info_resp.get("state"):
+                data = space_info_resp.get("data", {}).get("space_info", {})
+                storage_details = {
+                    "total": data.get("all_total", {}).get("size_format"),
+                    "used": data.get("all_use", {}).get("size_format"),
+                    "remaining": data.get("all_remain", {}).get("size_format"),
+                }
+                logger.info(
+                    f"【用户存储状态】获取空间信息成功: 总-{storage_details.get('total')}"
+                )
+            else:
+                error_msg = (
+                    space_info_resp.get("error", "获取空间信息失败")
+                    if space_info_resp
+                    else "获取空间信息响应为空"
+                )
+                logger.error(f"【用户存储状态】获取空间信息失败: {error_msg}")
+                return {
+                    "success": False,
+                    "error_message": f"获取115空间信息失败: {error_msg}",
+                    "user_info": user_details,
+                    "storage_info": None,
+                }
+
+            return {
+                "success": True,
+                "user_info": user_details,
+                "storage_info": storage_details,
+            }
+
+        except Exception as e:
+            logger.error(f"【用户存储状态】获取信息时发生意外错误: {e}", exc_info=True)
+            error_str_lower = str(e).lower()
+            if (
+                isinstance(e, DataError)
+                and ("errno 61" in error_str_lower or "enodata" in error_str_lower)
+                and "<!doctype html>" in error_str_lower
+            ):
+                specific_error_message = "获取115账户信息失败：Cookie无效或已过期，请在插件配置中重新扫码登录。"
+            elif (
+                "cookie" in error_str_lower
+                or "登录" in error_str_lower
+                or "登陆" in error_str_lower
+            ):
+                specific_error_message = (
+                    f"获取115账户信息失败：{str(e)} 请检查Cookie或重新登录。"
+                )
+            else:
+                specific_error_message = f"处理请求时发生错误: {str(e)}"
+
+            result_to_return = {
+                "success": False,
+                "error_message": specific_error_message,
+                "user_info": None,
+                "storage_info": None,
+            }
+            return result_to_return
+
+    def _get_config_api(self) -> Dict:
+        """
+        获取配置
+        """
+        return {
+            "enabled": self._enabled,
+            "cookies": self._cookies or "",
+            "password": self._password or "",
+            "moviepilot_address": self.moviepilot_address or "",
+            "user_rmt_mediaext": self._user_rmt_mediaext
+            or "mp4,mkv,ts,iso,rmvb,avi,mov,mpeg,mpg,wmv,3gp,asf,m4v,flv,m2ts,tp,f4v",
+            "user_download_mediaext": self._user_download_mediaext or "srt,ssa,ass",
+            "transfer_monitor_enabled": self._transfer_monitor_enabled,
+            "transfer_monitor_scrape_metadata_enabled": self._transfer_monitor_scrape_metadata_enabled,
+            "transfer_monitor_paths": self._transfer_monitor_paths or "",
+            "transfer_mp_mediaserver_paths": self._transfer_mp_mediaserver_paths or "",
+            "transfer_monitor_media_server_refresh_enabled": self._transfer_monitor_media_server_refresh_enabled,
+            "transfer_monitor_mediaservers": self._transfer_monitor_mediaservers or [],
+            "timing_full_sync_strm": self._timing_full_sync_strm,
+            "full_sync_auto_download_mediainfo_enabled": self._full_sync_auto_download_mediainfo_enabled,
+            "cron_full_sync_strm": self._cron_full_sync_strm or "0 */7 * * *",
+            "full_sync_strm_paths": self._full_sync_strm_paths or "",
+            "monitor_life_enabled": self._monitor_life_enabled,
+            "monitor_life_auto_download_mediainfo_enabled": self._monitor_life_auto_download_mediainfo_enabled,
+            "monitor_life_paths": self._monitor_life_paths or "",
+            "monitor_life_mp_mediaserver_paths": self._monitor_life_mp_mediaserver_paths
+            or "",
+            "monitor_life_media_server_refresh_enabled": self._monitor_life_media_server_refresh_enabled,
+            "monitor_life_mediaservers": self._monitor_life_mediaservers or [],
+            "monitor_life_auto_remove_local_enabled": self._monitor_life_auto_remove_local_enabled,
+            "monitor_life_scrape_metadata_enabled": self._monitor_life_scrape_metadata_enabled,
+            "share_strm_auto_download_mediainfo_enabled": self._share_strm_auto_download_mediainfo_enabled,
+            "user_share_code": self._user_share_code or "",
+            "user_receive_code": self._user_receive_code or "",
+            "user_share_link": self._user_share_link or "",
+            "user_share_pan_path": self._user_share_pan_path or "/",
+            "user_share_local_path": self._user_share_local_path or "",
+            "clear_recyclebin_enabled": self._clear_recyclebin_enabled,
+            "clear_receive_path_enabled": self._clear_receive_path_enabled,
+            "cron_clear": self._cron_clear or "0 */7 * * *",
+            "pan_transfer_enabled": self._pan_transfer_enabled,
+            "pan_transfer_paths": self._pan_transfer_paths or "",
+            # 获取可用的媒体服务器配置
+            "mediaservers": [
+                {"title": config.name, "value": config.name}
+                for config in self.mediaserver_helper.get_configs().values()
+            ],
+        }
+
+    async def _save_config_api(self, request: Request) -> Dict:
+        """
+        异步保存配置
+        """
+        try:
+            data = await request.json()
+            self._enabled = data.get("enabled", False)
+            self._cookies = data.get("cookies", "")
+            self._password = data.get("password", "")
+            self.moviepilot_address = data.get("moviepilot_address", "")
+            self._user_rmt_mediaext = data.get(
+                "user_rmt_mediaext",
+                "mp4,mkv,ts,iso,rmvb,avi,mov,mpeg,mpg,wmv,3gp,asf,m4v,flv,m2ts,tp,f4v",
+            )
+            self._user_download_mediaext = data.get(
+                "user_download_mediaext", "srt,ssa,ass"
+            )
+            self._transfer_monitor_enabled = data.get("transfer_monitor_enabled", False)
+            self._transfer_monitor_scrape_metadata_enabled = data.get(
+                "transfer_monitor_scrape_metadata_enabled", False
+            )
+            self._transfer_monitor_paths = data.get("transfer_monitor_paths", "")
+            self._transfer_mp_mediaserver_paths = data.get(
+                "transfer_mp_mediaserver_paths", ""
+            )
+            self._transfer_monitor_media_server_refresh_enabled = data.get(
+                "transfer_monitor_media_server_refresh_enabled", False
+            )
+            self._transfer_monitor_mediaservers = data.get(
+                "transfer_monitor_mediaservers", []
+            )
+            self._timing_full_sync_strm = data.get("timing_full_sync_strm", False)
+            self._full_sync_auto_download_mediainfo_enabled = data.get(
+                "full_sync_auto_download_mediainfo_enabled", False
+            )
+            self._cron_full_sync_strm = data.get("cron_full_sync_strm", "0 */7 * * *")
+            self._full_sync_strm_paths = data.get("full_sync_strm_paths", "")
+            self._monitor_life_enabled = data.get("monitor_life_enabled", False)
+            self._monitor_life_auto_download_mediainfo_enabled = data.get(
+                "monitor_life_auto_download_mediainfo_enabled", False
+            )
+            self._monitor_life_paths = data.get("monitor_life_paths", "")
+            self._monitor_life_mp_mediaserver_paths = data.get(
+                "monitor_life_mp_mediaserver_paths", ""
+            )
+            self._monitor_life_media_server_refresh_enabled = data.get(
+                "monitor_life_media_server_refresh_enabled", False
+            )
+            self._monitor_life_mediaservers = data.get("monitor_life_mediaservers", [])
+            self._monitor_life_auto_remove_local_enabled = data.get(
+                "monitor_life_auto_remove_local_enabled", False
+            )
+            self._monitor_life_scrape_metadata_enabled = data.get(
+                "monitor_life_scrape_metadata_enabled", False
+            )
+            self._share_strm_auto_download_mediainfo_enabled = data.get(
+                "share_strm_auto_download_mediainfo_enabled", False
+            )
+            self._user_share_code = data.get("user_share_code", "")
+            self._user_receive_code = data.get("user_receive_code", "")
+            self._user_share_link = data.get("user_share_link", "")
+            self._user_share_pan_path = data.get("user_share_pan_path", "/")
+            self._user_share_local_path = data.get("user_share_local_path", "")
+            self._clear_recyclebin_enabled = data.get("clear_recyclebin_enabled", False)
+            self._clear_receive_path_enabled = data.get(
+                "clear_receive_path_enabled", False
+            )
+            self._cron_clear = data.get("cron_clear", "0 */7 * * *")
+            self._pan_transfer_enabled = data.get("pan_transfer_enabled", False)
+            self._pan_transfer_paths = data.get("pan_transfer_paths", "")
+
+            # 持久化存储配置
+            self.__update_config()
+
+            # 重新初始化插件
+            self.init_plugin(config=self.get_config())
+
+            return {"code": 0, "msg": "保存成功"}
+        except Exception as e:
+            return {"code": 1, "msg": f"保存失败: {str(e)}"}
+
+    def _get_status_api(self) -> Dict:
+        """
+        获取插件状态
+        """
+        return {
+            "code": 0,
+            "data": {
+                "enabled": self._enabled,
+                "has_client": bool(self._client),
+                "running": bool(self._scheduler and self._scheduler.running)
+                or bool(
+                    self.monitor_life_thread and self.monitor_life_thread.is_alive()
+                ),
+            },
+        }
+
+    def _trigger_full_sync_api(self) -> Dict:
+        """
+        触发全量同步
+        """
+        try:
+            if not self._enabled or not self._cookies:
+                return {"code": 1, "msg": "插件未启用或未配置cookie"}
+
+            self._scheduler = BackgroundScheduler(timezone=settings.TZ)
+            self._scheduler.add_job(
+                func=self.full_sync_strm_files,
+                trigger="date",
+                run_date=datetime.now(tz=pytz.timezone(settings.TZ))
+                + timedelta(seconds=3),
+                name="115网盘助手分享生成STRM",
+            )
+            if self._scheduler.get_jobs():
+                self._scheduler.print_jobs()
+                self._scheduler.start()
+
+            return {"code": 0, "msg": "全量同步任务已启动"}
+        except Exception as e:
+            return {"code": 1, "msg": f"启动全量同步任务失败: {str(e)}"}
+
+    def _trigger_share_sync_api(self) -> Dict:
+        """
+        触发分享同步
+        """
+        try:
+            if not self._enabled or not self._cookies:
+                return {"code": 1, "msg": "插件未启用或未配置cookie"}
+
+            if not self._user_share_link and not (
+                self._user_share_code and self._user_receive_code
+            ):
+                return {"code": 1, "msg": "未配置分享链接或分享码"}
+
+            self._scheduler = BackgroundScheduler(timezone=settings.TZ)
+            self._scheduler.add_job(
+                func=self.share_strm_files,
+                trigger="date",
+                run_date=datetime.now(tz=pytz.timezone(settings.TZ))
+                + timedelta(seconds=3),
+                name="115网盘助手分享生成STRM",
+            )
+            if self._scheduler.get_jobs():
+                self._scheduler.print_jobs()
+                self._scheduler.start()
+
+            return {"code": 0, "msg": "分享同步任务已启动"}
+        except Exception as e:
+            return {"code": 1, "msg": f"启动分享同步任务失败: {str(e)}"}
+
+    @cached(cache=TTLCache(maxsize=64, ttl=2 * 60))
+    def _browse_dir_api(self, request: Request) -> Dict:
+        """
+        浏览目录
+        """
+        path = Path(request.query_params.get("path", "/"))
+        is_local = request.query_params.get("is_local", "false").lower() == "true"
+        if is_local:
+            try:
+                if not path.exists():
+                    return {"code": 1, "msg": f"目录不存在: {path}"}
+                dirs = []
+                files = []
+                for item in path.iterdir():
+                    if item.is_dir():
+                        dirs.append(
+                            {"name": item.name, "path": str(item), "is_dir": True}
+                        )
+                    else:
+                        files.append(
+                            {"name": item.name, "path": str(item), "is_dir": False}
+                        )
+                return {
+                    "code": 0,
+                    "path": path,
+                    "items": sorted(dirs, key=lambda x: x["name"]),
+                }
+            except Exception as e:
+                return {"code": 1, "msg": f"浏览本地目录失败: {str(e)}"}
+        else:
+            if not self._client or not self._cookies:
+                return {"code": 1, "msg": "未配置cookie或客户端初始化失败"}
+
+            try:
+                dir_info = self._client.fs_dir_getid(str(path))
+                if not dir_info:
+                    return {"code": 1, "msg": f"获取目录ID失败: {path}"}
+                cid = int(dir_info["id"])
+
+                items = []
+                fs_data = self._client.fs_files(cid)
+                for item in fs_data["data"]:
+                    if "fc" in item:
+                        items.append(
+                            {
+                                "name": item.get("n"),
+                                "path": f"{str(path).rstrip('/')}/{item.get('n')}",
+                                "is_dir": True,
+                            }
+                        )
+                return {
+                    "code": 0,
+                    "path": str(path),
+                    "items": sorted(items, key=lambda x: x["name"]),
+                }
+            except Exception as e:
+                logger.error(f"浏览网盘目录 API 原始错误: {str(e)}")
+                return {"code": 1, "msg": f"浏览网盘目录失败: {str(e)}"}
+
+    def _get_qrcode_api(
+        self, request: Request = None, client_type_override: Optional[str] = None
+    ) -> Dict:
+        """
+        获取登录二维码
+        """
+        try:
+            final_client_type = client_type_override
+            if not final_client_type:
+                final_client_type = (
+                    request.query_params.get("client_type", "alipaymini")
+                    if request
+                    else "alipaymini"
+                )
+            # 二维码支持的客户端类型验证
+            allowed_types = [
+                "web",
+                "android",
+                "115android",
+                "ios",
+                "115ios",
+                "alipaymini",
+                "wechatmini",
+                "115ipad",
+                "tv",
+                "qandroid",
+            ]
+            if final_client_type not in allowed_types:
+                final_client_type = "alipaymini"
+
+            logger.info(f"【扫码登入】二维码API - 使用客户端类型: {final_client_type}")
+
+            resp = requests.get(
+                "https://qrcodeapi.115.com/api/1.0/web/1.0/token/", timeout=10
+            )
+            if not resp.ok:
+                error_msg = f"获取二维码token失败: {resp.status_code} - {resp.text}"
+                return {
+                    "code": -1,
+                    "error": error_msg,
+                    "message": error_msg,
+                    "success": False,
+                }
+            resp_info = resp.json().get("data", {})
+            uid = resp_info.get("uid", "")
+            _time = resp_info.get("time", "")
+            sign = resp_info.get("sign", "")
+
+            resp = requests.get(
+                f"https://qrcodeapi.115.com/api/1.0/web/1.0/qrcode?uid={uid}",
+                timeout=10,
+            )
+            if not resp.ok:
+                error_msg = f"获取二维码图片失败: {resp.status_code} - {resp.text}"
+                return {
+                    "code": -1,
+                    "error": error_msg,
+                    "message": error_msg,
+                    "success": False,
+                }
+
+            qrcode_base64 = base64.b64encode(resp.content).decode("utf-8")
+
+            tips_map = {
+                "alipaymini": "请使用115客户端或支付宝扫描二维码登录",
+                "wechatmini": "请使用115客户端或微信扫描二维码登录",
+                "android": "请使用115安卓客户端扫描登录",
+                "115android": "请使用115安卓客户端扫描登录",
+                "ios": "请使用115 iOS客户端扫描登录",
+                "115ios": "请使用115 iOS客户端扫描登录",
+                "web": "请使用115网页版扫码登录",
+                "115ipad": "请使用115 PAD客户端扫描登录",
+                "tv": "请使用115 TV客户端扫描登录",
+                "qandroid": "请使用115 qandroid客户端扫描登录",
+            }
+            tips = tips_map.get(final_client_type, "请扫描二维码登录")
+
+            return {
+                "code": 0,
+                "uid": uid,
+                "time": _time,
+                "sign": sign,
+                "qrcode": f"data:image/png;base64,{qrcode_base64}",
+                "tips": tips,
+                "client_type": final_client_type,
+                "success": True,
+            }
+
+        except Exception as e:
+            logger.error(f"【扫码登入】获取二维码异常: {e}", exc_info=True)
+            return {
+                "code": -1,
+                "error": f"获取登录二维码出错: {str(e)}",
+                "message": f"获取登录二维码出错: {str(e)}",
+                "success": False,
+            }
+
+    def _check_qrcode_api_internal(
+        self,
+        uid: str,
+        _time: str,
+        sign: str,
+        client_type: str,
+    ) -> Dict:
+        """
+        检查二维码状态并处理登录
+        """
+        try:
+            if not uid:
+                error_msg = "无效的二维码ID，参数uid不能为空"
+                return {"code": -1, "error": error_msg, "message": error_msg}
+
+            resp = requests.get(
+                f"https://qrcodeapi.115.com/get/status/?uid={uid}&time={_time}&sign={sign}",
+                timeout=10,
+            )
+            status_code = resp.json().get("data").get("status")
+        except Exception as e:
+            error_msg = f"检查二维码状态异常: {str(e)}"
+            logger.error(f"【扫码登入】检查二维码状态异常: {e}", exc_info=True)
+            return {"code": -1, "error": error_msg, "message": error_msg}
+
+        status_map = {
+            0: {"code": 0, "status": "waiting", "msg": "等待扫码"},
+            1: {"code": 0, "status": "scanned", "msg": "已扫码，等待确认"},
+            2: {"code": 0, "status": "success", "msg": "已确认，正在登录"},
+            -1: {"code": -1, "error": "二维码已过期", "message": "二维码已过期"},
+            -2: {"code": -1, "error": "用户取消登录", "message": "用户取消登录"},
+        }
+
+        if status_code in status_map:
+            result = status_map[status_code].copy()
+            if status_code == 2:
+                try:
+                    resp = requests.post(
+                        f"https://passportapi.115.com/app/1.0/{client_type}/1.0/login/qrcode/",
+                        data={"app": client_type, "account": uid},
+                        timeout=10,
+                    )
+                    login_data = resp.json()
+                except Exception as e:
+                    return {
+                        "code": -1,
+                        "error": f"获取登录结果请求失败: {e}",
+                        "message": f"获取登录结果请求失败: {e}",
+                    }
+
+                if login_data.get("state") and login_data.get("data"):
+                    cookie_data = login_data.get("data", {})
+                    cookie_string = ""
+                    if "cookie" in cookie_data and isinstance(
+                        cookie_data["cookie"], dict
+                    ):
+                        for name, value in cookie_data["cookie"].items():
+                            if name and value:
+                                cookie_string += f"{name}={value}; "
+                    if cookie_string:
+                        self._cookies = cookie_string.strip()
+                        self.__update_config()
+                        try:
+                            self._client = P115Client(self._cookies)
+                            result["cookie"] = cookie_string
+                        except Exception as ce:
+                            return {
+                                "code": -1,
+                                "error": f"Cookie获取成功，但客户端初始化失败: {str(ce)}",
+                                "message": f"Cookie获取成功，但客户端初始化失败: {str(ce)}",
+                            }
+                    else:
+                        return {
+                            "code": -1,
+                            "error": "登录成功但未能正确解析Cookie",
+                            "message": "登录成功但未能正确解析Cookie",
+                        }
+                else:
+                    specific_error = login_data.get(
+                        "message", login_data.get("error", "未知错误")
+                    )
+                    return {
+                        "code": -1,
+                        "error": f"获取登录会话数据失败: {specific_error}",
+                        "message": f"获取登录会话数据失败: {specific_error}",
+                    }
+            return result
+        elif status_code is None:
+            return {
+                "code": -1,
+                "error": "无法解析二维码状态",
+                "message": "无法解析二维码状态",
+            }
+        else:
+            return {
+                "code": -1,
+                "error": f"未知的115业务状态码: {status_code}",
+                "message": f"未知的115业务状态码: {status_code}",
+            }
+
+    def _check_qrcode_api(self, request: Request) -> dict:
+        """
+        检查二维码状态
+        """
+        uid = request.query_params.get("uid", "")
+        _time = request.query_params.get("time", "")
+        sign = request.query_params.get("sign", "")
+        client_type = request.query_params.get("client_type", "alipaymini")
+        return self._check_qrcode_api_internal(
+            uid=uid, _time=_time, sign=sign, client_type=client_type
+        )
