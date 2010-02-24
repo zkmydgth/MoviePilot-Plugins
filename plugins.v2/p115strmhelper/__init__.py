@@ -1846,11 +1846,11 @@ class P115StrmHelper(_PluginBase):
 
         # 对于电视剧，需检查具体集是否已存在，而不是整部剧是否存在
         if getattr(mediainfo, "type", None) == MediaType.TV:
-            season = getattr(mediainfo, "season", None)
+            file_meta = MetaVideo(title=data.target_path.name, isfile=True)
+            season = file_meta.begin_season
             if season is not None and exist_info.seasons is not None:
                 exist_episodes = set(exist_info.seasons.get(season, []))
-                file_meta = MetaVideo(title=data.target_path.name, isfile=True)
-                if file_meta.begin_season == season and file_meta.episode_list:
+                if file_meta.episode_list:
                     file_episodes = set(file_meta.episode_list)
                     if not file_episodes.issubset(exist_episodes):
                         logger.info(
