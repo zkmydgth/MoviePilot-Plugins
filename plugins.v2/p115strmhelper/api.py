@@ -60,6 +60,8 @@ from .schemas.strm_api import (
     ManualTransferPayload,
 )
 from .schemas.sync_del_history import DeleteSyncDelHistoryPayload
+from .schemas.strm_exec_history import DeleteStrmSyncHistoryPayload
+from .core.history import StrmExecHistoryManager
 from .schemas.fuse import FuseMountPayload, FuseStatusData
 from .utils.sentry import sentry_manager
 
@@ -224,6 +226,56 @@ class Api:
         count = len(historys)
         configer.save_plugin_data(key="sync_del_history", value=[])
         return ApiResponse(code=0, msg=f"成功删除 {count} 条历史记录")
+
+    @staticmethod
+    def get_strm_sync_history(
+        page: int = Query(default=1, ge=1, description="页码，必须大于等于1"),
+        limit: int = Query(default=20, description="每页数量，-1 表示获取所有"),
+        kind: Optional[str] = Query(default=None, description="按 kind 筛选"),
+    ) -> ApiResponse:
+        """
+        获取 STRM 同步执行历史记录
+
+        :param page: 页码
+        :param limit: 每页数量，-1 表示获取所有
+        :param kind: 可选，仅保留该 kind
+
+        :return: 历史记录列表
+        """
+        kind_filter = kind.strip() if kind and kind.strip() else None
+        total, items = StrmExecHistoryManager.list_records(
+            page=page, limit=limit, kind=kind_filter
+        )
+        return ApiResponse(
+            code=0,
+            msg="获取成功",
+            data={
+                "total": total,
+                "page": page,
+                "limit": limit if limit != -1 else total,
+                "items": items,
+            },
+        )
+
+    @staticmethod
+    def delete_strm_sync_history(payload: DeleteStrmSyncHistoryPayload) -> ApiResponse:
+        """
+        删除单条 STRM 执行历史
+
+        :param payload: 删除请求体
+
+        :return: 删除结果
+        """
+        StrmExecHistoryManager.delete_one(payload.key)
+        return ApiResponse(code=0, msg="删除成功")
+
+    @staticmethod
+    def delete_all_strm_sync_history() -> ApiResponse:
+        """
+        清空全部 STRM 执行历史
+        """
+        StrmExecHistoryManager.clear_all()
+        return ApiResponse(code=0, msg="已清空")
 
     @cached(
         region="p115strmhelper_api_get_user_storage_status", ttl=60 * 60, skip_none=True
@@ -1100,9 +1152,7 @@ class Api:
             ok, added_count = servicer.offlinehelper.add_urls_to_path(links, path)
 
         if ok:
-            return ApiResponse(
-                msg=f"{added_count} 个新任务已成功添加，正在后台处理。"
-            )
+            return ApiResponse(msg=f"{added_count} 个新任务已成功添加，正在后台处理。")
 
         return ApiResponse(code=-1, msg="添加失败：请前往后台查看插件日志")
 

@@ -527,6 +527,27 @@ class P115StrmHelper(_PluginBase):
                 "summary": "一键删除所有同步删除历史记录",
             },
             {
+                "path": "/get_strm_sync_history",
+                "endpoint": self.api.get_strm_sync_history,
+                "methods": ["GET"],
+                "auth": "bear",
+                "summary": "获取 STRM 同步执行历史",
+            },
+            {
+                "path": "/delete_strm_sync_history",
+                "endpoint": self.api.delete_strm_sync_history,
+                "methods": ["POST"],
+                "auth": "bear",
+                "summary": "删除单条 STRM 执行历史",
+            },
+            {
+                "path": "/delete_all_strm_sync_history",
+                "endpoint": self.api.delete_all_strm_sync_history,
+                "methods": ["POST"],
+                "auth": "bear",
+                "summary": "清空全部 STRM 执行历史",
+            },
+            {
                 "path": "/fuse_mount",
                 "endpoint": self.api.fuse_mount_api,
                 "methods": ["POST"],
@@ -710,6 +731,22 @@ class P115StrmHelper(_PluginBase):
         Vue模式不使用Vuetify页面定义
         """
         return None
+
+    @staticmethod
+    def get_sidebar_nav() -> List[Dict[str, Any]]:
+        """
+        侧栏全页导航项：115 助手状态（联邦 AppPageStart）
+        """
+        return [
+            {
+                "plugin_id": "P115StrmHelper",
+                "nav_key": "start",
+                "title": "115助手仪表盘",
+                "icon": "mdi-speedometer",
+                "section": "start",
+                "order": 10,
+            }
+        ]
 
     @staticmethod
     def _get_event_userid(
