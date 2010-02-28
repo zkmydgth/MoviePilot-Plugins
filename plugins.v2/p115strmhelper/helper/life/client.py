@@ -1,8 +1,9 @@
+from filecmp import cmp as files_equal
 from shutil import move as shutil_move, rmtree
 from collections import defaultdict
 from threading import Timer, Event, Thread
 from time import sleep, strftime, localtime, time
-from typing import Dict, List, Optional, Set, Any
+from typing import Any, Dict, List, Optional, Set, Tuple
 from pathlib import Path
 from itertools import batched
 
@@ -1129,22 +1130,15 @@ class MonitorLife:
             same_strm_path = old_strm_path.resolve() == new_strm_path.resolve()
 
             if new_strm_exists and not new_strm_path.samefile(old_strm_path):
-                pickcode = event["pick_code"]
-                getter = StrmUrlGetter()
-                expected = getter.get_strm_url(
-                    pickcode,
+                ok, _ = self._sync_strm_text_with_event(
+                    new_strm_path,
+                    event["pick_code"],
                     new_path.name,
-                    file_path=new_pan_path,
+                    new_pan_path,
+                    scene="重命名",
+                    create_if_missing=False,
                 )
-                try:
-                    current_new = new_strm_path.read_text(encoding="utf-8")
-                    new_matches = current_new.strip() == expected.strip()
-                except Exception as e:
-                    logger.error(
-                        "【监控生活事件】读取重命名目标 STRM 失败: %s",
-                        e,
-                        exc_info=True,
-                    )
+                if not ok:
                     return
                 related_entries_dup: List[Path] = []
                 if configer.monitor_life_rename_auto_related_files:
@@ -1153,18 +1147,6 @@ class MonitorLife:
                             continue
                         related_entries_dup.append(sibling)
                 try:
-                    if not new_matches:
-                        with open(new_strm_path, "w", encoding="utf-8") as f:
-                            f.write(expected)
-                        logger.info(
-                            "【监控生活事件】重命名目标 STRM 已存在，内容已按事件更新: %s",
-                            new_strm_path,
-                        )
-                    else:
-                        logger.debug(
-                            "【监控生活事件】重命名目标 STRM 已存在且内容与事件一致: %s",
-                            new_strm_path,
-                        )
                     old_strm_path.unlink(missing_ok=True)
                     logger.info(
                         "【监控生活事件】已移除重复的旧 STRM: %s",
@@ -1219,29 +1201,14 @@ class MonitorLife:
                         "【监控生活事件】STRM 路径未变，跳过文件重命名，校验内容: %s",
                         new_strm_path,
                     )
-                pickcode = event["pick_code"]
-                getter = StrmUrlGetter()
-                expected = getter.get_strm_url(
-                    pickcode,
+                self._sync_strm_text_with_event(
+                    new_strm_path,
+                    event["pick_code"],
                     new_path.name,
-                    file_path=new_pan_path,
+                    new_pan_path,
+                    scene="重命名",
+                    create_if_missing=False,
                 )
-                try:
-                    current = new_strm_path.read_text(encoding="utf-8")
-                    if current.strip() == expected.strip():
-                        logger.debug(
-                            "【监控生活事件】重命名事件 STRM 内容与事件一致，无需更新: %s",
-                            new_strm_path,
-                        )
-                    else:
-                        with open(new_strm_path, "w", encoding="utf-8") as f:
-                            f.write(expected)
-                        logger.info(
-                            "【监控生活事件】重命名事件 STRM 内容已按新事件更新: %s",
-                            new_strm_path,
-                        )
-                except Exception as e:
-                    logger.error("【监控生活事件】重命名事件 STRM 内容操作失败: %s", e)
 
                 if related_entries:
                     old_stem = old_path.stem
@@ -1498,6 +1465,94 @@ class MonitorLife:
             return
         self._create(event=event, file_path=file_path)
 
+    def _sync_strm_text_with_event(
+        self,
+        strm_path: Path,
+        pickcode: str,
+        local_file_name: str,
+        pan_file_path: str,
+        *,
+        scene: str,
+        create_if_missing: bool = True,
+    ) -> Tuple[bool, bool]:
+        """
+        将 STRM 文本与事件期望 URL 对齐
+
+        :param strm_path: 本地 STRM 路径
+        :param pickcode: 事件 pickcode
+        :param local_file_name: 本地媒体文件名
+        :param pan_file_path: 网盘路径
+        :param scene: 日志场景前缀，例如「重命名」「模式 local_move」
+        :param create_if_missing: 为 True 时若文件不存在则创建；重命名流程应传 False，与旧逻辑一致（仅对已存在文件读-比较-写）
+        :return: (ok, wrote) ok 为 False 表示读写失败；wrote 为 True 表示新建或覆盖写入
+        """
+        getter = StrmUrlGetter()
+        expected = getter.get_strm_url(
+            pickcode,
+            local_file_name,
+            file_path=pan_file_path,
+        )
+        if not strm_path.exists():
+            if not create_if_missing:
+                logger.error(
+                    "【监控生活事件】%s STRM 内容同步失败: 文件不存在 %s",
+                    scene,
+                    strm_path,
+                )
+                return False, False
+            try:
+                strm_path.parent.mkdir(parents=True, exist_ok=True)
+                with open(strm_path, "w", encoding="utf-8") as f:
+                    f.write(expected)
+                logger.info(
+                    "【监控生活事件】%s STRM 已按事件创建: %s",
+                    scene,
+                    strm_path,
+                )
+                return True, True
+            except Exception as e:
+                logger.error(
+                    "【监控生活事件】%s STRM 创建失败: %s",
+                    scene,
+                    e,
+                    exc_info=True,
+                )
+                return False, False
+        try:
+            current = strm_path.read_text(encoding="utf-8")
+        except Exception as e:
+            logger.error(
+                "【监控生活事件】%s 读取 STRM 失败: %s",
+                scene,
+                e,
+                exc_info=True,
+            )
+            return False, False
+        if current.strip() == expected.strip():
+            logger.debug(
+                "【监控生活事件】%s STRM 内容与事件一致，无需更新: %s",
+                scene,
+                strm_path,
+            )
+            return True, False
+        try:
+            with open(strm_path, "w", encoding="utf-8") as f:
+                f.write(expected)
+            logger.info(
+                "【监控生活事件】%s STRM 内容已按事件更新: %s",
+                scene,
+                strm_path,
+            )
+            return True, True
+        except Exception as e:
+            logger.error(
+                "【监控生活事件】%s STRM 内容写入失败: %s",
+                scene,
+                e,
+                exc_info=True,
+            )
+            return False, False
+
     def _move_local_media_assets(
         self, event: Dict[str, Any], old_file_path: str, new_file_path: str
     ) -> None:
@@ -1565,26 +1620,71 @@ class MonitorLife:
             new_local_path
         )
         moved_any = False
+        pickcode = event["pick_code"]
 
-        if old_strm_path.exists():
+        old_strm_exists = old_strm_path.is_file()
+        new_strm_exists = new_strm_path.is_file()
+
+        if old_strm_exists and not new_strm_exists:
             new_strm_path.parent.mkdir(parents=True, exist_ok=True)
-            if not new_strm_path.exists():
-                shutil_move(str(old_strm_path), str(new_strm_path))
-                moved_any = True
-                logger.info(
-                    "【监控生活事件】模式 local_move 文件迁移 STRM 完成: %s -> %s",
-                    old_strm_path,
+            shutil_move(str(old_strm_path), str(new_strm_path))
+            moved_any = True
+            logger.info(
+                "【监控生活事件】模式 local_move 文件迁移 STRM 完成: %s -> %s",
+                old_strm_path,
+                new_strm_path,
+            )
+            self._sync_strm_text_with_event(
+                new_strm_path,
+                pickcode,
+                new_local_path.name,
+                new_file_path,
+                scene="模式 local_move",
+            )
+        elif old_strm_exists and new_strm_exists:
+            if new_strm_path.samefile(old_strm_path):
+                self._sync_strm_text_with_event(
                     new_strm_path,
+                    pickcode,
+                    new_local_path.name,
+                    new_file_path,
+                    scene="模式 local_move",
                 )
             else:
-                logger.info(
-                    "【监控生活事件】模式 local_move 文件迁移 STRM 跳过，目标已存在: %s",
+                ok, _ = self._sync_strm_text_with_event(
                     new_strm_path,
+                    pickcode,
+                    new_local_path.name,
+                    new_file_path,
+                    scene="模式 local_move",
                 )
+                if ok:
+                    try:
+                        old_strm_path.unlink(missing_ok=True)
+                        moved_any = True
+                        logger.info(
+                            "【监控生活事件】模式 local_move 已移除重复的旧 STRM: %s",
+                            old_strm_path,
+                        )
+                    except Exception as e:
+                        logger.error(
+                            "【监控生活事件】模式 local_move 移除旧 STRM 失败: %s",
+                            e,
+                            exc_info=True,
+                        )
+        elif not old_strm_exists and new_strm_exists:
+            self._sync_strm_text_with_event(
+                new_strm_path,
+                pickcode,
+                new_local_path.name,
+                new_file_path,
+                scene="模式 local_move",
+            )
         else:
             logger.info(
-                "【监控生活事件】模式 local_move 文件迁移 STRM 跳过，源文件不存在: %s",
+                "【监控生活事件】模式 local_move 文件迁移 STRM 跳过，源与目标均不存在: old=%s new=%s",
                 old_strm_path,
+                new_strm_path,
             )
 
         if configer.monitor_life_move_media_local_move_related_files:
@@ -1593,10 +1693,25 @@ class MonitorLife:
                     continue
                 target_sibling = new_strm_path.parent / sibling.name
                 if target_sibling.exists():
-                    logger.info(
-                        "【监控生活事件】模式 local_move 关联文件迁移跳过，目标已存在: %s",
-                        target_sibling,
-                    )
+                    if files_equal(sibling, target_sibling, shallow=False):
+                        try:
+                            sibling.unlink()
+                            moved_any = True
+                            logger.info(
+                                "【监控生活事件】模式 local_move 关联文件目标已存在且内容一致，已删除源: %s",
+                                sibling,
+                            )
+                        except Exception as e:
+                            logger.error(
+                                "【监控生活事件】模式 local_move 删除重复关联文件源失败: %s",
+                                e,
+                                exc_info=True,
+                            )
+                    else:
+                        logger.warning(
+                            "【监控生活事件】模式 local_move 关联文件目标已存在且内容不一致，跳过覆盖: %s",
+                            target_sibling,
+                        )
                     continue
                 new_strm_path.parent.mkdir(parents=True, exist_ok=True)
                 shutil_move(str(sibling), str(target_sibling))
