@@ -3,7 +3,7 @@ from typing import Dict, Any, Optional, List, Union
 from pathlib import Path
 
 from orjson import loads, JSONDecodeError
-from pydantic import BaseModel, ValidationError, Field, root_validator
+from pydantic import BaseModel, ValidationError, Field, field_validator, model_validator, ConfigDict, field_serializer
 
 from app.log import logger
 from app.core.config import settings
@@ -53,40 +53,52 @@ class ConfigManager(BaseModel):
         """
         return ConfigManager._get_default_plugin_config_path() / "temp"
 
-    class Config:
-        extra = "ignore"
-        arbitrary_types_allowed = True
-        validate_assignment = True
-        json_encoders = {Path: str}
+    model_config = ConfigDict(
+        extra="ignore",
+        arbitrary_types_allowed=True,
+        validate_assignment=True,
+    )
 
-    @root_validator(allow_reuse=True)
+    @field_validator("cron_full_sync_strm", "increment_sync_cron", "cron_clear", mode="before")
     @classmethod
-    def validate_cron_fields(cls, values: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        验证和修复 cron 表达式字段
-        """
+    def _validate_and_fix_cron(cls, v: Optional[str]) -> Optional[str]:
+        if not v:
+            return v
+        status, msg = CronUtils.validate_cron_expression(v)
+        if status:
+            return v
+        logger.warning(msg)
+        fixed = CronUtils.fix_cron_expression(v)
+        if CronUtils.is_valid_cron(fixed):
+            logger.info(f"自动修复 cron: '{v}' -> '{fixed}'")
+            return fixed
+        logger.error(
+            f"无法修复无效的 cron: '{v}'，恢复默认值 '{CronUtils.get_default_cron()}'"
+        )
+        return CronUtils.get_default_cron()
+
+    @model_validator(mode="before")
+    @classmethod
+    def _validate_cron_fields_before(cls, data: Dict[str, Any]) -> Dict[str, Any]:
         cron_fields = ["cron_full_sync_strm", "increment_sync_cron", "cron_clear"]
-
         for field in cron_fields:
-            if field in values and values[field]:
-                cron_expr = values[field]
-                status, msg = CronUtils.validate_cron_expression(cron_expr)
-                if not status:
-                    logger.warning(msg)
-                    # 尝试修复 cron 表达式
-                    fixed_cron_expr = CronUtils.fix_cron_expression(cron_expr)
-                    if CronUtils.is_valid_cron(fixed_cron_expr):
-                        values[field] = fixed_cron_expr
-                        logger.info(
-                            f"自动修复 {field}: '{cron_expr}' -> '{fixed_cron_expr}'"
-                        )
-                    else:
-                        logger.error(
-                            f"无法修复无效的 {field}: '{cron_expr}'，恢复默认值 '{CronUtils.get_default_cron()}'"
-                        )
-                        values[field] = CronUtils.get_default_cron()
-
-        return values
+            val = data.get(field)
+            if not val:
+                continue
+            status, msg = CronUtils.validate_cron_expression(val)
+            if status:
+                continue
+            logger.warning(msg)
+            fixed = CronUtils.fix_cron_expression(val)
+            if CronUtils.is_valid_cron(fixed):
+                data[field] = fixed
+                logger.info(f"自动修复 {field}: '{val}' -> '{fixed}'")
+            else:
+                logger.error(
+                    f"无法修复无效的 {field}: '{val}'，恢复默认值 '{CronUtils.get_default_cron()}'"
+                )
+                data[field] = CronUtils.get_default_cron()
+        return data
 
     # 插件名称
     PLUSIN_NAME: str = Field("P115StrmHelper", min_length=1)
@@ -322,6 +334,15 @@ class ConfigManager(BaseModel):
     # STRM URL 文件名称编码
     strm_url_encode: bool = False
 
+    @field_serializer(
+        "PLUGIN_CONFIG_PATH",
+        "PLUGIN_DB_PATH",
+        "PLUGIN_DATABASE_SCRIPT_LOCATION",
+        "PLUGIN_TEMP_PATH",
+    )
+    def _serialize_paths(self, v: Path) -> str:
+        return str(v)
+
     @property
     def PLUGIN_ALIGO_PATH(self) -> Path:
         """
@@ -400,9 +421,7 @@ class ConfigManager(BaseModel):
         获取所有配置
         """
         self._update_aliyun_token()
-        json_string = self.json()
-        serializable_dict = loads(json_string)
-        return serializable_dict
+        return self.model_dump(mode="json")
 
     def update_config(self, updates: Dict[str, Any]) -> bool:
         """
@@ -429,9 +448,7 @@ class ConfigManager(BaseModel):
         """
         systemconfig = SystemConfigOper()
         plugin_id = self.PLUSIN_NAME
-        json_string = self.json()
-        serializable_dict = loads(json_string)
-        return systemconfig.set(f"plugin.{plugin_id}", serializable_dict)
+        return systemconfig.set(f"plugin.{plugin_id}", self.model_dump(mode="json"))
 
     def get_user_agent(self, utype: int = -1) -> str:
         """
