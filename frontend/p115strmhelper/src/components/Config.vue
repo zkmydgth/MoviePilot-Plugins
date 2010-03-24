@@ -1019,6 +1019,10 @@
                               placeholder="例如: 5M, 1.5G (可为空)" clearable></v-text-field>
                           </v-col>
                         </v-row>
+                        <v-alert type="info" variant="tonal" density="compact" class="mt-3 text-caption">
+                          <strong>秒传失败直接退出：</strong><br>
+                          此功能开启后，对于无法秒传或者秒传等待超时的文件将直接跳过上传步骤，整理返回失败。
+                        </v-alert>
                       </v-expansion-panel-text>
                     </v-expansion-panel>
                   </v-expansion-panels>
