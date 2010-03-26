@@ -1,11 +1,11 @@
 from typing import TypeVar, Generic, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 T = TypeVar("T")
 
 
 class ApiResponse(BaseModel, Generic[T]):
-    code: int = 0
-    msg: str = "success"
-    data: Optional[T] = None
+    code: int = Field(default=0, description="响应码")
+    msg: str = Field(default="success", description="响应消息")
+    data: Optional[T] = Field(default=None, description="响应数据")

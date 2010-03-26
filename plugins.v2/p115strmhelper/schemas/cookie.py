@@ -1,6 +1,6 @@
 from typing import Optional, Dict, Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class U115Cookie(BaseModel):
@@ -8,10 +8,10 @@ class U115Cookie(BaseModel):
     115 Cookie 模型
     """
 
-    UID: str
-    CID: str
-    SEID: str
-    KID: Optional[str]
+    UID: str = Field(..., description="用户ID")
+    CID: str = Field(..., description="客户端ID")
+    SEID: str = Field(..., description="会话ID")
+    KID: Optional[str] = Field(default=None, description="密钥ID")
 
     @classmethod
     def from_string(cls, cookie_string: str) -> "U115Cookie":
