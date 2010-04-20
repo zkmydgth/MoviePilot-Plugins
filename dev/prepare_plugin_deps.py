@@ -8,6 +8,7 @@
 - 采用“信任边界”剪枝策略，高效地进行依赖分析。
 - 在遍历时捕获并遵守子依赖的版本限制，确保兼容性。
 - 自动下载所有目标平台的 .whl 文件。
+- 如果特定平台的 .whl 文件不存在，则尝试从源码构建（仅限当前环境或纯 Python 包）。
 - 不修改原始的 `requirements.txt` 文件。
 """
 
@@ -259,66 +260,75 @@ def filter_packages_to_bundle(
 
 def download_wheels(package_specs: List[str], wheels_dir: Path):
     """
-    为给定的包版本声明列表，下载所有目标平台的 .whl 文件。
-    采用两阶段策略：先下载通用和当前平台包，再为其他平台补充下载。
+    为给定的包列表，逐个下载或构建所有目标平台的 .whl 文件。
+    此方法通过逐一处理来避免因单个包的失败而导致整个流程中断。
 
     Args:
         package_specs (List[str]): 需要下载的包的精确版本声明列表 (e.g., ['requests==2.28.1'])。
         wheels_dir (Path): 用于存放下载的 .whl 文件的目录。
     """
-    log("\n[Info] 开始下载 Wheels 文件...")
-    sorted_specs = sorted(package_specs)
+    log("\n[Info] 开始逐个下载或构建 Wheels 文件...")
+    log("     注意：从源码构建仅能生成当前运行环境的 wheel，或纯 Python 包的通用 wheel。")
+    log("     此脚本无法为其他操作系统或架构进行交叉编译。")
 
-    # 阶段 1: 下载通用包 (py3-none-any) 和当前环境的包
-    log("[Info] -> 正在下载通用包和当前环境的包...")
-    try:
+    # 构建通用的平台参数列表，供后续重复使用
+    platform_args = []
+    for platform in TARGET_PLATFORMS:
+        platform_args.extend(["--platform", platform])
+
+    for spec in sorted(package_specs):
+        log(f"\n[+] 正在处理: {spec}")
+        package_name = re.match(r"([a-zA-Z0-9_.-]+)", spec).group(1)
+        normalized_package_name = re.sub(r"[-_.]+", "_", package_name, re.IGNORECASE)
+
+        # 阶段 1: 尝试为当前包下载所有目标平台的二进制文件
+        log(f"  -> 正在尝试为 '{package_name}' 下载预构建的二进制 wheel...")
         subprocess.run(
             [
-                "pip3",
-                "download",
-                "--only-binary=:all:",  # 只下载 wheel 文件
-                "--python-version",
-                TARGET_PYTHON_VERSION,  # 指定目标 Python 版本
-                "--abi",
-                TARGET_ABI,  # 指定目标 Python ABI
-                "--no-deps",  # 不下载子依赖
-                "-d",
-                str(wheels_dir),  # 指定下载目录
+                "pip3", "download",
+                "--only-binary=:all:",
+                "--python-version", TARGET_PYTHON_VERSION,
+                "--abi", TARGET_ABI,
+                "--no-deps",
+                "-d", str(wheels_dir),
             ]
-            + sorted_specs,
-            check=True,
+            + platform_args
+            + [spec], # 只处理当前这一个包
+            check=False, # 关键：不检查退出码，允许命令“失败”
             capture_output=True,
             text=True,
             encoding="utf-8",
         )
-    except subprocess.CalledProcessError as e:
-        log(f"[Error] 下载时出错: {e.stderr}")
 
-    # 阶段 2: 遍历所有目标平台，补充下载特定平台的二进制包
-    for platform_target in TARGET_PLATFORMS:
-        log(f"[Info] -> 正在为平台补充: {platform_target}...")
-        subprocess.run(
-            [
-                "pip3",
-                "download",
-                "--only-binary=:all:",  # 只下载 wheel 文件
-                "--platform",
-                platform_target,  # 指定目标平台
-                "--python-version",
-                TARGET_PYTHON_VERSION,  # 指定目标 Python 版本
-                "--abi",
-                TARGET_ABI,  # 指定目标 Python ABI
-                "--no-deps",  # 不下载子依赖
-                "-d",
-                str(wheels_dir),  # 指定下载目录
-            ]
-            + sorted_specs,
-            # check=False 因为某些包可能没有特定平台的 wheel，这不应视为致命错误
-            check=False,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
+        # 阶段 2: 检查下载结果。如果一个 wheel 文件都没有下载到，则尝试从源码构建
+        wheels_for_package = list(
+            wheels_dir.glob(f"{normalized_package_name}-*.whl")
         )
+
+        if not wheels_for_package:
+            log(f"  ⚠️  [警告] 未找到 '{package_name}' 的任何预构建二进制包。尝试从源码构建...")
+
+            # 使用 pip wheel 命令，它会自动下载源码并构建
+            build_process = subprocess.run(
+                [
+                    "pip3", "wheel",
+                    "--no-deps",
+                    "--wheel-dir", str(wheels_dir),
+                    spec,
+                ],
+                check=False, # 构建也可能失败，不中断脚本
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+            )
+
+            if build_process.returncode == 0:
+                log(f"  ✅ [成功] 成功从源码为 '{package_name}' 构建 wheel。")
+            else:
+                log(f"  ❌ [失败] 无法为 '{package_name}' 构建 wheel。可能缺少编译工具链 (如 C++ 编译器, Rust 等)。")
+                log(f"      错误详情:\n{build_process.stderr}")
+        else:
+            log(f"  ✅ [成功] 成功下载 '{package_name}' 的预构建 wheel 文件。")
 
 
 def cleanup(files_to_remove: List[Path]):
@@ -383,13 +393,13 @@ def main():
 
     # 从筛选结果中提取精确的版本声明
     specs_to_download = [resolved_specs[pkg] for pkg in packages_to_bundle]
-    log(f"\n[Info] 将要下载以下包的精确版本: {specs_to_download}")
+    log(f"\n[Info] 将要下载或构建以下包的精确版本: {specs_to_download}")
     download_wheels(specs_to_download, wheels_dir_in_plugin)
 
     # 清理临时的锁文件
     cleanup([RESOLVED_REQUIREMENTS_FILE])
 
-    log(f"[Info] '{PLUGIN_SOURCE_DIR}' 目录现在已包含 'wheels' 目录。")
+    log(f"\n[Info] '{PLUGIN_SOURCE_DIR.name}' 目录现在已包含 'wheels' 目录。")
     log("[Info] 内嵌依赖准备成功!")
     return True
 
