@@ -32,7 +32,7 @@ def post_message(
     chain = PluginChian()
     if not link:
         link = settings.MP_DOMAIN(
-            f"#/plugins?tab=installed&id={configer.get_config('plugin_name')}"
+            f"#/plugins?tab=installed&id={configer.get_config('PLUSIN_NAME')}"
         )
     chain.post_message(
         Notification(

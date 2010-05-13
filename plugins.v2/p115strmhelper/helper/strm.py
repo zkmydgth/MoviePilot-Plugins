@@ -80,10 +80,15 @@ class IncrementSyncStrmHelper:
         self.download_mediainfo_list = []
 
         # 临时文件配置
-        temp_path = settings.PLUGIN_DATA_PATH / "p115strmhelper" / "temp"
-        self.local_tree = temp_path / "increment_local_tree.txt"
-        self.pan_tree = temp_path / "increment_pan_tree.txt"
-        self.pan_to_local_tree = temp_path / "increment_pan_to_local_tree.txt"
+        self.local_tree = (
+            configer.get_config("PLUGIN_TEMP_PATH") / "increment_local_tree.txt"
+        )
+        self.pan_tree = (
+            configer.get_config("PLUGIN_TEMP_PATH") / "increment_pan_tree.txt"
+        )
+        self.pan_to_local_tree = (
+            configer.get_config("PLUGIN_TEMP_PATH") / "increment_pan_to_local_tree.txt"
+        )
 
     def __itertree(self, pan_path: str, local_path: str):
         """
@@ -537,9 +542,8 @@ class FullSyncStrmHelper:
         self.databasehelper = FileDbHelper()
         self.download_mediainfo_list = []
 
-        temp_path = settings.PLUGIN_DATA_PATH / "p115strmhelper" / "temp"
-        self.local_tree = temp_path / "local_tree.txt"
-        self.pan_tree = temp_path / "pan_tree.txt"
+        self.local_tree = configer.get_config("PLUGIN_TEMP_PATH") / "local_tree.txt"
+        self.pan_tree = configer.get_config("PLUGIN_TEMP_PATH") / "pan_tree.txt"
 
     @staticmethod
     def __remove_parent_dir(file_path: Path):

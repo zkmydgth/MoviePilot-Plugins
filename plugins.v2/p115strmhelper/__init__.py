@@ -98,22 +98,10 @@ class P115StrmHelper(_PluginBase):
         # 初始化配置项
         configer.load_from_dict(config or {})
 
-        # 类名小写
-        class_name = self.__class__.__name__.lower()
-        # 插件配置文件路径
-        self.__plugin_config_path = settings.PLUGIN_DATA_PATH / class_name
-        # 数据库文件路径
-        self.__db_path = (
-            settings.PLUGIN_DATA_PATH / class_name / "p115strmhelper_file.db"
-        )
-        self.__database_path = (
-            settings.ROOT_PATH / "app/plugins" / class_name / "database"
-        )
-
-        # 临时文件路径
-        temp_path = settings.PLUGIN_DATA_PATH / class_name / "temp"
-        if not Path(temp_path).exists():
-            Path(temp_path).mkdir(parents=True, exist_ok=True)
+        if not Path(configer.get_config("PLUGIN_TEMP_PATH")).exists():
+            Path(configer.get_config("PLUGIN_TEMP_PATH")).mkdir(
+                parents=True, exist_ok=True
+            )
 
         # 初始化数据库
         self.init_database()
@@ -151,19 +139,21 @@ class P115StrmHelper(_PluginBase):
         """
         初始化数据库
         """
-        if not Path(self.__plugin_config_path).exists():
-            Path(self.__plugin_config_path).mkdir(parents=True, exist_ok=True)
+        if not Path(configer.get_config("PLUGIN_CONFIG_PATH")).exists():
+            Path(configer.get_config("PLUGIN_CONFIG_PATH")).mkdir(
+                parents=True, exist_ok=True
+            )
         if not ct_db_manager.is_initialized():
             # 初始化数据库会话
-            ct_db_manager.init_database(db_path=self.__db_path)
+            ct_db_manager.init_database(db_path=configer.get_config("PLUGIN_DB_PATH"))
             # 表单补全
             init_db(
                 engine=ct_db_manager.Engine,
             )
             # 更新数据库
             update_db(
-                db_path=self.__db_path,
-                database_dir=self.__database_path,
+                db_path=configer.get_config("PLUGIN_DB_PATH"),
+                database_dir=configer.get_config("PLUGIN_DATABASE_PATH"),
             )
         return True
 
