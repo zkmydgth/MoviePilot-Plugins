@@ -135,8 +135,7 @@ class P115StrmHelper(_PluginBase):
             if servicer.init_service():
                 self.api = Api(client=servicer.client)
 
-            if configer.get_config("upload_module_enhancement"):
-                U115Patcher().enable()
+            U115Patcher().enable()
 
             # 目录上传监控服务
             servicer.start_directory_upload()

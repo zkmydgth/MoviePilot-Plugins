@@ -211,7 +211,7 @@ class U115OpenHelper:
                     sha1.update(chunk)
         return sha1.hexdigest()
 
-    def upload_fail_count(self):
+    def upload_fail_count(self) -> bool:
         """
         上传重试判断
         """

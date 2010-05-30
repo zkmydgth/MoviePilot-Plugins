@@ -1,11 +1,12 @@
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Callable, Any, Dict
 
 from app import schemas
 from app.log import logger
 from app.modules.filemanager.storages.u115 import U115Pan
 
 from ..core.u115_open import U115OpenHelper
+from ..core.config import configer
 
 
 class U115Patcher:
@@ -14,8 +15,8 @@ class U115Patcher:
     支持手动启用/禁用，也支持作为上下文管理器使用。
     """
 
-    _original_method = None
-    _is_active = False
+    _original_method: Dict[str, Callable[..., Any]] = {"upload": None}
+    _func_active: Dict[str, bool] = {"upload": False}
 
     @staticmethod
     def _patch_upload(
@@ -38,26 +39,28 @@ class U115Patcher:
         """
         启用猴子补丁
         """
-        if cls._is_active:
-            return
+        if configer.get_config("upload_module_enhancement"):
+            if cls._func_active["upload"]:
+                return
 
-        if cls._original_method is None:
-            cls._original_method = U115Pan.upload
+            if cls._original_method["upload"] is None:
+                cls._original_method["upload"] = U115Pan.upload
 
-        U115Pan.upload = cls._patch_upload
-        cls._is_active = True
-        logger.info("【P115Open】上传接口补丁应用成功")
+            U115Pan.upload = cls._patch_upload
+            cls._func_active["upload"] = True
+            logger.info("【P115Open】上传接口补丁应用成功")
 
     @classmethod
     def disable(cls):
         """
         禁用猴子补丁
         """
-        if not cls._is_active:
-            return
+        log_map: Dict[str, str] = {"upload": "上传接口恢复原始状态成功"}
 
-        if cls._original_method is not None:
-            U115Pan.upload = cls._original_method
+        for key, status in cls._func_active.items():
+            if status:
+                if cls._original_method[key] is not None:
+                    U115Pan.upload = cls._original_method[key]
 
-        cls._is_active = False
-        logger.info("【P115Open】上传接口恢复原始状态成功")
+            cls._func_active[key] = False
+            logger.info(f"【P115Open】{log_map[key]}")

@@ -1,5 +1,5 @@
 import json
-from typing import List
+from typing import List, Dict, Optional
 from pathlib import Path
 
 import requests
@@ -12,7 +12,7 @@ class AliyunPanLogin:
     """
 
     @staticmethod
-    def qr():
+    def qr() -> Dict:
         """
         qr 获取
         """
@@ -39,7 +39,7 @@ class AliyunPanLogin:
             return {"error": str(e)}
 
     @staticmethod
-    def ck(t, ck):
+    def ck(t, ck) -> Dict:
         """
         ck 获取
         """
@@ -77,7 +77,7 @@ class AliyunPanLogin:
             return {"error": str(err)}
 
     @staticmethod
-    def get_token(path: Path):
+    def get_token(path: Path) -> Optional[str]:
         """
         获取 Aligo Token
         """
@@ -108,7 +108,7 @@ class BAligo(Aligo):
         )
         return response.status_code == 204
 
-    def batch_delete_files(self, file_id_list: List[str], drive_id: str = None):
+    def batch_delete_files(self, file_id_list: List[str], drive_id: str = None) -> List:
         """
         批量删除文件
         """

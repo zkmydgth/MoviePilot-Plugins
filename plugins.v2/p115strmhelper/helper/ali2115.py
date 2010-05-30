@@ -32,9 +32,11 @@ class Ali2115Helper:
         self.file_name_list = None
 
     @staticmethod
-    def calculate_sha1_range(url: str, start: int, length: int):
+    def calculate_sha1_range(url: str, start: int, length: int) -> str:
         """
         计算 sha1
+
+        return: str
         """
         end = start + length - 1
         headers = {"Range": f"bytes={start}-{end}"}
@@ -45,9 +47,11 @@ class Ali2115Helper:
                 _sha1.update(chunk)
             return _sha1.hexdigest().upper()
 
-    def double_sha1_range(self, sign_check: str):
+    def double_sha1_range(self, sign_check: str) -> str:
         """
         二次 sha1 校验
+
+        return: str
         """
         start_str, end_str = sign_check.split("-")
         start, end = int(start_str), int(end_str)
