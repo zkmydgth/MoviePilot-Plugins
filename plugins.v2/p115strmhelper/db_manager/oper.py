@@ -176,6 +176,16 @@ class FileDbHelper(DbOper):
         Folder.upsert_batch(self._db, batch)
         return True
 
+    def upsert_batch_by_list(self, list_type: str, batch: List[Dict]):
+        """
+        通过列表批量写入或更新数据
+        """
+        if list_type == "files":
+            File.upsert_batch_by_list(self._db, batch)
+        else:
+            Folder.upsert_batch_by_list(self._db, batch)
+        return True
+
     def get_by_path(self, path: str) -> Optional[Dict]:
         """
         通过路径获取项目

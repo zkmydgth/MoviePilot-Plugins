@@ -1,7 +1,7 @@
 import time
 import threading
 import shutil
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Set
 from pathlib import Path
 from itertools import batched
 import concurrent.futures
@@ -671,20 +671,64 @@ class FullSyncStrmHelper:
 
         return local_tree_task_thread
 
+    def __process_db_item(self, batch, seen_folder_ids, seen_file_ids):
+        """
+        处理写入数据库的内容
+        """
+        files_list: List = []
+        folders_list: List = []
+
+        for item in batch:
+            ancestors = item.get("ancestors", [])
+            for i, ancestor in enumerate(ancestors[1:-1], start=1):
+                ancestor_id = str(ancestor["id"])
+                if ancestor_id not in seen_folder_ids:
+                    path = "/" + "/".join(a["name"] for a in ancestors[1 : i + 1])
+                    folders_list.append(
+                        {
+                            "id": ancestor["id"],
+                            "parent_id": ancestor["parent_id"],
+                            "name": ancestor["name"],
+                            "path": path,
+                        }
+                    )
+                    seen_folder_ids.add(ancestor_id)
+            file_id = str(item["id"])
+            if file_id not in seen_file_ids:
+                files_list.append(
+                    {
+                        "id": item["id"],
+                        "parent_id": item["parent_id"],
+                        "name": item["name"],
+                        "sha1": item.get("sha1", ""),
+                        "size": item.get("size", 0),
+                        "pickcode": item.get("pickcode", item.get("pick_code", "")),
+                        "ctime": item.get("ctime", 0),
+                        "mtime": item.get("mtime", 0),
+                        "path": item.get("path", ""),
+                        "extra": str(item) if item else None,
+                    }
+                )
+                seen_file_ids.add(file_id)
+
+        self.databasehelper.upsert_batch_by_list("files", files_list)
+        self.databasehelper.upsert_batch_by_list("folders", folders_list)
+
+        return seen_folder_ids, seen_file_ids
+
     def __process_single_item(self, item, target_dir, pan_media_dir):
         """
         处理单个项目
         """
         path_entry = None
         self.total_count += 1
-        _process_item = self.databasehelper.process_item(item)
         try:
             if item["is_dir"]:
-                return _process_item, path_entry
+                return path_entry
             file_path = item["path"]
             # 全量拉数据时可能混入无关路径
             if not PathUtils.has_prefix(file_path, pan_media_dir):
-                return _process_item, path_entry
+                return path_entry
             file_path = Path(target_dir) / Path(file_path).relative_to(pan_media_dir)
             file_target_dir = file_path.parent
             original_file_name = file_path.name
@@ -699,7 +743,7 @@ class FullSyncStrmHelper:
             )
             self.strm_fail_count += 1
             self.strm_fail_dict[str(item)] = str(e)
-            return _process_item, path_entry
+            return path_entry
 
         try:
             if self.pan_transfer_enabled and self.pan_transfer_paths:
@@ -710,7 +754,7 @@ class FullSyncStrmHelper:
                     logger.debug(
                         f"【全量STRM生成】{item['path']} 为待整理目录下的路径，不做处理"
                     )
-                    return _process_item, path_entry
+                    return path_entry
 
             if self.auto_download_mediainfo:
                 if file_path.suffix.lower() in self.download_mediaext:
@@ -719,7 +763,7 @@ class FullSyncStrmHelper:
                             logger.warn(
                                 f"【全量STRM生成】{file_path} 已存在，覆盖模式 {self.overwrite_mode}，跳过此路径"
                             )
-                            return _process_item, path_entry
+                            return path_entry
                         else:
                             logger.warn(
                                 f"【全量STRM生成】{file_path} 已存在，覆盖模式 {self.overwrite_mode}"
@@ -729,7 +773,7 @@ class FullSyncStrmHelper:
                         logger.error(
                             f"【全量STRM生成】{original_file_name} 不存在 pickcode 值，无法下载该文件"
                         )
-                        return _process_item, path_entry
+                        return path_entry
                     self.download_mediainfo_list.append(
                         {
                             "type": "local",
@@ -737,14 +781,14 @@ class FullSyncStrmHelper:
                             "path": file_path,
                         }
                     )
-                    return _process_item, path_entry
+                    return path_entry
 
             if file_path.suffix.lower() not in self.rmt_mediaext:
                 logger.warn(
                     "【全量STRM生成】跳过网盘路径: %s",
                     item["path"],
                 )
-                return _process_item, path_entry
+                return path_entry
 
             if not (
                 result := StrmGenerater.should_generate_strm(
@@ -754,7 +798,7 @@ class FullSyncStrmHelper:
                 logger.warn(
                     f"【全量STRM生成】{result[0]}，跳过网盘路径: {item['path']}"
                 )
-                return _process_item, path_entry
+                return path_entry
 
             if self.remove_unless_strm:
                 path_entry = str(new_file_path)
@@ -764,7 +808,7 @@ class FullSyncStrmHelper:
                     logger.warn(
                         f"【全量STRM生成】{new_file_path} 已存在，覆盖模式 {self.overwrite_mode}，跳过此路径"
                     )
-                    return _process_item, path_entry
+                    return path_entry
                 else:
                     logger.warn(
                         f"【全量STRM生成】{new_file_path} 已存在，覆盖模式 {self.overwrite_mode}"
@@ -782,7 +826,7 @@ class FullSyncStrmHelper:
                 logger.error(
                     f"【全量STRM生成】{original_file_name} 不存在 pickcode 值，无法生成 STRM 文件"
                 )
-                return _process_item, path_entry
+                return path_entry
             if not (len(pickcode) == 17 and str(pickcode).isalnum()):
                 self.strm_fail_count += 1
                 self.strm_fail_dict[str(new_file_path)] = (
@@ -791,7 +835,7 @@ class FullSyncStrmHelper:
                 logger.error(
                     f"【全量STRM生成】错误的 pickcode 值 {pickcode}，无法生成 STRM 文件"
                 )
-                return _process_item, path_entry
+                return path_entry
 
             strm_url = self.strmurlgetter.get_strm_url(pickcode, original_file_name)
 
@@ -803,7 +847,7 @@ class FullSyncStrmHelper:
                     "【全量STRM生成】生成 STRM 文件成功: %s",
                     str(new_file_path),
                 )
-            return _process_item, path_entry
+            return path_entry
         except Exception as e:
             sentry_manager.sentry_hub.capture_exception(e)
             logger.error(
@@ -813,7 +857,7 @@ class FullSyncStrmHelper:
             )
             self.strm_fail_count += 1
             self.strm_fail_dict[str(new_file_path)] = str(e)
-            return _process_item, path_entry
+            return path_entry
 
     def generate_database(self, full_sync_strm_paths):
         """
@@ -859,20 +903,20 @@ class FullSyncStrmHelper:
                     f"【全量STRM生成】迭代函数 {iter_func}; 参数 {iter_kwargs}"
                 )
                 start_time = time.perf_counter()
+                seen_folder_ids: Set[str] = set()
+                seen_file_ids: Set[str] = set()
                 for batch in batched(
                     iter_func(self.client, **iter_kwargs),
                     int(configer.get_config("full_sync_batch_num")),
                 ):
-                    processed: List = []
-
-                    for item in batch:
-                        processed.extend(self.databasehelper.process_item(item))
-
-                    self.databasehelper.upsert_batch(processed)
-                    self.total_db_write_count += len(processed)
-
+                    seen_folder_ids, seen_file_ids = self.__process_db_item(
+                        batch,
+                        seen_folder_ids,
+                        seen_file_ids,
+                    )
                 end_time = time.perf_counter()
                 self.elapsed_time += end_time - start_time
+                self.total_db_write_count += len(seen_file_ids) + len(seen_folder_ids)
             except Exception as e:
                 sentry_manager.sentry_hub.capture_exception(e)
                 logger.error(
@@ -936,16 +980,24 @@ class FullSyncStrmHelper:
                     f"【全量STRM生成】迭代函数 {iter_func}; 参数 {iter_kwargs}"
                 )
                 start_time = time.perf_counter()
+                seen_folder_ids: Set[str] = set()
+                seen_file_ids: Set[str] = set()
                 for batch in batched(
                     iter_func(self.client, **iter_kwargs),
                     int(configer.get_config("full_sync_batch_num")),
                 ):
-                    processed: List = []
                     path_list: List = []
 
                     with concurrent.futures.ThreadPoolExecutor(
                         max_workers=int(configer.get_config("full_sync_process_num"))
                     ) as executor:
+                        db_task_future = executor.submit(
+                            self.__process_db_item,
+                            batch,
+                            seen_folder_ids,
+                            seen_file_ids,
+                        )
+
                         future_to_item = {
                             executor.submit(
                                 self.__process_single_item,
@@ -959,9 +1011,7 @@ class FullSyncStrmHelper:
                         for future in concurrent.futures.as_completed(future_to_item):
                             item = future_to_item[future]
                             try:
-                                item_processed, item_path = future.result()
-                                if item_processed:
-                                    processed.extend(item_processed)
+                                item_path = future.result()
                                 if item_path:
                                     path_list.append(item_path)
                             except Exception as e:
@@ -970,8 +1020,13 @@ class FullSyncStrmHelper:
                                     f"【全量STRM生成】并发处理出错: {item} - {str(e)}"
                                 )
 
-                    self.databasehelper.upsert_batch(processed)
-                    self.total_db_write_count += len(processed)
+                        try:
+                            seen_folder_ids, seen_file_ids = db_task_future.result()
+                        except Exception as e:
+                            sentry_manager.sentry_hub.capture_exception(e)
+                            logger.error(
+                                f"【全量STRM生成】数据库处理并发处理出错: {str(e)}"
+                            )
 
                     if self.remove_unless_strm:
                         DirectoryTree().generate_tree_from_list(
@@ -980,6 +1035,7 @@ class FullSyncStrmHelper:
 
                 end_time = time.perf_counter()
                 self.elapsed_time += end_time - start_time
+                self.total_db_write_count += len(seen_file_ids) + len(seen_folder_ids)
             except Exception as e:
                 sentry_manager.sentry_hub.capture_exception(e)
                 logger.error(

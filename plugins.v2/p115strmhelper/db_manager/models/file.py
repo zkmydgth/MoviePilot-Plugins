@@ -1,6 +1,16 @@
 from typing import Dict, List
 
-from sqlalchemy import Column, Integer, String, Text, BigInteger, select, delete, or_
+from sqlalchemy import (
+    Column,
+    Integer,
+    String,
+    Text,
+    BigInteger,
+    select,
+    delete,
+    text,
+)
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
 from ...db_manager import db_update, db_query, P115StrmHelperBase
@@ -21,7 +31,7 @@ class File(P115StrmHelperBase):
     pickcode = Column(String(50), default="")
     ctime = Column(BigInteger, default=0)
     mtime = Column(BigInteger, default=0)
-    path = Column(Text, default="")
+    path = Column(Text, unique=True)
     extra = Column(Text)
 
     @staticmethod
@@ -75,28 +85,36 @@ class File(P115StrmHelperBase):
     def upsert_batch(db: Session, batch: List[Dict]):
         """
         批量写入或更新数据
-
-        逻辑：
-          - 先判断需要写入的数据路径是否存在，存在则先删除记录
-          - 写入数据
         """
-        files_data = []
-        seen_ids = set()
-        seen_paths = set()
-        append = files_data.append
-        for entry in batch:
-            if entry["table"] == "files":
-                data = entry["data"]
-                if data["id"] not in seen_ids:
-                    seen_ids.add(data["id"])
-                    seen_paths.add(data["path"])
-                    append(data)
-        if not files_data:
+        files_data_map = {
+            entry["data"]["id"]: entry["data"]
+            for entry in batch
+            if entry.get("table") == "files" and "id" in entry.get("data", {})
+        }
+
+        if not files_data_map:
             return True
-        db.execute(
-            delete(File).where(or_(File.id.in_(seen_ids), File.path.in_(seen_paths)))
-        )
-        db.bulk_insert_mappings(File, files_data)
+
+        files_data = list(files_data_map.values())
+
+        db.execute(text("PRAGMA synchronous = OFF"))
+        db.execute(text("PRAGMA journal_mode = MEMORY"))
+
+        stmt = sqlite_insert(File).prefix_with("OR REPLACE").values(files_data)
+        db.execute(stmt)
+        return True
+
+    @staticmethod
+    @db_update
+    def upsert_batch_by_list(db: Session, batch: List[Dict]):
+        """
+        通过列表批量写入或更新数据
+        """
+        db.execute(text("PRAGMA synchronous = OFF"))
+        db.execute(text("PRAGMA journal_mode = MEMORY"))
+
+        stmt = sqlite_insert(File).prefix_with("OR REPLACE").values(batch)
+        db.execute(stmt)
         return True
 
     @staticmethod
@@ -105,9 +123,7 @@ class File(P115StrmHelperBase):
         """
         通过路径批量删除
         """
-        db.query(File).filter(File.path.startswith(path)).delete(
-            synchronize_session=False
-        )
+        db.execute(delete(File).where(File.path.startswith(path)))
         return True
 
     @staticmethod
@@ -115,13 +131,10 @@ class File(P115StrmHelperBase):
     def update_path(db: Session, file_id: int, new_path: str):
         """
         更新指定ID的路径
-
-        逻辑：
-          - 先判断修改后路径是否存在，存在则先删除记录
-          - 匹配文件ID，修改路径
         """
-        db.execute(delete(File).where(File.path == new_path))
-        db.query(File).filter(File.id == file_id).update({"path": new_path})
+        db.query(File).filter(File.id == file_id).update(
+            {"path": new_path}, synchronize_session=False
+        )
 
     @staticmethod
     @db_update
