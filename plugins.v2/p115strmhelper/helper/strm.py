@@ -1,7 +1,7 @@
 import time
 import threading
 import shutil
-from typing import List, Dict, Optional, Set
+from typing import List, Dict, Optional, Set, Tuple
 from pathlib import Path
 from itertools import batched
 import concurrent.futures
@@ -576,22 +576,16 @@ class FullSyncStrmHelper:
         client: P115Client,
         mediainfodownloader: MediaInfoDownloader,
     ):
-        self.rmt_mediaext = [
+        self.rmt_mediaext_set = {
             f".{ext.strip()}"
-            for ext in configer.get_config("user_rmt_mediaext")
-            .replace("，", ",")
-            .split(",")
-        ]
-        self.download_mediaext = [
+            for ext in configer.user_rmt_mediaext.replace("，", ",").split(",")
+        }
+        self.download_mediaext_set = {
             f".{ext.strip()}"
-            for ext in configer.get_config("user_download_mediaext")
-            .replace("，", ",")
-            .split(",")
-        ]
-        self.download_mediaext_set = set(self.download_mediaext)
-        self.rmt_mediaext_set = set(self.rmt_mediaext)
-        self.auto_download_mediainfo = configer.get_config(
-            "full_sync_auto_download_mediainfo_enabled"
+            for ext in configer.user_download_mediaext.replace("，", ",").split(",")
+        }
+        self.auto_download_mediainfo = (
+            configer.full_sync_auto_download_mediainfo_enabled
         )
         self.client = client
         self.mediainfodownloader = mediainfodownloader
@@ -605,19 +599,19 @@ class FullSyncStrmHelper:
         self.remove_unless_strm_count = 0
         self.strm_fail_dict: Dict[str, str] = {}
         self.mediainfo_fail_dict: List = []
-        self.server_address = configer.get_config("moviepilot_address").rstrip("/")
-        self.pan_transfer_enabled = configer.get_config("pan_transfer_enabled")
-        self.pan_transfer_paths = configer.get_config("pan_transfer_paths")
-        self.strm_url_format = configer.get_config("strm_url_format")
-        self.overwrite_mode = configer.get_config("full_sync_overwrite_mode")
-        self.remove_unless_strm = configer.get_config("full_sync_remove_unless_strm")
+        self.server_address = configer.moviepilot_address.rstrip("/")
+        self.pan_transfer_enabled = configer.pan_transfer_enabled
+        self.pan_transfer_paths = configer.pan_transfer_paths
+        self.strm_url_format = configer.strm_url_format
+        self.overwrite_mode = configer.full_sync_overwrite_mode
+        self.remove_unless_strm = configer.full_sync_remove_unless_strm
         self.databasehelper = FileDbHelper()
         self.download_mediainfo_list = []
 
         self.strmurlgetter = StrmUrlGetter()
 
-        self.local_tree = configer.get_config("PLUGIN_TEMP_PATH") / "local_tree.txt"
-        self.pan_tree = configer.get_config("PLUGIN_TEMP_PATH") / "pan_tree.txt"
+        self.local_tree = configer.PLUGIN_TEMP_PATH / "local_tree.txt"
+        self.pan_tree = configer.PLUGIN_TEMP_PATH / "pan_tree.txt"
 
     @staticmethod
     def __remove_parent_dir(file_path: Path):
@@ -640,7 +634,7 @@ class FullSyncStrmHelper:
                         shutil.rmtree(parent_path)
                         logger.warn(f"【全量STRM生成】本地空目录 {parent_path} 已删除")
 
-    def __remove_unless_strm_local(self, target_dir):
+    def __remove_unless_strm_local(self, target_dir: str) -> threading.Thread:
         """
         清理无效 STRM 本地扫描
         """
@@ -673,7 +667,9 @@ class FullSyncStrmHelper:
 
         return local_tree_task_thread
 
-    def __process_db_item(self, batch, seen_folder_ids, seen_file_ids):
+    def __process_db_item(
+        self, batch: List[Dict], seen_folder_ids: Set[str], seen_file_ids: Set[str]
+    ) -> Tuple[Set[str], Set[str]]:
         """
         处理写入数据库的内容
         """
@@ -718,7 +714,9 @@ class FullSyncStrmHelper:
 
         return seen_folder_ids, seen_file_ids
 
-    def __process_single_item(self, item: Dict, target_dir: Path, pan_media_dir: str):
+    def __process_single_item(
+        self, item: Dict, target_dir: Path, pan_media_dir: str
+    ) -> Optional[str]:
         """
         处理单个项目
         """
@@ -1428,8 +1426,8 @@ class TransferStrmHelper:
 
     def generate_strm_files(
         self,
-        target_dir: Path,
-        pan_media_dir: Path,
+        target_dir: str,
+        pan_media_dir: str,
         item_dest_path: Path,
         basename: str,
         url: str,
