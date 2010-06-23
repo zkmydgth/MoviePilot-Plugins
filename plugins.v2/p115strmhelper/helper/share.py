@@ -172,6 +172,7 @@ class ShareTransferHelper:
                 image=file_mediainfo.poster_path,
                 userid=userid,
             )
+        self.post_share_info("aliyun", share_id, None, file_mediainfo)
 
     def __add_share(self, url, channel, userid):
         """
@@ -263,7 +264,7 @@ class ShareTransferHelper:
                         image=file_mediainfo.poster_path,
                         userid=userid,
                     )
-                self.post_share_info(share_code, receive_code, file_mediainfo)
+                self.post_share_info("115", share_code, receive_code, file_mediainfo)
             else:
                 logger.info(f"【分享转存】转存 {share_code} 失败：{resp['error']}")
                 post_message(
@@ -298,7 +299,10 @@ class ShareTransferHelper:
 
     @staticmethod
     def post_share_info(
-        share_code: str, receive_code: str, file_mediainfo: Optional[MediaInfo] = None
+        type: str,
+        share_code: str,
+        receive_code: Optional[str],
+        file_mediainfo: Optional[MediaInfo] = None,
     ):
         """
         上传分享信息
@@ -334,7 +338,14 @@ class ShareTransferHelper:
                 else:
                     json_data[key] = value
 
-        json_data["url"] = f"https://115cdn.com/s/{share_code}?password={receive_code}"
+        if type == "115":
+            json_data["url"] = (
+                f"https://115cdn.com/s/{share_code}?password={receive_code}"
+            )
+            path = "/share/info"
+        else:
+            json_data["url"] = f"https://www.alipan.com/s/{share_code}"
+            path = "/ali_share/info"
         json_data["postime"] = (
             datetime.now(timezone.utc)
             .isoformat(timespec="milliseconds")
@@ -342,7 +353,7 @@ class ShareTransferHelper:
         )
         try:
             response = oopserver_request.make_request(
-                path="/share/info",
+                path=path,
                 method="POST",
                 headers={"x-machine-id": configer.get_config("MACHINE_ID")},
                 json_data=json_data,

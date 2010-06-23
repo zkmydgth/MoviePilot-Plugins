@@ -731,7 +731,7 @@ class Api:
                         image=file_mediainfo.poster_path,
                     )
             servicer.sharetransferhelper.post_share_info(
-                share_code, receive_code, file_mediainfo
+                "115", share_code, receive_code, file_mediainfo
             )
             return {
                 "code": 0,
