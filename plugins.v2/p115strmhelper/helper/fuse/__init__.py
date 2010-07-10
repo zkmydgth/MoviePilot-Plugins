@@ -2,7 +2,7 @@ __author__ = "ChenyangGao <https://chenyanggao.github.io>"
 __license__ = "GPLv3 <https://www.gnu.org/licenses/gpl-3.0.txt>"
 __all__ = ["P115FuseOperations", "FUSE_AVAILABLE"]
 
-from errno import ENOTDIR
+from errno import EIO, ENOENT, ENOTDIR
 from collections.abc import Callable, Mapping
 from functools import wraps
 from itertools import count
@@ -151,7 +151,16 @@ class P115FuseOperations(Operations):
         self._get_id: Callable[[], int] = count(1).__next__
 
     def getattr(self, /, path: str, fh: int = 0) -> dict[str, Any]:
-        return attr_to_stat(self.fs.get_attr(path), uid=self.uid, gid=self.gid)
+        try:
+            return attr_to_stat(self.fs.get_attr(path), uid=self.uid, gid=self.gid)
+        except FileNotFoundError:
+            raise OSError(ENOENT, path)
+        except OSError:
+            raise
+        except Exception as e:
+            sentry_manager.sentry_hub.capture_exception(e)
+            logger.error(f"【FUSE】getattr failed ({path}): {e}", exc_info=True)
+            raise OSError(EIO, str(e))
 
     @log
     def getxattr(self, /, path: str, name: str, position: int = 0) -> bytes:
@@ -190,8 +199,15 @@ class P115FuseOperations(Operations):
 
     @log
     def readdir(self, /, path: str, fh: int = 0) -> list[str]:
-        children = self.fs.readdir(path)
-        return [".", "..", *(a["name"] for a in children)]
+        try:
+            children = self.fs.readdir(path)
+            return [".", "..", *(a["name"] for a in children)]
+        except FileNotFoundError:
+            raise OSError(ENOENT, path)
+        except OSError:
+            raise
+        except Exception as e:
+            raise OSError(EIO, str(e))
 
     @log
     def release(self, /, path: str, fh: int) -> int:

@@ -221,7 +221,15 @@ class FuseManager:
             try:
                 self._unmount_fuse(self.fuse_mountpoint)
             except Exception as e:
-                logger.warning(f"【FUSE】卸载挂载点失败: {e}")
+                logger.warning(
+                    f"【FUSE】常规卸载失败，尝试懒卸载: {self.fuse_mountpoint} - {e}"
+                )
+                try:
+                    self._unmount_fuse_lazy(self.fuse_mountpoint)
+                except Exception as e2:
+                    logger.warning(
+                        f"【FUSE】懒卸载也失败: {self.fuse_mountpoint} - {e2}"
+                    )
 
         self.fuse_thread.join(timeout=10)
         if self.fuse_thread.is_alive():
