@@ -2,6 +2,7 @@ import time
 from enum import IntEnum
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
+from threading import Thread
 
 import grpc
 from cryptography.hazmat.primitives import hashes
@@ -626,6 +627,8 @@ class CloudDriveApi:
             return None
         upload_id = started.upload_id
         progress_callback = transfer_process(target_path)
+        stream = None
+        upload_finished = False
         try:
             stream = self.client.remote_upload_channel(
                 device_id=f"moviepilot-{upload_id}"
@@ -766,17 +769,37 @@ class CloudDriveApi:
                         st = reply.status_changed.status
                         if st == UploadStatus.FINISH:
                             progress_callback(100)
-                            stream.cancel()
+                            upload_finished = True
                             break
                         if st in (UploadStatus.ERROR, UploadStatus.FATAL_ERROR):
                             msg = reply.status_changed.error_message or "上传失败"
                             logger.error("【CloudDrive】上传状态错误: %s", msg)
-                            stream.cancel()
+                            self._cancel_upload(upload_id)
                             return None
         except Exception as e:
             logger.error("【CloudDrive】上传过程异常: %s", e)
             self._cancel_upload(upload_id)
             return None
+        finally:
+            if stream is not None:
+                if upload_finished:
+                    _stream_ref = stream
+
+                    def _drain_stream() -> None:
+                        try:
+                            for _ in _stream_ref:
+                                pass
+                        except Exception:
+                            pass
+
+                    Thread(
+                        target=_drain_stream, daemon=True, name="cd2-stream-drain"
+                    ).start()
+                else:
+                    try:
+                        stream.cancel()
+                    except Exception:
+                        pass
         return self.get_item(Path(target_path))
 
     def link(self, fileitem: FileItem, target_file: Path) -> bool:
