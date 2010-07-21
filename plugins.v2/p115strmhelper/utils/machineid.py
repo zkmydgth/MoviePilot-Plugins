@@ -36,12 +36,7 @@ class MachineID:
         if path.exists():
             raise RuntimeError(f"Machine ID already exists at {path}")
 
-        unique_data = (
-            str(uuid.uuid1())
-            + str(uuid.uuid4())
-            + str(Path.cwd())
-            + str(hashlib.sha256(Path("/").read_bytes()).hexdigest())
-        )
+        unique_data = str(uuid.uuid1()) + str(uuid.uuid4()) + str(Path.cwd())
 
         hash_obj = hashlib.sha3_512(unique_data.encode("utf-8"))
         machine_id = hash_obj.hexdigest()
