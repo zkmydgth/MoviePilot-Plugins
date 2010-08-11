@@ -577,7 +577,7 @@ class EmbyMediainfoQueue:
         """
         if self._worker_thread is not None and self._worker_thread.is_alive():
             return
-        self._queue = Queue(maxsize=4096)
+        self._queue = Queue()
         self._worker_thread = Thread(
             target=self._worker,
             name="P115StrmHelper-EmbyMediainfoQueue",

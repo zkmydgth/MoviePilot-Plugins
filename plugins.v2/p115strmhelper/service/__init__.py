@@ -28,6 +28,7 @@ from ..helper.strm import FullSyncStrmHelper, ShareStrmHelper, IncrementSyncStrm
 from ..helper.transfer import TransferTaskManager, TransferHandler
 from ..helper.webdav import WebdavCore
 from ..helper.mediaserver import emby_mediainfo_queue
+from ..helper.mediasyncdel.webhook_queue import sync_del_webhook_queue
 from ..patch import TransferChainPatcher
 from ..schemas.monitor import ObserverInfo
 from ..service.fuse import FuseManager
@@ -684,6 +685,10 @@ class ServiceHelper:
                 emby_mediainfo_queue.stop()
             except Exception as e:
                 logger.debug(f"【Emby 媒体信息队列】停止 worker 异常: {e}")
+            try:
+                sync_del_webhook_queue.stop()
+            except Exception as e:
+                logger.debug(f"【同步删除 Webhook 队列】停止 worker 异常: {e}")
             try:
                 TransferChainPatcher.disable()
             except Exception as e:

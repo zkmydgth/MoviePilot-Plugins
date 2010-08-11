@@ -34,6 +34,10 @@ from .interactive.session import Session
 from .interactive.views import ViewRenderer
 from .helper.strm import FullSyncStrmHelper, TransferStrmHelper
 from .helper.mediasyncdel import MediaSyncDelHelper
+from .helper.mediasyncdel.webhook_queue import (
+    SyncDelWebhookTask,
+    sync_del_webhook_queue,
+)
 from .utils.path import PathUtils
 from .utils.sentry import sentry_manager
 from .utils.share_url import ShareUrlUtils
@@ -1388,14 +1392,15 @@ class P115StrmHelper(_PluginBase):
         if not event or not event.event_data:
             return
 
-        mediasyncdel_helper = MediaSyncDelHelper()
-        mediasyncdel_helper.sync_del_by_webhook(
-            event_data=event.event_data,
-            enabled=configer.sync_del_enabled,
-            notify=configer.sync_del_notify,
-            del_source=configer.sync_del_source,
-            p115_library_path=configer.sync_del_p115_library_path,
-            p115_force_delete_files=configer.sync_del_p115_force_delete_files,
+        sync_del_webhook_queue.enqueue(
+            SyncDelWebhookTask(
+                event_data=deepcopy(event.event_data),
+                enabled=configer.sync_del_enabled,
+                notify=configer.sync_del_notify,
+                del_source=configer.sync_del_source,
+                p115_library_path=configer.sync_del_p115_library_path,
+                p115_force_delete_files=configer.sync_del_p115_force_delete_files,
+            )
         )
 
     @eventmanager.register(EventType.DownloadFileDeleted)
