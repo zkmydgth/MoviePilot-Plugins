@@ -136,6 +136,13 @@ jobs:
         with:
           package-dir: ${{ needs.get_source_info.outputs.source_dir }}
 
+      - name: Dir List
+        shell: bash
+        run: |
+          ls -al
+          pwd
+          tree
+
       # 步骤6：将构建好的 wheel 文件作为产物上传
       - name: 上传构建产物
         uses: actions/upload-artifact@v4
