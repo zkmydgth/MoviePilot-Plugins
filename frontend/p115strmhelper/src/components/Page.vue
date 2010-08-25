@@ -1,4 +1,5 @@
 <template>
+  <div class="p115strmhelper-remote-root" ref="aprilFoolsCaptureRoot">
   <div class="plugin-page">
     <v-card flat class="rounded border page-main-card" style="display: flex; flex-direction: column;">
       <!-- 标题区域 -->
@@ -1349,11 +1350,15 @@
     </v-card>
   </v-dialog>
 
+  <AprilFoolsPrank :capture-root="aprilFoolsCaptureRoot" />
+  </div>
+
 </template>
 
 <script setup>
 import { ref, reactive, computed, onMounted, onBeforeUnmount, watch } from 'vue';
 import { ensureSentryInitialized } from '../utils/init-sentry.js';
+import AprilFoolsPrank from './AprilFoolsPrank.vue';
 import FullSyncConfirmDialog from './dialogs/FullSyncConfirmDialog.vue';
 import DirSelectorDialog from './dialogs/DirSelectorDialog.vue';
 
@@ -1369,6 +1374,8 @@ const props = defineProps({
 });
 
 const emit = defineEmits(['close', 'switch', 'update:config', 'action']);
+
+const aprilFoolsCaptureRoot = ref(null);
 
 const parseSize = (sizeString) => {
   if (!sizeString || typeof sizeString !== 'string') return 0;
@@ -2643,6 +2650,18 @@ async function fetchUserStorageStatus() {
   to {
     transform: rotate(360deg);
   }
+}
+
+.p115strmhelper-remote-root {
+  width: 100%;
+  max-width: 100%;
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  box-sizing: border-box;
+  overflow: hidden;
 }
 
 .plugin-page {

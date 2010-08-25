@@ -1,5 +1,5 @@
 <template>
-  <div class="plugin-config">
+  <div class="plugin-config" ref="aprilFoolsCaptureRoot">
     <v-card flat class="rounded border config-main-card" style="display: flex; flex-direction: column;">
       <!-- 标题区域 -->
       <v-card-title class="text-subtitle-1 d-flex align-center px-3 py-1 bg-primary-lighten-5">
@@ -229,12 +229,14 @@
     <!-- 频道配置导入对话框 -->
     <ImportChannelDialog :import-dialog="importDialog" @close="closeImportDialog" @confirm="handleConfirmImport" />
 
+    <AprilFoolsPrank :capture-root="aprilFoolsCaptureRoot" />
   </div>
 </template>
 
 <script setup>
 import { ref, reactive, computed, onMounted, watch, provide } from 'vue';
 import { ensureSentryInitialized } from '../utils/init-sentry.js';
+import AprilFoolsPrank from './AprilFoolsPrank.vue';
 import { usePathManagement } from './composables/usePathManagement.js';
 import { useQrCode } from './composables/useQrCode.js';
 import { useDirSelector } from './composables/useDirSelector.js';
@@ -265,6 +267,8 @@ const props = defineProps({
 });
 
 const emit = defineEmits(['save', 'close', 'switch']);
+
+const aprilFoolsCaptureRoot = ref(null);
 
 // 定义插件ID常量，修复pluginId未定义错误
 const PLUGIN_ID = "P115StrmHelper";
