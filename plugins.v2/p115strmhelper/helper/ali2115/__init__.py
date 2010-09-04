@@ -73,7 +73,6 @@ class Ali2115Helper:
             filesha1=full_sha1,
             pid=m115_dir_id,
             read_range_bytes_or_hash=self.double_sha1_range,
-            **configer.get_ios_ua_app(app=False),
         )
 
     def get_ali_folder_id(self):

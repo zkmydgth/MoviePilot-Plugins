@@ -217,7 +217,6 @@ class P115DiskCore:
                             filesha1=file_sha1,
                             pid=target_pid,
                             read_range_bytes_or_hash=read_range_hash,
-                            **configer.get_ios_ua_app(app=False),
                         )
                         check_response(init_resp)
                         break
