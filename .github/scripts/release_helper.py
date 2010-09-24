@@ -87,11 +87,11 @@ def process_package_file(filepath, plugins_base_dir):
     # 比较插件版本
     for plugin_id, new_plugin_info in new_data.items():
         old_plugin_info = old_data.get(plugin_id, {})
-        new_version = new_plugin_info.get("version")
-        old_version = old_plugin_info.get("version")
+        new_version = new_plugin_info.get("version", "0.0.0")
+        old_version = old_plugin_info.get("version", "0.0.0")
 
-        # 条件：版本不同，并且有 release: true 标签
-        if new_version != old_version and new_plugin_info.get("release") is True:
+        # 条件：版本更新，并且有 release: true 标签
+        if new_version > old_version and new_plugin_info.get("release") is True:
             print(
                 f"Update detected for '{plugin_id}': {old_version} -> {new_version}. Marked for release."
             )
