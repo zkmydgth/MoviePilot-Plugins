@@ -14,7 +14,13 @@ from fastapi.responses import (
     Response,
     StreamingResponse,
 )
-from httpx import AsyncClient, Limits, Response as HttpxResponse
+from httpx import (
+    AsyncClient,
+    Limits,
+    Response as HttpxResponse,
+    Timeout,
+    TimeoutException,
+)
 from starlette.requests import ClientDisconnect
 from websockets import connect
 
@@ -35,6 +41,7 @@ PLAYBACK_URL_CACHE_TTL_SECONDS = 90
 PLAYBACK_USER_CACHE_TTL_SECONDS = 300
 PLAYBACK_URL_CACHE_MAX_SIZE = 500
 PLAYBACK_STRM_CACHE_TTL_SECONDS = 300
+REDIRECT_RESOLVE_TIMEOUTS = ((3.0, 10.0), (3.0, 15.0), (5.0, 20.0))
 
 CACHE_KEY_HEADERS = (
     "authorization",
@@ -473,12 +480,39 @@ def create_app(
         """
         if user_id:
             headers = {**headers, "X-Emby-UserId": user_id}
-        try:
-            resp = await client.head(url, headers=headers, timeout=10)
-            return str(resp.url)
-        except Exception:
-            logger.warning("解析重定向失败，使用原始 URL: %s", url, exc_info=True)
-            return url
+        max_attempts = len(REDIRECT_RESOLVE_TIMEOUTS)
+        for attempt, (connect_timeout, read_timeout) in enumerate(
+            REDIRECT_RESOLVE_TIMEOUTS, 1
+        ):
+            try:
+                resp = await client.head(
+                    url,
+                    headers=headers,
+                    timeout=Timeout(read_timeout, connect=connect_timeout),
+                )
+                return str(resp.url)
+            except TimeoutException as e:
+                if attempt >= max_attempts:
+                    logger.warning(
+                        "解析重定向超时，使用原始 URL: %s (%s)",
+                        url,
+                        type(e).__name__,
+                        exc_info=True,
+                    )
+                    return url
+                logger.info(
+                    "解析重定向超时，准备重试: url=%s, attempt=%s/%s, connect=%ss, read=%ss, error=%s",
+                    url,
+                    attempt,
+                    max_attempts,
+                    connect_timeout,
+                    read_timeout,
+                    type(e).__name__,
+                )
+            except Exception:
+                logger.warning("解析重定向失败，使用原始 URL: %s", url, exc_info=True)
+                return url
+        return url
 
     def _apply_pin_rules(url_or_path: str, rules: List[Tuple[str, str]]) -> str:
         """
