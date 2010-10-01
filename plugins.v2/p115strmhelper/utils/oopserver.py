@@ -5,6 +5,7 @@ from typing import Any, Optional, Dict
 import httpx
 
 from ..core.config import configer
+from ..schemas.machineid import MachineIDFeature
 
 
 class OOPServerRequest:
@@ -116,16 +117,16 @@ class OOPServerHelper:
     """
 
     @staticmethod
-    def check_feature(name: str = "") -> Dict:
+    def check_feature(name: str = "") -> MachineIDFeature:
         """
         判断是否有权限使用此增强功能
         """
         if not name:
-            return {
-                "machine_id": "",
-                "feature_name": "",
-                "enabled": False,
-            }
+            return MachineIDFeature(
+                machine_id=None,
+                feature_name=None,
+                enabled=False,
+            )
 
         try:
             oopserver = OOPServerRequest()
@@ -137,15 +138,15 @@ class OOPServerHelper:
                 timeout=10.0,
             )
             if resp is not None and resp.status_code == 200:
-                return resp.json()
-            return {
-                "machine_id": machine_id,
-                "feature_name": name,
-                "enabled": False,
-            }
+                return MachineIDFeature(**resp.json())
+            return MachineIDFeature(
+                machine_id=machine_id,
+                feature_name=name,
+                enabled=False,
+            )
         except Exception:
-            return {
-                "machine_id": "",
-                "feature_name": name,
-                "enabled": False,
-            }
+            return MachineIDFeature(
+                machine_id=None,
+                feature_name=name,
+                enabled=False,
+            )

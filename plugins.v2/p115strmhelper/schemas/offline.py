@@ -16,3 +16,23 @@ class AddOfflineTaskPayload(BaseModel):
     """
     links: List[str] = Field(..., description="下载链接列表，不能为空")
     path: Optional[str] = Field(default=None, description="指定的下载路径（可选）")
+
+class OfflineTaskItem(BaseModel):
+    """
+    离线下载任务列表
+    """
+    info_hash: str
+    name: str
+    size: int
+    size_text: str
+    status: int
+    status_text: str
+    percent: float
+    add_time: int
+
+class OfflineTasksData(BaseModel):
+    """
+    返回数据
+    """
+    total: int
+    tasks: List[OfflineTaskItem]
