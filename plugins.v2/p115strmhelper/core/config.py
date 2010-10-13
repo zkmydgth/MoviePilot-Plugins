@@ -531,6 +531,13 @@ class ConfigManager(BaseModel):
         return str(v)
 
     @property
+    def p115center_license(self) -> str:
+        """
+        返回 p115center 许可证
+        """
+        return "0bdd306024b0b8179535affb97db6af330ab59554fa5a2fe7b100863cdb1b95c"
+
+    @property
     def PLUGIN_ALIGO_PATH(self) -> Path:
         """
         返回 aligo 配置的动态路径

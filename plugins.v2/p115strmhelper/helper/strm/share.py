@@ -221,7 +221,7 @@ class ShareOOPServerHelper:
 
         try:
             client = P115Center(
-                license="fa1a823e9d29cfd1e15eaaab19daaede653356b770d7dcdcdbe05b793b5cb5a8",
+                license=configer.p115center_license,
                 file_path=str(Path(__file__).resolve().parent.parent.parent / "api.py"),
             )
             resp = client.upload_share_file_iter(batch_id, temp_file)

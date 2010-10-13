@@ -57,7 +57,7 @@ class MediaInfoDownloader:
             configer.PLUGIN_TEMP_PATH / "oof_fast_mi"
         )
         self.p115_center = P115Center(
-            license="fa1a823e9d29cfd1e15eaaab19daaede653356b770d7dcdcdbe05b793b5cb5a8",
+            license=configer.p115center_license,
             file_path=str(Path(__file__).resolve().parent.parent.parent / "api.py"),
         )
         self.zstd_compressor = ZstdCompressor()

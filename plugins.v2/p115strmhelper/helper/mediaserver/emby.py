@@ -10,6 +10,7 @@ from app.log import logger
 from app.schemas import ServiceInfo
 from app.utils.http import RequestUtils
 
+from ...core.config import configer
 from ...utils.path import PathUtils
 
 
@@ -77,7 +78,7 @@ class EmbyMediaInfoOperate:
         self.media_servers = mediaservers
         self.mp_mediaserver = mp_mediaserver
         self.center = P115Center(
-            license="fa1a823e9d29cfd1e15eaaab19daaede653356b770d7dcdcdbe05b793b5cb5a8",
+            license=configer.p115center_license,
             file_path=str(Path(__file__).resolve().parent.parent.parent / "api.py"),
         )
 
