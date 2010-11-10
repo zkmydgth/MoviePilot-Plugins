@@ -91,11 +91,12 @@
         "name": "115网盘STRM助手",
         "description": "115网盘STRM生成一条龙服务",
         "labels": "云盘",
-        "version": "1.8.18",
+        "version": "1.8.19",
         "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png",
         "author": "DDSRem",
         "level": 1,
         "history": {
+            "v1.8.19": "添加转存网盘整理API接口，欢迎各位大佬接入",
             "v1.8.18": "优化转存信息格式",
             "v1.8.17": "优化代码，避免重复数据库提交",
             "v1.8.16": "优化数据库写入，尽可能避免路径重复",

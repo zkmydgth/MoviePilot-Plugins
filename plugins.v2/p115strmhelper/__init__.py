@@ -15,6 +15,7 @@ from urllib.parse import quote, unquote, urlsplit, urlencode
 from itertools import chain, batched
 from pathlib import Path
 from functools import wraps
+from dataclasses import asdict
 
 import pytz
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -1531,7 +1532,7 @@ class P115StrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png"
     # 插件版本
-    plugin_version = "1.8.18"
+    plugin_version = "1.8.19"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -1947,6 +1948,12 @@ class P115StrmHelper(_PluginBase):
                 "methods": ["GET", "POST", "HEAD"],
                 "summary": "302跳转",
                 "description": "115网盘302跳转",
+            },
+            {
+                "path": "/add_transfer_share",
+                "endpoint": self.add_transfer_share,
+                "methods": ["GET"],
+                "summary": "添加分享转存整理",
             },
             {
                 "path": "/user_storage_status",
@@ -3142,6 +3149,29 @@ class P115StrmHelper(_PluginBase):
                 logger.error(f"【分享转存】任务处理异常: {e}")
                 time.sleep(5)
 
+    def __add_share_recognize_mediainfo(self, share_code: str, receive_code: str):
+        """
+        分享转存识别媒体信息
+        """
+        file_num = 0
+        file_mediainfo = None
+        for item in share_iterdir(
+            self._client,
+            receive_code=receive_code,
+            share_code=share_code,
+            cid=0,
+        ):
+            if file_num == 1:
+                file_num = 2
+                break
+            item_name = item["name"]
+            file_num += 1
+        if file_num == 1:
+            mediachain = MediaChain()
+            file_meta = MetaInfo(title=item_name)
+            file_mediainfo = mediachain.recognize_by_meta(file_meta)
+        return file_mediainfo
+
     def __add_share(self, url, channel, userid):
         """
         分享转存
@@ -3191,23 +3221,9 @@ class P115StrmHelper(_PluginBase):
             )
 
             # 尝试识别媒体信息
-            file_num = 0
-            file_mediainfo = None
-            for item in share_iterdir(
-                self._client,
-                receive_code=receive_code,
-                share_code=share_code,
-                cid=0,
-            ):
-                if file_num == 1:
-                    file_num = 2
-                    break
-                item_name = item["name"]
-                file_num += 1
-            if file_num == 1:
-                mediachain = MediaChain()
-                file_meta = MetaInfo(title=item_name)
-                file_mediainfo = mediachain.recognize_by_meta(file_meta)
+            file_mediainfo = self.__add_share_recognize_mediainfo(
+                share_code=share_code, receive_code=receive_code
+            )
 
             resp = self._client.share_receive(payload)
             if resp["state"]:
@@ -3247,6 +3263,90 @@ class P115StrmHelper(_PluginBase):
             f"【分享转存】{url} 任务已加入分享转存队列，当前队列大小：{self._add_share_queue.qsize()}"
         )
         self._ensure_add_share_worker_running()
+
+    def add_transfer_share(self, share_url: str = "") -> Dict:
+        """
+        添加分享转存整理
+        """
+        if not self._pan_transfer_enabled or not self._pan_transfer_paths:
+            return {
+                "code": -1,
+                "error": "配置错误",
+                "message": "用户未配置网盘整理",
+            }
+
+        if not share_url:
+            return {
+                "code": -1,
+                "error": "参数错误",
+                "message": "未传入分享链接",
+            }
+
+        data = share_extract_payload(share_url)
+        share_code = data["share_code"]
+        receive_code = data["receive_code"]
+        logger.info(
+            f"【分享转存API】解析分享链接 share_code={share_code} receive_code={receive_code}"
+        )
+        if not share_code or not receive_code:
+            logger.error(f"【分享转存API】解析分享链接失败：{share_url}")
+            return {
+                "code": -1,
+                "error": "解析失败",
+                "message": "解析分享链接失败",
+            }
+
+        file_mediainfo = self.__add_share_recognize_mediainfo(
+            share_code=share_code, receive_code=receive_code
+        )
+
+        parent_path = self._pan_transfer_paths.split("\n")[0]
+        parent_id = self.id_path_cache.get_id_by_dir(directory=str(parent_path))
+        if not parent_id:
+            parent_id = self._client.fs_dir_getid(parent_path)["id"]
+            logger.info(f"【分享转存API】获取到转存目录 ID：{parent_id}")
+            self.id_path_cache.add_cache(id=int(parent_id), directory=str(parent_path))
+
+        payload = {
+            "share_code": share_code,
+            "receive_code": receive_code,
+            "file_id": 0,
+            "cid": int(parent_id),
+            "is_check": 0,
+        }
+        resp = self._client.share_receive(payload)
+        if resp["state"]:
+            logger.info(f"【分享转存API】转存 {share_code} 到 {parent_path} 成功！")
+            if self._notify:
+                if not file_mediainfo:
+                    self.post_message(
+                        mtype=NotificationType.Plugin,
+                        title=f"转存 {share_code} 到 {parent_path} 成功！",
+                    )
+                else:
+                    self.post_message(
+                        mtype=NotificationType.Plugin,
+                        title=f"转存 {file_mediainfo.title}（{file_mediainfo.year}）成功",
+                        text=f"\n简介: {file_mediainfo.overview}",
+                        image=file_mediainfo.poster_path,
+                    )
+            return {
+                "code": 0,
+                "success": True,
+                "message": "转存成功",
+                "data": {
+                    "media_info": asdict(file_mediainfo) if file_mediainfo else None,
+                    "save_parent": {"path": parent_path, "id": parent_id},
+                },
+                "timestamp": datetime.now().isoformat(),
+            }
+
+        logger.info(f"【分享转存API】转存 {share_code} 失败：{resp['error']}")
+        return {
+            "code": -1,
+            "error": "转存失败",
+            "message": resp["error"],
+        }
 
     @eventmanager.register(EventType.UserMessage)
     def user_add_share(self, event: Event):
@@ -4741,7 +4841,7 @@ class P115StrmHelper(_PluginBase):
                 "message": f"未知的115业务状态码: {status_code}",
             }
 
-    def _check_qrcode_api(self, request: Request) -> dict:
+    def _check_qrcode_api(self, request: Request) -> Dict:
         """
         检查二维码状态
         """
