@@ -92,11 +92,12 @@
         "name": "115网盘STRM助手",
         "description": "115网盘STRM生成一条龙服务",
         "labels": "云盘",
-        "version": "1.8.32",
+        "version": "1.8.33",
         "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png",
         "author": "DDSRem",
         "level": 1,
         "history": {
+            "v1.8.33": "回退尝试使用旧版本依赖；如有问题，请到仓库提issues，并贴上网络配置与相关日志"
             "v1.8.32": "修复依赖问题",
             "v1.8.31": "全量同步消息格式错误",
             "v1.8.30": "再次优化布尔值配置自动修正",
