@@ -299,11 +299,12 @@
         "name": "123云盘储存",
         "description": "使存储支持123云盘。",
         "labels": "云盘",
-        "version": "1.0.21",
+        "version": "1.1.0",
         "icon": "https://raw.githubusercontent.com/DDS-Derek/MoviePilot-Plugins/main/icons/P123Disk.png",
         "author": "DDSRem",
         "level": 1,
         "history": {
+            "v1.1.0": "重构下载文件和上传文件模块，适配最新MP进度条",
             "v1.0.21": "修复依赖缺失问题",
             "v1.0.20": "适配最新版本快照存储",
             "v1.0.19": "增强稳定性，更新依赖，更新完成需要重启MP",

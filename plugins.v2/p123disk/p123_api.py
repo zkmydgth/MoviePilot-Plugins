@@ -2,6 +2,7 @@ import ast
 import time
 from pathlib import Path
 from typing import Optional, List, Dict
+from hashlib import md5
 from datetime import datetime
 
 import pytz
@@ -9,8 +10,10 @@ import requests
 from p123client import P123Client, check_response
 
 import schemas
-from app.core.config import settings
 from app.log import logger
+from app.core.config import settings, global_vars
+from app.modules.filemanager.storages import transfer_process
+from app.utils.string import StringUtils
 
 
 class P123Api:
@@ -303,11 +306,11 @@ class P123Api:
         s3keyflag = json_obj["S3KeyFlag"]
         file_id = fileitem.fileid
         file_name = fileitem.name
-        md5 = json_obj["Etag"]
+        _md5 = json_obj["Etag"]
         size = json_obj["Size"]
         try:
             payload = {
-                "Etag": md5,
+                "Etag": _md5,
                 "FileID": int(file_id),
                 "FileName": file_name,
                 "S3KeyFlag": s3keyflag,
@@ -317,14 +320,51 @@ class P123Api:
             check_response(resp)
             download_url = resp["data"]["DownloadUrl"]
             local_path = path or settings.TEMP_PATH / fileitem.name
+        except Exception as e:
+            logger.error(f"【123】获取下载链接失败: {fileitem.name} - {str(e)}")
+            return None
+
+        # 获取文件大小
+        file_size = fileitem.size
+
+        # 初始化进度条
+        logger.info(f"【123】开始下载: {fileitem.name} -> {local_path}")
+        progress_callback = transfer_process(Path(fileitem.path).as_posix())
+
+        try:
             with requests.get(download_url, stream=True) as r:
                 r.raise_for_status()
+                downloaded_size = 0
+
                 with open(local_path, "wb") as f:
-                    for chunk in r.iter_content(chunk_size=8192):
-                        f.write(chunk)
-            return local_path
-        except Exception:
+                    for chunk in r.iter_content(chunk_size=10 * 1024 * 1024):
+                        if global_vars.is_transfer_stopped(fileitem.path):
+                            logger.info(f"【123】{fileitem.path} 下载已取消！")
+                            return None
+                        if chunk:
+                            f.write(chunk)
+                            downloaded_size += len(chunk)
+                            # 更新进度
+                            if file_size:
+                                progress = (downloaded_size * 100) / file_size
+                                progress_callback(progress)
+
+                # 完成下载
+                progress_callback(100)
+                logger.info(f"【123】下载完成: {fileitem.name}")
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"【123】下载网络错误: {fileitem.name} - {str(e)}")
+            if local_path.exists():
+                local_path.unlink()
             return None
+        except Exception as e:
+            logger.error(f"【123】下载失败: {fileitem.name} - {str(e)}")
+            if local_path.exists():
+                local_path.unlink()
+            return None
+
+        return local_path
 
     def upload(
         self,
@@ -340,76 +380,152 @@ class P123Api:
         """
         target_name = new_name or local_path.name
         target_path = Path(target_dir.path) / target_name
+
+        file_size = local_path.stat().st_size
+
+        logger.debug(f"【123】{local_path} 开始计算 md5 值...")
+        file_md5 = ""
+        with open(local_path, "rb") as f:
+            hash_md5 = md5()
+            for chunk in iter(lambda: f.read(4096), b""):
+                hash_md5.update(chunk)
+            file_md5 = hash_md5.hexdigest()
+
         try:
-            for _ in range(3):
-                try:
-                    resp = self.client.upload_file_fast(
-                        file=local_path,
-                        duplicate=2,
-                        file_name=new_name,
-                        parent_id=target_dir.fileid,
-                    )
-                    logger.debug(f"【123】{new_name} 秒传文件信息: {resp}")
-                    check_response(resp)
-                    data = resp.get("data", {}).get("Info", None)
-                    if data:
-                        logger.info(f"【123】{new_name} 秒传文件成功: {target_path}")
-                        logger.debug(f"【123】{new_name} 秒传文件: {data}")
-                        return schemas.FileItem(
-                            storage=self._disk_name,
-                            fileid=str(data["FileId"]),
-                            path=str(target_path) + ("/" if data["Type"] == 1 else ""),
-                            type="file" if data["Type"] == 0 else "dir",
-                            name=data["FileName"],
-                            basename=Path(data["FileName"]).stem,
-                            extension=Path(data["FileName"]).suffix[1:]
-                            if data["Type"] == 0
-                            else None,
-                            pickcode=str(data),
-                            size=data["Size"] if data["Type"] == 0 else None,
-                            modify_time=int(
-                                datetime.fromisoformat(data["UpdateAt"]).timestamp()
-                            ),
-                        )
-
-                    resp = self.client.upload_file(
-                        file=local_path,
-                        duplicate=2,
-                        file_name=new_name,
-                        parent_id=target_dir.fileid,
-                    )
-                    logger.debug(f"【123】{new_name} 上传文件信息: {resp}")
-                    check_response(resp)
-                    data = resp.get("data", {}).get("file_info", None)
-                    if data:
-                        logger.info(f"【123】{new_name} 上传文件成功: {target_path}")
-                        logger.debug(f"【123】{new_name} 上传文件: {data}")
-                        return schemas.FileItem(
-                            storage=self._disk_name,
-                            fileid=str(data["FileId"]),
-                            path=str(target_path) + ("/" if data["Type"] == 1 else ""),
-                            type="file" if data["Type"] == 0 else "dir",
-                            name=data["FileName"],
-                            basename=Path(data["FileName"]).stem,
-                            extension=Path(data["FileName"]).suffix[1:]
-                            if data["Type"] == 0
-                            else None,
-                            pickcode=str(data),
-                            size=data["Size"] if data["Type"] == 0 else None,
-                            modify_time=int(
-                                datetime.fromisoformat(data["UpdateAt"]).timestamp()
-                            ),
-                        )
-                except Exception as e:
-                    logger.error(f"【123】{new_name} 上传文件出现未知错误: {e}")
-
-                logger.warn(f"【123】{new_name} 上传文件自动重试")
-                time.sleep(5)
-
-            logger.error(f"【123】{new_name} 上传文件失败")
-            return None
+            # 秒传文件
+            resp = self.client.upload_request(
+                {
+                    "etag": file_md5,
+                    "fileName": target_name,
+                    "size": file_size,
+                    "parentFileId": int(target_dir.fileid),
+                    "type": 0,
+                    "duplicate": 2,
+                }
+            )
+            check_response(resp)
+            if resp.get("data").get("Reuse"):
+                logger.info(f"【123】{target_name} 秒传成功")
+                logger.debug(resp)
+                data = resp.get("data", {}).get("Info", None)
+                return schemas.FileItem(
+                    storage=self._disk_name,
+                    fileid=str(data["FileId"]),
+                    path=str(target_path) + ("/" if data["Type"] == 1 else ""),
+                    type="file" if data["Type"] == 0 else "dir",
+                    name=data["FileName"],
+                    basename=Path(data["FileName"]).stem,
+                    extension=Path(data["FileName"]).suffix[1:]
+                    if data["Type"] == 0
+                    else None,
+                    pickcode=str(data),
+                    size=data["Size"] if data["Type"] == 0 else None,
+                    modify_time=int(
+                        datetime.fromisoformat(data["UpdateAt"]).timestamp()
+                    ),
+                )
         except Exception as e:
-            logger.error(f"【123】{new_name} 上传文件失败: {e}")
+            logger.error(f"【123】{target_name} 秒传出现未知错误：{e}")
+            return None
+
+        try:
+            # 上传信息
+            upload_data = resp["data"]
+            # 分块大小
+            slice_size = int(upload_data["SliceSize"])
+
+            upload_request_kwargs = {
+                "method": "PUT",
+                "headers": {"authorization": ""},
+                "parse": ...,
+            }
+
+            if file_size > slice_size:
+                # 大文件分块上传
+                logger.info(
+                    f"【123】开始上传: {local_path} -> {target_path}，分片大小：{StringUtils.str_filesize(slice_size)}"
+                )
+                # 初始化进度条
+                progress_callback = transfer_process(local_path.as_posix())
+
+                with open(local_path, "rb") as f:
+                    slice_no = 1
+                    offset = 0
+                    for chunk in iter(lambda: f.read(slice_size), b""):
+                        if global_vars.is_transfer_stopped(local_path.as_posix()):
+                            logger.info(f"【123】{local_path} 上传已取消！")
+                            return None
+
+                        if not chunk:
+                            break
+
+                        num_to_upload = min(slice_size, file_size - offset)
+
+                        # 准备分片信息
+                        upload_data["partNumberStart"] = slice_no
+                        upload_data["partNumberEnd"] = slice_no + 1
+                        upload_url_resp = self.client.upload_prepare(
+                            upload_data,
+                        )
+                        check_response(upload_url_resp)
+
+                        logger.info(
+                            f"【123】开始上传 {target_name} 分片 {slice_no}: {offset} -> {offset + num_to_upload}"
+                        )
+                        logger.debug(f"{upload_url_resp} {upload_data}")
+
+                        self.client.request(
+                            upload_url_resp["data"]["presignedUrls"][str(slice_no)],
+                            data=chunk,
+                            **upload_request_kwargs,
+                        )
+                        slice_no += 1
+                        offset += num_to_upload
+
+                        # 更新进度
+                        progress = (offset * 100) / file_size
+                        progress_callback(progress)
+
+                # 完成上传
+                progress_callback(100)
+            else:
+                # 小文件直接上传
+                logger.info(f"【123】开始上传: {local_path} -> {target_path}")
+
+                resp = self.client.upload_auth(
+                    upload_data,
+                )
+                check_response(resp)
+                with open(local_path, "rb") as f:
+                    self.client.request(
+                        resp["data"]["presignedUrls"]["1"],
+                        data=f.read(),
+                        **upload_request_kwargs,
+                    )
+
+            upload_data["isMultipart"] = file_size > slice_size
+            complete_resp = self.client.upload_complete(
+                upload_data,
+            )
+            check_response(complete_resp)
+
+            data = complete_resp.get("data", {}).get("file_info", None)
+            return schemas.FileItem(
+                storage=self._disk_name,
+                fileid=str(data["FileId"]),
+                path=str(target_path) + ("/" if data["Type"] == 1 else ""),
+                type="file" if data["Type"] == 0 else "dir",
+                name=data["FileName"],
+                basename=Path(data["FileName"]).stem,
+                extension=Path(data["FileName"]).suffix[1:]
+                if data["Type"] == 0
+                else None,
+                pickcode=str(data),
+                size=data["Size"] if data["Type"] == 0 else None,
+                modify_time=int(datetime.fromisoformat(data["UpdateAt"]).timestamp()),
+            )
+        except Exception as e:
+            logger.error(f"【123】{target_name} 上传出现未知错误：{e}")
             return None
 
     def detail(self, fileitem: schemas.FileItem) -> Optional[schemas.FileItem]:
