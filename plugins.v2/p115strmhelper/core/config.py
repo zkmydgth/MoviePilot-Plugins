@@ -13,6 +13,7 @@ from app.db.plugindata_oper import PluginDataOper
 
 from ..version import VERSION
 from ..core.aliyunpan import AliyunPanLogin
+from ..schemas.cookie import U115Cookie
 from ..utils.machineid import MachineID
 
 
@@ -295,6 +296,14 @@ class ConfigManager(BaseModel):
         全局用户代理字符串
         """
         return self.get_user_agent()
+
+    @property
+    def cookie_dict(self) -> Dict[str, str]:
+        """
+        获取 cookie dict
+        """
+        cookie = U115Cookie.from_string(self.cookies)
+        return cookie.to_dict()
 
     def _update_aliyun_token(self):
         """

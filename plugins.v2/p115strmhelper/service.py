@@ -62,7 +62,7 @@ class ServiceHelper:
         """
         try:
             # 115 网盘客户端初始化
-            self.client = P115Client(configer.get_config("cookies"))
+            self.client = P115Client(configer.cookies)
 
             # 阿里云盘登入
             aligo_config = configer.get_config("PLUGIN_ALIGO_PATH")
