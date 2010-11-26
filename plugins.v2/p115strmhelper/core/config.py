@@ -153,11 +153,11 @@ class ConfigManager(BaseModel):
     # 清理无效 STRM 文件
     full_sync_remove_unless_strm: bool = False
     # 定期全量同步开关
-    timing_full_sync_strm: bool = "0 */12 * * *"
+    timing_full_sync_strm: bool = False
     # 下载媒体信息文件开关
     full_sync_auto_download_mediainfo_enabled: bool = False
     # 定期全量同步周期
-    cron_full_sync_strm: Optional[str] = None
+    cron_full_sync_strm: Optional[str] = "0 */12 * * *"
     # 全量生成最小文件大小
     full_sync_min_file_size: Optional[int] = None
     # 全量同步路径
