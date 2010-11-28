@@ -53,7 +53,7 @@ class Cleaner:
             if not id_list:
                 logger.info("【最近接收清理】最近接收目录为空，无需清理")
                 return
-            batch_size = 4500
+            batch_size = 45000
             total_files = len(id_list)
             logger.info(f"【最近接收清理】清理文件总数：{total_files}")
             sleep(2)
