@@ -851,7 +851,6 @@ class Api:
                 headers={"x-machine-id": machine_id},
                 timeout=10.0,
             )
-            logger.info(resp.json())
             if resp is not None and resp.status_code == 200:
                 return resp.json()
             return {
