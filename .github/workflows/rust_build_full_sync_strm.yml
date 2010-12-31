@@ -38,17 +38,17 @@ jobs:
         with:
           target: ${{ matrix.target }}
           command: build
-          args: --release --out dist
+          args: --release --out dist -i python3.12
           manylinux: auto
           working-directory: plugins.v2/p115strmhelper/rust_utils/full_strm_sync/
 
       - name: Build x86_64 musl wheels
-        if: matrix.os == 'ubuntu-latest' && matrix.target == 'x86_64'
+        if: matrix.os == 'ubuntu-latest' && !matrix.target
         uses: PyO3/maturin-action@v1
         with:
           target: x86_64-unknown-linux-musl
           command: build
-          args: --release --out dist
+          args: --release --out dist -i python3.12
           manylinux: auto
           working-directory: plugins.v2/p115strmhelper/rust_utils/full_strm_sync/
 
