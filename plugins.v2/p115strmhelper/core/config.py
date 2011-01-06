@@ -136,7 +136,7 @@ class BaseConfig(BaseModel):
 
     # 清理回收站开关
     clear_recyclebin_enabled: bool = False
-    # 清理 我的接收 目录开关
+    # 清理 最近接收 目录开关
     clear_receive_path_enabled: bool = False
     # 清理周期
     cron_clear: str = "0 */7 * * *"

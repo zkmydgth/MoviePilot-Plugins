@@ -556,7 +556,7 @@
               <v-window-item value="tab-cleanup">
                 <v-card-text>
                   <v-alert type="warning" variant="tonal" density="compact" class="mb-4">
-                    注意，清空 回收站/我的接收 后文件不可恢复，如果产生重要数据丢失本程序不负责！
+                    注意，清空 回收站/最近接收 后文件不可恢复，如果产生重要数据丢失本程序不负责！
                   </v-alert>
 
                   <v-row>
@@ -564,7 +564,7 @@
                       <v-switch v-model="config.clear_recyclebin_enabled" label="清空回收站" color="error"></v-switch>
                     </v-col>
                     <v-col cols="12" md="3">
-                      <v-switch v-model="config.clear_receive_path_enabled" label="清空我的接收目录" color="error"></v-switch>
+                      <v-switch v-model="config.clear_receive_path_enabled" label="清空最近接收目录" color="error"></v-switch>
                     </v-col>
                     <v-col cols="12" md="3">
                       <v-text-field v-model="config.password" label="115访问密码" hint="115网盘登录密码" persistent-hint

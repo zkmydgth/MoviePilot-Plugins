@@ -354,19 +354,19 @@ class ServiceHelper:
 
     def clear_receive_path(self):
         """
-        清空我的接收
+        清空最近接收
         """
         try:
-            logger.info("【我的接收清理】开始清理我的接收")
-            parent_id = int(self.client.fs_dir_getid("/我的接收")["id"])
+            logger.info("【最近接收清理】开始清理最近接收")
+            parent_id = int(self.client.fs_dir_getid("/最近接收")["id"])
             if parent_id == 0:
-                logger.info("【我的接收清理】我的接收目录为空，无需清理")
+                logger.info("【最近接收清理】最近接收目录为空，无需清理")
                 return
-            logger.info(f"【我的接收清理】我的接收目录 ID 获取成功: {parent_id}")
+            logger.info(f"【最近接收清理】最近接收目录 ID 获取成功: {parent_id}")
             self.client.fs_delete(parent_id)
-            logger.info("【我的接收清理】我的接收已清空")
+            logger.info("【最近接收清理】最近接收已清空")
         except Exception as e:
-            logger.error(f"【我的接收清理】清理我的接收运行失败: {e}")
+            logger.error(f"【最近接收清理】清理最近接收运行失败: {e}")
             return
 
     def stop(self):
