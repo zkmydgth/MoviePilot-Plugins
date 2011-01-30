@@ -257,7 +257,7 @@ class EmbyReverseProxy(_PluginBase):
                                     "label": "顶置路径规则",
                                     "rows": 4,
                                     "placeholder": "每行一条：路径前缀 => 目标URL",
-                                    "hint": '用 " => " 分隔，路径匹配前缀时先替换为目标 URL 再 302。例如：/strm/cd2 => http://192.168.31.99:4567/d',
+                                    "hint": '高级配置：不理解规则含义请勿配置（建议留空）。每行一条，格式：路径前缀 => 目标 URL；匹配到前缀后将路径替换为目标 URL 并返回 302。示例：/strm/cd2 => http://192.168.31.99:4567/d',
                                     "persistent-hint": True,
                                 },
                             }
