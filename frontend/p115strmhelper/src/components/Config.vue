@@ -426,6 +426,19 @@
                                     type="number" hint="同时执行同步任务的进程数量" persistent-hint density="compact"></v-text-field>
                                 </v-col>
                               </v-row>
+                              <v-row>
+                                <v-col cols="12" md="6">
+                                  <v-text-field v-model.number="config.full_sync_remove_unless_max_threshold"
+                                    label="清理无效 STRM 最大删除比例阈值 (%)" type="number"
+                                    hint="当待删除文件数占本地文件总数的百分比超过此值时，将进入数据稳定性检查（默认 10%）" persistent-hint
+                                    density="compact"></v-text-field>
+                                </v-col>
+                                <v-col cols="12" md="6">
+                                  <v-text-field v-model.number="config.full_sync_remove_unless_stable_threshold"
+                                    label="清理数据稳定性检查阈值 (%)" type="number" hint="数据稳定性检查的变异系数阈值，低于此值表示删除数据稳定可执行操作（默认 5%）"
+                                    persistent-hint density="compact"></v-text-field>
+                                </v-col>
+                              </v-row>
                             </v-expansion-panel-text>
                           </v-expansion-panel>
                         </v-expansion-panels>
@@ -2625,6 +2638,8 @@ const config = reactive({
   full_sync_iter_function: 'iter_files_with_path_skim',
   full_sync_min_file_size: 0,
   full_sync_process_rust: false,
+  full_sync_remove_unless_max_threshold: 10,
+  full_sync_remove_unless_stable_threshold: 5,
   increment_sync_strm_enabled: false,
   increment_sync_auto_download_mediainfo_enabled: false,
   increment_sync_cron: "0 * * * *",
