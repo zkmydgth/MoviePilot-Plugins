@@ -926,6 +926,8 @@ class P115StrmHelper(_PluginBase):
             """
             重命名
             """
+            if not fileitem:
+                return
             target_path = Path(fileitem.path).parent
             file_item = lifeeventcacher.create_strm_file_dict.get(
                 str(fileitem.fileid), None

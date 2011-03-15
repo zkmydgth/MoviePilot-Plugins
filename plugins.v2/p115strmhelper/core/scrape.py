@@ -72,6 +72,9 @@ def media_scrape_metadata(
         # 获取媒体信息
         meta = MetaInfoPath(Path(path))
         mediainfo = mediachain.recognize_by_meta(meta)
+        if not meta or not mediainfo:
+            logger.info(f"【媒体刮削】{item_name} 获取媒体信息数据失败，跳过刮削")
+            return
         # 判断刮削路径
         # 先获取上级目录 meta
         file_type = "dir"
