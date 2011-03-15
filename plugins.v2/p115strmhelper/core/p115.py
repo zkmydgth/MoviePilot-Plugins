@@ -5,10 +5,10 @@ __all__ = ["iter_share_files_with_path", "get_pid_by_path"]
 from itertools import cycle
 from os import PathLike
 from pathlib import Path
-from threading import Lock, Event
-from queue import Queue, Empty
-from typing import Iterator, Literal, List
-from concurrent.futures import ThreadPoolExecutor
+from threading import Lock
+from time import monotonic, sleep
+from typing import Iterator, Literal, List, Tuple, Dict, Any, Set
+from concurrent.futures import ThreadPoolExecutor, Future, as_completed
 
 from p115client import P115Client, check_response, normalize_attr
 
@@ -20,7 +20,7 @@ def iter_share_files_with_path(
     share_code: str,
     receive_code: str = "",
     cid: int = 0,
-    page_size: int = 0,
+    cooldown: int | float = 0.05,
     order: Literal[
         "file_name", "file_size", "file_type", "user_utime", "user_ptime", "user_otime"
     ] = "user_ptime",
@@ -35,7 +35,7 @@ def iter_share_files_with_path(
     :param share_code: 分享码或链接
     :param receive_code: 接收码
     :param cid: 目录的 id
-    :param page_size: 分页大小
+    :param cooldown: 请求冷却时间
     :param order: 排序
 
         - "file_name": 文件名
@@ -50,37 +50,11 @@ def iter_share_files_with_path(
 
     :return: 迭代器，返回此分享链接下的（所有文件）文件信息
     """
-
-    class AtomicCounter:
-        def __init__(self, initial=0):
-            self.value = initial
-            self._lock = Lock()
-
-        def increment(self, value=1):
-            with self._lock:
-                self.value += value
-
-        def decrement(self):
-            with self._lock:
-                self.value -= 1
-
-        def is_zero(self):
-            with self._lock:
-                return self.value == 0
-
     if isinstance(client, (str, PathLike)):
         client = P115Client(client, check_for_relogin=True)
-    if page_size <= 0:
-        page_size = 1_500
     request_kwargs.setdefault(
         "base_url", cycle(("http://pro.api.115.com", "https://proapi.115.com")).__next__
     )
-    task_queue = Queue()
-    result_queue = Queue(maxsize=max_workers * 2)
-    active_tasks = AtomicCounter(1)
-    task_queue.put((cid, "", 0))
-    exit_event = Event()
-    exception_holder: List = []
     apps = [
         "ios",
         "android",
@@ -95,83 +69,84 @@ def iter_share_files_with_path(
         "windows",
     ]
     apis = [
-        lambda payload: P115Client.share_snap(payload),
+        lambda payload: client.share_snap_app(payload, app=app, **request_kwargs)
+        for app in apps
     ]
-    apis.extend(
-        [
-            lambda payload: client.share_snap_app(
-                {**payload, "app": app}, **request_kwargs
-            )
-            for app in apps
-        ]
-    )
     api_cycler = cycle(apis)
+    last_api_call_time = [monotonic() - cooldown]
+    api_lock = Lock()
 
-    def worker():
-        while not exit_event.is_set():
-            try:
-                current_cid, current_path_prefix, offset = task_queue.get(timeout=0.1)
-            except Empty:
-                if active_tasks.is_zero():
-                    break
-                continue
-            if exit_event.is_set():
-                break
-            payload = {
-                "share_code": share_code,
-                "receive_code": receive_code,
-                "cid": current_cid,
-                "limit": page_size,
-                "offset": offset,
-                "asc": asc,
-                "o": order,
-            }
+    def _job(
+        _cid: int,
+        path_prefix: str,
+        offset: int,
+    ) -> Tuple[List[Dict[str, Any]], List[Tuple[int, str, int]]]:
+        payload = {
+            "share_code": share_code,
+            "receive_code": receive_code,
+            "cid": _cid,
+            "limit": 1000,
+            "offset": offset,
+            "asc": asc,
+            "o": order,
+        }
+        if offset == 0:
             api_to_use = next(api_cycler)
-            try:
-                resp = api_to_use(payload)
-                check_response(resp)
-                data = resp.get("data", {})
-                count = data.get("count", 0)
-                items = data.get("list", [])
-                new_tasks = []
-                for attr in items:
-                    attr["share_code"] = share_code
-                    attr["receive_code"] = receive_code
-                    attr = normalize_attr(attr)
-                    path = (
-                        f"{current_path_prefix}/{attr['name']}"
-                        if current_path_prefix
-                        else f"/{attr['name']}"
-                    )
-                    if attr["is_dir"]:
-                        new_tasks.append((int(attr["id"]), path, 0))
-                    else:
-                        attr["path"] = path
-                        result_queue.put(attr)
-                new_offset = offset + len(items)
-                if new_offset < count and len(items) > 0:
-                    new_tasks.append((current_cid, current_path_prefix, new_offset))
-                if new_tasks:
-                    active_tasks.increment(len(new_tasks))
-                    for task in new_tasks:
-                        task_queue.put(task)
-            except Exception as e:
-                if not exit_event.is_set():
-                    exception_holder.append(e)
-                exit_event.set()
-            finally:
-                active_tasks.decrement()
+        else:
+            api_to_use = P115Client.share_snap
+        if cooldown > 0:
+            with api_lock:
+                now = monotonic()
+                elapsed = now - last_api_call_time[0]
+                if elapsed < cooldown:
+                    sleep(cooldown - elapsed)
+                last_api_call_time[0] = monotonic()
+        resp = api_to_use(payload)
+        check_response(resp)
+        data = resp.get("data", {})
+        count = data.get("count", 0)
+        items = data.get("list", [])
+        files_found = []
+        subdirs_to_scan = []
+        for attr in items:
+            attr["share_code"] = share_code
+            attr["receive_code"] = receive_code
+            attr = normalize_attr(attr)
+            path = (
+                f"{path_prefix}/{attr['name']}" if path_prefix else f"/{attr['name']}"
+            )
+            if attr["is_dir"]:
+                subdirs_to_scan.append((int(attr["id"]), path, 0))
+            else:
+                attr["path"] = path
+                files_found.append(attr)
+        new_offset = offset + len(items)
+        if new_offset < count and len(items) > 0:
+            subdirs_to_scan.append((_cid, path_prefix, new_offset))
+        return files_found, subdirs_to_scan
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        for _ in range(max_workers):
-            executor.submit(worker)
-        while not active_tasks.is_zero() or not result_queue.empty():
-            try:
-                yield result_queue.get(timeout=0.1)
-            except Empty:
-                continue
-    if exit_event.is_set() and exception_holder:
-        raise exception_holder[0]
+        pending_futures: Set[Future] = set()
+        initial_future = executor.submit(_job, cid, "", 0)
+        pending_futures.add(initial_future)
+        while pending_futures:
+            for future in as_completed(pending_futures):
+                print(len(pending_futures))
+                pending_futures.remove(future)
+                try:
+                    files, subdirs = future.result()
+                    for file_info in files:
+                        yield file_info
+                    for task_args in subdirs:
+                        new_future = executor.submit(_job, *task_args)
+                        pending_futures.add(new_future)
+                except Exception as e:
+                    for f in pending_futures:
+                        f.cancel()
+                    executor.shutdown(wait=False, cancel_futures=True)
+                    raise e
+                break
+
 
 def get_pid_by_path(
     client: P115Client,
