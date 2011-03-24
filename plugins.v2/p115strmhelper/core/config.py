@@ -250,6 +250,8 @@ class ConfigManager(BaseModel):
     upload_share_info: bool = True
     # 上传离线下载链接
     upload_offline_info: bool = True
+    # 115 整理增强
+    transfer_module_enhancement: bool = False
 
     # 高级配置，STRM URL 自定义配置
     strm_url_mode_custom: Optional[str] = None

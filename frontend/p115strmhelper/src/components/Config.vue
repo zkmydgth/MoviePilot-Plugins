@@ -946,19 +946,25 @@
               <v-window-item value="tab-data-enhancement">
                 <v-card-text>
                   <v-row>
-                    <v-col cols="12" md="3">
+                    <v-col cols="12" md="4">
                       <v-switch v-model="config.error_info_upload" label="错误信息上传" color="info"
                         density="compact"></v-switch>
                     </v-col>
-                    <v-col cols="12" md="3">
+                    <v-col cols="12" md="4">
                       <v-switch v-model="config.upload_module_enhancement" label="上传模块增强" color="info"
                         density="compact"></v-switch>
                     </v-col>
-                    <v-col cols="12" md="3">
+                    <v-col cols="12" md="4">
+                      <v-switch v-model="config.transfer_module_enhancement" label="整理模块增强" color="info"
+                        density="compact"></v-switch>
+                    </v-col>
+                  </v-row>
+                  <v-row>
+                    <v-col cols="12" md="4">
                       <v-switch v-model="config.upload_share_info" label="上传分享链接" color="info"
                         density="compact"></v-switch>
                     </v-col>
-                    <v-col cols="12" md="3">
+                    <v-col cols="12" md="4">
                       <v-switch v-model="config.upload_offline_info" label="上传离线下载链接" color="info"
                         density="compact"></v-switch>
                     </v-col>
@@ -1410,6 +1416,7 @@ const config = reactive({
   upload_module_force_upload_wait_size: 0,
   upload_share_info: true,
   upload_offline_info: true,
+  transfer_module_enhancement: false,
   strm_url_mode_custom: '',
   strm_generate_blacklist: []
 });

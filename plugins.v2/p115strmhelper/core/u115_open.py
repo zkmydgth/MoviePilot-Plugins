@@ -1,6 +1,7 @@
 import hashlib
 import threading
 import time
+from random import randint
 from datetime import datetime, timezone
 from pathlib import Path
 from time import sleep
@@ -8,6 +9,7 @@ from typing import Optional, Union
 
 import oss2
 import requests
+from sqlalchemy.orm.exc import MultipleResultsFound
 from oss2 import SizedFileAdapter, determine_part_size
 from oss2.models import PartInfo
 from p115client import P115Client
@@ -711,28 +713,46 @@ class U115OpenHelper:
         创建目录
         """
         new_path = Path(parent_item.path) / name
-        resp = self._request_api(
-            "POST",
-            "/open/folder/add",
-            data={"pid": int(parent_item.fileid or "0"), "file_name": name},
-        )
-        if not resp:
-            return None
-        if not resp.get("state"):
-            if resp.get("code") == 20004:
-                # 目录已存在
-                return self.get_item(new_path)
-            logger.warn(f"【P115Open】创建目录失败: {resp.get('error')}")
-            return None
-        return schemas.FileItem(
-            storage="u115",
-            fileid=str(resp["data"]["file_id"]),
-            path=str(new_path) + "/",
-            name=name,
-            basename=name,
-            type="dir",
-            modify_time=int(time.time()),
-        )
+
+        if randint(0, 1) == 0:
+            resp = self._request_api(
+                "POST",
+                "/open/folder/add",
+                data={"pid": int(parent_item.fileid or "0"), "file_name": name},
+            )
+            if not resp:
+                return None
+            if not resp.get("state"):
+                if resp.get("code") == 20004:
+                    # 目录已存在
+                    return self.get_item(new_path)
+                logger.warn(f"【P115Open】创建目录失败: {resp.get('error')}")
+                return None
+            return schemas.FileItem(
+                storage="u115",
+                fileid=str(resp["data"]["file_id"]),
+                path=str(new_path) + "/",
+                name=name,
+                basename=name,
+                type="dir",
+                modify_time=int(time.time()),
+            )
+        else:
+            resp = self.cookie_client.fs_mkdir(name, pid=int(parent_item.fileid or "0"))
+            if not resp.get("state"):
+                if resp.get("errno") == 20004:
+                    return self.get_item(new_path)
+                logger.warn(f"【P115Open】创建目录失败: {resp}")
+                return None
+            return schemas.FileItem(
+                storage="u115",
+                fileid=str(resp["cid"]),
+                path=str(new_path) + "/",
+                name=name,
+                basename=name,
+                type="dir",
+                modify_time=int(time.time()),
+            )
 
     def open_get_item(self, path: Path) -> Optional[schemas.FileItem]:
         """
@@ -767,10 +787,13 @@ class U115OpenHelper:
         获取指定路径的文件/目录项 DataBase
         """
         try:
-            data = self.databasehelper.get_by_path(path=path.as_posix())
+            try:
+                data = self.databasehelper.get_by_path(path=path.as_posix())
+            except MultipleResultsFound:
+                return None
             if data:
                 if data.get("id", None):
-                    return schemas.FileItem(
+                    file_item = schemas.FileItem(
                         storage="u115",
                         fileid=str(data.get("id")),
                         path=path.as_posix()
@@ -781,10 +804,14 @@ class U115OpenHelper:
                         extension=Path(data.get("name")).suffix[1:]
                         if data.get("type") == "file"
                         else None,
-                        pickcode=data.get("pickcode"),
+                        pickcode=data.get("pickcode", ""),
                         size=data.get("size") if data.get("type") == "file" else None,
-                        modify_time=data.get("mtime"),
+                        modify_time=data.get("mtime", 0),
                     )
+                    self.databasehelper.upsert_batch(
+                        self.databasehelper.process_fileitem(file_item)
+                    )
+                    return file_item
             return None
         except Exception as e:
             logger.debug(f"【P115Open】DataBase 获取文件信息失败: {str(e)}")
@@ -860,34 +887,35 @@ class U115OpenHelper:
         """
         获取指定路径的文件夹，如不存在则创建
         """
+        try:
+            file_item = self.databasehelper.get_by_path(path=str(path))
+            if file_item:
+                return schemas.FileItem(
+                    storage="u115",
+                    fileid=str(file_item.get("id")),
+                    path=path.as_posix() + "/",
+                    type="dir",
+                    name=file_item.get("name"),
+                    basename=Path(file_item.get("name")).stem,
+                    extension=None,
+                    pickcode=file_item.get("pickcode", ""),
+                    size=None,
+                    modify_time=file_item.get("mtime", 0),
+                )
+        except MultipleResultsFound:
+            pass
 
-        def __find_dir(
-            _fileitem: schemas.FileItem, _name: str
-        ) -> Optional[schemas.FileItem]:
-            """
-            查找下级目录中匹配名称的目录
-            """
-            for sub_folder in self.list(_fileitem):
-                if sub_folder.type != "dir":
-                    continue
-                if sub_folder.name == _name:
-                    return sub_folder
-            return None
-
-        # 是否已存在
         folder = self.get_item(path)
         if folder:
             return folder
-        # 逐级查找和创建目录
-        fileitem = schemas.FileItem(storage="u115", path="/")
-        for part in path.parts[1:]:
-            dir_file = __find_dir(fileitem, part)
-            if dir_file:
-                fileitem = dir_file
-            else:
-                dir_file = self.create_folder(fileitem, part)
-                if not dir_file:
-                    logger.warn(f"【P115Open】创建目录 {fileitem.path}{part} 失败！")
-                    return None
-                fileitem = dir_file
-        return fileitem
+
+        try:
+            resp = self.cookie_client.fs_makedirs_app(path.as_posix(), pid=0)
+            if not resp.get("state"):
+                logger.error(f"【P115Open】{path} 目录创建失败：{resp}")
+                return None
+            idpathcacher.add_cache(id=int(resp["cid"]), directory=path.as_posix())
+            return self.get_item(path)
+        except Exception as e:
+            logger.error(f"【P115Open】{path} 目录创建出现未知错误：{e}")
+            return None
