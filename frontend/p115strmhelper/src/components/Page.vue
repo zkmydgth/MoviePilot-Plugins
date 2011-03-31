@@ -879,7 +879,7 @@
         确认操作
       </v-card-title>
       <v-card-text>
-        您确定要立即执行全量同步数据库吗？该操作会清理缓存并覆盖数据库
+        您确定要立即执行全量同步数据库吗？该操作会覆盖原有数据库数据
       </v-card-text>
       <v-card-actions>
         <v-spacer></v-spacer>

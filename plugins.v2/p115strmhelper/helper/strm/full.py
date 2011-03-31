@@ -15,7 +15,6 @@ from p115client.tool.iterdir import (
 from app.core.config import settings
 from app.log import logger
 
-from ...core.cache import idpathcacher
 from ...core.config import configer
 from ...db_manager.oper import FileDbHelper
 from ...helper.mediainfo_download import MediaInfoDownloader
@@ -451,9 +450,6 @@ class FullSyncStrmHelper:
                     exc_info=True,
                 )
                 return False
-
-        logger.info("【全量STRM生成】全量更新数据库清空缓存数据...")
-        idpathcacher.clear()
 
         logger.info(
             f"【全量STRM生成】全量更新数据库完成，时间 {self.elapsed_time:.6f} 秒，数据库写入量 {self.total_db_write_count} 条"

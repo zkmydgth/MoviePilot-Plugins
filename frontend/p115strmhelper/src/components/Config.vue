@@ -151,6 +151,9 @@
               <v-tab value="tab-same-playback" class="text-caption">
                 <v-icon size="small" start>mdi:code-block-parentheses</v-icon>多端播放
               </v-tab>
+              <v-tab value="tab-cache-config" class="text-caption">
+                <v-icon size="small" start>mdi-cached</v-icon>缓存配置
+              </v-tab>
               <v-tab value="tab-data-enhancement" class="text-caption">
                 <v-icon size="small" start>mdi-database-eye-outline</v-icon>数据增强
               </v-tab>
@@ -1095,6 +1098,75 @@
                 </v-card-text>
               </v-window-item>
 
+              <!-- 缓存配置 -->
+              <v-window-item value="tab-cache-config">
+                <v-card-text>
+                  <v-row>
+                    <v-col cols="12">
+                      <v-card variant="outlined" class="mb-4">
+                        <v-card-item>
+                          <v-card-title class="d-flex align-center">
+                            <v-icon start>mdi-cached</v-icon>
+                            <span class="text-h6">缓存管理</span>
+                          </v-card-title>
+                        </v-card-item>
+                        <v-card-text>
+                          <v-alert type="info" variant="tonal" density="compact" class="mb-4">
+                            缓存清理功能可以帮助您清理插件运行过程中产生的缓存数据，解决部分因缓存导致的问题。
+                          </v-alert>
+                          
+                          <v-row>
+                            <v-col cols="12" md="6">
+                              <v-card variant="outlined" class="pa-4 d-flex flex-column cache-card">
+                                <div class="d-flex align-center mb-3">
+                                  <v-icon color="primary" class="mr-2">mdi-folder-cog</v-icon>
+                                  <span class="text-subtitle-1 font-weight-medium">清理文件路径ID缓存</span>
+                                </div>
+                                <p class="text-body-2 text-grey-darken-1 mb-3 flex-grow-1">
+                                  清理文件路径ID缓存，包括目录ID到路径的映射缓存。
+                                </p>
+                                <v-btn 
+                                  color="primary" 
+                                  variant="outlined" 
+                                  :loading="clearIdPathCacheLoading"
+                                  @click="clearIdPathCache"
+                                  prepend-icon="mdi-folder-cog"
+                                  block
+                                >
+                                  清理文件路径ID缓存
+                                </v-btn>
+                              </v-card>
+                            </v-col>
+                            
+                            <v-col cols="12" md="6">
+                              <v-card variant="outlined" class="pa-4 d-flex flex-column cache-card">
+                                <div class="d-flex align-center mb-3">
+                                  <v-icon color="warning" class="mr-2">mdi-skip-next</v-icon>
+                                  <span class="text-subtitle-1 font-weight-medium">清理增量同步跳过路径缓存</span>
+                                </div>
+                                <p class="text-body-2 text-grey-darken-1 mb-3 flex-grow-1">
+                                  清理增量同步跳过路径缓存，重置增量同步的跳过路径记录，用于重新处理之前跳过的文件。
+                                </p>
+                                <v-btn 
+                                  color="warning" 
+                                  variant="outlined" 
+                                  :loading="clearIncrementSkipCacheLoading"
+                                  @click="clearIncrementSkipCache"
+                                  prepend-icon="mdi-skip-next"
+                                  block
+                                >
+                                  清理增量同步跳过路径缓存
+                                </v-btn>
+                              </v-card>
+                            </v-col>
+                          </v-row>
+                        </v-card-text>
+                      </v-card>
+                    </v-col>
+                  </v-row>
+                </v-card-text>
+              </v-window-item>
+
             </v-window>
           </v-card>
 
@@ -1362,6 +1434,8 @@ const loading = ref(true);
 const saveLoading = ref(false);
 const syncLoading = ref(false);
 const shareSyncLoading = ref(false);
+const clearIdPathCacheLoading = ref(false);
+const clearIncrementSkipCacheLoading = ref(false);
 const activeTab = ref('tab-transfer');
 const mediaservers = ref([]);
 const isCookieVisible = ref(false);
@@ -2086,6 +2160,58 @@ const triggerShareSync = async () => {
   }
 };
 
+// 清理文件路径ID缓存
+const clearIdPathCache = async () => {
+  clearIdPathCacheLoading.value = true;
+  message.text = '';
+  try {
+    const result = await props.api.post(`plugin/${PLUGIN_ID}/clear_id_path_cache`);
+    if (result && result.code === 0) {
+      message.text = result.msg || '文件路径ID缓存清理成功';
+      message.type = 'success';
+    } else {
+      throw new Error(result?.msg || '文件路径ID缓存清理失败');
+    }
+  } catch (err) {
+    message.text = `文件路径ID缓存清理失败: ${err.message || '未知错误'}`;
+    message.type = 'error';
+    console.error('文件路径ID缓存清理失败:', err);
+  } finally {
+    clearIdPathCacheLoading.value = false;
+    setTimeout(() => {
+      if (message.type === 'success' || message.type === 'error') {
+        message.text = '';
+      }
+    }, 3000);
+  }
+};
+
+// 清理增量同步跳过路径缓存
+const clearIncrementSkipCache = async () => {
+  clearIncrementSkipCacheLoading.value = true;
+  message.text = '';
+  try {
+    const result = await props.api.post(`plugin/${PLUGIN_ID}/clear_increment_skip_cache`);
+    if (result && result.code === 0) {
+      message.text = result.msg || '增量同步跳过路径缓存清理成功';
+      message.type = 'success';
+    } else {
+      throw new Error(result?.msg || '增量同步跳过路径缓存清理失败');
+    }
+  } catch (err) {
+    message.text = `增量同步跳过路径缓存清理失败: ${err.message || '未知错误'}`;
+    message.type = 'error';
+    console.error('增量同步跳过路径缓存清理失败:', err);
+  } finally {
+    clearIncrementSkipCacheLoading.value = false;
+    setTimeout(() => {
+      if (message.type === 'success' || message.type === 'error') {
+        message.text = '';
+      }
+    }, 3000);
+  }
+};
+
 const addPath = (type) => {
   switch (type) {
     case 'transfer': transferPaths.value.push({ local: '', remote: '' }); break;
@@ -2795,5 +2921,25 @@ const removeExcludePathEntry = (index, type) => {
 :deep(v-switch[color="error"] .v-selection-control--dirty .v-switch__track) {
   background-color: rgb(var(--v-theme-error)) !important;
   border-color: rgb(var(--v-theme-error)) !important;
+}
+
+/* 缓存卡片响应式样式 */
+.cache-card {
+  min-height: 200px;
+}
+
+/* 移动端优化 */
+@media (max-width: 959px) {
+  .cache-card {
+    min-height: auto;
+    height: auto;
+  }
+}
+
+/* 桌面端保持固定高度 */
+@media (min-width: 960px) {
+  .cache-card {
+    height: 200px;
+  }
 }
 </style>
