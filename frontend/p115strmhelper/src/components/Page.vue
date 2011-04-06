@@ -304,8 +304,8 @@
                     </v-list>
                     <v-row class="mt-2">
                       <v-col cols="12" md="6">
-                        <v-btn color="success" variant="elevated" block @click="mountFuse" :loading="fuseStatus.mounting"
-                          :disabled="fuseStatus.mounted">
+                        <v-btn color="success" variant="elevated" block @click="mountFuse"
+                          :loading="fuseStatus.mounting" :disabled="fuseStatus.mounted">
                           <v-icon start>mdi-folder-plus</v-icon>
                           挂载
                         </v-btn>
@@ -366,8 +366,8 @@
                           <div class="text-grey mt-1">{{ item.del_time }}</div>
                         </v-list-item-subtitle>
                         <template v-slot:append>
-                          <v-btn icon size="x-small" variant="text" color="error"
-                            @click="confirmDeleteHistory(item)" :loading="deletingHistoryId === item.unique">
+                          <v-btn icon size="x-small" variant="text" color="error" @click="confirmDeleteHistory(item)"
+                            :loading="deletingHistoryId === item.unique">
                             <v-icon>mdi-delete</v-icon>
                           </v-btn>
                         </template>
@@ -941,8 +941,7 @@
 
         <v-row class="mb-2">
           <v-col cols="12">
-            <v-switch v-model="shareConfigDialog.enabled" label="启用此配置" color="primary" density="compact"
-              hide-details>
+            <v-switch v-model="shareConfigDialog.enabled" label="启用此配置" color="primary" density="compact" hide-details>
               <template v-slot:label>
                 <div class="d-flex align-center">
                   <v-icon icon="mdi-power" size="small" class="mr-2"></v-icon>
@@ -1313,7 +1312,8 @@
         <v-card variant="outlined" class="mt-3" v-if="deleteHistoryConfirmDialog.item">
           <v-card-text class="pa-3">
             <div class="text-body-1 font-weight-medium">{{ deleteHistoryConfirmDialog.item.title }}</div>
-            <div class="text-caption text-grey mt-1" v-if="deleteHistoryConfirmDialog.item.path" style="word-break: break-all;">
+            <div class="text-caption text-grey mt-1" v-if="deleteHistoryConfirmDialog.item.path"
+              style="word-break: break-all;">
               {{ deleteHistoryConfirmDialog.item.path }}
             </div>
             <div class="text-caption text-grey mt-1">{{ deleteHistoryConfirmDialog.item.del_time }}</div>
@@ -1329,7 +1329,7 @@
           :disabled="deletingHistoryId === deleteHistoryConfirmDialog.item?.unique">
           取消
         </v-btn>
-        <v-btn color="error" variant="text" @click="handleConfirmDeleteHistory" 
+        <v-btn color="error" variant="text" @click="handleConfirmDeleteHistory"
           :loading="deletingHistoryId === deleteHistoryConfirmDialog.item?.unique">
           确认删除
         </v-btn>
@@ -2652,31 +2652,86 @@ async function fetchUserStorageStatus() {
 </script>
 
 <style scoped>
+/* ============================================
+   页面组件样式 - 镜面效果 + 蓝粉白配色
+   ============================================ */
+
 .plugin-page {
   padding: 12px;
 }
 
 .plugin-page :deep(.v-card) {
-  border-radius: 16px !important;
+  border-radius: 20px !important;
   overflow: hidden;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04) !important;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  /* 镜面效果 - 动态适配主题 */
+  background: rgba(var(--v-theme-surface), 0.7) !important;
+  backdrop-filter: blur(20px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(180%) !important;
+  box-shadow:
+    0 8px 32px rgba(91, 207, 250, 0.25),
+    0 2px 8px rgba(245, 171, 185, 0.2),
+    inset 0 1px 0 rgba(var(--v-theme-on-surface), 0.05) !important;
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.12) !important;
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+/* 暗色模式下的主卡片 */
+:deep(.v-theme--dark) .plugin-page .v-card,
+:deep([data-theme="dark"]) .plugin-page .v-card {
+  background: rgba(var(--v-theme-surface), 0.75) !important;
+  border: 1px solid rgba(255, 255, 255, 0.15) !important;
+  box-shadow:
+    0 8px 32px rgba(91, 207, 250, 0.3),
+    0 2px 8px rgba(245, 171, 185, 0.25),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1) !important;
 }
 
 .config-card {
-  border-radius: 12px !important;
-  box-shadow: none !important;
-  border: 1px solid rgba(var(--v-border-color), 0.12) !important;
-  background: rgba(var(--v-theme-surface), 1) !important;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  border-radius: 16px !important;
+  /* 镜面效果 - 动态适配主题 */
+  background: rgba(var(--v-theme-surface), 0.65) !important;
+  backdrop-filter: blur(15px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(15px) saturate(180%) !important;
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.12) !important;
+  box-shadow:
+    0 4px 16px rgba(91, 207, 250, 0.2),
+    0 1px 4px rgba(245, 171, 185, 0.15),
+    inset 0 1px 0 rgba(var(--v-theme-on-surface), 0.05) !important;
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1) !important;
   margin-bottom: 16px !important;
   overflow: hidden;
 }
 
+/* 暗色模式下的配置卡片 */
+:deep(.v-theme--dark) .config-card,
+:deep([data-theme="dark"]) .config-card {
+  background: rgba(var(--v-theme-surface), 0.7) !important;
+  border: 1px solid rgba(255, 255, 255, 0.15) !important;
+  box-shadow:
+    0 4px 16px rgba(91, 207, 250, 0.25),
+    0 1px 4px rgba(245, 171, 185, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1) !important;
+}
+
 .config-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.08) !important;
-  border-color: rgba(var(--v-theme-primary), 0.2) !important;
+  transform: translateY(-4px) scale(1.01);
+  box-shadow:
+    0 12px 32px rgba(91, 207, 250, 0.3),
+    0 4px 12px rgba(245, 171, 185, 0.25),
+    inset 0 1px 0 rgba(var(--v-theme-on-surface), 0.08) !important;
+  border-color: rgba(91, 207, 250, 0.5) !important;
+  background: rgba(var(--v-theme-surface), 0.75) !important;
+}
+
+/* 暗色模式下的配置卡片悬停状态 */
+:deep(.v-theme--dark) .config-card:hover,
+:deep([data-theme="dark"]) .config-card:hover {
+  background: rgba(var(--v-theme-surface), 0.8) !important;
+  border-color: rgba(91, 207, 250, 0.6) !important;
+  box-shadow:
+    0 12px 32px rgba(91, 207, 250, 0.4),
+    0 4px 12px rgba(245, 171, 185, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.15) !important;
 }
 
 /* 统一字体 */
@@ -2702,29 +2757,62 @@ async function fetchUserStorageStatus() {
   font-size: 0.85rem !important;
 }
 
-/* 美化卡片标题 */
+/* 美化卡片标题 - 蓝粉渐变镜面效果 */
 .bg-primary-gradient {
-  background: linear-gradient(135deg, rgba(var(--v-theme-primary), 0.12), rgba(var(--v-theme-primary), 0.06)) !important;
-  backdrop-filter: blur(10px);
-  border-bottom: 1px solid rgba(var(--v-border-color), 0.08) !important;
+  background: linear-gradient(135deg,
+      rgba(91, 207, 250, 0.25) 0%,
+      rgba(245, 171, 185, 0.2) 50%,
+      rgba(255, 184, 201, 0.15) 100%) !important;
+  backdrop-filter: blur(20px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(180%) !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.3) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4) !important;
 }
 
 .plugin-page :deep(.v-card-title) {
   border-radius: 12px 12px 0 0;
 }
 
-/* 美化芯片 */
+/* 美化芯片 - 镜面效果 */
 :deep(.v-chip) {
   font-weight: 500;
-  border-radius: 8px !important;
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05) !important;
+  border-radius: 10px !important;
+  background: rgba(255, 255, 255, 0.6) !important;
+  backdrop-filter: blur(10px) !important;
+  border: 1px solid rgba(255, 255, 255, 0.4) !important;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  box-shadow:
+    0 2px 6px rgba(91, 207, 250, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.4) !important;
 }
 
 :deep(.v-chip--selected),
 :deep(.v-chip:hover) {
-  transform: translateY(-1px);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1) !important;
+  transform: translateY(-2px) scale(1.05);
+  box-shadow:
+    0 4px 12px rgba(91, 207, 250, 0.35),
+    0 2px 6px rgba(245, 171, 185, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.5) !important;
+  background: linear-gradient(135deg,
+      rgba(91, 207, 250, 0.25) 0%,
+      rgba(245, 171, 185, 0.2) 100%) !important;
+  backdrop-filter: blur(10px) !important;
+  color: rgba(var(--v-theme-on-surface), 0.87) !important;
+}
+
+/* 暗色模式下的芯片选中状态 */
+:deep(.v-theme--dark) .v-chip--selected,
+:deep(.v-theme--dark) .v-chip:hover,
+:deep([data-theme="dark"]) .v-chip--selected,
+:deep([data-theme="dark"]) .v-chip:hover {
+  background: linear-gradient(135deg,
+      rgba(91, 207, 250, 0.35) 0%,
+      rgba(245, 171, 185, 0.3) 100%) !important;
+  color: rgba(255, 255, 255, 0.9) !important;
+  box-shadow:
+    0 4px 12px rgba(91, 207, 250, 0.4),
+    0 2px 6px rgba(245, 171, 185, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2) !important;
 }
 
 :deep(.v-list-item) {
@@ -2765,30 +2853,72 @@ async function fetchUserStorageStatus() {
 .sticky-actions {
   position: sticky;
   bottom: 0;
-  background: linear-gradient(to top, rgba(var(--v-theme-surface), 0.98), rgba(var(--v-theme-surface), 0.95));
-  backdrop-filter: blur(10px);
+  /* 动态适配暗色模式 */
+  background: linear-gradient(to top,
+      rgba(var(--v-theme-surface), 0.95) 0%,
+      rgba(var(--v-theme-surface), 0.9) 100%) !important;
+  backdrop-filter: blur(20px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(180%) !important;
   z-index: 2;
-  border-top: 1px solid rgba(var(--v-border-color), 0.1);
-  border-radius: 0 0 16px 16px;
+  border-top: 1px solid rgba(var(--v-theme-on-surface), 0.12) !important;
+  border-radius: 0 0 20px 20px;
+  box-shadow:
+    0 -4px 16px rgba(91, 207, 250, 0.25),
+    0 -2px 8px rgba(245, 171, 185, 0.2),
+    inset 0 1px 0 rgba(var(--v-theme-on-surface), 0.05) !important;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
 }
 
-/* 优化按钮样式 */
+/* 暗色模式下的特殊处理 */
+:deep(.v-theme--dark) .sticky-actions,
+:deep([data-theme="dark"]) .sticky-actions {
+  background: linear-gradient(to top,
+      rgba(var(--v-theme-surface), 0.95) 0%,
+      rgba(var(--v-theme-surface), 0.9) 100%) !important;
+  border-top: 1px solid rgba(var(--v-theme-on-surface), 0.2) !important;
+  box-shadow:
+    0 -4px 16px rgba(91, 207, 250, 0.3),
+    0 -2px 8px rgba(245, 171, 185, 0.25),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1) !important;
+}
+
+/* 优化按钮样式 - 镜面效果 */
 :deep(.v-btn) {
-  border-radius: 8px !important;
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  border-radius: 12px !important;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
   font-weight: 500 !important;
+  backdrop-filter: blur(10px) !important;
+  box-shadow:
+    0 2px 8px rgba(91, 207, 250, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.3) !important;
 }
 
 :deep(.v-btn:hover) {
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
+  transform: translateY(-2px) scale(1.02);
+  box-shadow:
+    0 6px 16px rgba(91, 207, 250, 0.35),
+    0 2px 8px rgba(245, 171, 185, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.5) !important;
 }
 
-/* 优化警告框样式 */
+:deep(.v-btn--variant-elevated),
+:deep(.v-btn--variant-flat) {
+  background: rgba(255, 255, 255, 0.7) !important;
+  backdrop-filter: blur(10px) !important;
+}
+
+/* 优化警告框样式 - 镜面效果 */
 :deep(.v-alert) {
-  border-radius: 10px !important;
+  border-radius: 16px !important;
   border-left-width: 4px !important;
-  transition: all 0.25s ease !important;
+  background: rgba(255, 255, 255, 0.7) !important;
+  backdrop-filter: blur(15px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(15px) saturate(180%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.3) !important;
+  box-shadow:
+    0 4px 12px rgba(91, 207, 250, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.5) !important;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
 }
 
 /* 优化列表项样式 */
@@ -2799,7 +2929,14 @@ async function fetchUserStorageStatus() {
 }
 
 :deep(.v-list-item:hover) {
-  background-color: rgba(var(--v-theme-primary), 0.04) !important;
+  background: linear-gradient(135deg,
+      rgba(91, 207, 250, 0.2) 0%,
+      rgba(245, 171, 185, 0.15) 100%) !important;
+  backdrop-filter: blur(10px) !important;
+  transform: translateX(4px);
+  box-shadow:
+    0 2px 8px rgba(91, 207, 250, 0.25),
+    inset 0 1px 0 rgba(255, 255, 255, 0.4) !important;
 }
 
 /* Colorful Switches */
@@ -2862,20 +2999,24 @@ async function fetchUserStorageStatus() {
   }
 }
 
-/* 手机端优化 */
+/* 手机端优化 - 保持镜面效果 */
 @media (max-width: 768px) {
   .plugin-page {
     padding: 8px;
   }
 
-  /* 移动端减小圆角 */
+  /* 移动端减小圆角但保持镜面效果 */
   .plugin-page :deep(.v-card) {
-    border-radius: 12px !important;
+    border-radius: 16px !important;
+    backdrop-filter: blur(15px) saturate(180%) !important;
+    -webkit-backdrop-filter: blur(15px) saturate(180%) !important;
   }
 
   .config-card {
-    border-radius: 10px !important;
+    border-radius: 14px !important;
     margin-bottom: 12px !important;
+    backdrop-filter: blur(12px) saturate(180%) !important;
+    -webkit-backdrop-filter: blur(12px) saturate(180%) !important;
   }
 
   .plugin-page :deep(.v-card-title) {
@@ -2913,11 +3054,19 @@ async function fetchUserStorageStatus() {
     min-height: 48px !important;
   }
 
-  /* 优化对话框在移动端 */
+  /* 优化对话框在移动端 - 镜面效果 */
   :deep(.v-dialog > .v-card) {
     margin: 16px !important;
     max-height: calc(100vh - 32px) !important;
-    border-radius: 16px !important;
+    border-radius: 20px !important;
+    background: rgba(255, 255, 255, 0.85) !important;
+    backdrop-filter: blur(25px) saturate(180%) !important;
+    -webkit-backdrop-filter: blur(25px) saturate(180%) !important;
+    border: 1px solid rgba(255, 255, 255, 0.4) !important;
+    box-shadow:
+      0 12px 48px rgba(91, 207, 250, 0.3),
+      0 4px 16px rgba(245, 171, 185, 0.25),
+      inset 0 1px 0 rgba(255, 255, 255, 0.6) !important;
   }
 
   /* 离线下载表格优化 */

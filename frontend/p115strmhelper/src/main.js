@@ -6,7 +6,7 @@ import 'vuetify/styles'
 import { aliases, mdi } from 'vuetify/iconsets/mdi'
 import App from './App.vue'
 
-// 创建Vuetify实例
+// 创建Vuetify实例，配置蓝粉白主题
 const vuetify = createVuetify({
   components,
   directives,
@@ -15,6 +15,29 @@ const vuetify = createVuetify({
     aliases,
     sets: {
       mdi,
+    },
+  },
+  theme: {
+    defaultTheme: 'bluePinkWhite',
+    themes: {
+      bluePinkWhite: {
+        dark: false,
+        colors: {
+          primary: '#5bcffa',      // 蓝色基准色
+          secondary: '#f5abb9',     // 粉色基准色
+          accent: '#ffb8c9',        // 粉色强调色（更亮的粉色）
+          error: '#F44336',
+          warning: '#FF9800',
+          info: '#5bcffa',
+          success: '#4CAF50',
+          background: '#FAFAFA',    // 浅灰白背景
+          surface: '#FFFFFF',       // 白色表面
+          'on-primary': '#FFFFFF',
+          'on-secondary': '#FFFFFF',
+          'on-surface': '#212121',
+          'on-background': '#212121',
+        },
+      },
     },
   },
 })

@@ -73,7 +73,7 @@
 
       <!-- 刷新按钮 -->
       <v-divider v-if="props.allowRefresh"></v-divider>
-      <v-card-actions v-if="props.allowRefresh" class="px-3 py-1">
+      <v-card-actions v-if="props.allowRefresh" class="px-3 py-1 refresh-actions">
         <span class="text-caption text-disabled">{{ lastRefreshedTimeDisplay }}</span>
         <v-spacer></v-spacer>
         <v-btn icon variant="text" size="small" @click="fetchData" :loading="loading">
@@ -191,22 +191,37 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+/* ============================================
+   仪表盘组件样式 - 镜面效果 + 蓝粉白配色
+   ============================================ */
+
 .dashboard-widget {
   height: 100%;
   width: 100%;
 }
 
 .dashboard-widget :deep(.v-card) {
-  border-radius: 16px !important;
+  border-radius: 20px !important;
   overflow: hidden;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04) !important;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
-  border: 1px solid rgba(var(--v-border-color), 0.1) !important;
+  /* 镜面效果 */
+  background: rgba(255, 255, 255, 0.7) !important;
+  backdrop-filter: blur(20px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(180%) !important;
+  box-shadow:
+    0 8px 32px rgba(91, 207, 250, 0.25),
+    0 2px 8px rgba(245, 171, 185, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.7) !important;
+  border: 1px solid rgba(255, 255, 255, 0.3) !important;
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1) !important;
 }
 
 .dashboard-widget :deep(.v-card:hover) {
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08) !important;
-  transform: translateY(-1px);
+  box-shadow:
+    0 12px 32px rgba(91, 207, 250, 0.15),
+    0 4px 12px rgba(245, 171, 185, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.7) !important;
+  transform: translateY(-4px) scale(1.02);
+  background: rgba(255, 255, 255, 0.75) !important;
 }
 
 .v-card-item {
@@ -230,8 +245,14 @@ onUnmounted(() => {
 }
 
 :deep(.v-list-item:hover) {
-  background-color: rgba(var(--v-theme-primary), 0.04) !important;
-  transform: translateX(2px);
+  background: linear-gradient(135deg,
+      rgba(91, 207, 250, 0.2) 0%,
+      rgba(245, 171, 185, 0.15) 100%) !important;
+  backdrop-filter: blur(10px) !important;
+  transform: translateX(4px);
+  box-shadow:
+    0 2px 8px rgba(91, 207, 250, 0.25),
+    inset 0 1px 0 rgba(255, 255, 255, 0.4) !important;
 }
 
 :deep(.v-list-item-title) {
@@ -244,18 +265,57 @@ onUnmounted(() => {
 }
 
 :deep(.v-btn:hover) {
-  transform: scale(1.1);
-  background-color: rgba(var(--v-theme-primary), 0.1) !important;
+  transform: scale(1.1) translateY(-2px);
+  background: linear-gradient(135deg,
+      rgba(91, 207, 250, 0.25) 0%,
+      rgba(245, 171, 185, 0.2) 100%) !important;
+  backdrop-filter: blur(10px) !important;
+  box-shadow:
+    0 6px 16px rgba(91, 207, 250, 0.35),
+    0 2px 8px rgba(245, 171, 185, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.5) !important;
 }
 
 :deep(.v-icon) {
   transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
 }
 
-/* 移动端优化 */
+/* 刷新状态栏 - 动态镜面效果 */
+.refresh-actions {
+  background: linear-gradient(135deg,
+      rgba(91, 207, 250, 0.15) 0%,
+      rgba(245, 171, 185, 0.12) 100%) !important;
+  backdrop-filter: blur(20px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(180%) !important;
+  border-top: 1px solid rgba(255, 255, 255, 0.4) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.5),
+    0 -2px 12px rgba(91, 207, 250, 0.15),
+    0 -1px 4px rgba(245, 171, 185, 0.1) !important;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+.refresh-actions:hover {
+  background: linear-gradient(135deg,
+      rgba(91, 207, 250, 0.2) 0%,
+      rgba(245, 171, 185, 0.15) 100%) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.6),
+    0 -2px 16px rgba(91, 207, 250, 0.2),
+    0 -1px 6px rgba(245, 171, 185, 0.15) !important;
+}
+
+:deep(.refresh-actions .v-divider) {
+  border-color: rgba(91, 207, 250, 0.3) !important;
+  opacity: 0.6;
+}
+
+/* 移动端优化 - 保持镜面效果 */
 @media (max-width: 768px) {
   .dashboard-widget :deep(.v-card) {
-    border-radius: 12px !important;
+    border-radius: 16px !important;
+    backdrop-filter: blur(15px) saturate(180%) !important;
+    -webkit-backdrop-filter: blur(15px) saturate(180%) !important;
   }
 
   /* 优化触摸目标大小 */

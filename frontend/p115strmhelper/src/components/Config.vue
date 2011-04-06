@@ -125,7 +125,7 @@
 
           <!-- 标签页 -->
           <v-card flat class="rounded mb-3 border config-card">
-            <v-tabs v-model="activeTab" color="primary" bg-color="grey-lighten-3" class="rounded-t" grow>
+            <v-tabs v-model="activeTab" color="primary" class="rounded-t" grow>
               <v-tab value="tab-transfer" class="text-caption">
                 <v-icon size="small" start>mdi-file-move-outline</v-icon>监控MP整理
               </v-tab>
@@ -1207,8 +1207,7 @@
                       <!-- STRM 输出目录 -->
                       <v-col cols="12" md="6">
                         <v-text-field v-model="pair.dest_strm" label="STRM 输出目录 (可选)" density="compact"
-                          variant="outlined" append-icon="mdi-file-document-outline"
-                          hide-details="auto"
+                          variant="outlined" append-icon="mdi-file-document-outline" hide-details="auto"
                           @click:append="openDirSelector(index, 'local', 'directoryUpload', 'dest_strm')">
                           <template v-slot:prepend-inner>
                             <v-icon color="purple">mdi-file-star</v-icon>
@@ -1224,8 +1223,8 @@
                       </v-col>
                       <!-- 删除按钮 -->
                       <v-col cols="12" md="2" class="d-flex align-center justify-end">
-                        <v-btn icon="mdi-delete-outline" size="small" color="error" variant="text"
-                          title="删除此路径配置" @click="removePath(index, 'directoryUpload')">
+                        <v-btn icon="mdi-delete-outline" size="small" color="error" variant="text" title="删除此路径配置"
+                          @click="removePath(index, 'directoryUpload')">
                         </v-btn>
                       </v-col>
                     </v-row>
@@ -4330,39 +4329,112 @@ const removeExcludePathEntry = (index, type) => {
   /* Unified with Page.vue's common list item subtitle size */
 }
 
-/* 基本配置卡片样式 */
+/* ============================================
+   配置界面样式 - 镜面效果 + 蓝粉白配色
+   ============================================ */
+
+/* 主容器 */
 .plugin-config {
   padding: 12px;
 }
 
 .plugin-config :deep(.v-card) {
-  border-radius: 16px !important;
+  border-radius: 20px !important;
   overflow: hidden;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04) !important;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  /* 镜面效果 - 动态适配主题 */
+  background: rgba(var(--v-theme-surface), 0.7) !important;
+  backdrop-filter: blur(20px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(180%) !important;
+  box-shadow:
+    0 8px 32px rgba(91, 207, 250, 0.25),
+    0 2px 8px rgba(245, 171, 185, 0.2),
+    inset 0 1px 0 rgba(var(--v-theme-on-surface), 0.05) !important;
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.12) !important;
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+/* 暗色模式下的主卡片 */
+:deep(.v-theme--dark) .plugin-config .v-card,
+:deep([data-theme="dark"]) .plugin-config .v-card {
+  background: rgba(var(--v-theme-surface), 0.75) !important;
+  border: 1px solid rgba(255, 255, 255, 0.15) !important;
+  box-shadow:
+    0 8px 32px rgba(91, 207, 250, 0.3),
+    0 2px 8px rgba(245, 171, 185, 0.25),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1) !important;
 }
 
 .config-card {
-  border-radius: 12px !important;
-  border: 1px solid rgba(var(--v-border-color), 0.12) !important;
-  background: rgba(var(--v-theme-surface), 1) !important;
+  border-radius: 16px !important;
+  /* 镜面效果 - 动态适配主题 */
+  background: rgba(var(--v-theme-surface), 0.65) !important;
+  backdrop-filter: blur(15px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(15px) saturate(180%) !important;
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.12) !important;
   overflow: hidden;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1) !important;
   margin-bottom: 16px !important;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04) !important;
+  box-shadow:
+    0 4px 16px rgba(91, 207, 250, 0.2),
+    0 1px 4px rgba(245, 171, 185, 0.15),
+    inset 0 1px 0 rgba(var(--v-theme-on-surface), 0.05) !important;
+}
+
+/* 暗色模式下的配置卡片 */
+:deep(.v-theme--dark) .config-card,
+:deep([data-theme="dark"]) .config-card {
+  background: rgba(var(--v-theme-surface), 0.7) !important;
+  border: 1px solid rgba(255, 255, 255, 0.15) !important;
+  box-shadow:
+    0 4px 16px rgba(91, 207, 250, 0.25),
+    0 1px 4px rgba(245, 171, 185, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1) !important;
 }
 
 .config-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.08) !important;
-  border-color: rgba(var(--v-theme-primary), 0.2) !important;
+  transform: translateY(-4px) scale(1.01);
+  box-shadow:
+    0 12px 32px rgba(91, 207, 250, 0.3),
+    0 4px 12px rgba(245, 171, 185, 0.25),
+    inset 0 1px 0 rgba(var(--v-theme-on-surface), 0.08) !important;
+  border-color: rgba(91, 207, 250, 0.5) !important;
+  background: rgba(var(--v-theme-surface), 0.75) !important;
+}
+
+/* 暗色模式下的配置卡片悬停状态 */
+:deep(.v-theme--dark) .config-card:hover,
+:deep([data-theme="dark"]) .config-card:hover {
+  background: rgba(var(--v-theme-surface), 0.8) !important;
+  border-color: rgba(91, 207, 250, 0.6) !important;
+  box-shadow:
+    0 12px 32px rgba(91, 207, 250, 0.4),
+    0 4px 12px rgba(245, 171, 185, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.15) !important;
 }
 
 .bg-primary-gradient,
 .bg-primary-lighten-5 {
-  background: linear-gradient(135deg, rgba(var(--v-theme-primary), 0.12), rgba(var(--v-theme-primary), 0.06)) !important;
-  backdrop-filter: blur(10px);
-  border-bottom: 1px solid rgba(var(--v-border-color), 0.08) !important;
+  background: linear-gradient(135deg,
+      rgba(91, 207, 250, 0.25) 0%,
+      rgba(245, 171, 185, 0.2) 50%,
+      rgba(255, 184, 201, 0.15) 100%) !important;
+  backdrop-filter: blur(20px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(180%) !important;
+  border-bottom: 1px solid rgba(var(--v-theme-on-surface), 0.12) !important;
+  box-shadow: inset 0 1px 0 rgba(var(--v-theme-on-surface), 0.05) !important;
+}
+
+/* 暗色模式下的标题区域 */
+:deep(.v-theme--dark) .bg-primary-gradient,
+:deep(.v-theme--dark) .bg-primary-lighten-5,
+:deep([data-theme="dark"]) .bg-primary-gradient,
+:deep([data-theme="dark"]) .bg-primary-lighten-5 {
+  background: linear-gradient(135deg,
+      rgba(91, 207, 250, 0.3) 0%,
+      rgba(245, 171, 185, 0.25) 50%,
+      rgba(255, 184, 201, 0.2) 100%) !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.15) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1) !important;
 }
 
 .plugin-config :deep(.v-card-title) {
@@ -4374,18 +4446,41 @@ const removeExcludePathEntry = (index, type) => {
   color: rgba(var(--v-theme-on-surface), var(--v-high-emphasis-opacity));
 }
 
-/* 路径输入框组 */
+/* 路径输入框组 - 镜面效果，动态适配主题 */
 .path-group {
   padding: 12px;
-  border: 1px solid rgba(var(--v-border-color), 0.2);
-  border-radius: 10px;
-  background: rgba(var(--v-theme-surface), 0.5);
-  transition: all 0.25s ease !important;
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.12) !important;
+  border-radius: 12px;
+  background: rgba(var(--v-theme-surface), 0.5) !important;
+  backdrop-filter: blur(10px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(10px) saturate(180%) !important;
+  box-shadow:
+    0 2px 8px rgba(91, 207, 250, 0.15),
+    inset 0 1px 0 rgba(var(--v-theme-on-surface), 0.05) !important;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
 }
 
 .path-group:hover {
-  border-color: rgba(var(--v-theme-primary), 0.3);
-  background: rgba(var(--v-theme-primary), 0.02);
+  border-color: rgba(91, 207, 250, 0.4) !important;
+  background: rgba(var(--v-theme-surface), 0.65) !important;
+  box-shadow:
+    0 4px 12px rgba(91, 207, 250, 0.2),
+    inset 0 1px 0 rgba(var(--v-theme-on-surface), 0.08) !important;
+}
+
+/* 暗色模式下的路径输入框组 */
+:deep(.v-theme--dark) .path-group,
+:deep([data-theme="dark"]) .path-group {
+  border: 1px solid rgba(255, 255, 255, 0.15) !important;
+  background: rgba(var(--v-theme-surface), 0.6) !important;
+}
+
+:deep(.v-theme--dark) .path-group:hover,
+:deep([data-theme="dark"]) .path-group:hover {
+  background: rgba(var(--v-theme-surface), 0.7) !important;
+  box-shadow:
+    0 4px 12px rgba(91, 207, 250, 0.25),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1) !important;
 }
 
 .path-input-row {
@@ -4413,31 +4508,173 @@ const removeExcludePathEntry = (index, type) => {
   line-height: 1.4;
 }
 
-/* Tab 样式调整 */
+/* Tab 样式调整 - 蓝粉配色 */
 :deep(.v-tabs) {
-  border-bottom: 2px solid rgba(var(--v-theme-primary), 0.2) !important;
-  border-radius: 10px 10px 0 0;
+  border-bottom: 2px solid rgba(91, 207, 250, 0.4) !important;
+  border-radius: 12px 12px 0 0;
+  background: rgba(var(--v-theme-surface), 0.3) !important;
+  backdrop-filter: blur(10px) !important;
+}
+
+/* 暗色模式下的 Tab 背景 */
+:deep(.v-theme--dark) .v-tabs,
+:deep([data-theme="dark"]) .v-tabs {
+  background: rgba(var(--v-theme-surface), 0.4) !important;
+  border-bottom-color: rgba(91, 207, 250, 0.5) !important;
+}
+
+/* Tab 容器 - 确保没有白色背景，动态适配主题 */
+:deep(.v-tabs .v-tabs-bar),
+:deep(.v-tabs .v-tabs-bar__content),
+:deep(.v-tabs .v-tabs-bar__wrapper) {
+  background: transparent !important;
+}
+
+/* Tab 项背景 - 确保未选中状态在暗色模式下有合适的背景 */
+:deep(.v-tab) {
+  background: transparent !important;
+}
+
+/* 暗色模式下的未选中 Tab */
+:deep(.v-theme--dark) .v-tab:not(.v-tab--selected),
+:deep([data-theme="dark"]) .v-tab:not(.v-tab--selected) {
+  background: rgba(var(--v-theme-surface), 0.15) !important;
+  backdrop-filter: blur(5px) !important;
+}
+
+/* Tab 切换动画时的中间状态 */
+:deep(.v-tab--transitioning),
+:deep(.v-tab[aria-selected="true"]) {
+  background: linear-gradient(135deg,
+      rgba(91, 207, 250, 0.3) 0%,
+      rgba(245, 171, 185, 0.25) 100%) !important;
+}
+
+/* 暗色模式下的 Tab 切换动画 */
+:deep(.v-theme--dark) .v-tab--transitioning,
+:deep(.v-theme--dark) .v-tab[aria-selected="true"],
+:deep([data-theme="dark"]) .v-tab--transitioning,
+:deep([data-theme="dark"]) .v-tab[aria-selected="true"] {
+  background: linear-gradient(135deg,
+      rgba(91, 207, 250, 0.4) 0%,
+      rgba(245, 171, 185, 0.35) 100%) !important;
 }
 
 :deep(.v-tab) {
   font-weight: 500;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
-  border-radius: 10px 10px 0 0 !important;
+  border-radius: 12px 12px 0 0 !important;
   margin: 0 2px;
+  color: rgba(var(--v-theme-on-surface), 0.7) !important;
+}
+
+/* 暗色模式下的 Tab 文字颜色 */
+:deep(.v-theme--dark) .v-tab,
+:deep([data-theme="dark"]) .v-tab {
+  color: rgba(255, 255, 255, 0.7) !important;
 }
 
 :deep(.v-tab:hover) {
-  background-color: rgba(var(--v-theme-primary), 0.06) !important;
+  background: linear-gradient(135deg, rgba(91, 207, 250, 0.2), rgba(245, 171, 185, 0.15)) !important;
+  color: #5bcffa !important;
+}
+
+/* 暗色模式下的 Tab 悬停状态 */
+:deep(.v-theme--dark) .v-tab:hover,
+:deep([data-theme="dark"]) .v-tab:hover {
+  background: linear-gradient(135deg,
+      rgba(91, 207, 250, 0.25) 0%,
+      rgba(245, 171, 185, 0.2) 100%) !important;
+  color: #5bcffa !important;
+}
+
+/* Tab 未选中状态 - 确保在暗色模式下有合适的背景 */
+:deep(.v-theme--dark) .v-tab:not(.v-tab--selected),
+:deep([data-theme="dark"]) .v-tab:not(.v-tab--selected) {
+  background: rgba(var(--v-theme-surface), 0.2) !important;
+  backdrop-filter: blur(5px) !important;
+}
+
+:deep(.v-theme--dark) .v-tab:not(.v-tab--selected):hover,
+:deep([data-theme="dark"]) .v-tab:not(.v-tab--selected):hover {
+  background: linear-gradient(135deg,
+      rgba(91, 207, 250, 0.2) 0%,
+      rgba(245, 171, 185, 0.15) 100%) !important;
 }
 
 :deep(.v-tab--selected) {
-  background: linear-gradient(135deg, rgba(var(--v-theme-primary), 0.15), rgba(var(--v-theme-primary), 0.08)) !important;
-  color: rgb(var(--v-theme-primary)) !important;
-  border-radius: 10px 10px 0 0 !important;
+  background: linear-gradient(135deg,
+      rgba(91, 207, 250, 0.3) 0%,
+      rgba(245, 171, 185, 0.25) 100%) !important;
+  color: #5bcffa !important;
+  border-radius: 12px 12px 0 0 !important;
   font-weight: 600 !important;
+  box-shadow:
+    0 2px 8px rgba(91, 207, 250, 0.3),
+    inset 0 1px 0 rgba(var(--v-theme-on-surface), 0.08) !important;
+  backdrop-filter: blur(10px) !important;
 }
 
-/* Switch 样式调整 */
+/* 暗色模式下的选中 Tab - 使用深色背景而不是白色 */
+:deep(.v-theme--dark) .v-tab--selected,
+:deep([data-theme="dark"]) .v-tab--selected {
+  background: linear-gradient(135deg,
+      rgba(91, 207, 250, 0.25) 0%,
+      rgba(245, 171, 185, 0.2) 100%) !important;
+  box-shadow:
+    0 2px 8px rgba(91, 207, 250, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1) !important;
+  color: #5bcffa !important;
+  backdrop-filter: blur(10px) !important;
+}
+
+/* Tab 滑动指示器 - 动态适配主题（覆盖所有可能的类名） */
+:deep(.v-tabs-slider),
+:deep(.v-tabs-slider-wrapper),
+:deep(.v-tabs .v-slider),
+:deep(.v-tabs .v-slider__track),
+:deep(.v-tabs .v-slider__thumb),
+:deep(.v-tabs .v-tabs-bar__slider) {
+  background: linear-gradient(135deg,
+      rgba(91, 207, 250, 0.8) 0%,
+      rgba(245, 171, 185, 0.7) 100%) !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+/* 暗色模式下的滑动指示器 */
+:deep(.v-theme--dark) .v-tabs-slider,
+:deep(.v-theme--dark) .v-tabs-slider-wrapper,
+:deep(.v-theme--dark) .v-tabs .v-slider,
+:deep(.v-theme--dark) .v-tabs .v-slider__track,
+:deep(.v-theme--dark) .v-tabs .v-slider__thumb,
+:deep(.v-theme--dark) .v-tabs .v-tabs-bar__slider,
+:deep([data-theme="dark"]) .v-tabs-slider,
+:deep([data-theme="dark"]) .v-tabs-slider-wrapper,
+:deep([data-theme="dark"]) .v-tabs .v-slider,
+:deep([data-theme="dark"]) .v-tabs .v-slider__track,
+:deep([data-theme="dark"]) .v-tabs .v-slider__thumb,
+:deep([data-theme="dark"]) .v-tabs .v-tabs-bar__slider {
+  background: linear-gradient(135deg,
+      rgba(91, 207, 250, 0.9) 0%,
+      rgba(245, 171, 185, 0.8) 100%) !important;
+  box-shadow:
+    0 0 8px rgba(91, 207, 250, 0.5),
+    0 0 4px rgba(245, 171, 185, 0.4) !important;
+}
+
+/* Tab 背景色 - 动态适配主题 */
+:deep(.v-tabs) {
+  background: rgba(var(--v-theme-surface), 0.3) !important;
+}
+
+/* 暗色模式下的 Tab 背景 */
+:deep(.v-theme--dark) .v-tabs,
+:deep([data-theme="dark"]) .v-tabs {
+  background: rgba(var(--v-theme-surface), 0.4) !important;
+}
+
+/* Switch 样式调整 - 动态适配主题 */
 :deep(.v-switch .v-selection-control__input > .v-icon) {
   color: rgba(var(--v-theme-medium-emphasis));
   transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
@@ -4448,6 +4685,24 @@ const removeExcludePathEntry = (index, type) => {
   border-radius: 12px !important;
   opacity: 1 !important;
   transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+/* 暗色模式下的开关轨道 */
+:deep(.v-theme--dark) .v-switch .v-track,
+:deep([data-theme="dark"]) .v-switch .v-track {
+  background-color: rgba(255, 255, 255, 0.2) !important;
+}
+
+/* 开关启用状态 - 动态适配主题 */
+:deep(.v-switch .v-selection-control--dirty .v-track) {
+  background-color: rgb(var(--v-theme-primary)) !important;
+}
+
+/* 暗色模式下的开关启用状态 */
+:deep(.v-theme--dark) .v-switch .v-selection-control--dirty .v-track,
+:deep([data-theme="dark"]) .v-switch .v-selection-control--dirty .v-track {
+  background-color: #5bcffa !important;
+  box-shadow: 0 0 8px rgba(91, 207, 250, 0.4) !important;
 }
 
 /* 调整字体大小 */
@@ -4466,51 +4721,148 @@ const removeExcludePathEntry = (index, type) => {
   font-size: 0.875rem !important;
 }
 
-/* 优化输入框样式 */
+/* 优化输入框样式 - 镜面效果，动态适配主题 */
 :deep(.v-field) {
-  border-radius: 10px !important;
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  border-radius: 12px !important;
+  background: rgba(var(--v-theme-surface), 0.6) !important;
+  backdrop-filter: blur(8px) !important;
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.12) !important;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  box-shadow:
+    0 2px 4px rgba(91, 207, 250, 0.15),
+    inset 0 1px 0 rgba(var(--v-theme-on-surface), 0.05) !important;
+}
+
+/* 暗色模式下的输入框 */
+:deep(.v-theme--dark) .v-field,
+:deep([data-theme="dark"]) .v-field {
+  background: rgba(var(--v-theme-surface), 0.7) !important;
+  border: 1px solid rgba(255, 255, 255, 0.15) !important;
+  box-shadow:
+    0 2px 4px rgba(91, 207, 250, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05) !important;
 }
 
 :deep(.v-field--focused) {
-  box-shadow: 0 0 0 2px rgba(var(--v-theme-primary), 0.2) !important;
+  box-shadow:
+    0 0 0 3px rgba(91, 207, 250, 0.3),
+    0 4px 12px rgba(245, 171, 185, 0.25),
+    inset 0 1px 0 rgba(var(--v-theme-on-surface), 0.08) !important;
+  border-color: rgba(91, 207, 250, 0.6) !important;
+  background: rgba(var(--v-theme-surface), 0.75) !important;
+}
+
+/* 暗色模式下的输入框聚焦状态 */
+:deep(.v-theme--dark) .v-field--focused,
+:deep([data-theme="dark"]) .v-field--focused {
+  background: rgba(var(--v-theme-surface), 0.8) !important;
+  box-shadow:
+    0 0 0 3px rgba(91, 207, 250, 0.4),
+    0 4px 12px rgba(245, 171, 185, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1) !important;
+  border-color: rgba(91, 207, 250, 0.7) !important;
 }
 
 :deep(.v-select .v-field),
 :deep(.v-text-field .v-field),
 :deep(.v-textarea .v-field) {
-  border-radius: 10px !important;
+  border-radius: 12px !important;
 }
 
-/* 优化按钮样式 */
+/* 输入框内部元素 - 确保没有白色背景 */
+:deep(.v-field__input),
+:deep(.v-field__control),
+:deep(.v-input__control) {
+  background: transparent !important;
+}
+
+/* 暗色模式下的输入框内部 */
+:deep(.v-theme--dark) .v-field__input,
+:deep(.v-theme--dark) .v-field__control,
+:deep(.v-theme--dark) .v-input__control,
+:deep([data-theme="dark"]) .v-field__input,
+:deep([data-theme="dark"]) .v-field__control,
+:deep([data-theme="dark"]) .v-input__control {
+  background: transparent !important;
+  color: rgba(255, 255, 255, 0.87) !important;
+}
+
+/* 优化按钮样式 - 镜面效果 */
 :deep(.v-btn) {
-  border-radius: 10px !important;
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  border-radius: 12px !important;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
   font-weight: 500 !important;
   text-transform: none !important;
+  backdrop-filter: blur(10px) !important;
+  box-shadow:
+    0 2px 8px rgba(91, 207, 250, 0.2),
+    inset 0 1px 0 rgba(var(--v-theme-on-surface), 0.08) !important;
 }
 
 :deep(.v-btn:hover) {
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
+  transform: translateY(-2px) scale(1.02);
+  box-shadow:
+    0 6px 16px rgba(91, 207, 250, 0.35),
+    0 2px 8px rgba(245, 171, 185, 0.3),
+    inset 0 1px 0 rgba(var(--v-theme-on-surface), 0.1) !important;
 }
 
-/* 优化警告框样式 */
+:deep(.v-btn--variant-elevated),
+:deep(.v-btn--variant-flat) {
+  background: rgba(var(--v-theme-surface), 0.7) !important;
+  backdrop-filter: blur(10px) !important;
+}
+
+/* 暗色模式下的按钮 */
+:deep(.v-theme--dark) .v-btn--variant-elevated,
+:deep(.v-theme--dark) .v-btn--variant-flat,
+:deep([data-theme="dark"]) .v-btn--variant-elevated,
+:deep([data-theme="dark"]) .v-btn--variant-flat {
+  background: rgba(var(--v-theme-surface), 0.8) !important;
+}
+
+/* 优化警告框样式 - 镜面效果，动态适配主题 */
 :deep(.v-alert) {
-  border-radius: 12px !important;
+  border-radius: 16px !important;
   border-left-width: 4px !important;
-  transition: all 0.25s ease !important;
+  background: rgba(var(--v-theme-surface), 0.7) !important;
+  backdrop-filter: blur(15px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(15px) saturate(180%) !important;
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.12) !important;
+  box-shadow:
+    0 4px 12px rgba(91, 207, 250, 0.2),
+    inset 0 1px 0 rgba(var(--v-theme-on-surface), 0.05) !important;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
 }
 
-/* 优化列表项样式 */
+/* 暗色模式下的警告框 */
+:deep(.v-theme--dark) .v-alert,
+:deep([data-theme="dark"]) .v-alert {
+  background: rgba(var(--v-theme-surface), 0.8) !important;
+  border: 1px solid rgba(255, 255, 255, 0.15) !important;
+  box-shadow:
+    0 4px 12px rgba(91, 207, 250, 0.25),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1) !important;
+}
+
+/* 优化列表项样式 - 镜面效果 */
 :deep(.v-list-item) {
-  border-radius: 8px;
+  border-radius: 10px;
   margin: 2px 4px;
-  transition: all 0.2s ease !important;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  background: rgba(255, 255, 255, 0.3) !important;
+  backdrop-filter: blur(5px) !important;
 }
 
 :deep(.v-list-item:hover) {
-  background-color: rgba(var(--v-theme-primary), 0.04) !important;
+  background: linear-gradient(135deg,
+      rgba(91, 207, 250, 0.2) 0%,
+      rgba(245, 171, 185, 0.15) 100%) !important;
+  backdrop-filter: blur(10px) !important;
+  transform: translateX(4px);
+  box-shadow:
+    0 2px 8px rgba(91, 207, 250, 0.25),
+    inset 0 1px 0 rgba(var(--v-theme-on-surface), 0.08) !important;
 }
 
 /* Reduce vertical padding for columns within rows */
@@ -4519,22 +4871,7 @@ const removeExcludePathEntry = (index, type) => {
   padding-bottom: 4px !important;
 }
 
-/* 更鲜艳的 Tab 颜色 (示例) */
-:deep(.v-tabs .v-tab--selected) {
-  background-color: #1976D2 !important;
-  /* Vuetify 主题蓝色 */
-  color: white !important;
-}
-
-:deep(.v-tabs .v-tab) {
-  color: #424242;
-  /* 深灰色 */
-}
-
-:deep(.v-tabs) {
-  border-bottom: 2px solid #1976D2 !important;
-  /* Vuetify 主题蓝色 */
-}
+/* Tab 颜色已在上方更新，移除重复样式 */
 
 /* Colorful Switches */
 :deep(.v-switch .v-selection-control--dirty .v-track) {
@@ -4546,19 +4883,36 @@ const removeExcludePathEntry = (index, type) => {
   color: white !important;
 }
 
-/* Primary Color Switch */
+/* Primary Color Switch - 动态适配主题 */
 :deep(v-switch[color="primary"] .v-selection-control--dirty .v-track),
 :deep(v-switch[color="primary"] .v-selection-control--dirty .v-switch__track) {
-  /* track */
   background-color: rgb(var(--v-theme-primary)) !important;
   border-color: rgb(var(--v-theme-primary)) !important;
 }
 
-/* Success Color Switch */
+/* 暗色模式下的 Primary Switch */
+:deep(.v-theme--dark) v-switch[color="primary"] .v-selection-control--dirty .v-track,
+:deep(.v-theme--dark) v-switch[color="primary"] .v-selection-control--dirty .v-switch__track,
+:deep([data-theme="dark"]) v-switch[color="primary"] .v-selection-control--dirty .v-track,
+:deep([data-theme="dark"]) v-switch[color="primary"] .v-selection-control--dirty .v-switch__track {
+  background-color: #5bcffa !important;
+  border-color: #5bcffa !important;
+  box-shadow: 0 0 8px rgba(91, 207, 250, 0.4) !important;
+}
+
+/* Success Color Switch - 动态适配主题 */
 :deep(v-switch[color="success"] .v-selection-control--dirty .v-track),
 :deep(v-switch[color="success"] .v-selection-control--dirty .v-switch__track) {
   background-color: rgb(var(--v-theme-success)) !important;
   border-color: rgb(var(--v-theme-success)) !important;
+}
+
+/* 暗色模式下的 Success Switch */
+:deep(.v-theme--dark) v-switch[color="success"] .v-selection-control--dirty .v-track,
+:deep(.v-theme--dark) v-switch[color="success"] .v-selection-control--dirty .v-switch__track,
+:deep([data-theme="dark"]) v-switch[color="success"] .v-selection-control--dirty .v-track,
+:deep([data-theme="dark"]) v-switch[color="success"] .v-selection-control--dirty .v-switch__track {
+  box-shadow: 0 0 8px rgba(76, 175, 80, 0.4) !important;
 }
 
 /* Info Color Switch */
@@ -4587,20 +4941,24 @@ const removeExcludePathEntry = (index, type) => {
   min-height: 200px;
 }
 
-/* 移动端优化 */
+/* 移动端优化 - 保持镜面效果 */
 @media (max-width: 959px) {
   .plugin-config {
     padding: 8px;
   }
 
-  /* 移动端减小圆角 */
+  /* 移动端减小圆角但保持镜面效果 */
   .plugin-config :deep(.v-card) {
-    border-radius: 12px !important;
+    border-radius: 16px !important;
+    backdrop-filter: blur(15px) saturate(180%) !important;
+    -webkit-backdrop-filter: blur(15px) saturate(180%) !important;
   }
 
   .config-card {
-    border-radius: 10px !important;
+    border-radius: 14px !important;
     margin-bottom: 12px !important;
+    backdrop-filter: blur(12px) saturate(180%) !important;
+    -webkit-backdrop-filter: blur(12px) saturate(180%) !important;
   }
 
   .plugin-config :deep(.v-card-title) {
@@ -4652,11 +5010,19 @@ const removeExcludePathEntry = (index, type) => {
     font-size: 0.875rem !important;
   }
 
-  /* 优化对话框在移动端 */
+  /* 优化对话框在移动端 - 镜面效果 */
   :deep(.v-dialog > .v-card) {
     margin: 16px !important;
     max-height: calc(100vh - 32px) !important;
-    border-radius: 16px !important;
+    border-radius: 20px !important;
+    background: rgba(255, 255, 255, 0.85) !important;
+    backdrop-filter: blur(25px) saturate(180%) !important;
+    -webkit-backdrop-filter: blur(25px) saturate(180%) !important;
+    border: 1px solid rgba(255, 255, 255, 0.4) !important;
+    box-shadow:
+      0 12px 48px rgba(91, 207, 250, 0.3),
+      0 4px 16px rgba(245, 171, 185, 0.25),
+      inset 0 1px 0 rgba(var(--v-theme-on-surface), 0.1) !important;
   }
 
   :deep(.v-dialog) {
@@ -4727,7 +5093,7 @@ const removeExcludePathEntry = (index, type) => {
     margin-bottom: 10px !important;
   }
 
-  /* 对话框在小屏幕上全屏 */
+  /* 对话框在小屏幕上全屏 - 保持镜面效果 */
   :deep(.v-dialog) {
     max-width: 100vw !important;
   }
@@ -4736,6 +5102,9 @@ const removeExcludePathEntry = (index, type) => {
     margin: 0 !important;
     border-radius: 0 !important;
     max-height: 100vh !important;
+    background: rgba(255, 255, 255, 0.9) !important;
+    backdrop-filter: blur(30px) saturate(180%) !important;
+    -webkit-backdrop-filter: blur(30px) saturate(180%) !important;
   }
 
   /* 进一步优化间距 */
