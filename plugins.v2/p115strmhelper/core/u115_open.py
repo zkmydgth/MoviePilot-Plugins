@@ -580,6 +580,7 @@ class U115OpenHelper:
                     f"【P115Open】{target_name} 上传失败: {e.status}, 错误码: {e.code}, 详情: {e.message}"
                 )
                 if self.upload_fail_count():
+                    logger.warn(f"【P115Open】{target_name} 上传重试")
                     return self.upload(target_dir, local_path, new_name)
                 return None
         except Exception as e:
