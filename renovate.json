@@ -8,6 +8,9 @@
       "enabled": false
     }
   },
+  "constraints": {
+    "go": "1.22"
+  },
   "packageRules": [
     {
       "matchDatasources": [
@@ -42,6 +45,15 @@
       ],
       "matchCurrentVersion": "20",
       "enabled": false
+    },
+    {
+      "matchManagers": [
+        "gomod"
+      ],
+      "description": "Keep go directive unchanged (pin toolchain)",
+      "constraints": {
+        "go": "1.22"
+      }
     }
   ]
 }
