@@ -1,7 +1,6 @@
 __author__ = "DDSRem <https://ddsrem.com>"
 __all__ = [
     "iter_share_files_with_path",
-    "to_pickcode",
     "get_pid_by_path",
     "get_pickcode_by_path",
 ]
@@ -15,8 +14,7 @@ from typing import Iterator, Literal, List, Tuple, Dict, Any, Set, Optional
 from concurrent.futures import ThreadPoolExecutor, Future, as_completed
 
 from p115client import P115Client, check_response
-from p115client.tool.attr import normalize_attr, get_id, get_attr
-from p115pickcode import get_stable_point, to_pickcode as p115_to_pickcode
+from p115client.tool.attr import normalize_attr, get_id
 
 from ..core.cache import idpathcacher
 from ..db_manager.oper import FileDbHelper
@@ -204,18 +202,6 @@ def iter_share_files_with_path(
                 break
 
 
-def to_pickcode(client: P115Client, id: int) -> str:
-    """
-    将 id 转成 pick_code
-    """
-    db_helper = FileDbHelper()
-    pc = db_helper.get_any_pickcode()
-    if pc:
-        stable_point = get_stable_point(pc)
-        return p115_to_pickcode(id, stable_point=stable_point)
-    return get_attr(client=client, id=id, skim=True)["pickcode"]
-
-
 def get_pid_by_path(
     client: P115Client,
     path: str | PathLike | Path,
@@ -274,11 +260,11 @@ def get_pickcode_by_path(
         try:
             return db_item["pickcode"]
         except ValueError:
-            return to_pickcode(client, db_item["id"])
+            return client.to_pickcode(db_item["id"])
     try:
         file_id = get_id(client=client, path=path)
         if file_id:
-            return to_pickcode(client, file_id)
+            return client.to_pickcode(file_id)
         return None
     except Exception:
         return None

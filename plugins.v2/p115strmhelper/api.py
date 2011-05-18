@@ -19,7 +19,7 @@ from .service import servicer
 from .core.config import configer
 from .core.cache import idpathcacher, DirectoryCache
 from .core.aliyunpan import AliyunPanLogin
-from .core.p115 import to_pickcode, get_pid_by_path, get_pickcode_by_path
+from .core.p115 import get_pid_by_path, get_pickcode_by_path
 from .helper.life.test import MonitorLifeTest
 from .helper.strm import ApiSyncStrmHelper
 from .schemas.offline import (
@@ -826,7 +826,7 @@ class Api:
             else:
                 try:
                     file_id = int(args)
-                    resolved_pickcode = to_pickcode(servicer.client, file_id)
+                    resolved_pickcode = servicer.client.to_pickcode(file_id)
                     return resolved_pickcode, None
                 except (ValueError, TypeError):
                     logger.error(f"【302跳转服务】无效的参数格式: {args}")

@@ -5,7 +5,6 @@ from typing import Optional, List, Dict
 from p115client import P115Client, check_response
 from p115client.tool.attr import normalize_attr, get_id_to_path, get_attr
 from p115client.tool.fs_files import iter_fs_files
-from p115pickcode import to_pickcode
 
 from app.chain.storage import StorageChain
 from app.log import logger
@@ -207,7 +206,7 @@ class P115Api:
                     "id": data,
                     "size": None,
                     "modify_time": modify_time,
-                    "pickcode": to_pickcode(data),
+                    "pickcode": self.client.to_pickcode(data),
                     "is_dir": True,
                 },
             )
@@ -219,7 +218,7 @@ class P115Api:
                 basename=name,
                 type="dir",
                 modify_time=modify_time,
-                pickcode=to_pickcode(data),
+                pickcode=self.client.to_pickcode(data),
             )
         except Exception as e:
             logger.error(f"【P115Disk】创建目录失败: {str(e)}")
@@ -250,7 +249,7 @@ class P115Api:
                     "id": resp["cid"],
                     "size": None,
                     "modify_time": modify_time,
-                    "pickcode": to_pickcode(resp["cid"]),
+                    "pickcode": self.client.to_pickcode(resp["cid"]),
                     "is_dir": True,
                 },
             )
@@ -262,7 +261,7 @@ class P115Api:
                 basename=path.name,
                 type="dir",
                 modify_time=modify_time,
-                pickcode=to_pickcode(resp["cid"]),
+                pickcode=self.client.to_pickcode(resp["cid"]),
             )
         except Exception as e:
             logger.error(f"【P115Disk】{path} 目录创建出现未知错误：{e}")
