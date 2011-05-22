@@ -507,8 +507,8 @@ class ApiSyncStrmHelper:
                     try:
                         path = Path(i["path"])
                         if path.suffix.lower() in self.rmt_mediaext:
-                            file_path = Path(item.local_path) / path.relative_to(
-                                item.pan_media_path
+                            file_path = Path(item.local_path) / PathUtils.sanitize_path_parts(
+                                path.relative_to(item.pan_media_path)
                             )
                             new_file_path = (
                                 file_path.parent

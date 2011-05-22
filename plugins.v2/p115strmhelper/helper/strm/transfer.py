@@ -288,8 +288,8 @@ class TransferStrmHelper:
                     logger.error(
                         f"【监控整理STRM生成】{item_dest_name} 下载链接获取失败，无法下载该文件"
                     )
-                _file_path = Path(local_media_dir) / Path(item_dest_path).relative_to(
-                    pan_media_dir
+                _file_path = Path(local_media_dir) / PathUtils.sanitize_path_parts(
+                    Path(item_dest_path).relative_to(pan_media_dir)
                 )
                 mediainfodownloader.save_mediainfo_file(
                     file_path=Path(_file_path),

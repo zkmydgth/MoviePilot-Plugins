@@ -216,7 +216,7 @@ class IncrementSyncStrmHelper:
         def process_file_item(item_str: str):
             item_path = Path(pan_path) / Path(item_str).relative_to(relative_path)
             relative_item_path = item_path.relative_to(pan_path)
-            local_item_path = Path(local_path) / relative_item_path
+            local_item_path = Path(local_path) / PathUtils.sanitize_path_parts(relative_item_path)
 
             if item_path.suffix.lower() in self.rmt_mediaext:
                 strm_filename = StrmGenerater.get_strm_filename(local_item_path)

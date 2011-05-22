@@ -13,18 +13,33 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
 
     steps:
-      - name: Checkout code
+      - name: Checkout plugin code
         uses: actions/checkout@v6
+
+      - name: Checkout MoviePilot
+        uses: actions/checkout@v6
+        with:
+          repository: jxxghp/MoviePilot
+          path: MoviePilot
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v6
         with:
           python-version: '3.12'
 
+      - name: Install dependencies
+        run: |
+          pip install -r MoviePilot/requirements.txt
+
       - name: Run tests
         working-directory: plugins.v2/p115strmhelper
+        env:
+          PYTHONPATH: ${{ github.workspace }}/MoviePilot:${{ github.workspace }}/plugins.v2/p115strmhelper
         run: |
           python -m unittest discover -s tests -v

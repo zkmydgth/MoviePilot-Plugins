@@ -1,9 +1,10 @@
 __all__ = ["PathUtils", "PathRemoveUtils"]
 
 
+from os import name as os_name
 from pathlib import Path
-from typing import Tuple, Optional, List
 from shutil import rmtree
+from typing import List, Optional, Tuple
 
 from app.log import logger
 from app.utils.system import SystemUtils
@@ -68,6 +69,30 @@ class PathUtils:
             if PathUtils.has_prefix(media_path, parts[1]):
                 return True, parts[0], parts[1]
         return False, None, None
+
+    @staticmethod
+    def sanitize_path_parts(rel_path: Path) -> Path:
+        """
+        将相对路径各分量中的非法文件名字符替换为下划线（仅 Windows 生效，其他平台直接返回原路径）
+
+        :param rel_path: 待处理的相对路径
+        :return: 处理后的相对路径
+        """
+        if os_name != "nt":
+            return rel_path
+        illegal_chars = '<>:"|?*'
+        parts = list(rel_path.parts)
+        if not parts:
+            return rel_path
+        sanitized = []
+        for part in parts:
+            for char in illegal_chars:
+                part = part.replace(char, "_")
+            sanitized.append(part)
+        result = Path(sanitized[0])
+        for part in sanitized[1:]:
+            result = result / part
+        return result
 
     @staticmethod
     def get_p115_strm_path(paths, media_path) -> Tuple[bool, Optional[str]]:

@@ -554,8 +554,8 @@ class MonitorLife:
                         file_path = item["path"]
                         if not PathUtils.has_prefix(file_path, org_file_path):
                             continue
-                        file_path = Path(target_dir) / Path(file_path).relative_to(
-                            pan_media_dir
+                        file_path = Path(target_dir) / PathUtils.sanitize_path_parts(
+                            Path(file_path).relative_to(pan_media_dir)
                         )
                         file_target_dir = file_path.parent
                         original_file_name = file_path.name
@@ -706,8 +706,8 @@ class MonitorLife:
             )
             if "creata" in configer.monitor_life_event_modes:
                 # 文件情况，直接生成
-                file_path = Path(target_dir) / Path(file_path).relative_to(
-                    pan_media_dir
+                file_path = Path(target_dir) / PathUtils.sanitize_path_parts(
+                    Path(file_path).relative_to(pan_media_dir)
                 )
                 file_target_dir = file_path.parent
                 original_file_name = file_path.name
@@ -1027,8 +1027,8 @@ class MonitorLife:
                 and old_target_dir is not None
                 and old_pan_media_dir is not None
             ):
-                old_path = Path(old_target_dir) / Path(old_pan_path).relative_to(
-                    old_pan_media_dir
+                old_path = Path(old_target_dir) / PathUtils.sanitize_path_parts(
+                    Path(old_pan_path).relative_to(old_pan_media_dir)
                 )
 
         new_is_media, new_target_dir, new_pan_media_dir = PathUtils.get_media_path(
@@ -1039,8 +1039,8 @@ class MonitorLife:
                 f"【监控生活事件】{new_pan_path} 非媒体库路径，跳过重命名处理: {event}"
             )
             return
-        new_path = Path(new_target_dir) / Path(new_pan_path).relative_to(
-            new_pan_media_dir
+        new_path = Path(new_target_dir) / PathUtils.sanitize_path_parts(
+            Path(new_pan_path).relative_to(new_pan_media_dir)
         )
 
         if int(event["type"]) == 20:
@@ -1373,7 +1373,9 @@ class MonitorLife:
             )
             return
 
-        file_path = Path(target_dir) / Path(file_path).relative_to(pan_media_dir)
+        file_path = Path(target_dir) / PathUtils.sanitize_path_parts(
+            Path(file_path).relative_to(pan_media_dir)
+        )
         if file_path.suffix.lower() in self.rmt_mediaext_set:
             file_target_dir = file_path.parent
             file_name = StrmGenerater.get_strm_filename(file_path)
@@ -1627,11 +1629,11 @@ class MonitorLife:
             )
             return
 
-        old_local_path = Path(old_target_dir) / Path(old_file_path).relative_to(
-            old_pan_media_dir
+        old_local_path = Path(old_target_dir) / PathUtils.sanitize_path_parts(
+            Path(old_file_path).relative_to(old_pan_media_dir)
         )
-        new_local_path = Path(new_target_dir) / Path(new_file_path).relative_to(
-            new_pan_media_dir
+        new_local_path = Path(new_target_dir) / PathUtils.sanitize_path_parts(
+            Path(new_file_path).relative_to(new_pan_media_dir)
         )
 
         if int(event["file_category"]) == 0:

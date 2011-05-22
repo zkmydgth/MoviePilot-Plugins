@@ -450,7 +450,9 @@ class FullSyncStrmHelper:
             # 全量拉数据时可能混入无关路径
             if not PathUtils.has_prefix(item_path, pan_media_dir):
                 return None
-            file_path = target_dir / Path(item_path).relative_to(pan_media_dir)
+            file_path = target_dir / PathUtils.sanitize_path_parts(
+                Path(item_path).relative_to(pan_media_dir)
+            )
             file_target_dir = file_path.parent
             original_file_name = file_path.name
             file_name = StrmGenerater.get_strm_filename(file_path)

@@ -1,15 +1,17 @@
-import json
-import sys
-import unittest
+"""
+WebhookUtils 测试模块
+
+包含 WebhookUtils 相关方法的单元测试
+"""
+
+from json import load
 from pathlib import Path
+from unittest import TestCase
 
-utils_dir = Path(__file__).resolve().parent.parent / "utils"
-sys.path.insert(0, str(utils_dir))
-
-from webhook import WebhookUtils
+from utils.webhook import WebhookUtils
 
 
-class TestParseItemPaths(unittest.TestCase):
+class TestParseItemPaths(TestCase):
     """
     测试 WebhookUtils.parse_item_paths_from_description
     """
@@ -152,7 +154,7 @@ Some other information here"""
             self.skipTest(f"测试文件不存在: {json_file}")
 
         with open(json_file, "r", encoding="utf-8") as f:
-            data = json.load(f)
+            data = load(f)
 
         description = data.get("Description", "")
         result = WebhookUtils.parse_item_paths_from_description(description)
@@ -166,4 +168,6 @@ Some other information here"""
 
 
 if __name__ == "__main__":
-    unittest.main(verbosity=2)
+    from unittest import main
+
+    main(verbosity=2)
