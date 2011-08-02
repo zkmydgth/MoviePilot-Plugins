@@ -364,15 +364,7 @@ class P115StrmHelper(_PluginBase):
         """
         注册插件公共服务
         """
-        cron_service = [
-            {
-                "id": "P115StrmHelper_offline_status",
-                "name": "监控115网盘离线下载进度",
-                "trigger": CronTrigger.from_crontab("*/2 * * * *"),
-                "func": servicer.offline_status,
-                "kwargs": {},
-            }
-        ]
+        cron_service = []
         if (
             configer.get_config("cron_full_sync_strm")
             and configer.get_config("timing_full_sync_strm")

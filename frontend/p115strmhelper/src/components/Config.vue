@@ -520,7 +520,8 @@
                       <v-select v-model="config.monitor_life_event_modes" label="处理事件类型" :items="[
                         { title: '新增事件', value: 'creata' },
                         { title: '删除事件', value: 'remove' },
-                        { title: '网盘整理', value: 'transfer' }
+                        { title: '网盘整理', value: 'transfer' },
+                        { title: '离线下载', value: 'offline' },
                       ]" multiple chips closable-chips></v-select>
                     </v-col>
                     <v-col cols="12" md="3">

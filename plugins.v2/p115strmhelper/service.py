@@ -15,6 +15,7 @@ from aligo.core import set_config_folder
 from .core.i18n import i18n
 from .helper.mediainfo_download import MediaInfoDownloader
 from .helper.life import MonitorLife
+from .helper.history import MonitorHistory
 from .helper.strm import FullSyncStrmHelper, ShareStrmHelper, IncrementSyncStrmHelper
 from .helper.monitor import handle_file, FileMonitorHandler
 from .helper.offline import OfflineDownloadHelper
@@ -41,6 +42,7 @@ class ServiceHelper:
         self.client = None
         self.mediainfodownloader = None
         self.monitorlife = None
+        self.monitorhistory = None
         self.aligo = None
 
         self.sharetransferhelper = None
@@ -100,13 +102,14 @@ class ServiceHelper:
                 client=self.client, mediainfodownloader=self.mediainfodownloader
             )
 
+            # 历史事件监控初始化
+            self.monitorhistory = MonitorHistory(client=self.client)
+
             # 分享转存初始化
             self.sharetransferhelper = ShareTransferHelper(self.client, self.aligo)
 
             # 离线下载初始化
-            self.offlinehelper = OfflineDownloadHelper(
-                client=self.client, monitorlife=self.monitorlife
-            )
+            self.offlinehelper = OfflineDownloadHelper(client=self.client)
 
             # 多端播放初始化
             pid = None
@@ -131,14 +134,22 @@ class ServiceHelper:
             return
         logger.info("【监控生活事件】生活事件监控启动中...")
         try:
-            from_time = time()
-            from_id = 0
+            life_from_time = time()
+            life_from_id = 0
+            history_from_time = time()
+            history_from_id = 0
             while True:
                 if self.monitor_stop_event.is_set():
                     logger.info("【监控生活事件】收到停止信号，退出上传事件监控")
                     break
-                from_time, from_id = self.monitorlife.once_pull(
-                    from_time=from_time, from_id=from_id
+                history_from_time, history_from_id, history_list = (
+                    self.monitorhistory.once_pull(history_from_time, history_from_id)
+                )
+                sleep(2)
+                life_from_time, life_from_id = self.monitorlife.once_pull(
+                    from_time=life_from_time,
+                    from_id=life_from_id,
+                    history_list=history_list,
                 )
         except Exception as e:
             logger.error(f"【监控生活事件】生活事件监控运行失败: {e}")
@@ -440,12 +451,6 @@ class ServiceHelper:
 
         if configer.get_config("clear_recyclebin_enabled"):
             client.clear_recyclebin()
-
-    def offline_status(self):
-        """
-        监控115网盘离线下载进度
-        """
-        self.offlinehelper.pull_status_to_task()
 
     def stop(self):
         """
