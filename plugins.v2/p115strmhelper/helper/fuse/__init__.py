@@ -18,7 +18,7 @@ try:
     from mfusepy import FUSE, Operations
 
     FUSE_AVAILABLE = True
-except ImportError:
+except (ImportError, OSError):
     FUSE = None
     Operations = None
     FUSE_AVAILABLE = False
@@ -127,8 +127,9 @@ class P115FuseOperations(Operations):
         """
         if not FUSE_AVAILABLE:
             raise ImportError(
-                "mfusepy 未安装，无法使用 FUSE 功能。"
-                "请安装 mfusepy: pip install mfusepy"
+                "FUSE 功能不可用。可能的原因："
+                "1. mfusepy 未安装，请运行: pip install mfusepy"
+                "2. libfuse 未找到，请安装系统 FUSE 库"
             )
 
         if client is None:
@@ -234,8 +235,9 @@ class P115FuseOperations(Operations):
     def run_forever(self, /, mountpoint: None | str = None, **options):
         if not FUSE_AVAILABLE:
             raise ImportError(
-                "mfusepy 未安装，无法使用 FUSE 功能。"
-                "请安装 mfusepy: pip install mfusepy"
+                "FUSE 功能不可用。可能的原因："
+                "1. mfusepy 未安装，请运行: pip install mfusepy"
+                "2. libfuse 未找到，请安装系统 FUSE 库"
             )
 
         if not mountpoint:
