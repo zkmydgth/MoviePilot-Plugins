@@ -1,5 +1,3 @@
-# --- START OF FILE qbittorrenthelper/framework/handler.py ---
-
 from typing import Dict, List
 
 from app.log import logger

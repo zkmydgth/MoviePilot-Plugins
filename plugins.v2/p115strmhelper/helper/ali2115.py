@@ -5,7 +5,8 @@ from typing import List, Optional
 from urllib.parse import urlparse
 from pathlib import Path
 
-import httpx
+from aligo import GetShareTokenResponse
+from httpx import stream
 from p115client import P115Client
 
 from app.log import logger
@@ -40,7 +41,7 @@ class Ali2115Helper:
         """
         end = start + length - 1
         headers = {"Range": f"bytes={start}-{end}"}
-        with httpx.stream("GET", url, headers=headers, follow_redirects=True) as r:
+        with stream("GET", url, headers=headers, follow_redirects=True) as r:
             r.raise_for_status()
             _sha1 = sha1()
             for chunk in r.iter_bytes(chunk_size=8192):
@@ -155,7 +156,7 @@ class Ali2115Helper:
         保存分享文件到阿里云盘
         """
         self.ali_client.share_file_save_all_to_drive(
-            share_token=share_token,
+            share_token=GetShareTokenResponse(share_token=share_token),
             to_parent_file_id=self.get_ali_folder_id(),
         )
 

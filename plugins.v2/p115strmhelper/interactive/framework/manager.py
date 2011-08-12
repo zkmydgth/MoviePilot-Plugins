@@ -1,5 +1,3 @@
-# --- START OF FILE qbittorrenthelper/framework/manager.py ---
-
 import hashlib
 import threading
 import time

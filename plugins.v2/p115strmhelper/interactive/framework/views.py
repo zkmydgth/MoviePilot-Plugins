@@ -1,5 +1,3 @@
-# --- START OF FILE qbittorrenthelper/framework/views.py ---
-
 from typing import Dict, Any
 
 from app.log import logger

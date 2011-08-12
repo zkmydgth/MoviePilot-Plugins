@@ -1,7 +1,9 @@
+__all__ = ["P115DiskCore"]
+
 from datetime import datetime, timezone
 from pathlib import Path
 from time import perf_counter, sleep
-from typing import Any, TYPE_CHECKING, Optional
+from typing import Any, Optional
 
 from cryptography.hazmat.primitives import hashes
 from oss2 import StsAuth, Bucket, determine_part_size
@@ -27,17 +29,13 @@ class P115DiskCore:
     """
 
     def __init__(self, client: P115Client):
-        if TYPE_CHECKING:
-            from ...p115disk.p115_api import P115Api
-        else:
-            P115Api = Any
-
         try:
             from app.plugins.p115disk.p115_api import P115Api  # noqa: F401
 
             P115_API_AVAILABLE = True
-        except (ImportError, Exception):
+        except (ImportError, ModuleNotFoundError):
             P115_API_AVAILABLE = False
+            P115Api = Any
 
         if P115_API_AVAILABLE:
             self._p115_api = P115Api(client=client, disk_name="115网盘Plus")

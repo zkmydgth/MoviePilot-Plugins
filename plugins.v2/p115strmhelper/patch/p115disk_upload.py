@@ -8,7 +8,7 @@ try:
     from app.plugins.p115disk.p115_api import P115Api  # noqa: F401
 
     P115API_AVAILABLE = True
-except (ImportError, Exception):
+except (ImportError, ModuleNotFoundError):
     P115API_AVAILABLE = False
     P115Api = Any
 

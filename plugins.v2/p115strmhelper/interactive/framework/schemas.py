@@ -1,5 +1,3 @@
-# --- START OF FILE qbittorrenthelper/framework/schemas.py ---
-
 import time
 from copy import deepcopy
 from dataclasses import dataclass, field

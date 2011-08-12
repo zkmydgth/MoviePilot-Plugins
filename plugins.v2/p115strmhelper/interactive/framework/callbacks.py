@@ -1,5 +1,3 @@
-# --- START OF FILE qbittorrenthelper/framework/callbacks.py ---
-
 from dataclasses import dataclass
 from typing import Tuple, Optional, Any
 

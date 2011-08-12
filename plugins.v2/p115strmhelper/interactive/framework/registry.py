@@ -1,5 +1,3 @@
-# --- START OF FILE qbittorrenthelper/framework/registry.py ---
-
 from dataclasses import dataclass
 from typing import Dict, Callable
 

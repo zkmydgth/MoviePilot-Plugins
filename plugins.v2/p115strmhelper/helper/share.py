@@ -98,7 +98,7 @@ class ShareTransferHelper:
         """
         if channel and userid:
             post_message(
-                channel=channel,
+                channel=channel,  # noqa
                 title=title,
                 image=image,
                 text=text,
