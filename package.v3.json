@@ -4,7 +4,7 @@
     "description": "115网盘STRM生成一条龙服务（V3 独立维护版）",
     "labels": "云盘",
     "version": "3.1.0",
-    "release": true,
+    "release": false,
     "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png",
     "author": "zkmydgth",
     "system_version": ">=3.0.0",
