@@ -18,20 +18,49 @@ from urllib.parse import unquote, urlparse
 from httpx import Client
 from orjson import dumps as orjson_dumps, loads as orjson_loads
 
-from playwright.sync_api import (
-    Browser,
-    BrowserContext,
-    Page,
-    Playwright,
-    Response,
-    TimeoutError as PlaywrightTimeoutError,
-    sync_playwright,
-)
-from slippers import Proxy
-
 from app.core.config import settings
 
 from ...utils.sentry import sentry_manager
+
+_CLOAKBROWSER_AVAILABLE = False
+_PLAYWRIGHT_AVAILABLE = False
+
+try:
+    from cloakbrowser import launch_context as _cloak_launch_context
+
+    _CLOAKBROWSER_AVAILABLE = True
+except ImportError:
+    pass
+
+try:
+    from playwright.sync_api import (
+        Browser,
+        BrowserContext,
+        Playwright,
+        TimeoutError as PlaywrightTimeoutError,
+        sync_playwright,
+    )
+
+    _PLAYWRIGHT_AVAILABLE = True
+except ImportError:
+    Browser = Any  # type: ignore[assignment,misc]
+    BrowserContext = Any  # type: ignore[assignment,misc]
+    Playwright = Any  # type: ignore[assignment,misc]
+
+    class PlaywrightTimeoutError(Exception):  # type: ignore[misc]
+        """
+        Stub when playwright is not installed
+        """
+
+    sync_playwright = None  # type: ignore[assignment]
+
+try:
+    from slippers import Proxy as _SocksProxy
+
+    _SLIPPERS_AVAILABLE = True
+except ImportError:
+    _SocksProxy = None  # type: ignore[assignment]
+    _SLIPPERS_AVAILABLE = False
 
 
 class HDHiveLoginError(Exception):
@@ -43,7 +72,7 @@ class HDHiveLoginError(Exception):
 @sentry_manager.capture_all_class_exceptions
 class HDHivePlaywrightClient:
     """
-    HDHive 站点 Playwright 客户端
+    HDHive 站点浏览器自动化客户端
     """
 
     DEFAULT_BASE_URL = "https://hdhive.com"
@@ -54,10 +83,29 @@ class HDHivePlaywrightClient:
 
     def __init__(self, headless: bool = True) -> None:
         """
-        :param headless: Playwright 是否无头模式
+        :param headless: 浏览器是否无头模式
         """
         self._headless = headless
         self._cookie_str: Optional[str] = None
+
+    @staticmethod
+    def _check_backend() -> str:
+        """
+        检测可用的浏览器后端，优先返回 cloakbrowser
+
+        :return: 'cloakbrowser' 或 'playwright'
+        :raises RuntimeError: 两者均不可用时
+        """
+        if _CLOAKBROWSER_AVAILABLE:
+            return "cloakbrowser"
+        if _PLAYWRIGHT_AVAILABLE:
+            return "playwright"
+        raise RuntimeError(
+            "浏览器登录需要 cloakbrowser 或 playwright，"
+            "但当前环境中两者均未安装。"
+            "新版 MoviePilot 请确认已安装 cloakbrowser；"
+            "旧版 MoviePilot 请运行 playwright install 下载浏览器内核"
+        )
 
     @staticmethod
     def _platform_product_and_hint() -> tuple[str, str]:
@@ -117,7 +165,7 @@ class HDHivePlaywrightClient:
     @staticmethod
     def _stealth_init_script() -> str:
         """
-        构造在每个页面启动前注入的反检测脚本
+        构造在每个页面启动前注入的反检测脚本（仅用于 playwright 后端）
 
         - 清除 navigator.webdriver
         - 伪造 plugins / languages
@@ -189,7 +237,7 @@ class HDHivePlaywrightClient:
         context: BrowserContext, chrome_major: str
     ) -> None:
         """
-        在 BrowserContext 上拦截所有出站请求，强制清理 sec-ch-ua 系列头
+        在 BrowserContext 上拦截所有出站请求，强制清理 sec-ch-ua 系列头（仅用于 playwright 后端）
 
         - sec-ch-ua / sec-ch-ua-full-version-list 中的 HeadlessChrome 项替换为 Google Chrome
         - 用作 extra_http_headers 的兜底（部分 Chromium 行为不受 extra_http_headers 覆盖）
@@ -231,7 +279,7 @@ class HDHivePlaywrightClient:
     @staticmethod
     def _chromium_launch_args() -> list[str]:
         """
-        返回 Chromium 进程启动参数
+        返回 Chromium 进程启动参数（仅用于 playwright 后端）
 
         :return: 传给 chromium.launch(args=...) 的参数列表
         """
@@ -253,9 +301,9 @@ class HDHivePlaywrightClient:
     @staticmethod
     def _proxy_url_from_settings() -> Optional[str]:
         """
-        从 settings.PROXY 得到单一代理 URL
+        从 settings.PROXY 得到单一代理 URL 字符串
 
-        :return: http(s)://... 字符串，未配置或无法解析时为 None
+        :return: http(s)://... 或 socks5://... 字符串，未配置或无法解析时为 None
         """
         p = settings.PROXY
         if not p:
@@ -270,9 +318,11 @@ class HDHivePlaywrightClient:
     @staticmethod
     def _playwright_proxy_settings() -> Optional[Dict[str, str]]:
         """
-        将 MoviePilot settings.PROXY 转为 Playwright chromium.launch 的 proxy 参数
+        将 MoviePilot settings.PROXY 转为 playwright chromium.launch 的 proxy 参数字典
 
-        :return: 含 server，可选 username / password，无代理时为 None
+        不含认证的 SOCKS5 可直接传给 playwright；含认证的 SOCKS5 须经由 slippers 转发
+
+        :return: 含 server，可选 username / password 的字典；无代理时为 None
         """
         raw = HDHivePlaywrightClient._proxy_url_from_settings()
         if not raw:
@@ -297,7 +347,9 @@ class HDHivePlaywrightClient:
     @contextmanager
     def _socks5_slippers_if_needed() -> Iterator[Optional[Dict[str, str]]]:
         """
-        若全局代理为带认证的 SOCKS5，在本机启动 slippers
+        仅用于 playwright 后端：若全局代理为带认证的 SOCKS5，在本机启动 slippers 转发
+
+        cloakbrowser 后端可直接传认证 SOCKS5 URL，无需此方法
 
         :yield: slippers 成功时为 {"server": "socks5://127.0.0.1:端口"}；否则为 None
         """
@@ -309,6 +361,9 @@ class HDHivePlaywrightClient:
         if u.scheme not in ("socks5", "socks") or not (u.username or u.password):
             yield None
             return
+        if not _SLIPPERS_AVAILABLE:
+            yield None
+            return
         sock = socket(AF_INET, SOCK_STREAM)
         try:
             sock.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
@@ -316,7 +371,7 @@ class HDHivePlaywrightClient:
             local_port = sock.getsockname()[1]
         finally:
             sock.close()
-        sp = Proxy(raw, host="127.0.0.1", port=local_port)
+        sp = _SocksProxy(raw, host="127.0.0.1", port=local_port)
         with sp:
             local_url = sp.url()
             yield {"server": local_url}
@@ -326,13 +381,13 @@ class HDHivePlaywrightClient:
         headless: bool, proxy: Optional[Dict[str, str]] = None
     ) -> Dict[str, Any]:
         """
-        组装 chromium.launch 参数（含全局代理）
+        组装 chromium.launch 参数（仅用于 playwright 后端）
 
         - 用 channel="chromium" 强制使用完整 Chromium 二进制（新 headless 模式），
           避免 chromium-headless-shell 暴露 HeadlessChrome brand
 
         :param headless: 是否无头模式
-        :param proxy: 已解析的 Playwright proxy 字典；为 None 时不设置
+        :param proxy: 已解析的 playwright proxy 字典；为 None 时不设置
         :return: 传给 launch 的关键字参数
         """
         kwargs: Dict[str, Any] = {
@@ -345,17 +400,17 @@ class HDHivePlaywrightClient:
         return kwargs
 
     @staticmethod
-    def _make_context(
+    def _make_playwright_context(
         pw: Playwright,
         headless: bool,
         proxy: Optional[Dict[str, str]] = None,
     ) -> tuple[Browser, BrowserContext]:
         """
-        启动 Chromium 并创建登录页用上下文（语言、时区、视口）
+        playwright 后端：启动 Chromium 并创建登录页用上下文（语言、时区、视口）
 
         :param pw: sync_playwright() 返回的 Playwright 实例
         :param headless: 是否无头模式
-        :param proxy: 已解析的 Playwright proxy 字典
+        :param proxy: 已解析的 playwright proxy 字典
         :return: (browser, context)
         """
         browser = pw.chromium.launch(
@@ -375,6 +430,32 @@ class HDHivePlaywrightClient:
         return browser, context
 
     @staticmethod
+    def _make_cloak_context(headless: bool) -> Any:
+        """
+        cloakbrowser 后端：创建浏览器上下文
+
+        cloakbrowser 内置指纹伪装，无需手动注入 stealth 脚本或拦截请求头；
+        认证 SOCKS5 代理也可直接传入 URL，无需 slippers 转发
+
+        :param headless: 是否无头模式
+        :return: playwright BrowserContext（由 cloakbrowser 内部创建）
+        """
+        proxy = HDHivePlaywrightClient._proxy_url_from_settings()
+        humanize: bool = getattr(settings, "CLOAKBROWSER_HUMANIZE", True)
+        human_preset: Optional[str] = getattr(
+            settings, "CLOAKBROWSER_HUMAN_PRESET", None
+        )
+        kwargs: Dict[str, Any] = {
+            "headless": headless,
+            "humanize": humanize,
+        }
+        if proxy:
+            kwargs["proxy"] = proxy
+        if human_preset:
+            kwargs["human_preset"] = human_preset
+        return _cloak_launch_context(**kwargs)
+
+    @staticmethod
     def _parse_cookie_str(cookie_str: str) -> dict[str, str]:
         """
         解析 name=value; ... 格式的 Cookie 字符串
@@ -388,88 +469,6 @@ class HDHivePlaywrightClient:
                 name, value = item.strip().split("=", 1)
                 cookies[name.strip()] = value.strip()
         return cookies
-
-    def _fetch_action_hash_via_playwright(self) -> Optional[str]:
-        """
-        用 Playwright 打开首页，拦截 /_next/static/chunks/*.js 响应，
-        在含 createServerReference 与 checkIn 的 chunk 中解析 Server Action hash
-
-        匹配形态: createServerReference)("<hash>", ..., "checkIn")
-
-        :return: 十六进制 hash，失败为 None
-        """
-        if not self._cookie_str:
-            return None
-        root = HDHivePlaywrightClient.DEFAULT_BASE_URL
-        found_hash: list[str] = []
-
-        def on_response(response: Response) -> None:
-            if found_hash:
-                return
-            url = response.url
-            if "_next/static/chunks" not in url or not url.endswith(".js"):
-                return
-            try:
-                body = response.body().decode("utf-8", errors="ignore")
-            except Exception:
-                return
-            m = re_search(
-                r'createServerReference\)[(\s]*"([0-9a-f]{40,})"[^"]*"checkIn"',
-                body,
-            )
-            if m:
-                found_hash.append(m.group(1))
-
-        try:
-            cookies = HDHivePlaywrightClient._parse_cookie_str(self._cookie_str)
-            domain = root.replace("https://", "").replace("http://", "")
-
-            with sync_playwright() as p:
-                with HDHivePlaywrightClient._socks5_slippers_if_needed() as slip:
-                    proxy = (
-                        slip
-                        if slip is not None
-                        else HDHivePlaywrightClient._playwright_proxy_settings()
-                    )
-                    kwargs = HDHivePlaywrightClient._chromium_launch_kwargs(
-                        self._headless, proxy
-                    )
-                    browser = p.chromium.launch(**kwargs)
-                    try:
-                        major = browser.version.split(".")[0]
-                        ua, hints = HDHivePlaywrightClient._build_browser_ua_and_hints(
-                            major
-                        )
-                        context = browser.new_context(
-                            user_agent=ua,
-                            extra_http_headers=hints,
-                        )
-                        context.add_init_script(
-                            HDHivePlaywrightClient._stealth_init_script()
-                        )
-                        HDHivePlaywrightClient._install_request_header_sanitizer(
-                            context, major
-                        )
-                        for name, value in cookies.items():
-                            context.add_cookies(
-                                [
-                                    {
-                                        "name": name,
-                                        "value": value,
-                                        "domain": domain,
-                                        "path": "/",
-                                    }
-                                ]
-                            )
-                        page = context.new_page()
-                        page.on("response", on_response)
-                        page.goto(root, wait_until="networkidle", timeout=30000)
-                    finally:
-                        browser.close()
-        except Exception:
-            pass
-
-        return found_hash[0] if found_hash else None
 
     @staticmethod
     def _checkin_parse_rsc_result(text: str) -> Optional[Dict[str, Any]]:
@@ -512,14 +511,16 @@ class HDHivePlaywrightClient:
 
     def _fill_and_submit(
         self,
-        page: Page,
+        page: Any,
         username: str,
         password: str,
     ) -> bool:
         """
         打开登录页、填写账号密码并提交，等待离开 /login
 
-        :param page: 新开的页面
+        page API 与 playwright / cloakbrowser 均兼容
+
+        :param page: 浏览器页面对象
         :param username: 登录用户名或邮箱
         :param password: 登录密码
         :return: 若 URL 在超时内离开登录页则为 True
@@ -536,9 +537,7 @@ class HDHivePlaywrightClient:
                 "input[name='username'], input[name='password']", timeout=15000
             )
         except PlaywrightTimeoutError:
-            raise HDHiveLoginError(
-                f"等待登录输入框超时，当前 URL: {page.url}"
-            )
+            raise HDHiveLoginError(f"等待登录输入框超时，当前 URL: {page.url}")
 
         user_selectors = [
             "input[name='username']",
@@ -551,7 +550,7 @@ class HDHivePlaywrightClient:
         for sel in user_selectors:
             try:
                 if page.query_selector(sel):
-                    page.locator(sel).type(username, delay=60)
+                    page.fill(sel, username)
                     break
             except Exception:
                 continue
@@ -564,33 +563,142 @@ class HDHivePlaywrightClient:
         for sel in pwd_selectors:
             try:
                 if page.query_selector(sel):
-                    page.locator(sel).type(password, delay=60)
+                    page.fill(sel, password)
                     break
             except Exception:
                 continue
 
-        sleep(0.3)
-        try:
-            btn = (
-                page.query_selector("button[type='submit']")
-                or page.query_selector("button:has-text('登录')")
-                or page.query_selector("button:has-text('Login')")
-            )
-            if btn:
-                btn.click()
-            else:
-                page.keyboard.press("Enter")
-        except Exception:
+        sleep(0.5)
+        submit_selectors = [
+            "button[type='submit']",
+            "button:has-text('登录')",
+            "button:has-text('Login')",
+        ]
+        submitted = False
+        for sel in submit_selectors:
+            try:
+                if page.query_selector(sel):
+                    page.click(sel)
+                    submitted = True
+                    break
+            except Exception:
+                continue
+        if not submitted:
             page.keyboard.press("Enter")
 
         try:
-            page.wait_for_url(lambda url: "/login" not in url, timeout=15000)
+            page.wait_for_url(lambda url: "/login" not in url, timeout=30000)
             return True
         except PlaywrightTimeoutError:
-            page.screenshot(path="/config/hdhive_login_debug.png")
             raise HDHiveLoginError(
                 f"登录超时，当前 URL: {page.url}，页面标题: {page.title()}"
             )
+
+    def _fetch_action_hash_via_playwright(self) -> Optional[str]:
+        """
+        打开首页，拦截 /_next/static/chunks/*.js 响应，解析 Server Action hash
+
+        匹配形态: createServerReference)("<hash>", ..., "checkIn")
+
+        同时兼容 cloakbrowser（新版）与 playwright（旧版）后端
+
+        :return: 十六进制 hash，失败为 None
+        """
+        if not self._cookie_str:
+            return None
+        root = HDHivePlaywrightClient.DEFAULT_BASE_URL
+        found_hash: list[str] = []
+
+        def on_response(response: Any) -> None:
+            if found_hash:
+                return
+            url = response.url
+            if "_next/static/chunks" not in url or not url.endswith(".js"):
+                return
+            try:
+                body = response.body().decode("utf-8", errors="ignore")
+            except Exception:
+                return
+            m = re_search(
+                r'createServerReference\)[(\s]*"([0-9a-f]{40,})"[^"]*"checkIn"',
+                body,
+            )
+            if m:
+                found_hash.append(m.group(1))
+
+        try:
+            cookies = HDHivePlaywrightClient._parse_cookie_str(self._cookie_str)
+            domain = root.replace("https://", "").replace("http://", "")
+            backend = HDHivePlaywrightClient._check_backend()
+
+            if backend == "cloakbrowser":
+                context = HDHivePlaywrightClient._make_cloak_context(self._headless)
+                try:
+                    for name, value in cookies.items():
+                        context.add_cookies(
+                            [
+                                {
+                                    "name": name,
+                                    "value": value,
+                                    "domain": domain,
+                                    "path": "/",
+                                }
+                            ]
+                        )
+                    page = context.new_page()
+                    page.on("response", on_response)
+                    page.goto(root, wait_until="networkidle", timeout=30000)
+                finally:
+                    context.close()
+            else:
+                with sync_playwright() as p:
+                    with HDHivePlaywrightClient._socks5_slippers_if_needed() as slip:
+                        proxy = (
+                            slip
+                            if slip is not None
+                            else HDHivePlaywrightClient._playwright_proxy_settings()
+                        )
+                        kwargs = HDHivePlaywrightClient._chromium_launch_kwargs(
+                            self._headless, proxy
+                        )
+                        browser = p.chromium.launch(**kwargs)
+                        try:
+                            major = browser.version.split(".")[0]
+                            ua, hints = (
+                                HDHivePlaywrightClient._build_browser_ua_and_hints(
+                                    major
+                                )
+                            )
+                            context = browser.new_context(
+                                user_agent=ua,
+                                extra_http_headers=hints,
+                            )
+                            context.add_init_script(
+                                HDHivePlaywrightClient._stealth_init_script()
+                            )
+                            HDHivePlaywrightClient._install_request_header_sanitizer(
+                                context, major
+                            )
+                            for name, value in cookies.items():
+                                context.add_cookies(
+                                    [
+                                        {
+                                            "name": name,
+                                            "value": value,
+                                            "domain": domain,
+                                            "path": "/",
+                                        }
+                                    ]
+                                )
+                            page = context.new_page()
+                            page.on("response", on_response)
+                            page.goto(root, wait_until="networkidle", timeout=30000)
+                        finally:
+                            browser.close()
+        except Exception:
+            pass
+
+        return found_hash[0] if found_hash else None
 
     def checkin(
         self,
@@ -661,6 +769,87 @@ class HDHivePlaywrightClient:
         except Exception as e:
             return False, str(e)
 
+    def _login_via_cloakbrowser(
+        self,
+        username: str,
+        password: str,
+    ) -> Optional[Tuple[str, str]]:
+        """
+        cloakbrowser 后端登录（新版 MoviePilot）
+
+        :param username: 登录用户名或邮箱
+        :param password: 登录密码
+        :return: (完整 Cookie 字符串, token)，登录失败为 None
+        :raises HDHiveLoginError: 登录超时或表单交互失败
+        """
+        context = HDHivePlaywrightClient._make_cloak_context(self._headless)
+        try:
+            page = context.new_page()
+            ok = self._fill_and_submit(page, username, password)
+            raw_cookies = context.cookies()
+        finally:
+            context.close()
+
+        if not ok:
+            return None
+        token = next((c["value"] for c in raw_cookies if c["name"] == "token"), None)
+        csrf = next(
+            (c["value"] for c in raw_cookies if c["name"] == "csrf_access_token"),
+            None,
+        )
+        if token:
+            parts = [f"token={token}"]
+            if csrf:
+                parts.append(f"csrf_access_token={csrf}")
+            self._cookie_str = "; ".join(parts)
+            return self._cookie_str, token
+        return None
+
+    def _login_via_playwright(
+        self,
+        username: str,
+        password: str,
+    ) -> Optional[Tuple[str, str]]:
+        """
+        playwright 后端登录（旧版 MoviePilot）
+
+        :param username: 登录用户名或邮箱
+        :param password: 登录密码
+        :return: (完整 Cookie 字符串, token)，登录失败为 None
+        :raises HDHiveLoginError: 登录超时或表单交互失败
+        """
+        with sync_playwright() as p:
+            with HDHivePlaywrightClient._socks5_slippers_if_needed() as slip:
+                proxy = (
+                    slip
+                    if slip is not None
+                    else HDHivePlaywrightClient._playwright_proxy_settings()
+                )
+                browser, context = HDHivePlaywrightClient._make_playwright_context(
+                    p, self._headless, proxy
+                )
+                try:
+                    page = context.new_page()
+                    ok = self._fill_and_submit(page, username, password)
+                    raw_cookies = context.cookies()
+                finally:
+                    browser.close()
+
+        if not ok:
+            return None
+        token = next((c["value"] for c in raw_cookies if c["name"] == "token"), None)
+        csrf = next(
+            (c["value"] for c in raw_cookies if c["name"] == "csrf_access_token"),
+            None,
+        )
+        if token:
+            parts = [f"token={token}"]
+            if csrf:
+                parts.append(f"csrf_access_token={csrf}")
+            self._cookie_str = "; ".join(parts)
+            return self._cookie_str, token
+        return None
+
     def login(
         self,
         cookie_str: Optional[str] = None,
@@ -670,7 +859,8 @@ class HDHivePlaywrightClient:
         """
         使用 Cookie 登录：传入 cookie_str 时写入实例并返回 (Cookie 字符串, token)
 
-        浏览器登录：不传 cookie_str 时须传入 username 与 password，由 Playwright 打开登录页
+        浏览器登录：不传 cookie_str 时须传入 username 与 password，
+        自动选择 cloakbrowser（新版 MoviePilot）或 playwright（旧版 MoviePilot）
 
         :param cookie_str: 已持有的 token=...; csrf_access_token=... 等 Cookie 串
         :param username: 浏览器登录用用户名或邮箱
@@ -692,41 +882,13 @@ class HDHivePlaywrightClient:
         if not username or not password:
             raise HDHiveLoginError("未提供 cookie_str 时须传入 username 与 password")
 
+        backend = HDHivePlaywrightClient._check_backend()
         try:
-            with sync_playwright() as p:
-                with HDHivePlaywrightClient._socks5_slippers_if_needed() as slip:
-                    proxy = (
-                        slip
-                        if slip is not None
-                        else HDHivePlaywrightClient._playwright_proxy_settings()
-                    )
-                    browser, context = HDHivePlaywrightClient._make_context(
-                        p, self._headless, proxy
-                    )
-                    try:
-                        page = context.new_page()
-                        ok = self._fill_and_submit(page, username, password)
-                        raw_cookies = context.cookies()
-                    finally:
-                        browser.close()
-
-            if not ok:
-                return None
-            token = next(
-                (c["value"] for c in raw_cookies if c["name"] == "token"), None
-            )
-            csrf = next(
-                (c["value"] for c in raw_cookies if c["name"] == "csrf_access_token"),
-                None,
-            )
-            if token:
-                parts = [f"token={token}"]
-                if csrf:
-                    parts.append(f"csrf_access_token={csrf}")
-                self._cookie_str = "; ".join(parts)
-                return self._cookie_str, token
+            if backend == "cloakbrowser":
+                return self._login_via_cloakbrowser(username, password)
+            else:
+                return self._login_via_playwright(username, password)
         except HDHiveLoginError:
             raise
         except Exception as e:
             raise HDHiveLoginError(f"登录失败: {e}") from e
-        return None
