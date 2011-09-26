@@ -19,6 +19,7 @@ from sqlalchemy.orm import (
     Session,
 )
 
+from ..core.config import configer
 from app.core.config import settings
 from app.db import get_args_db, update_args_db
 from app.log import logger
@@ -36,8 +37,8 @@ class __DBManager:
     # 多线程全局使用的数据库会话
     ScopedSession: Optional[scoped_session] = None
 
-    # WAL 模式，暂时从 MP 中获取是否启用 wal，建议写死 True
-    __WAL_ENABLE = settings.DB_WAL_ENABLE
+    # WAL 模式
+    __WAL_ENABLE = configer.get_config("DB_WAL_ENABLE")
 
     def _setup_sqlite_pragmas(self, dbapi_connection, _connection_record):
         """
@@ -53,7 +54,7 @@ class __DBManager:
             cursor.execute(f"PRAGMA journal_mode={journal_mode};")
 
             # 如果启用 WAL，必须设置一个合理的忙碌超时时间以处理锁竞争
-            if settings.DB_WAL_ENABLE:
+            if configer.get_config("DB_WAL_ENABLE"):
                 # 将超时时间（秒）转换为毫秒
                 busy_timeout_ms = int(settings.DB_TIMEOUT * 1000)
                 cursor.execute(f"PRAGMA busy_timeout = {busy_timeout_ms};")
@@ -69,11 +70,9 @@ class __DBManager:
         if self.is_initialized():
             return
         # 套用 mp 的 timeout
-        connect_args = {
-            "timeout": settings.DB_TIMEOUT
-        }
+        connect_args = {"timeout": settings.DB_TIMEOUT}
         # 在多线程环境中使用 WAL 模式，必须禁用线程检查
-        if settings.DB_WAL_ENABLE:
+        if configer.get_config("DB_WAL_ENABLE"):
             connect_args["check_same_thread"] = False
 
         # 根据配置选择连接池类型
@@ -85,21 +84,25 @@ class __DBManager:
             "pool_pre_ping": settings.DB_POOL_PRE_PING,
             "echo": settings.DB_ECHO,
             "pool_recycle": settings.DB_POOL_RECYCLE,
-            "connect_args": connect_args
+            "connect_args": connect_args,
         }
 
         # 如果使用 QueuePool，则添加其特定参数
         if pool_class == QueuePool:
-            db_kwargs.update({
-                "pool_size": settings.CONF.dbpool,
-                "pool_timeout": settings.DB_POOL_TIMEOUT,
-                "max_overflow": settings.CONF.dbpooloverflow
-            })
+            db_kwargs.update(
+                {
+                    "pool_size": settings.CONF.dbpool,
+                    "pool_timeout": settings.DB_POOL_TIMEOUT,
+                    "max_overflow": settings.CONF.dbpooloverflow,
+                }
+            )
 
         self.Engine = create_engine(**db_kwargs)
 
         # 绑定事件监听器，确保 PRAGMA 对所有连接生效（多线程连接用的）
-        event.listen(target=self.Engine, identifier="connect", fn=self._setup_sqlite_pragmas)
+        event.listen(
+            target=self.Engine, identifier="connect", fn=self._setup_sqlite_pragmas
+        )
 
         # 创建会话工厂和线程安全的 ScopedSession
         self.SessionFactory = sessionmaker(bind=self.Engine)
@@ -118,13 +121,15 @@ class __DBManager:
         :param mode: checkpoint 模式 (PASSIVE, FULL, RESTART, TRUNCATE)
         """
         #
-        if not self.Engine or not settings.DB_WAL_ENABLE:
+        if not self.Engine or not configer.get_config("DB_WAL_ENABLE"):
             logger.warning("Checkpoint 操作仅在数据库初始化后且启用 WAL 模式时可用")
             return
 
         valid_modes = {"PASSIVE", "FULL", "RESTART", "TRUNCATE"}
         if mode.upper() not in valid_modes:
-            raise ValueError(f"无效的 checkpoint 模式 '{mode}'。必须是 {valid_modes} 中的一个")
+            raise ValueError(
+                f"无效的 checkpoint 模式 '{mode}'。必须是 {valid_modes} 中的一个"
+            )
 
         try:
             with self.Engine.connect() as conn:
@@ -143,7 +148,7 @@ class __DBManager:
         if self.Engine and self.__WAL_ENABLE:
             logger.info("正在执行数据库关闭前的最终 checkpoint...")
             # 使用 TRUNCATE 模式以获得最干净的关闭状态
-            self.perform_checkpoint(mode='TRUNCATE')
+            self.perform_checkpoint(mode="TRUNCATE")
 
         if self.Engine:
             self.Engine.dispose()
@@ -155,7 +160,11 @@ class __DBManager:
         """
         判断数据库是否初始化并连接、创建会话工厂
         """
-        if self.Engine is None or self.SessionFactory is None or self.ScopedSession is None:
+        if (
+            self.Engine is None
+            or self.SessionFactory is None
+            or self.ScopedSession is None
+        ):
             return False
         return True
 

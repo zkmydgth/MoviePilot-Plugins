@@ -18,6 +18,9 @@ class BaseConfig(BaseModel):
     # 插件名称
     plugin_name: str = "P115StrmHelper"
 
+    # 是否开启数据库WAL模式
+    DB_WAL_ENABLE: bool = True
+
     # 插件总开关
     enabled: bool = False
     # 通知开关
