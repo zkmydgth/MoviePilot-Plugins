@@ -317,7 +317,7 @@ class U115OpenHelper:
             return True
         return False
 
-    def upload_fail_count(self) -> bool:
+    def _upload_fail_count(self) -> bool:
         """
         上传重试判断
         """
@@ -812,7 +812,7 @@ class U115OpenHelper:
                     data = result.resp.response.json()
                     logger.debug(f"【P115Open】上传 Step 6 回调结果：{data}")
                     if data.get("state") is False:
-                        if self.upload_fail_count():
+                        if self._upload_fail_count():
                             logger.warn(f"【P115Open】{target_name} 上传重试")
                             return self.upload(target_dir, local_path, new_name)
                         logger.error(f"【P115Open】{target_name} 上传失败")
