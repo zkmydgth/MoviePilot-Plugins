@@ -16,7 +16,7 @@ class MachineID:
         """
         检查是否已经生成过 machine id
 
-        :param config_path: 存储 machine id 的文件路径，默认为 machine_id.json
+        :param config_path: 存储 machine id 的文件路径
         :return: 如果存在返回 True，否则 False
         """
         path = config_path
@@ -27,7 +27,7 @@ class MachineID:
         """
         生成一个新的 64 字符 machine id 并保存到文件
 
-        :param config_path: 存储 machine id 的文件路径，默认为 machine_id.json
+        :param config_path: 存储 machine id 的文件路径
         :return: 生成的 machine id (64 字符十六进制字符串)
         :raises RuntimeError: 如果文件已存在
         """
@@ -54,7 +54,7 @@ class MachineID:
         """
         从文件中读取 machine id
 
-        :param config_path: 存储 machine id 的文件路径，默认为 machine_id.json
+        :param config_path: 存储 machine id 的文件路径
         :return: 读取到的 machine id (64 字符十六进制字符串)
         :raises FileNotFoundError: 如果文件不存在
         :raises ValueError: 如果文件内容无效
