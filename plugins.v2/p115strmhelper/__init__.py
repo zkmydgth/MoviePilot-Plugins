@@ -524,7 +524,7 @@ class P115StrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png"
     # 插件版本
-    plugin_version = "1.5.4"
+    plugin_version = "1.5.5"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -2427,7 +2427,7 @@ class P115StrmHelper(_PluginBase):
                 logger.info(
                     "【监控整理STRM生成】生成 STRM 文件成功: %s", str(new_file_path)
                 )
-                return True, new_file_path
+                return True, str(new_file_path)
             except Exception as e:  # noqa: F841
                 logger.error(
                     "【监控整理STRM生成】生成 %s 文件失败: %s", str(new_file_path), e
