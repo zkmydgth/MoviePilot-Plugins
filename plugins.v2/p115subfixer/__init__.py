@@ -1,3 +1,4 @@
+from json import JSONDecodeError, loads
 from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy import text
@@ -23,7 +24,7 @@ class P115SubFixer(_PluginBase):
     plugin_name = "115订阅站点修复"
     plugin_desc = "修复115网盘订阅追更插件导致的订阅站点被篡改问题，并自动卸载该插件"
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/cloud.png"
-    plugin_version = "1.0.0"
+    plugin_version = "1.0.1"
     plugin_author = "DDSRem"
     author_url = "https://github.com/DDSRem"
     plugin_config_prefix = "p115subfixer_"
@@ -62,12 +63,56 @@ class P115SubFixer(_PluginBase):
         self.update_config({"enabled": False, "onlyonce": False})
 
     @staticmethod
+    def _normalize_str_sites(sites: str) -> Optional[Any]:
+        """
+        解析字符串形态的 sites，若含伪造 -1 则返回应写入的新值，否则返回 None
+
+        :param sites: 数据库中的 sites 字符串
+        :return: 新 sites（list 或逗号分隔 str），无需修改时返回 None
+        """
+        raw = (sites or "").strip()
+        if not raw:
+            return None
+
+        # P115StrgmSub 误判为 str 存储时可能写入 str(-1)，即两个字符 -1；或整段带引号的四个字符
+        if raw == '"-1"' or raw == "-1":
+            return []
+
+        if raw.startswith("["):
+            try:
+                parsed = loads(raw)
+            except JSONDecodeError:
+                parsed = None
+            if isinstance(parsed, list):
+                has_fake = any(
+                    x == FAKE_SITE_ID or str(x) == str(FAKE_SITE_ID) for x in parsed
+                )
+                if not has_fake:
+                    return None
+                return [
+                    x
+                    for x in parsed
+                    if x != FAKE_SITE_ID and str(x) != str(FAKE_SITE_ID)
+                ]
+
+        parts = [p.strip() for p in sites.split(",") if p.strip()]
+        fake_token = str(FAKE_SITE_ID)
+        if fake_token not in parts:
+            return None
+        new_parts = [p for p in parts if p != fake_token]
+        if not new_parts:
+            return []
+        return ",".join(new_parts)
+
+    @staticmethod
     def _fix_subscribe_sites() -> int:
         """
         修复所有被篡改的订阅站点
 
         - sites == [-1] → 恢复为 []（使用系统默认）
         - sites 包含 -1 但还有其他值 → 仅移除 -1
+        - SQLite 上 P115StrgmSub v1.2.8- 可能写入整段 \"-1\"（四个字符）或 str(-1) 的 \"-1\"，
+          逗号拆分无法识别，此处显式处理（与 mrtian2016 v1.2.9 #21 同源问题）
 
         :return: 被修复的订阅数量
         """
@@ -88,12 +133,9 @@ class P115SubFixer(_PluginBase):
                         s for s in sites if s != FAKE_SITE_ID and s != str(FAKE_SITE_ID)
                     ]
                 elif isinstance(sites, str):
-                    parts = [p.strip() for p in sites.split(",") if p.strip()]
-                    has_fake = str(FAKE_SITE_ID) in parts
-                    if not has_fake:
+                    new_sites = P115SubFixer._normalize_str_sites(sites)
+                    if new_sites is None:
                         continue
-                    new_parts = [p for p in parts if p != str(FAKE_SITE_ID)]
-                    new_sites = ",".join(new_parts) if new_parts else ""
                 else:
                     continue
 
