@@ -1057,6 +1057,7 @@ class TgSignin(_PluginBase):
                 "component": "VAlert",
                 "props": {
                     "type": "info",
+                    "class": "mb-3",
                     "text": f"代理：{proxy_desc(proxy)}　|　账号：{len(self._accounts)} 个"
                             f"　|　签到目标：{len(self._targets)} 条　|　"
                             f"执行周期：{self._cron}　|　通知：{self._notify_label()}",
@@ -1069,6 +1070,7 @@ class TgSignin(_PluginBase):
                     "component": "VAlert",
                     "props": {
                         "type": "warning",
+                        "class": "mb-3",
                         "text": "配置待修：" + "；".join(self._config_problems[:5]),
                     },
                 }
@@ -1085,6 +1087,7 @@ class TgSignin(_PluginBase):
                         "component": "VAlert",
                         "props": {
                             "type": "success",
+                            "class": "mb-3",
                             "text": "验证码已发送，等待确认：" + "、".join(waiting)
                                     + "　—　把验证码填进配置页后点对应账号的「确认登录」",
                         },
@@ -1096,6 +1099,7 @@ class TgSignin(_PluginBase):
                 "props": {
                     "type": "success" if state.get("last_summary", "").count("/") and
                     "0/" not in state.get("last_summary", "") else "secondary",
+                    "class": "mb-3",
                     "text": f"最近一次：{state.get('last_run_at') or '未运行'}"
                             f"（{state.get('last_source') or '-'}）　{state.get('last_summary') or ''}",
                 },
@@ -1108,6 +1112,7 @@ class TgSignin(_PluginBase):
                     "component": "VAlert",
                     "props": {
                         "type": "success" if login_event.get("ok") else "error",
+                        "class": "mb-3",
                         "text": f"最近登录动作：{login_event.get('time', '')} "
                                 f"{login_event.get('account', '')} "
                                 f"{login_event.get('action', '')} —— "
@@ -1141,6 +1146,13 @@ class TgSignin(_PluginBase):
                 self._button("清空验证码/密码", "/login/reset", color="warning"),
             ]
         )
+        # 按钮必须包在 flex 容器里再进内容流：直接与 VAlert/VTable 平铺时，
+        # 移动端会出现按钮与上方色块重叠（2026-10-06 用户实测反馈）。
+        actions_block = {
+            "component": "div",
+            "props": {"class": "d-flex align-center flex-wrap mt-2 mb-4"},
+            "content": actions,
+        }
 
         def table(headers: List[str], rows: List[Dict[str, Any]]) -> dict:
             """
@@ -1180,7 +1192,7 @@ class TgSignin(_PluginBase):
                 "component": "div",
                 "props": {"class": "pa-4"},
                 "content": header
-                + actions
+                + [actions_block]
                 + [
                     self._group_header("账号登录状态"),
                     table(["账号", "手机号", "状态"], self._login_status_rows()),

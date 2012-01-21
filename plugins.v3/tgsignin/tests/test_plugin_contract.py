@@ -184,6 +184,37 @@ class TestPage(unittest.TestCase):
         tables = [node for node in _walk(plugin.get_page()) if node.get("component") == "VTable"]
         self.assertEqual(len(tables), 2)
 
+    def test_buttons_are_wrapped_in_flex_container(self) -> None:
+        """按钮必须包在 flex 容器里（回归：直接平铺时移动端会与上方色块重叠）。"""
+        plugin = TgSignin()
+        plugin.init_plugin({"enabled": True})
+        wrappers = [
+            node
+            for node in _walk(plugin.get_page())
+            if isinstance(node.get("props"), dict)
+            and "d-flex" in str(node["props"].get("class", ""))
+            and any(
+                child.get("component") == "VBtn" for child in (node.get("content") or [])
+            )
+        ]
+        self.assertEqual(len(wrappers), 1, "应恰有一个承载按钮的 flex 容器")
+        buttons = [n for n in _walk(plugin.get_page()) if n.get("component") == "VBtn"]
+        self.assertEqual(len(wrappers[0]["content"]), len(buttons), "所有按钮都要在容器内")
+
+    def test_top_alerts_have_bottom_margin(self) -> None:
+        """顶部信息块带 mb-3，避免与下一块贴在一起。"""
+        plugin = TgSignin()
+        plugin.init_plugin({"enabled": True})
+        alerts = [n for n in _walk(plugin.get_page()) if n.get("component") == "VAlert"]
+        top_alerts = [
+            node
+            for node in alerts
+            if "▼" not in str(node.get("props", {}).get("text", ""))
+        ]
+        self.assertTrue(top_alerts)
+        for node in top_alerts:
+            self.assertIn("mb-3", str(node["props"].get("class", "")))
+
 
 class TestApiCommandService(unittest.TestCase):
     """API / 命令 / 定时服务契约。"""
