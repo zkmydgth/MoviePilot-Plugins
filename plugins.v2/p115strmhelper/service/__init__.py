@@ -276,7 +276,7 @@ class ServiceHelper:
         启动生活事件监控
         """
         with self.monitor_life_lock:
-            self._start_monitor_life_internal()
+            self._start_monitor_life_internal(register_guard_service=False)
 
     def _stop_monitor_life_internal(self):
         """
@@ -297,9 +297,13 @@ class ServiceHelper:
             if self.monitor_stop_event:
                 self.monitor_stop_event = None
 
-    def _start_monitor_life_internal(self):
+    def _start_monitor_life_internal(self, register_guard_service: bool = True):
         """
         启动生活事件监控线程
+
+        :param register_guard_service: 是否在启动后调用 _update_monitor_life_guard_service
+            初始化时（start_monitor_life）设为 False，让 get_service() 统一注册
+            运行时恢复时（check_monitor_life_guard）保留 True，确保守护服务存在
         """
         if (
             configer.get_config("monitor_life_enabled")
@@ -336,10 +340,11 @@ class ServiceHelper:
             logger.info("【监控生活事件】生活事件监控线程已启动")
             self.monitor_life_fail_time = None
 
-            try:
-                self._update_monitor_life_guard_service()
-            except Exception as e:
-                logger.debug(f"【监控生活事件】重新注册守护服务失败: {e}")
+            if register_guard_service:
+                try:
+                    self._update_monitor_life_guard_service()
+                except Exception as e:
+                    logger.debug(f"【监控生活事件】重新注册守护服务失败: {e}")
         else:
             self._stop_monitor_life_internal()
 
