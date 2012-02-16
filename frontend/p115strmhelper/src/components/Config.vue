@@ -222,22 +222,29 @@
               <v-window-item value="tab-sync">
                 <v-card-text>
                   <v-row>
-                    <v-col cols="12" md="3">
+                    <v-col cols="12" md="4">
                       <v-select v-model="config.full_sync_overwrite_mode" label="覆盖模式" :items="[
                         { title: '总是', value: 'always' },
                         { title: '从不', value: 'never' }
                       ]" chips closable-chips></v-select>
                     </v-col>
-                    <v-col cols="12" md="3">
-                      <v-switch v-model="config.timing_full_sync_strm" label="定期全量同步" color="info"></v-switch>
+                    <v-col cols="12" md="4">
+                      <v-switch v-model="config.full_sync_remove_unless_strm" label="清理失效STRM文件"
+                        color="warning"></v-switch>
                     </v-col>
-                    <v-col cols="12" md="3">
-                      <VCronField v-model="config.cron_full_sync_strm" label="运行全量同步周期" hint="设置全量同步的执行周期"
-                        persistent-hint density="compact"></VCronField>
-                    </v-col>
-                    <v-col cols="12" md="3">
+                    <v-col cols="12" md="4">
                       <v-switch v-model="config.full_sync_auto_download_mediainfo_enabled" label="下载媒体数据文件"
                         color="warning"></v-switch>
+                    </v-col>
+                  </v-row>
+
+                  <v-row>
+                    <v-col cols="12" md="6">
+                      <v-switch v-model="config.timing_full_sync_strm" label="定期全量同步" color="info"></v-switch>
+                    </v-col>
+                    <v-col cols="12" md="6">
+                      <VCronField v-model="config.cron_full_sync_strm" label="运行全量同步周期" hint="设置全量同步的执行周期"
+                        persistent-hint density="compact"></VCronField>
                     </v-col>
                   </v-row>
 
@@ -772,6 +779,7 @@ const config = reactive({
   transfer_monitor_mediaservers: [],
   timing_full_sync_strm: false,
   full_sync_overwrite_mode: "never",
+  full_sync_remove_unless_strm: false,
   full_sync_auto_download_mediainfo_enabled: false,
   cron_full_sync_strm: '0 */7 * * *',
   full_sync_strm_paths: '',

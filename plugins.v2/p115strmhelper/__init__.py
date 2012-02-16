@@ -233,6 +233,95 @@ class Url(str):
         return self.__dict__.values()
 
 
+class DirectoryTree:
+    """
+    目录树
+    """
+
+    @staticmethod
+    def scan_directory_to_tree(root_path, output_file, append=False, extensions=None):
+        """
+        扫描本地目录生成目录树到文件，可过滤指定后缀名文件
+
+        :param root_path: 要扫描的根目录
+        :param output_file: 输出文件路径
+        :param append: 是否追加模式 (默认覆盖)
+        :param extensions: 要包含的文件后缀名列表
+        """
+        root = Path(root_path).resolve()
+        mode = "a" if append else "w"
+
+        if extensions is not None:
+            extensions = {
+                ext.lower() if ext.startswith(".") else f".{ext.lower()}"
+                for ext in extensions
+            }
+
+        with open(output_file, mode, encoding="utf-8") as f_out:
+            for path in root.rglob("*"):
+                if path.is_file():
+                    if extensions is None or path.suffix.lower() in extensions:
+                        f_out.write(f"{str(path)}\n")
+
+    @staticmethod
+    def generate_tree_from_list(file_list, output_file, append=False):
+        """
+        从文件列表生成目录树到文件
+
+        :param file_list: 文件路径列表
+        :param output_file: 输出文件路径
+        :param append: 是否追加模式 (默认覆盖)
+        """
+        mode = "a" if append else "w"
+        with open(output_file, mode, encoding="utf-8") as f_out:
+            for file_path in file_list:
+                f_out.write(f"{file_path}\n")
+
+    @staticmethod
+    def compare_trees(tree_file1, tree_file2):
+        """
+        比较两个目录树文件，找出tree_file1有而tree_file2没有的文件
+
+        :param tree_file1: 第一个目录树文件
+        :param tree_file2: 第二个目录树文件
+        :return: 差异文件列表
+        """
+        # 使用集合进行高效比较
+        with open(tree_file2, "r", encoding="utf-8") as f2:
+            tree2_set = set(line.strip() for line in f2)
+
+        with open(tree_file1, "r", encoding="utf-8") as f1:
+            for line in f1:
+                file_path = line.strip()
+                if file_path not in tree2_set:
+                    yield file_path
+
+    @staticmethod
+    def replace_prefix(tree_file, output_file, old_prefix, new_prefix):
+        """
+        替换目录树中的路径前缀
+
+        :param tree_file: 输入目录树文件
+        :param output_file: 输出文件
+        :param old_prefix: 要替换的旧前缀
+        :param new_prefix: 新前缀
+        """
+        old_prefix = Path(old_prefix).as_posix()
+        new_prefix = Path(new_prefix).as_posix()
+
+        with (
+            open(tree_file, "r", encoding="utf-8") as f_in,
+            open(output_file, "w", encoding="utf-8") as f_out,
+        ):
+            for line in f_in:
+                file_path = line.strip()
+                if file_path.startswith(old_prefix):
+                    new_path = file_path.replace(old_prefix, new_prefix, 1)
+                    f_out.write(f"{new_path}\n")
+                else:
+                    f_out.write(f"{file_path}\n")
+
+
 class MediaInfoDownloader:
     """
     媒体信息文件下载器
@@ -429,6 +518,7 @@ class FullSyncStrmHelper:
         pan_transfer_paths: str,
         strm_url_format: str,
         overwrite_mode: str,
+        remove_unless_strm: bool,
         mediainfodownloader: MediaInfoDownloader,
         auto_download_mediainfo: bool = False,
     ):
@@ -445,6 +535,7 @@ class FullSyncStrmHelper:
         self.mediainfo_count = 0
         self.strm_fail_count = 0
         self.mediainfo_fail_count = 0
+        self.remove_unless_strm_count = 0
         self.strm_fail_dict: Dict[str, str] = {}
         self.mediainfo_fail_dict: List = None
         self.server_address = server_address.rstrip("/")
@@ -452,15 +543,23 @@ class FullSyncStrmHelper:
         self.pan_transfer_paths = pan_transfer_paths
         self.strm_url_format = strm_url_format
         self.overwrite_mode = overwrite_mode
+        self.remove_unless_strm = remove_unless_strm
         self.databasehelper = FileDbHelper()
         self.pathmatchinghelper = PathMatchingHelper()
         self.mediainfodownloader = mediainfodownloader
         self.download_mediainfo_list = []
 
+        temp_path = settings.PLUGIN_DATA_PATH / "p115strmhelper" / "temp"
+        self.local_tree = temp_path / "local_tree.txt"
+        self.pan_tree = temp_path / "pan_tree.txt"
+        if not Path(temp_path).exists():
+            Path(temp_path).mkdir(parents=True, exist_ok=True)
+
     def generate_strm_files(self, full_sync_strm_paths):
         """
         生成 STRM 文件
         """
+        tree = DirectoryTree()
         media_paths = full_sync_strm_paths.split("\n")
         for path in media_paths:
             if not path:
@@ -468,6 +567,34 @@ class FullSyncStrmHelper:
             parts = path.split("#", 1)
             pan_media_dir = parts[1]
             target_dir = parts[0]
+
+            if self.remove_unless_strm:
+                if Path(self.local_tree).exists():
+                    Path(self.local_tree).unlink(missing_ok=True)
+                if Path(self.pan_tree).exists():
+                    Path(self.pan_tree).unlink(missing_ok=True)
+
+                def background_task(target_dir, local_tree):
+                    """
+                    后台运行任务
+                    """
+                    logger.info(f"【全量STRM生成】开始扫描本地媒体库文件: {target_dir}")
+                    tree.scan_directory_to_tree(
+                        root_path=target_dir,
+                        output_file=local_tree,
+                        append=False,
+                        extensions=[".strm"],
+                    )
+                    logger.info(f"【全量STRM生成】扫描本地媒体库文件完成: {target_dir}")
+
+                local_tree_task_thread = threading.Thread(
+                    target=background_task,
+                    args=(
+                        target_dir,
+                        self.local_tree,
+                    ),
+                )
+                local_tree_task_thread.start()
 
             try:
                 parent_id = int(self.client.fs_dir_getid(pan_media_dir)["id"])
@@ -480,7 +607,8 @@ class FullSyncStrmHelper:
                 for batch in batched(
                     iter_files_with_path(self.client, cid=parent_id, cooldown=2), 7_000
                 ):
-                    processed = []
+                    processed: List = []
+                    path_list: List = []
                     for item in batch:
                         _process_item = self.databasehelper.process_item(item)
                         if _process_item not in processed:
@@ -551,6 +679,9 @@ class FullSyncStrmHelper:
                                 )
                                 continue
 
+                            if self.remove_unless_strm:
+                                path_list.append(str(new_file_path))
+
                             if new_file_path.exists():
                                 if self.overwrite_mode == "never":
                                     logger.warn(
@@ -606,10 +737,30 @@ class FullSyncStrmHelper:
                             self.strm_fail_count += 1
                             self.strm_fail_dict[str(new_file_path)] = str(e)
                             continue
+
                     self.databasehelper.upsert_batch(processed)
+
+                    if self.remove_unless_strm:
+                        tree.generate_tree_from_list(
+                            path_list, self.pan_tree, append=True
+                        )
+
             except Exception as e:
                 logger.error(f"【全量STRM生成】全量生成 STRM 文件失败: {e}")
                 return False
+
+        if self.remove_unless_strm:
+            while local_tree_task_thread.is_alive():
+                logger.info("【全量STRM生成】扫描本地媒体库运行中...")
+                time.sleep(10)
+            try:
+                for path in tree.compare_trees(self.local_tree, self.pan_tree):
+                    logger.info(f"【全量STRM生成】清理无效 STRM 文件: {path}")
+                    Path(path).unlink(missing_ok=True)
+                    self.remove_unless_strm_count += 1
+            except Exception as e:
+                logger.error(f"【全量STRM生成】清理无效 STRM 文件失败: {e}")
+
         self.mediainfo_count, self.mediainfo_fail_count, self.mediainfo_fail_dict = (
             self.mediainfodownloader.auto_downloader(
                 downloads_list=self.download_mediainfo_list
@@ -628,6 +779,11 @@ class FullSyncStrmHelper:
             logger.warn(
                 f"【全量STRM生成】{self.strm_fail_count} 个 STRM 文件生成失败，{self.mediainfo_fail_count} 个媒体数据文件下载失败"
             )
+        if self.remove_unless_strm_count != 0:
+            logger.warn(
+                f"【全量STRM生成】清理 {self.remove_unless_strm_count} 失效 STRM 文件"
+            )
+
         return True
 
     def get_generate_total(self):
@@ -639,6 +795,7 @@ class FullSyncStrmHelper:
             self.mediainfo_count,
             self.strm_fail_count,
             self.mediainfo_fail_count,
+            self.remove_unless_strm_count,
         )
 
 
@@ -876,7 +1033,7 @@ class P115StrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png"
     # 插件版本
-    plugin_version = "1.7.11"
+    plugin_version = "1.8.0"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -941,6 +1098,7 @@ class P115StrmHelper(_PluginBase):
         "transfer_monitor_mediaservers": None,
         "transfer_monitor_media_server_refresh_enabled": False,
         "full_sync_overwrite_mode": "never",
+        "full_sync_remove_unless_strm": False,
         "timing_full_sync_strm": False,
         "full_sync_auto_download_mediainfo_enabled": False,
         "cron_full_sync_strm": "0 */7 * * *",
@@ -2332,6 +2490,7 @@ class P115StrmHelper(_PluginBase):
             pan_transfer_paths=self._pan_transfer_paths,
             strm_url_format=self._strm_url_format,
             overwrite_mode=self._full_sync_overwrite_mode,
+            remove_unless_strm=self._full_sync_remove_unless_strm,
         )
         self.post_message(
             channel=event.event_data.get("channel"),
@@ -2341,18 +2500,27 @@ class P115StrmHelper(_PluginBase):
         strm_helper.generate_strm_files(
             full_sync_strm_paths=paths,
         )
-        strm_count, mediainfo_count, strm_fail_count, mediainfo_fail_count = (
-            strm_helper.get_generate_total()
-        )
+        (
+            strm_count,
+            mediainfo_count,
+            strm_fail_count,
+            mediainfo_fail_count,
+            remove_unless_strm_count,
+        ) = strm_helper.get_generate_total()
+        text = f"""
+📂 网盘路径：{args}
+📄 生成STRM文件 {strm_count} 个
+⬇️ 下载媒体文件 {mediainfo_count} 个
+❌ 生成STRM失败 {strm_fail_count} 个
+🚫 下载媒体失败 {mediainfo_fail_count} 个
+"""
+        if remove_unless_strm_count != 0:
+            text += f"🗑️ 清理无效STRM文件 {remove_unless_strm_count} 个"
         self.post_message(
             channel=event.event_data.get("channel"),
             userid=event.event_data.get("user"),
             title="✅【115网盘】全量生成 STRM 文件完成",
-            text=f"📂 网盘路径：{args}\n"
-            + f"📄 生成STRM文件 {strm_count} 个\n"
-            + f"⬇️ 下载媒体文件 {mediainfo_count} 个\n"
-            + f"❌ 生成STRM失败 {strm_fail_count} 个\n"
-            + f"🚫 下载媒体失败 {mediainfo_fail_count} 个",
+            text=text,
         )
 
     def add_share(self, url, channel, userid):
@@ -2492,21 +2660,31 @@ class P115StrmHelper(_PluginBase):
             pan_transfer_paths=self._pan_transfer_paths,
             strm_url_format=self._strm_url_format,
             overwrite_mode=self._full_sync_overwrite_mode,
+            remove_unless_strm=self._full_sync_remove_unless_strm,
         )
         strm_helper.generate_strm_files(
             full_sync_strm_paths=self._full_sync_strm_paths,
         )
-        strm_count, mediainfo_count, strm_fail_count, mediainfo_fail_count = (
-            strm_helper.get_generate_total()
-        )
+        (
+            strm_count,
+            mediainfo_count,
+            strm_fail_count,
+            mediainfo_fail_count,
+            remove_unless_strm_count,
+        ) = strm_helper.get_generate_total()
         if self._notify:
+            text = f"""
+📄 生成STRM文件 {strm_count} 个
+⬇️ 下载媒体文件 {mediainfo_count} 个
+❌ 生成STRM失败 {strm_fail_count} 个
+🚫 下载媒体失败 {mediainfo_fail_count} 个
+"""
+            if remove_unless_strm_count != 0:
+                text += f"🗑️ 清理无效STRM文件 {remove_unless_strm_count} 个"
             self.post_message(
                 mtype=NotificationType.Plugin,
                 title="✅【115网盘】全量生成 STRM 文件完成",
-                text=f"📄 生成STRM文件 {strm_count} 个\n"
-                + f"⬇️ 下载媒体文件 {mediainfo_count} 个\n"
-                + f"❌ 生成STRM失败 {strm_fail_count} 个\n"
-                + f"🚫 下载媒体失败 {mediainfo_fail_count} 个",
+                text=text,
             )
 
     def share_strm_files(self):
@@ -2557,7 +2735,7 @@ class P115StrmHelper(_PluginBase):
                 self.post_message(
                     mtype=NotificationType.Plugin,
                     title="✅【115网盘】分享生成 STRM 文件完成",
-                    text=f"📄 生成STRM文件 {strm_count} 个\n"
+                    text=f"\n📄 生成STRM文件 {strm_count} 个\n"
                     + f"⬇️ 下载媒体文件 {mediainfo_count} 个\n"
                     + f"❌ 生成STRM失败 {strm_fail_count} 个\n"
                     + f"🚫 下载媒体失败 {mediainfo_fail_count} 个",
@@ -2757,7 +2935,7 @@ class P115StrmHelper(_PluginBase):
                 self.post_message(
                     mtype=NotificationType.Plugin,
                     title="✅【115网盘】生活事件生成 STRM 文件",
-                    text="\n".join(text_parts),
+                    text="\n" + "\n".join(text_parts),
                 )
 
             # 重置计数器

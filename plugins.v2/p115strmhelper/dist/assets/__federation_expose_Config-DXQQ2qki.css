@@ -2,13 +2,13 @@
 /* 统一字体 - Inspired by Page.vue */
 
 /* 文字大小 - Unified with Page.vue */
-[data-v-822a6d29] .text-caption {
+[data-v-6fd580ac] .text-caption {
   font-size: 0.8rem !important;
 }
-[data-v-822a6d29] .text-body-2 {
+[data-v-6fd580ac] .text-body-2 {
   font-size: 0.85rem !important;
 }
-[data-v-822a6d29] .text-subtitle-2 {
+[data-v-6fd580ac] .text-subtitle-2 {
   /* Added for consistency with Page.vue inner card titles */
   font-size: 0.875rem !important;
   font-weight: 500 !important;
@@ -16,35 +16,35 @@
 }
 
 /* 基本配置卡片样式 */
-.config-card[data-v-822a6d29] {
+.config-card[data-v-6fd580ac] {
   border-radius: 8px !important;
   border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)) !important;
   overflow: hidden;
   /* 确保内部元素不会超出圆角 */
 }
-.bg-primary-gradient[data-v-822a6d29] {
+.bg-primary-gradient[data-v-6fd580ac] {
   background: linear-gradient(to right, rgba(var(--v-theme-primary), 0.1), rgba(var(--v-theme-primary), 0.03)) !important;
   /* border-bottom: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); */
 }
-.config-title[data-v-822a6d29] {
+.config-title[data-v-6fd580ac] {
   font-weight: 500;
   color: rgba(var(--v-theme-on-surface), var(--v-high-emphasis-opacity));
 }
 
 /* 路径输入框组 */
-.path-group[data-v-822a6d29] {
+.path-group[data-v-6fd580ac] {
   padding: 8px;
   border: 1px solid rgba(var(--v-border-color), 0.3);
   border-radius: 6px;
 }
-.path-input-row[data-v-822a6d29] {
+.path-input-row[data-v-6fd580ac] {
   display: flex;
   align-items: center;
 }
-.path-input-field[data-v-822a6d29] {
+.path-input-field[data-v-6fd580ac] {
   flex-grow: 1;
 }
-.path-input-action[data-v-822a6d29] {
+.path-input-action[data-v-6fd580ac] {
   margin-left: 8px;
 }
 
