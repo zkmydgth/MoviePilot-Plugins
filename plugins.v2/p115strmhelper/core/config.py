@@ -1,5 +1,6 @@
 from typing import Dict, Any, Optional, List
 import json
+from pathlib import Path
 
 from pydantic import BaseModel, ValidationError
 
@@ -208,6 +209,13 @@ class ConfigManager:
         """
         获取单个配置值
         """
+        if key in [
+            "PLUGIN_CONFIG_PATH",
+            "PLUGIN_TEMP_PATH",
+            "PLUGIN_DB_PATH",
+            "PLUGIN_DATABASE_PATH",
+        ]:
+            return Path(self._configs.get(key))
         return self._configs.get(key)
 
     def get_all_configs(self) -> Dict[str, Any]:
