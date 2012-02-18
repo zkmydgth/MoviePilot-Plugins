@@ -127,12 +127,25 @@
         "name": "123云盘储存",
         "description": "使存储支持123云盘。",
         "labels": "云盘",
+        "version": "1.0.1",
+        "icon": "https://raw.githubusercontent.com/DDS-Derek/MoviePilot-Plugins/main/icons/P123Disk.png",
+        "author": "DDSRem",
+        "level": 1,
+        "history": {
+            "v1.0.1": "修复下载API错误",
+            "v1.0.0": "发布，MP版本v2.4.4+支持此插件"
+        }
+    },
+    "P123StrmHelper": {
+        "name": "123云盘STRM助手",
+        "description": "123云盘STRM生成一条龙服务",
+        "labels": "云盘",
         "version": "1.0.0",
         "icon": "https://raw.githubusercontent.com/DDS-Derek/MoviePilot-Plugins/main/icons/P123Disk.png",
         "author": "DDSRem",
         "level": 1,
         "history": {
-            "v1.0.0": "发布，MP版本v2.4.4+支持此插件"
+            "v1.0.0": "发布，前置依赖123云盘储存插件"
         }
     }
 }

@@ -15,6 +15,7 @@
 
 - [115网盘STRM助手](https://github.com/DDS-Derek/MoviePilot-Plugins/tree/main/plugins.v2/p115strmhelper)：115网盘STRM生成一条龙服务。
 - [123云盘储存](https://github.com/DDS-Derek/MoviePilot-Plugins/tree/main/plugins.v2/p123disk)：使存储支持123云盘。
+- [123云盘STRM助手](https://github.com/DDS-Derek/MoviePilot-Plugins/tree/main/plugins.v2/p123strmhelper)：123云盘STRM生成一条龙服务。
 
 ### 媒体管理类
 
