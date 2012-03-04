@@ -745,7 +745,12 @@
           <v-card-title class="text-subtitle-2 px-3 py-2 bg-grey-lighten-4 d-flex align-center">
             <v-icon icon="mdi-share-variant" size="small" class="mr-2"></v-icon>
             <span class="flex-grow-1">分享配置列表</span>
-            <v-btn size="small" prepend-icon="mdi-plus" variant="tonal" color="primary" @click="addShareConfig">
+            <v-btn size="small" prepend-icon="mdi-delete-sweep" variant="text" color="error" @click="clearShareConfigs"
+              :disabled="shareDialog.configs.length === 0" title="清空所有分享配置">
+              清空
+            </v-btn>
+            <v-btn size="small" prepend-icon="mdi-plus" variant="tonal" color="primary" @click="addShareConfig"
+              class="ml-2">
               添加分享
             </v-btn>
           </v-card-title>
@@ -806,10 +811,24 @@
       <v-card-actions class="px-3 py-1">
         <v-btn color="grey" variant="text" @click="closeShareDialog" size="small">取消</v-btn>
         <v-spacer></v-spacer>
-        <v-btn color="primary" variant="text" @click="executeShareSync" :loading="shareSyncLoading"
-          :disabled="!isShareDialogValid" size="small">
-          开始同步
-        </v-btn>
+        <v-tooltip location="top">
+          <template v-slot:activator="{ props }">
+            <v-btn color="info" variant="text" @click="saveShareConfigs" :loading="shareConfigSaving" size="small"
+              v-bind="props">
+              保存配置
+            </v-btn>
+          </template>
+          <span>仅保存配置到系统，不执行同步任务</span>
+        </v-tooltip>
+        <v-tooltip location="top">
+          <template v-slot:activator="{ props }">
+            <v-btn color="primary" variant="text" @click="executeShareSync" :loading="shareSyncLoading"
+              :disabled="!isShareDialogValid" size="small" class="ml-2" v-bind="props">
+              保存并同步
+            </v-btn>
+          </template>
+          <span>保存配置并立即执行分享同步任务（需要至少一个有效配置）</span>
+        </v-tooltip>
       </v-card-actions>
     </v-card>
   </v-dialog>
@@ -1248,6 +1267,7 @@ const refreshing = ref(false);
 const syncLoading = ref(false);
 const syncDbLoading = ref(false);
 const shareSyncLoading = ref(false);
+const shareConfigSaving = ref(false);
 const initialDataLoaded = ref(false);
 const error = ref(null);
 const actionMessage = ref(null);
@@ -1616,6 +1636,46 @@ const editShareConfig = (index) => {
 const removeShareConfig = (index) => {
   if (index >= 0 && index < shareDialog.configs.length) {
     shareDialog.configs.splice(index, 1);
+  }
+};
+
+const clearShareConfigs = () => {
+  if (shareDialog.configs.length === 0) return;
+  if (confirm('确定要清空所有分享配置吗？此操作不可恢复。')) {
+    shareDialog.configs = [];
+  }
+};
+
+const saveShareConfigs = async () => {
+  shareConfigSaving.value = true;
+  shareDialog.error = null;
+  try {
+    const pluginId = "P115StrmHelper";
+    if (props.initialConfig) {
+      // 更新配置
+      props.initialConfig.share_strm_config = shareDialog.configs;
+      props.initialConfig.share_strm_mediaservers = shareDialog.globalMediaservers.length > 0
+        ? [...shareDialog.globalMediaservers]
+        : null;
+      props.initialConfig.share_strm_mp_mediaserver_paths = shareDialog.globalMpMediaserverPaths || null;
+
+      const result = await props.api.post(`plugin/${pluginId}/save_config`, props.initialConfig);
+      if (result && result.code === 0) {
+        actionMessage.value = '分享配置已保存';
+        actionMessageType.value = 'success';
+        await getStatus();
+        closeShareDialog();
+      } else {
+        throw new Error(result?.msg || '保存配置失败');
+      }
+    } else {
+      throw new Error('配置对象不存在');
+    }
+  } catch (err) {
+    shareDialog.error = `保存配置失败: ${err.message || '未知错误'}`;
+    console.error('保存配置失败:', err);
+  } finally {
+    shareConfigSaving.value = false;
   }
 };
 

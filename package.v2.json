@@ -107,12 +107,13 @@
         "name": "115网盘STRM助手",
         "description": "115网盘STRM生成一条龙服务",
         "labels": "云盘",
-        "version": "2.2.25",
+        "version": "2.3.0",
         "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png",
         "author": "DDSRem",
         "release": true,
         "level": 1,
         "history": {
+            "v2.3.0": "1. 生活事件监控重构，修复多进程问题 2. 网盘整理支持手动运行 3. 全量同步进一步提速 4. 完全支持115网盘存储插件 5. 全量同步支持运行完成后刷新媒体服务器（全量刷新 6. UI重构，圆角化设计，配置提示优化 7. 修复离线下载在手机端使用异常的问题 8. 支持神医同步删除，简单化配置 9. 支持同步删除多版本剧集 10.分享同步支持空列表保存，支持删除最后一项配置",
             "v2.2.25": "修复生活事件重复启动和故障检查错误的问题",
             "v2.2.24": "1. 优化生活事件和网盘整理 2. 初步支持 P115Disk 插件",
             "v2.2.23": "修复无效日志输出",
@@ -327,12 +328,13 @@
         "name": "115网盘储存",
         "description": "更快更强的115网盘存储模块。",
         "labels": "云盘",
-        "version": "0.0.2",
+        "version": "0.1.0",
         "release": true,
         "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png",
         "author": "DDSRem",
         "level": 1,
         "history": {
+            "v0.1.0": "优化日志，增强稳定性",
             "v0.0.2": "尝试修复上传失败和删除文件失败的问题",
             "v0.0.1": "测试版本"
         }
