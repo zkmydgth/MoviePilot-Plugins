@@ -1,7 +1,7 @@
 import argparse
 from pathlib import Path
 
-from p115 import P115Client
+from p115client import P115Client
 from p115updatedb import updatedb
 
 
