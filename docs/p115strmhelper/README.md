@@ -67,14 +67,14 @@
 
 此项目根据 GNU General Public License v3.0 许可证进行许可，详见[`LICENSE`](https://github.com/DDS-Derek/MoviePilot-Plugins/blob/main/LICENSE) 文件。
 
-### 附加条款
+#### 附加条款
 
 - 请勿将插件程序用于商业用途。
 - 请勿将插件程序用于任何违反法律法规的行为。
 - 本仓库所有脚本均基于官方API制作，使用请自行承担数据损失但不限于此的风险。
 - 本仓库所有脚本仅供学习交流，使用本仓库脚本进行违法操作产生的法律责任由操作者自行承担。
 
-### 免责声明
+#### 免责声明
 
 使用此项目则意味着你接受以上规定和 GNU General Public License v3.0 许可证。
 
