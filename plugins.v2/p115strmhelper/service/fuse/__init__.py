@@ -1,9 +1,19 @@
-from os import getuid, getgid
 from subprocess import CalledProcessError, TimeoutExpired, run
 from platform import system
 from threading import Lock, Thread
 from typing import Optional
 from pathlib import Path
+
+try:
+    from os import getuid, getgid
+except ImportError:
+
+    def getuid() -> int:
+        return 0
+
+    def getgid() -> int:
+        return 0
+
 
 from p115client import P115Client
 
