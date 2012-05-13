@@ -7,10 +7,13 @@ from uuid import uuid4
 
 from app.db.transferhistory_oper import TransferHistoryOper
 from app.log import logger
+from app.schemas import NotificationType
 
 from share_strm_scan import Pair, ShareStrmScanCache
 
 from ....core.config import configer
+from ....core.i18n import i18n
+from ....core.message import post_message
 from ....helper.mediasyncdel import MediaSyncDelHelper
 from ....utils.path import PathRemoveUtils
 from ....utils.sharded_list import ShardedPluginListStore
@@ -210,6 +213,143 @@ class ShareStrmCleaner:
         """
         configer.save_plugin_data(self._LAST_SUMMARY_KEY, summary)
 
+    @staticmethod
+    def _should_notify_cleanup_result(summary: Dict[str, Any]) -> bool:
+        """
+        是否发送分享 STRM 清理摘要通知（全局通知开启且本次有失效或异常）
+
+        :param summary: ``run_full_cleanup`` 产出的摘要字典
+        :return: 是否发送
+        """
+        if not configer.get_config("notify"):
+            return False
+        if summary.get("message") == "already_running":
+            return False
+        if int(summary.get("invalid_strm_count") or 0) > 0:
+            return True
+        if summary.get("ok") is False:
+            return True
+        return False
+
+    def _format_share_strm_cleanup_notify_text(self, summary: Dict[str, Any]) -> str:
+        """
+        拼接分享 STRM 清理通知正文（多行）
+
+        :param summary: 摘要字典
+        :return: 纯文本正文
+        """
+        lines: List[str] = []
+        lines.append(
+            i18n.translate(
+                "share_strm_cleanup_line_roots",
+                n=int(summary.get("roots_scanned") or 0),
+            )
+        )
+        lines.append(
+            i18n.translate(
+                "share_strm_cleanup_line_invalid",
+                n=int(summary.get("invalid_strm_count") or 0),
+            )
+        )
+        dm = summary.get("delete_mode")
+        if dm == "immediate":
+            label = i18n.translate("share_strm_cleanup_mode_immediate")
+        else:
+            label = i18n.translate("share_strm_cleanup_mode_plugin_ui")
+        lines.append(i18n.translate("share_strm_cleanup_line_delete_mode", label=label))
+        if dm == "immediate":
+            lines.append(
+                i18n.translate(
+                    "share_strm_cleanup_line_deleted",
+                    n=int(summary.get("deleted_count") or 0),
+                )
+            )
+            msg = (summary.get("message") or "").strip()
+            if msg:
+                lines.append(i18n.translate("share_strm_cleanup_line_error", err=msg))
+        elif summary.get("queued_batch"):
+            lines.append(
+                i18n.translate(
+                    "share_strm_cleanup_line_queue",
+                    rid=summary.get("request_id") or "",
+                    n=int(summary.get("invalid_strm_count") or 0),
+                )
+            )
+        rec = int(summary.get("missing_recorded") or 0)
+        skip = int(summary.get("missing_skipped_no_history") or 0)
+        if rec or skip:
+            lines.append(
+                i18n.translate(
+                    "share_strm_cleanup_line_missing",
+                    recorded=rec,
+                    skipped=skip,
+                )
+            )
+        return "\n".join(lines)
+
+    def _notify_cleanup_result(self, summary: Dict[str, Any]) -> None:
+        """
+        按全局通知开关与摘要内容发送单条插件消息
+
+        :param summary: 已持久化的摘要字典
+        """
+        if not self._should_notify_cleanup_result(summary):
+            return
+        try:
+            text = self._format_share_strm_cleanup_notify_text(summary)
+            post_message(
+                mtype=NotificationType.Plugin,
+                title=i18n.translate("share_strm_cleanup_notify_title"),
+                text="\n" + text,
+            )
+        except Exception as e:
+            logger.error(f"【分享STRM清理】发送通知失败: {e}", exc_info=True)
+
+    def _notify_claimed_batch_executed(
+        self,
+        batch: Dict[str, Any],
+        path_total: int,
+        removed: int,
+        last_err: Optional[str],
+    ) -> None:
+        """
+        插件内确认队列取出后，物理删除完成时发送单条摘要（需全局通知开启）
+
+        :param batch: 已 claim 的批次字典（含 ``request_id``）
+        :param path_total: 本批次 STRM 路径总数
+        :param removed: ``_execute_paths_physical`` 成功删除数
+        :param last_err: 最后一则删除错误，无则为 ``None``
+        """
+        if not configer.get_config("notify"):
+            return
+        try:
+            rid = (batch.get("request_id") or "").strip() or "-"
+            lines = [
+                i18n.translate("share_strm_cleanup_batch_exec_line_rid", rid=rid),
+                i18n.translate(
+                    "share_strm_cleanup_batch_exec_line_total", n=path_total
+                ),
+                i18n.translate(
+                    "share_strm_cleanup_batch_exec_line_removed", n=removed
+                ),
+            ]
+            if last_err:
+                lines.append(
+                    i18n.translate(
+                        "share_strm_cleanup_batch_exec_line_error", err=last_err
+                    )
+                )
+            post_message(
+                mtype=NotificationType.Plugin,
+                title=i18n.translate("share_strm_cleanup_batch_exec_title"),
+                text="\n" + "\n".join(lines),
+            )
+        except Exception as e:
+            logger.error(
+                f"【分享STRM清理】批次执行通知发送失败: {e}",
+                exc_info=True,
+            )
+
     def run_full_cleanup(self) -> Dict[str, Any]:
         """
         执行完整清理流程：多根扫描、可选缺失媒体写入、立即删除或入队待确认
@@ -301,6 +441,7 @@ class ShareStrmCleaner:
                 summary["request_id"] = rid
 
             self._save_last_summary(summary)
+            self._notify_cleanup_result(summary)
             return summary
         finally:
             self.scaner.invalidate()
@@ -469,12 +610,15 @@ class ShareStrmCleaner:
         paths = batch.get("paths")
         if not isinstance(paths, list) or len(paths) == 0:
             return 0, "invalid_batch"
-        return self._execute_paths_physical(
+        path_total = len(paths)
+        removed, last_err = self._execute_paths_physical(
             paths,
             bool(batch.get("remove_related_mediainfo")),
             bool(batch.get("remove_empty_parent_dirs")),
             bool(batch.get("remove_stale_transfer_history")),
         )
+        self._notify_claimed_batch_executed(batch, path_total, removed, last_err)
+        return removed, last_err
 
     def execute_pending_batch(self, request_id: str) -> Tuple[int, Optional[str]]:
         """
