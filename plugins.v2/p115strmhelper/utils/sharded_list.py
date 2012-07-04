@@ -81,6 +81,58 @@ class ShardedPluginListStore:
         idx["total"] = int(idx.get("total") or 0) + 1
         self._save_idx(idx)
 
+    def extend(self, items: List[Dict[str, Any]]) -> int:
+        """
+        批量追加多条记录：尽量填满最后分片，然后按 ``max_per_shard`` 成块写入新分片，
+        仅在最后统一更新一次索引，将持久化 I/O 由 ``O(n)`` 降至 ``O(n / max_per_shard)``
+
+        :param items: 记录列表，每项须含唯一 ``uid``
+        :return: 实际追加条数
+        """
+        if not items:
+            return 0
+        idx = self._load_idx()
+        if idx is None:
+            idx = {
+                "v": self._version,
+                "max_per_shard": self._max_per_shard,
+                "shards": [],
+                "total": 0,
+            }
+        shards_meta: List[Dict[str, Any]] = list(idx.get("shards") or [])
+        max_ps = int(idx.get("max_per_shard") or self._max_per_shard)
+        max_ps = max(1, min(max_ps, 500))
+
+        pos = 0
+        n = len(items)
+        if shards_meta:
+            last = shards_meta[-1]
+            last_key = str(last["key"])
+            last_list = configer.get_plugin_data(last_key)
+            if not isinstance(last_list, list):
+                last_list = []
+            free = max_ps - len(last_list)
+            if free > 0:
+                take = min(free, n)
+                last_list = list(last_list)
+                last_list.extend(items[:take])
+                configer.save_plugin_data(last_key, last_list)
+                last["n"] = len(last_list)
+                pos = take
+
+        while pos < n:
+            chunk = items[pos : pos + max_ps]
+            new_i = len(shards_meta)
+            nk = self._new_shard_key(new_i)
+            configer.save_plugin_data(nk, list(chunk))
+            shards_meta.append({"key": nk, "n": len(chunk)})
+            pos += len(chunk)
+
+        idx["shards"] = shards_meta
+        idx["total"] = int(idx.get("total") or 0) + n
+        self._save_idx(idx)
+        return n
+
     def total(self) -> int:
         """
         返回总条数

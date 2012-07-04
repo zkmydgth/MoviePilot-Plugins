@@ -1100,20 +1100,7 @@ class Api:
         列出待确认的分享 STRM 清理批次
         """
         try:
-            batches = share_strm_cleaner.list_pending_batches()
-            summaries = []
-            for b in batches:
-                if not isinstance(b, dict):
-                    continue
-                paths = b.get("paths") or []
-                n = len(paths) if isinstance(paths, list) else 0
-                summaries.append(
-                    {
-                        "request_id": b.get("request_id"),
-                        "created_at": b.get("created_at"),
-                        "path_count": n,
-                    }
-                )
+            summaries = share_strm_cleaner.list_pending_summaries()
             return ApiResponse(data={"batches": summaries})
         except Exception as e:
             logger.error(f"【分享STRM清理】列出待确认批次失败: {e}", exc_info=True)

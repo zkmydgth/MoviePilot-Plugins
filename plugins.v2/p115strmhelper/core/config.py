@@ -738,7 +738,7 @@ class ConfigManager(BaseModel):
         """
         返回 p115center 许可证
         """
-        return "09dfacf7d2722afd430a25b3ea5bf173e04aa561d3de03e414565e6c70bd9269"
+        return "1f1afabdf843ec1ae688b25e928260544c2b092aa807a0c20de1a6ccf89377bc"
 
     @property
     def PLUGIN_ALIGO_PATH(self) -> Path:
