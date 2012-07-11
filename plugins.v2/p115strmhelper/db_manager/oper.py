@@ -179,8 +179,26 @@ class FileDbHelper(DbOper):
         """
         批量写入或更新数据
         """
-        File.upsert_batch(self._db, batch)
-        Folder.upsert_batch(self._db, batch)
+        files_data_map = {
+            entry["data"]["id"]: entry["data"]
+            for entry in batch
+            if entry.get("table") == "files" and "id" in entry.get("data", {})
+        }
+
+        if files_data_map:
+            files_data = list(files_data_map.values())
+            self.upsert_batch_by_list("files", files_data)
+
+        folders_data_map = {
+            entry["data"]["id"]: entry["data"]
+            for entry in batch
+            if entry.get("table") == "folders" and "id" in entry.get("data", {})
+        }
+
+        if folders_data_map:
+            folders_data = list(folders_data_map.values())
+            self.upsert_batch_by_list("folders", folders_data)
+
         return True
 
     def upsert_batch_by_list(self, list_type: str, batch: List[Dict]):
