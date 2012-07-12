@@ -156,11 +156,12 @@ def create_app(
     """
     创建 Emby 反向代理 FastAPI 应用
 
-    :param emby_host: Emby 服务器根地址
-    :param pin_rules: 顶置路径规则列表 (路径前缀, 目标URL)；命中时先替换再 302
-    :param external_player_url: 是否启用外部播放器链接注入
-    :param external_player_list: 要注入的外部播放器 key 列表；为空时使用全部
-    :return: 配置好的 FastAPI 应用实例
+    :param emby_host (str): Emby 服务器根地址
+    :param pin_rules (List): 顶置路径规则列表 (路径前缀, 目标URL)；命中时先替换再 302
+    :param external_player_url (bool): 是否启用外部播放器链接注入
+    :param external_player_list (List): 要注入的外部播放器 key 列表；为空时使用全部
+
+    :return FastAPI: 配置好的 FastAPI 应用实例
     """
     emby_host = emby_host.rstrip("/")
     pin_rules = pin_rules or []
@@ -1354,8 +1355,9 @@ def create_app(
             """
             解码外部播放器链接并 302 跳转
 
-            :param link: base64 编码后的原始播放器链接
-            :return: 302 重定向响应
+            :param link (str): base64 编码后的原始播放器链接
+
+            :return RedirectResponse: 302 重定向响应
             """
             if not link:
                 return RedirectResponse(url="/", status_code=302)
@@ -1377,8 +1379,9 @@ def create_app(
         """
         兜底路由：将未匹配请求反向代理到 Emby
 
-        :param request: 当前请求
-        :return: 流式响应或 502 JSON 错误
+        :param request (Request): 当前请求
+
+        :return Response: 流式响应或 502 JSON 错误
         """
         return await _reverse_proxy(request)
 

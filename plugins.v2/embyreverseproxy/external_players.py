@@ -34,8 +34,9 @@ def extract_api_key(request: Request) -> str | None:
     """
     从请求中提取 api_key（query、X-Emby-Token 头、或 MediaBrowser 认证头）
 
-    :param request: 当前请求
-    :return: API Key 或 None
+    :param request (Request): 当前请求
+
+    :return str: API Key 或 None
     """
     api_key = request.query_params.get("api_key") or request.query_params.get(
         "X-Emby-Token"
@@ -57,8 +58,9 @@ def decode_redirect_link(link: str) -> str:
     """
     解码 redirect2external 的 base64 链接参数
 
-    :param link: 查询参数 link
-    :return: 解码后的原始目标链接
+    :param link (str): 查询参数 link
+
+    :return str: 解码后的原始目标链接
     """
     padding = "=" * (-len(link) % 4)
     return b64decode((link + padding).encode("ascii")).decode("utf-8")
@@ -68,8 +70,9 @@ def build_external_player_script(player_keys: list[str]) -> str | None:
     """
     构建前端按钮注入脚本，前端直接使用 ExternalUrls 数据
 
-    :param player_keys: 允许显示的播放器 key 列表
-    :return: 脚本文本，不启用时返回 None
+    :param player_keys (List): 允许显示的播放器 key 列表
+
+    :return str: 脚本文本，不启用时返回 None
     """
     if not player_keys:
         return None
@@ -213,12 +216,13 @@ def build_stream_url_for_item(
     """
     为媒体项构建流媒体直链 URL（指向代理自身，触发 302）
 
-    :param request: 当前请求（用于获取 Host）
-    :param emby_host: Emby 服务器地址
-    :param item_id: 媒体项 ID
-    :param source: MediaSource 字典
-    :param api_key: API Key
-    :return: 完整的流地址 URL
+    :param request (Request): 当前请求（用于获取 Host）
+    :param emby_host (str): Emby 服务器地址
+    :param item_id (str): 媒体项 ID
+    :param source (Dict): MediaSource 字典
+    :param api_key (str): API Key
+
+    :return str: 完整的流地址 URL
     """
     host_header = request.headers.get("host") or ""
     scheme = request.headers.get("x-forwarded-proto") or request.url.scheme or "http"
@@ -245,13 +249,14 @@ def inject_external_urls(
     """
     向 Items 响应注入 ExternalUrls 外部播放器链接
 
-    :param data: Items API 响应 JSON 字典（就地修改）
-    :param request: 当前请求
-    :param emby_host: Emby 服务器地址
-    :param item_id: 媒体项 ID
-    :param api_key: API Key
-    :param player_keys: 需要注入的播放器 key
-    :return: 是否注入了链接
+    :param data (Dict): Items API 响应 JSON 字典（就地修改）
+    :param request (Request): 当前请求
+    :param emby_host (str): Emby 服务器地址
+    :param item_id (str): 媒体项 ID
+    :param api_key (str): API Key
+    :param player_keys (List): 需要注入的播放器 key
+
+    :return bool: 是否注入了链接
     """
     sources = data.get("MediaSources")
     if not isinstance(sources, list) or not sources:

@@ -80,7 +80,7 @@ class EmbyReverseProxy(_PluginBase):
         """
         初始化插件：解析配置，启用时在独立线程启动 uvicorn，否则停止服务
 
-        :param config: 插件配置字典
+        :param config (Dict): 插件配置字典
         """
         if config:
             self._enabled = config.get("enabled", False)
@@ -166,7 +166,7 @@ class EmbyReverseProxy(_PluginBase):
         """
         返回插件启用状态
 
-        :return: True 表示插件已启用
+        :return bool: True 表示插件已启用
         """
         return self._enabled
 
@@ -175,7 +175,7 @@ class EmbyReverseProxy(_PluginBase):
         """
         返回插件远程命令列表，本插件无远程命令
 
-        :return: None
+        :return List: 插件远程命令列表
         """
         pass
 
@@ -183,7 +183,7 @@ class EmbyReverseProxy(_PluginBase):
         """
         返回插件 API 端点列表，本插件无自定义 API
 
-        :return: 空列表
+        :return List: 空列表
         """
         return []
 
@@ -191,7 +191,7 @@ class EmbyReverseProxy(_PluginBase):
         """
         返回插件数据页面配置，本插件无数据页面
 
-        :return: None
+        :return List: 插件数据页面配置
         """
         pass
 
@@ -199,7 +199,7 @@ class EmbyReverseProxy(_PluginBase):
         """
         拼装插件配置页面
 
-        :return: (页面配置列表, 表单默认值字典)
+        :return Tuple: (页面配置列表, 表单默认值字典)
         """
         player_select_items = [
             {"title": info["name"], "value": key}
