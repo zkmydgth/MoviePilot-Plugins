@@ -137,6 +137,7 @@ def iter_share_files_with_path(
     app_http_cooldown, app_https_cooldown, api_cooldown = speed_configs.get(
         speed_mode, speed_configs[1]
     )
+    # 目前 pro.api.115.com 接口风控很严重
     snap_app_http_info = ApiEndpointInfo(
         endpoint=ApiEndpointCooldown(
             api_callable=lambda p: client.share_snap_app(
@@ -172,7 +173,7 @@ def iter_share_files_with_path(
         api_name="share_snap",
         base_url=None,
     )
-    repeating_pair = [snap_app_http_info, snap_app_https_info]
+    repeating_pair = [snap_app_https_info]
     first_page_api_pool = repeating_pair * 6
     first_page_api_pool.insert(6, snap_api_info)
     first_page_api_cycler = cycle(repeating_pair)
