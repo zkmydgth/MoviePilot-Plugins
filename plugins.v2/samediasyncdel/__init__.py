@@ -1,4 +1,4 @@
-import os
+import shutil
 import time
 from pathlib import Path
 from typing import List, Tuple, Dict, Any, Optional
@@ -11,10 +11,11 @@ from app.chain.transfer import TransferChain
 from app.core.config import settings
 from app.core.event import eventmanager, Event
 from app.db.models.transferhistory import TransferHistory
+from app.helper.downloader import DownloaderHelper
 from app.log import logger
 from app.plugins import _PluginBase
 from app.schemas.types import NotificationType, EventType, MediaType, MediaImageType
-
+from app.utils.system import SystemUtils
 
 class SaMediaSyncDel(_PluginBase):
     # 插件名称
@@ -47,14 +48,16 @@ class SaMediaSyncDel(_PluginBase):
     _transferchain = None
     _transferhis = None
     _downloadhis = None
+    _default_downloader = None
+    _storagechain = None
+    _downloader_helper = None
 
     def init_plugin(self, config: dict = None):
         self._transferchain = TransferChain()
+        self._downloader_helper = DownloaderHelper()
         self._transferhis = self._transferchain.transferhis
         self._downloadhis = self._transferchain.downloadhis
-
-        # 停止现有任务
-        self.stop_service()
+        self._storagechain = StorageChain()
 
         # 读取配置
         if config:
@@ -64,6 +67,12 @@ class SaMediaSyncDel(_PluginBase):
             self._del_history = config.get("del_history")
             self._local_library_path = config.get("local_library_path")
             self._p115_library_path = config.get("p115_library_path")
+
+            # 获取默认下载器
+            downloader_services = self._downloader_helper.get_services()
+            for downloader_name, downloader_info in downloader_services.items():
+                if downloader_info.config.default:
+                    self._default_downloader = downloader_name
 
             # 清理插件历史
             if self._del_history:
@@ -104,12 +113,12 @@ class SaMediaSyncDel(_PluginBase):
         if apikey != settings.API_TOKEN:
             return schemas.Response(success=False, message="API密钥错误")
         # 历史记录
-        historys = self.get_data("history")
+        historys = self.get_data('history')
         if not historys:
             return schemas.Response(success=False, message="未找到历史记录")
         # 删除指定记录
         historys = [h for h in historys if h.get("unique") != key]
-        self.save_data("history", historys)
+        self.save_data('history', historys)
         return schemas.Response(success=True, message="删除成功")
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
@@ -492,7 +501,7 @@ class SaMediaSyncDel(_PluginBase):
         # 集数
         episode_num = event_data.episode_id
         # 媒体后缀名
-        media_container = event_data.json["Item"]["Container"]
+        media_container = event_data.json_object["Item"]["Container"]
 
         # 执行删除逻辑
 
@@ -527,7 +536,7 @@ class SaMediaSyncDel(_PluginBase):
             media_type=media_type,
             media_name=media_name,
             media_path=media_path,
-            tmdb_id=tmdb_id,
+            tmdb_id=int(tmdb_id),
             season_num=season_num,
             episode_num=episode_num,
             media_storage=media_storage,
@@ -582,6 +591,7 @@ class SaMediaSyncDel(_PluginBase):
                 )
                 return
 
+            logger.info(f"获取到 {len(transfer_history)} 条转移记录，开始同步删除")
             # 开始删除
             year = None
             del_torrent_hashs = []
@@ -608,7 +618,16 @@ class SaMediaSyncDel(_PluginBase):
                         transferhis.src
                         and Path(transferhis.src).suffix in settings.RMT_MEDIAEXT
                     ):
-                        self._transferchain.delete_files(Path(transferhis.src))
+                        # 删除硬链接文件和源文件
+                        if Path(transferhis.dest).exists():
+                            Path(transferhis.dest).unlink(missing_ok=True)
+                            self.__remove_parent_dir(Path(transferhis.dest))
+                        if Path(transferhis.src).exists():
+                            logger.info(f"源文件 {transferhis.src} 开始删除")
+                            Path(transferhis.src).unlink(missing_ok=True)
+                            logger.info(f"源文件 {transferhis.src} 已删除")
+                            self.__remove_parent_dir(Path(transferhis.src))
+
                         if transferhis.download_hash:
                             try:
                                 # 2、判断种子是否被删除完
@@ -640,18 +659,19 @@ class SaMediaSyncDel(_PluginBase):
                 media_path = media_path.replace(sub_paths[0], sub_paths[2]).replace(
                     "\\", "/"
                 )
-            media_path = Path(media_path).parent / str(
-                Path(media_path).stem + "." + media_container
+            media_path = str(
+                Path(media_path).parent
+                / str(Path(media_path).stem + "." + media_container)
             )
             # 这里做一次大小写转换，避免资源后缀名为全大写情况
             if media_container.isupper():
                 media_container = media_container.lower()
             elif media_container.islower():
                 media_container = media_container.upper()
-            media_path_2 = Path(media_path).parent / str(
-                Path(media_path).stem + "." + media_container
+            media_path_2 = str(
+                Path(media_path).parent
+                / str(Path(media_path).stem + "." + media_container)
             )
-
             # 兼容重新整理的场景
             if Path(mp_media_path).exists():
                 logger.warn(f"转移路径 {media_path} 未被删除或重新生成，跳过处理")
@@ -686,8 +706,7 @@ class SaMediaSyncDel(_PluginBase):
                 else:
                     media_path = media_path_2
 
-            logger.info(transfer_history)
-
+            logger.info(f"获取到 {len(transfer_history)} 条转移记录，开始同步删除")
             # 开始删除
             year = None
             del_torrent_hashs = []
@@ -703,13 +722,14 @@ class SaMediaSyncDel(_PluginBase):
                     continue
                 image = transferhis.image or image
                 year = transferhis.year
-                logger.info(transferhis)
 
                 # 0、删除转移记录
                 self._transferhis.delete(transferhis.id)
 
                 # 1、删除网盘文件
-                self.__delete_p115_files(file_path=media_path, media_name=media_name)
+                self.__delete_p115_files(
+                    file_path=media_path, media_name=media_name, media_type=media_type
+                )
 
                 # 删除种子任务
                 if self._del_source:
@@ -718,7 +738,13 @@ class SaMediaSyncDel(_PluginBase):
                         transferhis.src
                         and Path(transferhis.src).suffix in settings.RMT_MEDIAEXT
                     ):
-                        self._transferchain.delete_files(Path(transferhis.src))
+                        # 删除源文件
+                        if Path(transferhis.src).exists():
+                            logger.info(f"源文件 {transferhis.src} 开始删除")
+                            Path(transferhis.src).unlink(missing_ok=True)
+                            logger.info(f"源文件 {transferhis.src} 已删除")
+                            self.__remove_parent_dir(Path(transferhis.src))
+
                         if transferhis.download_hash:
                             try:
                                 # 2、判断种子是否被删除完
@@ -771,7 +797,7 @@ class SaMediaSyncDel(_PluginBase):
                 torrent_cnt_msg += f"删种失败{error_cnt}个\n"
             # 发送通知
             self.post_message(
-                mtype=NotificationType.MediaServer,
+                mtype=NotificationType.Plugin,
                 title="媒体库同步删除任务完成",
                 image=backrop_image,
                 text=f"{msg}\n"
@@ -815,19 +841,42 @@ class SaMediaSyncDel(_PluginBase):
         # 保存历史
         self.save_data("history", history)
 
-    def __delete_p115_files(self, file_path, media_name):
+    def __delete_p115_files(
+        self,
+        file_path: str,
+        media_name: str,
+        media_type: str,
+    ):
         """
         删除115网盘文件
         """
         try:
-            StorageChain.delete_media_file(
-                fileitem=StorageChain.get_file_item(
-                    storage="u115", path=Path(file_path)
-                )
-            )
+            fileitem = self._storagechain.get_file_item(storage="u115", path=Path(file_path))
+            mtype = MediaType.MOVIE if media_type in ["Movie", "MOV"] else MediaType.TV
+            self._storagechain.delete_media_file(fileitem=fileitem, mtype=mtype)
             logger.info(f"{media_name} 删除网盘媒体文件：{file_path}")
         except Exception as e:
             logger.error(f"{media_name} 删除网盘媒体文件 {file_path} 失败: {e}")
+
+    def __remove_parent_dir(self, file_path: Path):
+        """
+        删除父目录
+        """
+        # 删除空目录
+        # 判断当前媒体父路径下是否有媒体文件，如有则无需遍历父级
+        if not SystemUtils.exits_files(file_path.parent, settings.RMT_MEDIAEXT):
+            # 判断父目录是否为空, 为空则删除
+            i = 0
+            for parent_path in file_path.parents:
+                i += 1
+                if i > 3:
+                    break
+                if str(parent_path.parent) != str(file_path.root):
+                    # 父目录非根目录，才删除父目录
+                    if not SystemUtils.exits_files(parent_path, settings.RMT_MEDIAEXT):
+                        # 当前路径下没有媒体文件则删除
+                        shutil.rmtree(parent_path)
+                        logger.warn(f"本地空目录 {parent_path} 已删除")
 
     def __get_transfer_his(
         self,
@@ -854,7 +903,6 @@ class SaMediaSyncDel(_PluginBase):
 
         # 类型
         mtype = MediaType.MOVIE if media_type in ["Movie", "MOV"] else MediaType.TV
-
         # 删除电影
         if mtype == MediaType.MOVIE:
             msg = f"电影 {media_name} {tmdb_id}"
@@ -903,7 +951,6 @@ class SaMediaSyncDel(_PluginBase):
             )
         else:
             return "", []
-
         return msg, transfer_history
 
     def handle_torrent(self, type: str, src: str, torrent_hash: str):
@@ -913,7 +960,7 @@ class SaMediaSyncDel(_PluginBase):
         全部删除则删除种子
         """
         download_id = torrent_hash
-        download = settings.DEFAULT_DOWNLOADER
+        download = self._default_downloader
         history_key = "%s-%s" % (download, torrent_hash)
         plugin_id = "TorrentTransfer"
         transfer_history = self.get_data(key=history_key, plugin_id=plugin_id)
@@ -974,7 +1021,7 @@ class SaMediaSyncDel(_PluginBase):
 
                         # 删除源种子
                         logger.info(
-                            f"删除源下载器下载任务：{settings.DEFAULT_DOWNLOADER} - {torrent_hash}"
+                            f"删除源下载器下载任务：{self._default_downloader} - {torrent_hash}"
                         )
                         self.chain.remove_torrents(torrent_hash)
                         handle_torrent_hashs.append(torrent_hash)
@@ -994,7 +1041,7 @@ class SaMediaSyncDel(_PluginBase):
 
                         # 暂停源种子
                         logger.info(
-                            f"暂停源下载器下载任务：{settings.DEFAULT_DOWNLOADER} - {torrent_hash}"
+                            f"暂停源下载器下载任务：{self._default_downloader} - {torrent_hash}"
                         )
                         self.chain.stop_torrents(torrent_hash)
                         handle_torrent_hashs.append(torrent_hash)
