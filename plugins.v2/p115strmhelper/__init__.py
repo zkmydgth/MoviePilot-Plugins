@@ -165,13 +165,6 @@ class P115StrmHelper(_PluginBase):
         定义远程控制命令
         :return: 命令关键字、事件、描述、附带数据
         """
-        # {
-        #     "cmd": "/p115_search",
-        #     "event": EventType.PluginAction,
-        #     "desc": "搜索指定资源",
-        #     "category": "",
-        #     "data": {"action": "p115_search"},
-        # },
         return [
             {
                 "cmd": "/p115_full_sync",
@@ -200,6 +193,13 @@ class P115StrmHelper(_PluginBase):
                 "desc": "全量生成指定网盘目录STRM",
                 "category": "",
                 "data": {"action": "p115_strm"},
+            },
+            {
+                "cmd": "/search",
+                "event": EventType.PluginAction,
+                "desc": "搜索指定资源",
+                "category": "",
+                "data": {"action": "p115_search"},
             },
         ]
 
@@ -568,12 +568,24 @@ class P115StrmHelper(_PluginBase):
         event_data = event.event_data
         if not event_data or event_data.get("action") != "p115_search":
             return
+
+        if (
+            not configer.get_config("cloudsaver_url")
+            or not configer.get_config("cloudsaver_username")
+            or not configer.get_config("cloudsaver_password")
+        ):
+            self.post_message(
+                channel=event.event_data.get("channel"),
+                title="配置错误！ 请先进入插件界面配置频道搜索",
+                userid=event.event_data.get("user"),
+            )
+
         args = event_data.get("arg_str")
         if not args:
             logger.error(f"【搜索】缺少参数：{event_data}")
             self.post_message(
                 channel=event.event_data.get("channel"),
-                title="参数错误！ /p115_search 搜索关键词",
+                title="参数错误！ /search 搜索关键词",
                 userid=event.event_data.get("user"),
             )
             return

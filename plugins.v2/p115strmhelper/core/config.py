@@ -157,6 +157,13 @@ class BaseConfig(BaseModel):
     # 监控目录信息
     directory_upload_path: Optional[List[Dict]] = None
 
+    # CloudSaver 地址
+    cloudsaver_url: Optional[str] = None
+    # CloudSaver 用户名
+    cloudsaver_username: Optional[str] = None
+    # CloudSaver 密码
+    cloudsaver_password: Optional[str] = None
+
 
 class ConfigManager:
     """
