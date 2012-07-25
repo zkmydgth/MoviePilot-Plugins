@@ -28,7 +28,7 @@ class MediaWarp(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/refs/heads/main/icons/cloud.png"
     # 插件版本
-    plugin_version = "1.0.3"
+    plugin_version = "1.0.4"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -593,6 +593,7 @@ class MediaWarp(_PluginBase):
             "Web.ExternalPlayerUrl": bool(self._external_player_url),
             "Web.VideoTogether": bool(self._video_together),
             "HTTPStrm.Enable": True,
+            "HTTPStrm.FinalURL": True,
             "HTTPStrm.PrefixList": self._media_strm_path.split("\n"),
             "Subtitle.SRT2ASS": bool(self._srt2ass),
         }
