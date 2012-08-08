@@ -1155,7 +1155,9 @@ class U115OpenHelper:
                 if (offset // page_size) % 5 == 0:
                     for i in range(1, 6):
                         if offset + page_size * i < count:
-                            sub_dirs_to_scan.append((cid, offset + page_size * i, show_dir))
+                            sub_dirs_to_scan.append(
+                                (cid, offset + page_size * i, show_dir)
+                            )
             else:
                 new_offset = offset + len(items)
                 if new_offset < count and len(items) > 0:
@@ -1225,7 +1227,6 @@ class U115OpenHelper:
         if files_info_path.exists():
             rmtree(files_info_path)
 
-
     def iter_files_with_path(
         self,
         path: str | int | Path | PathLike,
@@ -1264,7 +1265,9 @@ class U115OpenHelper:
         rate_limiter = RateLimiter(qps)
 
         def _job(
-            cid: int, path_prefix: str, offset: int,
+            cid: int,
+            path_prefix: str,
+            offset: int,
         ) -> Tuple[List[Dict[str, Any]], List[Tuple[int, str, int]]]:
             rate_limiter.acquire()
             payload = {
@@ -1296,7 +1299,9 @@ class U115OpenHelper:
             for attr in items:
                 attr = normalize_attr(attr)
                 path = (
-                    f"{path_prefix}/{attr['name']}" if path_prefix else f"/{attr['name']}"
+                    f"{path_prefix}/{attr['name']}"
+                    if path_prefix
+                    else f"/{attr['name']}"
                 )
                 if attr.get("is_dir"):
                     sub_dirs_to_scan.append((int(attr["id"]), path, 0))
