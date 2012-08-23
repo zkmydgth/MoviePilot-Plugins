@@ -17,6 +17,7 @@ from app.plugins import _PluginBase
 from app.schemas.types import NotificationType, EventType, MediaType, MediaImageType
 from app.utils.system import SystemUtils
 
+
 class SaMediaSyncDel(_PluginBase):
     # 插件名称
     plugin_name = "神医媒体文件同步删除"
@@ -46,11 +47,11 @@ class SaMediaSyncDel(_PluginBase):
     _local_library_path = None
     _p115_library_path = None
     _transferchain = None
+    _downloader_helper = None
     _transferhis = None
     _downloadhis = None
-    _default_downloader = None
     _storagechain = None
-    _downloader_helper = None
+    _default_downloader = None
 
     def init_plugin(self, config: dict = None):
         self._transferchain = TransferChain()
@@ -113,12 +114,12 @@ class SaMediaSyncDel(_PluginBase):
         if apikey != settings.API_TOKEN:
             return schemas.Response(success=False, message="API密钥错误")
         # 历史记录
-        historys = self.get_data('history')
+        historys = self.get_data("history")
         if not historys:
             return schemas.Response(success=False, message="未找到历史记录")
         # 删除指定记录
         historys = [h for h in historys if h.get("unique") != key]
-        self.save_data('history', historys)
+        self.save_data("history", historys)
         return schemas.Response(success=True, message="删除成功")
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
@@ -494,17 +495,16 @@ class SaMediaSyncDel(_PluginBase):
         media_name = event_data.item_name
         # 媒体路径
         media_path = event_data.item_path
+        # 媒体后缀名
+        media_container = event_data.json_object["Item"]["Container"]
         # tmdb_id
         tmdb_id = event_data.tmdb_id
         # 季数
         season_num = event_data.season_id
         # 集数
         episode_num = event_data.episode_id
-        # 媒体后缀名
-        media_container = event_data.json_object["Item"]["Container"]
 
         # 执行删除逻辑
-
         if not media_path:
             return
         media_storage = None
@@ -851,8 +851,13 @@ class SaMediaSyncDel(_PluginBase):
         删除115网盘文件
         """
         try:
-            fileitem = self._storagechain.get_file_item(storage="u115", path=Path(file_path))
+            # 获取文件详细信息
+            fileitem = self._storagechain.get_file_item(
+                storage="u115", path=Path(file_path)
+            )
+            # 判断媒体文件类型
             mtype = MediaType.MOVIE if media_type in ["Movie", "MOV"] else MediaType.TV
+            # 调用 MP 模块删除媒体文件和空媒体目录
             self._storagechain.delete_media_file(fileitem=fileitem, mtype=mtype)
             logger.info(f"{media_name} 删除网盘媒体文件：{file_path}")
         except Exception as e:
