@@ -5,13 +5,17 @@ from functools import wraps
 from pathlib import Path
 from typing import Any, List, Dict, Tuple, Optional, Union
 
+from app.core.config import settings
 from app.core.event import eventmanager, Event
 from app.log import logger
 from app.plugins import _PluginBase
-from app.schemas import TransferInfo, FileItem
-from app.schemas.types import EventType, MessageChannel
+from app.schemas import TransferInfo, FileItem, TransferRenameEventData
+from app.schemas.types import EventType, MessageChannel, ChainEventType
+
 from apscheduler.triggers.cron import CronTrigger
+from jinja2 import Template
 from fastapi import Request
+from p115center import P115Center
 
 from .version import VERSION
 from .api import Api
@@ -47,6 +51,7 @@ from .utils.offline_link import OfflineLinkResolver
 from .utils.sentry import sentry_manager
 from .helper.share.share_links import ShareLinkResolver
 from .utils.strm import StrmGenerater
+from .utils.rename_dict import RenameDictUtils
 
 
 # 实例化一个该插件专用的 SessionManager
@@ -1146,9 +1151,7 @@ class P115StrmHelper(_PluginBase):
                 post_message(
                     channel=event_data.get("channel"),
                     source=event_data.get("source"),
-                    title=i18n.translate(
-                        "p115_add_offline_success", count=added_count
-                    ),
+                    title=i18n.translate("p115_add_offline_success", count=added_count),
                     userid=userid,
                 )
             else:
@@ -1605,6 +1608,104 @@ class P115StrmHelper(_PluginBase):
 
         mediasyncdel_helper = MediaSyncDelHelper()
         mediasyncdel_helper.download_file_del_sync(event)
+
+    @eventmanager.register(ChainEventType.TransferRename)
+    def rename_dict_supplement(self, event: Event) -> None:
+        """
+        媒体数据补充
+        """
+        if not configer.enabled:
+            return
+        if not configer.rename_dict_supplement_enabled:
+            return
+
+        data = event.event_data
+        if not isinstance(data, TransferRenameEventData):
+            return
+        source_path: Optional[str] = getattr(data, "source_path", None)
+        source_item: Optional[FileItem] = getattr(data, "source_item", None)
+        if not source_path or not str(source_path).strip():
+            logger.debug("【媒体数据补充】source_path 为空，跳过本次重命名补全")
+            return
+        if not source_item:
+            logger.debug("【媒体数据补充】source_item 为空，跳过本次重命名补全")
+            return
+
+        if source_item.type != "file":
+            logger.debug("【媒体数据补充】圆盘整理跳过本次重命名补全")
+            return
+
+        if Path(source_path).suffix.lower() not in settings.RMT_MEDIAEXT:
+            logger.debug("【媒体数据补充】文件后缀不是媒体文件，跳过本次重命名补全")
+            return
+
+        changed = False
+        media_info: Dict = {}
+
+        params: Dict[str, str] = {}
+        need_ffprobe = True
+        if source_item.storage == "local":
+            params["source_path"] = source_path
+        elif source_item.storage in ["u115", "115网盘Plus"]:
+            if source_item.fileid in pantransfercacher.file_item_dict:
+                client = P115Center()
+                data_dict = pantransfercacher.file_item_dict[source_item.fileid]
+                try:
+                    resp = client.download_emby_mediainfo_data(
+                        [(data_dict["sha1"], data_dict["size"])]
+                    )
+                    media_info = RenameDictUtils.emby_mediainfo_to_rename_fields(
+                        resp[data_dict["sha1"].upper()]
+                    )
+                    if media_info:
+                        logger.info(
+                            f"【媒体数据补充】中心化获取媒体信息: {source_path}"
+                        )
+                        need_ffprobe = False
+                    else:
+                        logger.warning(
+                            f"【媒体数据补充】{source_path} 中心化获取媒体信息为空"
+                        )
+                except Exception as e:
+                    logger.warning(
+                        f"【媒体数据补充】{source_path} 中心化获取媒体信息失败: {e}"
+                    )
+            params["url"] = (
+                f"http://127.0.0.1:{settings.PORT}/api/v1/plugin/P115StrmHelper/redirect_url/{source_item.fileid}"
+            )
+        elif source_item.storage == "CloudDrive储存":
+            params["url"] = (
+                f"http://127.0.0.1:{settings.PORT}/api/v1/plugin/P115StrmHelper/redirect_url/{source_item.fileid}"
+            )
+        else:
+            logger.error(f"【媒体数据补充】不支持的存储类型: {source_item.storage}")
+            return
+        if need_ffprobe:
+            media_info, error_message = RenameDictUtils.ffprobe_get_media_info(**params)
+            if not media_info:
+                logger.error(f"【媒体数据补充】获取媒体信息失败: {error_message}")
+                return
+        for key, value in media_info.items():
+            if data.rename_dict.get(key, None):
+                continue
+            data.rename_dict[key] = value
+            changed = True
+        if not changed:
+            return
+
+        try:
+            new_render = Template(data.template_string).render(data.rename_dict)
+        except Exception as e:
+            logger.error(
+                "【媒体数据补充】模板重新渲染失败: %s",
+                e,
+                exc_info=True,
+            )
+            return
+
+        data.updated = True
+        data.updated_str = new_render
+        data.source = "媒体数据补充"
 
     def stop_service(self):
         """

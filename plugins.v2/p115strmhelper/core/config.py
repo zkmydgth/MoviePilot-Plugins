@@ -251,10 +251,6 @@ class ConfigManager(BaseModel):
     transfer_monitor_emby_mediainfo_enabled: bool = Field(
         default=False, description="EMBY 媒体信息提取开关"
     )
-    native_emby_mediainfo_enabled: bool = Field(
-        default=False,
-        description="原生 Emby 媒体信息提取",
-    )
     transfer_monitor_clouddrive2_enabled: bool = Field(
         default=False, description="监控MP整理开启CloudDrive2储存监控"
     )
@@ -551,6 +547,14 @@ class ConfigManager(BaseModel):
         default="u115", description="存储模块选择"
     )
 
+    rename_dict_supplement_enabled: bool = Field(
+        default=False,
+        description="媒体元数据补充",
+    )
+    native_emby_mediainfo_enabled: bool = Field(
+        default=False,
+        description="原生 Emby 媒体信息提取",
+    )
     strm_url_template_enabled: bool = Field(
         default=False, description="STRM URL 自定义模板是否启用"
     )

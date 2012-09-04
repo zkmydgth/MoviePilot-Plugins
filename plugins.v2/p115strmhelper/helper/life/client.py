@@ -273,10 +273,25 @@ class MonitorLife:
                     )
                     transferchain.do_transfer(fileitem=fileitem)
                     logger.info("【网盘整理】%s 加入整理列队", p)
-                if sfx in settings.RMT_AUDIOEXT or sfx in settings.RMT_SUBEXT:
+                elif sfx in settings.RMT_AUDIOEXT or sfx in settings.RMT_SUBEXT:
                     fid_s = str(entry.fileid)
                     if fid_s not in pantransfercacher.creata_pan_transfer_list:
                         pantransfercacher.creata_pan_transfer_list.append(fid_s)
+                    fileitem = FileItem(
+                        storage="CloudDrive储存",
+                        fileid=fid_s,
+                        parent_fileid=str(entry.parent_fileid),
+                        path=p.as_posix(),
+                        type="file",
+                        name=entry.name,
+                        basename=entry.basename,
+                        extension=(entry.extension or p.suffix[1:] or "").lower(),
+                        size=entry.size if entry.size is not None else 0,
+                        pickcode=None,
+                        modify_time=int(entry.modify_time or 0),
+                    )
+                    transferchain.do_transfer(fileitem=fileitem)
+                    logger.info("【网盘整理】%s 加入整理列队", p)
 
         walk_cd2_dir(root)
         return cache_top_path, cache_file_id_list
@@ -352,6 +367,15 @@ class MonitorLife:
                             pantransfercacher.creata_pan_transfer_list.append(
                                 str(item["id"])
                             )
+                        # 缓存文件信息用于ffprobe命名补充
+                        if (
+                            str(item["id"])
+                            not in pantransfercacher.file_item_dict.keys()
+                        ):
+                            pantransfercacher.file_item_dict[str(item["id"])] = {
+                                "sha1": item["sha1"],
+                                "size": item["size"],
+                            }
                         # 判断此顶层目录MP是否能处理
                         if str(item["parent_id"]) != event["file_id"]:
                             cache_top_path = True
@@ -384,6 +408,21 @@ class MonitorLife:
                             pantransfercacher.creata_pan_transfer_list.append(
                                 str(item["id"])
                             )
+                        fileitem = FileItem(
+                            storage=configer.storage_module,
+                            fileid=str(item["id"]),
+                            parent_fileid=str(item["parent_id"]),
+                            path=file_path.as_posix(),
+                            type="file",
+                            name=file_path.name,
+                            basename=file_path.stem,
+                            extension=file_path.suffix[1:].lower(),
+                            size=item["size"],
+                            pickcode=item["pickcode"],
+                            modify_time=item["ctime"],
+                        )
+                        transferchain.do_transfer(fileitem=fileitem)
+                        logger.info(f"【网盘整理】{file_path} 加入整理列队")
 
             # 顶层目录MP无法处理时添加到缓存字典中
             if cache_top_path and cache_file_id_list:
@@ -411,6 +450,53 @@ class MonitorLife:
         else:
             # 文件情况，直接整理
             if file_path.suffix.lower() in rmt_mediaext:
+                _databasehelper.remove_by_id("file", event["file_id"])
+                # 缓存文件ID
+                if (
+                    str(event["file_id"])
+                    not in pantransfercacher.creata_pan_transfer_list
+                ):
+                    pantransfercacher.creata_pan_transfer_list.append(
+                        str(event["file_id"])
+                    )
+                # 缓存文件信息用于ffprobe命名补充
+                if str(event["file_id"]) not in pantransfercacher.file_item_dict.keys():
+                    pantransfercacher.file_item_dict[str(event["file_id"])] = {
+                        "sha1": event["sha1"],
+                        "size": event["file_size"],
+                    }
+                if configer.pan_transfer_clouddrive2_config.enabled:
+                    sleep(2)
+                    cd2_path = Path(
+                        configer.pan_transfer_clouddrive2_config.prefix
+                    ) / file_path.as_posix().lstrip("/")
+                    fileitem = resolve_file_via_parent_list(
+                        self.storagechain,
+                        "CloudDrive储存",
+                        cd2_path,
+                        log_label="【网盘整理】",
+                    )
+                    if not fileitem:
+                        return
+                else:
+                    fileitem = FileItem(
+                        storage=configer.storage_module,
+                        fileid=str(file_id),
+                        parent_fileid=str(event["parent_id"]),
+                        path=file_path.as_posix(),
+                        type="file",
+                        name=file_path.name,
+                        basename=file_path.stem,
+                        extension=file_path.suffix[1:].lower(),
+                        size=event["file_size"],
+                        pickcode=event["pick_code"],
+                        modify_time=event["update_time"],
+                    )
+                transferchain.do_transfer(fileitem=fileitem)
+                logger.info(f"【网盘整理】{file_path} 加入整理列队")
+            elif file_path.suffix.lower() in (
+                settings.RMT_AUDIOEXT + settings.RMT_SUBEXT
+            ):
                 _databasehelper.remove_by_id("file", event["file_id"])
                 # 缓存文件ID
                 if (
