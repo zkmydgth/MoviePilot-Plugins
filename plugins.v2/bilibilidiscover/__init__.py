@@ -145,7 +145,7 @@ class BilibiliDiscover(_PluginBase):
         """
         api_url = "https://api.bilibili.com/pgc/season/index/result"
         headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+            "User-Agent": settings.USER_AGENT,
             "Referer": "https://www.bilibili.com",
         }
         params = {
