@@ -6,6 +6,7 @@ from fastapi import Request, Response
 import requests
 from requests.exceptions import HTTPError
 from orjson import dumps, loads
+from cachetools import cached, TTLCache
 from .p115rsacipher import decrypt, encrypt
 
 from app import schemas
@@ -74,7 +75,7 @@ class P115StrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png"
     # 插件版本
-    plugin_version = "0.0.3"
+    plugin_version = "0.0.4"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -233,6 +234,7 @@ class P115StrmHelper(_PluginBase):
     def get_page(self) -> List[dict]:
         pass
 
+    @cached(cache=TTLCache(maxsize=1, ttl=2 * 60))
     def redirect_url(
         self,
         request: Request,
@@ -326,20 +328,26 @@ class P115StrmHelper(_PluginBase):
         监控目录整理生成 STRM 文件
         """
 
-        def generate_strm_files(target_dir, pan_media_dir, item_dest_path, basename, url):
+        def generate_strm_files(
+            target_dir: Path,
+            pan_media_dir: Path,
+            item_dest_path: Path,
+            basename: str,
+            url: str,
+        ):
             """
             依据网盘路径生成 STRM 文件
             """
-            pan_media_dir = str(Path(pan_media_dir))
-            pan_path = Path(item_dest_path).parent
-            pan_path = str(Path(pan_path))
-            if pan_path.startswith(pan_media_dir):
-                pan_path = pan_path[len(pan_media_dir) :].lstrip("/").lstrip("\\")
-            file_path = Path(target_dir) / pan_path
-            file_name = basename + ".strm"
-            new_file_path = file_path / file_name
-            new_file_path.parent.mkdir(parents=True, exist_ok=True)
             try:
+                pan_media_dir = str(Path(pan_media_dir))
+                pan_path = Path(item_dest_path).parent
+                pan_path = str(Path(pan_path))
+                if pan_path.startswith(pan_media_dir):
+                    pan_path = pan_path[len(pan_media_dir) :].lstrip("/").lstrip("\\")
+                file_path = Path(target_dir) / pan_path
+                file_name = basename + ".strm"
+                new_file_path = file_path / file_name
+                new_file_path.parent.mkdir(parents=True, exist_ok=True)
                 with open(new_file_path, "w", encoding="utf-8") as file:
                     file.write(url)
                 logger.info("生成 STRM 文件成功: %s", str(new_file_path))
@@ -404,14 +412,7 @@ class P115StrmHelper(_PluginBase):
         ):
             return
 
-        # self.eventmanager.send_event(
-        #     EventType.MetadataScrape,
-        #     {
-        #         "meta": item.meta,
-        #         "mediainfo": item.mediainfo,
-        #         "fileitem": item_transfer.target_diritem,
-        #     },
-        # )
+        # TODO 生成后调用主程序刮削
 
     def stop_service(self):
         """
