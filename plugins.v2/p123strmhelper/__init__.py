@@ -315,7 +315,7 @@ class P123StrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/DDS-Derek/MoviePilot-Plugins/main/icons/P123Disk.png"
     # 插件版本
-    plugin_version = "1.0.1"
+    plugin_version = "1.0.2"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -1530,12 +1530,7 @@ class P123StrmHelper(_PluginBase):
         """
         全量同步
         """
-        if (
-            not self._full_sync_strm_paths
-            or not self.moviepilot_address
-            or not self._user_download_mediaext
-            or not self._full_sync_auto_download_mediainfo_enabled
-        ):
+        if not self._full_sync_strm_paths or not self.moviepilot_address:
             return
 
         strm_helper = FullSyncStrmHelper(
@@ -1558,7 +1553,6 @@ class P123StrmHelper(_PluginBase):
             not self._user_share_pan_path
             or not self._user_share_local_path
             or not self.moviepilot_address
-            or not self._share_strm_auto_download_mediainfo_enabled
         ):
             return
 
