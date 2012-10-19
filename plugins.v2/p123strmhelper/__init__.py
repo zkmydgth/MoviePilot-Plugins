@@ -1,8 +1,6 @@
 import ast
 import sys
 import time
-from urllib.parse import quote
-from collections import deque
 from datetime import datetime, timedelta
 from typing import Any, List, Dict, Tuple, Optional
 from pathlib import Path
@@ -14,7 +12,7 @@ from fastapi import Request
 from fastapi.responses import JSONResponse, RedirectResponse
 import requests
 from cachetools import cached, TTLCache
-from p123 import P123Client, check_response
+from p123 import check_response
 
 from app.chain.storage import StorageChain
 from app.core.config import settings
@@ -27,240 +25,118 @@ from app.helper.mediaserver import MediaServerHelper
 from app.schemas.types import EventType
 from app.utils.system import SystemUtils
 
+from .tool import P123AutoClient, iterdir, share_iterdir
 
-class P123AutoClient:
+
+class MediaInfoDownloader:
     """
-    123云盘客户端
-    """
-
-    def __init__(self, passport, password):
-        self._client = None
-        self._passport = passport
-        self._password = password
-
-    def __getattr__(self, name):
-        if self._client is None:
-            self._client = P123Client(self._passport, self._password)
-
-        def wrapped(*args, **kwargs):
-            attr = getattr(self._client, name)
-            if not callable(attr):
-                return attr
-            result = attr(*args, **kwargs)
-            if (
-                isinstance(result, dict)
-                and result.get("code") == 401
-                and result.get("message") == "tokens number has exceeded the limit"
-            ):
-                self._client = P123Client(self._passport, self._password)
-                attr = getattr(self._client, name)
-                if not callable(attr):
-                    return attr
-                return attr(*args, **kwargs)
-            return result
-
-        return wrapped
-
-
-class P123OpenAutoClient:
-    """
-    123云盘开发者客户端
+    媒体信息文件下载器
     """
 
-    def __init__(self, client_id, client_secret):
-        self._client = None
-        self._token_expiry = 0
-        self._client_id = client_id
-        self._client_secret = client_secret
-        self._open_headers = {"Platform": "open_platform"}
+    def __init__(self, client: P123AutoClient):
+        self.client = client
 
     @staticmethod
-    def parse_expired_at(expired_at_str):
+    def is_file_leq_1k(file_path):
         """
-        格式化过期事件
+        判断文件是否小于 1KB
         """
-        dt = datetime.strptime(expired_at_str, "%Y-%m-%dT%H:%M:%S%z")
-        return dt.timestamp()
+        file = Path(file_path)
+        if not file.exists():
+            return True
+        return file.stat().st_size <= 1024
 
-    def refresh_token(self):
+    def get_download_url(
+        self,
+        item: Dict,
+    ):
         """
-        刷新 Token
+        获取下载链接
         """
-        payload = {
-            "clientID": self._client_id,
-            "clientSecret": self._client_secret,
-        }
-        resp = P123Client.open_access_token(payload, headers=self._open_headers)
+        resp = self.client.download_info(
+            item,
+            base_url="",
+            async_=False,
+            headers={"User-Agent": settings.USER_AGENT},
+        )
         check_response(resp)
-        token_data = resp.get("data", {})
-        self._client = P123Client(token=token_data.get("accessToken", ""))
-        self._token_expiry = self.parse_expired_at(token_data.get("expiredAt", ""))
+        return resp.get("data", {}).get("DownloadUrl", None)
 
-    def __getattr__(self, name):
-        if self._client is None:
-            self.refresh_token()
+    def save_mediainfo_file(self, file_path: Path, file_name: str, download_url: str):
+        """
+        保存媒体信息文件
+        """
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        with requests.get(
+            download_url,
+            stream=True,
+            timeout=30,
+            headers={
+                "User-Agent": settings.USER_AGENT,
+            },
+        ) as response:
+            response.raise_for_status()
+            with open(file_path, "wb") as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    f.write(chunk)
+        logger.info(f"【媒体信息文件下载】保存 {file_name} 文件成功: {file_path}")
 
-        def wrapped(*args, **kwargs):
-            if time.time() >= self._token_expiry:
-                self.refresh_token()
-            attr = getattr(self._client, name)
-            if not callable(attr):
-                return attr
-            if "headers" in kwargs:
-                kwargs["headers"].update(self._open_headers)
-            else:
-                kwargs["headers"] = self._open_headers
-            return attr(*args, **kwargs)
+    def downloader(
+        self,
+        item: Dict,
+        path: Path,
+    ):
+        """
+        下载用户网盘文件
+        """
+        download_url = self.get_download_url(item=item)
+        if not download_url:
+            logger.error(
+                f"【媒体信息文件下载】{path.name} 下载链接获取失败，无法下载该文件"
+            )
+            return
+        self.save_mediainfo_file(
+            file_path=path,
+            file_name=path.name,
+            download_url=download_url,
+        )
 
-        return wrapped
-
-
-def iterdir(
-    client: P123Client,
-    parent_id: int = 0,
-    interval: int | float = 0,
-    only_file: bool = False,
-):
-    """
-    遍历文件列表
-    广度优先搜索
-    return:
-        迭代器
-    Yields:
-        dict: 文件或目录信息（包含路径）
-    """
-    queue = deque()
-    queue.append((parent_id, ""))
-    while queue:
-        current_parent_id, current_path = queue.popleft()
-        page = 1
-        _next = 0
-        while True:
-            payload = {
-                "limit": 100,
-                "next": _next,
-                "Page": page,
-                "parentFileId": current_parent_id,
-                "inDirectSpace": "false",
-            }
-            if interval != 0:
-                time.sleep(interval)
-            resp = client.fs_list(payload)
-            check_response(resp)
-            item_list = resp.get("data").get("InfoList")
-            if not item_list:
-                break
-            for item in item_list:
-                is_dir = bool(item["Type"])
-                item_path = (
-                    f"{current_path}/{item['FileName']}"
-                    if current_path
-                    else item["FileName"]
-                )
-                if is_dir:
-                    queue.append((int(item["FileId"]), item_path))
-                if is_dir and only_file:
+    def auto_downloader(self, downloads_list: List):
+        """
+        根据列表自动下载
+        """
+        mediainfo_count: int = 0
+        mediainfo_fail_count: int = 0
+        mediainfo_fail_dict: List = []
+        try:
+            for item in downloads_list:
+                if not item:
                     continue
-                if is_dir:
-                    yield {
-                        **item,
-                        "relpath": item_path,
-                        "is_dir": is_dir,
-                        "id": int(item["FileId"]),
-                        "parent_id": int(current_parent_id),
-                        "name": item["FileName"],
-                    }
+                download_success = False
+                try:
+                    for _ in range(3):
+                        self.downloader(item=item[0], path=Path(item[1]))
+                        if not self.is_file_leq_1k(item[1]):
+                            mediainfo_count += 1
+                            download_success = True
+                            break
+                        logger.warn(
+                            f"【媒体信息文件下载】{item[1]} 下载该文件失败，自动重试"
+                        )
+                        time.sleep(1)
+                except Exception as e:
+                    logger.error(f"【媒体信息文件下载】 {item[1]} 出现未知错误: {e}")
+                if not download_success:
+                    mediainfo_fail_count += 1
+                    mediainfo_fail_dict.append(item[1])
                 else:
-                    yield {
-                        **item,
-                        "relpath": item_path,
-                        "is_dir": is_dir,
-                        "id": int(item["FileId"]),
-                        "parent_id": int(current_parent_id),
-                        "name": item["FileName"],
-                        "size": int(item["Size"]),
-                        "md5": item["Etag"],
-                        "uri": f"123://{quote(item['FileName'])}|{int(item['Size'])}|{item['Etag']}?{item['S3KeyFlag']}",
-                    }
-            if resp.get("data").get("Next") == "-1":
-                break
-            else:
-                page += 1
-                _next = resp.get("data").get("Next")
-
-
-def share_iterdir(
-    share_key: str,
-    share_pwd: str = "",
-    parent_id: int = 0,
-    interval: int | float = 0,
-    only_file: bool = False,
-):
-    """
-    遍历分享列表
-    广度优先搜索
-    return:
-        迭代器
-    Yields:
-        dict: 文件或目录信息（包含路径）
-    """
-    queue = deque()
-    queue.append((parent_id, ""))
-    while queue:
-        current_parent_id, current_path = queue.popleft()
-        page = 1
-        while True:
-            payload = {
-                "ShareKey": share_key,
-                "SharePwd": share_pwd,
-                "limit": 100,
-                "next": 0,
-                "Page": page,
-                "parentFileId": current_parent_id,
-            }
-            if interval != 0:
-                time.sleep(interval)
-            resp = P123Client.share_fs_list(payload)
-            check_response(resp)
-            item_list = resp.get("data").get("InfoList")
-            if not item_list:
-                break
-            for item in item_list:
-                is_dir = bool(item["Type"])
-                item_path = (
-                    f"{current_path}/{item['FileName']}"
-                    if current_path
-                    else item["FileName"]
-                )
-                if is_dir:
-                    queue.append((int(item["FileId"]), item_path))
-                if is_dir and only_file:
                     continue
-                if is_dir:
-                    yield {
-                        **item,
-                        "relpath": item_path,
-                        "is_dir": is_dir,
-                        "id": int(item["FileId"]),
-                        "parent_id": int(current_parent_id),
-                        "name": item["FileName"],
-                    }
-                else:
-                    yield {
-                        **item,
-                        "relpath": item_path,
-                        "is_dir": is_dir,
-                        "id": int(item["FileId"]),
-                        "parent_id": int(current_parent_id),
-                        "name": item["FileName"],
-                        "size": int(item["Size"]),
-                        "md5": item["Etag"],
-                        "uri": f"123://{quote(item['FileName'])}|{int(item['Size'])}|{item['Etag']}?{item['S3KeyFlag']}",
-                    }
-            if resp.get("data").get("Next") == "-1":
-                break
-            else:
-                page += 1
+                if mediainfo_count % 50 == 0:
+                    logger.info("【媒体信息文件下载】休眠 2s 后继续下载")
+                    time.sleep(2)
+        except Exception as e:
+            logger.error(f"【媒体信息文件下载】出现未知错误: {e}")
+        return mediainfo_count, mediainfo_fail_count, mediainfo_fail_dict
 
 
 class FullSyncStrmHelper:
@@ -274,7 +150,6 @@ class FullSyncStrmHelper:
         user_rmt_mediaext: str,
         user_download_mediaext: str,
         server_address: str,
-        storagechain,
         auto_download_mediainfo: bool = False,
     ):
         self.rmt_mediaext = [
@@ -288,8 +163,14 @@ class FullSyncStrmHelper:
         self.client = client
         self.strm_count = 0
         self.mediainfo_count = 0
+        self.strm_fail_count = 0
+        self.mediainfo_fail_count = 0
+        self.strm_fail_dict: Dict[str, str] = {}
+        self.mediainfo_fail_dict: List = None
         self.server_address = server_address.rstrip("/")
-        self._storagechain = storagechain
+        self._mediainfodownloader = MediaInfoDownloader(client=self.client)
+        self._storagechain = StorageChain()
+        self.download_mediainfo_list = []
 
     def generate_strm_files(self, full_sync_strm_paths):
         """
@@ -322,78 +203,73 @@ class FullSyncStrmHelper:
                         pan_media_dir
                     )
                     file_target_dir = file_path.parent
-                    original_file_name = file_path.name
                     file_name = file_path.stem + ".strm"
                     new_file_path = file_target_dir / file_name
 
-                    if self.auto_download_mediainfo:
-                        if file_path.suffix in self.download_mediaext:
-                            payload = {
-                                "Etag": item["Etag"],
-                                "FileID": int(item["FileId"]),
-                                "FileName": item["FileName"],
-                                "S3KeyFlag": item["S3KeyFlag"],
-                                "Size": int(item["Size"]),
-                            }
-                            resp = self.client.download_info(
-                                payload,
-                                base_url="",
-                                async_=False,
-                                headers={"User-Agent": settings.USER_AGENT},
-                            )
-                            check_response(resp)
-                            download_url = resp["data"]["DownloadUrl"]
-
-                            if not download_url:
-                                logger.error(
-                                    f"【全量STRM生成】{original_file_name} 下载链接获取失败，无法下载该文件"
+                    try:
+                        if self.auto_download_mediainfo:
+                            if file_path.suffix in self.download_mediaext:
+                                self.download_mediainfo_list.append(
+                                    [
+                                        {
+                                            "Etag": item["Etag"],
+                                            "FileID": int(item["FileId"]),
+                                            "FileName": item["FileName"],
+                                            "S3KeyFlag": item["S3KeyFlag"],
+                                            "Size": int(item["Size"]),
+                                        },
+                                        str(file_path),
+                                    ]
                                 )
                                 continue
 
-                            file_path.parent.mkdir(parents=True, exist_ok=True)
-
-                            with requests.get(
-                                download_url,
-                                stream=True,
-                                timeout=30,
-                                headers={
-                                    "User-Agent": settings.USER_AGENT,
-                                },
-                            ) as response:
-                                response.raise_for_status()
-                                with open(file_path, "wb") as f:
-                                    for chunk in response.iter_content(chunk_size=8192):
-                                        f.write(chunk)
-
-                            logger.info(
-                                f"【全量STRM生成】保存 {original_file_name} 文件成功: {file_path}"
+                        if file_path.suffix not in self.rmt_mediaext:
+                            logger.warn(
+                                "【全量STRM生成】跳过网盘路径: %s",
+                                str(file_path).replace(str(target_dir), "", 1),
                             )
-                            self.mediainfo_count += 1
                             continue
 
-                    if file_path.suffix not in self.rmt_mediaext:
-                        logger.warn(
-                            "【全量STRM生成】跳过网盘路径: %s",
-                            str(file_path).replace(str(target_dir), "", 1),
+                        new_file_path.parent.mkdir(parents=True, exist_ok=True)
+
+                        strm_url = f"{self.server_address}/api/v1/plugin/P123StrmHelper/redirect_url?apikey={settings.API_TOKEN}&name={item['FileName']}&size={item['Size']}&md5={item['Etag']}&s3_key_flag={item['S3KeyFlag']}"
+
+                        with open(new_file_path, "w", encoding="utf-8") as file:
+                            file.write(strm_url)
+                        self.strm_count += 1
+                        logger.info(
+                            "【全量STRM生成】生成 STRM 文件成功: %s", str(new_file_path)
                         )
+                    except Exception as e:
+                        logger.error(
+                            "【全量STRM生成】生成 STRM 文件失败: %s  %s",
+                            str(new_file_path),
+                            e,
+                        )
+                        self.strm_fail_count += 1
+                        self.strm_fail_dict[str(new_file_path)] = str(e)
                         continue
-
-                    new_file_path.parent.mkdir(parents=True, exist_ok=True)
-
-                    strm_url = f"{self.server_address}/api/v1/plugin/P123StrmHelper/redirect_url?apikey={settings.API_TOKEN}&name={item['FileName']}&size={item['Size']}&md5={item['Etag']}&s3_key_flag={item['S3KeyFlag']}"
-
-                    with open(new_file_path, "w", encoding="utf-8") as file:
-                        file.write(strm_url)
-                    self.strm_count += 1
-                    logger.info(
-                        "【全量STRM生成】生成 STRM 文件成功: %s", str(new_file_path)
-                    )
             except Exception as e:
                 logger.error(f"【全量STRM生成】全量生成 STRM 文件失败: {e}")
                 return False
+        self.mediainfo_count, self.mediainfo_fail_count, self.mediainfo_fail_dict = (
+            self._mediainfodownloader.auto_downloader(
+                downloads_list=self.download_mediainfo_list
+            )
+        )
+        if self.strm_fail_dict:
+            for path, error in self.strm_fail_dict.items():
+                logger.warn(f"【全量STRM生成】{path} 生成错误原因: {error}")
+        if self.mediainfo_fail_dict:
+            for path in self.mediainfo_fail_dict:
+                logger.warn(f"【全量STRM生成】{path} 下载错误")
         logger.info(
             f"【全量STRM生成】全量生成 STRM 文件完成，总共生成 {self.strm_count} 个 STRM 文件，下载 {self.mediainfo_count} 个媒体数据文件"
         )
+        if self.strm_fail_count != 0 or self.mediainfo_fail_count != 0:
+            logger.warn(
+                f"【全量STRM生成】{self.strm_fail_count} 个 STRM 文件生成失败，{self.mediainfo_fail_count} 个媒体数据文件下载失败"
+            )
         return True
 
 
@@ -546,7 +422,7 @@ class P123StrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/DDS-Derek/MoviePilot-Plugins/main/icons/P123Disk.png"
     # 插件版本
-    plugin_version = "1.0.4"
+    plugin_version = "1.0.5"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -559,8 +435,6 @@ class P123StrmHelper(_PluginBase):
     auth_level = 1
 
     # 私有属性
-    mediaserver_helper = None
-    _storagechain = None
     _client = None
     _scheduler = None
     _enabled = False
@@ -594,9 +468,6 @@ class P123StrmHelper(_PluginBase):
         """
         初始化插件
         """
-        self.mediaserver_helper = MediaServerHelper()
-        self._storagechain = StorageChain()
-
         if config:
             self._enabled = config.get("enabled")
             self._once_full_sync_strm = config.get("once_full_sync_strm")
@@ -696,11 +567,13 @@ class P123StrmHelper(_PluginBase):
         """
         服务信息
         """
+        _mediaserver_helper = MediaServerHelper()
+
         if not self._transfer_monitor_mediaservers:
             logger.warning("尚未配置媒体服务器，请检查配置")
             return None
 
-        services = self.mediaserver_helper.get_services(
+        services = _mediaserver_helper.get_services(
             name_filters=self._transfer_monitor_mediaservers
         )
         if not services:
@@ -781,6 +654,8 @@ class P123StrmHelper(_PluginBase):
         """
         拼装插件配置页面，需要返回两块数据：1、页面配置；2、数据结构
         """
+        _mediaserver_helper = MediaServerHelper()
+
         transfer_monitor_tab = [
             {
                 "component": "VRow",
@@ -825,7 +700,7 @@ class P123StrmHelper(_PluginBase):
                                     "label": "媒体服务器",
                                     "items": [
                                         {"title": config.name, "value": config.name}
-                                        for config in self.mediaserver_helper.get_configs().values()
+                                        for config in _mediaserver_helper.get_configs().values()
                                     ],
                                 },
                             }
@@ -1675,6 +1550,10 @@ class P123StrmHelper(_PluginBase):
         item_dest_info = ast.literal_eval(item_dest_pickcode)
         # 是否蓝光原盘
         item_bluray = SystemUtils.is_bluray_dir(Path(itemdir_dest_path))
+        # 目标字幕文件清单
+        subtitle_list = getattr(item_transfer, "subtitle_list_new", [])
+        # 目标音频文件清单
+        audio_list = getattr(item_transfer, "audio_list_new", [])
 
         __itemdir_dest_path, local_media_dir, pan_media_dir = self.__get_media_path(
             self._transfer_monitor_paths, itemdir_dest_path
@@ -1714,6 +1593,72 @@ class P123StrmHelper(_PluginBase):
         )
         if not status:
             return
+
+        try:
+            _storagechain = StorageChain()
+            _mediainfodownloader = MediaInfoDownloader(client=self._client)
+
+            if subtitle_list:
+                logger.info("【监控整理STRM生成】开始下载字幕文件")
+                for _path in subtitle_list:
+                    fileitem = _storagechain.get_file_item(
+                        storage="123云盘", path=Path(_path)
+                    )
+                    fileitem_info = ast.literal_eval(fileitem.pickcode)
+                    download_url = _mediainfodownloader.get_download_url(
+                        item={
+                            "Etag": fileitem_info["Etag"],
+                            "FileID": int(fileitem_info["FileId"]),
+                            "FileName": fileitem_info["FileName"],
+                            "S3KeyFlag": fileitem_info["S3KeyFlag"],
+                            "Size": int(fileitem_info["Size"]),
+                        }
+                    )
+                    if not download_url:
+                        logger.error(
+                            f"【监控整理STRM生成】{Path(_path).name} 下载链接获取失败，无法下载该文件"
+                        )
+                        continue
+                    _file_path = Path(local_media_dir) / Path(_path).relative_to(
+                        pan_media_dir
+                    )
+                    _mediainfodownloader.save_mediainfo_file(
+                        file_path=Path(_file_path),
+                        file_name=_file_path.name,
+                        download_url=download_url,
+                    )
+
+            if audio_list:
+                logger.info("【监控整理STRM生成】开始下载音频文件")
+                for _path in audio_list:
+                    fileitem = _storagechain.get_file_item(
+                        storage="123云盘", path=Path(_path)
+                    )
+                    fileitem_info = ast.literal_eval(fileitem.pickcode)
+                    download_url = _mediainfodownloader.get_download_url(
+                        item={
+                            "Etag": fileitem_info["Etag"],
+                            "FileID": int(fileitem_info["FileId"]),
+                            "FileName": fileitem_info["FileName"],
+                            "S3KeyFlag": fileitem_info["S3KeyFlag"],
+                            "Size": int(fileitem_info["Size"]),
+                        }
+                    )
+                    if not download_url:
+                        logger.error(
+                            f"【监控整理STRM生成】{Path(_path).name} 下载链接获取失败，无法下载该文件"
+                        )
+                        continue
+                    _file_path = Path(local_media_dir) / Path(_path).relative_to(
+                        pan_media_dir
+                    )
+                    _mediainfodownloader.save_mediainfo_file(
+                        file_path=Path(_file_path),
+                        file_name=_file_path.name,
+                        download_url=download_url,
+                    )
+        except Exception as e:
+            logger.error(f"【监控整理STRM生成】媒体信息文件下载出现未知错误: {e}")
 
         if self._transfer_monitor_media_server_refresh_enabled:
             if not self.service_infos:
@@ -1769,7 +1714,6 @@ class P123StrmHelper(_PluginBase):
             user_download_mediaext=self._user_download_mediaext,
             auto_download_mediainfo=self._full_sync_auto_download_mediainfo_enabled,
             client=self._client,
-            storagechain=self._storagechain,
             server_address=self.moviepilot_address,
         )
         strm_helper.generate_strm_files(
@@ -1844,7 +1788,8 @@ class P123StrmHelper(_PluginBase):
         """
         try:
             logger.info("【我的秒传清理】开始清理我的秒传")
-            fileitem = self._storagechain.get_file_item(
+            _storagechain = StorageChain()
+            fileitem = _storagechain.get_file_item(
                 storage="123云盘", path=Path("/我的秒传")
             )
             if not fileitem:
