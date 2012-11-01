@@ -884,7 +884,11 @@ class MonitorLife:
                 transfer_path=new_file_path,
             ):
                 # 旧路径在媒体目录时，判断是否删除本地 STRM 文件
-                if old_is_media and configer.monitor_life_enabled:
+                if (
+                    old_is_media
+                    and configer.monitor_life_enabled
+                    and configer.monitor_life_paths
+                ):
                     logger.info(
                         "【监控生活事件】媒体目录迁入待整理目录，先执行媒体侧清理（remove_local=%s）后进行网盘整理: %s",
                         configer.monitor_life_move_media_to_transfer_remove_local_strm,
@@ -894,7 +898,7 @@ class MonitorLife:
                         event=event,
                         remove_local=configer.monitor_life_move_media_to_transfer_remove_local_strm,
                     )
-                elif configer.monitor_life_enabled:
+                elif configer.monitor_life_enabled and configer.monitor_life_paths:
                     logger.info(
                         "【监控生活事件】非媒体目录迁入待整理目录，直接执行网盘整理: %s",
                         new_file_path,
@@ -907,7 +911,7 @@ class MonitorLife:
                 )
                 return
 
-        if not configer.monitor_life_enabled:
+        if not configer.monitor_life_enabled or not configer.monitor_life_paths:
             return
 
         if not old_file_path or not old_is_media:
