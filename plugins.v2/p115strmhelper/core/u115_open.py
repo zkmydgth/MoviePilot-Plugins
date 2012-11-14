@@ -7,7 +7,18 @@ from pathlib import Path
 from shutil import rmtree
 from threading import Lock
 from time import sleep, time, perf_counter
-from typing import Optional, Union, Literal, List, Tuple, Dict, Set, Any, Iterator
+from typing import (
+    Optional,
+    Union,
+    Literal,
+    List,
+    Tuple,
+    Dict,
+    Set,
+    Any,
+    Iterator,
+    Iterable,
+)
 
 import oss2
 import httpx
@@ -1060,6 +1071,26 @@ class U115OpenHelper:
         if resp.get("state"):
             return True
         return False
+
+    def recyclebin_clean(self, payload: int | str | Iterable[int | str] | dict = "", /):
+        """
+        清理回收站
+
+        .. note::
+            只要不指定 `tid`，就会清空回收站
+
+        :payload:
+            - tid: int | str = "" 💡 多个用逗号 "," 隔开
+        """
+        if isinstance(payload, (int, str)):
+            payload = {"tid": payload}
+        elif not isinstance(payload, dict):
+            payload = {"tid": ",".join(map(str, payload))}
+        return self._request_api(
+            "POST",
+            "/open/rb/del",
+            data=payload,
+        )
 
     def iter_files_with_path_simple(
         self,
