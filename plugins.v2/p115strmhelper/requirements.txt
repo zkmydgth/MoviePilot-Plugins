@@ -3,3 +3,4 @@ p115client==0.0.5.17.5
 p115rsacipher==0.0.1
 nullbr~=1.0.1
 sentry-sdk~=2.34.1
+py-machineid~=0.8.0

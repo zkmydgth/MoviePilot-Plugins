@@ -134,7 +134,8 @@ class P115StrmHelper(_PluginBase):
             if servicer.init_service():
                 self.api = Api(client=servicer.client)
 
-            U115Patcher().enable()
+            if configer.get_config("upload_module_enhancement"):
+                U115Patcher().enable()
 
             # 目录上传监控服务
             servicer.start_directory_upload()
@@ -262,6 +263,13 @@ class P115StrmHelper(_PluginBase):
                 "methods": ["GET"],
                 "auth": "bear",
                 "summary": "获取配置",
+            },
+            {
+                "path": "/get_machine_id",
+                "endpoint": self.api.get_machine_id_api,
+                "methods": ["GET"],
+                "auth": "bear",
+                "summary": "获取 Machine ID",
             },
             {
                 "path": "/save_config",
