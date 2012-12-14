@@ -216,7 +216,7 @@ class TgSearcher:
                 [
                     i
                     for i in self.get_channel(url, channel_id)
-                    if key in i.get("title", "") or key in i.get("content", "")
+                    if key in i.get("title", "")
                 ]
             )
 
