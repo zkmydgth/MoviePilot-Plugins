@@ -36,7 +36,7 @@ class StrmHelper:
 
     def generate_strm_files_db(self, parent_id, target_dir, server_address, database="strm_db.sqlite"):
         """
-        生成 STRM 文件并存储信息到 SQLite 数据库
+        依据数据库生成 STRM 文件并存储信息到 SQLite 数据库
         """
 
         if parent_id != 0:
@@ -83,15 +83,10 @@ class StrmHelper:
         conn.commit()
         conn.close()
 
-    def generate_strm_files(self, parent_id: int, target_dir, server_address, database="strm_db.sqlite"):
+    def generate_strm_files(self, pan_path, target_dir, server_address, database="strm_db.sqlite"):
         """
-        生成 STRM 文件并存储信息到 SQLite 数据库
+        依据网盘路径生成 STRM 文件并存储信息到 SQLite 数据库
         """
-
-        if parent_id != 0:
-            removal_path = get_path(self.connection, parent_id)
-        else:
-            removal_path = ''
 
         target_dir = target_dir.rstrip("/")
         server_address = server_address.rstrip("/")
@@ -103,16 +98,14 @@ class StrmHelper:
                         (file_path TEXT, content TEXT)''')
         conn.commit()
 
-        attr = self.client.fs.attr(parent_id)
-        file_path = attr['path']
-        file_path = os.path.join(f"{target_dir}{file_path.replace(removal_path, '', 1)}")
+        file_path = os.path.join(f"{target_dir}{pan_path}")
         file_target_dir = os.path.dirname(file_path)
         original_file_name = os.path.basename(file_path)
         file_name = os.path.splitext(original_file_name)[0] + ".strm"
         new_file_path = os.path.join(file_target_dir, file_name)
 
         if os.path.splitext(original_file_name)[1] not in self.rmt_mediaext:
-            logger.warn("跳过网盘路径： %s", file_path.replace(target_dir, '', 1))
+            logger.warn("跳过网盘路径： %s", pan_path)
             return
 
         cursor.execute("SELECT 1 FROM strm_files WHERE file_path=?", (new_file_path,))
@@ -120,7 +113,7 @@ class StrmHelper:
             logger.warn("跳过 %s", new_file_path)
             return
 
-        pickcode = attr['pick_code']
+        pickcode = self.client.fs.attr(pan_path)['pick_code']
         os.makedirs(os.path.dirname(new_file_path), exist_ok=True)
 
         content = f"{server_address}/{pickcode}/{original_file_name}"
