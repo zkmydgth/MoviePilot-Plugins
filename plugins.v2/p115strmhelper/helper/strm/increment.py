@@ -537,7 +537,9 @@ class IncrementSyncStrmHelper:
                         mp_mediaserver=self.mp_mediaserver_paths,
                         mediaservers=self.mediaservers,
                     )
-                    helper.get_mediainfo(sha1, Path(local_path))
+                    helper.get_mediainfo(
+                        sha1, Path(local_path), size=self.__get_size(pan_path)
+                    )
                 except Exception as e:
                     logger.error(f"【增量STRM生成】提取媒体信息失败: {e}")
 

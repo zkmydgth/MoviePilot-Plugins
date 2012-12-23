@@ -244,7 +244,9 @@ class TransferStrmHelper:
                         mp_mediaserver=configer.transfer_mp_mediaserver_paths,
                         mediaservers=configer.transfer_monitor_mediaservers,
                     )
-                    helper.get_mediainfo(item["sha1"], Path(strm_target_path))
+                    helper.get_mediainfo(
+                        item["sha1"], Path(strm_target_path), size=item["size"]
+                    )
                 except Exception as e:
                     logger.error(f"【监控整理STRM生成】提取媒体信息失败: {e}")
 

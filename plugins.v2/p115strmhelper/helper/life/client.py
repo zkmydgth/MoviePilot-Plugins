@@ -516,7 +516,9 @@ class MonitorLife:
                                         mediaservers=configer.monitor_life_mediaservers,
                                     )
                                     helper.get_mediainfo(
-                                        item["sha1"], Path(new_file_path)
+                                        item["sha1"],
+                                        Path(new_file_path),
+                                        size=item["size"],
                                     )
                                 except Exception as e:
                                     logger.error(
@@ -679,7 +681,11 @@ class MonitorLife:
                                 mp_mediaserver=configer.monitor_life_mp_mediaserver_paths,
                                 mediaservers=configer.monitor_life_mediaservers,
                             )
-                            helper.get_mediainfo(event["sha1"], Path(new_file_path))
+                            helper.get_mediainfo(
+                                event["sha1"],
+                                Path(new_file_path),
+                                size=event["file_size"],
+                            )
                         except Exception as e:
                             logger.error(f"【监控生活事件】提取媒体信息失败: {e}")
 
