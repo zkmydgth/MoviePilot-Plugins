@@ -162,3 +162,32 @@ class OOPServerHelper:
                 feature_name=name,
                 enabled=False,
             )
+
+    @staticmethod
+    def get_authorization_status() -> Optional[Dict[str, Any]]:
+        """
+        获取机器授权状态
+
+        返回数据包含：
+        - machine_id: 机器ID
+        - is_authorized: 是否授权
+        - authorization_expiration: 授权过期时间（UTC时区）
+        - is_permanent: 是否永久授权
+        - authorization_source: 授权来源
+        - authorized_by: 授权者
+        - telegram_id: Telegram ID
+        """
+        try:
+            oopserver = OOPServerRequest()
+            machine_id = configer.get_config("MACHINE_ID")
+            resp = oopserver.make_request(
+                path="/machine/authorization/status",
+                method="GET",
+                headers={"x-machine-id": machine_id},
+                timeout=10.0,
+            )
+            if resp is not None and resp.status_code == 200:
+                return resp.json()
+            return None
+        except Exception:
+            return None

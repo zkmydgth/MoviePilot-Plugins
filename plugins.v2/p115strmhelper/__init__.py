@@ -440,6 +440,20 @@ class P115StrmHelper(_PluginBase):
                 "summary": "判断是否有权限使用此增强功能",
             },
             {
+                "path": "/get_authorization_status",
+                "endpoint": self.api.get_authorization_status_api,
+                "methods": ["GET"],
+                "auth": "bear",
+                "summary": "获取机器授权状态",
+            },
+            {
+                "path": "/get_donate_info",
+                "endpoint": self.api.get_donate_info_api,
+                "methods": ["GET"],
+                "auth": "bear",
+                "summary": "获取捐赠信息",
+            },
+            {
                 "path": "/check_life_event_status",
                 "endpoint": self.api.check_life_event_status_api,
                 "methods": ["POST"],

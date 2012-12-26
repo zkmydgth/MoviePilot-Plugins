@@ -17,6 +17,7 @@ from fastapi.responses import JSONResponse
 
 from .service import servicer
 from .core.config import configer
+from .schemas.donate import DEFAULT_DONATE_INFO as DONATE_INFO
 from .core.cache import idpathcacher, DirectoryCache
 from .core.aliyunpan import AliyunPanLogin
 from .core.p115 import get_pid_by_path, get_pickcode_by_path
@@ -1065,6 +1066,29 @@ class Api:
         判断是否有权限使用此增强功能
         """
         return OOPServerHelper.check_feature(name)
+
+    @staticmethod
+    def get_authorization_status_api() -> ApiResponse:
+        """
+        获取机器授权状态
+        """
+        try:
+            status = OOPServerHelper.get_authorization_status()
+            if status:
+                return ApiResponse(code=0, msg="获取授权状态成功", data=status)
+            return ApiResponse(code=1, msg="获取授权状态失败")
+        except Exception as e:
+            return ApiResponse(code=-1, msg=f"获取授权状态失败: {str(e)}")
+
+    @staticmethod
+    def get_donate_info_api() -> ApiResponse:
+        """
+        获取捐赠信息（微信、支付宝二维码和红包口令）
+        """
+        try:
+            return ApiResponse(code=0, msg="获取捐赠信息成功", data=DONATE_INFO)
+        except Exception as e:
+            return ApiResponse(code=-1, msg=f"获取捐赠信息失败: {str(e)}")
 
     @staticmethod
     def check_life_event_status_api() -> ApiResponse:
