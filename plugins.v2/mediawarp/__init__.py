@@ -28,7 +28,7 @@ class MediaWarp(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/refs/heads/main/icons/cloud.png"
     # 插件版本
-    plugin_version = "1.0.4"
+    plugin_version = "1.0.5"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -76,7 +76,7 @@ class MediaWarp(_PluginBase):
         # 配置文件名
         self.__config_filename = "config.yaml"
         # 二级制文件版本
-        self.__mediawarp_version = "0.1.9"
+        self.__mediawarp_version = "0.1.11"
         self.__mediawarp_version_path = (
             settings.PLUGIN_DATA_PATH / class_name / "version.txt"
         )
