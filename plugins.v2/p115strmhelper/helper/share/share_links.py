@@ -162,7 +162,7 @@ class ShareLinkResolver:
     """
 
     @staticmethod
-    def extract_share_url_from_text(text: str) -> Optional[str]:
+    def extract_share_url_from_text(text: Optional[str]) -> Optional[str]:
         """
         从整段消息文本中提取第一条可用的 115 或阿里云分享链接
 
@@ -186,7 +186,7 @@ class ShareLinkResolver:
         return None
 
     @staticmethod
-    def extract_u115_share_url_from_text(text: str) -> Optional[str]:
+    def extract_u115_share_url_from_text(text: Optional[str]) -> Optional[str]:
         """
         从整段消息文本中提取第一条 115 分享链接（不接受阿里云盘）
 
