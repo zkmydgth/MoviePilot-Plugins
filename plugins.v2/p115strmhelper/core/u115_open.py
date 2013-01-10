@@ -768,7 +768,7 @@ class U115OpenHelper:
             )
             if not resp:
                 return None
-            return schemas.FileItem(
+            file_item = schemas.FileItem(
                 storage="u115",
                 fileid=str(resp["file_id"]),
                 path=path.as_posix() + ("/" if resp["file_category"] == "0" else ""),
@@ -782,6 +782,10 @@ class U115OpenHelper:
                 size=resp["size_byte"] if resp["file_category"] == "1" else None,
                 modify_time=resp["utime"],
             )
+            self.databasehelper.upsert_batch(
+                self.databasehelper.process_fileitem(file_item)
+            )
+            return file_item
         except Exception as e:
             logger.debug(f"【P115Open】OpenAPI 获取文件信息失败: {str(e)}")
             return None
@@ -797,7 +801,7 @@ class U115OpenHelper:
                 return None
             if data:
                 if data.get("id", None):
-                    file_item = schemas.FileItem(
+                    return schemas.FileItem(
                         storage="u115",
                         fileid=str(data.get("id")),
                         path=path.as_posix()
@@ -812,10 +816,6 @@ class U115OpenHelper:
                         size=data.get("size") if data.get("type") == "file" else None,
                         modify_time=data.get("mtime", 0),
                     )
-                    self.databasehelper.upsert_batch(
-                        self.databasehelper.process_fileitem(file_item)
-                    )
-                    return file_item
             return None
         except Exception as e:
             logger.debug(f"【P115Open】DataBase 获取文件信息失败: {str(e)}")
@@ -891,24 +891,6 @@ class U115OpenHelper:
         """
         获取指定路径的文件夹，如不存在则创建
         """
-        try:
-            file_item = self.databasehelper.get_by_path(path=str(path))
-            if file_item:
-                return schemas.FileItem(
-                    storage="u115",
-                    fileid=str(file_item.get("id")),
-                    path=path.as_posix() + "/",
-                    type="dir",
-                    name=file_item.get("name"),
-                    basename=Path(file_item.get("name")).stem,
-                    extension=None,
-                    pickcode=file_item.get("pickcode", ""),
-                    size=None,
-                    modify_time=file_item.get("mtime", 0),
-                )
-        except MultipleResultsFound:
-            pass
-
         folder = self.get_item(path)
         if folder:
             return folder

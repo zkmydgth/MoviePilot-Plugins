@@ -127,7 +127,7 @@ class U115Patcher:
         for key, status in cls._func_active.items():
             if status:
                 if cls._original_method[key] is not None:
-                    U115Pan.upload = cls._original_method[key]
+                    setattr(U115Pan, key, cls._original_method[key])
 
             cls._func_active[key] = False
             logger.info(f"【P115Open】{cls.log_map[key]}接口恢复原始状态成功")
