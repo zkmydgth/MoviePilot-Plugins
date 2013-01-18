@@ -20,9 +20,9 @@ class FFprobeNamingSupplement(_PluginBase):
     """
 
     plugin_name = "ffprobe命名补充"
-    plugin_desc = "整理重命名时调用 ffprobe，补全命名模板中的 videoFormat、videoCodec、audioCodec、fps，支持 STRM "
+    plugin_desc = "整理重命名时调用 ffprobe，补全命名模板中的 videoFormat、videoCodec、audioCodec、fps、effect，支持 STRM "
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/refs/heads/main/icons/ffmpeg.png"
-    plugin_version = "0.0.1"
+    plugin_version = "0.0.2"
     plugin_author = "DDSRem"
     author_url = "https://github.com/DDSRem"
     plugin_config_prefix = "ffprobenamingsupplement_"
@@ -112,6 +112,8 @@ class FFprobeNamingSupplement(_PluginBase):
         (height, f"{height}p") for height, _ in _HEIGHT_SNAP_TIERS
     )
 
+    _DV_CODEC_TAGS = frozenset({"dvh1", "dvhe", "dva1", "dvav"})
+
     _probe_cache = TTLCache(region="ffprobe_naming", maxsize=2048, ttl=3600)
 
     def __init__(self) -> None:
@@ -163,7 +165,7 @@ class FFprobeNamingSupplement(_PluginBase):
         cls = type(self)
         overwrite_items = [
             {"title": "仅补全缺失或空值", "value": cls._OVERWRITE_FILL_MISSING},
-            {"title": "始终用 ffprobe 覆盖四键", "value": cls._OVERWRITE_ALWAYS},
+            {"title": "始终用 ffprobe 覆盖上述键", "value": cls._OVERWRITE_ALWAYS},
         ]
         return [
             {
@@ -196,7 +198,7 @@ class FFprobeNamingSupplement(_PluginBase):
                                             "label": "写入策略",
                                             "items": overwrite_items,
                                             "hint": (
-                                                "针对 videoFormat、videoCodec、audioCodec、fps 四键："
+                                                "针对 videoFormat、videoCodec、audioCodec、fps、effect："
                                                 "仅补全＝缺或空才写入；始终覆盖＝以 ffprobe 为准覆盖"
                                             ),
                                             "persistent-hint": True,
@@ -261,6 +263,16 @@ class FFprobeNamingSupplement(_PluginBase):
                                                     "class": "text-body-2 mt-1",
                                                 },
                                                 "text": "{{fps}} — 帧率（如 24、23.976）",
+                                            },
+                                            {
+                                                "component": "div",
+                                                "props": {
+                                                    "class": "text-body-2 mt-1",
+                                                },
+                                                "text": (
+                                                    "{{effect}} — 动态范围/特效标签（如 DoVi、HDR10、HDR10+、HLG、SDR，"
+                                                    "与系统模板变量同名）"
+                                                ),
                                             },
                                         ],
                                     },
@@ -374,6 +386,67 @@ class FFprobeNamingSupplement(_PluginBase):
         return cls._AUDIO_CODEC_MAP.get(key, codec_name.upper())
 
     @classmethod
+    def _video_stream_hdr_flags(cls, video_s: Dict[str, Any]) -> Tuple[bool, bool]:
+        """
+        从视频流 side_data 与 codec_tag 判断是否含 Dolby Vision / HDR10+ 元数据
+
+        :param video_s: ffprobe 单路视频流 dict
+        :return: (has_dovi, has_hdr10plus)
+        """
+        has_dovi = False
+        has_hdr10plus = False
+        tag = (video_s.get("codec_tag_string") or "").strip().lower()
+        if tag in cls._DV_CODEC_TAGS:
+            has_dovi = True
+        side_list = video_s.get("side_data_list")
+        if not isinstance(side_list, list):
+            return has_dovi, has_hdr10plus
+        for item in side_list:
+            if not isinstance(item, dict):
+                continue
+            sdt = (item.get("side_data_type") or "").lower()
+            if "dovi" in sdt or "dolby vision" in sdt:
+                has_dovi = True
+            if "smpte2094-40" in sdt or "2094-40" in sdt:
+                has_hdr10plus = True
+            if "hdr10+" in sdt and "dynamic" in sdt:
+                has_hdr10plus = True
+        return has_dovi, has_hdr10plus
+
+    @classmethod
+    def _infer_effect_from_video_stream(cls, video_s: Dict[str, Any]) -> Optional[str]:
+        """
+        根据 ffprobe 色彩与 side_data 推断与 MoviePilot 模板变量 effect 对应的标签
+
+        输出与常见资源命名接近的短标签，多个以空格连接（如 DoVi、HDR10+）
+
+        :param video_s: ffprobe 单路视频流 dict
+        :return: 供 rename_dict["effect"] 使用的字符串，无法判断则 None
+        """
+        has_dovi, has_hdr10plus = cls._video_stream_hdr_flags(video_s)
+        ct = (video_s.get("color_transfer") or "").lower().strip()
+        cp = (video_s.get("color_primaries") or "").lower().strip()
+
+        tokens: List[str] = []
+        if has_dovi:
+            tokens.append("DoVi")
+        if has_hdr10plus:
+            tokens.append("HDR10+")
+        if not has_dovi and not has_hdr10plus:
+            if ct == "smpte2084":
+                tokens.append("HDR10")
+            elif "arib-std-b67" in ct:
+                tokens.append("HLG")
+
+        if not tokens:
+            if ct == "bt709" and (not cp or cp == "bt709"):
+                tokens.append("SDR")
+
+        if not tokens:
+            return None
+        return " ".join(tokens)
+
+    @classmethod
     def _pick_video_audio_streams(
         cls, streams: List[Dict[str, Any]]
     ) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
@@ -394,7 +467,7 @@ class FFprobeNamingSupplement(_PluginBase):
     @classmethod
     def _probe_to_rename_fields(cls, probe_json: Dict[str, Any]) -> Dict[str, str]:
         """
-        从 ffprobe JSON 提取写入 rename_dict 的四键
+        从 ffprobe JSON 提取写入 rename_dict 的命名模板字段
         """
         out: Dict[str, str] = {}
         streams = probe_json.get("streams")
@@ -418,6 +491,9 @@ class FFprobeNamingSupplement(_PluginBase):
             ) or cls._parse_frame_rate(video_s.get("r_frame_rate"))
             if fps:
                 out["fps"] = fps
+            eff = cls._infer_effect_from_video_stream(video_s)
+            if eff:
+                out["effect"] = eff
         if audio_s:
             ac = cls._map_audio_codec(audio_s.get("codec_name"))
             if ac:
