@@ -5,6 +5,7 @@ import base64
 import re
 import traceback
 from threading import Event as ThreadEvent, Timer
+from queue import Queue, Empty
 from collections import defaultdict
 from collections.abc import Mapping
 from datetime import datetime, timedelta
@@ -1521,7 +1522,7 @@ class P115StrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png"
     # 插件版本
-    plugin_version = "1.8.9"
+    plugin_version = "1.8.10"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -1562,6 +1563,11 @@ class P115StrmHelper(_PluginBase):
 
     # 任务客户端
     _scheduler = None
+
+    # 分享转存队列
+    _add_share_queue = None
+    _add_share_worker_thread = None
+    _add_share_worker_lock = None
 
     # 退出事件
     _event = ThreadEvent()
@@ -1709,6 +1715,10 @@ class P115StrmHelper(_PluginBase):
         self._monitor_life_notification_timer = None
 
         self._observer: List = []
+
+        self._add_share_queue = Queue()
+        self._add_share_worker_thread = None
+        self._add_share_worker_lock = threading.Lock()
 
         if config:
             default_config_keys = self.__default_config.keys()
@@ -3065,7 +3075,47 @@ class P115StrmHelper(_PluginBase):
             text=text,
         )
 
-    def add_share(self, url, channel, userid):
+    def _ensure_add_share_worker_running(self):
+        """
+        确保工作线程正在运行
+        """
+        with self._add_share_worker_lock:
+            if (
+                self._add_share_worker_thread is None
+                or not self._add_share_worker_thread.is_alive()
+            ):
+                self._add_share_worker_thread = threading.Thread(
+                    target=self._process_add_share_queue, daemon=True
+                )
+                self._add_share_worker_thread.start()
+
+    def _process_add_share_queue(self):
+        """
+        处理队列中的任务
+        """
+        while True:
+            try:
+                # 获取任务，设置超时避免永久阻塞
+                task = self._add_share_queue.get(timeout=60)  # 60秒无任务则退出
+                url, channel, userid = task
+
+                # 执行任务
+                self.__add_share(url, channel, userid)
+
+                # 任务间隔
+                time.sleep(3)
+
+                # 标记任务完成
+                self._add_share_queue.task_done()
+
+            except Empty:
+                logger.debug("【分享转存】释放分享转存队列进程")
+                break
+            except Exception as e:
+                logger.error(f"【分享转存】任务处理异常: {e}")
+                time.sleep(5)
+
+    def __add_share(self, url, channel, userid):
         """
         分享转存
         """
@@ -3131,6 +3181,16 @@ class P115StrmHelper(_PluginBase):
         except Exception as e:
             logger.error(f"【分享转存】运行失败: {e}")
             return
+
+    def add_share(self, url, channel, userid):
+        """
+        将分享任务加入队列
+        """
+        self._add_share_queue.put((url, channel, userid))
+        logger.info(
+            f"【分享转存】{url} 任务已加入分享转存队列，当前队列大小：{self._add_share_queue.qsize()}"
+        )
+        self._ensure_add_share_worker_running()
 
     @eventmanager.register(EventType.UserMessage)
     def user_add_share(self, event: Event):
