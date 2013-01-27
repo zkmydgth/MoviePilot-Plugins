@@ -474,7 +474,7 @@ class P115StrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png"
     # 插件版本
-    plugin_version = "1.4.4"
+    plugin_version = "1.4.5"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -632,7 +632,6 @@ class P115StrmHelper(_PluginBase):
         if (
             self._monitor_life_enabled
             and self._monitor_life_paths
-            and self._monitor_life_auto_download_mediainfo_enabled
         ):
             self.monitor_stop_event.clear()
             if self.monitor_life_thread:
@@ -1988,7 +1987,6 @@ class P115StrmHelper(_PluginBase):
             not self._full_sync_strm_paths
             or not self.moviepilot_address
             or not self._user_download_mediaext
-            or not self._full_sync_auto_download_mediainfo_enabled
         ):
             return
 
@@ -2012,7 +2010,6 @@ class P115StrmHelper(_PluginBase):
             not self._user_share_pan_path
             or not self._user_share_local_path
             or not self.moviepilot_address
-            or not self._share_strm_auto_download_mediainfo_enabled
         ):
             return
 
