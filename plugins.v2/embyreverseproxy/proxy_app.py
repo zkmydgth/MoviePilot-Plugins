@@ -417,7 +417,7 @@ def create_app(emby_host: str) -> FastAPI:
                         body[key] = str(body[key]).replace(
                             str(origin_port), str(current_port)
                         )
-        excluded = HOP_BY_HOP_HEADERS | {"content-length"}
+        excluded = HOP_BY_HOP_HEADERS | {"content-length", "content-encoding"}
         resp_headers = {
             k: v for k, v in resp.headers.multi_items() if k.lower() not in excluded
         }
