@@ -3,7 +3,7 @@ import platform
 from typing import Dict, Any, Optional, List, Union
 from pathlib import Path
 
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, ValidationError, Field
 
 from app.log import logger
 from app.core.config import settings
@@ -14,40 +14,73 @@ from ..core.aliyunpan import AliyunPanLogin
 from ..utils.machineid import MachineID
 
 
-class BaseConfig(BaseModel):
+class ConfigManager(BaseModel):
     """
-    基础配置
+    插件配置管理器
     """
+
+    @staticmethod
+    def _get_default_plugin_config_path() -> Path:
+        """
+        返回默认的插件配置目录路径
+        """
+        return settings.PLUGIN_DATA_PATH / "p115strmhelper"
+
+    @staticmethod
+    def _get_default_plugin_db_path() -> Path:
+        """
+        返回默认的插件数据库文件路径
+        """
+        return (
+            ConfigManager._get_default_plugin_config_path() / "p115strmhelper_file.db"
+        )
+
+    @staticmethod
+    def _get_default_plugin_database_path() -> Path:
+        """
+        返回默认的插件数据库结构目录路径
+        """
+        return settings.ROOT_PATH / "app/plugins/p115strmhelper/database"
+
+    @staticmethod
+    def _get_default_plugin_temp_path() -> Path:
+        """
+        返回默认的插件临时目录路径
+        """
+        return ConfigManager._get_default_plugin_config_path() / "temp"
 
     class Config:
         extra = "ignore"
+        arbitrary_types_allowed = True
+        validate_assignment = True
+        json_encoders = {Path: str}
 
     # 插件名称
-    PLUSIN_NAME: str = "P115StrmHelper"
+    PLUSIN_NAME: str = Field("P115StrmHelper", min_length=1)
     # 是否开启数据库WAL模式
     DB_WAL_ENABLE: bool = True
     # 插件配置目录
-    PLUGIN_CONFIG_PATH: str = str(settings.PLUGIN_DATA_PATH / PLUSIN_NAME.lower())
+    PLUGIN_CONFIG_PATH: Path = Field(default_factory=_get_default_plugin_config_path)
     # 插件数据库目录
-    PLUGIN_DB_PATH: str = str(Path(PLUGIN_CONFIG_PATH) / "p115strmhelper_file.db")
+    PLUGIN_DB_PATH: Path = Field(default_factory=_get_default_plugin_db_path)
     # 插件数据库表目录
-    PLUGIN_DATABASE_PATH: str = str(
-        settings.ROOT_PATH / "app/plugins" / PLUSIN_NAME.lower() / "database"
+    PLUGIN_DATABASE_PATH: Path = Field(
+        default_factory=_get_default_plugin_database_path
     )
     # 插件临时目录
-    PLUGIN_TEMP_PATH: str = str(Path(PLUGIN_CONFIG_PATH) / "temp")
+    PLUGIN_TEMP_PATH: Path = Field(default_factory=_get_default_plugin_temp_path)
 
     # 插件语言
-    language: str = "zh_CN"
+    language: str = Field("zh_CN", min_length=1)
 
     # 插件总开关
     enabled: bool = False
     # 通知开关
     notify: bool = False
     # 生成 STRM URL 格式
-    strm_url_format: str = "pickcode"
+    strm_url_format: str = Field("pickcode", min_length=1)
     # 302 跳转方式
-    link_redirect_mode: str = "cookie"
+    link_redirect_mode: str = Field("cookie", min_length=1)
     # 115 Cookie
     cookies: Optional[str] = None
     # 阿里云盘 Token
@@ -55,13 +88,14 @@ class BaseConfig(BaseModel):
     # 115 安全码
     password: Optional[str] = None
     # MoviePilot 地址
-    moviepilot_address: Optional[str] = None
+    moviepilot_address: Optional[str] = Field(None, min_length=1)
     # 可识别媒体后缀
-    user_rmt_mediaext: str = (
-        "mp4,mkv,ts,iso,rmvb,avi,mov,mpeg,mpg,wmv,3gp,asf,m4v,flv,m2ts,tp,f4v"
+    user_rmt_mediaext: str = Field(
+        "mp4,mkv,ts,iso,rmvb,avi,mov,mpeg,mpg,wmv,3gp,asf,m4v,flv,m2ts,tp,f4v",
+        min_length=1,
     )
     # 可识别下载后缀
-    user_download_mediaext: str = "srt,ssa,ass"
+    user_download_mediaext: str = Field("srt,ssa,ass", min_length=1)
 
     # 整理事件监控开关
     transfer_monitor_enabled: bool = False
@@ -87,7 +121,7 @@ class BaseConfig(BaseModel):
     # 下载媒体信息文件开关
     full_sync_auto_download_mediainfo_enabled: bool = False
     # 定期全量同步周期
-    cron_full_sync_strm: str = "0 */7 * * *"
+    cron_full_sync_strm: Optional[str] = None
     # 全量同步路径
     full_sync_strm_paths: Optional[str] = None
     # 全量生成输出详细日志
@@ -97,14 +131,14 @@ class BaseConfig(BaseModel):
     # 全量同步文件处理线程数
     full_sync_process_num: Union[int, str] = 128
     # 全量同步使用的函数
-    full_sync_iter_function: str = "iter_files_with_path_skim"
+    full_sync_iter_function: str = Field("iter_files_with_path_skim", min_length=1)
 
     # 增量同步开关
     increment_sync_strm_enabled: bool = False
     # 下载媒体信息文件开关
     increment_sync_auto_download_mediainfo_enabled: bool = False
     # 运行周期
-    increment_sync_cron: str = "0 * * * *"
+    increment_sync_cron: Optional[str] = None
     # 增量同步目录
     increment_sync_strm_paths: Optional[str] = None
     # MP-媒体库 目录转换
@@ -131,7 +165,7 @@ class BaseConfig(BaseModel):
     # 刷新媒体服务器
     monitor_life_mediaservers: Optional[List[str]] = None
     # 监控事件类型
-    monitor_life_event_modes: Optional[List[str]] = None
+    monitor_life_event_modes: List[str] = Field(default_factory=list)
     # 刮削 STRM 开关
     monitor_life_scrape_metadata_enabled: bool = False
     # 刮削排除目录
@@ -155,7 +189,7 @@ class BaseConfig(BaseModel):
     # 清理 最近接收 目录开关
     clear_receive_path_enabled: bool = False
     # 清理周期
-    cron_clear: str = "0 */7 * * *"
+    cron_clear: Optional[str] = None
 
     # 网盘整理开关
     pan_transfer_enabled: bool = False
@@ -165,26 +199,27 @@ class BaseConfig(BaseModel):
     # 监控目录上传开关
     directory_upload_enabled: bool = False
     # 监控目录模式
-    directory_upload_mode: str = "compatibility"
+    directory_upload_mode: str = Field("compatibility", min_length=1)
     # 可上传文件后缀
-    directory_upload_uploadext: str = (
-        "mp4,mkv,ts,iso,rmvb,avi,mov,mpeg,mpg,wmv,3gp,asf,m4v,flv,m2ts,tp,f4v"
+    directory_upload_uploadext: str = Field(
+        "mp4,mkv,ts,iso,rmvb,avi,mov,mpeg,mpg,wmv,3gp,asf,m4v,flv,m2ts,tp,f4v",
+        min_length=1,
     )
     # 可本地操作文件后缀
-    directory_upload_copyext: str = "srt,ssa,ass"
+    directory_upload_copyext: str = Field("srt,ssa,ass", min_length=1)
     # 监控目录信息
-    directory_upload_path: Optional[List[Dict]] = None
+    directory_upload_path: List[Dict] = Field(default_factory=list)
 
     # CloudSaver 地址
-    cloudsaver_url: Optional[str] = None
+    cloudsaver_url: Optional[str] = Field(None, min_length=1)
     # CloudSaver 用户名
-    cloudsaver_username: Optional[str] = None
+    cloudsaver_username: Optional[str] = Field(None, min_length=1)
     # CloudSaver 密码
-    cloudsaver_password: Optional[str] = None
+    cloudsaver_password: Optional[str] = Field(None, min_length=1)
     # Nullbr APP ID
-    nullbr_app_id: Optional[str] = None
+    nullbr_app_id: Optional[str] = Field(None, min_length=1)
     # Nullbr API KEY
-    nullbr_api_key: Optional[str] = None
+    nullbr_api_key: Optional[str] = Field(None, min_length=1)
 
     # 多端播放同一个文件
     same_playback: bool = False
@@ -206,66 +241,46 @@ class BaseConfig(BaseModel):
     # 上传离线下载链接
     upload_offline_info: bool = True
 
-
-class ConfigManager:
-    """
-    配置操作器
-    """
-
-    def __init__(self):
-        self._configs = {}
-
-    def fix_config(self, config_dict: Dict[str, Any]) -> Dict:
+    @property
+    def PLUGIN_ALIGO_PATH(self) -> Path:
         """
-        修复非法值
+        返回 aligo 配置的动态路径
         """
-        fixed_dict = config_dict
-        for field_name, field in BaseConfig.__fields__.items():
-            if field.type_ is bool and field_name in fixed_dict:
-                value = fixed_dict[field_name]
-                if not isinstance(value, bool):
-                    default_value = field.default
-                    logger.warning(
-                        f"【配置管理器】配置项 {field_name} 的值 {value} 不是布尔类型，已替换为默认值 {default_value}"
-                    )
-                    fixed_dict[field_name] = default_value
-            elif (
-                field.type_ is str
-                and field_name in fixed_dict
-                and field_name
-                in [
-                    "PLUGIN_CONFIG_PATH",
-                    "PLUGIN_TEMP_PATH",
-                    "PLUGIN_DB_PATH",
-                    "PLUGIN_DATABASE_PATH",
-                ]
-            ):
-                value = fixed_dict[field_name]
-                if not isinstance(value, str):
-                    default_value = field.default
-                    logger.warning(
-                        f"【配置管理器】路径 {field_name} 的值 {value} 不是字符串类型，已替换为默认值 {default_value}"
-                    )
-                    fixed_dict[field_name] = default_value
-        return fixed_dict
+        return self.PLUGIN_CONFIG_PATH / "aligo"
 
-    def update_aliyun_token(self):
+    @property
+    def MACHINE_ID(self) -> str:
         """
-        每次更改或者获取配置都需要获得最新的 Aligo 的 Token
+        获取或生成机器ID
         """
-        self._configs["aliyundrive_token"] = AliyunPanLogin.get_token(
-            self.get_config("PLUGIN_ALIGO_PATH") / "aligo.json"
-        ) or self._configs.get("aliyundrive_token")
+        return MachineID.get_or_generate_machine_id(
+            self.PLUGIN_CONFIG_PATH / "machine_id.txt"
+        )
+
+    @property
+    def USER_AGENT(self) -> str:
+        """
+        全局用户代理字符串
+        """
+        return self.get_user_agent()
+
+    def _update_aliyun_token(self) -> str:
+        """
+        从文件动态获取最新的阿里云盘Token
+        """
+        token = AliyunPanLogin.get_token(self.PLUGIN_ALIGO_PATH / "aligo.json")
+        if token:
+            self.aliyundrive_token = token
 
     def load_from_dict(self, config_dict: Dict[str, Any]) -> bool:
         """
         从字典加载配置
         """
         try:
-            fixed_dict = self.fix_config(config_dict.copy())
-            validated = BaseConfig(**fixed_dict)
-            self._configs = validated.dict()
-            self.update_aliyun_token()
+            for key, value in config_dict.items():
+                if hasattr(self, key):
+                    setattr(self, key, value)
+            self._update_aliyun_token()
             return True
         except ValidationError as e:
             logger.error(f"【配置管理器】配置验证失败: {e}")
@@ -285,50 +300,35 @@ class ConfigManager:
         """
         获取单个配置值
         """
-        if key in [
-            "PLUGIN_CONFIG_PATH",
-            "PLUGIN_TEMP_PATH",
-            "PLUGIN_DB_PATH",
-            "PLUGIN_DATABASE_PATH",
-        ]:
-            return Path(self._configs.get(key))
-        elif key == "PLUGIN_ALIGO_PATH":
-            return Path(self._configs.get("PLUGIN_CONFIG_PATH") + "/" + "aligo")
-        elif key == "MACHINE_ID":
-            return MachineID.get_or_generate_machine_id(
-                self.get_config("PLUGIN_CONFIG_PATH") / "machine_id.txt"
-            )
-        elif key == "aliyundrive_token":
-            return AliyunPanLogin.get_token(
-                self.get_config("PLUGIN_ALIGO_PATH") / "aligo.json"
-            ) or self._configs.get("aliyundrive_token")
-        return self._configs.get(key)
+        if key in ["PLUGIN_ALIGO_PATH", "MACHINE_ID"]:
+            return getattr(self, key)
+        if key == "aliyundrive_token":
+            self._update_aliyun_token()
+        return getattr(self, key, None)
 
     def get_all_configs(self) -> Dict[str, Any]:
         """
-        获取所有配置的副本
+        获取所有配置
         """
-        self._configs = self.fix_config(self._configs)
-        self.update_aliyun_token()
-        return self._configs.copy()
+        self._update_aliyun_token()
+        json_string = self.json()
+        serializable_dict = json.loads(json_string)
+        return serializable_dict
 
     def update_config(self, updates: Dict[str, Any]) -> bool:
         """
-        更新部分配置
+        更新一个或多个配置项
         """
         try:
-            # 合并现有配置和更新
-            self._configs = self.fix_config(self._configs)
-            current = BaseConfig(**self._configs)
-            updated = current.copy(update=updates)
-            self._configs.update(updated.dict())
-            if "aliyundrive_token" not in updates:
-                self.update_aliyun_token()
-            else:
+            for key, value in updates.items():
+                if hasattr(self, key):
+                    setattr(self, key, value)
+
+            if "aliyundrive_token" in updates:
                 if not updates.get("aliyundrive_token"):
-                    Path(self.get_config("PLUGIN_ALIGO_PATH") / "aligo.json").unlink(
-                        missing_ok=True
-                    )
+                    (self.PLUGIN_ALIGO_PATH / "aligo.json").unlink(missing_ok=True)
+            else:
+                self._update_aliyun_token()
             return True
         except ValidationError as e:
             logger.error(f"【配置管理器】配置更新失败: {e.json()}")
@@ -336,15 +336,17 @@ class ConfigManager:
 
     def update_plugin_config(self):
         """
-        更新插件配置到数据库
+        将当前配置状态保存到数据库
         """
         systemconfig = SystemConfigOper()
-        plugin_id = self._configs.get("PLUSIN_NAME")
-        return systemconfig.set(f"plugin.{plugin_id}", self._configs)
+        plugin_id = self.PLUSIN_NAME
+        json_string = self.json()
+        serializable_dict = json.loads(json_string)
+        return systemconfig.set(f"plugin.{plugin_id}", serializable_dict)
 
-    def get_user_agent(self, utype: int = -1):
+    def get_user_agent(self, utype: int = -1) -> str:
         """
-        获取指定 USER_AGENT
+        根据类型获取指定的User-Agent
         """
         user_agents = {
             1: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
@@ -355,7 +357,7 @@ class ConfigManager:
         if utype in user_agents:
             return user_agents[utype]
         return (
-            f"{self._configs.get('PLUSIN_NAME')}/2.0.12 "
+            f"{self.PLUSIN_NAME}/2.0.12 "
             f"({platform.system()} {platform.release()}; "
             f"{SystemUtils.cpu_arch() if hasattr(SystemUtils, 'cpu_arch') and callable(SystemUtils.cpu_arch) else 'UnknownArch'})"
         )
