@@ -40,7 +40,7 @@ class BangumiDailyDiscover(_PluginBase):
     # 插件图标
     plugin_icon = "Bangumi_A.png"
     # 插件版本
-    plugin_version = "1.0.0"
+    plugin_version = "1.0.1"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -142,10 +142,15 @@ class BangumiDailyDiscover(_PluginBase):
             rating_info = series_info.get("rating", None)
             if rating_info is not None:
                 vote_average = rating_info.get("score", None)
+            logger.info(series_info.get("name_cn"))
+            if series_info.get("name_cn"):
+                title = series_info.get("name_cn")
+            else:
+                title = series_info.get("name")
             return schemas.MediaInfo(
                 type="电视剧",
                 source="bangumi",
-                title=series_info.get("name_cn", series_info.get("name")),
+                title=title,
                 mediaid_prefix="bangumidaily",
                 media_id=series_info.get("id"),
                 bangumi_id=series_info.get("id"),

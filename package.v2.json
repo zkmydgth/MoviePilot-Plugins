@@ -49,11 +49,12 @@
         "name": "Bangumi每日放送探索",
         "description": "让探索支持Bangumi每日放送的数据浏览。",
         "labels": "探索",
-        "version": "1.0.0",
+        "version": "1.0.1",
         "icon": "Bangumi_A.png",
         "author": "DDSRem",
         "level": 1,
         "history": {
+            "v1.0.1": "部分番剧没有名称",
             "v1.0.0": "发布"
         }
     },
