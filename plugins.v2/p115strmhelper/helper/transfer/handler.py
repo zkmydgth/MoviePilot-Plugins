@@ -752,7 +752,7 @@ class TransferHandler:
                                         type="file",
                                         size=fileitem.size,
                                         modify_time=fileitem.modify_time,
-                                        pickcode=fileitem.pickcode,
+                                        pickcode=task.fileitem.pickcode,
                                     )
                                     self.cache_updater.update_file_cache(new_fileitem)
                                     task_path = (
@@ -1003,16 +1003,19 @@ class TransferHandler:
             }
 
             for _file_id, (task, target_name, _fileitem) in file_mapping.items():
-                if target_name in file_map:
-                    new_fileitem = file_map[target_name]
+                # 复制后文件保留 115 源文件名，尚未重命名，用 fileitem.name 查找
+                source_name = _fileitem.name
+                if source_name in file_map:
+                    new_fileitem = file_map[source_name]
                     if new_fileitem.fileid:
                         task.fileitem.fileid = new_fileitem.fileid
+                        task.fileitem.pickcode = new_fileitem.pickcode or task.fileitem.pickcode
                         logger.debug(
-                            f"【整理接管】更新文件ID: {target_name} -> {new_fileitem.fileid}"
+                            f"【整理接管】更新文件ID: {source_name} -> {new_fileitem.fileid}"
                         )
                 else:
                     logger.warn(
-                        f"【整理接管】未找到复制后的文件: {target_name} (目录: {target_dir})"
+                        f"【整理接管】未找到复制后的文件: {source_name} (目录: {target_dir})"
                     )
 
         except Exception as e:

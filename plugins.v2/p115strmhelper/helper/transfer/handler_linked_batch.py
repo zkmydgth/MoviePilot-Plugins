@@ -693,24 +693,31 @@ class TransferHandlerLinkedBatch:
                 target_name,
                 related_file,
             ) in file_mapping.items():
-                if target_name in file_map:
-                    new_fileitem = file_map[target_name]
+                # 复制后文件保留 115 源文件名，尚未重命名，用 fileitem.name 查找
+                if is_main:
+                    source_name = task.fileitem.name
+                elif related_file:
+                    source_name = related_file.fileitem.name
+                else:
+                    source_name = target_name
+                if source_name in file_map:
+                    new_fileitem = file_map[source_name]
                     if new_fileitem.fileid:
                         if is_main:
-                            # 更新主视频的 fileid
                             task.fileitem.fileid = new_fileitem.fileid
+                            task.fileitem.pickcode = new_fileitem.pickcode or task.fileitem.pickcode
                             logger.debug(
-                                f"【整理接管】更新主视频文件ID: {target_name} -> {new_fileitem.fileid}"
+                                f"【整理接管】更新主视频文件ID: {source_name} -> {new_fileitem.fileid}"
                             )
                         elif related_file:
-                            # 更新关联文件的 fileid
                             related_file.fileitem.fileid = new_fileitem.fileid
+                            related_file.fileitem.pickcode = new_fileitem.pickcode or related_file.fileitem.pickcode
                             logger.debug(
-                                f"【整理接管】更新关联文件ID: {target_name} -> {new_fileitem.fileid}"
+                                f"【整理接管】更新关联文件ID: {source_name} -> {new_fileitem.fileid}"
                             )
                 else:
                     logger.warn(
-                        f"【整理接管】未找到复制后的文件: {target_name} (目录: {target_dir})"
+                        f"【整理接管】未找到复制后的文件: {source_name} (目录: {target_dir})"
                     )
 
         except Exception as e:
