@@ -1,7 +1,7 @@
 from time import sleep
 from typing import List
 
-from p115client import P115Client
+from p115client import P115Client, check_response
 from p115client.tool.fs_files import iter_fs_files
 
 from app.log import logger
@@ -24,7 +24,11 @@ class Cleaner:
         """
         try:
             logger.info("【回收站清理】开始清理回收站")
-            self.client.recyclebin_clean(password=configer.get_config("password"))
+            payload = {
+                "password": configer.get_config("password")
+            }
+            resp = self.client.recyclebin_clean(payload)
+            check_response(resp)
             logger.info("【回收站清理】回收站已清空")
         except Exception as e:
             sentry_manager.sentry_hub.capture_exception(e)
