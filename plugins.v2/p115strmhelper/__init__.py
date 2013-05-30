@@ -850,7 +850,7 @@ class P115StrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png"
     # 插件版本
-    plugin_version = "1.7.7"
+    plugin_version = "1.7.8"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -2466,7 +2466,49 @@ class P115StrmHelper(_PluginBase):
         处理115生活事件生成MP整理STRM文件名称错误
         """
 
-        def file_rename(fileitem: FileItem):
+        def refresh_mediaserver(file_path: str, file_name: str):
+            """
+            刷新媒体服务器
+            """
+            if self._monitor_life_media_server_refresh_enabled:
+                if not self.monitor_life_service_infos:
+                    return
+                logger.info(f"【监控生活事件】 {file_name} 开始刷新媒体服务器")
+                if self._monitor_life_mp_mediaserver_paths:
+                    status, mediaserver_path, moviepilot_path = (
+                        self.pathmatchinghelper.get_media_path(
+                            self._monitor_life_mp_mediaserver_paths, file_path
+                        )
+                    )
+                    if status:
+                        logger.info(
+                            f"【监控生活事件】 {file_name} 刷新媒体服务器目录替换中..."
+                        )
+                        file_path = file_path.replace(
+                            moviepilot_path, mediaserver_path
+                        ).replace("\\", "/")
+                        logger.info(
+                            f"【监控生活事件】刷新媒体服务器目录替换: {moviepilot_path} --> {mediaserver_path}"
+                        )
+                        logger.info(f"【监控生活事件】刷新媒体服务器目录: {file_path}")
+                items = [
+                    RefreshMediaItem(
+                        title=None,
+                        year=None,
+                        type=None,
+                        category=None,
+                        target_path=Path(file_path),
+                    )
+                ]
+                for name, service in self.monitor_life_service_infos.items():
+                    if hasattr(service.instance, "refresh_library_by_items"):
+                        service.instance.refresh_library_by_items(items)
+                    elif hasattr(service.instance, "refresh_root_library"):
+                        service.instance.refresh_root_library()
+                    else:
+                        logger.warning(f"【监控生活事件】{file_name} {name} 不支持刷新")
+
+        def file_rename(fileitem: FileItem, refresh: bool = False):
             """
             重命名
             """
@@ -2477,7 +2519,7 @@ class P115StrmHelper(_PluginBase):
             if fileitem.name != file_item[0]:
                 # 文件名称不一致，表明网盘文件被重命名，需要将本地文件重命名
                 target_file_path = Path(file_item[1]) / Path(
-                    target_path / dest_fileitem.name
+                    target_path / fileitem.name
                 ).relative_to(file_item[2]).with_suffix(".strm")
                 life_path = Path(file_item[1]) / Path(
                     target_path / file_item[0]
@@ -2489,16 +2531,22 @@ class P115StrmHelper(_PluginBase):
                     life_path.rename(target_file_path)
                     _databasehelper.update_path_by_id(
                         id=int(fileitem.fileid),
-                        new_path=str(target_path / dest_fileitem.name),
+                        new_path=str(target_path / fileitem.name),
                     )
                     _databasehelper.update_name_by_id(
                         id=int(fileitem.fileid),
-                        new_name=str(dest_fileitem.name),
+                        new_name=str(fileitem.name),
                     )
                     self.cache_create_strm_file_dict.pop(str(fileitem.fileid), None)
                     logger.info(
                         f"【监控生活事件】修正文件名称: {life_path} --> {target_file_path}"
                     )
+                    if refresh:
+                        refresh_mediaserver(
+                            file_path=str(target_file_path),
+                            file_name=str(target_file_path.name),
+                        )
+                    return
                 except Exception as e:
                     logger.error(f"【监控生活事件】修正文件名称失败: {e}")
 
@@ -2529,21 +2577,21 @@ class P115StrmHelper(_PluginBase):
 
         _databasehelper = FileDbHelper()
 
-        file_rename(dest_fileitem)
+        file_rename(fileitem=dest_fileitem, refresh=True)
 
         if subtitle_list:
             for _path in subtitle_list:
                 fileitem = self.storagechain.get_file_item(
                     storage="u115", path=Path(_path)
                 )
-                file_rename(fileitem)
+                file_rename(fileitem=fileitem)
 
         if audio_list:
             for _path in audio_list:
                 fileitem = self.storagechain.get_file_item(
                     storage="u115", path=Path(_path)
                 )
-                file_rename(fileitem)
+                file_rename(fileitem=fileitem)
 
     def monitor_life_strm_files(self):
         """

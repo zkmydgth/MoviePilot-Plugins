@@ -89,11 +89,12 @@
         "name": "115网盘STRM助手",
         "description": "115网盘STRM生成一条龙服务",
         "labels": "云盘",
-        "version": "1.7.7",
+        "version": "1.7.8",
         "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png",
         "author": "DDSRem",
         "level": 1,
         "history": {
+            "v1.7.8": "修复115生活监控修正名称后未刷新",
             "v1.7.7": "115生活监控支持网盘整理（不推荐使用）",
             "v1.7.6": "修复删除缓存",
             "v1.7.5": "数据库逻辑优化，修复目录删除无法删除源文件（此版本有可能有数据库bug）",
