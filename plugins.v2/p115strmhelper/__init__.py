@@ -40,7 +40,7 @@ from .helper.mediasyncdel.webhook_queue import (
 )
 from .utils.path import PathUtils
 from .utils.sentry import sentry_manager
-from .utils.share_url import ShareUrlUtils
+from .helper.share.share_links import ShareLinkResolver
 from .utils.strm import StrmGenerater
 
 
@@ -1094,7 +1094,7 @@ class P115StrmHelper(_PluginBase):
         channel = event.event_data.get("channel")
         if not text:
             return
-        share_url = ShareUrlUtils.extract_share_url_from_text(text)
+        share_url = ShareLinkResolver.extract_share_url_from_text(text)
         if not share_url:
             return
 
@@ -1153,7 +1153,9 @@ class P115StrmHelper(_PluginBase):
                 )
                 return
 
-        share_url = ShareUrlUtils.extract_share_url_from_text(args) if args else None
+        share_url = (
+            ShareLinkResolver.extract_share_url_from_text(args) if args else None
+        )
         if not share_url:
             if args:
                 logger.error(f"【分享转存】无法从参数中解析分享链接：{event_data}")

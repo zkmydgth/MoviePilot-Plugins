@@ -25,7 +25,7 @@ from ...core.aliyunpan import BAligo
 from ...core.p115 import get_pid_by_path
 from ...helper.ali2115 import Ali2115Helper
 from ...utils.sentry import sentry_manager
-from ...utils.share_url import ALIYUN_SHARE_URL_MATCH
+from ...utils.share_url_patterns import ALIYUN_SHARE_URL_MATCH
 
 
 @sentry_manager.capture_all_class_exceptions

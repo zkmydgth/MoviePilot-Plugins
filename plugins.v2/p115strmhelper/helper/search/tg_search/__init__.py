@@ -6,10 +6,11 @@ import httpx
 from bs4 import BeautifulSoup
 
 from app.log import logger
-from app.core.config import settings
-from app.utils.http import AsyncRequestUtils
 
-from ....core.config import configer
+from ....helper.share.share_links import (
+    build_share_page_client,
+    extract_cloud_links_from_text,
+)
 from ....schemas.tg_search import ResourceItem
 from ....utils.string import StringUtils
 from ....utils.sentry import sentry_manager
@@ -30,16 +31,7 @@ class TgSearcher:
     _PUNCT_GAP_RE = re.compile(r"[\s\u3000:：·•.,，。!！?？（）【】\[\]/／\\＼-]+")
 
     def __init__(self):
-        proxies = (
-            AsyncRequestUtils._convert_proxies_for_httpx(settings.PROXY)
-            if settings.PROXY
-            else None
-        )
-        self.session = httpx.Client(
-            headers={"User-Agent": configer.get_user_agent(utype=1)},
-            proxy=proxies,
-            follow_redirects=True,
-        )
+        self.session = build_share_page_client()
 
     @staticmethod
     def _normalize_for_match(text: str) -> str:
@@ -95,33 +87,6 @@ class TgSearcher:
         return ck in ct
 
     @staticmethod
-    def extract_cloud_links(text: str) -> tuple[List[str], str]:
-        """
-        提取云盘链接
-        """
-        links: List[str] = []
-        cloud_type = ""
-
-        cloud_patterns = {
-            "u115": r"(https?://(?:[a-zA-Z0-9-]+\.)*115[^/\s#]*\.[a-zA-Z]{2,}[^\s#]*)",
-            "aliyun": r"(https?://(?:[a-zA-Z0-9-]+\.)?(?:alipan|aliyundrive)\.[a-zA-Z]{2,}[^\s#]*)",
-        }
-
-        for cloud_name, pattern in cloud_patterns.items():
-            try:
-                matches = re.findall(pattern, text)
-                if matches:
-                    links.extend(matches)
-                    if not cloud_type:
-                        cloud_type = cloud_name
-            except Exception as e:
-                logger.warn(f"【TGSearch】匹配 {cloud_name} 云盘链接时出错: {str(e)}")
-                continue
-
-        unique_links = list(set(links))
-        return unique_links, cloud_type
-
-    @staticmethod
     def _find_telegra_link_from_button(message_element) -> Optional[str]:
         """
         从消息的按钮中查找 telegra.ph 链接
@@ -147,7 +112,7 @@ class TgSearcher:
             response.raise_for_status()
             html = response.text
 
-            cloud_links, cloud_type = self.extract_cloud_links(html)
+            cloud_links, cloud_type = extract_cloud_links_from_text(html)
 
             if cloud_links:
                 logger.debug(
@@ -231,7 +196,7 @@ class TgSearcher:
                         tags.append(clean_tag)
 
             all_links_text = " ".join(found_hrefs)
-            cloud_links, cloud_type = self.extract_cloud_links(all_links_text)
+            cloud_links, cloud_type = extract_cloud_links_from_text(all_links_text)
 
             if not cloud_links:
                 telegra_link = self._find_telegra_link_from_button(message)
