@@ -850,7 +850,7 @@ class P115StrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png"
     # 插件版本
-    plugin_version = "1.7.5"
+    plugin_version = "1.7.6"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -2936,8 +2936,6 @@ class P115StrmHelper(_PluginBase):
             return
         logger.info("【监控生活事件】生活事件监控启动中...")
         try:
-            # 删除缓存，避免删除无限循环
-            delete_list = []
             for events_batch in iter_life_behavior_list(self._client, cooldown=int(20)):
                 if self.monitor_stop_event.is_set():
                     logger.info("【监控生活事件】收到停止信号，退出上传事件监控")
@@ -2981,12 +2979,7 @@ class P115StrmHelper(_PluginBase):
 
                     if int(event["type"]) == 22:
                         # 删除文件/文件夹事件处理
-                        if event["file_id"] in delete_list:
-                            # 通过 delete_list 避免反复删除
-                            delete_list.remove(event["file_id"])
-                        elif (
-                            str(event["file_id"]) in self.cache_delete_pan_transfer_list
-                        ):
+                        if str(event["file_id"]) in self.cache_delete_pan_transfer_list:
                             # 检查是否命中删除文件夹缓存，命中则无需处理
                             self.cache_delete_pan_transfer_list.remove(
                                 str(event["file_id"])
@@ -2997,7 +2990,6 @@ class P115StrmHelper(_PluginBase):
                                 and self._monitor_life_paths
                                 and "remove" in self._monitor_life_event_modes
                             ):
-                                delete_list.append(event["file_id"])
                                 remove_strm(event=event)
 
                     if int(event["type"]) == 17:
