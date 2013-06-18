@@ -133,6 +133,49 @@ class PathUtils:
                 return True, parts
         return False, None
 
+    @staticmethod
+    def get_media_file_paths_with_suffix(
+        file_path: str, media_suffix: Optional[str]
+    ) -> Tuple[str, str]:
+        """
+        根据媒体库文件路径和真实媒体后缀还原网盘媒体路径
+
+        :param file_path: 媒体库文件路径
+        :param media_suffix: 真实媒体后缀
+        :return: 正常大小写路径和大小写切换路径
+        """
+        path = Path(file_path)
+        if not path.suffix or not media_suffix:
+            return file_path, file_path
+
+        suffix = media_suffix.lstrip(".")
+        if not suffix:
+            return file_path, file_path
+
+        stem = path.stem
+        suffix_marker = f".{suffix}"
+        if stem.lower().endswith(suffix_marker.lower()):
+            base_stem = stem[: -(len(suffix) + 1)]
+            primary_suffix = stem[-len(suffix) :]
+        else:
+            base_stem = stem
+            primary_suffix = suffix
+
+        media_path = str(path.parent / f"{base_stem}.{primary_suffix}")
+        if primary_suffix.isupper():
+            final_suffix = primary_suffix.lower()
+        elif primary_suffix.islower():
+            final_suffix = primary_suffix.upper()
+        else:
+            final_suffix = primary_suffix
+
+        media_path_final = (
+            str(path.parent / f"{base_stem}.{final_suffix}")
+            if final_suffix != primary_suffix
+            else media_path
+        )
+        return media_path, media_path_final
+
 
 class PathRemoveUtils:
     """

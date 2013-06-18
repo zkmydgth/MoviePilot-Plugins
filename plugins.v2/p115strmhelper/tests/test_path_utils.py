@@ -131,6 +131,48 @@ class TestSanitizePathParts(TestCase):
         self.assertEqual(result.as_posix(), "movie:name.mp4")
 
 
+class TestGetMediaFilePathsWithSuffix(TestCase):
+    """
+    测试 PathUtils.get_media_file_paths_with_suffix 方法
+    """
+
+    def test_iso_strm_keeps_existing_media_suffix(self):
+        """ISO STRM 文件名不重复追加 ISO 后缀"""
+        media_path, media_path_final = PathUtils.get_media_file_paths_with_suffix(
+            "/媒体库/ISO/极限审判 (2026)/极限审判 (2026).iso.strm",
+            "iso",
+        )
+
+        self.assertEqual(
+            media_path,
+            "/媒体库/ISO/极限审判 (2026)/极限审判 (2026).iso",
+        )
+        self.assertEqual(
+            media_path_final,
+            "/媒体库/ISO/极限审判 (2026)/极限审判 (2026).ISO",
+        )
+
+    def test_normal_strm_appends_media_suffix(self):
+        """普通 STRM 文件名追加真实媒体后缀"""
+        media_path, media_path_final = PathUtils.get_media_file_paths_with_suffix(
+            "/媒体库/Movie/电影 (2026)/电影 (2026).strm",
+            "mkv",
+        )
+
+        self.assertEqual(media_path, "/媒体库/Movie/电影 (2026)/电影 (2026).mkv")
+        self.assertEqual(media_path_final, "/媒体库/Movie/电影 (2026)/电影 (2026).MKV")
+
+    def test_upper_iso_strm_keeps_existing_case(self):
+        """大写 ISO STRM 文件名保留已有后缀大小写"""
+        media_path, media_path_final = PathUtils.get_media_file_paths_with_suffix(
+            "/媒体库/ISO/电影 (2026)/电影 (2026).ISO.strm",
+            "iso",
+        )
+
+        self.assertEqual(media_path, "/媒体库/ISO/电影 (2026)/电影 (2026).ISO")
+        self.assertEqual(media_path_final, "/媒体库/ISO/电影 (2026)/电影 (2026).iso")
+
+
 class TestPathUtilsIntegration(TestCase):
     """
     集成测试：验证 sanitize_path_parts 在实际使用场景中的行为
