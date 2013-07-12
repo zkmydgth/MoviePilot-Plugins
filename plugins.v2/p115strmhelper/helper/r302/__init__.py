@@ -28,6 +28,10 @@ from ...utils.url import Url
 from ...utils.sentry import sentry_manager
 
 
+_COPY_DOWNLOAD_RETRY_DELAYS = (0.5, 1.0, 2.0)
+_INCOMPLETE_UPLOAD_ERROR = "文件上传不完整"
+
+
 @sentry_manager.capture_all_class_exceptions
 class Redirect:
     """
@@ -143,6 +147,23 @@ class Redirect:
         await asyncio_sleep(5.0)
         await self.delayed_remove(pickcode)
 
+    async def _wait_for_copy_download_retry(
+        self, pickcode: str, retry_index: int
+    ) -> None:
+        """
+        等待多端播放副本可获取下载地址后重试
+
+        :param pickcode (str): 副本 PickCode
+        :param retry_index (int): 从零开始的重试序号
+        """
+        delay = _COPY_DOWNLOAD_RETRY_DELAYS[retry_index]
+        logger.warning(
+            f"【302跳转服务】多端播放副本尚未复制完成 {pickcode}，"
+            f"{delay:g} 秒后进行第 {retry_index + 1}/"
+            f"{len(_COPY_DOWNLOAD_RETRY_DELAYS)} 次重试"
+        )
+        await asyncio_sleep(delay)
+
     async def share_get_id_for_name(
         self,
         share_code: str,
@@ -225,37 +246,48 @@ class Redirect:
             post_pickcode = await self.get_pickcode_for_copy(pickcode)
             logger.debug(f"【302跳转服务】多端播放开启 {pickcode} -> {post_pickcode}")
 
-        resp = await self.http_client().post(
-            "http://proapi.115.com/android/2.0/ufile/download",
-            data={
-                "data": rsa_encrypt(
-                    f'{{"pick_code":"{post_pickcode}"}}'.encode("utf-8")
-                ).decode("utf-8")
-            },
-            headers={
-                "User-Agent": user_agent,
-            },
-        )
-        check_response(resp)
-        json = loads(cast(bytes, resp.content))
-        if not json["state"]:
-            raise OSError(EIO, json)
-        data = json["data"] = loads(rsa_decrypt(json["data"]))
-        data["file_name"] = unquote(urlsplit(data["url"]).path.rpartition("/")[-1])
-        url = Url.of(data["url"], data)
+        is_copy = post_pickcode != pickcode
+        try:
+            for retry_index in range(len(_COPY_DOWNLOAD_RETRY_DELAYS) + 1):
+                resp = await self.http_client().post(
+                    "http://proapi.115.com/android/2.0/ufile/download",
+                    data={
+                        "data": rsa_encrypt(
+                            f'{{"pick_code":"{post_pickcode}"}}'.encode("utf-8")
+                        ).decode("utf-8")
+                    },
+                    headers={
+                        "User-Agent": user_agent,
+                    },
+                )
+                check_response(resp)
+                json = loads(cast(bytes, resp.content))
+                if json["state"]:
+                    break
+                if (
+                    not is_copy
+                    or json.get("error") != _INCOMPLETE_UPLOAD_ERROR
+                    or retry_index == len(_COPY_DOWNLOAD_RETRY_DELAYS)
+                ):
+                    raise OSError(EIO, json)
+                await self._wait_for_copy_download_retry(post_pickcode, retry_index)
 
-        expires_time = (
-            int(next(v for k, v in parse_qsl(urlsplit(url).query) if k == "t")) - 60 * 5
-        )
-        await r302cacher.set(pickcode, cache_ua, str(url), expires_time)
-        logger.debug(
-            f"【302跳转服务】添加至缓存 {pickcode} {cache_ua} {url} {expires_time}"
-        )
+            data = json["data"] = loads(rsa_decrypt(json["data"]))
+            data["file_name"] = unquote(urlsplit(data["url"]).path.rpartition("/")[-1])
+            url = Url.of(data["url"], data)
 
-        if post_pickcode != pickcode:
-            create_task(self._delayed_remove_async(post_pickcode))
-
-        return url
+            expires_time = (
+                int(next(v for k, v in parse_qsl(urlsplit(url).query) if k == "t"))
+                - 60 * 5
+            )
+            await r302cacher.set(pickcode, cache_ua, str(url), expires_time)
+            logger.debug(
+                f"【302跳转服务】添加至缓存 {pickcode} {cache_ua} {url} {expires_time}"
+            )
+            return url
+        finally:
+            if is_copy:
+                create_task(self._delayed_remove_async(post_pickcode))
 
     async def get_downurl_open(
         self,
@@ -286,27 +318,36 @@ class Redirect:
             post_pickcode = await self.get_pickcode_for_copy(pickcode)
             logger.debug(f"【302跳转服务】多端播放开启 {pickcode} -> {post_pickcode}")
 
-        resp_url = await to_thread(
-            self.u115openhelper.get_download_url,
-            pickcode=post_pickcode,
-            user_agent=user_agent,
-        )
-        data: Dict = {}
-        data["file_name"] = unquote(urlsplit(resp_url).path.rpartition("/")[-1])
+        is_copy = post_pickcode != pickcode
+        try:
+            for retry_index in range(len(_COPY_DOWNLOAD_RETRY_DELAYS) + 1):
+                resp_url = await to_thread(
+                    self.u115openhelper.get_download_url,
+                    pickcode=post_pickcode,
+                    user_agent=user_agent,
+                )
+                if resp_url:
+                    break
+                if not is_copy or retry_index == len(_COPY_DOWNLOAD_RETRY_DELAYS):
+                    raise OSError(EIO, "获取多端播放副本下载地址失败")
+                await self._wait_for_copy_download_retry(post_pickcode, retry_index)
 
-        expires_time = (
-            int(next(v for k, v in parse_qsl(urlsplit(resp_url).query) if k == "t"))
-            - 60 * 5
-        )
-        await r302cacher.set(pickcode, cache_ua, resp_url, expires_time)
-        logger.debug(
-            f"【302跳转服务】添加至缓存 {pickcode} {cache_ua} {resp_url} {expires_time}"
-        )
+            data: Dict = {}
+            data["file_name"] = unquote(urlsplit(resp_url).path.rpartition("/")[-1])
 
-        if post_pickcode != pickcode:
-            create_task(self._delayed_remove_async(post_pickcode))
-
-        return Url.of(resp_url, data)
+            expires_time = (
+                int(next(v for k, v in parse_qsl(urlsplit(resp_url).query) if k == "t"))
+                - 60 * 5
+            )
+            await r302cacher.set(pickcode, cache_ua, resp_url, expires_time)
+            logger.debug(
+                f"【302跳转服务】添加至缓存 {pickcode} {cache_ua} {resp_url} "
+                f"{expires_time}"
+            )
+            return Url.of(resp_url, data)
+        finally:
+            if is_copy:
+                create_task(self._delayed_remove_async(post_pickcode))
 
     async def get_share_downurl(
         self, share_code: str, receive_code: str, file_id: int, user_agent: str = ""
