@@ -1,4 +1,5 @@
 from concurrent.futures import ThreadPoolExecutor, Future, as_completed
+from itertools import batched
 from os import PathLike
 from random import randint
 from datetime import datetime, timezone
@@ -6,7 +7,7 @@ from pathlib import Path
 from shutil import rmtree
 from threading import Lock
 from time import sleep, time, perf_counter
-from typing import Optional, Union, Literal, List, Tuple, Dict, Set, Any
+from typing import Optional, Union, Literal, List, Tuple, Dict, Set, Any, Iterator
 
 import oss2
 import httpx
@@ -32,7 +33,7 @@ from app.utils.string import StringUtils
 from ..core.config import configer
 from ..core.message import post_message
 from ..core.cache import idpathcacher
-from ..db_manager.oper import FileDbHelper
+from ..db_manager.oper import FileDbHelper, OpenFileOper
 from ..utils.oopserver import OOPServerRequest
 from ..utils.sentry import sentry_manager
 from ..utils.exception import U115NoCheckInException, CanNotFindPathToCid
@@ -1073,7 +1074,7 @@ class U115OpenHelper:
         order: Literal[
             "file_name", "file_size", "user_utime", "file_type"
         ] = "file_name",
-    ):
+    ) -> Iterator[Dict]:
         """
         遍历目录树迭代文件信息对象
 
@@ -1095,6 +1096,8 @@ class U115OpenHelper:
             - "file_size": 文件大小
             - "file_type": 文件种类
             - "user_utime": 修改时间
+
+        :return: 迭代器，文件或文件夹信息
         """
         rate_limiter = RateLimiter(qps)
         dir_nodes: Dict[int, DirNode] = {}
@@ -1137,6 +1140,7 @@ class U115OpenHelper:
             pre_sub_dirs_to_scan = []
             for attr in items:
                 attr = normalize_attr(attr)
+                files_info.append(attr)
                 if attr.get("is_dir"):
                     dir_nodes[attr["id"]] = DirNode(
                         name=attr["name"], parent_id=attr["parent_id"]
@@ -1148,10 +1152,8 @@ class U115OpenHelper:
                             need_parent_id_set.remove(attr["id"])
                         except KeyError:
                             pass
-                else:
-                    if show_dir is None:
-                        files_info.append(attr)
-                        need_parent_id_set.add(attr["parent_id"])
+                if show_dir is None:
+                    need_parent_id_set.add(attr["parent_id"])
             if need_parent_id_set and pre_sub_dirs_to_scan:
                 for _id in pre_sub_dirs_to_scan:
                     sub_dirs_to_scan.append((_id, 0, True))
@@ -1189,7 +1191,7 @@ class U115OpenHelper:
             if len(paths) > 1:
                 for p in paths[1:]:
                     full_path += f"/{p.get('file_name')}"
-            full_path += f"/{data.get("file_name")}"
+            full_path += f"/{data.get('file_name')}"
         if page_size <= 0 or page_size > 1_150:
             page_size = 1_150
 
@@ -1260,7 +1262,7 @@ class U115OpenHelper:
         order: Literal[
             "file_name", "file_size", "user_utime", "file_type"
         ] = "file_name",
-    ):
+    ) -> Iterator[Dict]:
         """
         遍历目录树迭代文件信息对象
 
@@ -1281,6 +1283,8 @@ class U115OpenHelper:
             - "file_size": 文件大小
             - "file_type": 文件种类
             - "user_utime": 修改时间
+
+        :return: 迭代器，文件或文件夹信息
         """
         rate_limiter = RateLimiter(qps)
 
@@ -1323,12 +1327,11 @@ class U115OpenHelper:
                     if path_prefix
                     else f"/{attr['name']}"
                 )
+                attr["relpath"] = path
+                attr["path"] = full_path + path
+                files_found.append(attr)
                 if attr.get("is_dir"):
                     sub_dirs_to_scan.append((int(attr["id"]), path, 0))
-                else:
-                    attr["relpath"] = path
-                    attr["path"] = full_path + path
-                    files_found.append(attr)
             new_offset = offset + len(items)
             if new_offset < count and len(items) > 0:
                 sub_dirs_to_scan.append((cid, path_prefix, new_offset))
@@ -1355,7 +1358,7 @@ class U115OpenHelper:
             if len(paths) > 1:
                 for p in paths[1:]:
                     full_path += f"/{p.get('file_name')}"
-            full_path += f"/{data.get("file_name")}"
+            full_path += f"/{data.get('file_name')}"
         if page_size <= 0 or page_size > 1_150:
             page_size = 1_150
 
@@ -1380,14 +1383,214 @@ class U115OpenHelper:
                         raise e
                     break
 
-
     def iter_files_with_path_inc(
         self,
         path: str | int | Path | PathLike,
         /,
+        db: Optional[OpenFileOper] = None,
+        cache_path: Optional[Path] = None,
+        mode: Literal["add", "remove"] = "add",
         qps: int = 5,
-    ):
+        page_size: int = 1150,
+        max_workers: int = 10,
+    ) -> Iterator[Dict]:
         """
         依据本地媒体文件数据增量迭代文件信息对象
-        """
 
+        :param path: 迭代目录（可选目录路径，cid）
+        :param db: 数据库操作类
+        :param cache_path: 信息缓存路径，如果传入路径存在则跳过拉取数据，不存在则自动拉取数据
+        :param mode: 数据处理模式
+        :param qps: 每秒请求数
+        :param page_size: 分页大小
+        :param max_workers: 最大工作线程数
+
+        :return: 迭代器，文件或文件夹信息
+        """
+        rate_limiter = RateLimiter(qps)
+        lock = Lock()
+
+        if isinstance(path, (Path, PathLike)):
+            storage_chain = StorageChain()
+            file_item = storage_chain.get_file_item(storage="u115", path=Path(path))
+            if not file_item:
+                raise CanNotFindPathToCid("无法获取目录信息")
+            path = file_item.fileid
+        initial_cid = int(path)
+
+        full_path = ""
+        if initial_cid != 0:
+            resp = self._request_api(
+                "GET",
+                "/open/folder/get_info",
+                params={"file_id": initial_cid},
+            )
+            if not resp:
+                raise OSError("获取目录信息失败")
+            data: Dict = resp.get("data")
+            paths: List[Dict] = data.get("paths")
+            if len(paths) > 1:
+                for p in paths[1:]:
+                    full_path += f"/{p.get('file_name')}"
+            full_path += f"/{data.get('file_name')}"
+
+        if page_size <= 0 or page_size > 1_150:
+            page_size = 1_150
+
+        if not db:
+            db = OpenFileOper()
+
+        if not cache_path:
+            cache_path = configer.PLUGIN_TEMP_PATH / "u115_iter_files_inc"
+        if not cache_path.exists():
+            """
+            cache 磁盘缓存 与 file_ids 列表 index 相对应
+            cache[-1] 储存为 file_ids 列表
+            """
+            cache: Deque = Deque(directory=cache_path)
+            need_parent_id_set: Set[int] = set()
+            db_parent_id_set: Set[int] = db.get_all_id("folder")
+            file_ids: List[int] = []
+
+            def _pull_files_job(
+                cid: int,
+                offset: int,
+            ) -> List[Tuple[int, str, int]]:
+                rate_limiter.acquire()
+                payload = {
+                    "cid": cid,
+                    "limit": page_size,
+                    "offset": offset,
+                }
+                for i in range(1, 4):
+                    try:
+                        resp = self._request_api(
+                            "GET",
+                            "/open/ufile/files",
+                            params=payload,
+                        )
+                        break
+                    except HTTPStatusError as e:
+                        sleep(2**i)
+                        if i == 3:
+                            raise e
+                items = resp.get("data", [])  # noqa
+                count = resp.get("count", 0)
+                sub_dirs_to_scan = []
+                for attr in items:
+                    attr = normalize_attr(attr)
+                    with lock:
+                        cache.append(attr)
+                        file_ids.append(attr["id"])
+                        need_parent_id_set.add(attr["parent_id"])
+                if (offset // page_size) % 5 == 0:
+                    for i in range(1, 6):
+                        if offset + page_size * i < count:
+                            sub_dirs_to_scan.append((cid, offset + page_size * i))
+                return sub_dirs_to_scan
+
+            def _get_path_job(file_id: int) -> List[Dict]:
+                if file_id not in find_parent_id_set:
+                    return []
+                rate_limiter.acquire()
+                return_paths = []
+                for i in range(1, 4):
+                    try:
+                        resp = self._request_api(
+                            "GET",
+                            "/open/folder/get_info",
+                            params={
+                                "file_id": file_id,
+                            },
+                        )
+                        break
+                    except HTTPStatusError as e:
+                        sleep(2**i)
+                        if i == 3:
+                            raise e
+                data = resp.get("data")  # noqa
+                path = ""
+                paths: List[Dict] = data.get("paths")
+                if len(paths) > 1:
+                    for i in range(1, len(paths)):
+                        p = paths[i]
+                        path += f"/{p.get('file_name')}"
+                        if p.get("file_id") not in db_parent_id_set:
+                            return_paths.append(
+                                {
+                                    "id": p.get("file_id"),
+                                    "parent_id": paths[i - 1].get("file_id"),
+                                    "name": p.get("file_name"),
+                                    "path": path,
+                                }
+                            )
+                            if p.get("file_id") in find_parent_id_set:
+                                try:
+                                    find_parent_id_set.remove(p.get("file_id"))
+                                except KeyError:
+                                    pass
+                path += f"/{data.get('file_name')}"
+                return_paths.append(
+                    {
+                        "id": file_id,
+                        "parent_id": paths[-1].get("file_id"),
+                        "name": data.get("file_name"),
+                        "path": path,
+                    }
+                )
+                try:
+                    find_parent_id_set.remove(file_id)
+                except KeyError:
+                    pass
+                return return_paths
+
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                pending_futures: Set[Future] = set()
+                initial_future = executor.submit(_pull_files_job, initial_cid, 0)
+                pending_futures.add(initial_future)
+                while pending_futures:
+                    for future in as_completed(pending_futures):
+                        pending_futures.remove(future)
+                        try:
+                            sub_dirs = future.result()
+                            for task_args in sub_dirs:
+                                new_future = executor.submit(
+                                    _pull_files_job, *task_args
+                                )
+                                pending_futures.add(new_future)
+                        except Exception as e:
+                            for f in pending_futures:
+                                f.cancel()
+                            executor.shutdown(wait=False, cancel_futures=True)
+                            raise e
+                        break
+                cache.append(file_ids)
+
+                find_parent_id_set: Set[int] = need_parent_id_set - db_parent_id_set
+
+                if find_parent_id_set:
+                    results = executor.map(_get_path_job, find_parent_id_set)
+                    for items in batched(results, 8_000):
+                        datas: List[Dict] = []
+                        for item in items:
+                            datas.extend(item)
+                        db.upsert_batch(datas, "folder")
+
+        cache: Deque = Deque(directory=cache_path)
+        file_ids_list: List[int] = cache[-1]
+        file_ids_set: Set[int] = set(file_ids_list)
+        db_file_ids: Set[int] = db.get_all_id("file")
+        if mode == "add":
+            find_file_ids: Set[int] = file_ids_set - db_file_ids
+            if find_file_ids:
+                for file_id in find_file_ids:
+                    index = file_ids_list.index(file_id)
+                    item = cache[index]
+                    item["path"] = (
+                        f"{db.get_parent_path_by_id(item['parent_id'])}/{item['name']}"
+                    )
+                    yield item
+        else:
+            find_file_ids: Set[int] = db_file_ids - file_ids_set
+            if find_file_ids:
+                yield from db.get_files_info_by_id(find_file_ids)
