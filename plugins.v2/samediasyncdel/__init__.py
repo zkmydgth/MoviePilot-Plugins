@@ -28,7 +28,7 @@ class SaMediaSyncDel(_PluginBase):
     # 插件图标
     plugin_icon = "mediasyncdel.png"
     # 插件版本
-    plugin_version = "1.0.4"
+    plugin_version = "1.0.3"
     # 插件作者
     plugin_author = "DDSRem,thsrite"
     # 作者主页
@@ -67,6 +67,8 @@ class SaMediaSyncDel(_PluginBase):
     def init_plugin(self, config: dict = None):
         self._transferchain = TransferChain()
         self._downloader_helper = DownloaderHelper()
+        self._transferhis = self._transferchain.transferhis
+        self._downloadhis = self._transferchain.downloadhis
         self._storagechain = StorageChain()
         self._mediaserver_helper = MediaServerHelper()
         self._mediaserver = None
@@ -1014,7 +1016,7 @@ class SaMediaSyncDel(_PluginBase):
                 year = transferhis.year
 
                 # 0、删除转移记录
-                self._transferchain.transferhis.delete(transferhis.id)
+                self._transferhis.delete(transferhis.id)
 
                 # 删除种子任务
                 if self._del_source:
@@ -1153,7 +1155,7 @@ class SaMediaSyncDel(_PluginBase):
                     year = transferhis.year
 
                     # 0、删除转移记录
-                    self._transferchain.transferhis.delete(transferhis.id)
+                    self._transferhis.delete(transferhis.id)
 
                     # 1、删除网盘文件
                     self.__delete_p115_files(
@@ -1296,7 +1298,7 @@ class SaMediaSyncDel(_PluginBase):
                     year = transferhis.year
 
                     # 0、删除转移记录
-                    self._transferchain.transferhis.delete(transferhis.id)
+                    self._transferhis.delete(transferhis.id)
 
                     # 1、删除网盘文件
                     self.__delete_p123_files(
@@ -1556,18 +1558,14 @@ class SaMediaSyncDel(_PluginBase):
         # 删除电影
         if mtype == MediaType.MOVIE:
             msg = f"电影 {media_name} {tmdb_id}"
-            transfer_history: List[TransferHistory] = (
-                self._transferchain.transferhis.get_by(
-                    tmdbid=tmdb_id, mtype=mtype.value, dest=media_path
-                )
+            transfer_history: List[TransferHistory] = self._transferhis.get_by(
+                tmdbid=tmdb_id, mtype=mtype.value, dest=media_path
             )
         # 删除电视剧
         elif mtype == MediaType.TV and not season_num and not episode_num:
             msg = f"剧集 {media_name} {tmdb_id}"
-            transfer_history: List[TransferHistory] = (
-                self._transferchain.transferhis.get_by(
-                    tmdbid=tmdb_id, mtype=mtype.value
-                )
+            transfer_history: List[TransferHistory] = self._transferhis.get_by(
+                tmdbid=tmdb_id, mtype=mtype.value
             )
         # 删除季
         elif mtype == MediaType.TV and season_num and not episode_num:
@@ -1575,10 +1573,8 @@ class SaMediaSyncDel(_PluginBase):
                 logger.error(f"{media_name} 季同步删除失败，未获取到具体季")
                 return
             msg = f"剧集 {media_name} S{season_num} {tmdb_id}"
-            transfer_history: List[TransferHistory] = (
-                self._transferchain.transferhis.get_by(
-                    tmdbid=tmdb_id, mtype=mtype.value, season=f"S{season_num}"
-                )
+            transfer_history: List[TransferHistory] = self._transferhis.get_by(
+                tmdbid=tmdb_id, mtype=mtype.value, season=f"S{season_num}"
             )
         # 删除集
         elif mtype == MediaType.TV and season_num and episode_num:
@@ -1591,14 +1587,12 @@ class SaMediaSyncDel(_PluginBase):
                 logger.error(f"{media_name} 集同步删除失败，未获取到具体集")
                 return
             msg = f"剧集 {media_name} S{season_num}E{episode_num} {tmdb_id}"
-            transfer_history: List[TransferHistory] = (
-                self._transferchain.transferhis.get_by(
-                    tmdbid=tmdb_id,
-                    mtype=mtype.value,
-                    season=f"S{season_num}",
-                    episode=f"E{episode_num}",
-                    dest=media_path,
-                )
+            transfer_history: List[TransferHistory] = self._transferhis.get_by(
+                tmdbid=tmdb_id,
+                mtype=mtype.value,
+                season=f"S{season_num}",
+                episode=f"E{episode_num}",
+                dest=media_path,
             )
         else:
             return "", []
@@ -1638,10 +1632,10 @@ class SaMediaSyncDel(_PluginBase):
         handle_torrent_hashs = []
         try:
             # 删除本次种子记录
-            self._transferchain.downloadhis.delete_file_by_fullpath(fullpath=src)
+            self._downloadhis.delete_file_by_fullpath(fullpath=src)
 
             # 根据种子hash查询所有下载器文件记录
-            download_files = self._transferchain.downloadhis.get_files_by_hash(
+            download_files = self._downloadhis.get_files_by_hash(
                 download_hash=torrent_hash
             )
             if not download_files:
@@ -1763,9 +1757,7 @@ class SaMediaSyncDel(_PluginBase):
         处理做种合集
         """
         try:
-            src_download_files = self._transferchain.downloadhis.get_files_by_fullpath(
-                fullpath=src
-            )
+            src_download_files = self._downloadhis.get_files_by_fullpath(fullpath=src)
             if src_download_files:
                 for download_file in src_download_files:
                     # src查询记录 判断download_hash是否不一致
@@ -1775,10 +1767,8 @@ class SaMediaSyncDel(_PluginBase):
                         and str(download_file.download_hash) != str(torrent_hash)
                     ):
                         # 查询新download_hash对应files数量
-                        hash_download_files = (
-                            self._transferchain.downloadhis.get_files_by_hash(
-                                download_hash=download_file.download_hash
-                            )
+                        hash_download_files = self._downloadhis.get_files_by_hash(
+                            download_hash=download_file.download_hash
                         )
                         # 新download_hash对应files数量 > 删种download_hash对应files数量 = 合集种子
                         if (
@@ -1906,11 +1896,9 @@ class SaMediaSyncDel(_PluginBase):
         if not src:
             return
         # 查询下载hash
-        download_hash = self._transferchain.downloadhis.get_hash_by_fullpath(src)
+        download_hash = self._downloadhis.get_hash_by_fullpath(src)
         if download_hash:
-            download_history = self._transferchain.downloadhis.get_by_hash(
-                download_hash
-            )
+            download_history = self._downloadhis.get_by_hash(download_hash)
             self.handle_torrent(
                 type=download_history.type, src=src, torrent_hash=download_hash
             )
