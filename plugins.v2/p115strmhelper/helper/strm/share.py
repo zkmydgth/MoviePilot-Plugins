@@ -284,6 +284,7 @@ class ShareStrmHelper:
         self.total_count = 0
         self.strm_count = 0
         self.mediainfo_count = 0
+        self._strm_generated_paths: Set[str] = set()
 
         self.strm_fail_count = 0
         self.strm_fail_dict: Dict[str, str] = {}
@@ -296,6 +297,8 @@ class ShareStrmHelper:
         self.mp_transfer_queue = Deque()
 
         self.lock = Lock()
+        self.strm_count_lock = Lock()
+        self.strm_fail_lock = Lock()
 
         self.strmurlgetter = StrmUrlGetter()
 
@@ -409,6 +412,7 @@ class ShareStrmHelper:
         original_file_name = file_path.name
         file_name = StrmGenerater.get_strm_filename(file_path)
         new_file_path = file_target_dir / file_name
+        new_file_path_str = str(new_file_path)
 
         try:
             if config.auto_download_mediainfo:
@@ -452,8 +456,9 @@ class ShareStrmHelper:
                 logger.error(
                     f"【分享STRM生成】{original_file_name} 不存在 id 值，无法生成 STRM 文件"
                 )
-                self.strm_fail_dict[str(new_file_path)] = "不存在 id 值"
-                self.strm_fail_count += 1
+                with self.strm_fail_lock:
+                    self.strm_fail_dict[str(new_file_path)] = "不存在 id 值"
+                    self.strm_fail_count += 1
                 return
 
             new_file_path.parent.mkdir(parents=True, exist_ok=True)
@@ -467,7 +472,10 @@ class ShareStrmHelper:
             )
 
             new_file_path.write_text(strm_url, encoding="utf-8")
-            self.strm_count += 1
+            with self.strm_count_lock:
+                if new_file_path_str not in self._strm_generated_paths:
+                    self.strm_count += 1
+                    self._strm_generated_paths.add(new_file_path_str)
             logger.info("【分享STRM生成】生成 STRM 文件成功: %s", str(new_file_path))
 
             if config.moviepilot_transfer:
@@ -482,8 +490,9 @@ class ShareStrmHelper:
                 str(new_file_path),
                 e,
             )
-            self.strm_fail_count += 1
-            self.strm_fail_dict[str(new_file_path)] = str(e)
+            with self.strm_fail_lock:
+                self.strm_fail_count += 1
+                self.strm_fail_dict[str(new_file_path)] = str(e)
             return
 
     def generate_strm_files(self) -> None:
