@@ -27,7 +27,7 @@ import stat
 import threading
 import time
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from apscheduler.triggers.cron import CronTrigger
 from fastapi import Request
@@ -115,18 +115,22 @@ class SeedSpaceGuard(_PluginBase):
     # 种子级模式：删除种子后连带清理媒体库侧硬链接与同内容辅种（默认开）。
     # 仅种子级生效。关闭后恢复旧行为：只删主种子，硬链接与辅种不动。
     _companion_cleanup: bool = True
+    # 种子级模式：清理「无主文件」——不被任何种子引用的孤儿硬链接（默认关）。
+    # 仅种子级生效。默认关是因为它主动删除用户文件、判定逻辑复杂，需显式开启。
+    _orphan_cleanup: bool = False
     # 数据层操作器（懒加载，导入失败时置 None 并降级跳过联动）
     _downloadhis: Optional[DownloadHistoryOper] = None
     _transferhis: Optional[TransferHistoryOper] = None
     _running: bool = False
     _last_result: str = ""
-    # 单次清理的聚合计数（文件/转移记录/种子/辅种），仅用于构造通知摘要，
+    # 单次清理的聚合计数（文件/转移记录/种子/辅种/无主文件），仅用于构造通知摘要，
     # 不进明细：明细全部写入日志由用户自行查阅
     _clean_stats: dict = {
         "files": 0,
         "transfers": 0,
         "seeds": 0,
         "companions": 0,
+        "orphans": 0,
         "stalled": False,
         "dry_run": False,
     }
@@ -152,6 +156,7 @@ class SeedSpaceGuard(_PluginBase):
         self._delete_torrents = False
         self._delete_history = False
         self._companion_cleanup = True
+        self._orphan_cleanup = False
         if not config:
             return
         self._enabled = bool(config.get("enabled"))
@@ -191,6 +196,10 @@ class SeedSpaceGuard(_PluginBase):
         # 注意此处刻意不用 bool()——bool(None) 为 False，会让「未配置」变成关闭，
         # 与「默认开」的语义相反。
         self._companion_cleanup = config.get("companion_cleanup", True) is not False
+        # 种子级「无主文件」清理：默认**关闭**，仅显式为真时开启。
+        # 与上一项相反，这里刻意用 bool()——它主动删除用户文件且判定逻辑
+        # 复杂，必须由用户显式勾选，绝不能因「未配置」而默认打开。
+        self._orphan_cleanup = bool(config.get("orphan_cleanup"))
         self._init_linkage_opers()
         # 联动释放等待秒数：0~1800，默认 90
         raw_wait = config.get("sync_wait_seconds")
@@ -497,6 +506,22 @@ class SeedSpaceGuard(_PluginBase):
                     {
                         "component": "VSwitch",
                         "props": {
+                            "model": "orphan_cleanup",
+                            "label": "种子级：清理无主文件（无种子引用）",
+                            "class": "mt-4",
+                            "hint": "仅种子级模式生效，**默认关闭**。清理「不被任何种子引用」"
+                                    "的孤儿硬链接——典型成因：种子的内容与种子本身都被"
+                                    "移到了「保种/清理目录」之外，只剩媒体库侧的硬链接"
+                                    "残留，既无种子可依、也不被「仅文件」模式触及。"
+                                    "判定采取保守策略：无法确证种子清单时整轮跳过；"
+                                    "同一 inode 只要有任一路径被种子引用就整组保留；"
+                                    "保护期内的文件与保护后缀不动。"
+                                    "因涉及主动删除用户文件，请务必先开「试运行」核对清单",
+                        },
+                    },
+                    {
+                        "component": "VSwitch",
+                        "props": {
                             "model": "dry_run",
                             "label": "试运行（只列不删）",
                             "class": "mt-4",
@@ -665,6 +690,7 @@ class SeedSpaceGuard(_PluginBase):
                 "transfers": 0,
                 "seeds": 0,
                 "companions": 0,
+                "orphans": 0,
                 "stalled": False,
                 "dry_run": dry_run,
             }
@@ -746,6 +772,25 @@ class SeedSpaceGuard(_PluginBase):
 
             if mode == "seed":
                 result = self._clean_by_seed(free_bytes, dry_run)
+                # 种子级主链路跑完后，若仍未达标且用户开启了「无主文件」清理，
+                # 再补一轮：处理「不被任何种子引用」的孤儿硬链接——它们既无种子
+                # 可依（种子不在监控目录内），又不被文件级链路触及（模式互斥），
+                # 若不在此处清理便永久残留。
+                deleted, released_gb, detail_lines = result
+                try:
+                    free_after = self._disk_free_bytes()
+                except Exception:
+                    free_after = None
+                if self._orphan_cleanup and (
+                    free_after is None
+                    or free_after < self._threshold_gb * GIB
+                ):
+                    o_deleted, o_gb, o_lines = self._clean_orphan_files(dry_run)
+                    if o_deleted:
+                        detail_lines = list(detail_lines or []) + o_lines
+                        deleted += o_deleted
+                        released_gb += o_gb
+                result = (deleted, released_gb, detail_lines)
             else:
                 result = self._clean_by_file(free_bytes, dry_run)
             deleted, released_gb, detail_lines = result
@@ -809,7 +854,7 @@ class SeedSpaceGuard(_PluginBase):
         s = getattr(self, "_clean_stats", {}) or {}
         has_count = (
             s.get("files") or s.get("transfers") or s.get("seeds")
-            or s.get("companions") or s.get("stalled")
+            or s.get("companions") or s.get("orphans") or s.get("stalled")
         )
         if not has_count:
             return msg
@@ -824,6 +869,10 @@ class SeedSpaceGuard(_PluginBase):
             # 辅种独立成行：并入「删除种子」会让总数虚高，用户无法分辨
             # 删掉的是主种子还是连带摘除的辅种
             lines.append(f"{prefix}连带删除辅种：{s.get('companions')} 个")
+        if s.get("orphans"):
+            # 同样独立成行：无主文件既非「按种子删」也非「按文件删」，
+            # 与 files/seeds 混在一起会让用户看不懂数字来源
+            lines.append(f"{prefix}清理无主文件：{s.get('orphans')} 个")
         return msg + "\n" + "\n".join(lines)
 
     def _disk_free_bytes(self) -> Optional[int]:
@@ -930,7 +979,7 @@ class SeedSpaceGuard(_PluginBase):
         if "seeds" not in getattr(self, "_clean_stats", {}):
             self._clean_stats = {
                 "files": 0, "transfers": 0, "seeds": 0, "companions": 0,
-                "stalled": False, "dry_run": dry_run,
+                "orphans": 0, "stalled": False, "dry_run": dry_run,
             }
         self._clean_stats["dry_run"] = dry_run
 
@@ -1250,6 +1299,226 @@ class SeedSpaceGuard(_PluginBase):
                     hit = hash_str
         cache[parent] = hit
         return hit
+
+    def _collect_all_torrent_refs(self) -> Optional[Set[str]]:
+        """
+        收集「全部种子」引用的规范化路径集合，供「无主文件」判定使用。
+
+        与 ``_collect_seed_candidates`` 的**关键区别**（这正是本方法存在的理由）：
+
+        1. **不过滤 content_path 范围**。候选收集会把内容路径不在监控目录内的
+           种子标为 out_of_scope 并丢弃；但这类种子**仍在做种**，其文件绝不能被
+           当成「无主」删掉——那样会直接破坏做种。
+        2. **不过滤未完成种子**。``_parse_torrent`` 对 ``progress < 0.999`` 返回
+           None，而未完成的种子**同样在磁盘上占着文件**。故此处不复用它，直接读
+           原始条目的路径字段。
+
+        每个种子取三级来源，任一命中即视为「有主」：
+
+        1. 内容路径 / 保存目录（下载器原始报告，最权威）
+        2. 「配置目录 + 种子名」推断（覆盖记录缺失与路径迁移）
+        3. ``DownloadFiles`` 记录（含各集完整路径）
+
+        :return: 规范化路径集合；**返回 None 表示无法确证**（下载器枚举失败
+                 或无可用下载器）——调用方必须据此放弃整轮判定，宁可不动
+        """
+        refs: Set[str] = set()
+        try:
+            services = DownloaderHelper().get_services()
+        except Exception as err:
+            logger.error("【保种空间守护】无主判定：获取下载器失败：%s", err)
+            return None
+        if not services:
+            logger.warning("【保种空间守护】无主判定：无可用下载器，放弃本轮判定")
+            return None
+
+        bases = self._active_dirs or self._target_dirs
+        probed = 0
+        for name, service in services.items():
+            # 与候选收集保持一致：仅处理配置选定的目标下载器（空=全部）
+            if self._downloaders and name not in self._downloaders:
+                continue
+            server = getattr(service, "instance", None)
+            if server is None:
+                continue
+            try:
+                ret = server.get_torrents()
+            except Exception as err:
+                # 单个下载器读不到 → 整轮判定不可信，直接放弃
+                logger.error(
+                    "【保种空间守护】无主判定：读取下载器 %s 种子列表失败：%s",
+                    name, err,
+                )
+                return None
+            items = ret[0] if isinstance(ret, tuple) else ret
+            for item in items or []:
+                probed += 1
+                # ① 内容路径 / 保存目录：不判完成度，未完成的种子同样在占文件
+                content = str(
+                    self._pick_attr(item, "content_path", "contentPath",
+                                    default="") or ""
+                ).strip()
+                if content:
+                    refs.add(os.path.normpath(content))
+                save_path = str(
+                    self._pick_attr(item, "save_path", "savePath",
+                                    "download_dir", "downloadDir",
+                                    default="") or ""
+                ).strip()
+                if save_path:
+                    refs.add(os.path.normpath(save_path))
+                # ② 种子名 → 各配置目录下的推断路径
+                title = str(self._pick_attr(item, "name", default="") or "").strip()
+                if title:
+                    for base in bases:
+                        refs.add(os.path.normpath(os.path.join(base, title)))
+                # ③ DownloadFiles 记录：按 hash 取各集完整路径
+                hash_str = str(self._pick_attr(item, "hash", default="") or "")
+                if hash_str:
+                    for path in self._seed_file_paths(
+                        {"hash": hash_str, "title": title, "files": []}
+                    ):
+                        refs.add(os.path.normpath(path))
+
+        logger.info(
+            "【保种空间守护】无主判定：扫描 %d 个种子（含未完成与监控范围外），"
+            "得到 %d 条有主路径",
+            probed, len(refs),
+        )
+        return refs
+
+    @staticmethod
+    def _is_owned_path(path: str, owned: Set[str]) -> bool:
+        """
+        判断某路径是否被任一「有主」路径覆盖（自身命中或落在其目录前缀下）。
+
+        前缀匹配而非全等：种子的有主集合里可能只登记了**目录**
+        （``content_path`` 指向种子目录），而其下的各集文件是逐个出现在
+        磁盘上的，必须按前缀归属，否则会把正在做种的文件误判为无主。
+
+        :param path: 待判定的文件路径
+        :param owned: ``_collect_all_torrent_refs`` 的返回值
+        :return: 是否属于某个有主路径
+        """
+        if not path or not owned:
+            return False
+        norm = os.path.normpath(path)
+        if norm in owned:
+            return True
+        for owner in owned:
+            if norm.startswith(owner + os.sep):
+                return True
+        return False
+
+    def _clean_orphan_files(self, dry_run: bool) -> Tuple[int, float, List[str]]:
+        """
+        清理「无主文件」：不被任何种子引用的孤儿硬链接。
+
+        典型成因：种子 A 的文件在媒体库目录生成了硬链接，之后 A 的内容与种子
+        都被移到了监控目录之外。此时残留的硬链接既无种子可依（种子级候选要求
+        种子在监控目录内），又不被文件级链路触及（模式二选一），于是永久残留。
+
+        **保守优先**是这个方法的最高原则——只有能证明「不被任何种子引用」才删：
+
+        - ``_collect_all_torrent_refs`` 返回 None（无法确证）→ 整轮放弃
+        - 同 inode 的任一路径有主 → **整组保留**（同 inode 即同一物理文件，
+          一侧有主说明它仍被引用，删任何一侧都会破坏做种）
+        - 保护期内的文件（按 mtime）、命中保护后缀的文件 → 保留
+        - 路径不在配置目录内 → 保留（``_delete_one`` 三层边界自动拦截）
+
+        与 ``_clean_by_seed`` 主链路的关系：本方法**不参与**其「名义释放量」
+        闭环。删除后空间未释放（该 inode 在监控范围外仍有链接）时只记明细告警，
+        **不置 stalled**，避免污染主流程的停手判定。
+
+        :param dry_run: 是否试运行（照常扫描并如实预告，但不执行删除）
+        :return: （删除文件数，释放 GB，明细行）
+        """
+        detail_lines: List[str] = []
+
+        # ① 先确证「有主」集合；拿不到就整轮放弃（宁可漏删不可误删）
+        owned = self._collect_all_torrent_refs()
+        if owned is None:
+            line = "无主文件清理：无法获取种子清单（下载器不可用或读取失败），本轮跳过"
+            logger.warning("【保种空间守护】%s", line)
+            detail_lines.append(line)
+            return 0, 0.0, detail_lines
+
+        # ② 建立候选索引（复用文件级的遍历口径：保护期与保护后缀均已生效）
+        patterns = [
+            p.strip()
+            for p in re.split(r"[,|，]", self._protect_pattern)
+            if p.strip()
+        ]
+        recent_secs = self._recent_skip_days * 86400
+        files, ino_paths = self._index_files(patterns, recent_secs)
+        if not files:
+            return 0, 0.0, detail_lines
+
+        # _delete_one 从该成员取「同 inode 的全部路径」，这里必须是本次索引
+        self._ino_paths = ino_paths
+
+        # ③ 按 inode 归组：同 inode 任一路径有主 → 整组保留
+        orphan_keys: List[Tuple[int, int]] = []
+        seen_keys: Set[Tuple[int, int]] = set()
+        for _mtime, _fpath, _size, key in files:
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
+            plist = ino_paths.get(key, [])
+            if any(self._is_owned_path(p, owned) for p in plist):
+                continue
+            orphan_keys.append(key)
+
+        if not orphan_keys:
+            logger.info("【保种空间守护】无主文件清理：未发现无主文件")
+            return 0, 0.0, detail_lines
+
+        size_by_key = {key: size for _m, _p, size, key in files}
+
+        # ④ 试运行：照常扫描，如实预告（不因 dry_run 而跳过扫描）
+        if dry_run:
+            total_gb = 0.0
+            for key in orphan_keys:
+                plist = self._ino_paths.get(key, [])
+                rep = plist[0] if plist else ""
+                size = float(size_by_key.get(key, 0))
+                total_gb += size / GIB
+                detail_lines.append(
+                    f"[试运行] 将删除无主文件：{rep}"
+                    f"（无种子引用，共 {len(plist)} 条路径）"
+                )
+                logger.info("【保种空间守护】%s", detail_lines[-1])
+            self._clean_stats["orphans"] = (
+                (self._clean_stats.get("orphans") or 0) + len(orphan_keys)
+            )
+            return len(orphan_keys), round(total_gb, 1), detail_lines
+
+        # ⑤ 真实删除：逐组删，每组后复核空间，达标即停
+        deleted = 0
+        released_gb = 0.0
+        for key in orphan_keys:
+            if self._disk_free_bytes() is not None:
+                if self._disk_free_bytes() >= self._threshold_gb * GIB:
+                    break
+            plist = self._ino_paths.get(key, [])
+            rep = plist[0] if plist else ""
+            if not rep:
+                continue
+            removed = self._delete_one(rep, key)
+            if removed <= 0:
+                continue
+            deleted += 1
+            released_gb += float(size_by_key.get(key, 0)) / GIB
+            detail_lines.append(
+                f"已删除无主文件：{rep}（无种子引用，清理 {removed} 条路径）"
+            )
+            logger.info("【保种空间守护】%s", detail_lines[-1])
+
+        if deleted:
+            self._clean_stats["orphans"] = (
+                (self._clean_stats.get("orphans") or 0) + deleted
+            )
+        return deleted, round(released_gb, 1), detail_lines
 
     def _reap_orphan_seeds(self, dry_run: bool) -> Dict[str, Any]:
         """
@@ -2230,7 +2499,7 @@ class SeedSpaceGuard(_PluginBase):
         if "files" not in getattr(self, "_clean_stats", {}):
             self._clean_stats = {
                 "files": 0, "transfers": 0, "seeds": 0, "companions": 0,
-                "stalled": False, "dry_run": dry_run,
+                "orphans": 0, "stalled": False, "dry_run": dry_run,
             }
         self._clean_stats["dry_run"] = dry_run
 
@@ -2555,6 +2824,7 @@ class SeedSpaceGuard(_PluginBase):
             "delete_torrents": False,
             "delete_history": False,
             "companion_cleanup": True,
+            "orphan_cleanup": False,
             "downloaders": [],
             "manual_action": "",
         }
