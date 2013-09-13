@@ -1,6 +1,6 @@
 import json
 import platform
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Union
 from pathlib import Path
 
 from pydantic import BaseModel, ValidationError
@@ -82,6 +82,12 @@ class BaseConfig(BaseModel):
     cron_full_sync_strm: str = "0 */7 * * *"
     # 全量同步路径
     full_sync_strm_paths: Optional[str] = None
+    # 全量生成输出详细日志
+    full_sync_strm_log: bool = True
+    # 全量同步单次批处理量
+    full_sync_batch_num: Union[int, str] = 5_000
+    # 全量同步文件处理线程数
+    full_sync_process_num: Union[int, str] = 128
 
     # 增量同步开关
     increment_sync_strm_enabled: bool = False
