@@ -27,6 +27,11 @@ on:
         required: true
         default: 'windows-amd64 linux-x86_64 linux-i686 linux-aarch64 macos-x86_64 macos-arm64'
         type: string
+      musllinux_platforms:
+        description: '可选：为 Musl Linux 交叉编译的架构'
+        required: false
+        default: 'x86_64 aarch64'
+        type: string
       commit_directory:
         description: '可选：自定义提交目录。留空则使用默认值 wheels/包名/版本/'
         required: false
@@ -38,7 +43,7 @@ jobs:
   # 任务0：准备构建矩阵
   prepare_matrix:
     # 任务名称
-    name: 0. 准备构建矩阵
+    name: 准备构建矩阵
     # 运行环境
     runs-on: ubuntu-latest
     # 任务输出
@@ -55,10 +60,23 @@ jobs:
           echo "matrix=${JSON_OBJECT}" >> $GITHUB_OUTPUT
           echo "生成的矩阵对象: ${JSON_OBJECT}"
 
+  prepare_alpine_matrix:
+    name: 准备 musl 平台矩阵
+    if: ${{ inputs.musllinux_platforms != '' }}
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.generate_matrix.outputs.matrix }}
+    steps:
+      - name: 从输入字符串生成矩阵 JSON
+        id: generate_matrix
+        run: |
+          JSON_OBJECT=$(echo '${{ inputs.alpine_platforms }}' | jq -c -R '{arch: split(" ")}')
+          echo "matrix=${JSON_OBJECT}" >> $GITHUB_OUTPUT
+
   # 任务1：获取源码包信息
   get_source_info:
     # 任务名称
-    name: 1. 获取源码包下载地址
+    name: 获取源码包下载地址
     # 运行环境
     runs-on: ubuntu-latest
     # 任务输出
@@ -89,7 +107,7 @@ jobs:
   # 任务2：构建 wheel 文件
   build_wheels:
     # 任务名称
-    name: 2. 在 ${{ matrix.target }} 上编译
+    name: ${{ matrix.target }}
     # 依赖于前两个准备任务的成功
     needs: [get_source_info, prepare_matrix]
     # 运行环境，根据矩阵中的目标平台动态选择
@@ -150,10 +168,44 @@ jobs:
           name: wheel-${{ matrix.target }}
           path: ./wheelhouse/*.whl
 
+  build_musllinux_wheels:
+    name: MuslLinux (${{ matrix.arch }})
+    if: ${{ inputs.musllinux_platforms != '' }}
+    needs: [get_source_info, prepare_alpine_matrix]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare_alpine_matrix.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: 下载并解压源码包
+        shell: bash
+        run: |
+          curl -sL -o source.tar.gz "${{ needs.get_source_info.outputs.sdist_url }}"
+          tar -xzf source.tar.gz
+      - name: 设置 QEMU
+        uses: docker/setup-qemu-action@v3
+      - name: 构建 musllinux Wheel
+        uses: pypa/cibuildwheel@v2.19.1
+        env:
+          CIBW_MANYLINUX_X86_64_IMAGE: 'pypa/musllinux_x86_64'
+          CIBW_MANYLINUX_AARCH64_IMAGE: 'pypa/musllinux_aarch64'
+          CIBW_BEFORE_BUILD: 'pip install wheel setuptools cython'
+          CIBW_BUILD_VERBOSITY: 1
+          CIBW_BUILD: "cp${{ join(split(inputs.python_version, '.'), '')[:3] }}-*"
+          CIBW_OUTPUT_DIR: wheels
+          CIBW_ARCHS: ${{ matrix.arch }}
+        with:
+          package-dir: ${{ needs.get_source_info.outputs.source_dir }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheel-musllinux-${{ matrix.arch }}
+          path: ./wheelhouse/*.whl
+
   # 任务3：提交 wheel 文件到仓库
   commit_wheels:
     # 任务名称
-    name: 3. 提交 Wheels 到仓库
+    name: 提交 Wheels 到仓库
     # 依赖于 build_wheels 任务的完全成功
     needs: build_wheels
     # 运行环境
