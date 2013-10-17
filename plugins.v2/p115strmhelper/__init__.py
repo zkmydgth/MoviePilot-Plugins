@@ -624,10 +624,7 @@ class IncrementSyncStrmHelper:
         """
         cid = self.id_path_cache.get_id_by_dir(path)
         if not cid:
-            try:
-                data = self.databasehelper.get_by_path(path=path)
-            except MultipleResultsFound:
-                self.databasehelper.remove_by_path_batch(path=path)
+            data = self.databasehelper.get_by_path(path=path)
             if data:
                 cid = data.get("id", None)
                 if cid:
