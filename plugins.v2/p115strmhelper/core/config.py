@@ -24,13 +24,13 @@ class BaseConfig(BaseModel):
     # 插件配置目录
     PLUGIN_CONFIG_PATH: str = str(settings.PLUGIN_DATA_PATH / PLUSIN_NAME.lower())
     # 插件数据库目录
-    PLUGIN_DB_PATH: str = str(PLUGIN_CONFIG_PATH / "p115strmhelper_file.db")
+    PLUGIN_DB_PATH: str = str(Path(PLUGIN_CONFIG_PATH) / "p115strmhelper_file.db")
     # 插件数据库表目录
     PLUGIN_DATABASE_PATH: str = str(
         settings.ROOT_PATH / "app/plugins" / PLUSIN_NAME.lower() / "database"
     )
     # 插件临时目录
-    PLUGIN_TEMP_PATH: str = str(PLUGIN_CONFIG_PATH / "temp")
+    PLUGIN_TEMP_PATH: str = str(Path(PLUGIN_CONFIG_PATH) / "temp")
 
     # 插件总开关
     enabled: bool = False
