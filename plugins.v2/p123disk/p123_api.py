@@ -341,68 +341,75 @@ class P123Api:
         target_name = new_name or local_path.name
         target_path = Path(target_dir.path) / target_name
         try:
-            resp = self.client.upload_file_fast(
-                file=local_path,
-                duplicate=2,
-                file_name=new_name,
-                parent_id=target_dir.fileid,
-            )
-            logger.debug(f"【123】秒传文件信息: {resp}")
-            check_response(resp)
-            data = resp.get("data", {}).get("Info", None)
-            if data:
-                logger.info(f"【123】秒传文件成功: {target_path}")
-                logger.debug(f"【123】秒传文件: {data}")
-                return schemas.FileItem(
-                    storage=self._disk_name,
-                    fileid=str(data["FileId"]),
-                    path=str(target_path) + ("/" if data["Type"] == 1 else ""),
-                    type="file" if data["Type"] == 0 else "dir",
-                    name=data["FileName"],
-                    basename=Path(data["FileName"]).stem,
-                    extension=Path(data["FileName"]).suffix[1:]
-                    if data["Type"] == 0
-                    else None,
-                    pickcode=str(data),
-                    size=data["Size"] if data["Type"] == 0 else None,
-                    modify_time=int(
-                        datetime.fromisoformat(data["UpdateAt"]).timestamp()
-                    ),
-                )
+            for _ in range(3):
+                try:
+                    resp = self.client.upload_file_fast(
+                        file=local_path,
+                        duplicate=2,
+                        file_name=new_name,
+                        parent_id=target_dir.fileid,
+                    )
+                    logger.debug(f"【123】{new_name} 秒传文件信息: {resp}")
+                    check_response(resp)
+                    data = resp.get("data", {}).get("Info", None)
+                    if data:
+                        logger.info(f"【123】{new_name} 秒传文件成功: {target_path}")
+                        logger.debug(f"【123】{new_name} 秒传文件: {data}")
+                        return schemas.FileItem(
+                            storage=self._disk_name,
+                            fileid=str(data["FileId"]),
+                            path=str(target_path) + ("/" if data["Type"] == 1 else ""),
+                            type="file" if data["Type"] == 0 else "dir",
+                            name=data["FileName"],
+                            basename=Path(data["FileName"]).stem,
+                            extension=Path(data["FileName"]).suffix[1:]
+                            if data["Type"] == 0
+                            else None,
+                            pickcode=str(data),
+                            size=data["Size"] if data["Type"] == 0 else None,
+                            modify_time=int(
+                                datetime.fromisoformat(data["UpdateAt"]).timestamp()
+                            ),
+                        )
 
-            resp = self.client.upload_file(
-                file=local_path,
-                duplicate=2,
-                file_name=new_name,
-                parent_id=target_dir.fileid,
-            )
-            logger.debug(f"【123】上传文件信息: {resp}")
-            check_response(resp)
-            data = resp.get("data", {}).get("file_info", None)
-            if data:
-                logger.info(f"【123】上传文件成功: {target_path}")
-                logger.debug(f"【123】上传文件: {data}")
-                return schemas.FileItem(
-                    storage=self._disk_name,
-                    fileid=str(data["FileId"]),
-                    path=str(target_path) + ("/" if data["Type"] == 1 else ""),
-                    type="file" if data["Type"] == 0 else "dir",
-                    name=data["FileName"],
-                    basename=Path(data["FileName"]).stem,
-                    extension=Path(data["FileName"]).suffix[1:]
-                    if data["Type"] == 0
-                    else None,
-                    pickcode=str(data),
-                    size=data["Size"] if data["Type"] == 0 else None,
-                    modify_time=int(
-                        datetime.fromisoformat(data["UpdateAt"]).timestamp()
-                    ),
-                )
+                    resp = self.client.upload_file(
+                        file=local_path,
+                        duplicate=2,
+                        file_name=new_name,
+                        parent_id=target_dir.fileid,
+                    )
+                    logger.debug(f"【123】{new_name} 上传文件信息: {resp}")
+                    check_response(resp)
+                    data = resp.get("data", {}).get("file_info", None)
+                    if data:
+                        logger.info(f"【123】{new_name} 上传文件成功: {target_path}")
+                        logger.debug(f"【123】{new_name} 上传文件: {data}")
+                        return schemas.FileItem(
+                            storage=self._disk_name,
+                            fileid=str(data["FileId"]),
+                            path=str(target_path) + ("/" if data["Type"] == 1 else ""),
+                            type="file" if data["Type"] == 0 else "dir",
+                            name=data["FileName"],
+                            basename=Path(data["FileName"]).stem,
+                            extension=Path(data["FileName"]).suffix[1:]
+                            if data["Type"] == 0
+                            else None,
+                            pickcode=str(data),
+                            size=data["Size"] if data["Type"] == 0 else None,
+                            modify_time=int(
+                                datetime.fromisoformat(data["UpdateAt"]).timestamp()
+                            ),
+                        )
+                except Exception as e:
+                    logger.error(f"【123】{new_name} 上传文件出现未知错误: {e}")
 
-            logger.error("【123】上传文件失败")
+                logger.warn(f"【123】{new_name} 上传文件自动重试")
+                time.sleep(5)
+
+            logger.error(f"【123】{new_name} 上传文件失败")
             return None
         except Exception as e:
-            logger.error(f"【123】上传文件失败: {e}")
+            logger.error(f"【123】{new_name} 上传文件失败: {e}")
             return None
 
     def detail(self, fileitem: schemas.FileItem) -> Optional[schemas.FileItem]:
