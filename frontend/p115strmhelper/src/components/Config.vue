@@ -111,6 +111,9 @@
               <v-tab value="tab-directory-upload" class="text-caption">
                 <v-icon size="small" start>mdi-upload</v-icon>目录上传
               </v-tab>
+              <v-tab value="tab-tg-search" class="text-caption">
+                <v-icon size="small" start>mdi-tab-search</v-icon>频道搜索
+              </v-tab>
             </v-tabs>
             <v-divider></v-divider>
 
@@ -723,6 +726,35 @@
                   </v-alert>
                 </v-card-text>
               </v-window-item>
+
+              <!-- 频道搜索 -->
+              <v-window-item value="tab-tg-search">
+                <v-card-text>
+
+                  <v-row>
+                    <v-col cols="12" md="4">
+                      <v-text-field v-model="config.cloudsaver_url" label="CloudSaver 地址" hint="CloudSaver 地址"
+                        persistent-hint density="compact" variant="outlined" hide-details="auto"></v-text-field>
+                    </v-col>
+                    <v-col cols="12" md="4">
+                      <v-text-field v-model="config.cloudsaver_username" label="CloudSaver 用户名" hint="CloudSaver 用户名"
+                        persistent-hint density="compact" variant="outlined" hide-details="auto"></v-text-field>
+                    </v-col>
+                    <v-col cols="12" md="4">
+                      <v-text-field v-model="config.cloudsaver_password" label="CloudSaver 密码" hint="CloudSaver 密码"
+                        persistent-hint type="password" density="compact" variant="outlined"
+                        hide-details="auto"></v-text-field>
+                    </v-col>
+                  </v-row>
+
+                  <v-alert type="info" variant="tonal" density="compact" class="mt-3 text-caption">
+                    <strong>功能说明:</strong><br>
+                    - TG频道搜索目前通过对接 https://github.com/jiangrui1994/CloudSaver 实现。<br>
+                    - 需要配置完成 CloudSaver 地址，用户名与密码方可使用 Telegram 频道搜索功能。<br>
+                  </v-alert>
+                </v-card-text>
+              </v-window-item>
+
             </v-window>
           </v-card>
 
@@ -955,7 +987,10 @@ const config = reactive({
   directory_upload_mode: 'compatibility',
   directory_upload_uploadext: 'mp4,mkv,ts,iso,rmvb,avi,mov,mpeg,mpg,wmv,3gp,asf,m4v,flv,m2ts,tp,f4v',
   directory_upload_copyext: 'srt,ssa,ass',
-  directory_upload_path: []
+  directory_upload_path: [],
+  cloudsaver_url: '',
+  cloudsaver_username: '',
+  cloudsaver_password: ''
 });
 
 // 消息提示

@@ -10,6 +10,7 @@ from .framework.registry import view_registry
 from .framework.views import BaseViewRenderer
 from .session import Session
 from ..utils.string import StringUtils
+from ..core.config import configer
 
 view_registry.clear()
 
@@ -98,24 +99,14 @@ class ViewRenderer(BaseViewRenderer):
 
     def get_search_data(self, session: Session):
         """
-        获取搜索数据，通常从业务逻辑层获取。
-
-        [
-            {
-                "shareurl": "https://115cdn.com/s/swwwsri3fbu?password=e796#",
-                "taskname": "仙逆 (2023)",
-                "content": "改编自耳根同名小说《仙逆》，讲述了乡村平凡少年王林以心中之感动，逆仙而修，求的不仅是长生，更多的是摆脱那背后的蝼蚁之身。他坚信道在人为，以平庸的资质踏入修真仙途，历经坎坷风雨，凭着其聪睿的心智，一步一步走向巅峰，凭一己之力，扬名修真界。",
-                "tags": [],
-                "channel": "Shares_115_Channel",
-                "channel_id": "Channel_Shares_115",
-            },
-            ...
-        ]
+        获取搜索数据
         """
-        # Todo：这里对接获取接口
-
-        cs_client = CloudSaverHelper("http://192.168.31.100:8888/")
-        cs_client.set_auth("username", "password", "")
+        cs_client = CloudSaverHelper(configer.get_config("cloudsaver_url"))
+        cs_client.set_auth(
+            configer.get_config("cloudsaver_username"),
+            configer.get_config("cloudsaver_password"),
+            "",
+        )
         results = cs_client.auto_login_search(session.business.search_keyword)
         data = cs_client.clean_search_results(results.get("data", []))
 

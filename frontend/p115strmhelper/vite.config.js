@@ -34,7 +34,7 @@ export default defineConfig({
   ],
   build: {
     target: 'esnext',   // 必须设置为esnext以支持顶层await
-    minify: false,      // 开发阶段建议关闭混淆
+    minify: 'terser',      // 开发阶段建议关闭混淆
     cssCodeSplit: true, // 改为true以便能分离样式文件
   },
   css: {
@@ -55,19 +55,20 @@ export default defineConfig({
             }
           }
         },
-        {
+        // 只在非开发环境下启用 vuetify 样式过滤
+        ...(process.env.NODE_ENV !== 'development' ? [{
           postcssPlugin: 'vuetify-filter',
           Root(root) {
             // 过滤掉所有vuetify相关的CSS
             root.walkRules(rule => {
               if (rule.selector && (
-                  rule.selector.includes('.v-') || 
-                  rule.selector.includes('.mdi-'))) {
+                rule.selector.includes('.v-') ||
+                rule.selector.includes('.mdi-'))) {
                 rule.remove();
               }
             });
           }
-        }
+        }] : [])
       ]
     }
   },
