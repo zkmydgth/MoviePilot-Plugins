@@ -17,7 +17,7 @@ https://github.com/zkmydgth/MoviePilot-Plugins
 | [**保种空间守护**](#保种空间守护seedspaceguard) | 空间不足时自动清理保种最久的资源，避免 H&R | MoviePilot >= 3.0.0 |
 
 > 以上为 **V3 插件线**（源码在 `plugins.v3/`），仅支持 MoviePilot >= 3.0.0。
-> V2 插件线已停止更新，相关说明与更新记录见文末[附录](#附录v2-插件线已停更)，仅供存档查阅。
+> V2 插件线已停止更新，相关说明见文末[附录](#附录v2-插件线已停更)，仅供存档查阅。
 
 ---
 
@@ -60,20 +60,6 @@ https://github.com/zkmydgth/MoviePilot-Plugins
 - 在 **MoviePilot V2** 上因 `system_version` 要求 `>=3.0.0`，该插件不会出现在插件市场列表中——这是版本约束的正常表现，**不是发布故障**
 - 插件数据库迁移锚点、事件队列名沿用上游命名，便于从上游 V2 迁移时保留既有数据
 
-### 更新历史
-
-<details>
-<summary>📜 点击展开更新记录</summary>
-
-| 版本 | 说明 |
-| --- | --- |
-| v3.2.1 | **适配 MoviePilot V3 的 Python 3.14 运行时**：Rust 加速扩展（`full_strm_sync` / `txt_tree_storage` / `share_strm_scan`）上游只发布 cp312 wheel，声明为必需依赖会让 uv 整体解析失败导致插件装不上，现改为环境标记可选依赖；目录树 TXT 后端补齐纯 Python 实现，分享 STRM 扫描器提供纯 Python 实现，全量同步在扩展缺失时自动回落纯 Python 路径；`pyahocorasick` 升至 2.3.1（首个提供 cp314 wheel 的版本）。**并修复前端组件加载失败**：Vue 联邦构建产物此前未随源码分发，补齐 `dist/` 并修正构建配置中重复打包 Vuetify 的问题 |
-| v3.2.0 | **修复 V3 环境下插件无法加载的两个硬断点**：①`TransferTask` 导入路径失效（V3 已迁至 `app.application.transfer.models`）；②`ChannelCapabilityManager` 被彻底移除，交互视图改用插件本地兜底实现 |
-| v3.1.0 | 同步上游 V2 主线修复：302 缓存雪崩防护、增量清理不再误删目录、远程 ffprobe 稳定性增强、302 接口日志降噪；随包携带离线 wheels |
-| v3.0.0 | 适配 MoviePilot V3 SDK 与插件依赖清单 |
-
-</details>
-
 ---
 
 ## 配置备份（ConfigBackup）
@@ -109,17 +95,6 @@ https://github.com/zkmydgth/MoviePilot-Plugins
 
 > ⚠️ **数据库备份/还原依赖 MoviePilot 以 PostgreSQL 运行**（`DB_TYPE=postgresql`），插件直连主库导出，无需外部 `pg_dump` 工具。
 > 若 MoviePilot 使用非 PostgreSQL（如 SQLite/MySQL），将自动跳过数据库备份与还原，仅备份配置与插件数据。
-
-### 更新历史
-
-<details>
-<summary>📜 点击展开更新记录</summary>
-
-| 版本 | 说明 |
-| --- | --- |
-| v3.0.0 | 适配 MoviePilot V3 SDK 与插件依赖清单：`core.config→runtime.config`、`helper.directory→application.directory`、`log→runtime.log`、`utils.string→sdk.string`、`NotificationType→MessageType`；独立于 V2 维护线，初始版本 3.0.0 |
-
-</details>
 
 ---
 
@@ -165,17 +140,6 @@ https://github.com/zkmydgth/MoviePilot-Plugins
 
 > 💡 **清理范围是「除保护后缀外全部删除」**：配置目录下所有文件均纳入清理候选，不区分文件类型。「保护文件后缀」是**唯一**的保留手段，需要保留的文件务必填入该项（例如正在下载的 `*.part`）。
 
-### 更新历史
-
-<details>
-<summary>📜 点击展开更新记录</summary>
-
-| 版本 | 说明 |
-| --- | --- |
-| v3.0.0 | 适配 MoviePilot V3 SDK 与插件依赖清单：`core.event→sdk.events`、`log→runtime.log`、`NotificationType→MessageType`、`db.*_oper→db.oper.*`；下载器访问层改写为 `app.application.downloader.DownloaderHelper`；下载器类型改为「配置字符串 → `DownloaderType` 枚举」归一化以避免判定失效。独立于 V2 维护线，初始版本 3.0.0 |
-
-</details>
-
 ---
 
 ## 使用方式
@@ -204,7 +168,7 @@ https://github.com/zkmydgth/MoviePilot-Plugins
 | V2 | `plugins.v2/<插件>` | `package.v2.json` | MoviePilot 2.x | ⛔ 已停更 |
 | V3 | `plugins.v3/<插件>` | `package.v3.json` | MoviePilot >= 3.0.0 | ✅ 维护中 |
 
-两条线是**两个各自演进的版本**，各有独立的更新历史，不能互相覆盖：
+两条线是**两个各自演进的版本**，各有独立的更新记录（详见仓库 [Releases](https://github.com/zkmydgth/MoviePilot-Plugins/releases) 页），不能互相覆盖：
 
 - 同一插件 ID 在 V2 与 V3 上的版本号互不相关。
 - V3 线要求 `>=3.0.0`，因此在 MoviePilot V2 上不会出现在插件市场列表中——**这是正常的版本约束表现，不是发布故障。**
@@ -227,32 +191,6 @@ https://github.com/zkmydgth/MoviePilot-Plugins
 | 发布状态 | 已停更 |
 
 V2 版功能与 V3 v3.0.0 一致，区别仅在宿主 API 写法（`ModuleManager` / `ServiceConfigHelper` 等 V3 已移除的接口）。
-
-#### V2 更新历史
-
-| 版本 | 说明 |
-| --- | --- |
-| v1.3.8 | 三项体验修复：手动触发不再静默、统一删种统计口径、精简配置表单说明 |
-| v1.3.7 | 修复空壳种子误回收（严重误删，务必升级）：增加物理复核，判不了的情形一律保守保留 |
-| v1.3.6 | 修复「试运行不可信」：试运行照常扫描全部候选，补齐运行模式标签与空壳回收量显示 |
-| v1.3.5 | 修复 Transmission 字段命名不兼容与刮削残留不判种；新增空壳种子回收 |
-| v1.3.4 | 修复「联动删除种子」从未生效（删除种子数恒为 0） |
-| v1.3.3 | 诊断增强：定位下载器时不再静默吞掉异常 |
-| v1.3.2 | 通知格式精简为三类汇总计数；表单字段间距修正 |
-| v1.3.1 | 修正硬链接提示文案歧义 |
-| v1.3.0 | 清理范围改为「除保护文件后缀外全部删除」 |
-| v1.2.0 | 新增三项联动清理（联动删除种子 / 删除转移记录 / 清理刮削文件） |
-| v1.1.0 | 清理目录改为多行填写；硬链接双侧删除；字节精度空间释放校验 |
-| v1.0.9 | 新增「联动释放等待秒数」配置项；清理 `@eaDir` 残片 |
-| v1.0.8 | 修复真实删除分支 `AttributeError` |
-| v1.0.7 | 重构真实删除为「按缺口预选→删除→等待释放→复核」多轮策略 |
-| v1.0.6 | 「目标下载器」改为下拉多选 |
-| v1.0.5 | 新增「目标下载器」配置 |
-| v1.0.4 | 插件详情页新增简略使用说明 |
-| v1.0.3 | 删除后清理遗留空目录 |
-| v1.0.2 | 持续清理到达标；排除 DSM 系统目录 |
-| v1.0.1 | 配置页新增手动触发动作 |
-| v1.0.0 | 初始版本 |
 
 #### V3 适配说明（v3.0.0）
 
@@ -283,18 +221,6 @@ V3 版功能与 V2 v1.3.8 完全一致，改动全部集中在宿主机 API 适�
 | 发布状态 | 已停更 |
 
 V2 版功能与 V3 v3.0.0 一致，区别仅在宿主 API 写法。
-
-#### V2 更新历史
-
-| 版本 | 说明 |
-| --- | --- |
-| v1.3.4 | 修复还原操作的两阶段交互 |
-| v1.3.3 | 正式发布到插件市场 |
-| v1.3.2 | 插件详情页新增简略使用说明 |
-| v1.3.1 | 修正插件作者显示 |
-| v1.3.0 | 备份目录改为下拉选择 + 自由输入 |
-| v1.1.0 | 新增两阶段确认还原功能 |
-| v1.0.0 | 初始版本 |
 
 #### V3 适配说明（v3.0.0）
 
