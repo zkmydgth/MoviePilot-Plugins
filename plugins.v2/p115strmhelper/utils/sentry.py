@@ -51,9 +51,9 @@ def capture_plugin_exceptions(func):
                     scope.set_tag("function_name", func.__name__)
 
                 sentry_hub.capture_exception(e)
-                raise  # pylint: disable=W0706
+                raise
 
-    wrapper._sentry_captured = True
+    wrapper._sentry_captured = True  # pylint: disable=W0212,protected-access
     return wrapper
 
 
