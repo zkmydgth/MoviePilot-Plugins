@@ -687,6 +687,54 @@ class Api:
     @staticmethod
     def redirect_url_get(
         request: Request,
+        pickcode: str = "",
+        file_name: str = "",
+        id: int = 0,
+        share_code: str = "",
+        receive_code: str = "",
+    ) -> Response:
+        """
+        115 网盘 302 跳转 (GET)
+        """
+        return Api._redirect_url_impl(
+            request, pickcode, file_name, id, share_code, receive_code
+        )
+
+    @staticmethod
+    def redirect_url_post(
+        request: Request,
+        pickcode: str = "",
+        file_name: str = "",
+        id: int = 0,
+        share_code: str = "",
+        receive_code: str = "",
+    ) -> Response:
+        """
+        115 网盘 302 跳转 (POST)
+        """
+        return Api._redirect_url_impl(
+            request, pickcode, file_name, id, share_code, receive_code
+        )
+
+    @staticmethod
+    def redirect_url_head(
+        request: Request,
+        pickcode: str = "",
+        file_name: str = "",
+        id: int = 0,
+        share_code: str = "",
+        receive_code: str = "",
+    ) -> Response:
+        """
+        115 网盘 302 跳转 (HEAD)
+        """
+        return Api._redirect_url_impl(
+            request, pickcode, file_name, id, share_code, receive_code
+        )
+
+    @staticmethod
+    def redirect_url_get_path(
+        request: Request,
         args: str = "",
         pickcode: str = "",
         file_name: str = "",
@@ -704,7 +752,7 @@ class Api:
         )
 
     @staticmethod
-    def redirect_url_post(
+    def redirect_url_post_path(
         request: Request,
         args: str = "",
         pickcode: str = "",
@@ -723,7 +771,7 @@ class Api:
         )
 
     @staticmethod
-    def redirect_url_head(
+    def redirect_url_head_path(
         request: Request,
         args: str = "",
         pickcode: str = "",
