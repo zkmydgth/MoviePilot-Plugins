@@ -57,6 +57,9 @@ class StrmApiPayloadByPathItem(BaseModel):
 
     local_path: Optional[str] = Field(default=None, description="本地路径")
     pan_media_path: str = Field(description="网盘媒体库路径")
+    remove_strm_uuid: bool = Field(
+        default=False, description="是否生成删除无效文件UUID缓存"
+    )
 
 
 class StrmApiPayloadByPathData(BaseModel):
@@ -65,7 +68,7 @@ class StrmApiPayloadByPathData(BaseModel):
     """
 
     data: List[StrmApiPayloadByPathItem] = Field(
-        default_factory=list, description="需要生成STRM的一组文件夹列表"
+        default_factory=list, description="需要生成STRM的一组文件夹配置项"
     )
     media_server_refresh: Optional[bool] = Field(
         default=None, description="是否刷新媒体服务器"
@@ -86,6 +89,63 @@ class StrmApiResponseData(BaseModel):
     )
     success_count: int = Field(default=0, description="成功数量")
     fail_count: int = Field(default=0, description="失败数量")
+
+
+class StrmApiResponseByPathItem(BaseModel):
+    """
+    API 调用生成 STRM 路径组
+    """
+
+    local_path: Optional[str] = Field(default=None, description="本地路径")
+    pan_media_path: str = Field(description="网盘媒体库路径")
+    remove_strm_uuid: Optional[str] = Field(
+        default=None, description="删除无效文件的UUID缓存"
+    )
+
+
+class StrmApiResponseByPathData(StrmApiResponseData):
+    """
+    API 返回生成 STRM 信息（by_path）
+    """
+
+    paths_info: List[StrmApiResponseByPathItem] = Field(
+        default_factory=list, description="生成STRM的文件夹数据项"
+    )
+
+
+class StrmApiPayloadRemoveItem(BaseModel):
+    """
+    清理无效 STRM 配置项
+    """
+
+    local_path: str = Field(description="本地路径")
+    pan_media_path: str = Field(description="网盘媒体库路径")
+    remove_strm_uuid: Optional[str] = Field(
+        default=None, description="删除无效文件的UUID缓存"
+    )
+    remove_unless_meta: bool = Field(default=False, description="清理无效媒体元数据")
+    remove_unless_parent: bool = Field(default=False, description="清理空文件夹")
+
+
+class StrmApiPayloadRemoveData(BaseModel):
+    """
+    清理无效 STRM 参数
+    """
+
+    data: List[StrmApiPayloadRemoveItem] = Field(
+        default_factory=list, description="删除配置项"
+    )
+
+
+class StrmApiResponseRemoveData(BaseModel):
+    """
+    清理无效 STRM 返回结果
+    """
+
+    remove_strm_count: int = Field(default=0, description="清理 STRM 文件个数")
+    data: List[StrmApiPayloadRemoveItem] = Field(
+        default_factory=list, description="删除配置项"
+    )
 
 
 class StrmApiStatusCode:

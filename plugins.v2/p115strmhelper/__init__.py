@@ -277,6 +277,13 @@ class P115StrmHelper(_PluginBase):
                 "description": "API 请求生成 STRM（通过一组文件夹路径）",
             },
             {
+                "path": "/api_strm_sync_remove",
+                "endpoint": self.api.api_strm_sync_remove,
+                "methods": ["POST"],
+                "summary": "API 请求删除无效 STRM 文件",
+                "description": "API 请求删除无效 STRM 文件",
+            },
+            {
                 "path": "/add_transfer_share",
                 "endpoint": self.api.add_transfer_share,
                 "methods": ["GET"],

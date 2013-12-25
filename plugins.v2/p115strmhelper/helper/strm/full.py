@@ -960,7 +960,7 @@ class FullSyncStrmHelper:
                                 self.pan_tree
                             ):
                                 logger.info(
-                                    f"【全量STRM生成】清理无效 STRM 文件: {path}"
+                                    f"【全量STRM生成】清理无效 STRM 文件: {remove_path}"
                                 )
                                 Path(remove_path).unlink(missing_ok=True)
                                 if configer.full_sync_remove_unless_file:

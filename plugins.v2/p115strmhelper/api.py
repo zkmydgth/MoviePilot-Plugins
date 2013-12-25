@@ -45,7 +45,11 @@ from .schemas.u115 import (
 from .schemas.plugin import PluginStatusData
 from .schemas.api import ApiResponse
 from .schemas.share import ShareApiData, ShareResponseData, ShareSaveParent
-from .schemas.strm_api import StrmApiPayloadData, StrmApiPayloadByPathData
+from .schemas.strm_api import (
+    StrmApiPayloadData,
+    StrmApiPayloadByPathData,
+    StrmApiPayloadRemoveData,
+)
 from .utils.sentry import sentry_manager
 from .utils.oopserver import OOPServerHelper
 
@@ -836,4 +840,12 @@ class Api:
         """
         strm_helper = ApiSyncStrmHelper(client=self._client)
         code, msg, data = strm_helper.generate_strm_paths(payload)
+        return ApiResponse(code=code, msg=msg, data=data)
+
+    def api_strm_sync_remove(self, payload: StrmApiPayloadRemoveData) -> ApiResponse:
+        """
+        API 请求删除无效 STRM 文件
+        """
+        strm_helper = ApiSyncStrmHelper(client=self._client)
+        code, msg, data = strm_helper.remove_unless_strm(payload)
         return ApiResponse(code=code, msg=msg, data=data)

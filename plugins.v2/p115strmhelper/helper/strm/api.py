@@ -1,6 +1,7 @@
 from pathlib import Path
 from time import sleep
-from typing import Tuple, List
+from typing import Tuple, List, Optional
+from uuid import uuid4
 
 from p115client import P115Client
 from p115client.tool import iter_files_with_path_skim
@@ -14,13 +15,19 @@ from ...helper.mediaserver import MediaServerRefresh
 from ...schemas.strm_api import (
     StrmApiPayloadData,
     StrmApiPayloadByPathData,
+    StrmApiPayloadRemoveData,
+    StrmApiPayloadRemoveItem,
     StrmApiResponseData,
+    StrmApiResponseByPathItem,
+    StrmApiResponseByPathData,
     StrmApiResponseFail,
+    StrmApiResponseRemoveData,
     StrmApiData,
     StrmApiStatusCode,
 )
+from ...utils.tree import DirectoryTree
 from ...utils.strm import StrmUrlGetter, StrmGenerater
-from ...utils.path import PathUtils
+from ...utils.path import PathUtils, PathRemoveUtils
 from ...utils.sentry import sentry_manager
 
 from app.log import logger
@@ -271,24 +278,37 @@ class ApiSyncStrmHelper:
 
     def generate_strm_paths(
         self, payload: StrmApiPayloadByPathData
-    ) -> Tuple[int, str, StrmApiResponseData]:
+    ) -> Tuple[int, str, StrmApiResponseByPathData]:
         """
         根据文件夹列表生成 STRM 文件
         """
         if not payload.data:
-            return StrmApiStatusCode.MissPayload, "未传有效参数", StrmApiResponseData()
+            return (
+                StrmApiStatusCode.MissPayload,
+                "未传有效参数",
+                StrmApiResponseByPathData(),
+            )
 
-        file_list: List[StrmApiData] = []
+        success_strm_count = 0
+        fail_strm_count = 0
+
+        success_data: List[StrmApiData] = []
+        fail_data: List[StrmApiResponseFail] = []
+        paths_info: List[StrmApiResponseByPathItem] = []
 
         for path in payload.data:
             try:
-                parent_id = get_pid_by_path(self.client, path.pan_media_path, True, False, False)
+                parent_id = get_pid_by_path(
+                    self.client, path.pan_media_path, True, False, False
+                )
                 logger.info(
                     f"【API_STRM生成】网盘媒体目录 ID 获取成功: {path.pan_media_path} {parent_id}"
                 )
             except Exception as e:
                 sentry_manager.sentry_hub.capture_exception(e)
-                logger.error(f"【API_STRM生成】网盘媒体目录 ID 获取失败: {path.pan_media_path} {e}")
+                logger.error(
+                    f"【API_STRM生成】网盘媒体目录 ID 获取失败: {path.pan_media_path} {e}"
+                )
                 continue
 
             path_payload = {}
@@ -297,6 +317,15 @@ class ApiSyncStrmHelper:
                     "pan_media_path": path.pan_media_path,
                     "local_path": path.local_path,
                 }
+
+            file_list: List[StrmApiData] = []
+            uuid: Optional[str] = None
+
+            if path.remove_strm_uuid:
+                uuid = str(uuid4())
+                pan_tree = DirectoryTree(
+                    configer.PLUGIN_TEMP_PATH / f"{uuid}_pan_tree.txt"
+                )
 
             for item in iter_files_with_path_skim(
                 self.client,
@@ -321,12 +350,184 @@ class ApiSyncStrmHelper:
                     logger.error(f"【API_STRM生成】文件信息缺失: {item}")
                     continue
 
-        logger.info(
-            f"【API_STRM生成】提取 {len(file_list)} 个文件数据，开始生成 STRM ..."
+            logger.info(
+                f"【API_STRM生成】提取 {len(file_list)} 个文件数据，开始生成 STRM ..."
+            )
+
+            result = self.generate_strm_files(
+                StrmApiPayloadData(
+                    data=file_list,
+                )
+            )
+
+            success_strm_count += result[2].success_count
+            fail_strm_count += result[2].fail_count
+
+            success_data.extend(result[2].success)
+            fail_data.extend(result[2].fail)
+
+            if path.remove_strm_uuid:
+                lst: List[str] = []
+                for item in result[2].success:
+                    try:
+                        file_path = Path(item.local_path) / Path(
+                            item.pan_path
+                        ).relative_to(item.pan_media_path)
+                        new_file_path = (
+                            file_path.parent
+                            / StrmGenerater.get_strm_filename(file_path)
+                        )
+                        lst.append(new_file_path.as_posix())
+                    except ValueError:
+                        continue
+                pan_tree.generate_tree_from_list(lst)  # noqa
+
+            paths_info.append(
+                StrmApiResponseByPathItem(
+                    local_path=path.local_path,
+                    pan_media_path=path.pan_media_path,
+                    remove_strm_uuid=uuid,
+                )
+            )
+
+        return (
+            StrmApiStatusCode.Success,
+            "生成完成",
+            StrmApiResponseByPathData(
+                success=success_data,
+                fail=fail_data,
+                success_count=success_strm_count,
+                fail_count=fail_strm_count,
+                paths_info=paths_info,
+            ),
         )
 
-        return self.generate_strm_files(
-            StrmApiPayloadData(
-                data=file_list,
+    def remove_unless_strm(
+        self, payload: StrmApiPayloadRemoveData
+    ) -> Tuple[int, str, StrmApiResponseRemoveData]:
+        """
+        删除无效 STRM 文件
+        """
+
+        if not payload.data:
+            return (
+                StrmApiStatusCode.MissPayload,
+                "未传有效参数",
+                StrmApiResponseRemoveData(),
             )
+
+        remove_strm_count = 0
+        config_data: List[StrmApiPayloadRemoveItem] = []
+
+        for item in payload.data:
+            if not item.remove_strm_uuid:
+                uuid = str(uuid4())
+                pan_tree = DirectoryTree(
+                    configer.PLUGIN_TEMP_PATH / f"{uuid}_pan_tree.txt"
+                )
+                lst: List[str] = []
+                try:
+                    parent_id = get_pid_by_path(
+                        self.client, item.pan_media_path, True, False, False
+                    )
+                    logger.info(
+                        f"【API_STRM生成】网盘媒体目录 ID 获取成功: {item.pan_media_path} {parent_id}"
+                    )
+                except Exception as e:
+                    sentry_manager.sentry_hub.capture_exception(e)
+                    logger.error(
+                        f"【API_STRM生成】网盘媒体目录 ID 获取失败: {item.pan_media_path} {e}"
+                    )
+                    continue
+                for i in iter_files_with_path_skim(
+                    self.client,
+                    cid=parent_id,
+                    with_ancestors=True,
+                ):
+                    try:
+                        path = Path(i["path"])
+                        if path.suffix.lower() in self.rmt_mediaext:
+                            file_path = Path(item.local_path) / path.relative_to(
+                                item.pan_media_path
+                            )
+                            new_file_path = (
+                                file_path.parent
+                                / StrmGenerater.get_strm_filename(file_path)
+                            )
+                            lst.append(new_file_path.as_posix())
+                    except ValueError:
+                        logger.error(f"【API_STRM生成】文件信息缺失: {i}")
+                        continue
+                pan_tree.generate_tree_from_list(lst)
+                logger.info(f"【API_STRM生成】生成网盘目录树完成 {item.pan_media_path}")
+            else:
+                uuid = item.remove_strm_uuid
+                pan_tree = DirectoryTree(
+                    configer.PLUGIN_TEMP_PATH / f"{uuid}_pan_tree.txt"
+                )
+                logger.info(f"【API_STRM生成】使用缓存网盘目录树 {item.pan_media_path}")
+
+            try:
+                local_tree = DirectoryTree(
+                    configer.PLUGIN_TEMP_PATH / f"{uuid}_local_tree.txt"
+                )
+                local_tree.scan_directory_to_tree(
+                    root_path=item.local_path,
+                    append=False,
+                    extensions=[".strm"],
+                )
+
+                logger.info(f"【API_STRM生成】生成本地目录树完成 {item.local_path}")
+
+                for remove_path in local_tree.compare_trees(pan_tree):
+                    logger.info(f"【API_STRM生成】清理无效 STRM 文件: {remove_path}")
+                    Path(remove_path).unlink(missing_ok=True)
+                    if item.remove_unless_meta:
+                        PathRemoveUtils.clean_related_files(
+                            file_path=Path(remove_path),
+                            func_type="【API_STRM生成】",
+                        )
+                    if item.remove_unless_parent:
+                        PathRemoveUtils.remove_parent_dir(
+                            file_path=Path(remove_path),
+                            mode=["strm"],
+                            func_type="【API_STRM生成】",
+                        )
+                    remove_strm_count += 1
+
+                config_data.append(
+                    StrmApiPayloadRemoveItem(
+                        **item.model_dump(exclude={"remove_strm_uuid"}),
+                        remove_strm_uuid=uuid,
+                    )
+                )
+
+                pan_tree.clear()
+                local_tree.clear()
+            except Exception as e:
+                sentry_manager.sentry_hub.capture_exception(e)
+                logger.error(
+                    f"【API_STRM生成】清理无效 STRM 文件失败: {item.pan_media_path} -> {item.local_path} {e}"
+                )
+                try:
+                    pan_tree.clear()
+                except Exception:
+                    pass
+                try:
+                    if local_tree:  # noqa
+                        local_tree.clear()  # noqa
+                except Exception:
+                    pass
+                continue
+
+        logger.info(
+            f"【API_STRM生成】清理无效 STRM 文件完成，本次清理 {remove_strm_count} 个"
+        )
+
+        return (
+            StrmApiStatusCode.Success,
+            "清理完成",
+            StrmApiResponseRemoveData(
+                remove_strm_count=remove_strm_count, data=config_data
+            ),
         )
