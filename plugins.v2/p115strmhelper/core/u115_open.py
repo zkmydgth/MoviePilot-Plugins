@@ -681,6 +681,12 @@ class U115OpenHelper:
                     logger.warn(
                         f"【P115Open】{target_name} 无法秒传，文件大小 {file_size} 大于等于阈值 {skip_upload_size}，跳过上传"
                     )
+                    send_upload_result_notify(
+                        success=False,
+                        target_name=target_name,
+                        file_size=file_size,
+                        error_msg=f"秒传失败，文件大小 {file_size} 大于等于阈值 {skip_upload_size}，已跳过上传",
+                    )
                     return None
                 else:
                     logger.info(
@@ -688,6 +694,12 @@ class U115OpenHelper:
                     )
             else:
                 logger.warn(f"【P115Open】{target_name} 无法秒传，跳过上传")
+                send_upload_result_notify(
+                    success=False,
+                    target_name=target_name,
+                    file_size=file_size,
+                    error_msg="秒传失败，已跳过上传",
+                )
                 return None
 
         # Step 4: 获取上传凭证
