@@ -1,2 +1,2 @@
-p115client==0.0.9.4.1
+p115client==0.0.9.4.6.1
 httpx[http2]
