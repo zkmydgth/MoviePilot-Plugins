@@ -1,6 +1,9 @@
 from pathlib import Path
 from typing import Dict, Union
 
+from p115client import P115Client
+from p115client.tool.attr import get_id_to_path, get_attr
+
 from app.chain.storage import StorageChain
 from app.core.context import MediaInfo
 from app.core.meta import MetaBase
@@ -12,7 +15,7 @@ from ...core.config import configer
 from ...core.scrape import media_scrape_metadata
 from ...db_manager.oper import FileDbHelper
 from ...helper.mediainfo_download import MediaInfoDownloader
-from ...helper.mediaserver import MediaServerRefresh
+from ...helper.mediaserver import MediaServerRefresh, EmbyMediaInfoOperate
 from ...utils.path import PathUtils
 from ...utils.sentry import sentry_manager
 from ...utils.strm import StrmUrlGetter, StrmGenerater
@@ -58,6 +61,7 @@ class TransferStrmHelper:
 
     def do_generate(
         self,
+        client: P115Client,
         item: Dict,
         event_type: Union[EventType, ChainEventType],
         mediainfodownloader: MediaInfoDownloader,
@@ -205,3 +209,25 @@ class TransferStrmHelper:
                 file_path=strm_target_path,
                 mediainfo=mediainfo,
             )
+
+        if configer.transfer_monitor_emby_mediainfo_enabled:
+            helper = EmbyMediaInfoOperate(
+                func_name="【监控整理STRM生成】",
+                mp_mediaserver=configer.transfer_mp_mediaserver_paths,
+                mediaservers=configer.transfer_monitor_mediaservers,
+            )
+            try:
+                file_id = get_id_to_path(
+                    client=client,
+                    path=item_dest_path,
+                    **configer.get_ios_ua_app(app=False),
+                )
+                item = get_attr(
+                    client=client,
+                    id=file_id,
+                    skim=True,
+                    **configer.get_ios_ua_app(app=False),
+                )
+                helper.get_mediainfo(item["sha1"], strm_target_path)
+            except Exception as e:
+                logger.error(f"【监控整理STRM生成】提取媒体信息失败: {e}")

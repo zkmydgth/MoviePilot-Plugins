@@ -1,5 +1,5 @@
-from .emby import EmbyOperate
+from .emby import EmbyOperate, EmbyMediaInfoOperate
 from .refresh import MediaServerRefresh
 
 
-__all__ = ["EmbyOperate", "MediaServerRefresh"]
+__all__ = ["EmbyOperate", "EmbyMediaInfoOperate", "MediaServerRefresh"]

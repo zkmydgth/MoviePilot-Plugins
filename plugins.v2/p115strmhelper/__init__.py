@@ -773,6 +773,7 @@ class P115StrmHelper(_PluginBase):
 
         strm_helper = TransferStrmHelper()
         strm_helper.do_generate(
+            client=servicer.client,
             item=item,
             event_type=event_type,
             mediainfodownloader=servicer.mediainfodownloader,

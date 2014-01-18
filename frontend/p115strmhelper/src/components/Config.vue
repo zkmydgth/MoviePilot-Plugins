@@ -172,18 +172,25 @@
                     <v-window-item value="tab-transfer">
                       <v-card-text>
                         <v-row>
-                          <v-col cols="12" md="3">
+                          <v-col cols="12" md="4">
                             <v-switch v-model="config.transfer_monitor_enabled" label="启用" color="info"></v-switch>
                           </v-col>
-                          <v-col cols="12" md="3">
+                          <v-col cols="12" md="4">
                             <v-switch v-model="config.transfer_monitor_scrape_metadata_enabled" label="STRM自动刮削"
                               color="primary"></v-switch>
                           </v-col>
-                          <v-col cols="12" md="3">
+                          <v-col cols="12" md="4">
                             <v-switch v-model="config.transfer_monitor_media_server_refresh_enabled" label="媒体服务器刷新"
                               color="warning"></v-switch>
                           </v-col>
-                          <v-col cols="12" md="3">
+                        </v-row>
+
+                        <v-row>
+                          <v-col cols="12" md="4">
+                            <v-switch v-model="config.transfer_monitor_emby_mediainfo_enabled" label="Emby 媒体信息提取"
+                              color="warning"></v-switch>
+                          </v-col>
+                          <v-col cols="12" md="8">
                             <v-select v-model="config.transfer_monitor_mediaservers" label="媒体服务器" :items="mediaservers"
                               multiple chips closable-chips></v-select>
                           </v-col>
@@ -280,7 +287,7 @@
                             <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
                               <div class="text-body-2 mb-1"><strong>配置说明：</strong></div>
                               <div class="text-caption">
-                                <div class="mb-1">• 媒体服务器映射路径和MP映射路径不一样时请配置此项，如果不配置则无法正常刷新。</div>
+                                <div class="mb-1">• 媒体服务器映射路径和MP映射路径不一样时请配置此项，如果不配置则无法正常刷新或Emby提取媒体信息。</div>
                                 <div>• 当映射路径一样时可省略此配置。</div>
                               </div>
                             </v-alert>
@@ -368,12 +375,11 @@
                                       append-icon="mdi-folder-network"
                                       @click:append="openDirSelector(index, 'remote', 'fullSync')"></v-text-field>
                                   </div>
-                                  <v-tooltip :text="pair.enabled ? '参与全量同步，点击关闭' : '不参与全量同步，点击开启'"
-                                    location="top">
+                                  <v-tooltip :text="pair.enabled ? '参与全量同步，点击关闭' : '不参与全量同步，点击开启'" location="top">
                                     <template #activator="{ props: tooltipProps }">
                                       <v-btn v-bind="tooltipProps" icon size="small"
-                                        :color="pair.enabled ? 'primary' : 'default'" variant="text"
-                                        class="shrink-0" @click="pair.enabled = !pair.enabled">
+                                        :color="pair.enabled ? 'primary' : 'default'" variant="text" class="shrink-0"
+                                        @click="pair.enabled = !pair.enabled">
                                         <v-icon>{{ pair.enabled ? 'mdi-sync' : 'mdi-sync-off' }}</v-icon>
                                       </v-btn>
                                     </template>
@@ -2800,6 +2806,7 @@ const config = reactive({
   transfer_monitor_paths: '',
   transfer_mp_mediaserver_paths: '',
   transfer_monitor_media_server_refresh_enabled: false,
+  transfer_monitor_emby_mediainfo_enabled: false,
   transfer_monitor_mediaservers: [],
   timing_full_sync_strm: false,
   full_sync_overwrite_mode: "never",

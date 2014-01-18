@@ -216,6 +216,9 @@ class ConfigManager(BaseModel):
     transfer_monitor_media_server_refresh_enabled: bool = Field(
         default=False, description="刷新媒体服务器开关"
     )
+    transfer_monitor_emby_mediainfo_enabled: bool = Field(
+        default=False, description="EMBY 媒体信息提取开关"
+    )
 
     full_sync_overwrite_mode: str = Field(
         default="never", min_length=1, description="全量同步覆盖模式"
