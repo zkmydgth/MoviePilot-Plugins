@@ -735,7 +735,7 @@ class CloudDriveApi:
         remote_path: str,
         timeout: int = 3600,
         interval: int = 5,
-        stall_timeout: int = 600,
+        stall_timeout: int = 1800,
     ) -> bool:
         """
         等待 CloudDrive2 将直写文件上传到云端完成。
@@ -753,8 +753,8 @@ class CloudDriveApi:
         normalized = Path(remote_path).as_posix() if remote_path else "/"
         deadline = monotonic() + timeout
         found_ever = False
-        last_transferred = -1
-        last_progress_time = monotonic()
+        last_observed_state = None
+        last_activity_time = monotonic()
 
         while monotonic() < deadline:
             if global_vars.is_transfer_stopped(normalized):
@@ -779,6 +779,7 @@ class CloudDriveApi:
                     status_str = getattr(uf, "status", "")
                     transferred = int(getattr(uf, "transferedBytes", 0) or 0)
                     total = int(getattr(uf, "size", 0) or 0)
+                    observed_state = (status_enum, status_str, transferred, total)
 
                     if terminal and status_enum in terminal:
                         if finish_value is not None and status_enum == finish_value:
@@ -793,14 +794,23 @@ class CloudDriveApi:
                         return False
 
                     now = monotonic()
-                    if transferred > last_transferred:
-                        last_progress_time = now
-                        last_transferred = transferred
-                    if now - last_progress_time >= stall_timeout:
+                    if observed_state != last_observed_state:
+                        last_activity_time = now
+                        last_observed_state = observed_state
+
+                    dynamic_stall_timeout = stall_timeout
+                    status_lc = str(status_str).lower()
+                    if "preprocess" in status_lc:
+                        dynamic_stall_timeout = None
+
+                    if dynamic_stall_timeout is not None and (
+                        now - last_activity_time >= dynamic_stall_timeout
+                    ):
                         logger.warning(
-                            "【CloudDrive】云端上传停滞超时(%ss 无新进度): %s",
-                            stall_timeout,
+                            "【CloudDrive】云端上传停滞超时(%ss 无状态/进度变化): %s, status=%s",
+                            dynamic_stall_timeout,
                             normalized,
+                            status_str,
                         )
                         return False
 
