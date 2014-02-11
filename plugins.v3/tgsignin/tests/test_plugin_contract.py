@@ -25,6 +25,7 @@ from tgsignin.core.config import (
     NOTIFY_MODE_SUCCESS,
     default_slot_config,
 )
+from tgsignin.core.store import record_ai_keywords
 from tgsignin.version import VERSION
 
 PLUGIN_ROOT = Path(__file__).resolve().parent.parent
@@ -214,6 +215,35 @@ class TestPage(unittest.TestCase):
         self.assertTrue(top_alerts)
         for node in top_alerts:
             self.assertIn("mb-3", str(node["props"].get("class", "")))
+
+    def test_page_with_ai_keyword_log(self) -> None:
+        """
+        回归：AI 归纳关键词有记录时详情页仍能渲染。
+
+        修复前 ``_ai_keyword_block`` 跨作用域引用 ``get_page`` 的局部函数
+        ``table``，只要 ``ai_keyword_log`` 非空就抛
+        ``NameError: name 'table' is not defined``（2026-10-11 线上故障）。
+        """
+        plugin = TgSignin()
+        plugin.init_plugin({"enabled": True})
+        record_ai_keywords(
+            plugin.get_data_path(),
+            [
+                {
+                    "time": "2026-10-11 00:02:26",
+                    "account": "acc1",
+                    "bot": "@HDHaven_Bot",
+                    "verdict": "success",
+                    "keyword": "连续签到",
+                }
+            ],
+        )
+        page = plugin.get_page()
+        tables = [node for node in _walk(page) if node.get("component") == "VTable"]
+        self.assertEqual(len(tables), 3, "账号状态表 + 结果表 + AI 归纳关键词表")
+        blob = json.dumps(page, ensure_ascii=False)
+        self.assertIn("AI 归纳关键词", blob)
+        self.assertIn("连续签到", blob)
 
 
 class TestApiCommandService(unittest.TestCase):

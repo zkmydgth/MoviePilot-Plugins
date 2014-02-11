@@ -98,6 +98,44 @@ from .version import VERSION
 __all__ = ["TgSignin"]
 
 
+def _table(headers: List[str], rows: List[Dict[str, Any]]) -> dict:
+    """
+    构造一个紧凑表格节点。
+
+    详情页自身与各区块（如「AI 归纳关键词」）共用。此前它是 ``get_page`` 的
+    局部函数、却被 ``_ai_keyword_block`` 跨作用域引用，导致详情页 NameError
+    （2026-10-11 修复）。
+
+    :param headers: 表头文字
+    :param rows: 数据行
+    :return dict: 表格节点
+    """
+
+    return {
+        "component": "VTable",
+        "props": {"density": "compact", "hover": True},
+        "content": [
+            {
+                "component": "thead",
+                "content": [
+                    {
+                        "component": "tr",
+                        "content": [
+                            {
+                                "component": "th",
+                                "props": {"class": "text-left"},
+                                "text": title,
+                            }
+                            for title in headers
+                        ],
+                    }
+                ],
+            },
+            {"component": "tbody", "content": rows},
+        ],
+    }
+
+
 class TgSignin(_PluginBase):
     """Telegram 多账号自动签到插件。"""
 
@@ -1250,7 +1288,7 @@ class TgSignin(_PluginBase):
             )
         return [
             self._group_header("AI 归纳关键词（只增不删、已查重）"),
-            table(["时间", "账号", "bot", "档位", "新增词"], rows),
+            _table(["时间", "账号", "bot", "档位", "新增词"], rows),
         ]
 
     def _button(
@@ -1414,39 +1452,6 @@ class TgSignin(_PluginBase):
             "content": actions,
         }
 
-        def table(headers: List[str], rows: List[Dict[str, Any]]) -> dict:
-            """
-            构造一个紧凑表格节点。
-
-            :param headers: 表头文字
-            :param rows: 数据行
-            :return dict: 表格节点
-            """
-
-            return {
-                "component": "VTable",
-                "props": {"density": "compact", "hover": True},
-                "content": [
-                    {
-                        "component": "thead",
-                        "content": [
-                            {
-                                "component": "tr",
-                                "content": [
-                                    {
-                                        "component": "th",
-                                        "props": {"class": "text-left"},
-                                        "text": title,
-                                    }
-                                    for title in headers
-                                ],
-                            }
-                        ],
-                    },
-                    {"component": "tbody", "content": rows},
-                ],
-            }
-
         return [
             {
                 "component": "div",
@@ -1455,9 +1460,9 @@ class TgSignin(_PluginBase):
                 + [actions_block]
                 + [
                     self._group_header("账号登录状态"),
-                    table(["账号", "手机号", "状态"], self._login_status_rows()),
+                    _table(["账号", "手机号", "状态"], self._login_status_rows()),
                     self._group_header(f"最近 {PAGE_RESULT_LIMIT} 条签到结果"),
-                    table(
+                    _table(
                         ["时间", "账号", "bot", "状态", "回复/错误", "AI 复核"],
                         self._result_rows(),
                     ),
