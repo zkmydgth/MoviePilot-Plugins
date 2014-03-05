@@ -501,8 +501,17 @@ class MediaSyncDelHelper:
 
         # 类型
         mtype = MediaType.MOVIE if media_type in ["Movie", "MOV"] else MediaType.TV
+        # 删除多版本电影
+        if mtype == MediaType.MOVIE and configer.sync_del_remove_versions:
+            msg, transfer_history = "", []
+            transfer_his = self.transferhis.get_by_dest(media_path)
+            if transfer_his:
+                msg, transfer_history = (
+                    f"电影 {media_name} {tmdb_id}",
+                    [transfer_his],
+                )
         # 删除电影
-        if mtype == MediaType.MOVIE:
+        elif mtype == MediaType.MOVIE:
             msg = f"电影 {media_name} {tmdb_id}"
             transfer_history: List[TransferHistory] = self.transferhis.get_by(
                 tmdbid=tmdb_id, mtype=mtype.value, dest=media_path
@@ -518,7 +527,7 @@ class MediaSyncDelHelper:
             mtype == MediaType.TV
             and season_num
             and not episode_num
-            and configer.sync_del_remove_versions_season
+            and configer.sync_del_remove_versions
         ):
             msg, transfer_history = "", []
             transfer_his = self.transferhis.get_by_dest(media_path)
@@ -627,8 +636,8 @@ class MediaSyncDelHelper:
         json_object = getattr(event_data, "json_object", {})
 
         remove_type = self.__get_remove_type(media_type, season_num, episode_num)
-        if remove_type == "tv_season" and configer.sync_del_remove_versions_season:
-            # 为了支持多版本删除，季删除统一退回为集删除
+        if remove_type in ["tv_season", "movie"] and configer.sync_del_remove_versions:
+            # 为了支持多版本删除，电影和季删除统一退回为集删除
             description = json_object.get("Description", "")
             item_paths = WebhookUtils.parse_item_paths_from_description(description)
 
