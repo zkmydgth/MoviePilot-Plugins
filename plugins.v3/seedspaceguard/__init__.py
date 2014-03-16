@@ -40,6 +40,8 @@ from app.runtime.log import logger
 from app.plugins import _PluginBase
 from app.schemas.types import DownloaderType, EventType, MessageType
 
+from .version import VERSION
+
 
 # ============================ 释放校验常量 ============================
 
@@ -69,7 +71,7 @@ class SeedSpaceGuard(_PluginBase):
     plugin_desc = ("存储空间不足时自动清理保种目录中「保种最久」的资源（种子+文件），"
                    "避免 H&R。支持种子级删除与仅文件两种模式，可限定目标下载器；"
                    "除保护后缀外所有文件均纳入清理，可选联动删除种子与转移记录。")
-    plugin_version = "3.0.0"
+    plugin_version = VERSION
     plugin_author = "zkmydgth"
     plugin_config_prefix = "seedspaceguard_"
     plugin_order = 100

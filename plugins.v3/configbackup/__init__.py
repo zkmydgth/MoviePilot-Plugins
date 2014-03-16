@@ -20,6 +20,8 @@ from app.application.directory import DirectoryHelper
 from app.runtime.log import logger
 from app.plugins import _PluginBase
 from app.schemas import MessageType
+
+from .version import VERSION
 from app.sdk.string import StringUtils
 
 
@@ -30,8 +32,8 @@ class ConfigBackup(_PluginBase):
     plugin_name = "配置备份"
     # 插件描述
     plugin_desc = "定时备份 MoviePilot 系统配置、数据库及插件配置到指定目录，支持保留数量自动清理、手动触发和一键还原。"
-    # 插件版本
-    plugin_version = "3.0.0"
+    # 插件版本（从 version.py 读取，避免与包版本不同步）
+    plugin_version = VERSION
     # 插件作者
     plugin_author = "zkmydgth"
     # 插件配置项ID前缀
