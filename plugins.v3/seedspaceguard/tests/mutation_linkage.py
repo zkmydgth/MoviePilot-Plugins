@@ -233,7 +233,7 @@ def main():
         print(base_tail)
         return 1
 
-    caught = escaped = 0
+    caught = escaped = skipped = 0
     escaped_names = []
 
     print(f"\\n{'='*70}\\n变异测试（共 {len(MUTANTS)} 个变异体）\\n{'='*70}")
@@ -241,6 +241,7 @@ def main():
         for idx, (name, old, new, expect) in enumerate(MUTANTS, 1):
             if old not in source:
                 print(f"[{idx:2d}] ⚠️  跳过（定位失败）：{name}")
+                skipped += 1
                 continue
             mutated = source.replace(old, new, 1)
             with open(TARGET, "w", encoding="utf-8") as handle:
@@ -261,12 +262,19 @@ def main():
             handle.write(source)
 
     print(f"\\n{'='*70}")
-    print(f"结果：捕获 {caught} / 逃逸 {escaped} / 合计 {caught + escaped}")
+    print(f"结果：捕获 {caught} / 逃逸 {escaped} / 跳过 {skipped} / "
+          f"合计 {caught + escaped + skipped}")
     if escaped_names:
-        print("逃逸清单：")
+        print("逃逸清单（需补充测试）：")
         for name in escaped_names:
             print(f"  - {name}")
     print("已还原原始源码。")
+    if escaped_names or skipped:
+        if skipped:
+            # 跳过意味着变异体定义与源码脱节，防护可能已悄悄失效 —— 视为失败
+            print("❌ 存在被跳过的变异体：定义与源码不匹配即等于该缺陷无人守护")
+        return 1
+    print("🎉 全部变异被捕获，测试防护有效")
     return 0
 
 

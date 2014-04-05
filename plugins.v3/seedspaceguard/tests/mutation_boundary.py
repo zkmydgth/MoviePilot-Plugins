@@ -405,7 +405,13 @@ def _run(source):
         for name in escaped_names:
             print(f"  - {name}")
     print("已还原原始源码。")
-    return 0 if not escaped_names else 2
+    if skipped:
+        # 跳过意味着变异体定义与源码脱节，防护可能已悄悄失效 —— 视为失败
+        print("❌ 存在被跳过的变异体：定义与源码不匹配即等于该缺陷无人守护")
+    if escaped_names or skipped:
+        return 1
+    print("🎉 全部变异被捕获，测试防护有效")
+    return 0
 
 
 if __name__ == "__main__":
