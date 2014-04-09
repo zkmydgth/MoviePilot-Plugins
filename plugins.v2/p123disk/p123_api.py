@@ -5,11 +5,10 @@ from typing import Optional, List, Dict
 from hashlib import md5
 from datetime import datetime
 
-import pytz
 import requests
 from p123client import P123Client, check_response
 
-import schemas
+from app import schemas
 from app.log import logger
 from app.core.config import settings, global_vars
 from app.modules.filemanager.storages import transfer_process
@@ -296,7 +295,7 @@ class P123Api:
         except Exception:
             return False
 
-    def download(self, fileitem: schemas.FileItem, path: Path = None) -> Path:
+    def download(self, fileitem: schemas.FileItem, path: Path = None) -> Optional[Path]:
         """
         下载文件，保存到本地，返回本地临时文件地址
         :param fileitem: 文件项
