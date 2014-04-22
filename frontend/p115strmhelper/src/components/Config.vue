@@ -210,8 +210,8 @@
                           添加刮削排除目录
                         </v-btn>
                       </div>
-                      <v-alert density="compact" variant="text" color="info" class="text-caption pa-0 mt-1">
-                        此处添加的本地目录，在STRM文件生成后将不会自动触发刮削。
+                      <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
+                        <div class="text-caption">此处添加的本地目录，在STRM文件生成后将不会自动触发刮削。</div>
                       </v-alert>
                     </v-col>
                   </v-row>
@@ -242,10 +242,14 @@
                         </v-btn>
                       </div>
 
-                      <v-alert type="info" variant="tonal" density="compact" class="mt-2">
-                        监控MoviePilot整理入库事件，自动在本地对应目录生成STRM文件。<br>
-                        本地STRM目录：本地STRM文件生成路径
-                        网盘媒体库目录：需要生成本地STRM文件的网盘媒体库路径
+                      <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
+                        <div class="text-body-2 mb-1"><strong>功能说明：</strong></div>
+                        <div class="text-caption">监控MoviePilot整理入库事件，自动在本地对应目录生成STRM文件。</div>
+                        <div class="text-body-2 mt-2 mb-1"><strong>配置说明：</strong></div>
+                        <div class="text-caption">
+                          <div class="mb-1">• <strong>本地STRM目录：</strong>本地STRM文件生成路径</div>
+                          <div>• <strong>网盘媒体库目录：</strong>需要生成本地STRM文件的网盘媒体库路径</div>
+                        </div>
                       </v-alert>
                     </v-col>
                   </v-row>
@@ -272,9 +276,12 @@
                         </v-btn>
                       </div>
 
-                      <v-alert type="info" variant="tonal" density="compact" class="mt-2">
-                        媒体服务器映射路径和MP映射路径不一样时请配置此项，如果不配置则无法正常刷新。<br>
-                        当映射路径一样时可省略此配置。
+                      <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
+                        <div class="text-body-2 mb-1"><strong>配置说明：</strong></div>
+                        <div class="text-caption">
+                          <div class="mb-1">• 媒体服务器映射路径和MP映射路径不一样时请配置此项，如果不配置则无法正常刷新。</div>
+                          <div>• 当映射路径一样时可省略此配置。</div>
+                        </div>
                       </v-alert>
                     </v-col>
                   </v-row>
@@ -352,10 +359,14 @@
                           </v-btn>
                         </div>
 
-                        <v-alert type="info" variant="tonal" density="compact" class="mt-2">
-                          全量扫描配置的网盘目录，并在对应的本地目录生成STRM文件。<br>
-                          本地STRM目录：本地STRM文件生成路径
-                          网盘媒体库目录：需要生成本地STRM文件的网盘媒体库路径
+                        <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
+                          <div class="text-body-2 mb-1"><strong>功能说明：</strong></div>
+                          <div class="text-caption">全量扫描配置的网盘目录，并在对应的本地目录生成STRM文件。</div>
+                          <div class="text-body-2 mt-2 mb-1"><strong>配置说明：</strong></div>
+                          <div class="text-caption">
+                            <div class="mb-1">• <strong>本地STRM目录：</strong>本地STRM文件生成路径</div>
+                            <div>• <strong>网盘媒体库目录：</strong>需要生成本地STRM文件的网盘媒体库路径</div>
+                          </div>
                         </v-alert>
                       </v-col>
                     </v-row>
@@ -457,8 +468,8 @@
                           添加刮削排除目录
                         </v-btn>
                       </div>
-                      <v-alert density="compact" variant="text" color="info" class="text-caption pa-0 mt-1">
-                        此处添加的本地目录，在STRM文件生成后将不会自动触发刮削。
+                      <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
+                        <div class="text-caption">此处添加的本地目录，在STRM文件生成后将不会自动触发刮削。</div>
                       </v-alert>
                     </v-col>
                   </v-row>
@@ -490,10 +501,14 @@
                         </v-btn>
                       </div>
 
-                      <v-alert type="info" variant="tonal" density="compact" class="mt-2">
-                        增量扫描配置的网盘目录，并在对应的本地目录生成STRM文件。<br>
-                        本地STRM目录：本地STRM文件生成路径
-                        网盘媒体库目录：需要生成本地STRM文件的网盘媒体库路径
+                      <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
+                        <div class="text-body-2 mb-1"><strong>功能说明：</strong></div>
+                        <div class="text-caption">增量扫描配置的网盘目录，并在对应的本地目录生成STRM文件。</div>
+                        <div class="text-body-2 mt-2 mb-1"><strong>配置说明：</strong></div>
+                        <div class="text-caption">
+                          <div class="mb-1">• <strong>本地STRM目录：</strong>本地STRM文件生成路径</div>
+                          <div>• <strong>网盘媒体库目录：</strong>需要生成本地STRM文件的网盘媒体库路径</div>
+                        </div>
                       </v-alert>
                     </v-col>
                   </v-row>
@@ -521,9 +536,12 @@
                         </v-btn>
                       </div>
 
-                      <v-alert type="info" variant="tonal" density="compact" class="mt-2">
-                        媒体服务器映射路径和MP映射路径不一样时请配置此项，如果不配置则无法正常刷新。<br>
-                        当映射路径一样时可省略此配置。
+                      <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
+                        <div class="text-body-2 mb-1"><strong>配置说明：</strong></div>
+                        <div class="text-caption">
+                          <div class="mb-1">• 媒体服务器映射路径和MP映射路径不一样时请配置此项，如果不配置则无法正常刷新。</div>
+                          <div>• 当映射路径一样时可省略此配置。</div>
+                        </div>
                       </v-alert>
                     </v-col>
                   </v-row>
@@ -606,8 +624,8 @@
                           添加刮削排除目录
                         </v-btn>
                       </div>
-                      <v-alert density="compact" variant="text" color="info" class="text-caption pa-0 mt-1">
-                        此处添加的本地目录，在115生活事件监控生成STRM后将不会自动触发刮削。
+                      <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
+                        <div class="text-caption">此处添加的本地目录，在115生活事件监控生成STRM后将不会自动触发刮削。</div>
                       </v-alert>
                     </v-col>
                   </v-row>
@@ -638,10 +656,14 @@
                         </v-btn>
                       </div>
 
-                      <v-alert type="info" variant="tonal" density="compact" class="mt-2">
-                        监控115生活（上传、移动、接收文件、删除、复制）事件，自动在本地对应目录生成STRM文件或者删除STRM文件。<br>
-                        本地STRM目录：本地STRM文件生成路径
-                        网盘媒体库目录：需要生成本地STRM文件的网盘媒体库路径
+                      <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
+                        <div class="text-body-2 mb-1"><strong>功能说明：</strong></div>
+                        <div class="text-caption">监控115生活（上传、移动、接收文件、删除、复制）事件，自动在本地对应目录生成STRM文件或者删除STRM文件。</div>
+                        <div class="text-body-2 mt-2 mb-1"><strong>配置说明：</strong></div>
+                        <div class="text-caption">
+                          <div class="mb-1">• <strong>本地STRM目录：</strong>本地STRM文件生成路径</div>
+                          <div>• <strong>网盘媒体库目录：</strong>需要生成本地STRM文件的网盘媒体库路径</div>
+                        </div>
                       </v-alert>
                     </v-col>
                   </v-row>
@@ -669,15 +691,18 @@
                         </v-btn>
                       </div>
 
-                      <v-alert type="info" variant="tonal" density="compact" class="mt-2">
-                        媒体服务器映射路径和MP映射路径不一样时请配置此项，如果不配置则无法正常刷新。<br>
-                        当映射路径一样时可省略此配置。
+                      <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
+                        <div class="text-body-2 mb-1"><strong>配置说明：</strong></div>
+                        <div class="text-caption">
+                          <div class="mb-1">• 媒体服务器映射路径和MP映射路径不一样时请配置此项，如果不配置则无法正常刷新。</div>
+                          <div>• 当映射路径一样时可省略此配置。</div>
+                        </div>
                       </v-alert>
                     </v-col>
                   </v-row>
 
-                  <v-alert type="warning" variant="tonal" density="compact" class="mt-2">
-                    注意：当 MoviePilot 主程序运行整理任务时 115生活事件 监控会自动暂停，整理运行完成后会继续监控。
+                  <v-alert type="warning" variant="tonal" density="compact" class="mt-3" icon="mdi-alert">
+                    <div class="text-caption">注意：当 MoviePilot 主程序运行整理任务时 115生活事件 监控会自动暂停，整理运行完成后会继续监控。</div>
                   </v-alert>
                 </v-card-text>
               </v-window-item>
@@ -685,14 +710,16 @@
               <!-- API STRM生成 -->
               <v-window-item value="tab-api-strm">
                 <v-card-text>
-                  <v-alert type="info" variant="tonal" density="compact" class="mb-4">
-                    <strong>功能说明：</strong><br>
-                    API STRM 生成功能允许第三方开发者通过 HTTP API 调用，批量生成 STRM 文件。<br>
-                    详细 API 文档请参考：
-                    <a href="https://github.com/DDSRem-Dev/MoviePilot-Plugins/blob/main/docs/p115strmhelper/API_STRM生成功能文档.md"
-                      target="_blank" rel="noopener noreferrer" style="color: inherit; text-decoration: underline;">
-                      GitHub 文档链接
-                    </a>
+                  <v-alert type="info" variant="tonal" density="compact" class="mb-4" icon="mdi-information">
+                    <div class="text-body-2 mb-1"><strong>功能说明：</strong></div>
+                    <div class="text-caption mb-2">API STRM 生成功能允许第三方开发者通过 HTTP API 调用，批量生成 STRM 文件。</div>
+                    <div class="text-caption">
+                      详细 API 文档请参考：
+                      <a href="https://github.com/DDSRem-Dev/MoviePilot-Plugins/blob/main/docs/p115strmhelper/API_STRM生成功能文档.md"
+                        target="_blank" rel="noopener noreferrer" style="color: inherit; text-decoration: underline;">
+                        GitHub 文档链接
+                      </a>
+                    </div>
                   </v-alert>
 
                   <v-row>
@@ -713,8 +740,8 @@
                   <v-divider class="my-4"></v-divider>
 
                   <div class="text-subtitle-2 mb-2">路径映射配置:</div>
-                  <v-alert type="info" variant="tonal" density="compact" class="mb-3">
-                    配置网盘路径到本地路径的映射关系。当 API 请求中未指定 local_path 时，系统会根据此配置自动匹配路径。
+                  <v-alert type="info" variant="tonal" density="compact" class="mb-3" icon="mdi-information">
+                    <div class="text-caption">配置网盘路径到本地路径的映射关系。当 API 请求中未指定 local_path 时，系统会根据此配置自动匹配路径。</div>
                   </v-alert>
 
                   <v-row>
@@ -743,9 +770,12 @@
                         </v-btn>
                       </div>
 
-                      <v-alert type="info" variant="tonal" density="compact" class="mt-2">
-                        本地STRM目录：本地STRM文件生成路径<br>
-                        网盘媒体库目录：需要生成本地STRM文件的网盘媒体库路径
+                      <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
+                        <div class="text-body-2 mb-1"><strong>配置说明：</strong></div>
+                        <div class="text-caption">
+                          <div class="mb-1">• <strong>本地STRM目录：</strong>本地STRM文件生成路径</div>
+                          <div>• <strong>网盘媒体库目录：</strong>需要生成本地STRM文件的网盘媒体库路径</div>
+                        </div>
                       </v-alert>
                     </v-col>
                   </v-row>
@@ -772,9 +802,12 @@
                         </v-btn>
                       </div>
 
-                      <v-alert type="info" variant="tonal" density="compact" class="mt-2">
-                        媒体服务器映射路径和MP映射路径不一样时请配置此项，如果不配置则无法正常刷新。<br>
-                        当映射路径一样时可省略此配置。
+                      <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
+                        <div class="text-body-2 mb-1"><strong>配置说明：</strong></div>
+                        <div class="text-caption">
+                          <div class="mb-1">• 媒体服务器映射路径和MP映射路径不一样时请配置此项，如果不配置则无法正常刷新。</div>
+                          <div>• 当映射路径一样时可省略此配置。</div>
+                        </div>
                       </v-alert>
                     </v-col>
                   </v-row>
@@ -785,8 +818,8 @@
               <!-- 定期清理 -->
               <v-window-item value="tab-cleanup">
                 <v-card-text>
-                  <v-alert type="warning" variant="tonal" density="compact" class="mb-4">
-                    注意，清空 回收站/最近接收 后文件不可恢复，如果产生重要数据丢失本程序不负责！
+                  <v-alert type="warning" variant="tonal" density="compact" class="mb-4" icon="mdi-alert">
+                    <div class="text-caption">注意，清空 回收站/最近接收 后文件不可恢复，如果产生重要数据丢失本程序不负责！</div>
                   </v-alert>
 
                   <v-row>
@@ -851,11 +884,11 @@
                           <v-text-field v-model="config.pan_transfer_unrecognized_path" label="网盘整理未识别目录"
                             density="compact" append-icon="mdi-folder-network"
                             @click:append="openDirSelector('unrecognized', 'remote', 'panTransferUnrecognized')"></v-text-field>
-                          <v-alert type="info" variant="tonal" density="compact" class="mt-2">
-                            提示：此目录用于存放整理过程中未能识别的媒体文件。
+                          <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
+                            <div class="text-caption">提示：此目录用于存放整理过程中未能识别的媒体文件。</div>
                           </v-alert>
-                          <v-alert type="warning" variant="tonal" density="compact" class="mt-2">
-                            注意：未识别目录不能设置在任何媒体库目录或待整理目录的内部。
+                          <v-alert type="warning" variant="tonal" density="compact" class="mt-3" icon="mdi-alert">
+                            <div class="text-caption">注意：未识别目录不能设置在任何媒体库目录或待整理目录的内部。</div>
                           </v-alert>
                         </v-col>
                       </v-row>
@@ -890,8 +923,8 @@
                           </div>
                         </v-col>
                       </v-row>
-                      <v-alert type="info" variant="tonal" density="compact" class="mt-2">
-                        提示：此目录用于存放通过分享链接转存的资源。
+                      <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
+                        <div class="text-caption">提示：此目录用于存放通过分享链接转存的资源。</div>
                       </v-alert>
                     </v-card-text>
                   </v-card>
@@ -924,34 +957,39 @@
                           </div>
                         </v-col>
                       </v-row>
-                      <v-alert type="info" variant="tonal" density="compact" class="mt-2">
-                        提示：此目录用于存放通过离线下载功能下载的资源。
+                      <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
+                        <div class="text-caption">提示：此目录用于存放通过离线下载功能下载的资源。</div>
                       </v-alert>
                     </v-card-text>
                   </v-card>
 
                   <v-divider class="my-4"></v-divider>
 
-                  <v-alert type="info" variant="tonal" density="compact" class="mt-2">
-                    使用本功能需要先进入 设定-目录 进行配置：<br>
-                    1. 添加目录配置卡，按需配置媒体类型和媒体类别，资源存储选择115网盘，资源目录输入网盘待整理文件夹<br>
-                    2. 自动整理模式选择手动整理，媒体库存储依旧选择115网盘，并配置好媒体库路径，整理方式选择移动，按需配置分类、重命名、通知<br>
-                    3. 配置完成目录设置后只需要在上方 网盘待整理目录 填入 网盘待整理文件夹 即可<br>
+                  <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
+                    <div class="text-body-2 mb-1"><strong>配置说明：</strong></div>
+                    <div class="text-caption">
+                      <div class="mb-1">使用本功能需要先进入 设定-目录 进行配置：</div>
+                      <div class="mb-1">1. 添加目录配置卡，按需配置媒体类型和媒体类别，资源存储选择115网盘，资源目录输入网盘待整理文件夹</div>
+                      <div class="mb-1">2. 自动整理模式选择手动整理，媒体库存储依旧选择115网盘，并配置好媒体库路径，整理方式选择移动，按需配置分类、重命名、通知</div>
+                      <div>3. 配置完成目录设置后只需要在上方 网盘待整理目录 填入 网盘待整理文件夹 即可</div>
+                    </div>
                   </v-alert>
 
-                  <v-alert type="warning" variant="tonal" density="compact" class="mt-2">
-                    注意：配置目录时不能选择刮削元数据，否则可能导致风控！
+                  <v-alert type="warning" variant="tonal" density="compact" class="mt-3" icon="mdi-alert">
+                    <div class="text-caption">注意：配置目录时不能选择刮削元数据，否则可能导致风控！</div>
                   </v-alert>
 
-                  <v-alert type="warning" variant="tonal" density="compact" class="mt-2">
-                    注意：<br>
-                    1. 阿里云盘，115网盘分享链接秒传或转存都依赖于网盘整理<br>
-                    2. TG/Slack资源搜索转存也依赖于网盘整理<br>
-                    3. 当阿里云盘分享秒传未能识别分享媒体信息时，会自动将资源转存到网盘整理未识别目录，后续需要用户手动重命名整理
+                  <v-alert type="warning" variant="tonal" density="compact" class="mt-3" icon="mdi-alert">
+                    <div class="text-body-2 mb-1"><strong>注意事项：</strong></div>
+                    <div class="text-caption">
+                      <div class="mb-1">• 阿里云盘，115网盘分享链接秒传或转存都依赖于网盘整理</div>
+                      <div class="mb-1">• TG/Slack资源搜索转存也依赖于网盘整理</div>
+                      <div>• 当阿里云盘分享秒传未能识别分享媒体信息时，会自动将资源转存到网盘整理未识别目录，后续需要用户手动重命名整理</div>
+                    </div>
                   </v-alert>
 
-                  <v-alert type="warning" variant="tonal" density="compact" class="mt-2">
-                    注意：115生活事件监控默认会忽略网盘整理触发的移动事件，所以推荐使用MP整理事件监控生成STRM
+                  <v-alert type="warning" variant="tonal" density="compact" class="mt-3" icon="mdi-alert">
+                    <div class="text-caption">注意：115生活事件监控默认会忽略网盘整理触发的移动事件，所以推荐使用MP整理事件监控生成STRM</div>
                   </v-alert>
                 </v-card-text>
               </v-window-item>
@@ -1041,14 +1079,16 @@
                     添加监控路径组
                   </v-btn>
 
-                  <v-alert type="info" variant="tonal" density="compact" class="mt-3 text-caption">
-                    <strong>功能说明:</strong><br>
-                    - 监控指定的"本地监控目录"。<br>
-                    - 当目录中出现新文件时：<br>
-                    &nbsp;&nbsp;- 如果文件扩展名匹配"上传文件扩展名"，则将其上传到对应的"网盘上传目标目录"。<br>
-                    &nbsp;&nbsp;- 如果文件扩展名匹配"复制文件扩展名"，则将其复制到对应的"本地复制目标目录"。<br>
-                    - 处理完成后，如果"删除源文件"开关打开，则会删除原始文件。<br>
-                    - 扩展名不匹配的文件将被忽略。<br>
+                  <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
+                    <div class="text-body-2 mb-1"><strong>功能说明：</strong></div>
+                    <div class="text-caption">
+                      <div class="mb-1">• 监控指定的"本地监控目录"</div>
+                      <div class="mb-1">• 当目录中出现新文件时：</div>
+                      <div class="ml-4 mb-1">- 如果文件扩展名匹配"上传文件扩展名"，则将其上传到对应的"网盘上传目标目录"</div>
+                      <div class="ml-4 mb-1">- 如果文件扩展名匹配"复制文件扩展名"，则将其复制到对应的"本地复制目标目录"</div>
+                      <div class="mb-1">• 处理完成后，如果"删除源文件"开关打开，则会删除原始文件</div>
+                      <div>• 扩展名不匹配的文件将被忽略</div>
+                    </div>
                     <strong>注意:</strong><br>
                     - 请确保MoviePilot对本地目录有读写权限，对网盘目录有写入权限。<br>
                     - "本地复制目标目录"是可选的，如果不填，则仅执行上传操作（如果匹配）。<br>
@@ -1116,10 +1156,12 @@
                     </v-card-text>
                   </v-card>
 
-                  <v-alert type="info" variant="tonal" density="compact" class="mt-6 text-caption">
-                    <strong>Telegram频道搜索功能说明</strong><br>
-                    - 您可以同时配置 Nullbr 和下方的自定义频道列表。<br>
-                    - 系统会整合两者的搜索结果，为您提供更广泛的资源范围。
+                  <v-alert type="info" variant="tonal" density="compact" class="mt-6" icon="mdi-information">
+                    <div class="text-body-2 mb-1"><strong>Telegram频道搜索功能说明</strong></div>
+                    <div class="text-caption">
+                      <div class="mb-1">• 您可以同时配置 Nullbr 和下方的自定义频道列表</div>
+                      <div>• 系统会整合两者的搜索结果，为您提供更广泛的资源范围</div>
+                    </div>
                   </v-alert>
 
                 </v-card-text>
@@ -1136,12 +1178,18 @@
                     </v-col>
                   </v-row>
 
-                  <v-alert type="info" variant="tonal" density="compact" class="mt-3 text-caption">
-                    <strong>多设备同步播放</strong><br> •
-                    支持多个设备同时播放同一影片
+                  <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
+                    <div class="text-body-2 mb-1"><strong>多设备同步播放</strong></div>
+                    <div class="text-caption">支持多个设备同时播放同一影片</div>
                   </v-alert>
-                  <v-alert type="warning" variant="tonal" density="compact" class="mt-2">
-                    <strong>使用限制</strong><br> • 最多支持双IP同时播放<br> • 禁止多IP滥用<br> • 违规操作可能导致账号封禁 </v-alert>
+                  <v-alert type="warning" variant="tonal" density="compact" class="mt-3" icon="mdi-alert">
+                    <div class="text-body-2 mb-1"><strong>使用限制</strong></div>
+                    <div class="text-caption">
+                      <div class="mb-1">• 最多支持双IP同时播放</div>
+                      <div class="mb-1">• 禁止多IP滥用</div>
+                      <div>• 违规操作可能导致账号封禁</div>
+                    </div>
+                  </v-alert>
                 </v-card-text>
               </v-window-item>
 
@@ -1226,25 +1274,27 @@
                               placeholder="例如: 5M, 1.5G (可为空)" clearable></v-text-field>
                           </v-col>
                         </v-row>
-                        <v-alert type="info" variant="tonal" density="compact" class="mt-3 text-caption">
-                          <strong>秒传失败直接退出：</strong><br>
-                          此功能开启后，对于无法秒传或者秒传等待超时的文件将直接跳过上传步骤，整理返回失败。
+                        <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
+                          <div class="text-body-2 mb-1"><strong>秒传失败直接退出：</strong></div>
+                          <div class="text-caption">此功能开启后，对于无法秒传或者秒传等待超时的文件将直接跳过上传步骤，整理返回失败。</div>
                         </v-alert>
                       </v-expansion-panel-text>
                     </v-expansion-panel>
                   </v-expansion-panels>
 
-                  <v-alert type="info" variant="tonal" density="compact" class="mt-3 text-caption">
-                    <strong>115上传增强有效范围：</strong><br>
-                    此功能开启后，将对整个MoviePilot系统内所有调用115网盘上传的功能生效。
+                  <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
+                    <div class="text-body-2 mb-1"><strong>115上传增强有效范围：</strong></div>
+                    <div class="text-caption">此功能开启后，将对整个MoviePilot系统内所有调用115网盘上传的功能生效。</div>
                   </v-alert>
 
-                  <v-alert type="warning" variant="tonal" density="compact" class="mt-3 text-caption">
-                    <strong>风险与免责声明</strong><br>
-                    - 插件程序内包含可选的Sentry分析组件，详见<a href="https://sentry.io/privacy/" target="_blank"
-                      style="color: inherit; text-decoration: underline;">Sentry Privacy Policy</a>。<br>
-                    - 插件程序将在必要时上传错误信息及运行环境信息。<br>
-                    - 插件程序将记录程序运行重要节点并保存追踪数据至少72小时。
+                  <v-alert type="warning" variant="tonal" density="compact" class="mt-3" icon="mdi-alert">
+                    <div class="text-body-2 mb-1"><strong>风险与免责声明</strong></div>
+                    <div class="text-caption">
+                      <div class="mb-1">• 插件程序内包含可选的Sentry分析组件，详见<a href="https://sentry.io/privacy/" target="_blank"
+                          style="color: inherit; text-decoration: underline;">Sentry Privacy Policy</a></div>
+                      <div class="mb-1">• 插件程序将在必要时上传错误信息及运行环境信息</div>
+                      <div>• 插件程序将记录程序运行重要节点并保存追踪数据至少72小时</div>
+                    </div>
                   </v-alert>
 
                 </v-card-text>
@@ -1285,44 +1335,76 @@
                         </v-col>
                       </v-row>
 
-                      <v-alert type="info" variant="tonal" density="compact" class="mt-2 text-caption" v-pre>
-                        <div>
-                          <strong>可用变量：</strong><br>
-                          <code>base_url</code> - 基础 URL<br>
-                          <code>apikey</code> - API Token<br>
-                          <code>pickcode</code> - 文件 pickcode（仅普通 STRM）<br>
-                          <code>share_code</code> - 分享码（仅分享 STRM）<br>
-                          <code>receive_code</code> - 提取码（仅分享 STRM）<br>
-                          <code>file_id</code> - 文件 ID<br>
-                          <code>file_name</code> - 文件名称<br>
-                          <code>file_path</code> - 文件网盘路径<br>
-                        </div>
-                        <div class="mt-2">
-                          <strong>可用过滤器：</strong><br>
-                          <code>urlencode</code> - URL 编码（如：{{ file_name | urlencode }}）<br>
-                          <code>path_encode</code> - 路径编码，保留斜杠（如：{{ file_path | path_encode }}）<br>
-                          <code>upper</code> - 转大写<br>
-                          <code>lower</code> - 转小写<br>
-                          <code>default</code> - 默认值（如：{{ file_name | default('unknown') }}）<br>
-                        </div>
-                        <div class="mt-2">
-                          <strong>模板示例：</strong><br>
-                          普通 STRM: <code>{{ base_url }}?apikey={{ apikey }}&pickcode={{ pickcode }}{% if file_name %}&file_name={{
-                  file_name | urlencode }}{% endif %}</code><br>
-                          分享 STRM: <code>{{ base_url }}?apikey={{ apikey }}&share_code={{ share_code }}&receive_code={{
-                  receive_code }}&id={{ file_id }}{% if file_name %}&file_name={{ file_name | urlencode }}{% endif
-                  %}</code>
-                        </div>
-                      </v-alert>
+                      <v-card variant="outlined" class="mt-3" color="info" v-pre>
+                        <v-card-text class="pa-3">
+                          <div class="mb-3">
+                            <div class="d-flex align-center mb-2">
+                              <v-icon icon="mdi-information" size="small" class="mr-2" color="info"></v-icon>
+                              <strong class="text-body-2">可用变量</strong>
+                            </div>
+                            <div class="ml-6">
+                              <div class="mb-1"><code class="text-caption">base_url</code> - 基础 URL</div>
+                              <div class="mb-1"><code class="text-caption">apikey</code> - API Token</div>
+                              <div class="mb-1"><code class="text-caption">pickcode</code> - 文件 pickcode（仅普通 STRM）</div>
+                              <div class="mb-1"><code class="text-caption">share_code</code> - 分享码（仅分享 STRM）</div>
+                              <div class="mb-1"><code class="text-caption">receive_code</code> - 提取码（仅分享 STRM）</div>
+                              <div class="mb-1"><code class="text-caption">file_id</code> - 文件 ID</div>
+                              <div class="mb-1"><code class="text-caption">file_name</code> - 文件名称</div>
+                              <div class="mb-1"><code class="text-caption">file_path</code> - 文件网盘路径</div>
+                            </div>
+                          </div>
+
+                          <v-divider class="my-3"></v-divider>
+
+                          <div class="mb-3">
+                            <div class="d-flex align-center mb-2">
+                              <v-icon icon="mdi-filter" size="small" class="mr-2" color="info"></v-icon>
+                              <strong class="text-body-2">可用过滤器</strong>
+                            </div>
+                            <div class="ml-6">
+                              <div class="mb-1"><code class="text-caption">urlencode</code> - URL 编码（如：<code
+                                  class="text-caption">{{ file_name | urlencode }}</code>）</div>
+                              <div class="mb-1"><code class="text-caption">path_encode</code> - 路径编码，保留斜杠（如：<code
+                                  class="text-caption">{{ file_path | path_encode }}</code>）</div>
+                              <div class="mb-1"><code class="text-caption">upper</code> - 转大写</div>
+                              <div class="mb-1"><code class="text-caption">lower</code> - 转小写</div>
+                              <div class="mb-1"><code class="text-caption">default</code> - 默认值（如：<code
+                                  class="text-caption">{{
+                        file_name | default('unknown') }}</code>）</div>
+                            </div>
+                          </div>
+
+                          <v-divider class="my-3"></v-divider>
+
+                          <div>
+                            <div class="d-flex align-center mb-2">
+                              <v-icon icon="mdi-code-tags" size="small" class="mr-2" color="info"></v-icon>
+                              <strong class="text-body-2">模板示例</strong>
+                            </div>
+                            <div class="ml-6">
+                              <div class="mb-2">
+                                <div class="text-caption text-medium-emphasis mb-1">普通 STRM:</div>
+                                <code class="text-caption pa-2 d-block"
+                                  style="background-color: rgba(var(--v-theme-on-surface), 0.05); border-radius: 4px; font-family: 'Courier New', monospace; word-break: break-all; display: block; white-space: pre-wrap; border: 1px solid rgba(var(--v-theme-on-surface), 0.1);">{{
+                        base_url }}?apikey={{ apikey }}&pickcode={{ pickcode }}{% if file_name %}&file_name={{ file_name
+                        | urlencode }}{% endif %}</code>
+                              </div>
+                              <div>
+                                <div class="text-caption text-medium-emphasis mb-1">分享 STRM:</div>
+                                <code class="text-caption pa-2 d-block"
+                                  style="background-color: rgba(var(--v-theme-on-surface), 0.05); border-radius: 4px; font-family: 'Courier New', monospace; word-break: break-all; display: block; white-space: pre-wrap; border: 1px solid rgba(var(--v-theme-on-surface), 0.1);">{{
+                        base_url }}?apikey={{ apikey }}&share_code={{ share_code }}&receive_code={{ receive_code
+                        }}&id={{ file_id }}{% if file_name %}&file_name={{ file_name | urlencode }}{% endif %}</code>
+                              </div>
+                            </div>
+                          </div>
+                        </v-card-text>
+                      </v-card>
                     </div>
                   </v-expand-transition>
 
                   <!-- STRM 文件名自定义模板 -->
-                  <v-row class="mt-6">
-                    <v-col cols="12">
-                      <v-divider></v-divider>
-                    </v-col>
-                  </v-row>
+                  <v-divider class="my-6"></v-divider>
 
                   <v-row class="mt-4">
                     <v-col cols="12">
@@ -1353,41 +1435,91 @@
                         </v-col>
                       </v-row>
 
-                      <v-alert type="info" variant="tonal" density="compact" class="mt-2 text-caption" v-pre>
-                        <div>
-                          <strong>可用变量：</strong><br>
-                          <code>file_name</code> - 完整文件名（包含扩展名）<br>
-                          <code>file_stem</code> - 文件名（不含扩展名）<br>
-                          <code>file_suffix</code> - 文件扩展名（包含点号，如 .mkv）<br>
-                        </div>
-                        <div class="mt-2">
-                          <strong>可用过滤器：</strong><br>
-                          <code>upper</code> - 转大写（如：{{ file_stem | upper }}）<br>
-                          <code>lower</code> - 转小写（如：{{ file_stem | lower }}）<br>
-                          <code>sanitize</code> - 清理文件名中的非法字符（如：{{ file_name | sanitize }}）<br>
-                          <code>default</code> - 默认值（如：{{ file_stem | default('unknown') }}）<br>
-                        </div>
-                        <div class="mt-2">
-                          <strong>模板示例：</strong><br>
-                          默认格式: <code>{{ file_stem }}.strm</code><br>
-                          ISO 格式: <code>{{ file_stem }}.iso.strm</code><br>
-                          大写文件名: <code>{{ file_stem | upper }}.strm</code><br>
-                        </div>
-                        <div class="mt-2">
-                          <strong>注意事项：</strong><br>
-                          • 模板渲染后的文件名会自动清理非法字符（&lt;&gt;:&quot;/\\|?*）<br>
-                          • 建议模板以 .strm 结尾，确保生成的文件具有正确的扩展名<br>
-                          • 如果模板未指定扩展名，系统会自动添加 .strm
-                        </div>
-                      </v-alert>
+                      <v-card variant="outlined" class="mt-3" color="info" v-pre>
+                        <v-card-text class="pa-3">
+                          <div class="mb-3">
+                            <div class="d-flex align-center mb-2">
+                              <v-icon icon="mdi-information" size="small" class="mr-2" color="info"></v-icon>
+                              <strong class="text-body-2">可用变量</strong>
+                            </div>
+                            <div class="ml-6">
+                              <div class="mb-1"><code class="text-caption">file_name</code> - 完整文件名（包含扩展名）</div>
+                              <div class="mb-1"><code class="text-caption">file_stem</code> - 文件名（不含扩展名）</div>
+                              <div class="mb-1"><code class="text-caption">file_suffix</code> - 文件扩展名（包含点号，如 .mkv）</div>
+                            </div>
+                          </div>
+
+                          <v-divider class="my-3"></v-divider>
+
+                          <div class="mb-3">
+                            <div class="d-flex align-center mb-2">
+                              <v-icon icon="mdi-filter" size="small" class="mr-2" color="info"></v-icon>
+                              <strong class="text-body-2">可用过滤器</strong>
+                            </div>
+                            <div class="ml-6">
+                              <div class="mb-1"><code class="text-caption">upper</code> - 转大写（如：<code
+                                  class="text-caption">{{
+                        file_stem | upper }}</code>）</div>
+                              <div class="mb-1"><code class="text-caption">lower</code> - 转小写（如：<code
+                                  class="text-caption">{{
+                        file_stem | lower }}</code>）</div>
+                              <div class="mb-1"><code class="text-caption">sanitize</code> - 清理文件名中的非法字符（如：<code
+                                  class="text-caption">{{ file_name | sanitize }}</code>）</div>
+                              <div class="mb-1"><code class="text-caption">default</code> - 默认值（如：<code
+                                  class="text-caption">{{
+                        file_stem | default('unknown') }}</code>）</div>
+                            </div>
+                          </div>
+
+                          <v-divider class="my-3"></v-divider>
+
+                          <div class="mb-3">
+                            <div class="d-flex align-center mb-2">
+                              <v-icon icon="mdi-code-tags" size="small" class="mr-2" color="info"></v-icon>
+                              <strong class="text-body-2">模板示例</strong>
+                            </div>
+                            <div class="ml-6">
+                              <div class="mb-2">
+                                <div class="text-caption text-medium-emphasis mb-1">默认格式:</div>
+                                <code class="text-caption pa-2 d-block"
+                                  style="background-color: rgba(var(--v-theme-on-surface), 0.05); border-radius: 4px; font-family: 'Courier New', monospace; display: block; border: 1px solid rgba(var(--v-theme-on-surface), 0.1);">{{
+                        file_stem }}.strm</code>
+                              </div>
+                              <div class="mb-2">
+                                <div class="text-caption text-medium-emphasis mb-1">ISO 格式:</div>
+                                <code class="text-caption pa-2 d-block"
+                                  style="background-color: rgba(var(--v-theme-on-surface), 0.05); border-radius: 4px; font-family: 'Courier New', monospace; display: block; border: 1px solid rgba(var(--v-theme-on-surface), 0.1);">{{
+                        file_stem }}.iso.strm</code>
+                              </div>
+                              <div>
+                                <div class="text-caption text-medium-emphasis mb-1">大写文件名:</div>
+                                <code class="text-caption pa-2 d-block"
+                                  style="background-color: rgba(var(--v-theme-on-surface), 0.05); border-radius: 4px; font-family: 'Courier New', monospace; display: block; border: 1px solid rgba(var(--v-theme-on-surface), 0.1);">{{
+                        file_stem | upper }}.strm</code>
+                              </div>
+                            </div>
+                          </div>
+
+                          <v-divider class="my-3"></v-divider>
+
+                          <div>
+                            <div class="d-flex align-center mb-2">
+                              <v-icon icon="mdi-alert-circle-outline" size="small" class="mr-2"
+                                color="warning"></v-icon>
+                              <strong class="text-body-2">注意事项</strong>
+                            </div>
+                            <div class="ml-6">
+                              <div class="mb-1 text-caption">• 模板渲染后的文件名会自动清理非法字符（&lt;&gt;:&quot;/\\|?*）</div>
+                              <div class="mb-1 text-caption">• 建议模板以 .strm 结尾，确保生成的文件具有正确的扩展名</div>
+                              <div class="text-caption">• 如果模板未指定扩展名，系统会自动添加 .strm</div>
+                            </div>
+                          </div>
+                        </v-card-text>
+                      </v-card>
                     </div>
                   </v-expand-transition>
 
-                  <v-row class="mt-6">
-                    <v-col cols="12">
-                      <v-divider></v-divider>
-                    </v-col>
-                  </v-row>
+                  <v-divider class="my-6"></v-divider>
 
                   <v-row class="mt-4">
                     <v-col cols="12">
@@ -1413,11 +1545,7 @@
                     </v-col>
                   </v-row>
 
-                  <v-row class="mt-6">
-                    <v-col cols="12">
-                      <v-divider></v-divider>
-                    </v-col>
-                  </v-row>
+                  <v-divider class="my-6"></v-divider>
 
                   <v-row class="mt-4">
                     <v-col cols="12" md="4">
@@ -1443,8 +1571,8 @@
                           </v-card-title>
                         </v-card-item>
                         <v-card-text>
-                          <v-alert type="info" variant="tonal" density="compact" class="mb-4">
-                            缓存清理功能可以帮助您清理插件运行过程中产生的缓存数据，解决部分因缓存导致的问题。
+                          <v-alert type="info" variant="tonal" density="compact" class="mb-4" icon="mdi-information">
+                            <div class="text-caption">缓存清理功能可以帮助您清理插件运行过程中产生的缓存数据，解决部分因缓存导致的问题。</div>
                           </v-alert>
 
                           <v-row>
