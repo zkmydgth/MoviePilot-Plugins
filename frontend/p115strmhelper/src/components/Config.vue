@@ -23,28 +23,30 @@
             </v-card-title>
             <v-card-text class="pa-3">
               <v-row>
-                <v-col cols="12" md="2">
+                <v-col cols="12" md="4">
                   <v-switch v-model="config.enabled" label="启用插件" color="success" density="compact"></v-switch>
                 </v-col>
-                <v-col cols="12" md="2">
-                  <v-switch v-model="config.notify" label="发送通知" color="success" density="compact"></v-switch>
-                </v-col>
-                <v-col cols="12" md="2">
-                  <v-select v-model="config.language" label="通知语言" :items="[
-                    { title: '简体中文', value: 'zh_CN' },
-                    { title: '简中猫娘', value: 'zh_CN_catgirl' }
-                  ]" chips closable-chips></v-select>
-                </v-col>
-                <v-col cols="12" md="3">
+                <v-col cols="12" md="4">
                   <v-select v-model="config.strm_url_format" label="STRM文件URL格式" :items="[
                     { title: 'pickcode', value: 'pickcode' },
                     { title: 'pickcode + name', value: 'pickname' }
                   ]" chips closable-chips></v-select>
                 </v-col>
-                <v-col cols="12" md="3">
+                <v-col cols="12" md="4">
                   <v-select v-model="config.link_redirect_mode" label="直链获取模式" :items="[
                     { title: 'Cookie', value: 'cookie' },
                     { title: 'OpenAPI', value: 'open' }
+                  ]" chips closable-chips></v-select>
+                </v-col>
+              </v-row>
+              <v-row>
+                <v-col cols="12" md="4">
+                  <v-switch v-model="config.notify" label="发送通知" color="success" density="compact"></v-switch>
+                </v-col>
+                <v-col cols="12" md="8">
+                  <v-select v-model="config.language" label="通知语言" :items="[
+                    { title: '简体中文', value: 'zh_CN' },
+                    { title: '简中猫娘', value: 'zh_CN_catgirl' }
                   ]" chips closable-chips></v-select>
                 </v-col>
               </v-row>
