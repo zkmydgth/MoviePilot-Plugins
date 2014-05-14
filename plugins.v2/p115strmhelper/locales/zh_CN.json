@@ -31,7 +31,7 @@
     "p115_add_offline_parameter_error": "参数错误！ /ol 链接",
     "p115_add_offline_no_recognized_link": "未识别到离线下载链接",
     "p115_add_offline_no_recognized_link_detail": "\n请确认参数为 magnet、ed2k 或以 .torrent 结尾的 http(s) 链接；若确认无误仍出现本提示，也可能是插件解析尚未支持该格式，可尝试升级插件或向仓库提交样例",
-    "p115_add_offline_success": "添加离线下载任务成功！",
+    "p115_add_offline_success": "成功添加 {count} 条离线下载任务！",
     "p115_add_offline_fail": "添加离线下载任务失败！",
     "share_sync_done_title": "✅【115网盘】分享生成 STRM 文件完成",
     "inc_sync_done_title": "✅【115网盘】增量生成 STRM 文件完成",

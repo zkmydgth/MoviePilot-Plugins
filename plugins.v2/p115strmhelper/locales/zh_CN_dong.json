@@ -31,7 +31,7 @@
     "p115_add_offline_parameter_error": "砖头放错位置...要用 /ol 加链接",
     "p115_add_offline_no_recognized_link": "没认出离线下载砖头",
     "p115_add_offline_no_recognized_link_detail": "\n要是 magnet、ed2k 或 .torrent 的 http 链接才对；砖对上了还报错，可能是插件不认这种砌法，升级插件或往仓库扔块样砖",
-    "p115_add_offline_success": "咚咚咚！离线任务砖块搬好了！",
+    "p115_add_offline_success": "咚咚咚！{count} 块离线任务砖搬好了！",
     "p115_add_offline_fail": "哎呀...砖头掉地上了...离线任务失败了",
     "share_sync_done_title": "✅【115网盘】分享STRM砖块搬完啦！",
     "inc_sync_done_title": "✅【115网盘】增量STRM砖块搬好了！",

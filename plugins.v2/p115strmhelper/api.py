@@ -1095,13 +1095,13 @@ class Api:
         path = payload.path
 
         if not path:
-            status = servicer.offlinehelper.add_urls_to_transfer(links)
+            ok, added_count = servicer.offlinehelper.add_urls_to_transfer(links)
         else:
-            status = servicer.offlinehelper.add_urls_to_path(links, path)
+            ok, added_count = servicer.offlinehelper.add_urls_to_path(links, path)
 
-        if status:
+        if ok:
             return ApiResponse(
-                msg=f"{len(payload.links)} 个新任务已成功添加，正在后台处理。"
+                msg=f"{added_count} 个新任务已成功添加，正在后台处理。"
             )
 
         return ApiResponse(code=-1, msg="添加失败：请前往后台查看插件日志")

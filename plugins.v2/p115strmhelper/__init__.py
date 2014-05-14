@@ -1141,11 +1141,14 @@ class P115StrmHelper(_PluginBase):
             return
 
         if len(configer.offline_download_paths) <= 1:
-            if servicer.offlinehelper.add_urls_to_transfer(url_list):
+            ok, added_count = servicer.offlinehelper.add_urls_to_transfer(url_list)
+            if ok:
                 post_message(
                     channel=event_data.get("channel"),
                     source=event_data.get("source"),
-                    title=i18n.translate("p115_add_offline_success"),
+                    title=i18n.translate(
+                        "p115_add_offline_success", count=added_count
+                    ),
                     userid=userid,
                 )
             else:

@@ -235,14 +235,20 @@ class ActionHandler(BaseActionHandler):
                     path in configer.pan_transfer_paths
                     and configer.pan_transfer_enabled
                 ):
-                    status = servicer.offlinehelper.add_urls_to_transfer(url_list)
+                    ok, added_count = servicer.offlinehelper.add_urls_to_transfer(
+                        url_list
+                    )
                 else:
-                    status = servicer.offlinehelper.add_urls_to_path(url_list, path)
-                if status:
+                    ok, added_count = servicer.offlinehelper.add_urls_to_path(
+                        url_list, path
+                    )
+                if ok:
                     post_message(
                         channel=session.message.channel,
                         source=session.message.source,
-                        title=i18n.translate("p115_add_offline_success"),
+                        title=i18n.translate(
+                            "p115_add_offline_success", count=added_count
+                        ),
                         userid=session.message.userid,
                     )
                 else:

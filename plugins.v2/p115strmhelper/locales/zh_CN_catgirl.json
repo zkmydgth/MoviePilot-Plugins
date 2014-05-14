@@ -31,7 +31,7 @@
     "p115_add_offline_parameter_error": "主人，参数不对喵 ~~ 正确用法是：/ol 链接喵",
     "p115_add_offline_no_recognized_link": "主人，这段里喵不到离线下载链接喵",
     "p115_add_offline_no_recognized_link_detail": "\n先确认是不是 magnet、ed2k 或 .torrent 的 http 链接喵；要是对的还是这样，也可能是插件还没学会这种格式喵，升级插件或给仓库交个样例喵",
-    "p115_add_offline_success": "主人好棒！添加离线下载任务成功喵 ~(=^･ω･^=)",
+    "p115_add_offline_success": "主人好棒！成功添加 {count} 条离线下载任务喵 ~(=^･ω･^=)",
     "p115_add_offline_fail": "呜喵...添加离线下载任务失败了，主人再试试看喵",
     "share_sync_done_title": "✅【115网盘】分享生成 STRM 文件完成啦喵！",
     "inc_sync_done_title": "✅【115网盘】增量生成 STRM 文件顺利完成喵 ~",

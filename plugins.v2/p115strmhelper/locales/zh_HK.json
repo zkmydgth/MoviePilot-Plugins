@@ -31,7 +31,7 @@
     "p115_add_offline_parameter_error": "參數錯誤！ /ol 連結",
     "p115_add_offline_no_recognized_link": "未識別到離線下載連結",
     "p115_add_offline_no_recognized_link_detail": "\n請確認參數係 magnet、ed2k 或以 .torrent 結尾嘅 http(s) 連結；若確認無誤仍出現本提示，亦可能係外掛解析未支援該格式，可試下升級外掛或向倉庫提交範例",
-    "p115_add_offline_success": "新增離線下載任務成功！",
+    "p115_add_offline_success": "成功新增 {count} 筆離線下載任務！",
     "p115_add_offline_fail": "新增離線下載任務失敗！",
     "share_sync_done_title": "✅【115網盤】分享生成 STRM 檔案完成",
     "inc_sync_done_title": "✅【115網盤】增量生成 STRM 檔案完成",
