@@ -330,6 +330,8 @@ class MediaInfoDownloader:
         mediainfo_count: int = 0
         mediainfo_fail_count: int = 0
         for item in downloads_list:
+            if not item:
+                continue
             download_success = False
             if item["type"] == "local":
                 for _ in range(3):
@@ -366,6 +368,9 @@ class MediaInfoDownloader:
                     mediainfo_fail_count += 1
             else:
                 continue
+            if mediainfo_count % 25 == 0:
+                logger.info("【媒体信息文件下载】休眠 2s 后继续下载")
+                time.sleep(2)
         return mediainfo_count, mediainfo_fail_count
 
 
@@ -748,7 +753,7 @@ class P115StrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png"
     # 插件版本
-    plugin_version = "1.6.8"
+    plugin_version = "1.6.9"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
