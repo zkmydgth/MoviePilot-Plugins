@@ -5,10 +5,10 @@ from uuid import uuid4
 
 from p115client import P115Client
 from p115client.tool import iter_files_with_path_skim
-from p115pickcode import to_id, to_pickcode
+from p115pickcode import to_id
 
 from ...core.u115_open import U115OpenHelper
-from ...core.p115 import get_pid_by_path
+from ...core.p115 import get_pid_by_path, to_pickcode
 from ...core.config import configer
 from ...core.scrape import media_scrape_metadata
 from ...helper.mediainfo_download import MediaInfoDownloader
@@ -90,7 +90,11 @@ class ApiSyncStrmHelper:
             pick_code = None
             if item.id or item.pick_code:
                 file_id = item.id if item.id else to_id(item.pick_code)
-                pick_code = item.pick_code if item.pick_code else to_pickcode(item.id)
+                pick_code = (
+                    item.pick_code
+                    if item.pick_code
+                    else to_pickcode(self.client, item.id)
+                )
             name = item.name
             pan_path = item.pan_path
             sha1 = item.sha1

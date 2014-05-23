@@ -229,17 +229,7 @@ class P115StrmHelper(_PluginBase):
 
     def get_api(self) -> List[Dict[str, Any]]:
         """
-        BASE_URL: {server_url}/api/v1/plugin/P115StrmHelper/redirect_url?apikey={APIKEY}
-        0. 查询 pickcode
-            url: ${BASE_URL}&pickcode=ecjq9ichcb40lzlvx
-        1. 带（任意）名字查询 pickcode
-            url: ${BASE_URL}&file_name=Novembre.2022.FRENCH.2160p.BluRay.DV.HEVC.DTS-HD.MA.5.1.mkv&pickcode=ecjq9ichcb40lzlvx
-        2. 查询分享文件（如果是你自己的分享，则无须提供密码 receive_code）
-            url: ${BASE_URL}&share_code=sw68md23w8m&receive_code=q353&id=2580033742990999218
-            url: ${BASE_URL}&share_code=sw68md23w8m&id=2580033742990999218
-        3. 用 file_name 查询分享文件（直接以路径作为 file_name，且不要有 id 查询参数。如果是你自己的分享，则无须提供密码 receive_code）
-            url: ${BASE_URL}&file_name=Cosmos.S01E01.1080p.AMZN.WEB-DL.DD%2B5.1.H.264-iKA.mkv&share_code=sw68md23w8m&receive_code=q353
-            url: ${BASE_URL}&file_name=Cosmos.S01E01.1080p.AMZN.WEB-DL.DD%2B5.1.H.264-iKA.mkv&share_code=sw68md23w8m
+        获取 API 接口
         """
         return [
             {
@@ -264,21 +254,21 @@ class P115StrmHelper(_PluginBase):
                 "description": "115网盘302跳转",
             },
             {
-                "path": "/redirect_url/{args}",
+                "path": "/redirect_url/{args:path}",
                 "endpoint": self.api.redirect_url_get_path,
                 "methods": ["GET"],
                 "summary": "302跳转",
                 "description": "115网盘302跳转",
             },
             {
-                "path": "/redirect_url/{args}",
+                "path": "/redirect_url/{args:path}",
                 "endpoint": self.api.redirect_url_post_path,
                 "methods": ["POST"],
                 "summary": "302跳转",
                 "description": "115网盘302跳转",
             },
             {
-                "path": "/redirect_url/{args}",
+                "path": "/redirect_url/{args:path}",
                 "endpoint": self.api.redirect_url_head_path,
                 "methods": ["HEAD"],
                 "summary": "302跳转",

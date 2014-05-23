@@ -5,7 +5,7 @@ from dataclasses import asdict
 from time import time, sleep
 from typing import Dict, Optional
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import quote, unquote
 
 from qrcode import make as qr_make
 from orjson import dumps, loads
@@ -19,7 +19,7 @@ from .service import servicer
 from .core.config import configer
 from .core.cache import idpathcacher, DirectoryCache
 from .core.aliyunpan import AliyunPanLogin
-from .core.p115 import get_pid_by_path
+from .core.p115 import to_pickcode, get_pid_by_path, get_pickcode_by_path
 from .helper.life.test import MonitorLifeTest
 from .helper.strm import ApiSyncStrmHelper
 from .schemas.offline import (
@@ -733,6 +733,64 @@ class Api:
         )
 
     @staticmethod
+    def _resolve_pickcode_from_args(
+        args: str, pickcode: str
+    ) -> tuple[Optional[str], Optional[Response]]:
+        """
+        从 args 解析 pick_code
+
+        :param args: 参数，可能是 pick_code、路径或 id
+        :param pickcode: 已有的 pick_code
+
+        :return: (pick_code, error_response)，成功时返回 (pick_code, None)，失败时返回 (None, Response)
+        """
+        if args and not pickcode:
+            if len(args) == 17 and args.isalnum():
+                return args, None
+            if "/" in args:
+                try:
+                    decoded_args = unquote(args)
+                    if decoded_args.startswith("/") or "/" in decoded_args:
+                        path_to_use = decoded_args
+                    else:
+                        path_to_use = args
+                except Exception:
+                    path_to_use = args
+                if path_to_use and not path_to_use.startswith("/"):
+                    path_to_use = "/" + path_to_use
+                try:
+                    resolved_pickcode = get_pickcode_by_path(
+                        servicer.client, path_to_use
+                    )
+                    if not resolved_pickcode:
+                        logger.error(
+                            f"【302跳转服务】无法通过路径获取 pickcode: {path_to_use}"
+                        )
+                        return None, Api._create_error_response(
+                            f"无法通过路径获取 pickcode: {path_to_use}",
+                            status_code=status.HTTP_404_NOT_FOUND,
+                        )
+                    return resolved_pickcode, None
+                except Exception as e:
+                    logger.error(f"【302跳转服务】获取 pickcode 失败: {e}")
+                    return None, Api._create_error_response(
+                        f"获取 pickcode 失败: {e}",
+                        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    )
+            else:
+                try:
+                    file_id = int(args)
+                    resolved_pickcode = to_pickcode(servicer.client, file_id)
+                    return resolved_pickcode, None
+                except (ValueError, TypeError):
+                    logger.error(f"【302跳转服务】无效的参数格式: {args}")
+                    return None, Api._create_error_response(
+                        f"无效的参数格式: {args}",
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                    )
+        return pickcode, None
+
+    @staticmethod
     async def redirect_url_get_path(
         request: Request,
         args: str = "",
@@ -745,10 +803,13 @@ class Api:
         """
         115 网盘 302 跳转 (GET)
         """
-        if args and len(args) == 17 and args.isalnum() and not pickcode:
-            pickcode = args
+        resolved_pickcode, error_response = Api._resolve_pickcode_from_args(
+            args, pickcode
+        )
+        if error_response:
+            return error_response
         return await Api._redirect_url_impl(
-            request, pickcode, file_name, id, share_code, receive_code
+            request, resolved_pickcode, file_name, id, share_code, receive_code
         )
 
     @staticmethod
@@ -764,10 +825,13 @@ class Api:
         """
         115 网盘 302 跳转 (POST)
         """
-        if args and len(args) == 17 and args.isalnum() and not pickcode:
-            pickcode = args
+        resolved_pickcode, error_response = Api._resolve_pickcode_from_args(
+            args, pickcode
+        )
+        if error_response:
+            return error_response
         return await Api._redirect_url_impl(
-            request, pickcode, file_name, id, share_code, receive_code
+            request, resolved_pickcode, file_name, id, share_code, receive_code
         )
 
     @staticmethod
@@ -783,10 +847,13 @@ class Api:
         """
         115 网盘 302 跳转 (HEAD)
         """
-        if args and len(args) == 17 and args.isalnum() and not pickcode:
-            pickcode = args
+        resolved_pickcode, error_response = Api._resolve_pickcode_from_args(
+            args, pickcode
+        )
+        if error_response:
+            return error_response
         return await Api._redirect_url_impl(
-            request, pickcode, file_name, id, share_code, receive_code
+            request, resolved_pickcode, file_name, id, share_code, receive_code
         )
 
     @staticmethod
