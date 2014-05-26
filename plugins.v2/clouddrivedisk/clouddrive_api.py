@@ -483,6 +483,9 @@ class CloudDriveApi:
         """
         上传文件到 CloudDrive（Remote Upload 协议）。
 
+        协议参考: https://www.clouddrive2.com/api/CloudDrive2_gRPC_API_Guide.html
+        （远程上传协议：StartRemoteUpload → RemoteUploadChannel 流 → 响应 ReadData/HashData）
+
         :param target_dir: 目标目录 FileItem
         :param local_path: 本地文件路径
         :param new_name: 云端文件名，None 则用 local_path.name
@@ -510,67 +513,70 @@ class CloudDriveApi:
         progress_callback = transfer_process(target_path)
         try:
             stream = self.client.remote_upload_channel(device_id="moviepilot")
-            for reply in stream:
-                if global_vars.is_transfer_stopped(target_path):
-                    logger.info("【CloudDrive】上传已取消: %s", target_path)
-                    self.client.remote_upload_control_cancel(upload_id)
-                    return None
-                which = reply.WhichOneof("request")
-                if not which:
-                    continue
-                if reply.upload_id != upload_id:
-                    continue
-                if which == "read_data":
-                    req = reply.read_data
-                    offset = req.offset
-                    length = req.length
-                    with open(local_path, "rb") as f:
-                        f.seek(offset)
-                        data = f.read(length)
-                    is_last = (offset + len(data)) >= file_size
-                    try:
-                        resp = self.client.remote_read_data(
-                            upload_id=upload_id,
-                            offset=offset,
-                            length=len(data),
-                            data=data,
-                            is_last_chunk=is_last,
-                        )
-                    except Exception as e:
-                        logger.error("【CloudDrive】RemoteReadData 失败: %s", e)
+            with open(local_path, "rb") as f:
+                for reply in stream:
+                    if global_vars.is_transfer_stopped(target_path):
+                        logger.info("【CloudDrive】上传已取消: %s", target_path)
                         self.client.remote_upload_control_cancel(upload_id)
                         return None
-                    if not resp.success:
-                        logger.error(
-                            "【CloudDrive】RemoteReadData 服务端失败: %s",
-                            resp.error_message,
-                        )
-                        return None
-                    if file_size:
-                        progress_callback((offset + len(data)) * 100.0 / file_size)
-                elif which == "hash_data":
-                    req = reply.hash_data
-                    ht = req.hash_type
-                    hash_val = self._compute_file_hash(local_path, ht)
-                    try:
-                        self.client.remote_hash_progress(
-                            upload_id=upload_id,
-                            bytes_hashed=file_size,
-                            total_bytes=file_size,
-                            hash_type=ht,
-                            hash_value=hash_val,
-                        )
-                    except Exception as e:
-                        logger.warning("【CloudDrive】RemoteHashProgress 失败: %s", e)
-                elif which == "status_changed":
-                    st = reply.status_changed.status
-                    if st == UploadStatus.FINISH:
-                        progress_callback(100)
-                        break
-                    if st in (UploadStatus.ERROR, UploadStatus.FATAL_ERROR):
-                        msg = reply.status_changed.error_message or "上传失败"
-                        logger.error("【CloudDrive】上传状态错误: %s", msg)
-                        return None
+                    which = reply.WhichOneof("request")
+                    if not which:
+                        continue
+                    if reply.upload_id != upload_id:
+                        continue
+                    if which == "read_data":
+                        req = reply.read_data
+                        offset = req.offset
+                        length = req.length
+                        f.seek(offset)
+                        data = f.read(length)
+                        is_last = (offset + len(data)) >= file_size
+                        try:
+                            resp = self.client.remote_read_data(
+                                upload_id=upload_id,
+                                offset=offset,
+                                length=len(data),
+                                data=data,
+                                is_last_chunk=is_last,
+                                lazy_read=getattr(req, "lazy_read", False),
+                            )
+                        except Exception as e:
+                            logger.error("【CloudDrive】RemoteReadData 失败: %s", e)
+                            self.client.remote_upload_control_cancel(upload_id)
+                            return None
+                        if not resp.success:
+                            logger.error(
+                                "【CloudDrive】RemoteReadData 服务端失败: %s",
+                                resp.error_message,
+                            )
+                            return None
+                        if file_size:
+                            progress_callback((offset + len(data)) * 100.0 / file_size)
+                    elif which == "hash_data":
+                        req = reply.hash_data
+                        ht = req.hash_type
+                        hash_val = self._compute_file_hash(local_path, ht)
+                        try:
+                            self.client.remote_hash_progress(
+                                upload_id=upload_id,
+                                bytes_hashed=file_size,
+                                total_bytes=file_size,
+                                hash_type=ht,
+                                hash_value=hash_val,
+                            )
+                        except Exception as e:
+                            logger.warning(
+                                "【CloudDrive】RemoteHashProgress 失败: %s", e
+                            )
+                    elif which == "status_changed":
+                        st = reply.status_changed.status
+                        if st == UploadStatus.FINISH:
+                            progress_callback(100)
+                            break
+                        if st in (UploadStatus.ERROR, UploadStatus.FATAL_ERROR):
+                            msg = reply.status_changed.error_message or "上传失败"
+                            logger.error("【CloudDrive】上传状态错误: %s", msg)
+                            return None
         except Exception as e:
             logger.error("【CloudDrive】上传过程异常: %s", e)
             try:
