@@ -623,11 +623,12 @@
         "name": "ffprobe命名补充",
         "description": "整理重命名时调用 ffprobe，补全命名模板中的 videoFormat、videoCodec、audioCodec、fps、effect，支持 STRM",
         "labels": "整理",
-        "version": "0.1.0",
+        "version": "0.1.1",
         "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/refs/heads/main/icons/ffmpeg.png",
         "author": "DDSRem",
         "level": 1,
         "history": {
+            "v0.1.1": "audioCodec 附带声道标签（如 TrueHD7.1、EAC35.1）",
             "v0.1.0": "修复已知问题，增强兼容性，要求 MoviePilot v2.9.26+",
             "v0.0.2": "支持从 ffprobe 推断 effect（DoVi、HDR10、HDR10+、HLG、SDR）",
             "v0.0.1": "发布测试版本，要求 MoviePilot v2.9.25+"
