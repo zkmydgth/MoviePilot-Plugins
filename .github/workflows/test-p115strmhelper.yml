@@ -95,11 +95,12 @@ jobs:
       - name: Start Redis (Windows)
         if: runner.os == 'Windows'
         run: |
-          choco install redis-64 --version 3.0.503 -y
-          $env:Path += ";C:\Program Files\Redis"
-          redis-server --service-install
-          redis-server --service-start
-          redis-cli ping
+          choco install memurai-developer -y --no-progress
+          $svc = Get-Service Memurai -ErrorAction SilentlyContinue
+          if ($svc -and $svc.Status -ne 'Running') {
+            Start-Service Memurai
+          }
+          Get-Service Memurai
         shell: powershell
 
       - name: Run tests
