@@ -36,7 +36,7 @@ class Cleaner:
         try:
             logger.info("【最近接收清理】开始清理最近接收")
             parent_id = int(self.client.fs_sys_dir(0)["cid"])
-            if parent_id == 0:
+            if parent_id == -1:
                 logger.info("【最近接收清理】最近接收目录为空，无需清理")
                 return
             logger.info(f"【最近接收清理】最近接收目录 ID 获取成功: {parent_id}")
@@ -62,7 +62,7 @@ class Cleaner:
                 for i in range(0, total_files, batch_size):
                     batch_ids = id_list[i : i + batch_size]
                     logger.info(
-                        f"【最近接收清理】正在删除第{i // batch_size + 1}批，数量：{len(batch_ids)}"
+                        f"【最近接收清理】正在删除第 {i // batch_size + 1} 批，数量：{len(batch_ids)}"
                     )
                     self.client.fs_delete(batch_ids)
                     sleep(2)
