@@ -1,138 +1,13 @@
-__all__ = [
-    "HDHiveAPIError",
-    "HDHiveAuthError",
-    "HDHiveForbiddenError",
-    "HDHiveNotFoundError",
-    "HDHiveRateLimitError",
-    "HDHiveInsufficientPointsError",
-    "MediaType",
-    "VideoResolution",
-    "Source",
-    "SubtitleLanguage",
-    "SubtitleType",
-    "HDHiveOpenClient",
-]
-
 from typing import Any, Literal
 
-from httpx import Client, Response
+from httpx import Client
 
 from app.core.config import settings
 from app.utils.http import AsyncRequestUtils
 
-from ...utils.sentry import sentry_manager
-
-
-class HDHiveAPIError(Exception):
-    """
-    HDHive API 错误的基类
-    """
-
-    def __init__(
-        self,
-        code: str,
-        message: str,
-        description: str | None = None,
-        http_status: int | None = None,
-    ) -> None:
-        """
-        :param code: 服务端业务错误码或回退为 HTTP 状态码字符串
-        :param message: 错误摘要
-        :param description: 可选详细说明
-        :param http_status: 响应 HTTP 状态码
-        """
-        self.code = code
-        self.message = message
-        self.description = description
-        self.http_status = http_status
-        super().__init__(
-            f"[{code}] {message}" + (f" — {description}" if description else "")
-        )
-
-
-class HDHiveAuthError(HDHiveAPIError):
-    """
-    401 或鉴权相关错误
-
-    例如 MISSING_API_KEY、INVALID_API_KEY、DISABLED_API_KEY、EXPIRED_API_KEY
-    """
-
-
-class HDHiveForbiddenError(HDHiveAPIError):
-    """
-    403 禁止访问
-
-    例如 VIP_REQUIRED、ENDPOINT_DISABLED
-    """
-
-
-class HDHiveNotFoundError(HDHiveAPIError):
-    """
-    404 资源不存在
-    """
-
-
-class HDHiveRateLimitError(HDHiveAPIError):
-    """
-    429 限流或配额
-
-    例如 RATE_LIMIT_EXCEEDED、ENDPOINT_QUOTA_EXCEEDED
-    """
-
-
-class HDHiveInsufficientPointsError(HDHiveAPIError):
-    """
-    402 积分不足（INSUFFICIENT_POINTS）
-    """
-
-
-_ERROR_MAP: dict[int, type[HDHiveAPIError]] = {
-    401: HDHiveAuthError,
-    403: HDHiveForbiddenError,
-    404: HDHiveNotFoundError,
-    402: HDHiveInsufficientPointsError,
-    429: HDHiveRateLimitError,
-}
-
-_CODE_MAP: dict[str, type[HDHiveAPIError]] = {
-    "MISSING_API_KEY": HDHiveAuthError,
-    "INVALID_API_KEY": HDHiveAuthError,
-    "DISABLED_API_KEY": HDHiveAuthError,
-    "EXPIRED_API_KEY": HDHiveAuthError,
-    "VIP_REQUIRED": HDHiveForbiddenError,
-    "ENDPOINT_DISABLED": HDHiveForbiddenError,
-    "ENDPOINT_QUOTA_EXCEEDED": HDHiveRateLimitError,
-    "RATE_LIMIT_EXCEEDED": HDHiveRateLimitError,
-    "INSUFFICIENT_POINTS": HDHiveInsufficientPointsError,
-}
-
-
-def _raise_for_response(resp: Response) -> None:
-    """
-    解析统一 JSON 错误体并抛出对应异常；成功响应则直接返回
-
-    :param resp: httpx 响应对象
-    :raises HDHiveAPIError: 业务失败或 HTTP 错误时
-    """
-    try:
-        body: dict[str, Any] = resp.json()
-    except Exception:
-        resp.raise_for_status()
-        return
-
-    if body.get("success"):
-        return
-
-    code: str = str(body.get("code", resp.status_code))
-    message: str = body.get("message", "Unknown error")
-    description: str | None = body.get("description")
-    http_status: int = resp.status_code
-
-    exc_cls = _CODE_MAP.get(code) or _ERROR_MAP.get(http_status, HDHiveAPIError)
-    raise exc_cls(
-        code=code, message=message, description=description, http_status=http_status
-    )
-
+from ....utils.sentry import sentry_manager
+from .constants import HDHIVE_OPEN_BASE_URL
+from .errors import raise_for_response
 
 MediaType = Literal["movie", "tv"]
 
@@ -157,8 +32,11 @@ SubtitleLanguage = Literal[
     "简日双语",
     "繁日双语",
     "简英双语",
+    "繁英双语",
 ]
 SubtitleType = Literal["外挂", "内封", "内嵌"]
+
+_META_PATHS = frozenset({"/ping", "/quota", "/usage", "/usage/today"})
 
 
 @sentry_manager.capture_all_class_exceptions
@@ -166,26 +44,35 @@ class HDHiveOpenClient:
     """
     HDHive Open API 同步客户端
 
-    基址为 ``https://hdhive.com/api/open``，请求头携带 ``X-API-Key``
+    所有请求携带 ``X-API-Key``；非 meta 接口在 OAuth 模式下还需 ``Authorization: Bearer``
     """
 
-    BASE_URL = "https://hdhive.com/api/open"
+    BASE_URL = HDHIVE_OPEN_BASE_URL
 
     def __init__(
         self,
-        api_key: str,
+        api_key: str = "",
         *,
+        access_token: str | None = None,
         timeout: float = 30.0,
         client: Client | None = None,
+        defer_client: bool = False,
     ) -> None:
         """
         初始化客户端
 
-        :param api_key: HDHive API 密钥
+        :param api_key: OpenAPI 应用 Secret（仅服务端/中转使用）
+        :param access_token: OAuth 用户 Access Token，非 meta 接口必填
         :param timeout: 单次请求超时秒数
-        :param client: 可选外部 ``Client``；传入时会合并 ``X-API-Key`` 头
+        :param client: 可选外部 ``Client``；传入时会合并鉴权头
+        :param defer_client: 为 True 时不创建 httpx 客户端（由子类覆写 ``_request``）
         """
         self._api_key = api_key
+        self._access_token = access_token
+        self._owns_client = False
+        self._client: Client | None = client
+        if defer_client:
+            return
         self._owns_client = client is None
         proxy_h = (
             AsyncRequestUtils._convert_proxies_for_httpx(settings.PROXY)
@@ -198,7 +85,7 @@ class HDHiveOpenClient:
             timeout=timeout,
             proxy=proxy_h,
         )
-        if not self._owns_client:
+        if not self._owns_client and self._client is not None:
             self._client.headers.update({"X-API-Key": api_key})
 
     def __enter__(self) -> "HDHiveOpenClient":
@@ -219,7 +106,7 @@ class HDHiveOpenClient:
         """
         若构造时未传入外部 Client，则关闭内部持有的 httpx Client
         """
-        if self._owns_client:
+        if self._owns_client and self._client is not None:
             self._client.close()
 
     def _request(
@@ -229,6 +116,7 @@ class HDHiveOpenClient:
         *,
         params: dict[str, Any] | None = None,
         json: Any = None,
+        access_token: str | None = None,
     ) -> Any:
         """
         发起请求并解析 JSON，失败时抛出 ``HDHiveAPIError`` 子类
@@ -237,16 +125,23 @@ class HDHiveOpenClient:
         :param path: 相对 ``BASE_URL`` 的路径
         :param params: 查询参数
         :param json: JSON 请求体
+        :param access_token: 覆盖实例级 Bearer Token
         :return: ``(data, meta)`` 元组，与 Open API 响应结构一致
         """
-        resp = self._client.request(method, path, params=params, json=json)
-        _raise_for_response(resp)
+        token = access_token if access_token is not None else self._access_token
+        headers: dict[str, str] = {}
+        if token and path not in _META_PATHS:
+            headers["Authorization"] = f"Bearer {token}"
+        if self._client is None:
+            raise RuntimeError(
+                "HDHiveOpenClient has no httpx client; override _request"
+            )
+        resp = self._client.request(
+            method, path, params=params, json=json, headers=headers or None
+        )
+        raise_for_response(resp)
         body: dict[str, Any] = resp.json()
         return body.get("data"), body.get("meta")
-
-    # ------------------------------------------------------------------
-    # 通用接口
-    # ------------------------------------------------------------------
 
     def ping(self) -> dict[str, Any]:
         """
@@ -259,7 +154,7 @@ class HDHiveOpenClient:
 
     def get_quota(self) -> dict[str, Any]:
         """
-        ``GET /quota``：查询 API Key 配额信息
+        ``GET /quota``：查询 API Key 配额信息（meta scope）
 
         :return: 响应 ``data`` 字段
         """
@@ -272,7 +167,7 @@ class HDHiveOpenClient:
         end_date: str | None = None,
     ) -> dict[str, Any]:
         """
-        ``GET /usage``：按日期区间查询用量（``YYYY-MM-DD``）
+        ``GET /usage``：按日期区间查询用量（meta scope）
 
         :param start_date: 起始日期，可选
         :param end_date: 结束日期，可选
@@ -288,16 +183,12 @@ class HDHiveOpenClient:
 
     def get_usage_today(self) -> dict[str, Any]:
         """
-        ``GET /usage/today``：当日用量统计
+        ``GET /usage/today``：当日用量统计（meta scope）
 
         :return: 响应 ``data`` 字段
         """
         data, _ = self._request("GET", "/usage/today")
         return data
-
-    # ------------------------------------------------------------------
-    # 资源相关
-    # ------------------------------------------------------------------
 
     def get_resources(
         self,
@@ -305,7 +196,7 @@ class HDHiveOpenClient:
         tmdb_id: str | int,
     ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         """
-        ``GET /resources/:type/:tmdb_id``：按 TMDB ID 列出资源
+        ``GET /resources/:type/:tmdb_id``：按 TMDB ID 列出资源（query scope）
 
         :param media_type: ``movie`` 或 ``tv``
         :param tmdb_id: TMDB 作品 ID
@@ -316,7 +207,7 @@ class HDHiveOpenClient:
 
     def unlock_resource(self, slug: str) -> dict[str, Any]:
         """
-        ``POST /resources/unlock``：消耗积分解锁资源
+        ``POST /resources/unlock``：消耗积分解锁资源（unlock scope）
 
         :param slug: 资源 slug
         :return: 含 ``url``、``access_code``、``full_url``、``already_owned`` 等字段
@@ -326,22 +217,17 @@ class HDHiveOpenClient:
 
     def check_resource(self, url: str) -> dict[str, Any]:
         """
-        ``POST /check/resource``：识别网盘类型并从链接解析提取码等
+        ``POST /check/resource``：识别网盘类型并从链接解析提取码等（query scope）
 
         :param url: 资源链接
-        :return: 含 ``website``、``url``、``base_link``、``access_code``、
-            ``default_unlock_points`` 等字段
+        :return: 含 ``website``、``url``、``base_link``、``access_code`` 等字段
         """
         data, _ = self._request("POST", "/check/resource", json={"url": url})
         return data
 
-    # ------------------------------------------------------------------
-    # 仅 Premium
-    # ------------------------------------------------------------------
-
     def get_me(self) -> dict[str, Any]:
         """
-        ``GET /me``：当前用户信息（需 Premium）
+        ``GET /me``：当前授权用户基础信息（query scope）
 
         :return: 响应 ``data`` 字段
         """
@@ -350,7 +236,7 @@ class HDHiveOpenClient:
 
     def checkin(self, is_gambler: bool = False) -> dict[str, Any]:
         """
-        ``POST /checkin``：每日签到（需 Premium）
+        ``POST /checkin``：每日签到（write scope）
 
         :param is_gambler: 是否开启赌徒模式（高风险高回报）
         :return: 含 ``checked_in``（bool）、``message``（str）等字段
@@ -361,18 +247,23 @@ class HDHiveOpenClient:
         data, _ = self._request("POST", "/checkin", json=body or None)
         return data
 
+    def get_vip_entitlements(self) -> dict[str, Any]:
+        """
+        ``GET /vip/entitlements``：Premium 用户权益摘要（vip scope）
+
+        :return: 响应 ``data`` 字段
+        """
+        data, _ = self._request("GET", "/vip/entitlements")
+        return data
+
     def get_vip_weekly_free_quota(self) -> dict[str, Any]:
         """
-        ``GET /vip/weekly-free-quota``：永久 VIP 每周免费解锁配额（需 Premium）
+        ``GET /vip/weekly-free-quota``：永久 VIP 每周免费解锁配额（vip scope）
 
         :return: 响应 ``data`` 字段
         """
         data, _ = self._request("GET", "/vip/weekly-free-quota")
         return data
-
-    # ------------------------------------------------------------------
-    # 分享管理
-    # ------------------------------------------------------------------
 
     def get_shares(
         self,
@@ -380,7 +271,7 @@ class HDHiveOpenClient:
         page_size: int = 20,
     ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         """
-        ``GET /shares``：分页列出当前用户的分享
+        ``GET /shares``：分页列出当前用户的分享（write scope）
 
         :param page: 页码
         :param page_size: 每页条数
@@ -392,7 +283,7 @@ class HDHiveOpenClient:
 
     def get_share(self, slug: str) -> dict[str, Any]:
         """
-        ``GET /shares/:slug``：按 slug 获取分享详情
+        ``GET /shares/:slug``：按 slug 获取分享详情（query scope）
 
         :param slug: 分享 slug
         :return: 响应 ``data`` 字段
@@ -422,29 +313,7 @@ class HDHiveOpenClient:
         hide_link: bool = True,
     ) -> dict[str, Any]:
         """
-        ``POST /shares``：创建分享
-
-        必须提供 ``tmdb_id`` + ``media_type``，或 ``movie_id`` / ``tv_id`` / ``collection_id``
-        之一以关联媒体条目
-
-        :param url: 分享链接
-        :param tmdb_id: TMDB ID，可选
-        :param media_type: 媒体类型，可选
-        :param movie_id: 电影 ID，可选
-        :param tv_id: 剧集 ID，可选
-        :param collection_id: 合集 ID，可选
-        :param title: 标题，可选
-        :param access_code: 提取码，可选
-        :param share_size: 体积描述，可选
-        :param video_resolution: 分辨率列表，可选
-        :param source: 片源列表，可选
-        :param subtitle_language: 字幕语言列表，可选
-        :param subtitle_type: 字幕类型列表，可选
-        :param remark: 备注，可选
-        :param unlock_points: 解锁所需积分，可选
-        :param is_anonymous: 是否匿名
-        :param hide_link: 是否隐藏链接
-        :return: 响应 ``data`` 字段
+        ``POST /shares``：创建分享（write scope）
         """
         body: dict[str, Any] = {"url": url}
         if tmdb_id is not None:
@@ -499,23 +368,8 @@ class HDHiveOpenClient:
         notify: bool | None = None,
     ) -> dict[str, Any]:
         """
-        ``PATCH /shares/:slug``：部分更新分享（仅提交有值的字段）
+        ``PATCH /shares/:slug``：部分更新分享（write scope）
 
-        :param slug: 分享 slug
-        :param title: 标题，可选
-        :param url: 链接，可选
-        :param access_code: 提取码，可选
-        :param share_size: 体积，可选
-        :param video_resolution: 分辨率列表，可选
-        :param source: 片源列表，可选
-        :param subtitle_language: 字幕语言列表，可选
-        :param subtitle_type: 字幕类型列表，可选
-        :param remark: 备注，可选
-        :param unlock_points: 解锁积分，可选
-        :param is_anonymous: 是否匿名，可选
-        :param hide_link: 是否隐藏链接，可选
-        :param notify: 是否通知关注者，可选
-        :return: 响应 ``data`` 字段
         :raises ValueError: 未提供任何可更新字段时
         """
         body: dict[str, Any] = {}
@@ -552,7 +406,7 @@ class HDHiveOpenClient:
 
     def delete_share(self, slug: str) -> None:
         """
-        ``DELETE /shares/:slug``：删除分享（消耗 1 积分）
+        ``DELETE /shares/:slug``：删除分享（write scope）
 
         :param slug: 分享 slug
         """

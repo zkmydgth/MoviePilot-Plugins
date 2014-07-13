@@ -158,15 +158,40 @@
               </v-card-title>
             </v-card-item>
             <v-card-text>
-              <v-text-field v-model="config.hdhive_api_key" label="HDHive API Key" placeholder="在 HDHive 控制台获取 API Key"
-                density="compact" variant="outlined" type="password" autocomplete="new-password" clearable />
+              <v-alert v-if="oauth.status?.auth_mode === 'oauth'" type="success" variant="tonal" density="compact" class="mb-3">
+                <div class="text-caption">
+                  已 OAuth 授权
+                  <span v-if="oauth.status?.user?.username">（{{ oauth.status.user.username }}）</span>
+                  <span v-if="oauth.status?.scope"> · scope: {{ oauth.status.scope }}</span>
+                </div>
+              </v-alert>
+              <v-alert v-else type="warning" variant="tonal" density="compact" class="mb-3">
+                <div class="text-caption">尚未 OAuth 授权，HDHive 搜索与解锁不可用</div>
+              </v-alert>
+              <div class="d-flex flex-wrap ga-2 mb-3">
+                <v-btn color="primary" variant="tonal" size="small" :loading="oauth.loading || oauth.pending"
+                  :disabled="oauth.pending" prepend-icon="mdi-open-in-new" @click="startOAuth">
+                  HDHive OAuth 授权
+                </v-btn>
+                <v-btn v-if="oauth.status?.oauth_configured" color="warning" variant="outlined" size="small"
+                  :loading="oauth.loading" prepend-icon="mdi-link-off" @click="revokeOAuth">
+                  解除 OAuth
+                </v-btn>
+                <v-btn size="small" variant="text" prepend-icon="mdi-refresh" :loading="oauth.loading"
+                  @click="fetchStatus">
+                  刷新状态
+                </v-btn>
+              </div>
+              <div class="text-caption text-medium-emphasis mb-2">
+                当前状态：{{ authModeLabel() }}
+              </div>
             </v-card-text>
           </v-card>
 
           <v-alert type="info" variant="tonal" density="compact" class="mt-6" icon="mdi-information">
             <div class="text-body-2 mb-1"><strong>频道搜索说明（/sh）</strong></div>
             <div class="text-caption">
-              <div class="mb-1">• 请至少配置 <strong>Telegram 频道</strong> 或 <strong>HDHive API Key</strong> 之一，否则无法使用
+              <div class="mb-1">• 请至少配置 <strong>Telegram 频道</strong> 或完成 <strong>HDHive OAuth 授权</strong>，否则无法使用
                 <code>/sh</code> 检索资源
               </div>
               <div>• HDHive 与 TG 结果会合并展示；HDHive 仅展示 115 网盘类资源，积分需求在列表中可见，确认转存时才解锁</div>
@@ -531,6 +556,7 @@
 
 <script setup>
 import { ref, inject, watch, computed, reactive } from 'vue';
+import { useHdhiveOAuth } from '../composables/useHdhiveOAuth.js';
 
 const otherSubTab = ref('tab-sync-del');
 
@@ -548,6 +574,12 @@ const api = inject('api');
 const message = inject('message');
 const PLUGIN_ID = inject('PLUGIN_ID');
 const formatBytes = inject('formatBytes');
+
+const { oauth, startOAuth, revokeOAuth, fetchStatus, authModeLabel } = useHdhiveOAuth(
+  api,
+  message,
+  PLUGIN_ID,
+);
 const strmBackupItems = computed(() => config.strm_backup_items || []);
 
 const backupLoading = reactive({});

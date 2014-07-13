@@ -4,6 +4,7 @@ from typing import Dict, Any, Tuple, Optional, List
 
 from app.schemas.message import ChannelCapabilityManager
 
+from ..helper.hdhive.open import is_authorized
 from ..helper.search import HDHiveSearch, MediaSearcher, TgSearcher
 from ..core.i18n import i18n
 from .framework.callbacks import Action
@@ -142,7 +143,7 @@ class ViewRenderer(BaseViewRenderer):
                     channels=configer.tg_search_channels,
                 )
             )
-        if (configer.get_config("hdhive_api_key") or "").strip():
+        if is_authorized():
             data.extend(HDHiveSearch.fetch_resources(resource_dict))
 
         # 记录到session，待渲染使用

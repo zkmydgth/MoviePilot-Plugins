@@ -12,7 +12,7 @@ from .session import Session
 from ..core.config import configer
 from ..core.message import post_message
 from ..core.i18n import i18n
-from ..helper.hdhive.open import HDHiveAPIError, HDHiveOpenClient
+from ..helper.hdhive.open import HDHiveAPIError, HDHiveSession, is_authorized
 from ..helper.search import HDHiveSearch
 from ..helper.strm import ShareInteractiveGenStrmQueue
 from ..service import servicer
@@ -317,12 +317,10 @@ class ActionHandler(BaseActionHandler):
                 share_url = ""
                 if data.get("source") == HDHiveSearch.SOURCE or data.get("hdhive_slug"):
                     slug = data.get("hdhive_slug")
-                    api_key = (configer.get_config("hdhive_api_key") or "").strip()
-                    if not slug or not api_key:
-                        raise ValueError("HDHive 资源无效或未配置 API Key")
+                    if not slug or not is_authorized():
+                        raise ValueError("HDHive 资源无效或未完成 OAuth 授权")
                     try:
-                        with HDHiveOpenClient(api_key) as client:
-                            unlocked = client.unlock_resource(str(slug))
+                        unlocked = HDHiveSession().unlock_resource(str(slug))
                         logger.info(f"HDHive 解锁成功: {unlocked}")
                         share_url = (unlocked.get("full_url") or "").strip()
                     except HDHiveAPIError as e:

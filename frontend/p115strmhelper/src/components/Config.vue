@@ -422,7 +422,6 @@ const config = reactive({
   directory_upload_path: [],
   directory_upload_clouddrive2_config: { enabled: false, prefix: '' },
   tg_search_channels: [],
-  hdhive_api_key: '',
   hdhive_checkin_username: '',
   hdhive_checkin_password: '',
   hdhive_checkin_daily_enabled: false,

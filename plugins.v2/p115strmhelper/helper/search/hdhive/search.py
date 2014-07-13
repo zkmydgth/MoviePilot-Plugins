@@ -3,8 +3,7 @@ from typing import Any, Dict, List, Optional
 from app.log import logger
 from app.schemas.types import MediaType
 
-from ....core.config import configer
-from ...hdhive.open import HDHiveAPIError, HDHiveOpenClient
+from ...hdhive.open import HDHiveAPIError, HDHiveSession, is_authorized
 
 
 def _media_type_to_hdhive(value: Any) -> Optional[str]:
@@ -38,8 +37,7 @@ def fetch_resources_impl(
     """
     调用 get_resources，过滤 pan_type=115，映射为与 TG 合并兼容的字典列表
     """
-    api_key = (configer.get_config("hdhive_api_key") or "").strip()
-    if not api_key:
+    if not is_authorized():
         return []
 
     mt = _media_type_to_hdhive(resource_dict.get("type"))
@@ -49,8 +47,8 @@ def fetch_resources_impl(
         return []
 
     try:
-        with HDHiveOpenClient(api_key) as client:
-            items, _meta = client.get_resources(mt, tmdb_id)
+        session = HDHiveSession()
+        items, _meta = session.get_resources(mt, tmdb_id)
     except HDHiveAPIError as e:
         logger.warning("【HDHive】get_resources 失败: %s", e)
         return []

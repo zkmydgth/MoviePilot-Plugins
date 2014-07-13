@@ -668,10 +668,6 @@ class ConfigManager(BaseModel):
         default=None,
         description="TG 搜索频道",
     )
-    hdhive_api_key: Optional[str] = Field(
-        default=None,
-        description="HDHive API Key",
-    )
     hdhive_checkin_username: Optional[str] = Field(
         default=None,
         description="HDHive 签到账户",
