@@ -143,10 +143,14 @@ def handle_file(client: P115Client, event_path: str, mon_path: str):
 
                 # 上传流程
                 storage_chain.upload_file(target_fileitem, file_path, file_path.name)
-                sleep(5)
-                uploaded_file_item = storage_chain.get_file_item(
-                    storage=upload_storage, path=target_file_path
-                )
+                uploaded_file_item = None
+                for attempt in range(3):
+                    sleep(5 * (2**attempt))
+                    uploaded_file_item = storage_chain.get_file_item(
+                        storage=upload_storage, path=target_file_path
+                    )
+                    if uploaded_file_item:
+                        break
                 if uploaded_file_item:
                     logger.info(
                         f"【目录上传】{file_path} 上传到网盘 {target_file_path} 成功 "
