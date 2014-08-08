@@ -60,6 +60,45 @@ class MediaServerRefresh:
 
         return active_services
 
+    def _try_emby_native_refresh(
+        self, file_path: str, file_name: Optional[str]
+    ) -> bool:
+        """
+        尝试使用 Emby API 刷新
+
+        :param file_path: 文件路径
+        :param file_name: 文件名
+
+        :return: 是否有 Emby 服务并已完成刷新尝试
+        """
+        from .emby import EmbyOperate
+
+        emby_services = {
+            name: service
+            for name, service in self.service_infos.items()
+            if service.type == "emby"
+        }
+        if not emby_services:
+            return False
+
+        emby_operate = EmbyOperate(func_name=self.func_name)
+        for name in emby_services.keys():
+            if emby_operate.trigger_refresh_by_path(name, file_path):
+                logger.info(f"{self.func_name}{file_name} Emby 刷新成功")
+            else:
+                logger.warning(f"{self.func_name}{file_name} Emby 刷新失败")
+
+        non_emby_services = [
+            name
+            for name, service in self.service_infos.items()
+            if service.type != "emby"
+        ]
+        if non_emby_services:
+            logger.warning(
+                f"{self.func_name}{file_name} 其他媒体服务器 {', '.join(non_emby_services)} 无法刷新媒体库"
+            )
+        return True
+
     def refresh_mediaserver(
         self,
         file_path: Optional[str] = None,
@@ -108,6 +147,8 @@ class MediaServerRefresh:
             meta = MetaInfoPath(path=Path(file_path))
             mediainfo = media_chain.recognize_media(meta=meta)
             if not mediainfo:
+                if self._try_emby_native_refresh(file_path, file_name):
+                    return True
                 logger.warning(f"{self.func_name}{file_name} 无法刷新媒体库")
                 return False
         items = [
