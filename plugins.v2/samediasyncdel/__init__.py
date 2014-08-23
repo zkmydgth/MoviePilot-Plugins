@@ -48,7 +48,9 @@ class SaMediaSyncDel(_PluginBase):
     _del_history = False
     _local_library_path = None
     _p115_library_path = None
-    _p115_force_delete_files = None
+    _p115_force_delete_files = False
+    _p123_library_path = None
+    _p123_force_delete_files = False
     _transferchain = None
     _downloader_helper = None
     _transferhis = None
@@ -77,9 +79,11 @@ class SaMediaSyncDel(_PluginBase):
             self._notify = config.get("notify")
             self._del_source = config.get("del_source")
             self._del_history = config.get("del_history")
-            self._local_library_path = config.get("local_library_path")
+            self._local_library_path = ""
             self._p115_library_path = config.get("p115_library_path")
             self._p115_force_delete_files = config.get("p115_force_delete_files")
+            self._p123_library_path = config.get("p123_library_path")
+            self._p123_force_delete_files = config.get("p123_force_delete_files")
             self._mediaservers = config.get("mediaservers") or []
 
             # 获取媒体服务器
@@ -102,9 +106,10 @@ class SaMediaSyncDel(_PluginBase):
                     "notify": self._notify,
                     "del_source": self._del_source,
                     "del_history": False,
-                    "local_library_path": self._local_library_path,
                     "p115_library_path": self._p115_library_path,
                     "p115_force_delete_files": self._p115_force_delete_files,
+                    "p123_library_path": self._p123_library_path,
+                    "p123_force_delete_files": self._p123_force_delete_files,
                     "mediaservers": self._mediaserver,
                 }
             )
@@ -161,83 +166,6 @@ class SaMediaSyncDel(_PluginBase):
         """
         拼装插件配置页面，需要返回两块数据：1、页面配置；2、数据结构
         """
-        local_media_tab = [
-            {
-                "component": "VRow",
-                "content": [
-                    {
-                        "component": "VCol",
-                        "props": {
-                            "cols": 12,
-                        },
-                        "content": [
-                            {
-                                "component": "VTextarea",
-                                "props": {
-                                    "model": "local_library_path",
-                                    "rows": "2",
-                                    "label": "本地媒体库路径映射",
-                                    "placeholder": "媒体服务器路径#MoviePilot路径（一行一个）",
-                                },
-                            }
-                        ],
-                    }
-                ],
-            },
-            {
-                "component": "VRow",
-                "content": [
-                    {
-                        "component": "VCol",
-                        "props": {
-                            "cols": 12,
-                        },
-                        "content": [
-                            {
-                                "component": "VAlert",
-                                "props": {
-                                    "type": "info",
-                                    "variant": "tonal",
-                                    "text": "关于路径映射（转移后文件路径）：",
-                                },
-                            },
-                            {
-                                "component": "VAlert",
-                                "props": {
-                                    "type": "info",
-                                    "variant": "tonal",
-                                    "text": "emby目录：/data/A.mp4",
-                                },
-                            },
-                            {
-                                "component": "VAlert",
-                                "props": {
-                                    "type": "info",
-                                    "variant": "tonal",
-                                    "text": "moviepilot目录：/mnt/link/A.mp4",
-                                },
-                            },
-                            {
-                                "component": "VAlert",
-                                "props": {
-                                    "type": "info",
-                                    "variant": "tonal",
-                                    "text": "路径映射填：/data#/mnt/link。",
-                                },
-                            },
-                            {
-                                "component": "VAlert",
-                                "props": {
-                                    "type": "info",
-                                    "variant": "tonal",
-                                    "text": "不正确配置会导致查询不到转移记录！",
-                                },
-                            },
-                        ],
-                    }
-                ],
-            },
-        ]
 
         p115_media_tab = [
             {
@@ -252,7 +180,7 @@ class SaMediaSyncDel(_PluginBase):
                                 "props": {
                                     "model": "p115_force_delete_files",
                                     "label": "强制网盘删除",
-                                    "hint": "MP不存在历史记录时强制删除网盘文件",
+                                    "hint": "MP不存在历史记录或无法获取TMDB ID时强制删除网盘文件",
                                 },
                             }
                         ],
@@ -282,6 +210,130 @@ class SaMediaSyncDel(_PluginBase):
                 ],
             },
             {
+                "component": "VAlert",
+                "props": {
+                    "type": "info",
+                    "variant": "tonal",
+                    "density": "compact",
+                    "class": "mt-2",
+                },
+                "content": [
+                    {
+                        "component": "div",
+                        "text": "关于路径映射（转移后文件路径）：",
+                    },
+                    {
+                        "component": "div",
+                        "text": "emby目录：/media/strm",
+                    },
+                    {
+                        "component": "div",
+                        "text": "moviepilot目录：/mnt/strm",
+                    },
+                    {
+                        "component": "div",
+                        "text": "115网盘媒体库目录：/影视",
+                    },
+                    {
+                        "component": "div",
+                        "text": "路径映射填：/media/strm#/mnt/strm#/影视",
+                    },
+                    {
+                        "component": "div",
+                        "text": "不正确配置会导致查询不到转移记录！",
+                    },
+                ],
+            },
+            {
+                "component": "VAlert",
+                "props": {
+                    "type": "warning",
+                    "variant": "tonal",
+                    "density": "compact",
+                    "class": "mt-2",
+                    "text": "注意：不同的存储模块不能配置同一个媒体路径，否则会导致匹配失败或误删除！",
+                },
+            },
+        ]
+
+        p123_media_tab = [
+            {
+                "component": "VRow",
+                "content": [
+                    {
+                        "component": "VCol",
+                        "props": {"cols": 12, "md": 4},
+                        "content": [
+                            {
+                                "component": "VSwitch",
+                                "props": {
+                                    "model": "p123_force_delete_files",
+                                    "label": "强制网盘删除",
+                                    "hint": "MP不存在历史记录或无法获取TMDB ID时强制删除网盘文件",
+                                },
+                            }
+                        ],
+                    },
+                ],
+            },
+            {
+                "component": "VRow",
+                "content": [
+                    {
+                        "component": "VCol",
+                        "props": {
+                            "cols": 12,
+                        },
+                        "content": [
+                            {
+                                "component": "VTextarea",
+                                "props": {
+                                    "model": "p123_library_path",
+                                    "rows": "2",
+                                    "label": "123云盘媒体库路径映射",
+                                    "placeholder": "媒体服务器STRM路径#MoviePilot路径#115网盘路径（一行一个）",
+                                },
+                            }
+                        ],
+                    }
+                ],
+            },
+            {
+                "component": "VAlert",
+                "props": {
+                    "type": "info",
+                    "variant": "tonal",
+                    "density": "compact",
+                    "class": "mt-2",
+                },
+                "content": [
+                    {
+                        "component": "div",
+                        "text": "关于路径映射（转移后文件路径）：",
+                    },
+                    {
+                        "component": "div",
+                        "text": "emby目录：/media/strm",
+                    },
+                    {
+                        "component": "div",
+                        "text": "moviepilot目录：/mnt/strm",
+                    },
+                    {
+                        "component": "div",
+                        "text": "123云盘媒体库目录：/影视",
+                    },
+                    {
+                        "component": "div",
+                        "text": "路径映射填：/media/strm#/mnt/strm#/影视",
+                    },
+                    {
+                        "component": "div",
+                        "text": "不正确配置会导致查询不到转移记录！",
+                    },
+                ],
+            },
+            {
                 "component": "VRow",
                 "content": [
                     {
@@ -293,49 +345,9 @@ class SaMediaSyncDel(_PluginBase):
                             {
                                 "component": "VAlert",
                                 "props": {
-                                    "type": "info",
+                                    "type": "warning",
                                     "variant": "tonal",
-                                    "text": "关于路径映射（转移后文件路径）：",
-                                },
-                            },
-                            {
-                                "component": "VAlert",
-                                "props": {
-                                    "type": "info",
-                                    "variant": "tonal",
-                                    "text": "emby目录：/media/strm",
-                                },
-                            },
-                            {
-                                "component": "VAlert",
-                                "props": {
-                                    "type": "info",
-                                    "variant": "tonal",
-                                    "text": "moviepilot目录：/mnt/strm",
-                                },
-                            },
-                            {
-                                "component": "VAlert",
-                                "props": {
-                                    "type": "info",
-                                    "variant": "tonal",
-                                    "text": "115网盘媒体库目录：/影视",
-                                },
-                            },
-                            {
-                                "component": "VAlert",
-                                "props": {
-                                    "type": "info",
-                                    "variant": "tonal",
-                                    "text": "路径映射填：/media/strm#/mnt/strm#/影视",
-                                },
-                            },
-                            {
-                                "component": "VAlert",
-                                "props": {
-                                    "type": "info",
-                                    "variant": "tonal",
-                                    "text": "不正确配置会导致查询不到转移记录！",
+                                    "text": "注意：不同的存储模块不能配置同一个媒体路径，否则会导致匹配失败或误删除！",
                                 },
                             },
                         ],
@@ -484,16 +496,16 @@ class SaMediaSyncDel(_PluginBase):
                         "content": [
                             {
                                 "component": "VTab",
-                                "props": {"value": "tab-local"},
+                                "props": {"value": "tab-p115"},
                                 "content": [
-                                    {"component": "span", "text": "本地媒体配置"},
+                                    {"component": "span", "text": "115网盘媒体配置"},
                                 ],
                             },
                             {
                                 "component": "VTab",
-                                "props": {"value": "tab-p115"},
+                                "props": {"value": "tab-p123"},
                                 "content": [
-                                    {"component": "span", "text": "115网盘媒体配置"},
+                                    {"component": "span", "text": "123云盘媒体配置"},
                                 ],
                             },
                         ],
@@ -505,21 +517,21 @@ class SaMediaSyncDel(_PluginBase):
                         "content": [
                             {
                                 "component": "VWindowItem",
-                                "props": {"value": "tab-local"},
-                                "content": [
-                                    {
-                                        "component": "VCardText",
-                                        "content": local_media_tab,
-                                    }
-                                ],
-                            },
-                            {
-                                "component": "VWindowItem",
                                 "props": {"value": "tab-p115"},
                                 "content": [
                                     {
                                         "component": "VCardText",
                                         "content": p115_media_tab,
+                                    }
+                                ],
+                            },
+                            {
+                                "component": "VWindowItem",
+                                "props": {"value": "tab-p123"},
+                                "content": [
+                                    {
+                                        "component": "VCardText",
+                                        "content": p123_media_tab,
                                     }
                                 ],
                             },
@@ -532,9 +544,10 @@ class SaMediaSyncDel(_PluginBase):
             "notify": True,
             "del_source": False,
             "del_history": False,
-            "local_library_path": "",
             "p115_library_path": "",
             "p115_force_delete_files": False,
+            "p123_library_path": "",
+            "p123_force_delete_files": False,
             "mediaservers": [],
             "tab": "local_media_tab",
         }
@@ -723,6 +736,19 @@ class SaMediaSyncDel(_PluginBase):
                 return True, parts
         return False, None
 
+    def __get_p123_media_path(self, media_path):
+        """
+        获取123云盘媒体目录路径
+        """
+        media_paths = self._p123_library_path.split("\n")
+        for path in media_paths:
+            if not path:
+                continue
+            parts = path.split("#", 2)
+            if self.has_prefix(media_path, parts[0]):
+                return True, parts
+        return False, None
+
     @eventmanager.register(EventType.WebhookMessage)
     def sync_del_by_plugin(self, event):
         """
@@ -760,27 +786,44 @@ class SaMediaSyncDel(_PluginBase):
         if not media_path:
             return
 
-        if self._local_library_path or self._p115_library_path:
+        # 匹配媒体存储模块
+        if (
+            self._local_library_path
+            or self._p115_library_path
+            or self._p123_library_path
+        ):
             if self._local_library_path:
-                if self.__get_local_media_path(media_path):
+                status, _ = self.__get_local_media_path(media_path)
+                if status:
                     media_storage = "local"
-            else:
-                if self.__get_p115_media_path(media_path):
+
+            if not media_storage and self._p115_library_path:
+                status, _ = self.__get_p115_media_path(media_path)
+                if status:
                     media_storage = "p115"
+
+            if not media_storage and self._p123_library_path:
+                status, _ = self.__get_p123_media_path(media_path)
+                if status:
+                    media_storage = "p123"
+
+            if not media_storage:
+                logger.error(f"{media_name} 同步删除失败，未识别到储存类型")
+                return
         else:
             return
 
-        if not media_storage:
-            logger.error(f"{media_name} 同步删除失败，未识别到储存类型")
-            return
-
-        if media_storage == "p115":
+        # 对于网盘文件需要获取媒体后缀名
+        if media_storage == "p115" or media_storage == "p123":
             if Path(media_path).suffix:
                 media_suffix = event_data.json_object.get("Item", {}).get(
                     "Container", None
                 )
                 if not media_suffix:
-                    media_suffix = self.__get_p115_media_suffix(media_path)
+                    if media_storage == "p115":
+                        media_suffix = self.__get_p115_media_suffix(media_path)
+                    else:
+                        media_suffix = self.__get_p123_media_suffix(media_path)
                     if not media_suffix:
                         logger.error(f"{media_name} 同步删除失败，未识别媒体后缀名")
                         return
@@ -794,10 +837,13 @@ class SaMediaSyncDel(_PluginBase):
             )
 
         if not tmdb_id or not str(tmdb_id).isdigit():
-            logger.error(
-                f"{media_name} 同步删除失败，未获取到TMDB ID，请检查媒体库媒体是否刮削"
-            )
-            return
+            if not (media_storage == "p115" and self._p115_force_delete_files) or not (
+                media_storage == "p123" and self._p123_force_delete_files
+            ):
+                logger.error(
+                    f"{media_name} 同步删除失败，未获取到TMDB ID，请检查媒体库媒体是否刮削"
+                )
+                return
 
         self.__sync_del(
             media_type=media_type,
@@ -881,9 +927,12 @@ class SaMediaSyncDel(_PluginBase):
                 # 删除种子任务
                 if self._del_source:
                     # 1、直接删除源文件
+                    # 当源文件是本地文件且整理方式不是移动才进行源文件删除
                     if (
                         transferhis.src
                         and Path(transferhis.src).suffix in settings.RMT_MEDIAEXT
+                        and transferhis.src_storage == "local"
+                        and transferhis.mode != "move"
                     ):
                         # 删除硬链接文件和源文件
                         if Path(transferhis.dest).exists():
@@ -915,7 +964,7 @@ class SaMediaSyncDel(_PluginBase):
                             except Exception as e:
                                 logger.error("删除种子失败：%s" % str(e))
 
-        else:
+        elif media_storage == "p115":
             mp_media_path: Path
             if self._p115_library_path:
                 _, sub_paths = self.__get_p115_media_path(media_path)
@@ -1024,9 +1073,155 @@ class SaMediaSyncDel(_PluginBase):
                     # 删除种子任务
                     if self._del_source:
                         # 1、直接删除源文件
+                        # 当源文件是本地文件且整理方式不是移动才进行源文件删除
                         if (
                             transferhis.src
                             and Path(transferhis.src).suffix in settings.RMT_MEDIAEXT
+                            and transferhis.src_storage == "local"
+                            and transferhis.mode != "move"
+                        ):
+                            # 删除源文件
+                            if Path(transferhis.src).exists():
+                                logger.info(f"源文件 {transferhis.src} 开始删除")
+                                Path(transferhis.src).unlink(missing_ok=True)
+                                logger.info(f"源文件 {transferhis.src} 已删除")
+                                self.__remove_parent_dir(Path(transferhis.src))
+
+                            if transferhis.download_hash:
+                                try:
+                                    # 2、判断种子是否被删除完
+                                    delete_flag, success_flag, handle_torrent_hashs = (
+                                        self.handle_torrent(
+                                            type=transferhis.type,
+                                            src=transferhis.src,
+                                            torrent_hash=transferhis.download_hash,
+                                        )
+                                    )
+                                    if not success_flag:
+                                        error_cnt += 1
+                                    else:
+                                        if delete_flag:
+                                            del_torrent_hashs += handle_torrent_hashs
+                                        else:
+                                            stop_torrent_hashs += handle_torrent_hashs
+                                except Exception as e:
+                                    logger.error("删除种子失败：%s" % str(e))
+
+        else:
+            mp_media_path: Path
+            if self._p123_library_path:
+                _, sub_paths = self.__get_p123_media_path(media_path)
+                mp_media_path = media_path.replace(sub_paths[0], sub_paths[1]).replace(
+                    "\\", "/"
+                )
+                media_path = media_path.replace(sub_paths[0], sub_paths[2]).replace(
+                    "\\", "/"
+                )
+
+            if Path(media_path).suffix:
+                # 自动替换媒体文件后缀名称为真实名称
+                media_path = str(
+                    Path(media_path).parent
+                    / str(Path(media_path).stem + "." + media_suffix)
+                )
+                # 这里做一次大小写转换，避免资源后缀名为全大写情况
+                if media_suffix.isupper():
+                    media_suffix = media_suffix.lower()
+                elif media_suffix.islower():
+                    media_suffix = media_suffix.upper()
+                media_path_2 = str(
+                    Path(media_path).parent
+                    / str(Path(media_path).stem + "." + media_suffix)
+                )
+            else:
+                media_path_2 = media_path
+
+            # 兼容重新整理的场景
+            if Path(mp_media_path).exists():
+                logger.warn(f"转移路径 {media_path} 未被删除或重新生成，跳过处理")
+                return
+
+            # 查询转移记录
+            msg, transfer_history = self.__get_transfer_his(
+                media_type=media_type,
+                media_name=media_name,
+                media_path=media_path,
+                tmdb_id=tmdb_id,
+                season_num=season_num,
+                episode_num=episode_num,
+            )
+
+            # 如果没有msg使用媒体名称替代
+            if not msg:
+                msg = media_name
+
+            logger.info(f"正在同步删除 {msg}")
+
+            if not transfer_history:
+                msg, transfer_history = self.__get_transfer_his(
+                    media_type=media_type,
+                    media_name=media_name,
+                    media_path=media_path_2,
+                    tmdb_id=tmdb_id,
+                    season_num=season_num,
+                    episode_num=episode_num,
+                )
+                # 如果没有msg使用媒体名称替代
+                if not msg:
+                    msg = media_name
+                if not transfer_history:
+                    if self._p123_force_delete_files:
+                        logger.warn(f"{media_name} 强制删除网盘媒体文件")
+                        self.__delete_p123_files(
+                            file_path=media_path,
+                            media_name=media_name,
+                            media_type=media_type,
+                        )
+                    else:
+                        logger.warn(
+                            f"{media_type} {media_name} 未获取到可删除数据，请检查路径映射是否配置错误，请检查tmdbid获取是否正确"
+                        )
+                        return
+                else:
+                    media_path = media_path_2
+
+            year = None
+            del_torrent_hashs = []
+            stop_torrent_hashs = []
+            error_cnt = 0
+            image = "https://emby.media/notificationicon.png"
+            if transfer_history:
+                logger.info(f"获取到 {len(transfer_history)} 条转移记录，开始同步删除")
+                # 开始删除
+                for transferhis in transfer_history:
+                    title = transferhis.title
+                    if title not in media_name:
+                        logger.warn(
+                            f"当前转移记录 {transferhis.id} {title} {transferhis.tmdbid} 与删除媒体 {media_name} 不符，防误删，暂不自动删除"
+                        )
+                        continue
+                    image = transferhis.image or image
+                    year = transferhis.year
+
+                    # 0、删除转移记录
+                    self._transferhis.delete(transferhis.id)
+
+                    # 1、删除网盘文件
+                    self.__delete_p123_files(
+                        file_path=transferhis.dest,
+                        media_name=media_name,
+                        media_type=media_type,
+                    )
+
+                    # 删除种子任务
+                    if self._del_source:
+                        # 1、直接删除源文件
+                        # 当源文件是本地文件且整理方式不是移动才进行源文件删除
+                        if (
+                            transferhis.src
+                            and Path(transferhis.src).suffix in settings.RMT_MEDIAEXT
+                            and transferhis.src_storage == "local"
+                            and transferhis.mode != "move"
                         ):
                             # 删除源文件
                             if Path(transferhis.src).exists():
@@ -1160,9 +1355,38 @@ class SaMediaSyncDel(_PluginBase):
         except Exception as e:
             logger.error(f"{media_name} 删除网盘媒体 {file_path} 失败: {e}")
 
+    def __delete_p123_files(
+        self,
+        file_path: str,
+        media_name: str,
+        media_type: str,
+    ):
+        """
+        删除123云盘文件
+        """
+        try:
+            # 获取文件(夹)详细信息
+            fileitem = self._storagechain.get_file_item(
+                storage="123云盘", path=Path(file_path)
+            )
+            if fileitem.type == "dir":
+                # 删除整个文件夹
+                self._storagechain.delete_file(fileitem)
+                logger.info(f"{media_name} 删除网盘文件夹：{file_path}")
+            else:
+                # 判断媒体文件类型
+                mtype = (
+                    MediaType.MOVIE if media_type in ["Movie", "MOV"] else MediaType.TV
+                )
+                # 调用 MP 模块删除媒体文件和空媒体目录
+                self._storagechain.delete_media_file(fileitem=fileitem, mtype=mtype)
+                logger.info(f"{media_name} 删除网盘媒体文件：{file_path}")
+        except Exception as e:
+            logger.error(f"{media_name} 删除网盘媒体 {file_path} 失败: {e}")
+
     def __get_p115_media_suffix(self, file_path: str):
         """
-        遍历文件夹获取媒体文件后缀
+        115网盘 遍历文件夹获取媒体文件后缀
         """
         _, sub_paths = self.__get_p115_media_path(file_path)
         file_path = file_path.replace(sub_paths[0], sub_paths[2]).replace("\\", "/")
@@ -1170,6 +1394,22 @@ class SaMediaSyncDel(_PluginBase):
         file_basename = Path(file_path).stem
         file_dir_fileitem = self._storagechain.get_file_item(
             storage="u115", path=Path(file_dir)
+        )
+        for item in self._storagechain.list_files(file_dir_fileitem):
+            if item.basename == file_basename:
+                return item.extension
+        return None
+
+    def __get_p123_media_suffix(self, file_path: str):
+        """
+        123云盘 遍历文件夹获取媒体文件后缀
+        """
+        _, sub_paths = self.__get_p123_media_path(file_path)
+        file_path = file_path.replace(sub_paths[0], sub_paths[2]).replace("\\", "/")
+        file_dir = Path(file_path).parent
+        file_basename = Path(file_path).stem
+        file_dir_fileitem = self._storagechain.get_file_item(
+            storage="123云盘", path=Path(file_dir)
         )
         for item in self._storagechain.list_files(file_dir_fileitem):
             if item.basename == file_basename:
