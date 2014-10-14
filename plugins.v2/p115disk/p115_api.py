@@ -1,7 +1,9 @@
-from pathlib import Path
-from time import time, monotonic, sleep
-from typing import Optional, List, Dict, Tuple
 from datetime import datetime, timezone
+from itertools import cycle
+from pathlib import Path
+from threading import Lock
+from time import monotonic, sleep, time
+from typing import Dict, List, Optional, Tuple
 
 from cryptography.hazmat.primitives import hashes
 from httpx import stream, RequestError
@@ -25,6 +27,13 @@ from app.schemas.exception import StorageQueryError
 
 from .cache import IdPathCache, ItemIdCache
 from .tools import RateLimiter, get_ios_ua_app
+
+
+WEB_API_BASE_URLS = (
+    "https://115cdn.com/webapi",
+    "https://115vod.com/webapi",
+    "https://webapi.115.com",
+)
 
 
 class P115Api:
@@ -69,6 +78,8 @@ class P115Api:
 
         self._get_item_fail_records: Dict[str, Dict[str, float]] = {}
         self._get_item_blacklist: Dict[str, float] = {}
+        self._web_api_base_url_cycle = cycle(WEB_API_BASE_URLS)
+        self._web_api_base_url_lock = Lock()
 
     def get_pid_by_path(self, path: Path) -> int:
         """
@@ -416,29 +427,10 @@ class P115Api:
             self._record_get_item_failure(path_str, now)
             return None
         except Exception:
-            storage_chain = StorageChain()
-            file_item = storage_chain.get_file_item(storage="u115", path=path)
-            if file_item:
-                if path_str in self._get_item_fail_records:
-                    del self._get_item_fail_records[path_str]
-                self._id_cache.add_cache(id=int(file_item.fileid), directory=path_str)
-                self._id_item_cache.add_cache(
-                    id=int(file_item.fileid),
-                    item={
-                        "path": path_str,
-                        "id": int(file_item.fileid),
-                        "size": file_item.size,
-                        "modify_time": file_item.modify_time,
-                        "pickcode": file_item.pickcode,
-                        "is_dir": bool(file_item.type == "dir"),
-                    },
-                )
-            else:
+            file_item = self._get_u115_item(path)
+            if not file_item:
                 self._record_get_item_failure(path_str, now)
                 return None
-            file_item = FileItem(
-                storage=self._disk_name, **file_item.model_dump(exclude={"storage"})
-            )
             return file_item
 
     def get_item_strict(self, path: Path) -> Optional[FileItem]:
@@ -460,12 +452,53 @@ class P115Api:
             return self._query_item(path)
         except (FileNotFoundError, NotADirectoryError):
             return None
-        except StorageQueryError:
-            raise
         except Exception as e:
+            try:
+                file_item = self._get_u115_item(path)
+            except Exception as fallback_error:
+                raise StorageQueryError(
+                    f"【P115Disk】查询文件信息失败: {path} - {e}; "
+                    f"u115 降级查询失败: {fallback_error}"
+                ) from fallback_error
+            if file_item:
+                logger.warning(
+                    f"【P115Disk】Web API 查询失败，已通过 u115 获取: {path}"
+                )
+                return file_item
             raise StorageQueryError(
                 f"【P115Disk】查询文件信息失败: {path} - {e}"
             ) from e
+
+    def _get_u115_item(self, path: Path) -> Optional[FileItem]:
+        """
+        通过 u115 存储降级查询文件项并更新正缓存
+
+        :param path (Path): 文件或目录路径
+
+        :return FileItem: 文件项，未查询到时返回 None
+        """
+        file_item = StorageChain().get_file_item(storage="u115", path=path)
+        if not file_item:
+            return None
+
+        path_str = path.as_posix()
+        self._get_item_fail_records.pop(path_str, None)
+        self._id_cache.add_cache(id=int(file_item.fileid), directory=path_str)
+        self._id_item_cache.add_cache(
+            id=int(file_item.fileid),
+            item={
+                "path": path_str,
+                "id": int(file_item.fileid),
+                "size": file_item.size,
+                "modify_time": file_item.modify_time,
+                "pickcode": file_item.pickcode,
+                "is_dir": bool(file_item.type == "dir"),
+            },
+        )
+        return FileItem(
+            storage=self._disk_name,
+            **file_item.model_dump(exclude={"storage"}),
+        )
 
     def _get_cached_item(self, path: Path) -> Optional[FileItem]:
         """
@@ -523,20 +556,54 @@ class P115Api:
         :raises FileNotFoundError: 文件或目录确认不存在
         """
         path_str = path.as_posix()
-        try:
-            file_id = get_id_to_path(
-                client=self.client, path=path_str, **get_ios_ua_app(app=False)
-            )
-        except KeyError:
-            file_id = get_id_to_path(
-                client=self.client,
-                path=path_str,
-                refresh=True,
+        last_error: Optional[Exception] = None
+        file_item = None
+        with self._web_api_base_url_lock:
+            start_base_url = next(self._web_api_base_url_cycle)
+        start_index = WEB_API_BASE_URLS.index(start_base_url)
+        remaining_attempts = len(WEB_API_BASE_URLS)
+        while remaining_attempts > 0:
+            attempt_index = len(WEB_API_BASE_URLS) - remaining_attempts
+            remaining_attempts -= 1
+            base_url = WEB_API_BASE_URLS[
+                (start_index + attempt_index) % len(WEB_API_BASE_URLS)
+            ]
+            request_kwargs = {
                 **get_ios_ua_app(app=False),
-            )
-        file_item = get_attr(
-            client=self.client, id=file_id, **get_ios_ua_app(app=False)
-        )
+                "base_url": base_url,
+            }
+            try:
+                try:
+                    file_id = get_id_to_path(
+                        client=self.client,
+                        path=path_str,
+                        **request_kwargs,
+                    )
+                except KeyError:
+                    file_id = get_id_to_path(
+                        client=self.client,
+                        path=path_str,
+                        refresh=True,
+                        **request_kwargs,
+                    )
+                file_item = get_attr(
+                    client=self.client,
+                    id=file_id,
+                    **request_kwargs,
+                )
+                break
+            except (FileNotFoundError, NotADirectoryError):
+                raise
+            except Exception as e:
+                last_error = e
+                logger.warning(
+                    f"【P115Disk】Web API 查询失败，尝试备用域名: {base_url} - {e}"
+                )
+        if file_item is None:
+            if last_error:
+                raise last_error
+            raise StorageQueryError(f"【P115Disk】没有可用的 Web API: {path}")
+
         logger.debug(f"【P115Disk】文件信息: {file_item}")
         self._get_item_fail_records.pop(path_str, None)
         self._id_cache.add_cache(id=file_item["id"], directory=path_str)
