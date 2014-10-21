@@ -337,7 +337,8 @@ class OofFastMiCache:
         """
         批量写入
         """
-        with self.cache.transact():
+        cache = self.cache
+        with cache.transact():
             for item in items:
                 if isinstance(item, dict):
                     sha1_key = item.get("sha1")
@@ -348,21 +349,22 @@ class OofFastMiCache:
                 else:
                     _, (sha1_key, compressed_data, *_) = item
                 if isinstance(sha1_key, str) and isinstance(compressed_data, bytes):
-                    self.cache.set(sha1_key, compressed_data)
+                    cache[sha1_key] = compressed_data
 
     def batch_get(self, sha1_keys: List[str]) -> bytes:
         """
         批量获取
         """
+        cache = self.cache
         results = {}
         retrieved_items = {}
         for key in sha1_keys:
-            value = self.cache.get(key)
+            value = cache.get(key)
             if value is not None:
                 retrieved_items[key] = value
         results.update(
             {
-                key: b64encode(value).decode("utf-8")
+                key: b64encode(value).decode("ascii")
                 for key, value in retrieved_items.items()
             }
         )
@@ -372,6 +374,9 @@ class OofFastMiCache:
         return dumps(results)
 
     def close(self):
+        """
+        关闭缓存
+        """
         self.cache.close()
 
 
