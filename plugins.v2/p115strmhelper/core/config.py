@@ -189,6 +189,18 @@ class ConfigManager(BaseModel):
                 out.append(x)
         return out
 
+    @field_validator("monitor_life_event_modes", mode="before")
+    @classmethod
+    def _validate_monitor_life_event_modes(cls, v: Any) -> List[str]:
+        """
+        若 monitor_life_event_modes 为 None 或非列表则返回空列表
+        """
+        if v is None:
+            return []
+        if isinstance(v, list):
+            return v
+        return []
+
     @model_validator(mode="before")
     @classmethod
     def _validate_cron_fields_before(cls, data: Dict[str, Any]) -> Dict[str, Any]:
@@ -447,8 +459,8 @@ class ConfigManager(BaseModel):
     monitor_life_emby_mediainfo_enabled: bool = Field(
         default=False, description="Emby 媒体信息提取开关"
     )
-    monitor_life_event_modes: Optional[List[str]] = Field(
-        default=None, description="监控事件类型"
+    monitor_life_event_modes: List[str] = Field(
+        default_factory=list, description="监控事件类型"
     )
     monitor_life_scrape_metadata_enabled: bool = Field(
         default=False, description="刮削 STRM 开关"
