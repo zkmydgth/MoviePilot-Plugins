@@ -174,20 +174,25 @@ class EmbyMediaInfoOperate:
                     json=media_data,
                     headers={"Content-Type": "application/json"},
                 )
-                if (
-                    res.status_code == 200
-                    and res.json()
-                    and res.json().get("Chapters", None)
-                    and res.json().get("MediaSourceInfo", None)
-                ):
+                try:
+                    res_data = res.json()
+                except Exception:
+                    res_data = []
+                if res.status_code == 200 and res_data:
                     logger.info(
                         f"{self.func_name}{service_name} 更新媒体信息成功: {file_path}"
                     )
                     if need_upload:
-                        media_data = res.json()
+                        media_data = res_data
+                    elif media_data != res_data:
+                        logger.warn(
+                            f"{self.func_name}{service_name} 媒体信息不一致，重新上传服务器: {file_path}"
+                        )
+                        need_upload = True
+                        media_data = res_data
                 else:
                     logger.warning(
-                        f"{self.func_name}{service_name} 更新媒体信息失败: {res.status_code} {res.json()}"
+                        f"{self.func_name}{service_name} 更新媒体信息失败: {res.status_code} {res_data}"
                     )
             except RequestError as e:
                 logger.error(f"{self.func_name}{service_name} 更新媒体信息失败: {e}")
