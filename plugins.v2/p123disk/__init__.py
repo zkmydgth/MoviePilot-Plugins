@@ -21,7 +21,7 @@ class P123Disk(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/DDS-Derek/MoviePilot-Plugins/main/icons/P123Disk.png"
     # 插件版本
-    plugin_version = "1.0.1"
+    plugin_version = "1.0.2"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -372,6 +372,9 @@ class P123Disk(_PluginBase):
         """
         获取支持的整理方式
         """
+        if storage != self._disk_name:
+            return None
+
         return {"move": "移动", "copy": "复制"}
 
     def stop_service(self):
