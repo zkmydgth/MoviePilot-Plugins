@@ -117,9 +117,9 @@ class MiGuDiscover(_PluginBase):
             params=params,
         )
         if res is None:
-            raise Exception("无法连接咪咕视频，请检查网络连接！")
+            raise ConnectionError("无法连接咪咕视频，请检查网络连接！")
         if not res.ok:
-            raise Exception(f"请求咪咕视频 API失败：{res.text}")
+            raise ValueError(f"请求咪咕视频 API失败：{res.text}")
         return res.json().get("body").get("data")
 
     def migu_discover(
@@ -153,7 +153,9 @@ class MiGuDiscover(_PluginBase):
                 title_year=f"{movie_info.get('name')} ({movie_info.get('year')})",
                 mediaid_prefix="migu",
                 media_id=str(movie_info.get("pID")),
-                poster_path=movie_info.get("h5pics").get("highResolutionV").replace("http://wapx.cmvideo.cn:8080", "https://wapx.cmvideo.cn"),
+                poster_path=movie_info.get("h5pics")
+                .get("highResolutionV")
+                .replace("http://wapx.cmvideo.cn:8080", "https://wapx.cmvideo.cn"),
                 vote_average=movie_info.get("score"),
                 first_air_date=first_air_date,
             )
@@ -173,7 +175,9 @@ class MiGuDiscover(_PluginBase):
                 mediaid_prefix="migu",
                 media_id=str(series_info.get("pID")),
                 release_date=series_info.get("publishTime"),
-                poster_path=series_info.get("h5pics").get("highResolutionV").replace("http://wapx.cmvideo.cn:8080", "https://wapx.cmvideo.cn"),
+                poster_path=series_info.get("h5pics")
+                .get("highResolutionV")
+                .replace("http://wapx.cmvideo.cn:8080", "https://wapx.cmvideo.cn"),
                 vote_average=series_info.get("score"),
                 first_air_date=first_air_date,
             )

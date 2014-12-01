@@ -1,5 +1,5 @@
 import re
-from typing import Any, List, Dict, Tuple, Optional
+from typing import Any, List, Dict, Tuple
 from dataclasses import dataclass
 
 from cachetools import cached, TTLCache
@@ -168,9 +168,9 @@ class CCTVDiscover(_PluginBase):
             params=params,
         )
         if res is None:
-            raise Exception("无法连接CCTV，请检查网络连接！")
+            raise ConnectionError("无法连接CCTV，请检查网络连接！")
         if not res.ok:
-            raise Exception(f"请求CCTV API失败：{res.text}")
+            raise ValueError(f"请求CCTV API失败：{res.text}")
         return self._parse_response(res.json())
 
     def cctv_discover(

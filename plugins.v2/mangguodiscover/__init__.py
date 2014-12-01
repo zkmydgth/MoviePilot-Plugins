@@ -176,9 +176,9 @@ class MangGuoDiscover(_PluginBase):
         api_url = "https://pianku.api.mgtv.com/rider/list/pcweb/v3"
         res = RequestUtils(headers=HEADERS).get_res(api_url, params=kwargs)
         if res is None:
-            raise Exception("无法连接芒果TV，请检查网络连接！")
+            raise ConnectionError("无法连接芒果TV，请检查网络连接！")
         if not res.ok:
-            raise Exception(f"请求芒果TV API失败：{res.text}")
+            raise ValueError(f"请求芒果TV API失败：{res.text}")
         return res.json().get("data").get("hitDocs")
 
     def mangguo_discover(

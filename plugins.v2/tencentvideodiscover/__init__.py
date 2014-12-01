@@ -1,8 +1,7 @@
-import requests
 import re
 from typing import Any, List, Dict, Tuple
-import urllib.parse
 
+import requests
 from cachetools import cached, TTLCache
 
 from app import schemas
