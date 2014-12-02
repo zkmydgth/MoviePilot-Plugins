@@ -34,6 +34,11 @@ class MediaInfoDownloader:
     媒体信息文件下载器
     """
 
+    # 批处理文件数量
+    batch_size = 200
+    # 最大同时下载线程（cdn_url）
+    max_workers = 8
+
     def __init__(self, cookie: str):
         self.cookie = cookie
         self.client = P115Client(cookie)
@@ -334,7 +339,7 @@ class MediaInfoDownloader:
         self, data_map: Dict[str | int, str], item_list, value: str = "sha1"
     ):
         """
-        为单个批次创建并并发执行所有字幕下载任务
+        为单个批次创建并并发执行所有下载任务
         """
         semaphore = asyncio.Semaphore(256)
         async with httpx.AsyncClient(follow_redirects=True) as client:
@@ -368,7 +373,7 @@ class MediaInfoDownloader:
         for item in downloads_list:
             item["file_id"] = pickcode_to_id(item["pickcode"])
 
-        for item_list in batched(downloads_list, 200):
+        for item_list in batched(downloads_list, self.batch_size):
             resp = self.client.fs_mkdir(
                 f"subtitle-{uuid4()}",
             )
@@ -422,7 +427,7 @@ class MediaInfoDownloader:
         for item in downloads_list:
             item["file_id"] = pickcode_to_id(item["pickcode"])
 
-        for item_list in batched(downloads_list, 200):
+        for item_list in batched(downloads_list, self.batch_size):
             resp = self.client.fs_mkdir(
                 f"image-{uuid4()}",
             )
@@ -476,11 +481,11 @@ class MediaInfoDownloader:
         for item in downloads_list:
             item["file_id"] = pickcode_to_id(item["pickcode"])
         try:
-            for item_list in batched(downloads_list, 200):
+            for item_list in batched(downloads_list, self.batch_size):
                 pcs = [item["pickcode"] for item in item_list]
                 resp = self.client.download_urls(",".join(pcs), **request_kwargs)
                 data_map = {key: value.geturl() for key, value in resp.items()}
-                for batch in batched(item_list, 8):
+                for batch in batched(item_list, self.max_workers):
                     if self.stop_all_flag:
                         return
                     asyncio.run(
