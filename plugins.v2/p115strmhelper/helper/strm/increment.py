@@ -474,6 +474,15 @@ class IncrementSyncStrmHelper:
 
         :raise: ItertreeInternalError: 网盘目录树生成失败
         """
+        keep_names = {
+            self.pan_tree_path.stem,
+            self.pan_to_local_tree_path.stem,
+            self.pan_to_local_strm_tree_path.stem,
+        }
+        cleaned = DirectoryTree.cleanup_redis_trees(keep_names=keep_names)
+        for name in cleaned:
+            logger.info(f"【增量STRM生成】清理 Redis 中的无效 tree: {name}")
+
         last_error: Optional[Exception] = None
         for i in range(1, 4):
             self.pan_tree.clear()
@@ -498,11 +507,23 @@ class IncrementSyncStrmHelper:
             except Exception as e:
                 last_error = e
                 sentry_manager.sentry_hub.capture_exception(e)
-                if "Broken pipe" in str(e):
+                error_msg = str(e)
+                if "Broken pipe" in error_msg:
                     logger.warning(
                         f"【增量STRM生成】网盘目录树生成 {pan_media_dir} 错误: {e}，第 {i} 次自动重试..."
                     )
                     sleep(30 + 2**i)
+                elif (
+                    "used memory > 'maxmemory'" in error_msg
+                    or "OOM" in error_msg
+                    or isinstance(e, MemoryError)
+                ):
+                    logger.warning(
+                        f"【增量STRM生成】Redis OOM，第 {i} 次尝试后将目录树降级到 TXT 存储并重试..."
+                    )
+                    self.pan_tree.switch_storage("txt")
+                    self.pan_to_local_tree.switch_storage("txt")
+                    self.pan_to_local_strm_tree.switch_storage("txt")
                 else:
                     logger.error(
                         f"【增量STRM生成】网盘目录树生成 {pan_media_dir} 错误: {e}"

@@ -2,7 +2,7 @@ __all__ = ["DirectoryTree"]
 
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Iterable, Generator, List, Union
+from typing import Iterable, Generator, List, Optional, Union
 
 from app.core.config import settings
 from app.helper.redis import RedisHelper
@@ -170,6 +170,7 @@ class RedisStorage(DirectoryTreeStorage):
 
         :param paths: 路径字符串迭代器
         :param append: True 时追加，False 时先清空已有数据
+        :raises MemoryError: 当 Redis 内存不足时抛出，提示用户调整配置
         """
         pipe = self.client.pipeline()
 
@@ -189,7 +190,20 @@ class RedisStorage(DirectoryTreeStorage):
             pipe.sadd(self._set_key, *path_chunk)
             pipe.rpush(self._list_key, *path_chunk)
 
-        pipe.execute()
+        pipe.expire(self._set_key, 604800)
+        pipe.expire(self._list_key, 604800)
+
+        try:
+            pipe.execute()
+        except Exception as e:
+            error_msg = str(e)
+            if "used memory > 'maxmemory'" in error_msg or "OOM" in error_msg:
+                raise MemoryError(
+                    f"Redis 内存不足，无法写入 {self.tree_name} 树数据。"
+                    f"请增大 Redis 的 maxmemory 配置，或设置 maxmemory-policy=allkeys-lru。"
+                    f"当前键: {self._set_key}, {self._list_key}"
+                ) from e
+            raise
 
     def compare_trees(
         self, other_storage: "DirectoryTreeStorage"
@@ -266,14 +280,19 @@ class DirectoryTree:
     目录树操作的高级接口，支持 TXT 和 Redis 后端
     """
 
-    def __init__(self, file_path: Path):
+    def __init__(self, file_path: Path, force_backend: Optional[str] = None):
         """
         初始化目录树实例
+
+        :param file_path: 目录树对应的文件路径（其 stem 用于生成 Redis 键名）
+        :param force_backend: 强制指定后端类型，"redis" 或 "txt"；None 时按 settings.CACHE_BACKEND_TYPE
         """
-        if settings.CACHE_BACKEND_TYPE == "redis":
+        backend = force_backend or settings.CACHE_BACKEND_TYPE
+        if backend == "redis":
             self._storage: DirectoryTreeStorage = RedisStorage(file_path.stem)
         else:
             self._storage: DirectoryTreeStorage = TxtFileStorage(file_path)
+        self._file_path = file_path
 
     def scan_directory_to_tree(
         self, root_path, append=False, extensions=None, use_posix=True
@@ -347,3 +366,46 @@ class DirectoryTree:
         - 对于 Redis 后端，会删除相关的键
         """
         self._storage.clear()
+
+    def switch_storage(self, backend: str):
+        """
+        运行时切换存储后端，切换前会清空旧后端的数据
+
+        :param backend: 目标后端类型，"redis" 或 "txt"
+        """
+        is_redis = isinstance(self._storage, RedisStorage)
+        if backend == "redis" and is_redis:
+            return
+        if backend != "redis" and not is_redis:
+            return
+        self._storage.clear()
+        if backend == "redis":
+            self._storage = RedisStorage(self._file_path.stem)
+        else:
+            self._storage = TxtFileStorage(self._file_path)
+
+    @classmethod
+    def cleanup_redis_trees(
+        cls, keep_names: Optional[Iterable[str]] = None
+    ) -> List[str]:
+        """
+        清理 Redis 中不属于当前任务的无效应 tree 键
+
+        :param keep_names: 需要保留的 tree_name 集合；不在此集合中的 dirtree:* 键会被删除
+        :return: 被清理的 tree_name 列表
+        """
+        cleaned: List[str] = []
+        if settings.CACHE_BACKEND_TYPE != "redis":
+            return cleaned
+        keep_names_set = set(keep_names) if keep_names else set()
+        redis_helper = RedisHelper()
+        redis_helper._connect()
+        client = redis_helper.client
+        for key in client.scan_iter(match="dirtree:set:*"):
+            key_str = key.decode("utf-8") if isinstance(key, bytes) else key
+            tree_name = key_str.split(":", 2)[2]
+            if tree_name not in keep_names_set:
+                list_key = f"dirtree:list:{tree_name}"
+                client.delete(key_str, list_key)
+                cleaned.append(tree_name)
+        return cleaned

@@ -17,6 +17,8 @@ on:
       - 'plugins.v2/p115strmhelper/utils/url.py'
       # utils (test_webhook_utils.py)
       - 'plugins.v2/p115strmhelper/utils/webhook.py'
+      # utils (test_tree.py)
+      - 'plugins.v2/p115strmhelper/utils/tree.py'
       - 'plugins.v2/p115strmhelper/tests/**'
       - '.github/workflows/test-p115strmhelper.yml'
   pull_request:
@@ -35,6 +37,8 @@ on:
       - 'plugins.v2/p115strmhelper/utils/url.py'
       # utils (test_webhook_utils.py)
       - 'plugins.v2/p115strmhelper/utils/webhook.py'
+      # utils (test_tree.py)
+      - 'plugins.v2/p115strmhelper/utils/tree.py'
       - 'plugins.v2/p115strmhelper/tests/**'
       - '.github/workflows/test-p115strmhelper.yml'
   workflow_dispatch:
