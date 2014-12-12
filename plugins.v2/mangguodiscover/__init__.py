@@ -91,7 +91,7 @@ class MangGuoDiscover(_PluginBase):
     # 插件描述
     plugin_desc = "让探索支持芒果TV的数据浏览。"
     # 插件图标
-    plugin_icon = "https://raw.githubusercontent.com/DDS-Derek/MoviePilot-Plugins/main/icons/mangguo_A.jpg"
+    plugin_icon = "https://raw.githubusercontent.com/DDSRem-Dev/MoviePilot-Plugins/main/icons/mangguo_A.jpg"
     # 插件版本
     plugin_version = "1.0.4"
     # 插件作者

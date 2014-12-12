@@ -17,7 +17,7 @@ class MiGuDiscover(_PluginBase):
     # 插件描述
     plugin_desc = "让探索支持咪咕视频的数据浏览。"
     # 插件图标
-    plugin_icon = "https://raw.githubusercontent.com/DDS-Derek/MoviePilot-Plugins/main/icons/migu_A.png"
+    plugin_icon = "https://raw.githubusercontent.com/DDSRem-Dev/MoviePilot-Plugins/main/icons/migu_A.png"
     # 插件版本
     plugin_version = "1.0.6"
     # 插件作者

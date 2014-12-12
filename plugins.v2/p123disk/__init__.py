@@ -53,7 +53,7 @@ class P123Disk(_PluginBase):
     # 插件描述
     plugin_desc = "使存储支持123云盘。"
     # 插件图标
-    plugin_icon = "https://raw.githubusercontent.com/DDS-Derek/MoviePilot-Plugins/main/icons/P123Disk.png"
+    plugin_icon = "https://raw.githubusercontent.com/DDSRem-Dev/MoviePilot-Plugins/main/icons/P123Disk.png"
     # 插件版本
     plugin_version = "1.2.2"
     # 插件作者

@@ -644,7 +644,7 @@ class MediaWarp(_PluginBase):
         """
         获取下载链接
         """
-        base_url = "https://github.com/DDS-Derek/MediaWarp/releases/download/v{version}/MediaWarp_{version}_{os}_{arch}.tar.gz"
+        base_url = "https://github.com/DDSRem-Dev/MediaWarp/releases/download/v{version}/MediaWarp_{version}_{os}_{arch}.tar.gz"
 
         machine = platform.machine().lower()
         if machine == "arm64" or machine == "aarch64":

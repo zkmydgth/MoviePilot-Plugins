@@ -461,7 +461,7 @@ class P123StrmHelper(_PluginBase):
     # 插件描述
     plugin_desc = "123云盘STRM生成一条龙服务"
     # 插件图标
-    plugin_icon = "https://raw.githubusercontent.com/DDS-Derek/MoviePilot-Plugins/main/icons/P123Disk.png"
+    plugin_icon = "https://raw.githubusercontent.com/DDSRem-Dev/MoviePilot-Plugins/main/icons/P123Disk.png"
     # 插件版本
     plugin_version = "1.1.1"
     # 插件作者

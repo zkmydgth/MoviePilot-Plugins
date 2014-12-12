@@ -56,7 +56,7 @@
 
 ## 许可证
 
-此项目根据 GNU General Public License v3.0 许可证进行许可，详见[`LICENSE`](https://github.com/DDS-Derek/MoviePilot-Plugins/blob/main/LICENSE) 文件。
+此项目根据 GNU General Public License v3.0 许可证进行许可，详见[`LICENSE`](https://github.com/DDSRem-Dev/MoviePilot-Plugins/blob/main/LICENSE) 文件。
 
 #### 附加条款
 
