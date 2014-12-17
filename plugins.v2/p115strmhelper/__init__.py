@@ -502,7 +502,7 @@ class P115StrmHelper(_PluginBase):
             {
                 "path": "/redirect_url",
                 "endpoint": self.redirect_url,
-                "methods": ["GET"],
+                "methods": ["GET", "POST"],
                 "summary": "302跳转",
                 "description": "115网盘302跳转",
             }
