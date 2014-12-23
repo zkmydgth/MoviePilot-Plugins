@@ -212,7 +212,13 @@ class TgSearcher:
             if not channel_id:
                 continue
             url = StringUtils.encode_url_fully(f"https://t.me/s/{channel_id}?q={key}")
-            results.extend(self.get_channel(url, channel_id))
+            results.extend(
+                [
+                    i
+                    for i in self.get_channel(url, channel_id)
+                    if key in i.get("title", "") or key in i.get("content", "")
+                ]
+            )
 
         seen_links = set()
         clean_results = []
