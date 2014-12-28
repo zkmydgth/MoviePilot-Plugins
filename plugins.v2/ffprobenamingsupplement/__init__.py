@@ -630,7 +630,7 @@ class FFprobeNamingSupplement(_PluginBase):
         data = event.event_data
         if not isinstance(data, TransferRenameEventData):
             return
-        source_path = data.source_path
+        source_path: Optional[str] = getattr(data, "source_path", None)
         source_item: Optional[FileItem] = getattr(data, "source_item", None)
         if not source_path or not str(source_path).strip():
             logger.debug("【ffprobe命名补充】source_path 为空，跳过本次重命名补全")
