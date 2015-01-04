@@ -10,7 +10,7 @@ from app.schemas import NotificationType
 
 from ...core.config import configer
 from ...core.message import post_message
-from ...helper.hdhive.playwright import HDHiveLoginError, HDHivePlaywrightClient
+from ...helper.hdhive.browser import HDHiveError, HDHivePlaywrightClient
 from ...utils.sentry import sentry_manager
 from .scheduler import _KEY_LAST_DONE
 
@@ -24,7 +24,7 @@ def run_hdhive_checkin_once(
     send_notify: bool = True,
 ) -> Tuple[bool, str]:
     """
-    使用 Playwright 登录 HDHive 并执行签到
+    使用浏览器自动化登录 HDHive 并执行签到（cloakbrowser 或 Playwright）
 
     :param manual: 为 True 时表示远程命令触发，不强制要求已开启每日/赌狗开关
     :param send_notify: 是否在结果时按全局通知开关发送插件消息
@@ -107,7 +107,7 @@ def run_hdhive_checkin_once(
                 text="\n" + detail + "\n",
             )
         return ok, detail
-    except HDHiveLoginError as e:
+    except HDHiveError as e:
         logger.error("【HDHive 签到】登录异常：%s", e, exc_info=True)
         err = str(e)
         if send_notify and configer.notify:

@@ -1,8 +1,19 @@
-__all__ = ["HDHivePlaywrightClient", "HDHiveLoginError"]
+__all__ = [
+    "HDHiveBrowserError",
+    "HDHiveError",
+    "HDHiveLoginError",
+    "HDHivePlaywrightClient",
+    "get_hdhive_browser_client",
+    "is_hdhive_search_ready",
+]
 
+from base64 import urlsafe_b64decode
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
+from platform import machine as _machine
+from re import search
+from shutil import rmtree
 from socket import (
     AF_INET,
     SO_REUSEADDR,
@@ -10,14 +21,17 @@ from socket import (
     SOL_SOCKET,
     socket,
 )
-from platform import machine as _machine
 from sys import platform
-from time import sleep
-from typing import Any, Dict, Iterator, Optional, Tuple
+from time import sleep, time
+from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple, TypeVar
 from urllib.parse import unquote, urlparse
 
-from app.core.config import settings
+from orjson import dumps, loads
 
+from app.core.config import settings
+from app.log import logger
+
+from ...core.config import configer
 from ...utils.sentry import sentry_manager
 
 _CLOAKBROWSER_AVAILABLE = False
@@ -47,7 +61,7 @@ except ImportError:
 
     class PlaywrightTimeoutError(Exception):  # type: ignore[misc]
         """
-        Stub when playwright is not installed
+        playwright 未安装时的占位异常类
         """
 
     sync_playwright = None  # type: ignore[assignment]
@@ -61,10 +75,31 @@ except ImportError:
     _SLIPPERS_AVAILABLE = False
 
 
-class HDHiveLoginError(Exception):
+class HDHiveError(Exception):
     """
-    HDHive 网页登录失败或超时
+    HDHive 浏览器自动化异常基类
     """
+
+
+class HDHiveLoginError(HDHiveError):
+    """
+    HDHive 认证或 Cookie 相关失败
+    """
+
+    login_redirect: bool
+
+    def __init__(self, message: str, *, login_redirect: bool = False) -> None:
+        super().__init__(message)
+        self.login_redirect = login_redirect
+
+
+class HDHiveBrowserError(HDHiveError):
+    """
+    HDHive 页面操作或浏览器自动化失败
+    """
+
+
+_T = TypeVar("_T")
 
 
 class _CheckinDebugSession:
@@ -75,15 +110,18 @@ class _CheckinDebugSession:
     _MAX_SESSIONS = 3
 
     def __init__(self, label: str) -> None:
+        """
+        初始化 Debug 会话并在插件临时目录下创建输出文件夹
+
+        :param label: 签到类型标签（如「赌狗签到」「每日签到」）
+        """
         self._enabled = False
         self._step = 0
         self._dir: Optional[Path] = None
         self._log_path: Optional[Path] = None
         try:
             ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-            base = (
-                Path(settings.PLUGIN_DATA_PATH) / "p115strmhelper" / "temp" / "hdhive"
-            )
+            base = configer.PLUGIN_TEMP_PATH / "hdhive"
             self._dir = base / f"debug_{ts}"
             self._dir.mkdir(parents=True, exist_ok=True)
             self._log_path = self._dir / "checkin.log"
@@ -103,18 +141,26 @@ class _CheckinDebugSession:
 
     @staticmethod
     def _cleanup_old_sessions(base: Path) -> None:
+        """
+        清理超出保留数量的旧 Debug 会话目录
+
+        :param base: Debug 会话根目录
+        """
         try:
             sessions = sorted(base.glob("debug_*"), key=lambda p: p.name)
             for old in sessions[
                 : max(0, len(sessions) - _CheckinDebugSession._MAX_SESSIONS)
             ]:
-                import shutil
-
-                shutil.rmtree(old, ignore_errors=True)
+                rmtree(old, ignore_errors=True)
         except Exception:
             pass
 
     def _log(self, msg: str) -> None:
+        """
+        将一行日志追加写入会话 log 文件
+
+        :param msg: 日志内容
+        """
         if not self._enabled or self._log_path is None:
             return
         try:
@@ -125,9 +171,21 @@ class _CheckinDebugSession:
             pass
 
     def log(self, msg: str) -> None:
+        """
+        记录一条 Debug 日志
+
+        :param msg: 日志内容
+        """
         self._log(msg)
 
     def screenshot(self, page: Any, name: str, note: str = "") -> None:
+        """
+        截取当前页面全页截图并写入会话目录
+
+        :param page: 浏览器页面对象
+        :param name: 截图文件名前缀
+        :param note: 可选说明，写入日志
+        """
         if not self._enabled or self._dir is None:
             return
         self._step += 1
@@ -151,6 +209,12 @@ class _CheckinDebugSession:
             self._log(f"  截图失败: {e}")
 
     def save_html(self, page: Any, name: str) -> None:
+        """
+        保存当前页面 HTML 到会话目录
+
+        :param page: 浏览器页面对象
+        :param name: 输出文件名前缀（不含扩展名）
+        """
         if not self._enabled or self._dir is None:
             return
         try:
@@ -162,6 +226,12 @@ class _CheckinDebugSession:
             self._log(f"  HTML 保存失败: {e}")
 
     def log_page_state(self, page: Any, tag: str = "") -> None:
+        """
+        记录当前页面 URL、标题及 Cloudflare 相关信号
+
+        :param page: 浏览器页面对象
+        :param tag: 可选标签，便于在日志中区分阶段
+        """
         if not self._enabled:
             return
         try:
@@ -180,6 +250,13 @@ class _CheckinDebugSession:
 
     @staticmethod
     def _detect_cf_signals(page: Any) -> list:
+        """
+        检测页面上是否存在 Cloudflare 挑战相关 DOM 或文案
+
+        :param page: 浏览器页面对象
+
+        :return: 检测到的信号描述列表
+        """
         signals = []
         try:
             title = page.title()
@@ -225,6 +302,13 @@ class _CheckinDebugSession:
         return signals
 
     def finalize(self, success: bool, result: str) -> None:
+        """
+        写入签到流程结束摘要
+
+        :param success: 签到是否成功
+
+        :param result: 结果文案或错误信息
+        """
         self._log(f"{'=' * 60}")
         self._log(f"签到结束: {'成功' if success else '失败'}")
         self._log(f"结果: {result}")
@@ -235,6 +319,8 @@ class _CheckinDebugSession:
 class HDHivePlaywrightClient:
     """
     HDHive 站点浏览器自动化客户端
+
+    运行时自动选择 cloakbrowser（新版 MoviePilot）或 Playwright Chromium（旧版 MoviePilot）
     """
 
     DEFAULT_BASE_URL = "https://hdhive.com"
@@ -242,6 +328,7 @@ class HDHivePlaywrightClient:
     _CHROME_UA_SUFFIX = (
         "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36"
     )
+    _COOKIE_FILENAME = "hdhive_cookies.json"
 
     def __init__(self, headless: bool = True) -> None:
         """
@@ -249,6 +336,8 @@ class HDHivePlaywrightClient:
         """
         self._headless = headless
         self._cookie_str: Optional[str] = None
+        self._username: str = ""
+        self._password: str = ""
 
     @staticmethod
     def _check_backend() -> str:
@@ -256,6 +345,7 @@ class HDHivePlaywrightClient:
         检测可用的浏览器后端，优先返回 cloakbrowser
 
         :return: 'cloakbrowser' 或 'playwright'
+
         :raises RuntimeError: 两者均不可用时
         """
         if _CLOAKBROWSER_AVAILABLE:
@@ -631,6 +721,163 @@ class HDHivePlaywrightClient:
                 name, value = item.strip().split("=", 1)
                 cookies[name.strip()] = value.strip()
         return cookies
+
+    @classmethod
+    def _cookie_file_path(cls) -> Path:
+        """
+        返回 HDHive Cookie 持久化文件路径
+
+        :return: 插件数据目录下的 Cookie JSON 文件路径
+        """
+        return configer.PLUGIN_CONFIG_PATH / cls._COOKIE_FILENAME
+
+    def _save_cookie_to_file(self) -> None:
+        """
+        将当前实例 Cookie 写入持久化文件
+        """
+        if not self._cookie_str:
+            return
+        try:
+            path = self._cookie_file_path()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            payload = {
+                "cookie_str": self._cookie_str,
+                "saved_at": datetime.now().isoformat(),
+            }
+            path.write_bytes(dumps(payload))
+        except Exception:
+            pass
+
+    @classmethod
+    def _load_cookie_from_file(cls) -> Optional[str]:
+        """
+        从持久化文件读取 Cookie 字符串
+
+        :return: cookie_str；文件不存在或解析失败时为 None
+        """
+        try:
+            path = cls._cookie_file_path()
+            if not path.exists():
+                return None
+            payload = loads(path.read_bytes())
+            return payload.get("cookie_str") or None
+        except Exception:
+            return None
+
+    def load_saved_cookie(self) -> Optional[str]:
+        """
+        从持久化文件加载上次保存的 Cookie，写入实例并返回 cookie_str
+
+        :return: cookie_str；文件不存在或无有效 token 时为 None
+        """
+        cookie_str = self._load_cookie_from_file()
+        if not cookie_str:
+            return None
+        cookies = self._parse_cookie_str(cookie_str)
+        if not cookies.get("token"):
+            return None
+        self._cookie_str = cookie_str
+        return cookie_str
+
+    def clear_saved_cookie(self) -> None:
+        """
+        清除实例内 Cookie 及持久化文件
+        """
+        self._cookie_str = None
+        try:
+            path = self._cookie_file_path()
+            if path.exists():
+                path.unlink()
+        except Exception:
+            pass
+
+    def set_credentials(self, username: str, password: str) -> "HDHivePlaywrightClient":
+        """
+        存储账号密码，供 Cookie 过期时自动重新登录
+
+        :param username: 账号或邮箱
+        :param password: 密码
+        :return: self（支持链式调用）
+        """
+        self._username = username.strip()
+        self._password = password.strip()
+        return self
+
+    @staticmethod
+    def _parse_jwt_exp(token: str) -> Optional[int]:
+        """
+        从 JWT token 字符串解析 ``exp`` 字段（UNIX 时间戳）
+
+        :return: 过期时间戳；无法解析时为 None
+        """
+        try:
+            parts = token.split(".")
+            if len(parts) != 3:
+                return None
+            payload_b64 = parts[1] + "=" * (-len(parts[1]) % 4)
+            payload = loads(urlsafe_b64decode(payload_b64))
+            exp = payload.get("exp")
+            return int(exp) if exp is not None else None
+        except Exception:
+            return None
+
+    def _is_token_valid(self, buffer_secs: int = 300) -> bool:
+        """
+        检查当前 Cookie 中的 JWT token 是否仍在有效期内
+
+        :param buffer_secs: 提前多少秒视为「即将过期」（默认 5 分钟）
+        :return: 有效返回 True；过期、无 token 或无法解析返回 False
+        """
+        if not self._cookie_str:
+            return False
+        token = self._parse_cookie_str(self._cookie_str).get("token", "")
+        if not token:
+            return False
+        exp = self._parse_jwt_exp(token)
+        if exp is None:
+            return True
+
+        return time() + buffer_secs < exp
+
+    def _relogin(self) -> bool:
+        """
+        使用存储的账号密码重新进行浏览器登录，成功后更新持久化 Cookie
+
+        :return: 重新登录是否成功
+        """
+        if not self._username or not self._password:
+            return False
+        try:
+            self.clear_saved_cookie()
+            return (
+                self.login(username=self._username, password=self._password) is not None
+            )
+        except Exception:
+            return False
+
+    def _execute_with_auth_retry(self, run: Callable[[], _T]) -> _T:
+        """
+        在 token 有效前提下执行浏览器任务，必要时自动重新登录并重试一次
+
+        :param run: 单次浏览器会话 Callable
+        :return: run() 的返回值
+        :raises HDHiveLoginError: 认证失败且无法自动重新登录
+        :raises HDHiveBrowserError: 浏览器操作失败
+        """
+        if not self._is_token_valid():
+            if not self._relogin():
+                raise HDHiveLoginError("Cookie 已过期，请配置账号密码以自动重新登录")
+
+        try:
+            return run()
+        except HDHiveLoginError as e:
+            if not e.login_redirect:
+                raise
+            if not self._relogin():
+                raise HDHiveLoginError(
+                    "Cookie 被服务器拒绝，无法自动重新登录（请检查账号密码）",
+                ) from e
+            return run()
 
     def _fill_and_submit(
         self,
@@ -1272,6 +1519,7 @@ class HDHivePlaywrightClient:
             if csrf:
                 parts.append(f"csrf_access_token={csrf}")
             self._cookie_str = "; ".join(parts)
+            self._save_cookie_to_file()
             return self._cookie_str, token
         return None
 
@@ -1317,6 +1565,7 @@ class HDHivePlaywrightClient:
             if csrf:
                 parts.append(f"csrf_access_token={csrf}")
             self._cookie_str = "; ".join(parts)
+            self._save_cookie_to_file()
             return self._cookie_str, token
         return None
 
@@ -1336,7 +1585,8 @@ class HDHivePlaywrightClient:
         :param username: 浏览器登录用用户名或邮箱
         :param password: 浏览器登录用密码
         :return: (完整 Cookie 字符串, token)，失败为 None
-        :raises HDHiveLoginError: 浏览器登录失败或超时
+        :raises HDHiveLoginError: 登录参数无效或表单认证失败
+        :raises HDHiveBrowserError: 浏览器登录过程失败
         """
         if cookie_str is not None:
             s = cookie_str.strip()
@@ -1358,7 +1608,479 @@ class HDHivePlaywrightClient:
                 return self._login_via_cloakbrowser(username, password)
             else:
                 return self._login_via_playwright(username, password)
-        except HDHiveLoginError:
+        except HDHiveError:
             raise
         except Exception as e:
-            raise HDHiveLoginError(f"登录失败: {e}") from e
+            raise HDHiveBrowserError(f"登录失败: {e}") from e
+
+    @staticmethod
+    def _scrape_resource_cards_js() -> str:
+        """
+        返回从页面 DOM 提取 115网盘 资源卡片信息的 JavaScript
+
+        :return: 可传给 page.evaluate() 的 JS 函数字符串
+        """
+        return r"""
+        () => {
+            const sizeRe = /(\d+\.?\d*)\s*(TB|GB|MB|G(?!B)|M(?!B))\b/i;
+            const dateRe = /发布于\s*([\d/\-]+)/;
+            const resRe = /\b(4K|8K|2K|1080[piP]?|720[piP]?|480[piP]?)\b/;
+            const pointsRe = /(\d+)\s*积分/;
+
+            // Collect all elements (including <a> cards) containing exactly one
+            // "发布于" AND a file size indicator.
+            const candidates = [];
+            for (const el of document.querySelectorAll('a,div,article,li,section')) {
+                const t = el.innerText || '';
+                if (!t.includes('发布于') || !sizeRe.test(t)) continue;
+                if ((t.match(/发布于/g) || []).length !== 1) continue;
+                if (t.length < 30 || t.length > 5000) continue;
+                candidates.push(el);
+            }
+
+            // Keep only minimal elements: skip any element that contains
+            // another candidate (the contained one is more specific).
+            const minimal = candidates.filter(
+                el => !candidates.some(other => other !== el && el.contains(other))
+            );
+
+            const metaTerms = new Set([
+                '4K','8K','2K','免费','官组','管理员','WEB-DL','WEBRip','BDRip','REMUX','HDTV',
+                '简中','繁中','简英','繁英','内封','外挂','内嵌','简日','繁日','简韩','繁韩',
+                '1080P','1080p','720P','720p','480P','480p',
+                '蓝光原盘','ISO'
+            ]);
+
+            return minimal.map(card => {
+                const text = card.innerText || '';
+                const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+
+                const dateMatch = text.match(dateRe);
+                const sizeMatch = text.match(sizeRe);
+                const resMatch = text.match(resRe);
+                const pointsMatch = text.match(pointsRe);
+                const isFree = text.includes('免费');
+
+                const tags = [];
+                if (text.includes('官组') || text.includes('管理员')) tags.push('官组');
+                if (isFree) tags.push('免费');
+                if (pointsMatch) tags.push(pointsMatch[0].trim());
+
+                // Username line: the line just before the date line
+                const dateLineIdx = lines.findIndex(l => /发布于/.test(l));
+                const user = dateLineIdx > 0 ? lines[dateLineIdx - 1] : (lines[0] || '');
+
+                // Title: lines that don't look like metadata
+                const titleLines = lines.filter(l => {
+                    if (l.length < 3) return false;
+                    if (metaTerms.has(l)) return false;
+                    if (/^发布于/.test(l)) return false;
+                    if (/^\d+\s*积分$/.test(l)) return false;
+                    if (/^\d+\.?\d*\s*(T?B|G[Bi]?|M[Bi]?)$/i.test(l)) return false;
+                    if (l === user) return false;
+                    return true;
+                });
+                let title = titleLines
+                    .map(l => l.replace(/^\d+\s*积分\s*/, '').trim())
+                    .filter(Boolean)
+                    .join(' ')
+                    .trim();
+
+                // Walk up to the nearest <a> ancestor to get the resource href
+                let hrefEl = card;
+                while (hrefEl && hrefEl.tagName !== 'A') {
+                    hrefEl = hrefEl.parentElement;
+                }
+                const href = hrefEl ? (hrefEl.getAttribute('href') || '') : '';
+
+                return {
+                    user,
+                    posted_at: dateMatch ? dateMatch[1] : '',
+                    tags,
+                    title,
+                    resolution: resMatch ? resMatch[1] : '',
+                    size: sizeMatch ? (sizeMatch[1] + ' ' + sizeMatch[2].toUpperCase()) : '',
+                    is_free: isFree,
+                    unlock_points: isFree ? 0 : (pointsMatch ? parseInt(pointsMatch[1]) : null),
+                    href,
+                };
+            });
+        }
+        """
+
+    def _get_resources_via_browser(
+        self,
+        media_type: str,
+        tmdb_id: str | int,
+    ) -> List[Dict[str, Any]]:
+        """
+        浏览器自动化实现：直接导航到媒体详情页获取 115网盘资源
+
+        :param media_type: ``movie`` 或 ``tv``
+        :param tmdb_id: TMDB 作品 ID
+
+        :return: 资源信息字典列表
+
+        :raises HDHiveLoginError: 认证或 Cookie 失效且无法自动重新登录
+        :raises HDHiveBrowserError: 浏览器页面操作失败
+        """
+        root = self.DEFAULT_BASE_URL
+        domain = root.replace("https://", "").replace("http://", "")
+        backend = self._check_backend()
+        detail_url = f"{root}/tmdb/{media_type}/{tmdb_id}"
+
+        def _do_fetch(page: Any) -> List[Dict[str, Any]]:
+            captured: List[Dict[str, Any]] = []
+
+            def _handle_response(response: Any) -> None:
+                try:
+                    if response.status != 200:
+                        return
+                    if "json" not in response.headers.get("content-type", ""):
+                        return
+                    body = response.json()
+                    if not isinstance(body, dict):
+                        return
+                    data = body.get("data")
+                    if not isinstance(data, list) or not data:
+                        return
+                    first = data[0]
+                    if not isinstance(first, dict):
+                        return
+                    if any(
+                        k in first
+                        for k in (
+                            "size",
+                            "resolution",
+                            "video_resolution",
+                            "share_size",
+                            "source",
+                            "slug",
+                            "unlock_points",
+                        )
+                    ):
+                        captured.extend(data)
+                except Exception:
+                    pass
+
+            page.on("response", _handle_response)
+            page.goto(detail_url, wait_until="domcontentloaded", timeout=30000)
+
+            if "/login" in page.url:
+                raise HDHiveLoginError(
+                    "Cookie 被重定向到登录页",
+                    login_redirect=True,
+                )
+
+            try:
+                dismiss = page.locator("button:has-text('我知道了')")
+                dismiss.first.wait_for(state="visible", timeout=5000)
+                dismiss.first.click()
+                dismiss.first.wait_for(state="hidden", timeout=3000)
+            except Exception:
+                pass
+
+            _tab_115_sel = (
+                "button:has-text('115网盘'), [role='tab']:has-text('115网盘')"
+            )
+            try:
+                tab = page.locator(_tab_115_sel)
+                tab.first.wait_for(state="visible", timeout=10000)
+                tab.first.click()
+                page.wait_for_timeout(3000)
+            except Exception:
+                page.evaluate("""
+                    () => {
+                        for (const t of document.querySelectorAll('[role="tab"]')) {
+                            if ((t.innerText || '').includes('115')) { t.click(); break; }
+                        }
+                    }
+                """)
+                page.wait_for_timeout(2000)
+
+            if captured:
+                return captured
+
+            try:
+                page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                page.wait_for_timeout(1000)
+            except Exception:
+                pass
+            dom_data = page.evaluate(self._scrape_resource_cards_js())
+            return dom_data or []
+
+        def _run_session() -> List[Dict[str, Any]]:
+            cookies = (
+                self._parse_cookie_str(self._cookie_str) if self._cookie_str else {}
+            )
+            try:
+                if backend == "cloakbrowser":
+                    context = self._make_cloak_context(self._headless)
+                    try:
+                        for name, value in cookies.items():
+                            context.add_cookies(
+                                [
+                                    {
+                                        "name": name,
+                                        "value": value,
+                                        "domain": domain,
+                                        "path": "/",
+                                    }
+                                ]
+                            )
+                        return _do_fetch(context.new_page())
+                    finally:
+                        context.close()
+                else:
+                    with sync_playwright() as p:
+                        with self._socks5_slippers_if_needed() as slip:
+                            proxy = (
+                                slip
+                                if slip is not None
+                                else self._playwright_proxy_settings()
+                            )
+                            browser, context = self._make_playwright_context(
+                                p, self._headless, proxy
+                            )
+                            try:
+                                for name, value in cookies.items():
+                                    context.add_cookies(
+                                        [
+                                            {
+                                                "name": name,
+                                                "value": value,
+                                                "domain": domain,
+                                                "path": "/",
+                                            }
+                                        ]
+                                    )
+                                return _do_fetch(context.new_page())
+                            finally:
+                                browser.close()
+            except HDHiveError:
+                raise
+            except Exception as e:
+                raise HDHiveBrowserError(f"资源搜索浏览器操作失败: {e}") from e
+
+        return self._execute_with_auth_retry(_run_session)
+
+    def get_resources(
+        self,
+        media_type: str,
+        tmdb_id: str | int,
+    ) -> List[Dict[str, Any]]:
+        """
+        通过浏览器按媒体类型和 TMDB ID 搜索 115网盘资源，返回资源信息列表
+
+        :param media_type: ``movie`` 或 ``tv``
+        :param tmdb_id: TMDB 作品 ID
+
+        :return: 资源信息字典列表，每项包含 ``user``、``posted_at``、``tags``、
+                 ``title``、``resolution``、``size``、``is_free``、``unlock_points`` 等字段
+
+        :raises HDHiveLoginError: 认证或 Cookie 失效且无法自动重新登录
+        :raises HDHiveBrowserError: 浏览器页面操作失败
+        """
+        return self._get_resources_via_browser(media_type, tmdb_id)
+
+    def unlock_resource(self, slug: str) -> Dict[str, Any]:
+        """
+        通过浏览器解锁 HDHive 115网盘资源，返回资源链接
+
+        :param slug: 资源 slug（``get_resources`` 返回的 ``href`` 最后一段 UUID）
+
+        :return: 含 ``url``、``full_url``、``already_owned`` 的字典
+
+        :raises HDHiveLoginError: 未登录或认证失效且无法自动重新登录
+        :raises HDHiveBrowserError: 浏览器页面操作失败
+        """
+        if not self._cookie_str:
+            raise HDHiveLoginError("请先调用 login() 或 load_saved_cookie()")
+
+        root = self.DEFAULT_BASE_URL
+        domain = root.replace("https://", "").replace("http://", "")
+        backend = self._check_backend()
+        resource_url = f"{root}/resource/115/{slug}"
+
+        _EXTRACT_URL_JS = r"""
+            () => {
+                // Check input fields first (shown in the unlocked state)
+                for (const el of document.querySelectorAll('input')) {
+                    const v = (el.value || '').trim();
+                    if (/https?:\/\/(115cdn|115)\.com\/\S+/.test(v)) return v;
+                }
+                // Fallback: scan visible text for a 115 URL
+                const m = (document.body?.innerText || '').match(
+                    /https?:\/\/(115cdn|115)\.com\/\S+/
+                );
+                return m ? m[0].replace(/\s+$/, '') : null;
+            }
+        """
+
+        def _do_unlock(page: Any) -> Dict[str, Any]:
+            captured_url: Optional[str] = None
+
+            def _handle_response(response: Any) -> None:
+                nonlocal captured_url
+                try:
+                    if response.status != 200:
+                        return
+                    if "json" not in response.headers.get("content-type", ""):
+                        return
+                    body = response.json()
+                    if not isinstance(body, dict):
+                        return
+                    data = body.get("data") or {}
+                    if not isinstance(data, dict):
+                        return
+                    for key in ("full_url", "url", "link", "resource_url"):
+                        val = data.get(key)
+                        if val and search(r"(115cdn|115)\.com", str(val)):
+                            captured_url = str(val).strip()
+                            break
+                except Exception:
+                    pass
+
+            page.on("response", _handle_response)
+
+            page.goto(resource_url, wait_until="domcontentloaded", timeout=30000)
+            page.wait_for_timeout(1000)
+
+            if "/login" in page.url:
+                raise HDHiveLoginError(
+                    "Cookie 被重定向到登录页",
+                    login_redirect=True,
+                )
+
+            existing = page.evaluate(_EXTRACT_URL_JS)
+            if existing:
+                return {"url": existing, "full_url": existing, "already_owned": True}
+
+            confirm_loc = page.get_by_text("确定解锁", exact=True)
+            try:
+                confirm_loc.first.wait_for(state="visible", timeout=8000)
+                confirm_loc.first.click()
+            except PlaywrightTimeoutError:
+                raise HDHiveBrowserError(
+                    f"未找到「确定解锁」按钮，页面可能未正确加载（URL: {page.url}）"
+                )
+
+            try:
+                page.wait_for_load_state("load", timeout=15000)
+            except PlaywrightTimeoutError:
+                pass
+            page.wait_for_timeout(1000)
+
+            final_url = page.url
+            if search(r"(115cdn|115)\.com", final_url):
+                return {"url": final_url, "full_url": final_url, "already_owned": False}
+
+            url: Optional[str] = captured_url
+            if not url:
+                try:
+                    url = page.evaluate(_EXTRACT_URL_JS)
+                except Exception:
+                    pass
+            if not url:
+                raise HDHiveBrowserError(
+                    f"解锁后未能获取 115 链接（当前 URL: {page.url}）"
+                )
+
+            return {"url": url, "full_url": url, "already_owned": False}
+
+        def _run_session() -> Dict[str, Any]:
+            cookies = (
+                self._parse_cookie_str(self._cookie_str) if self._cookie_str else {}
+            )
+            try:
+                if backend == "cloakbrowser":
+                    context = self._make_cloak_context(self._headless)
+                    try:
+                        for name, value in cookies.items():
+                            context.add_cookies(
+                                [
+                                    {
+                                        "name": name,
+                                        "value": value,
+                                        "domain": domain,
+                                        "path": "/",
+                                    }
+                                ]
+                            )
+                        return _do_unlock(context.new_page())
+                    finally:
+                        context.close()
+                else:
+                    with sync_playwright() as p:
+                        with self._socks5_slippers_if_needed() as slip:
+                            proxy = (
+                                slip
+                                if slip is not None
+                                else self._playwright_proxy_settings()
+                            )
+                            browser, context = self._make_playwright_context(
+                                p, self._headless, proxy
+                            )
+                            try:
+                                for name, value in cookies.items():
+                                    context.add_cookies(
+                                        [
+                                            {
+                                                "name": name,
+                                                "value": value,
+                                                "domain": domain,
+                                                "path": "/",
+                                            }
+                                        ]
+                                    )
+                                return _do_unlock(context.new_page())
+                            finally:
+                                browser.close()
+            except HDHiveError:
+                raise
+            except Exception as e:
+                raise HDHiveBrowserError(f"解锁浏览器操作失败: {e}") from e
+
+        return self._execute_with_auth_retry(_run_session)
+
+
+def is_hdhive_search_ready() -> bool:
+    """
+    判断 HDHive 频道搜索是否已配置且可用
+
+    需开启 hdhive_search_enabled，且已填写账户密码或存在持久化 Cookie
+
+    :return: 可用返回 True
+    """
+    if not configer.hdhive_search_enabled:
+        return False
+    user = (configer.hdhive_checkin_username or "").strip()
+    pwd = (configer.hdhive_checkin_password or "").strip()
+    if user and pwd:
+        return True
+    return HDHivePlaywrightClient._cookie_file_path().exists()
+
+
+def get_hdhive_browser_client() -> Optional[HDHivePlaywrightClient]:
+    """
+    获取已登录的 HDHive 浏览器客户端：优先持久化 Cookie，否则用配置账号密码登录
+
+    按环境自动选用 cloakbrowser 或 Playwright 后端；始终注入凭据以支持 Cookie 过期后自动刷新
+
+    :return: 已就绪的客户端；无法就绪时为 None
+    """
+    user = (configer.hdhive_checkin_username or "").strip()
+    pwd = (configer.hdhive_checkin_password or "").strip()
+    client = HDHivePlaywrightClient()
+    if user and pwd:
+        client.set_credentials(user, pwd)
+    if client.load_saved_cookie():
+        return client
+    if not user or not pwd:
+        return None
+    try:
+        if client.login(username=user, password=pwd):
+            return client
+    except HDHiveError as e:
+        logger.warning("【HDHive】浏览器登录失败: %s", e)
+    return None

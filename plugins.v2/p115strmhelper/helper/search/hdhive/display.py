@@ -1,4 +1,21 @@
+from re import sub as re_sub
 from typing import Any, Dict
+
+_POINTS_PREFIX_RE = r"^\d+\s*积分\s*"
+
+
+def strip_hdhive_title_points_prefix(title: str) -> str:
+    """
+    去掉标题行首的「N 积分」前缀，积分仅在元数据行展示
+
+    :param title: 原始标题
+    :return: 清理后的标题；若清理后为空则返回原标题
+    """
+    t = (title or "").strip()
+    if not t:
+        return t
+    cleaned = re_sub(_POINTS_PREFIX_RE, "", t).strip()
+    return cleaned or t
 
 
 def format_list_block_impl(data: Dict[str, Any], line_prefix: str) -> str:
@@ -6,7 +23,9 @@ def format_list_block_impl(data: Dict[str, Any], line_prefix: str) -> str:
     HDHive 单行序号前缀 + 一行元数据（Markdown），不调用解锁接口
     """
     row = data.get("hdhive_raw") or {}
-    title = (data.get("taskname") or "未知名称").strip()
+    title = strip_hdhive_title_points_prefix(
+        (data.get("taskname") or "未知名称").strip()
+    )
     lines: list[str] = [f"{line_prefix}【HDHive】{title}"]
     pts = row.get("unlock_points")
     if pts is None:

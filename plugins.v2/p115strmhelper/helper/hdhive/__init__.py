@@ -1,2 +1,2 @@
 from .open import *
-from .playwright import *
+from .browser import *

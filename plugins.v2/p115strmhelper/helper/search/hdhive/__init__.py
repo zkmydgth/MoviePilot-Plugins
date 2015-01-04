@@ -8,7 +8,7 @@ from .search import fetch_resources_impl
 
 class HDHiveSearch:
     """
-    HDHive Open API 与 TG 交互资源列表的合并入口
+    HDHive 浏览器搜索与 TG 交互资源列表的合并入口
     """
 
     SOURCE = "hdhive"

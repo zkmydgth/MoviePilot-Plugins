@@ -668,13 +668,17 @@ class ConfigManager(BaseModel):
         default=None,
         description="TG 搜索频道",
     )
+    hdhive_search_enabled: bool = Field(
+        default=False,
+        description="HDHive 频道搜索（浏览器自动化）",
+    )
     hdhive_checkin_username: Optional[str] = Field(
         default=None,
-        description="HDHive 签到账户",
+        description="HDHive 账户（签到与频道搜索共用）",
     )
     hdhive_checkin_password: Optional[str] = Field(
         default=None,
-        description="HDHive 签到密码",
+        description="HDHive 密码（签到与频道搜索共用）",
     )
     hdhive_checkin_daily_enabled: bool = Field(
         default=False,

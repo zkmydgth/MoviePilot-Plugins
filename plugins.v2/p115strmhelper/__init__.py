@@ -65,7 +65,7 @@ from .helper.strm import (
     ShareInteractiveGenStrmQueue,
     TransferStrmHelper,
 )
-from .helper.hdhive.open import is_authorized
+from .helper.hdhive.browser import is_hdhive_search_ready
 from .helper.strm.full import strm_cleanup_interaction
 from .helper.mediasyncdel import MediaSyncDelHelper
 from .helper.mediasyncdel.webhook_queue import (
@@ -592,34 +592,6 @@ class P115StrmHelper(_PluginBase):
                 "methods": ["GET"],
                 "auth": "bear",
                 "summary": "判断是否有权限使用此增强功能",
-            },
-            {
-                "path": "/hdhive/oauth/start",
-                "endpoint": self.api.hdhive_oauth_start_api,
-                "methods": ["GET"],
-                "auth": "bear",
-                "summary": "HDHive OAuth 授权开始",
-            },
-            {
-                "path": "/hdhive/oauth/complete",
-                "endpoint": self.api.hdhive_oauth_complete_api,
-                "methods": ["POST"],
-                "auth": "bear",
-                "summary": "HDHive OAuth 授权完成",
-            },
-            {
-                "path": "/hdhive/oauth/status",
-                "endpoint": self.api.hdhive_oauth_status_api,
-                "methods": ["GET"],
-                "auth": "bear",
-                "summary": "HDHive OAuth 状态",
-            },
-            {
-                "path": "/hdhive/oauth/revoke",
-                "endpoint": self.api.hdhive_oauth_revoke_api,
-                "methods": ["POST"],
-                "auth": "bear",
-                "summary": "HDHive OAuth 解除授权",
             },
             {
                 "path": "/get_authorization_status",
@@ -1219,7 +1191,7 @@ class P115StrmHelper(_PluginBase):
         userid = self._get_event_userid(event_data)
 
         has_tg = bool(configer.tg_search_channels)
-        has_hdhive = is_authorized()
+        has_hdhive = is_hdhive_search_ready()
         if not has_tg and not has_hdhive:
             post_message(
                 channel=event.event_data.get("channel"),
@@ -1939,7 +1911,10 @@ class P115StrmHelper(_PluginBase):
                 cur = data.rename_dict.get(key)
                 if isinstance(cur, str):
                     cur_stripped = cur.strip()
-                    if cur_stripped and (key != "audioCodec" or re_search(r"(?:^|\s)\d+\.\d+$", cur_stripped)):
+                    if cur_stripped and (
+                        key != "audioCodec"
+                        or re_search(r"(?:^|\s)\d+\.\d+$", cur_stripped)
+                    ):
                         continue
                 elif cur is not None:
                     continue
