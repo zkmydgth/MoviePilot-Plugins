@@ -6,7 +6,7 @@
     "p115_strm_match_path_error": "匹配目录失败，请检查输入路径和插件配置！",
     "p115_strm_start_sync": "开始 {paths} 全量同步 ...",
     "full_sync_done_title": "✅【115网盘】全量生成 STRM 文件完成",
-    "p115_search_config_error": "配置错误！ 请先进入插件界面配置频道搜索",
+    "p115_search_config_error": "配置错误！请在插件中配置 TG 频道搜索或填写 HDHive API Key（至少其一）",
     "p115_search_parameter_error": "参数错误！ /sh 搜索关键词",
     "p115_media_search_failed": "媒体搜索失败，请稍后重试或检查 MoviePilot 日志",
     "p115_media_search_empty": "未找到匹配的媒体，请尝试其它关键词",

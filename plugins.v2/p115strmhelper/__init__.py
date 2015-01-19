@@ -992,7 +992,9 @@ class P115StrmHelper(_PluginBase):
             return
         userid = self._get_event_userid(event_data)
 
-        if not configer.tg_search_channels:
+        has_tg = bool(configer.tg_search_channels)
+        has_hdhive = bool((configer.get_config("hdhive_api_key") or "").strip())
+        if not has_tg and not has_hdhive:
             post_message(
                 channel=event.event_data.get("channel"),
                 source=event.event_data.get("source"),

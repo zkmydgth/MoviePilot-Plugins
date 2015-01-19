@@ -12,6 +12,8 @@ from .session import Session
 from ..core.config import configer
 from ..core.message import post_message
 from ..core.i18n import i18n
+from ..helper.hdhive.open import HDHiveAPIError, HDHiveOpenClient
+from ..helper.search import HDHiveSearch
 from ..helper.strm import ShareInteractiveGenStrmQueue
 from ..service import servicer
 
@@ -312,8 +314,38 @@ class ActionHandler(BaseActionHandler):
                 raise ValueError("当前没有可用的资源。")
             if 0 <= item_index < len(search_data):
                 data = search_data[item_index]
+                share_url = ""
+                if data.get("source") == HDHiveSearch.SOURCE or data.get("hdhive_slug"):
+                    slug = data.get("hdhive_slug")
+                    api_key = (configer.get_config("hdhive_api_key") or "").strip()
+                    if not slug or not api_key:
+                        raise ValueError("HDHive 资源无效或未配置 API Key")
+                    try:
+                        with HDHiveOpenClient(api_key) as client:
+                            unlocked = client.unlock_resource(str(slug))
+                        share_url = (
+                            unlocked.get("url") or unlocked.get("full_url") or ""
+                        ).strip()
+                    except HDHiveAPIError as e:
+                        logger.error(
+                            "HDHive 解锁失败: slug=%s, error=%s",
+                            slug,
+                            e,
+                            exc_info=True,
+                        )
+                        session.go_to("subscribe_fail")
+                        return None
+                else:
+                    share_url = (data.get("shareurl") or "").strip()
+                if not share_url:
+                    raise ValueError("没有可用的分享链接")
+                base = configer.get_config("moviepilot_address").rstrip("/")
                 resp = httpx.get(
-                    f"{configer.get_config('moviepilot_address').rstrip('/')}/api/v1/plugin/P115StrmHelper/add_transfer_share?apikey={settings.API_TOKEN}&share_url={data.get('shareurl')}"
+                    f"{base}/api/v1/plugin/P115StrmHelper/add_transfer_share",
+                    params={
+                        "apikey": settings.API_TOKEN,
+                        "share_url": share_url,
+                    },
                 )
                 if resp.json().get("code") == 0:
                     session.go_to("subscribe_success")

@@ -6,7 +6,7 @@
     "p115_strm_match_path_error": "搬错砖了...检查下路径和配置对不对",
     "p115_strm_start_sync": "嘿咻！开始搬 {paths} 的砖...全量同步中",
     "full_sync_done_title": "✅【115网盘】全量STRM砖块搬完啦！",
-    "p115_search_config_error": "砖头没摆好...要先配置频道搜索",
+    "p115_search_config_error": "砖头没摆好...要配置 TG 频道搜索或 HDHive API Key 至少一个",
     "p115_search_parameter_error": "啊？砖头标签贴错了...要 /sh 加关键词",
     "p115_media_search_failed": "媒体搜索塌了...晚点再砌或看日志",
     "p115_media_search_empty": "没砌到合适的片，换个词试试",

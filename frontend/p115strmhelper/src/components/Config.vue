@@ -397,6 +397,7 @@ const config = reactive({
   directory_upload_path: [],
   directory_upload_clouddrive2_config: { enabled: false, prefix: '' },
   tg_search_channels: [],
+  hdhive_api_key: '',
   same_playback: false,
   error_info_upload: false,
   upload_module_enhancement: false,

@@ -526,7 +526,12 @@ class ConfigManager(BaseModel):
     )
 
     tg_search_channels: Optional[List[Dict]] = Field(
-        default=None, description="TG 搜索频道"
+        default=None,
+        description="TG 搜索频道",
+    )
+    hdhive_api_key: Optional[str] = Field(
+        default=None,
+        description="HDHive API Key",
     )
     same_playback: bool = Field(default=False, description="多端播放同一个文件")
 

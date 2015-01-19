@@ -138,10 +138,26 @@
             </v-card-text>
           </v-card>
 
+          <v-card variant="outlined" class="mt-4">
+            <v-card-item>
+              <v-card-title class="d-flex align-center">
+                <v-icon start>mdi-api</v-icon>
+                <span class="text-h6">HDHive Open API</span>
+              </v-card-title>
+            </v-card-item>
+            <v-card-text>
+              <v-text-field v-model="config.hdhive_api_key" label="HDHive API Key" placeholder="在 HDHive 控制台获取 API Key"
+                density="compact" variant="outlined" type="password" autocomplete="new-password" clearable />
+            </v-card-text>
+          </v-card>
+
           <v-alert type="info" variant="tonal" density="compact" class="mt-6" icon="mdi-information">
-            <div class="text-body-2 mb-1"><strong>Telegram 频道搜索说明</strong></div>
+            <div class="text-body-2 mb-1"><strong>频道搜索说明（/sh）</strong></div>
             <div class="text-caption">
-              <div class="mb-1">• 请至少配置一个频道，否则无法使用 <code>/sh</code> 在频道内检索资源</div>
+              <div class="mb-1">• 请至少配置 <strong>Telegram 频道</strong> 或 <strong>HDHive API Key</strong> 之一，否则无法使用
+                <code>/sh</code> 检索资源
+              </div>
+              <div>• HDHive 与 TG 结果会合并展示；HDHive 仅展示 115 网盘类资源，积分需求在列表中可见，确认转存时才解锁</div>
             </div>
           </v-alert>
         </v-card-text>
