@@ -10,8 +10,10 @@ from typing import Any, Callable, Dict, Generator, Iterator, List, Optional, Tup
 
 from p115client import P115Client
 from p115client.tool.export_dir import (
+    export_dir_start,
+    export_dir_status,
     export_dir_parse_iter,
-    parse_export_dir_as_path_iter,
+    export_dir_parse_iter_path,
 )
 from p115client.tool.fs_files import iter_fs_files
 from p115client.tool.iterdir import iterdir
@@ -191,7 +193,7 @@ class IncrementSyncStrmHelper:
         interval_sec: Optional[float] = None,
     ) -> Callable[[], None]:
         """
-        供 export_dir_parse_iter(show_clock=...) 使用：在等待云端导出目录树时用 info 打日志并按时间节流
+        供 __wait_export_dir 使用：在等待云端导出目录树时用 info 打日志并按时间节流
 
         :param interval_sec (float): 节流间隔秒数，默认使用类属性 _EXPORT_DIR_WAIT_LOG_INTERVAL_SEC
         """
@@ -211,6 +213,30 @@ class IncrementSyncStrmHelper:
             logger.info("【增量STRM生成】等待 115 云端导出目录树任务...")
 
         return _tick
+
+    def __wait_export_dir(self, export_id: int | str) -> None:
+        """
+        轮询等待 115 云端导出目录树任务完成
+
+        :param export_id: 导出目录树任务 id
+        :raises TimeoutError: 超过配置的超时时间仍未完成
+        """
+        timeout = configer.increment_sync_itertree_timeout_seconds
+        expired_t = perf_counter() + timeout if timeout and timeout > 0 else None
+        wait_logger = self._make_throttled_export_dir_wait_logger()
+        while True:
+            status = export_dir_status(
+                self.client,
+                export_id,
+                **configer.get_ios_ua_app(app=False),
+            )
+            self.api_count += 1
+            if status.get("file_id"):
+                return
+            if expired_t is not None and perf_counter() >= expired_t:
+                raise TimeoutError(export_id)
+            wait_logger()
+            sleep(1)
 
     def __itertree(
         self, pan_path: str, local_path: str
@@ -252,13 +278,20 @@ class IncrementSyncStrmHelper:
                 raise PanPathNotFound(f"网盘路径不存在: {pan_path}")
             self.api_count += 4
 
+            export_id = export_dir_start(
+                self.client,
+                file_ids=cid,
+                **configer.get_ios_ua_app(app=False),
+            )
+            self.api_count += 1
+
+            self.__wait_export_dir(export_id)
+
             items_iterator = export_dir_parse_iter(
-                client=self.client,
-                export_file_ids=cid,
+                self.client,
+                export_id,
+                parse_iter=partial(export_dir_parse_iter_path, escape=custom_escape),
                 delete=True,
-                show_clock=self._make_throttled_export_dir_wait_logger(),
-                timeout=configer.increment_sync_itertree_timeout_seconds,
-                parse_iter=partial(parse_export_dir_as_path_iter, escape=custom_escape),
                 **configer.get_ios_ua_app(app=False),
             )
             try:
