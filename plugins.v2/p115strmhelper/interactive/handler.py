@@ -105,6 +105,7 @@ class ActionHandler(BaseActionHandler):
                     "name": resource_key,
                 }
             ]
+        session.view.refresh = True
         session.go_to("resource_list")
 
     @command_registry.command(name="subscribe", code="sb")
