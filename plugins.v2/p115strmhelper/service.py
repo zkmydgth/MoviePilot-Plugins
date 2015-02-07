@@ -16,7 +16,6 @@ from .helper.monitor import handle_file, FileMonitorHandler
 from .helper.share import ShareTransferHelper
 from .core.config import configer
 from .core.message import post_message
-from .core.cache import FullSyncDbCache
 
 from app.log import logger
 from app.core.config import settings
@@ -38,8 +37,6 @@ class ServiceHelper:
         self.monitor_stop_event = Event()
         self.monitor_life_thread = None
 
-        self.fullsyncdbcacher = None
-
         self.scheduler = None
 
         self.service_observer = []
@@ -57,9 +54,6 @@ class ServiceHelper:
                 client=self.client, mediainfodownloader=self.mediainfodownloader
             )
             self.sharetransferhelper = ShareTransferHelper(self.client)
-            self.fullsyncdbcacher = FullSyncDbCache(
-                cache_dir=configer.get_config("PLUGIN_CACHE_PATH")
-            )
             return True
         except Exception as e:
             logger.error(f"服务项初始化失败: {e}")
@@ -129,7 +123,6 @@ class ServiceHelper:
         strm_helper = FullSyncStrmHelper(
             client=self.client,
             mediainfodownloader=self.mediainfodownloader,
-            fullsyncdbcacher=self.fullsyncdbcacher,
         )
         strm_helper.generate_strm_files(
             full_sync_strm_paths=configer.get_config("full_sync_strm_paths"),
@@ -398,8 +391,6 @@ class ServiceHelper:
                     self.scheduler.shutdown()
                 self.scheduler = None
             self.monitor_stop_event.set()
-            if self.fullsyncdbcacher:
-                self.fullsyncdbcacher.shutdown()
         except Exception as e:
             logger.error(f"发生错误: {e}")
 

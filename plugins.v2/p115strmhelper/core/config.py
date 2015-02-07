@@ -33,8 +33,6 @@ class BaseConfig(BaseModel):
     )
     # 插件临时目录
     PLUGIN_TEMP_PATH: str = str(Path(PLUGIN_CONFIG_PATH) / "temp")
-    # 插件缓存目录
-    PLUGIN_CACHE_PATH: str = str(Path(PLUGIN_CONFIG_PATH) / "cache")
 
     # 插件总开关
     enabled: bool = False
@@ -200,7 +198,6 @@ class ConfigManager:
                     "PLUGIN_TEMP_PATH",
                     "PLUGIN_DB_PATH",
                     "PLUGIN_DATABASE_PATH",
-                    "PLUGIN_CACHE_PATH",
                 ]
             ):
                 value = fixed_dict[field_name]
@@ -244,7 +241,6 @@ class ConfigManager:
             "PLUGIN_TEMP_PATH",
             "PLUGIN_DB_PATH",
             "PLUGIN_DATABASE_PATH",
-            "PLUGIN_CACHE_PATH",
         ]:
             return Path(self._configs.get(key))
         return self._configs.get(key)

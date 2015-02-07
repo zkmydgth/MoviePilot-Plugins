@@ -76,16 +76,20 @@ class Folder(P115StrmHelperBase):
           - 先判断需要写入的数据路径是否存在，存在则先删除记录
           - 写入数据
         """
-        paths_to_delete = [
-            entry["data"]["path"] for entry in batch if entry["table"] == "folders"
-        ]
-        if paths_to_delete:
-            db.execute(delete(Folder).where(Folder.path.in_(paths_to_delete)))
-        folders_to_merge = [
-            Folder(**entry["data"]) for entry in batch if entry["table"] == "folders"
-        ]
-        for folder in folders_to_merge:
-            db.merge(folder)
+        seen = set()
+        folders_data = []
+        append = folders_data.append
+        for entry in batch:
+            if entry["table"] == "folders" and entry["data"]["id"] not in seen:
+                seen.add(entry["data"]["id"])
+                append(entry["data"])
+        if not folders_data:
+            return True
+        paths = [data["path"] for data in folders_data]
+        ids = [data["id"] for data in folders_data]
+        db.execute(delete(Folder).where(Folder.id.in_(ids)))
+        db.execute(delete(Folder).where(Folder.path.in_(paths)))
+        db.bulk_insert_mappings(Folder, folders_data)
         return True
 
     @staticmethod

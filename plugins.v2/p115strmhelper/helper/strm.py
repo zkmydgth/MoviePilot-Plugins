@@ -10,9 +10,9 @@ from sqlalchemy.orm.exc import MultipleResultsFound
 from p115client import P115Client
 from p115client.tool.export_dir import export_dir_parse_iter
 from p115client.tool.fs_files import iter_fs_files
-from p115client.tool.iterdir import iter_files_with_path, share_iterdir
+from p115client.tool.iterdir import iter_files_with_path_skim, share_iterdir
 
-from ..core.cache import idpathcacher, FullSyncDbCache
+from ..core.cache import idpathcacher
 from ..core.config import configer
 from ..utils.tree import DirectoryTree
 from ..core.scrape import media_scrape_metadata
@@ -519,7 +519,6 @@ class FullSyncStrmHelper:
         self,
         client: P115Client,
         mediainfodownloader: MediaInfoDownloader,
-        fullsyncdbcacher: FullSyncDbCache,
     ):
         self.rmt_mediaext = [
             f".{ext.strip()}"
@@ -538,7 +537,6 @@ class FullSyncStrmHelper:
         )
         self.client = client
         self.mediainfodownloader = mediainfodownloader
-        self.fullsyncdbcacher = fullsyncdbcacher
         self.total_count = 0
         self.strm_count = 0
         self.mediainfo_count = 0
@@ -631,10 +629,10 @@ class FullSyncStrmHelper:
 
             try:
                 for batch in batched(
-                    iter_files_with_path(
-                        self.client, cid=parent_id, with_ancestors=True, cooldown=1
+                    iter_files_with_path_skim(
+                        self.client, cid=parent_id, with_ancestors=True
                     ),
-                    2_000,
+                    5_000,
                 ):
                     processed: List = []
                     path_list: List = []
@@ -792,7 +790,7 @@ class FullSyncStrmHelper:
                                     f"【全量STRM生成】并发处理出错: {item} - {str(e)}"
                                 )
 
-                    self.fullsyncdbcacher.upsert_batch(processed)
+                    self.databasehelper.upsert_batch(processed)
 
                     if self.remove_unless_strm:
                         tree.generate_tree_from_list(
