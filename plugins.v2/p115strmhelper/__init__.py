@@ -8,8 +8,10 @@ from typing import Any, List, Dict, Tuple, Optional, Union
 
 from app.chain.storage import StorageChain
 from app.core.event import eventmanager, Event
+from app.core.metainfo import MetaInfoPath
 from app.log import logger
 from app.plugins import _PluginBase
+from app.chain.media import MediaChain
 from app.schemas import TransferInfo, FileItem, RefreshMediaItem
 from app.schemas.types import EventType, MessageChannel
 from apscheduler.triggers.cron import CronTrigger
@@ -351,7 +353,7 @@ class P115StrmHelper(_PluginBase):
             },
         ]
 
-    def get_service(self) -> List[Dict[str, Any]]:
+    def get_service(self) -> List[Dict[str, str | Dict[Any, Any] | Any]] | None:
         """
         注册插件公共服务
         """
@@ -904,12 +906,15 @@ class P115StrmHelper(_PluginBase):
                             f"【监控生活事件】刷新媒体服务器目录替换: {moviepilot_path} --> {mediaserver_path}"
                         )
                         logger.info(f"【监控生活事件】刷新媒体服务器目录: {file_path}")
+                mediachain = MediaChain()
+                meta = MetaInfoPath(path=Path(file_path))
+                mediainfo = mediachain.recognize_media(meta=meta)
                 items = [
                     RefreshMediaItem(
-                        title=None,
-                        year=None,
-                        type=None,
-                        category=None,
+                        title=mediainfo.title,
+                        year=mediainfo.year,
+                        type=mediainfo.type,
+                        category=mediainfo.category,
                         target_path=Path(file_path),
                     )
                 ]

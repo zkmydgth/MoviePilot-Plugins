@@ -27,9 +27,11 @@ from app.schemas import NotificationType, ServiceInfo, RefreshMediaItem, FileIte
 from app.log import logger
 from app.helper.mediaserver import MediaServerHelper
 from app.core.config import settings
+from app.core.metainfo import MetaInfoPath
 from app.utils.system import SystemUtils
 from app.chain.storage import StorageChain
 from app.chain.transfer import TransferChain
+from app.chain.media import MediaChain
 
 
 @sentry_manager.capture_all_class_exceptions
@@ -166,12 +168,15 @@ class MonitorLife:
                         f"【监控生活事件】刷新媒体服务器目录替换: {moviepilot_path} --> {mediaserver_path}"
                     )
                     logger.info(f"【监控生活事件】刷新媒体服务器目录: {file_path}")
+            mediachain = MediaChain()
+            meta = MetaInfoPath(path=Path(file_path))
+            mediainfo = mediachain.recognize_media(meta=meta)
             items = [
                 RefreshMediaItem(
-                    title=None,
-                    year=None,
-                    type=None,
-                    category=None,
+                    title=mediainfo.title,
+                    year=mediainfo.year,
+                    type=mediainfo.type,
+                    category=mediainfo.category,
                     target_path=Path(file_path),
                 )
             ]

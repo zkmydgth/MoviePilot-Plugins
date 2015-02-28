@@ -36,7 +36,7 @@ class Api:
     插件 API
     """
 
-    def __init__(self, client: P115Client):
+    def __init__(self, client: Optional[P115Client]):
         self._client = client
 
         self.browse_dir_pan_api_cache = TTLCache(

@@ -29,8 +29,10 @@ from ..helper.mediainfo_download import MediaInfoDownloader
 from app.log import logger
 from app.core.meta import MetaBase
 from app.core.context import MediaInfo
+from app.core.metainfo import MetaInfoPath
 from app.chain.storage import StorageChain
 from app.schemas import RefreshMediaItem, ServiceInfo, TransferInfo
+from app.chain.media import MediaChain
 from app.helper.mediaserver import MediaServerHelper
 from app.utils.system import SystemUtils
 
@@ -273,12 +275,15 @@ class IncrementSyncStrmHelper:
                         f"【增量STRM生成】刷新媒体服务器目录替换: {moviepilot_path} --> {mediaserver_path}"
                     )
                     logger.info(f"【增量STRM生成】刷新媒体服务器目录: {file_path}")
+            mediachain = MediaChain()
+            meta = MetaInfoPath(path=Path(file_path))
+            mediainfo = mediachain.recognize_media(meta=meta)
             items = [
                 RefreshMediaItem(
-                    title=None,
-                    year=None,
-                    type=None,
-                    category=None,
+                    title=mediainfo.title,
+                    year=mediainfo.year,
+                    type=mediainfo.type,
+                    category=mediainfo.category,
                     target_path=Path(file_path),
                 )
             ]
