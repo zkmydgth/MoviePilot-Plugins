@@ -1,5 +1,7 @@
-from asyncio import gather
+from asyncio import Lock, gather
 from contextlib import asynccontextmanager
+from hashlib import sha256
+from time import monotonic
 from urllib.parse import urlparse
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
@@ -10,6 +12,22 @@ from websockets import connect
 
 from app.log import logger
 
+PLAYBACK_URL_CACHE_TTL_SECONDS = 90
+PLAYBACK_URL_CACHE_MAX_SIZE = 500
+
+CACHE_KEY_HEADERS = (
+    "authorization",
+    "cookie",
+    "x-emby-token",
+    "user-agent",
+    "x-emby-device-id",
+    "x-emby-device-name",
+    "x-emby-client",
+    "x-emby-client-version",
+    "x-device-id",
+    "x-device-name",
+    "x-client",
+)
 
 HOP_BY_HOP_HEADERS = frozenset(
     {
@@ -54,6 +72,9 @@ def create_app(emby_host: str) -> FastAPI:
         app.state.http_client_no_follow = AsyncClient(
             follow_redirects=False, limits=limits
         )
+        app.state.playback_url_cache = {}
+        app.state.playback_cache_order = []
+        app.state.playback_cache_lock = Lock()
         yield
         await app.state.http_client_follow.aclose()
         await app.state.http_client_no_follow.aclose()
@@ -101,6 +122,20 @@ def create_app(emby_host: str) -> FastAPI:
             for k, v in request.headers.items()
             if k.lower() not in HOP_BY_HOP_HEADERS and k.lower() != "host"
         }
+
+    def _header_hash(request: Request) -> str:
+        """
+        对缓存 key 白名单内的请求头做稳定序列化并哈希，用于区分认证/设备。
+
+        :param request: 当前请求。
+        :return: 十六进制摘要字符串。
+        """
+        parts = []
+        for name in sorted(CACHE_KEY_HEADERS):
+            value = request.headers.get(name)
+            if value is not None:
+                parts.append(f"{name}:{value}")
+        return sha256("\n".join(parts).encode("utf-8")).hexdigest()
 
     async def _handle_media(
         request: Request, item_id: str, name: str = ""
@@ -191,14 +226,37 @@ def create_app(emby_host: str) -> FastAPI:
     ) -> RedirectResponse | StreamingResponse | JSONResponse | None:
         """
         查询 PlaybackInfo 获取真实地址；浏览器走流式代理，原生客户端走 302 重定向。
+        对 (item_id, media_source_id, 必要 header 哈希) 做短期缓存，命中时跳过 PlaybackInfo 与 _resolve_redirect。
 
         :param item_id: 媒体项 ID。
         :param api_key: Emby API Key。
         :param request: 当前请求。
         :return: 重定向/流式/错误响应，或 None 表示回退到反向代理。
         """
+        media_source_id = request.query_params.get("MediaSourceId") or ""
+        cache_key = (item_id, media_source_id, _header_hash(request))
+        cache = request.app.state.playback_url_cache
+        order = request.app.state.playback_cache_order
+        lock = request.app.state.playback_cache_lock
+
+        cached_final_url = None
+        async with lock:
+            if cache_key in cache:
+                final_url, expiry_ts = cache[cache_key]
+                if monotonic() < expiry_ts:
+                    cached_final_url = final_url
+                else:
+                    del cache[cache_key]
+                    try:
+                        order.remove(cache_key)
+                    except ValueError:
+                        pass
+        if cached_final_url is not None:
+            if _is_browser(request):
+                return await _stream_remote(cached_final_url, request)
+            return RedirectResponse(url=cached_final_url, status_code=302)
+
         url = f"{emby_host}/Items/{item_id}/PlaybackInfo?X-Emby-Token={api_key}"
-        media_source_id = request.query_params.get("MediaSourceId")
         client_follow = request.app.state.http_client_follow
         try:
             resp = await client_follow.post(url, timeout=10)
@@ -216,12 +274,25 @@ def create_app(emby_host: str) -> FastAPI:
             if path.startswith(("http://", "https://")):
                 fwd_headers = _build_forward_headers(request)
                 final_url = await _resolve_redirect(client_follow, path, fwd_headers)
+
+                async with lock:
+                    now = monotonic()
+                    expiry = now + PLAYBACK_URL_CACHE_TTL_SECONDS
+                    expired = [k for k in order if cache.get(k) and cache[k][1] < now]
+                    for k in expired:
+                        cache.pop(k, None)
+                    order[:] = [k for k in order if k not in frozenset(expired)]
+                    while len(cache) >= PLAYBACK_URL_CACHE_MAX_SIZE and order:
+                        oldest = order.pop(0)
+                        cache.pop(oldest, None)
+                    cache[cache_key] = (final_url, expiry)
+                    order.append(cache_key)
+
                 if _is_browser(request):
                     logger.info("流式代理: item_id=%s -> %s", item_id, final_url)
                     return await _stream_remote(final_url, request)
-                else:
-                    logger.info("302 重定向: item_id=%s -> %s", item_id, final_url)
-                    return RedirectResponse(url=final_url, status_code=302)
+                logger.info("302 重定向: item_id=%s -> %s", item_id, final_url)
+                return RedirectResponse(url=final_url, status_code=302)
         return None
 
     for route in MEDIA_ROUTES:
