@@ -1338,14 +1338,7 @@ class Api:
             data=PluginStatusData(
                 enabled=configer.get_config("enabled"),
                 has_client=bool(servicer.client),
-                running=(
-                    bool(servicer.scheduler.get_jobs()) if servicer.scheduler else False
-                )
-                or bool(
-                    servicer.monitor_life_thread
-                    and servicer.monitor_life_thread.is_alive()
-                )
-                or bool(servicer.service_observer),
+                running=servicer.is_background_active(),
             )
         )
 
@@ -1822,7 +1815,16 @@ class Api:
             if not task:
                 return ApiResponse(code=-1, msg=f"备份任务不存在: {task_name}")
 
-            servicer.start_backup_task(task)
+            if servicer.backup_service.is_backup_task_running(task_name):
+                return ApiResponse(code=-1, msg=f"备份任务正在运行中: {task_name}")
+
+            if not servicer.backup_service.start_backup_task(task):
+                if servicer.backup_service.is_backup_task_running(task_name):
+                    return ApiResponse(code=-1, msg=f"备份任务正在运行中: {task_name}")
+                return ApiResponse(
+                    code=-1,
+                    msg=f"备份任务调度失败，请稍后重试: {task_name}",
+                )
             return ApiResponse(msg=f"备份任务已启动: {task_name}")
         except Exception as e:
             logger.error(f"【STRM备份】启动备份任务失败: {e}", exc_info=True)
@@ -1895,10 +1897,19 @@ class Api:
             if not task:
                 return ApiResponse(code=-1, msg=f"备份任务不存在: {task_name}")
 
-            servicer.start_restore_task(
+            if servicer.backup_service.is_backup_task_running(task_name):
+                return ApiResponse(code=-1, msg=f"恢复任务正在运行中: {task_name}")
+
+            if not servicer.backup_service.start_restore_task(
                 task_name=task_name,
                 backup_path=backup_path,
-            )
+            ):
+                if servicer.backup_service.is_backup_task_running(task_name):
+                    return ApiResponse(code=-1, msg=f"恢复任务正在运行中: {task_name}")
+                return ApiResponse(
+                    code=-1,
+                    msg=f"恢复任务调度失败，请稍后重试: {task_name}",
+                )
             return ApiResponse(msg="恢复任务已启动，后台执行中")
         except Exception as e:
             logger.error(f"【STRM备份】恢复备份失败: {e}", exc_info=True)

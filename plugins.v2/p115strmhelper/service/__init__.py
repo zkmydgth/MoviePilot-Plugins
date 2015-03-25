@@ -1,14 +1,11 @@
 from logging import ERROR
 from time import time
 from threading import Lock, Thread, Event as ThreadEvent
-from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List, Optional
 
 from aligo.core import set_config_folder
-from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
-from pytz import timezone
 from watchfiles import watch, Change
 
 from ..core.aliyunpan import BAligo
@@ -40,7 +37,9 @@ from ..helper.mediaserver import emby_mediainfo_queue
 from ..helper.mediasyncdel.webhook_queue import sync_del_webhook_queue
 from ..patch import TransferChainPatcher
 from ..schemas.monitor import ObserverInfo
+from ..service.backup import BackupService
 from ..service.fuse import FuseManager
+from ..service.one_shot import schedule_plugin_one_shot
 from ..service.life import monitor_life_thread_worker
 from ..service.hdhive_checkin.scheduler import hdhive_checkin_scheduler_tick
 from ..service.p115_checkin.scheduler import (
@@ -49,7 +48,6 @@ from ..service.p115_checkin.scheduler import (
 from ..utils.sentry import sentry_manager
 
 from app.log import logger
-from app.core.config import settings
 from app.schemas import NotificationType
 from app.scheduler import Scheduler
 
@@ -77,11 +75,10 @@ class ServiceHelper:
 
         self.redirect: Optional[Redirect] = None
 
-        self.scheduler: Optional[BackgroundScheduler] = None
-
         self.service_observer: List[ObserverInfo] = []
 
         self.fuse_manager: Optional[FuseManager] = None
+        self.backup_service = BackupService()
 
         self.transfer_task_manager: Optional[TransferTaskManager] = None
         self.transfer_handler: Optional[TransferHandler] = None
@@ -173,6 +170,9 @@ class ServiceHelper:
             if configer.fuse_enabled and configer.fuse_mountpoint:
                 self.fuse_manager._start_fuse_internal()
 
+            # STRM 备份服务绑定客户端
+            self.backup_service.client = self.client
+
             # 初始化整理任务管理器和 TransferChain 补丁
             self._init_transfer_enhancement()
 
@@ -231,6 +231,26 @@ class ServiceHelper:
                     logger.error(f"【整理接管】初始化失败: {e}", exc_info=True)
                     self.transfer_task_manager = None
                     self.transfer_handler = None
+
+    def is_background_active(self) -> bool:
+        """
+        判断插件后台是否有活跃任务
+
+        :return bool: 存在运行中的后台线程、目录监控或同步任务时返回 True
+        """
+        if self.monitor_life_thread and self.monitor_life_thread.is_alive():
+            return True
+        if any(ob.thread.is_alive() for ob in self.service_observer):
+            return True
+        with self._sync_state_lock:
+            if self._full_sync_running or self._increment_sync_running:
+                return True
+        scheduler = Scheduler()
+        with scheduler._lock:
+            jobs = list((getattr(scheduler, "_jobs", None) or {}).values())
+        return any(
+            job.get("running") and job.get("pid") == "P115StrmHelper" for job in jobs
+        )
 
     def check_monitor_life_guard(self):
         """
@@ -484,16 +504,11 @@ class ServiceHelper:
         """
         启动全量同步
         """
-        self.scheduler = BackgroundScheduler(timezone=settings.TZ)
-        self.scheduler.add_job(
-            func=self.full_sync_strm_files,
-            trigger="date",
-            run_date=datetime.now(tz=timezone(settings.TZ)) + timedelta(seconds=3),
+        schedule_plugin_one_shot(
+            service_id="full_sync_strm",
             name="115网盘助手全量生成STRM",
+            func=self.full_sync_strm_files,
         )
-        if self.scheduler.get_jobs():
-            self.scheduler.print_jobs()
-            self.scheduler.start()
 
     def full_sync_database(self):
         """
@@ -518,16 +533,11 @@ class ServiceHelper:
         """
         启动全量同步数据库
         """
-        self.scheduler = BackgroundScheduler(timezone=settings.TZ)
-        self.scheduler.add_job(
-            func=self.full_sync_database,
-            trigger="date",
-            run_date=datetime.now(tz=timezone(settings.TZ)) + timedelta(seconds=3),
+        schedule_plugin_one_shot(
+            service_id="full_sync_database",
             name="115网盘助手全量同步数据库",
+            func=self.full_sync_database,
         )
-        if self.scheduler.get_jobs():
-            self.scheduler.print_jobs()
-            self.scheduler.start()
 
     def share_strm_cleanup_run(self):
         """
@@ -569,16 +579,11 @@ class ServiceHelper:
         """
         启动分享同步
         """
-        self.scheduler = BackgroundScheduler(timezone=settings.TZ)
-        self.scheduler.add_job(
-            func=self.share_strm_files,
-            trigger="date",
-            run_date=datetime.now(tz=timezone(settings.TZ)) + timedelta(seconds=3),
+        schedule_plugin_one_shot(
+            service_id="share_strm",
             name="115网盘助手分享生成STRM",
+            func=self.share_strm_files,
         )
-        if self.scheduler.get_jobs():
-            self.scheduler.print_jobs()
-            self.scheduler.start()
 
     def increment_sync_strm_files(self, send_msg: bool = False):
         """
@@ -766,126 +771,6 @@ class ServiceHelper:
             return False
         return self.fuse_manager.start_fuse(mountpoint, readdir_ttl)
 
-    def run_backup_task(self, task_name: str):
-        """
-        执行备份任务
-
-        :param task_name: 备份任务名称
-        """
-        if not configer.strm_backup_enabled:
-            return
-
-        backup_items = configer.strm_backup_items
-        task = None
-        for item in backup_items:
-            if item.name == task_name:
-                task = item
-                break
-
-        if not task:
-            logger.error(f"【STRM备份】备份任务不存在: {task_name}")
-            return
-
-        from ..helper.backup import backup_helper
-
-        logger.info(f"【STRM备份】开始执行备份任务: {task_name}")
-        history = backup_helper.execute_backup(task, client=self.client)
-
-        if history.status == "success":
-            logger.info(
-                f"【STRM备份】备份成功: {task_name}, "
-                f"文件: {history.filename}, 大小: {history.file_size} 字节"
-            )
-        elif history.status == "skipped":
-            logger.info(
-                f"【STRM备份】备份任务已跳过: {task_name}, 原因: {history.error_msg}"
-            )
-        else:
-            logger.error(
-                f"【STRM备份】备份失败: {task_name}, 错误: {history.error_msg}"
-            )
-
-    def start_backup_task(self, task):
-        """
-        启动备份任务
-
-        :param task: StrmBackupItem 备份任务配置
-        """
-        scheduler = BackgroundScheduler(timezone=settings.TZ)
-        scheduler.add_job(
-            func=self.run_backup_task,
-            args=[task.name],
-            trigger="date",
-            run_date=datetime.now(tz=timezone(settings.TZ)) + timedelta(seconds=3),
-            name=f"STRM备份-{task.name}",
-        )
-        if scheduler.get_jobs():
-            scheduler.print_jobs()
-            scheduler.start()
-
-    def run_restore_task(self, task_name: str, backup_path: str):
-        """
-        执行恢复任务
-
-        :param task_name: 备份任务名称
-        :param backup_path: 备份文件路径
-        """
-        if not configer.strm_backup_enabled:
-            return
-
-        backup_items = configer.strm_backup_items
-        task = None
-        for item in backup_items:
-            if item.name == task_name:
-                task = item
-                break
-
-        if not task:
-            logger.error(f"【STRM恢复】备份任务不存在: {task_name}")
-            return
-
-        from ..helper.backup import backup_helper
-
-        logger.info(f"【STRM恢复】开始执行恢复任务: {task_name}, 路径: {backup_path}")
-
-        if task.target_type.value == "local":
-            success, error_msg = backup_helper.restore_from_local(
-                backup_path=backup_path,
-                source_paths=task.source_paths,
-            )
-        elif task.target_type.value == "cloud":
-            success, error_msg = backup_helper.restore_from_cloud(
-                cloud_path=backup_path,
-                source_paths=task.source_paths,
-                client=self.client,
-            )
-        else:
-            success, error_msg = False, f"不支持的备份目标类型: {task.target_type}"
-
-        if success:
-            logger.info(f"【STRM恢复】恢复成功: {task_name}")
-        else:
-            logger.error(f"【STRM恢复】恢复失败: {task_name}, 错误: {error_msg}")
-
-    def start_restore_task(self, task_name: str, backup_path: str):
-        """
-        启动恢复任务
-
-        :param task_name: 备份任务名称
-        :param backup_path: 备份文件路径
-        """
-        scheduler = BackgroundScheduler(timezone=settings.TZ)
-        scheduler.add_job(
-            func=self.run_restore_task,
-            args=[task_name, backup_path],
-            trigger="date",
-            run_date=datetime.now(tz=timezone(settings.TZ)) + timedelta(seconds=3),
-            name=f"STRM恢复-{task_name}",
-        )
-        if scheduler.get_jobs():
-            scheduler.print_jobs()
-            scheduler.start()
-
     def stop_fuse(self):
         """
         停止 FUSE 文件系统
@@ -913,11 +798,6 @@ class ServiceHelper:
                 directory_upload_queue.stop()
             except Exception as e:
                 logger.debug(f"【目录上传】停止 worker 异常: {e}")
-            if self.scheduler:
-                self.scheduler.remove_all_jobs()
-                if self.scheduler.running:
-                    self.scheduler.shutdown()
-                self.scheduler = None
             with self.monitor_life_lock:
                 if self.monitor_life_thread:
                     self._stop_monitor_life_internal()
