@@ -46,6 +46,8 @@ class U115OpenHelper:
         self.session = requests.Session()
         self._init_session()
 
+        self.fail_upload_count = 0
+
         self.oopserver_request = OOPServerRequest(max_retries=3, backoff_factor=1.0)
 
     def _init_session(self):
@@ -207,6 +209,17 @@ class U115OpenHelper:
                     sha1.update(chunk)
         return sha1.hexdigest()
 
+    def upload_fail_count(self):
+        """
+        上传重试判断
+        """
+        if self.fail_upload_count == 0:
+            self.fail_upload_count += 1
+            return True
+        else:
+            self.fail_upload_count = 0
+            return False
+
     def upload(
         self,
         target_dir: schemas.FileItem,
@@ -264,6 +277,20 @@ class U115OpenHelper:
             except Exception as e:
                 logger.warn(f"【P115Open】上传信息报告服务器失败: {e}")
 
+        def send_upload_wait():
+            """
+            发送上传等待
+            """
+            try:
+                self.oopserver_request.make_request(
+                    path="/upload/wait",
+                    method="POST",
+                    headers={"x-machine-id": configer.get_config("MACHINE_ID")},
+                    timeout=10.0,
+                )
+            except Exception:
+                pass
+
         target_name = new_name or local_path.name
         target_path = Path(target_dir.path) / target_name
         # 计算文件特征值
@@ -276,6 +303,7 @@ class U115OpenHelper:
         target_param = f"U_1_{target_cid}"
 
         wait_start_time = time.perf_counter()
+        send_wait = False
         while True:
             start_time = time.perf_counter()
             # Step 1: 初始化上传
@@ -437,6 +465,9 @@ class U115OpenHelper:
                             )
                             break
                         logger.info(f"【P115Open】休眠，等待秒传: {target_name}")
+                        if not send_wait:
+                            send_upload_wait()
+                            send_wait = True
                         time.sleep(int(configer.get_config("upload_module_wait_time")))
                     else:
                         logger.warn("【P115Open】获取用户上传速度错误，网络问题")
@@ -446,6 +477,7 @@ class U115OpenHelper:
                     break
 
         # Step 4: 获取上传凭证
+        second_auth = False
         token_resp = self._request_api("GET", "/open/upload/get_token", "data")
         if not token_resp:
             logger.warn("【P115Open】获取上传凭证失败")
@@ -538,6 +570,12 @@ class U115OpenHelper:
                 logger.debug(
                     f"【P115Open】上传 Step 6 回调结果：{result.resp.response.json()}"
                 )
+                if not result.resp.response.json().get("state"):
+                    if self.upload_fail_count():
+                        logger.warn(f"【P115Open】{target_name} 上传重试")
+                        return self.upload(target_dir, local_path, new_name)
+                    logger.error(f"【P115Open】{target_name} 上传失败")
+                    return None
                 logger.info(f"【P115Open】{target_name} 上传成功")
             else:
                 logger.warn(
