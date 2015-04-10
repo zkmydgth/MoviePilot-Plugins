@@ -18,14 +18,14 @@ from app.chain.media import MediaChain
 from app.schemas import NotificationType
 from app.utils.string import StringUtils
 
-from ..core.config import configer
-from ..core.message import post_message
-from ..core.i18n import i18n
-from ..core.aliyunpan import BAligo
-from ..core.p115 import get_pid_by_path
-from ..helper.ali2115 import Ali2115Helper
-from ..utils.sentry import sentry_manager
-from ..utils.oopserver import OOPServerRequest
+from ...core.config import configer
+from ...core.message import post_message
+from ...core.i18n import i18n
+from ...core.aliyunpan import BAligo
+from ...core.p115 import get_pid_by_path
+from ...helper.ali2115 import Ali2115Helper
+from ...utils.sentry import sentry_manager
+from ...utils.oopserver import OOPServerRequest
 
 
 U115_SHARE_URL_MATCH = r"^https?://(.*\.)?115[^/]*\.[a-zA-Z]{2,}(?:/|$)"

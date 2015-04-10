@@ -13,13 +13,13 @@ from app.chain.storage import StorageChain
 from app.schemas.types import MediaType, MediaImageType, NotificationType
 from app.schemas.mediaserver import WebhookEventInfo
 
-from ..core.config import configer
-from ..core.message import post_message
-from ..core.plunins import PluginChian
-from ..db_manager.oper import TransferHBOper
-from ..helper.mediaserver import EmbyOperate
-from ..utils.path import PathUtils, PathRemoveUtils
-from ..utils.webhook import WebhookUtils
+from ...core.config import configer
+from ...core.message import post_message
+from ...core.plunins import PluginChian
+from ...db_manager.oper import TransferHBOper
+from ...helper.mediaserver import EmbyOperate
+from ...utils.path import PathUtils, PathRemoveUtils
+from ...utils.webhook import WebhookUtils
 
 
 class MediaSyncDelHelper:

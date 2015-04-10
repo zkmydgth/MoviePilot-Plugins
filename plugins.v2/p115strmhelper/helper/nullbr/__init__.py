@@ -1,7 +1,7 @@
 from nullbr import NullbrSDK
 
-from ..core.config import configer
-from ..utils.sentry import sentry_manager
+from ...core.config import configer
+from ...utils.sentry import sentry_manager
 
 
 @sentry_manager.capture_all_class_exceptions

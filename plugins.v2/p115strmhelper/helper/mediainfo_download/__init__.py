@@ -26,13 +26,13 @@ from zstandard import ZstdCompressor, ZstdDecompressor
 
 from app.log import logger
 
-from ..core.config import configer
-from ..core.cache import OofFastMiCache
-from ..utils.oopserver import OOPServerRequest
-from ..utils.http import check_response
-from ..utils.url import Url
-from ..utils.sentry import sentry_manager
-from ..utils.exception import DownloadValidationFail
+from ...core.config import configer
+from ...core.cache import OofFastMiCache
+from ...utils.oopserver import OOPServerRequest
+from ...utils.http import check_response
+from ...utils.url import Url
+from ...utils.sentry import sentry_manager
+from ...utils.exception import DownloadValidationFail
 
 
 @sentry_manager.capture_all_class_exceptions

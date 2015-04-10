@@ -6,8 +6,8 @@ from p115client.tool.fs_files import iter_fs_files
 
 from app.log import logger
 
-from ..core.config import configer
-from ..utils.sentry import sentry_manager
+from ...core.config import configer
+from ...utils.sentry import sentry_manager
 
 
 class Cleaner:

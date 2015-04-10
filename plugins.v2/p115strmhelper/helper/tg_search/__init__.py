@@ -8,10 +8,10 @@ from app.log import logger
 from app.core.config import settings
 from app.utils.http import AsyncRequestUtils
 
-from ..core.config import configer
-from ..schemas.tg_search import ResourceItem
-from ..utils.string import StringUtils
-from ..utils.sentry import sentry_manager
+from ...core.config import configer
+from ...schemas.tg_search import ResourceItem
+from ...utils.string import StringUtils
+from ...utils.sentry import sentry_manager
 
 
 @sentry_manager.capture_all_class_exceptions

@@ -14,8 +14,8 @@ from app.core.metainfo import MetaInfo
 from app.chain.media import MediaChain
 from app.core.context import MediaInfo
 
-from ..core.aliyunpan import BAligo
-from ..utils.sentry import sentry_manager
+from ...core.aliyunpan import BAligo
+from ...utils.sentry import sentry_manager
 
 
 @sentry_manager.capture_all_class_exceptions
