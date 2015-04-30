@@ -108,6 +108,12 @@ class FullSyncStrmHelper:
             ".f4v",
         ]
 
+    def close_sqlite_connect(self):
+        """
+        关闭数据库连接
+        """
+        self.connection.close()
+
     def get_id_by_path(self, path):
         """
         通过文件夹路径获取文件夹 ID
@@ -180,7 +186,7 @@ class P115StrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png"
     # 插件版本
-    plugin_version = "0.0.4"
+    plugin_version = "0.1.0"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -608,6 +614,7 @@ class P115StrmHelper(_PluginBase):
         strm_helper.generate_strm_files_db(
             self.pan_media_dir, self.local_media_dir, self.moviepilot_address
         )
+        strm_helper.close_sqlite_connect()
 
     def stop_service(self):
         """
