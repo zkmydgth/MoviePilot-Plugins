@@ -140,7 +140,7 @@ class EmbyOperate:
             "api_key": emby_apikey,
         }
         try:
-            with RequestUtils().get_res(url=req_url, params=params) as res:
+            with RequestUtils().post_res(url=req_url, params=params) as res:
                 if res and res.status_code == 200:
                     return True
                 else:
