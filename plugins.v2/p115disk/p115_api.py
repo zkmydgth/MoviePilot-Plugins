@@ -249,9 +249,12 @@ class P115Api:
                     pass
             try:
                 storage_chain = StorageChain()
+                fallback_dict = fileitem.model_dump(exclude={"storage"})
+                if isinstance(e, P115NotADirectoryError):
+                    fallback_dict["fileid"] = None
                 fileitem = FileItem(
                     storage="u115",
-                    **fileitem.model_dump(exclude={"storage"}),
+                    **fallback_dict,
                 )
                 fallback_items = storage_chain.list_files(
                     fileitem=fileitem, recursion=False
