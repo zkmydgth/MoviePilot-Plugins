@@ -47,7 +47,9 @@ class TransferStrmHelper:
                 )
                 pan_path = PathUtils.sanitize_path_parts(rel_path)
             file_path = Path(target_dir) / pan_path
-            file_name = StrmGenerater.get_strm_filename(Path(item_dest_path.name))
+            file_name = StrmGenerater.get_strm_filename(
+                PathUtils.sanitize_path_parts(Path(item_dest_path.name))
+            )
             new_file_path = file_path / file_name
             new_file_path.parent.mkdir(parents=True, exist_ok=True)
             with open(new_file_path, "w", encoding="utf-8") as file:
@@ -94,14 +96,11 @@ class TransferStrmHelper:
         if not status or not src_local_dir or not src_pan_dir:
             return
 
-        old_strm_name = StrmGenerater.get_strm_filename(Path(source_path))
-        old_strm_path = (
-            Path(src_local_dir)
-            / PathUtils.sanitize_path_parts(
-                Path(source_path).relative_to(src_pan_dir)
-            ).parent
-            / old_strm_name
+        sanitized_rel = PathUtils.sanitize_path_parts(
+            Path(source_path).relative_to(src_pan_dir)
         )
+        old_strm_name = StrmGenerater.get_strm_filename(sanitized_rel)
+        old_strm_path = Path(src_local_dir) / sanitized_rel.parent / old_strm_name
         # 旧 STRM 不存在
         if not old_strm_path.exists():
             return

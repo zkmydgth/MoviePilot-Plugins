@@ -918,9 +918,11 @@ class FullSyncStrmHelper:
                                 )
 
                             for download_info in results.download_results:
-                                local_path = target_dir / Path(
-                                    download_info.path_in_pan
-                                ).relative_to(pan_media_dir)
+                                local_path = target_dir / PathUtils.sanitize_path_parts(
+                                    Path(download_info.path_in_pan).relative_to(
+                                        pan_media_dir
+                                    )
+                                )
                                 if (
                                     local_path.exists()
                                     and self.overwrite_mode == "never"
@@ -940,9 +942,11 @@ class FullSyncStrmHelper:
                                 )
 
                             for strm_info in results.strm_results:
-                                local_path = target_dir / Path(
-                                    strm_info.path_in_pan
-                                ).relative_to(pan_media_dir)
+                                local_path = target_dir / PathUtils.sanitize_path_parts(
+                                    Path(strm_info.path_in_pan).relative_to(
+                                        pan_media_dir
+                                    )
+                                )
                                 new_file_path = local_path.with_name(
                                     StrmGenerater.get_strm_filename(local_path)
                                 )

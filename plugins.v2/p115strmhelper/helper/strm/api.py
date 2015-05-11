@@ -198,7 +198,9 @@ class ApiSyncStrmHelper:
             local_path_obj = Path(local_path)
             pan_path_obj = Path(pan_path)
             try:
-                file_path = local_path_obj / pan_path_obj.relative_to(pan_media_path)
+                file_path = local_path_obj / PathUtils.sanitize_path_parts(
+                    pan_path_obj.relative_to(pan_media_path)
+                )
             except ValueError as e:
                 logger.error(
                     f"【API_STRM生成】路径计算失败: pan_path={pan_path}, pan_media_path={pan_media_path}, {e}"
@@ -426,9 +428,9 @@ class ApiSyncStrmHelper:
                 lst: List[str] = []
                 for item in result[2].success:
                     try:
-                        file_path = Path(item.local_path) / Path(
-                            item.pan_path
-                        ).relative_to(item.pan_media_path)
+                        file_path = Path(item.local_path) / PathUtils.sanitize_path_parts(
+                            Path(item.pan_path).relative_to(item.pan_media_path)
+                        )
                         new_file_path = (
                             file_path.parent
                             / StrmGenerater.get_strm_filename(file_path)

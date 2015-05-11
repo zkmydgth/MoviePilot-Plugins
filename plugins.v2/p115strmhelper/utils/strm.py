@@ -370,8 +370,9 @@ class StrmFilenameTemplateResolver:
 
         try:
             result = template.render(**context)
-            invalid_chars = '<>:"/\\|?*'
-            for char in invalid_chars:
+            result = result.replace(":", "：")
+            illegal_chars = '<>"/\\|?*'
+            for char in illegal_chars:
                 result = result.replace(char, "_")
             return result
         except TemplateError as e:
