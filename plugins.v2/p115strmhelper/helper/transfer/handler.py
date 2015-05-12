@@ -49,6 +49,90 @@ class TransferHandler:
 
         logger.info(f"【整理接管】初始化整理执行器，存储: {storage_name}")
 
+    def _create_mp_task(self, task: TransferTask) -> MPTransferTask:
+        """
+        创建 MoviePilot TransferTask 对象
+
+        :param task: 插件任务对象
+        :return: MoviePilot TransferTask 对象
+        """
+        return MPTransferTask(
+            fileitem=task.fileitem,
+            mediainfo=task.mediainfo,
+            meta=task.meta,
+        )
+
+    def _group_tasks_by_media(
+        self, tasks: List[TransferTask]
+    ) -> Dict[Tuple, List[TransferTask]]:
+        """
+        按媒体分组任务
+
+        :param tasks: 任务列表
+        :return: 按媒体分组的任务字典，key 为 (media_id, season)
+        """
+        tasks_by_media: Dict[Tuple, List[TransferTask]] = defaultdict(list)
+        for task in tasks:
+            if task.mediainfo:
+                key = (
+                    task.mediainfo.tmdb_id or task.mediainfo.douban_id,
+                    task.meta.begin_season,
+                )
+                tasks_by_media[key].append(task)
+        return tasks_by_media
+
+    def _remove_completed_jobs(
+        self,
+        tasks_by_media: Dict[Tuple, List[TransferTask]],
+        task_action: str = "finish",
+        check_method: str = "is_finished",
+    ) -> int:
+        """
+        移除已完成的任务组
+
+        :param tasks_by_media: 按媒体分组的任务字典
+        :param task_action: 任务动作，'finish' 或 'fail'
+        :param check_method: 检查方法，'is_finished' 或 'is_done'
+        :return: 移除的任务组数量
+        """
+        chain = TransferChain()
+        removed_count = 0
+
+        for (media_id, season), group_tasks in tasks_by_media.items():
+            try:
+                # 使用第一个任务作为代表
+                sample_task = group_tasks[0]
+                mp_sample_task = self._create_mp_task(sample_task)
+
+                # 确保所有任务都已标记（finish 或 fail）
+                for task in group_tasks:
+                    try:
+                        mp_task = self._create_mp_task(task)
+                        if task_action == "finish":
+                            chain.jobview.finish_task(mp_task)
+                        elif task_action == "fail":
+                            chain.jobview.fail_task(mp_task)
+                    except Exception as e:
+                        action_name = "完成" if task_action == "finish" else "失败"
+                        logger.debug(
+                            f"【整理接管】标记任务{action_name}失败 (任务: {task.fileitem.name}): {e}"
+                        )
+
+                # 检查是否所有相关任务都完成了
+                check_func = getattr(chain.jobview, check_method)
+                if check_func(mp_sample_task):
+                    # 移除整个媒体组任务
+                    with task_lock:
+                        chain.jobview.remove_job(mp_sample_task)
+                    removed_count += 1
+            except Exception as e:
+                logger.debug(
+                    f"【整理接管】移除任务组失败 (media_id={media_id}, season={season}): {e}",
+                    exc_info=True,
+                )
+
+        return removed_count
+
     def _get_folder(self, path: Path) -> Optional[FileItem]:
         """
         获取目录，如目录不存在则创建
@@ -1578,11 +1662,7 @@ class TransferHandler:
                 # 标记任务完成
                 try:
                     chain = TransferChain()
-                    mp_task = MPTransferTask(
-                        fileitem=task.fileitem,
-                        mediainfo=task.mediainfo,
-                        meta=task.meta,
-                    )
+                    mp_task = self._create_mp_task(task)
                     chain.jobview.finish_task(mp_task)
                     logger.debug(f"【整理接管】标记任务完成: {task.fileitem.path}")
                 except Exception as e:
@@ -1622,11 +1702,7 @@ class TransferHandler:
                 # 整理完成且有成功的任务时，执行 __do_finished 逻辑
                 try:
                     chain = TransferChain()
-                    mp_task = MPTransferTask(
-                        fileitem=task.fileitem,
-                        mediainfo=task.mediainfo,
-                        meta=task.meta,
-                    )
+                    mp_task = self._create_mp_task(task)
                     if chain.jobview.is_finished(mp_task):
                         with task_lock:
                             # 更新文件数量和大小
@@ -1718,55 +1794,11 @@ class TransferHandler:
             self._batch_delete_empty_dirs_and_torrents(successfully_recorded_tasks)
 
         try:
-            chain = TransferChain()
             # 按媒体分组，每个媒体组只需要移除一次
-            tasks_by_media: Dict[Tuple, List[TransferTask]] = defaultdict[
-                Tuple, List[TransferTask]
-            ](list)
-            for task in successfully_recorded_tasks:
-                if task.mediainfo:
-                    key = (
-                        task.mediainfo.tmdb_id or task.mediainfo.douban_id,
-                        task.meta.begin_season,
-                    )
-                    tasks_by_media[key].append(task)
-
-            removed_count = 0
-            for (media_id, season), group_tasks in tasks_by_media.items():
-                try:
-                    # 使用第一个任务作为代表
-                    sample_task = group_tasks[0]
-                    mp_sample_task = MPTransferTask(
-                        fileitem=sample_task.fileitem,
-                        mediainfo=sample_task.mediainfo,
-                        meta=sample_task.meta,
-                    )
-
-                    # 确保所有任务都标记为完成（在 _record_history 中已经调用过，这里再次确保）
-                    for task in group_tasks:
-                        try:
-                            mp_task = MPTransferTask(
-                                fileitem=task.fileitem,
-                                mediainfo=task.mediainfo,
-                                meta=task.meta,
-                            )
-                            chain.jobview.finish_task(mp_task)
-                        except Exception as e:
-                            logger.debug(
-                                f"【整理接管】标记任务完成失败 (任务: {task.fileitem.name}): {e}"
-                            )
-
-                    # 检查是否所有相关任务都完成了
-                    if chain.jobview.is_finished(mp_sample_task):
-                        # 移除整个媒体组任务
-                        with task_lock:
-                            chain.jobview.remove_job(mp_sample_task)
-                        removed_count += 1
-                except Exception as e:
-                    logger.debug(
-                        f"【整理接管】移除任务组失败 (media_id={media_id}, season={season}): {e}",
-                        exc_info=True,
-                    )
+            tasks_by_media = self._group_tasks_by_media(successfully_recorded_tasks)
+            removed_count = self._remove_completed_jobs(
+                tasks_by_media, task_action="finish", check_method="is_finished"
+            )
 
             if removed_count > 0:
                 logger.info(f"【整理接管】已移除 {removed_count} 个已完成的任务组")
@@ -1785,19 +1817,12 @@ class TransferHandler:
             chain = TransferChain()
 
             # 按媒体信息分组任务
-            tasks_by_media: Dict[Tuple, List[TransferTask]] = defaultdict(list)
             move_tasks = [task for task in tasks if task.transfer_type == "move"]
             if not move_tasks:
                 logger.debug("【整理接管】没有移动模式的任务，跳过删除空目录")
                 return
 
-            for task in move_tasks:
-                if task.mediainfo:
-                    key = (
-                        task.mediainfo.tmdb_id or task.mediainfo.douban_id,
-                        task.meta.begin_season,
-                    )
-                    tasks_by_media[key].append(task)
+            tasks_by_media = self._group_tasks_by_media(move_tasks)
 
             if not tasks_by_media:
                 logger.debug("【整理接管】没有有效的媒体任务，跳过删除空目录")
@@ -2091,7 +2116,7 @@ class TransferHandler:
                 dirs_to_delete.append(fileitem)
                 return dirs_to_delete
 
-        # 获取起始目录（文件则从父目录开始，目录则从自身开始）
+        # 检查和删除上级空目录
         dir_item = (
             fileitem
             if fileitem.type == "dir"
@@ -2102,20 +2127,16 @@ class TransferHandler:
             return dirs_to_delete
 
         # 查找操作文件项匹配的配置目录 (资源目录、媒体库目录)
-        try:
-            associated_dir = max(
-                (
-                    Path(p)
-                    for d in DirectoryHelper().get_dirs()
-                    for p in (d.download_path, d.library_path)
-                    if p and fileitem_path.is_relative_to(Path(p))
-                ),
-                key=lambda path: len(path.parts),
-                default=None,
-            )
-        except Exception as e:
-            logger.debug(f"【整理接管】获取关联目录失败: {e}")
-            associated_dir = None
+        associated_dir = max(
+            (
+                Path(p)
+                for d in DirectoryHelper().get_dirs()
+                for p in (d.download_path, d.library_path)
+                if p and fileitem_path.is_relative_to(Path(p))
+            ),
+            key=lambda path: len(path.parts),
+            default=None,
+        )
 
         # 递归检查父目录
         while dir_item and len(Path(dir_item.path).parts) > 2:
@@ -2200,55 +2221,13 @@ class TransferHandler:
 
         # 按媒体分组，统一处理失败任务的移除
         try:
-            chain = TransferChain()
+            # 提取任务列表（从 (task, message) 元组中提取）
+            tasks = [task for task, _ in failed_tasks]
             # 按媒体分组，每个媒体组只需要移除一次
-            tasks_by_media: Dict[Tuple, List[TransferTask]] = defaultdict[
-                Tuple, List[TransferTask]
-            ](list)
-            for task, _ in failed_tasks:
-                if task.mediainfo:
-                    key = (
-                        task.mediainfo.tmdb_id or task.mediainfo.douban_id,
-                        task.meta.begin_season,
-                    )
-                    tasks_by_media[key].append(task)
-
-            removed_count = 0
-            for (media_id, season), group_tasks in tasks_by_media.items():
-                try:
-                    # 使用第一个任务作为代表
-                    sample_task = group_tasks[0]
-                    mp_sample_task = MPTransferTask(
-                        fileitem=sample_task.fileitem,
-                        mediainfo=sample_task.mediainfo,
-                        meta=sample_task.meta,
-                    )
-
-                    # 确保所有失败任务都已标记为失败（在 _record_fail 中已经调用过，这里再次确保）
-                    for task in group_tasks:
-                        try:
-                            mp_task = MPTransferTask(
-                                fileitem=task.fileitem,
-                                mediainfo=task.mediainfo,
-                                meta=task.meta,
-                            )
-                            chain.jobview.fail_task(mp_task)
-                        except Exception as e:
-                            logger.debug(
-                                f"【整理接管】标记任务失败失败 (任务: {task.fileitem.name}): {e}"
-                            )
-
-                    # 检查是否所有相关任务都完成了
-                    if chain.jobview.is_done(mp_sample_task):
-                        # 移除整个媒体组任务
-                        with task_lock:
-                            chain.jobview.remove_job(mp_sample_task)
-                        removed_count += 1
-                except Exception as e:
-                    logger.debug(
-                        f"【整理接管】移除失败任务组失败 (media_id={media_id}, season={season}): {e}",
-                        exc_info=True,
-                    )
+            tasks_by_media = self._group_tasks_by_media(tasks)
+            removed_count = self._remove_completed_jobs(
+                tasks_by_media, task_action="fail", check_method="is_done"
+            )
 
             if removed_count > 0:
                 logger.info(f"【整理接管】已移除 {removed_count} 个已完成的失败任务组")
@@ -2301,11 +2280,7 @@ class TransferHandler:
             # 标记任务失败
             try:
                 chain = TransferChain()
-                mp_task = MPTransferTask(
-                    fileitem=task.fileitem,
-                    mediainfo=task.mediainfo,
-                    meta=task.meta,
-                )
+                mp_task = self._create_mp_task(task)
                 chain.jobview.fail_task(mp_task)
             except Exception as e:
                 logger.debug(f"【整理接管】标记任务失败失败: {e}", exc_info=True)
