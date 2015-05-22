@@ -47,10 +47,6 @@ from app.chain.storage import StorageChain
 from app.chain.transfer import TransferChain
 
 
-BEHAVIOR_TYPE_TO_NAME[23] = "copy_file"
-BEHAVIOR_TYPE_TO_NAME[24] = "rename_file"
-
-
 @sentry_manager.capture_all_class_exceptions
 class MonitorLife:
     """
