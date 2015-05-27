@@ -1,13 +1,13 @@
 from enum import IntEnum
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from queue import Empty, Queue
 from threading import Thread
-from time import monotonic
-from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple
+from time import monotonic, sleep
+from typing import Any, Callable, Dict, Iterator, List, Literal, Optional, Tuple
 from uuid import uuid4
 
-from grpc import RpcError, StatusCode
 from cryptography.hazmat.primitives import hashes
+from grpc import RpcError, StatusCode
 from httpx import RequestError
 from httpx import stream as httpx_stream
 
@@ -84,15 +84,18 @@ class CloudDriveApi:
         client: CloudDriveClient,
         disk_name: str,
         download_base: Optional[str] = None,
+        upload_mode: Literal["remote_upload", "direct_write"] = "remote_upload",
     ) -> None:
         """
         :param client: 已认证的 CloudDrive 客户端
         :param disk_name: 储存名称，与注册的 storage 一致
         :param download_base: 下载 URL 基地址
+        :param upload_mode: 上传模式
         """
         self.client = client
         self._disk_name = disk_name
         self._download_base = (download_base or "http://127.0.0.1:19798").rstrip("/")
+        self._upload_mode = upload_mode
         self.transtype = {"move": "移动", "copy": "复制"}
 
     def list(self, fileitem: FileItem) -> List[FileItem]:
@@ -654,6 +657,29 @@ class CloudDriveApi:
         new_name: Optional[str] = None,
     ) -> Optional[FileItem]:
         """
+        上传文件到 CloudDrive。
+
+        upload_mode:
+        - remote_upload: Remote Upload 协议（StartRemoteUpload → RemoteUploadChannel）
+        - direct_write: CreateFile/WriteToFile/CloseFile 直写上传，并等待云端上传完成
+
+        :param target_dir: 目标目录 FileItem
+        :param local_path: 本地文件路径
+        :param new_name: 云端文件名，None 则用 local_path.name
+        :return: 上传成功返回云端文件 FileItem，失败返回 None
+        """
+        mode = (self._upload_mode or "remote_upload").strip() or "remote_upload"
+        if mode == "direct_write":
+            return self._upload_direct_write(target_dir, local_path, new_name)
+        return self._upload_remote_upload(target_dir, local_path, new_name)
+
+    def _upload_remote_upload(
+        self,
+        target_dir: FileItem,
+        local_path: Path,
+        new_name: Optional[str] = None,
+    ) -> Optional[FileItem]:
+        """
         上传文件到 CloudDrive（Remote Upload 协议）。
 
         协议参考: https://www.clouddrive2.com/api/CloudDrive2_gRPC_API_Guide.html
@@ -703,6 +729,198 @@ class CloudDriveApi:
             target_path,
         )
         return None
+
+    def _wait_upload_complete(
+        self,
+        remote_path: str,
+        timeout: int = 3600,
+        interval: int = 5,
+        stall_timeout: int = 600,
+    ) -> bool:
+        """
+        等待 CloudDrive2 将直写文件上传到云端完成。
+
+        通过轮询 get_upload_file_list 查找 destPath 匹配项的终态。
+
+        :param remote_path: 云端目标路径
+        :param timeout: 总超时时间（秒）
+        :param interval: 轮询间隔（秒）
+        :param stall_timeout: 无进度超时（秒）
+        :return: 成功完成返回 True，否则 False
+        """
+        terminal, finish_value = self.client.upload_terminal_enums()
+
+        normalized = Path(remote_path).as_posix() if remote_path else "/"
+        deadline = monotonic() + timeout
+        found_ever = False
+        last_transferred = -1
+        last_progress_time = monotonic()
+
+        while monotonic() < deadline:
+            if global_vars.is_transfer_stopped(normalized):
+                logger.info("【CloudDrive】等待云端上传已取消: %s", normalized)
+                return False
+            try:
+                resp = self.client.get_upload_file_list(get_all=True)
+                upload_files = getattr(resp, "uploadFiles", None) or []
+
+                found = False
+                for uf in upload_files:
+                    raw_dest = getattr(uf, "destPath", "") or ""
+                    dest = Path(raw_dest).as_posix() if raw_dest else "/"
+                    if dest != normalized and dest.rstrip("/") != normalized.rstrip(
+                        "/"
+                    ):
+                        continue
+                    found = True
+                    found_ever = True
+
+                    status_enum = getattr(uf, "statusEnum", None)
+                    status_str = getattr(uf, "status", "")
+                    transferred = int(getattr(uf, "transferedBytes", 0) or 0)
+                    total = int(getattr(uf, "size", 0) or 0)
+
+                    if terminal and status_enum in terminal:
+                        if finish_value is not None and status_enum == finish_value:
+                            logger.info("【CloudDrive】云端上传完成: %s", normalized)
+                            return True
+                        logger.warning(
+                            "【CloudDrive】云端上传终态非成功: %s, status=%s, enum=%s",
+                            normalized,
+                            status_str,
+                            status_enum,
+                        )
+                        return False
+
+                    now = monotonic()
+                    if transferred > last_transferred:
+                        last_progress_time = now
+                        last_transferred = transferred
+                    if now - last_progress_time >= stall_timeout:
+                        logger.warning(
+                            "【CloudDrive】云端上传停滞超时(%ss 无新进度): %s",
+                            stall_timeout,
+                            normalized,
+                        )
+                        return False
+
+                    if total > 0:
+                        logger.debug(
+                            "【CloudDrive】等待云端上传: %s, status=%s, progress=%.1f%%, %d/%d",
+                            normalized,
+                            status_str,
+                            transferred / total * 100,
+                            transferred,
+                            total,
+                        )
+                    else:
+                        logger.debug(
+                            "【CloudDrive】等待云端上传: %s, status=%s, transferred=%d",
+                            normalized,
+                            status_str,
+                            transferred,
+                        )
+                    break
+
+                if not found and found_ever:
+                    logger.info(
+                        "【CloudDrive】上传任务已从队列消失，视为完成: %s", normalized
+                    )
+                    return True
+            except Exception as e:
+                logger.debug("【CloudDrive】查询上传状态失败: %s, %s", normalized, e)
+
+            sleep(max(int(interval), 1))
+
+        logger.warning("【CloudDrive】等待云端上传超时(%ss): %s", timeout, normalized)
+        return False
+
+    def _upload_direct_write(
+        self,
+        target_dir: FileItem,
+        local_path: Path,
+        new_name: Optional[str] = None,
+    ) -> Optional[FileItem]:
+        """
+        直写上传
+
+        :param target_dir: 目标目录 FileItem
+        :param local_path: 本地文件路径
+        :param new_name: 云端文件名，None 则用 local_path.name
+        :return: 上传成功返回云端文件 FileItem，失败返回 None
+        """
+        if not local_path.exists() or not local_path.is_file():
+            logger.error("【CloudDrive】上传文件不存在或非文件: %s", local_path)
+            return None
+
+        target_name = new_name or local_path.name
+        raw_dir = (target_dir.path or "/").rstrip("/") or "/"
+        remote_dir = Path(raw_dir).as_posix() if raw_dir else "/"
+        remote_path = (PurePosixPath(remote_dir) / target_name).as_posix()
+        file_size = local_path.stat().st_size
+        progress_callback = transfer_process(remote_path)
+
+        if global_vars.is_transfer_stopped(remote_path):
+            logger.info("【CloudDrive】上传已取消: %s", remote_path)
+            return None
+
+        if not self.get_folder(Path(remote_dir)):
+            logger.error("【CloudDrive】上传失败，目标目录创建失败: %s", remote_dir)
+            return None
+
+        file_handle = 0
+        try:
+            file_handle = self.client.create_file(remote_dir, target_name)
+            if file_handle <= 0:
+                logger.error(
+                    "【CloudDrive】上传失败，创建远端文件句柄失败: %s", remote_path
+                )
+                return None
+
+            chunk_size = 3 * 1024 * 1024
+            offset = 0
+            with open(local_path, "rb") as f:
+                while True:
+                    if global_vars.is_transfer_stopped(remote_path):
+                        logger.info("【CloudDrive】上传已取消: %s", remote_path)
+                        return None
+                    data = f.read(chunk_size)
+                    if not data:
+                        break
+                    bytes_written = self.client.write_to_file(file_handle, offset, data)
+                    if bytes_written != len(data):
+                        logger.error(
+                            "【CloudDrive】上传失败，写入长度不匹配: %s, expect=%d, actual=%d",
+                            remote_path,
+                            len(data),
+                            bytes_written,
+                        )
+                        return None
+                    offset += bytes_written
+                    if file_size:
+                        progress_callback(offset * 100.0 / file_size)
+
+            if not self.client.close_file(file_handle):
+                logger.error("【CloudDrive】上传失败，关闭文件失败: %s", remote_path)
+                return None
+
+            file_handle = 0
+
+            if not self._wait_upload_complete(remote_path):
+                logger.error("【CloudDrive】等待云端上传完成失败: %s", remote_path)
+                return None
+
+            progress_callback(100)
+            return self.get_item(Path(remote_path))
+        except Exception as e:
+            logger.error("【CloudDrive】直写上传失败 %s: %s", remote_path, e)
+            return None
+        finally:
+            if file_handle > 0:
+                try:
+                    self.client.close_file(file_handle)
+                except Exception:
+                    pass
 
     def _upload_once(
         self,

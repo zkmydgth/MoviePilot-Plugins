@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Literal, Optional, Tuple, cast
 
 from app.core.event import Event, eventmanager
 from app.helper.storage import StorageHelper
@@ -37,6 +37,8 @@ class CloudDriveDisk(_PluginBase):
     _port = "19798"
     _username = ""
     _password = ""
+    UploadMode = Literal["remote_upload", "direct_write"]
+    _upload_mode: UploadMode = "remote_upload"
 
     def __init__(self) -> None:
         super().__init__()
@@ -45,7 +47,7 @@ class CloudDriveDisk(_PluginBase):
         """
         初始化插件
 
-        :param config: 插件配置，含 enabled、host、port、username、password。
+        :param config: 插件配置
         """
         if not config:
             return
@@ -62,6 +64,10 @@ class CloudDriveDisk(_PluginBase):
         self._port = str(config.get("port") or "19798").strip()
         self._username = (config.get("username") or "").strip()
         self._password = config.get("password") or ""
+        self._upload_mode = cast(
+            self.UploadMode,
+            (config.get("upload_mode") or "remote_upload").strip() or "remote_upload",
+        )
 
         self._client = None
         self._clouddrive_api = None
@@ -88,7 +94,10 @@ class CloudDriveDisk(_PluginBase):
                 return
             download_base = f"http://{self._host}:{self._port}"
             self._clouddrive_api = CloudDriveApi(
-                self._client, disk_name=self._disk_name, download_base=download_base
+                self._client,
+                disk_name=self._disk_name,
+                download_base=download_base,
+                upload_mode=self._upload_mode,
             )
         except Exception as e:
             logger.error("【CloudDrive】客户端创建失败: %s", e)
@@ -122,7 +131,7 @@ class CloudDriveDisk(_PluginBase):
                         "content": [
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 4},
+                                "props": {"cols": 12, "md": 3},
                                 "content": [
                                     {
                                         "component": "VSwitch",
@@ -135,7 +144,7 @@ class CloudDriveDisk(_PluginBase):
                             },
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 4},
+                                "props": {"cols": 12, "md": 3},
                                 "content": [
                                     {
                                         "component": "VTextField",
@@ -150,7 +159,7 @@ class CloudDriveDisk(_PluginBase):
                             },
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 4},
+                                "props": {"cols": 12, "md": 3},
                                 "content": [
                                     {
                                         "component": "VTextField",
@@ -159,6 +168,29 @@ class CloudDriveDisk(_PluginBase):
                                             "label": "端口",
                                             "hint": "默认 19798",
                                             "persistent-hint": True,
+                                        },
+                                    }
+                                ],
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 3},
+                                "content": [
+                                    {
+                                        "component": "VSelect",
+                                        "props": {
+                                            "model": "upload_mode",
+                                            "label": "上传模式",
+                                            "items": [
+                                                {
+                                                    "title": "远程上传",
+                                                    "value": "remote_upload",
+                                                },
+                                                {
+                                                    "title": "直写上传",
+                                                    "value": "direct_write",
+                                                },
+                                            ],
                                         },
                                     }
                                 ],
@@ -201,6 +233,44 @@ class CloudDriveDisk(_PluginBase):
                             },
                         ],
                     },
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12},
+                                "content": [
+                                    {
+                                        "component": "VAlert",
+                                        "props": {
+                                            "type": "info",
+                                            "variant": "tonal",
+                                            "density": "compact",
+                                            "class": "mt-2",
+                                        },
+                                        "content": [
+                                            {
+                                                "component": "div",
+                                                "text": "上传模式说明：",
+                                            },
+                                            {
+                                                "component": "div",
+                                                "text": "• 远程上传：CloudDrive2 Remote Upload 协议，兼容性更好（默认）。",
+                                            },
+                                            {
+                                                "component": "div",
+                                                "text": "• 直写上传：CreateFile/WriteToFile/CloseFile 方式，且在 CloseFile 后轮询等待云端上传完成。",
+                                            },
+                                            {
+                                                "component": "div",
+                                                "text": "默认使用远程上传；如果远程上传出现不稳定（如超时、失败重试频繁等），可以切换为直写上传尝试。",
+                                            },
+                                        ],
+                                    }
+                                ],
+                            }
+                        ],
+                    },
                 ],
             }
         ], {
@@ -209,6 +279,7 @@ class CloudDriveDisk(_PluginBase):
             "port": "19798",
             "username": "",
             "password": "",
+            "upload_mode": "remote_upload",
         }
 
     def get_page(self) -> List[dict]:
