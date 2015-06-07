@@ -3,7 +3,15 @@ from typing import Dict, Any, Optional, List, Union
 from pathlib import Path
 
 from orjson import loads, JSONDecodeError
-from pydantic import BaseModel, ValidationError, Field, field_validator, model_validator, ConfigDict, field_serializer
+from pydantic import (
+    BaseModel,
+    ValidationError,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_validator,
+    field_serializer,
+)
 
 from app.log import logger
 from app.core.config import settings
@@ -59,7 +67,9 @@ class ConfigManager(BaseModel):
         validate_assignment=True,
     )
 
-    @field_validator("cron_full_sync_strm", "increment_sync_cron", "cron_clear", mode="before")
+    @field_validator(
+        "cron_full_sync_strm", "increment_sync_cron", "cron_clear", mode="before"
+    )
     @classmethod
     def _validate_and_fix_cron(cls, v: Optional[str]) -> Optional[str]:
         if not v:
@@ -480,7 +490,9 @@ class ConfigManager(BaseModel):
         plugindata = PluginDataOper()
         plugindata.save(plugin_id, key, value)
 
-    def get_plugin_data(self, key: Optional[str] = None, plugin_id: Optional[str] = None) -> Any:
+    def get_plugin_data(
+        self, key: Optional[str] = None, plugin_id: Optional[str] = None
+    ) -> Any:
         """
         获取插件数据
         :param key: 数据key

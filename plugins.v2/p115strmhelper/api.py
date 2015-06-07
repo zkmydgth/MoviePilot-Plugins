@@ -171,14 +171,14 @@ class Api:
                 return UserStorageStatusResponse(
                     success=False,
                     error_message=f"获取115空间信息失败: {error_msg}",
-                    user_info=UserInfo.parse_obj(user_details_dict),
+                    user_info=UserInfo.model_validate(user_details_dict),
                     storage_info=None,
                 )
 
             return UserStorageStatusResponse(
                 success=True,
-                user_info=UserInfo.parse_obj(user_details_dict),
-                storage_info=StorageInfo.parse_obj(storage_details_dict)
+                user_info=UserInfo.model_validate(user_details_dict),
+                storage_info=StorageInfo.model_validate(storage_details_dict)
                 if storage_details_dict
                 else None,
             )
@@ -319,9 +319,9 @@ class Api:
             resp = P115Client.login_qrcode_token()
             check_response(resp)
             resp_info = resp.get("data", {})
-            _uid = resp_info.get("uid", "")
+            _uid = str(resp_info.get("uid", ""))
             _time = str(resp_info.get("time", ""))
-            _sign = resp_info.get("sign", "")
+            _sign = str(resp_info.get("sign", ""))
             resp = P115Client.login_qrcode(_uid)
             qrcode_base64 = b64encode(resp).decode("utf-8")
 

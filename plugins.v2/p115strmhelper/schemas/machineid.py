@@ -9,6 +9,7 @@ class MachineID(BaseModel):
     """
     machine_id: str
 
+
 class MachineIDFeature(BaseModel):
     """
     增强功能权限
