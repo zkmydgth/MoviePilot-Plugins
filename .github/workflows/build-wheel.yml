@@ -29,6 +29,26 @@ on:
         type: string
 
 jobs:
+  # 新增任务：准备构建矩阵
+  prepare_matrix:
+    # 任务名称
+    name: 0. 准备构建矩阵
+    # 运行环境
+    runs-on: ubuntu-latest
+    # 任务输出
+    outputs:
+      # 输出转换后的 JSON 数组字符串
+      matrix_json: ${{ steps.generate_matrix.outputs.matrix_json }}
+    steps:
+      # 步骤1：将输入的字符串转换为 JSON 格式
+      - name: 从输入字符串生成矩阵 JSON
+        id: generate_matrix
+        run: |
+          # 使用 jq 工具将空格分隔的字符串安全地转换为 JSON 数组格式
+          JSON_ARRAY=$(echo '${{ inputs.platforms }}' | jq -R 'split(" ") | tojson')
+          echo "matrix_json=${JSON_ARRAY}" >> $GITHUB_OUTPUT
+          echo "生成的矩阵: ${JSON_ARRAY}"
+
   # 第一个任务：获取源码包信息
   get_source_info:
     # 任务名称
@@ -46,28 +66,17 @@ jobs:
       - name: 从 PyPI JSON API 获取源码包 URL
         id: get_url
         run: |
-          # 从输入参数获取包名和版本
           PACKAGE_NAME="${{ inputs.package_name }}"
           PACKAGE_VERSION="${{ inputs.package_version }}"
-
-          # 构建 PyPI JSON API 的 URL
           JSON_URL="https://pypi.org/pypi/${PACKAGE_NAME}/json"
           echo "正在从 ${JSON_URL} 获取信息..."
-
-          # 使用 curl 和 jq 解析 JSON，找到指定版本的 sdist (tar.gz) 源码包的 URL
           SDIST_URL=$(curl -sL ${JSON_URL} | jq -r --arg VERSION "${PACKAGE_VERSION}" '.releases[$VERSION][] | select(.packagetype == "sdist") | .url')
-
-          # 检查是否成功获取到 URL
           if [ -z "${SDIST_URL}" ]; then
             echo "::error::无法为 ${PACKAGE_NAME} 版本 ${PACKAGE_VERSION} 找到 sdist (tar.gz) 源码包。"
             exit 1
           fi
-          
-          # 从 URL 中提取文件名，并去掉 .tar.gz 后缀，作为源码目录名
           FILENAME=$(basename "${SDIST_URL}")
           SOURCE_DIR="${FILENAME%.tar.gz}"
-
-          # 将获取到的 URL 和目录名设置为输出变量
           echo "sdist_url=${SDIST_URL}" >> $GITHUB_OUTPUT
           echo "source_dir=${SOURCE_DIR}" >> $GITHUB_OUTPUT
           echo "成功获取到源码包 URL: ${SDIST_URL}"
@@ -77,65 +86,69 @@ jobs:
   build_wheels:
     # 任务名称
     name: 2. 在 ${{ matrix.target }} 上编译
-    # 依赖于上一个任务的成功
-    needs: get_source_info
+    # 依赖于前两个准备任务的成功
+    needs: [get_source_info, prepare_matrix]
     # 运行环境，根据矩阵中的目标平台动态选择
     runs-on: ${{ startsWith(matrix.target, 'windows') && 'windows-latest' || startsWith(matrix.target, 'macos') && 'macos-latest' || 'ubuntu-latest' }}
     # 构建矩阵策略
     strategy:
-      # 设置为 false，这样即使一个平台的构建失败，其他平台的构建也会继续
       fail-fast: false
-      # 定义矩阵，'platforms' 的值会从手动触发时输入的字符串转换而来
+      # 定义矩阵，从 prepare_matrix 任务的输出中动态生成
       matrix:
-        target: ${{ fromJSON(format('["{0}"]', join(split(inputs.platforms, ' '), '","'))) }}
+        target: ${{ fromJSON(needs.prepare_matrix.outputs.matrix_json) }}
 
     steps:
-      # 步骤1：检出代码库，这是为了后续提交 wheel 文件做准备
+      # 步骤1：检出代码库
       - name: 检出代码
         uses: actions/checkout@v4
 
       # 步骤2：下载并解压源码包
       - name: 下载并解压源码包
         run: |
-          # 从上一个任务的输出中获取源码包 URL
           SDIST_URL="${{ needs.get_source_info.outputs.sdist_url }}"
           echo "正在下载源码: ${SDIST_URL}"
-          # 下载
           curl -sL -o source.tar.gz "${SDIST_URL}"
-          # 解压
           tar -xzf source.tar.gz
           echo "解压完成。"
 
-      # 步骤3：为 Linux 平台设置 QEMU（用于交叉编译 aarch64 和 i686）
+      # 步骤3：准备 cibuildwheel 所需的环境变量
+      - name: 准备构建变量
+        id: vars
+        run: |
+          # 将 Python 版本 '3.12.8' 转换为 cibuildwheel 需要的格式 'cp312-*'
+          PY_VERSION_SHORT=$(echo "${{ inputs.python_version }}" | cut -d. -f1,2 | tr -d .)
+          echo "cibw_build_version=cp${PY_VERSION_SHORT}-*" >> $GITHUB_OUTPUT
+
+          # 从目标平台 'windows-amd64' 中提取架构部分 'amd64'
+          ARCH=$(echo "${{ matrix.target }}" | cut -d- -f2-)
+          echo "cibw_arch=${ARCH}" >> $GITHUB_OUTPUT
+
+      # 步骤4：为 Linux 平台设置 QEMU
       - name: (仅Linux) 设置 QEMU
         if: runner.os == 'Linux'
         uses: docker/setup-qemu-action@v3
 
-      # 步骤4：使用 cibuildwheel 构建 wheel 文件
+      # 步骤5：使用 cibuildwheel 构建 wheel 文件
       - name: 构建 Wheel
         uses: pypa/cibuildwheel@v2.19.1
         env:
-          # 设置 cibuildwheel 的构建目标 Python 版本
-          # 这里会根据输入的 Python 版本（如 3.12.8）生成 cibuildwheel 能识别的格式（如 cp312-*）
-          CIBW_BUILD: "cp${{ join(split(inputs.python_version, '.'), '')[:3] }}-*"
+          # 从上一步 'vars' 的输出中获取 Python 版本
+          CIBW_BUILD: ${{ steps.vars.outputs.cibw_build_version }}
           # 设置输出目录
           CIBW_OUTPUT_DIR: wheels
-          # 根据需求，排除不需要的平台架构组合
-          # 规则4：任何情况下，排除掉arm与32、windows与32、macos与32
+          # 排除不需要的平台架构组合
           CIBW_SKIP: "*-win_ia64 *-win32 *-manylinux_armv7l *-manylinux_ppc64le *-manylinux_s390x *-macosx_i686 *-macosx_ppc64"
-          # 设置目标架构，从矩阵变量中解析
-          CIBW_ARCHS: ${{ split(matrix.target, '-')[1] }}
+          # 从上一步 'vars' 的输出中获取目标架构
+          CIBW_ARCHS: ${{ steps.vars.outputs.cibw_arch }}
         with:
           # 指定源码包解压后的目录
           package-dir: ${{ needs.get_source_info.outputs.source_dir }}
 
-      # 步骤5：将构建好的 wheel 文件作为产物上传
+      # 步骤6：将构建好的 wheel 文件作为产物上传
       - name: 上传构建产物
         uses: actions/upload-artifact@v4
         with:
-          # 产物名称，每个平台一个，方便区分
           name: wheel-${{ matrix.target }}
-          # 上传的路径
           path: ./wheels/*.whl
 
   # 第三个任务：提交 wheel 文件到仓库
@@ -154,20 +167,17 @@ jobs:
       # 步骤2：创建用于存放 wheel 的目录
       - name: 创建目标目录
         run: |
-          # 目录结构：wheels/依赖名/版本/
           mkdir -p wheels/${{ inputs.package_name }}/${{ inputs.package_version }}
 
       # 步骤3：下载所有构建任务上传的产物
       - name: 下载所有 Wheels 产物
         uses: actions/download-artifact@v4
         with:
-          # 将所有产物下载到 temp-wheels 目录
           path: temp-wheels
 
       # 步骤4：整理所有 wheel 文件到最终目录
       - name: 整理 Wheel 文件
         run: |
-          # 查找所有下载的 .whl 文件，并移动到最终的目标目录
           find temp-wheels -name "*.whl" -exec mv {} wheels/${{ inputs.package_name }}/${{ inputs.package_version }}/ \;
           echo "所有 wheel 文件已整理到目标目录:"
           ls -R wheels
@@ -175,18 +185,12 @@ jobs:
       # 步骤5：提交并推送到代码仓库
       - name: 提交并推送文件
         run: |
-          # 配置 git 用户信息
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          
-          # 将新生成的 wheel 文件添加到暂存区
           git add wheels/${{ inputs.package_name }}/${{ inputs.package_version }}/*.whl
-          
-          # 检查是否有文件变动，如果没有变动则不进行提交
           if git diff --staged --quiet; then
             echo "没有新的 wheel 文件需要提交。"
           else
-            # 如果有变动，则创建提交并推送到远程仓库
             git commit -m "build: 为 ${{ inputs.package_name }} ${{ inputs.package_version }} 添加 wheels"
             git push
             echo "新的 wheel 文件已成功提交并推送。"
