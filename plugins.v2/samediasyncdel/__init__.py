@@ -28,7 +28,7 @@ class SaMediaSyncDel(_PluginBase):
     # 插件图标
     plugin_icon = "mediasyncdel.png"
     # 插件版本
-    plugin_version = "1.0.2"
+    plugin_version = "1.0.3"
     # 插件作者
     plugin_author = "DDSRem,thsrite"
     # 作者主页
@@ -79,7 +79,7 @@ class SaMediaSyncDel(_PluginBase):
             self._notify = config.get("notify")
             self._del_source = config.get("del_source")
             self._del_history = config.get("del_history")
-            self._local_library_path = ""
+            self._local_library_path = config.get("local_library_path")
             self._p115_library_path = config.get("p115_library_path")
             self._p115_force_delete_files = config.get("p115_force_delete_files")
             self._p123_library_path = config.get("p123_library_path")
@@ -106,6 +106,7 @@ class SaMediaSyncDel(_PluginBase):
                     "notify": self._notify,
                     "del_source": self._del_source,
                     "del_history": False,
+                    "local_library_path": self._local_library_path,
                     "p115_library_path": self._p115_library_path,
                     "p115_force_delete_files": self._p115_force_delete_files,
                     "p123_library_path": self._p123_library_path,
@@ -166,6 +167,82 @@ class SaMediaSyncDel(_PluginBase):
         """
         拼装插件配置页面，需要返回两块数据：1、页面配置；2、数据结构
         """
+
+        local_media_tab = [
+            {
+                "component": "VRow",
+                "content": [
+                    {
+                        "component": "VCol",
+                        "props": {
+                            "cols": 12,
+                        },
+                        "content": [
+                            {
+                                "component": "VTextarea",
+                                "props": {
+                                    "model": "local_library_path",
+                                    "rows": "2",
+                                    "label": "本地媒体库路径映射",
+                                    "placeholder": "媒体服务器路径#MoviePilot路径（一行一个）",
+                                },
+                            }
+                        ],
+                    }
+                ],
+            },
+            {
+                "component": "VAlert",
+                "props": {
+                    "type": "info",
+                    "variant": "tonal",
+                    "density": "compact",
+                    "class": "mt-2",
+                },
+                "content": [
+                    {
+                        "component": "div",
+                        "text": "关于路径映射（转移后文件路径）：",
+                    },
+                    {
+                        "component": "div",
+                        "text": "emby目录：/data/A.mp4",
+                    },
+                    {
+                        "component": "div",
+                        "text": "moviepilot目录：/mnt/link/A.mp4",
+                    },
+                    {
+                        "component": "div",
+                        "text": "路径映射填：/data#/mnt/link",
+                    },
+                    {
+                        "component": "div",
+                        "text": "不正确配置会导致查询不到转移记录！",
+                    },
+                ],
+            },
+            {
+                "component": "VAlert",
+                "props": {
+                    "type": "warning",
+                    "variant": "tonal",
+                    "density": "compact",
+                    "class": "mt-2",
+                    "text": "注意：不同的存储模块不能配置同一个媒体路径，否则会导致匹配失败或误删除！",
+                },
+            },
+            {
+                "component": "VAlert",
+                "props": {
+                    "type": "warning",
+                    "variant": "tonal",
+                    "density": "compact",
+                    "class": "mt-2",
+                    "text": "注意：本地同步删除功能需要使用神医助手PRO且版本在v3.0.0.3及以上！",
+                },
+            },
+        ]
 
         p115_media_tab = [
             {
@@ -496,6 +573,13 @@ class SaMediaSyncDel(_PluginBase):
                         "content": [
                             {
                                 "component": "VTab",
+                                "props": {"value": "tab-local"},
+                                "content": [
+                                    {"component": "span", "text": "本地媒体配置"},
+                                ],
+                            },
+                            {
+                                "component": "VTab",
                                 "props": {"value": "tab-p115"},
                                 "content": [
                                     {"component": "span", "text": "115网盘媒体配置"},
@@ -515,6 +599,16 @@ class SaMediaSyncDel(_PluginBase):
                         "component": "VWindow",
                         "props": {"model": "tab"},
                         "content": [
+                            {
+                                "component": "VWindowItem",
+                                "props": {"value": "tab-local"},
+                                "content": [
+                                    {
+                                        "component": "VCardText",
+                                        "content": local_media_tab,
+                                    }
+                                ],
+                            },
                             {
                                 "component": "VWindowItem",
                                 "props": {"value": "tab-p115"},
@@ -544,6 +638,7 @@ class SaMediaSyncDel(_PluginBase):
             "notify": True,
             "del_source": False,
             "del_history": False,
+            "local_library_path": "",
             "p115_library_path": "",
             "p115_force_delete_files": False,
             "p123_library_path": "",
