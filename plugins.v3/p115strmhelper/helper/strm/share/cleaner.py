@@ -232,6 +232,41 @@ class ShareStrmPendingCleanupQueue:
         return batch, None
 
 
+#: 旧版前端依赖的媒体 ID 键名，按 ``MediaSource`` 的取值反填。
+#:
+#: 前端联邦产物（``__federation_expose_AppPageStart``）仍以 ``tmdbid``/``tvdbid``/
+#: ``imdbid``/``doubanid`` 判断「该行是否有媒体 ID」并逐项渲染；只给 V3 新契约的
+#: ``media_source`` + ``media_id`` 会让那一栏恒为空（判据函数恒返回假）。
+_LEGACY_MEDIA_ID_KEYS: Dict[str, str] = {
+    "themoviedb": "tmdbid",
+    "tvdb": "tvdbid",
+    "imdb": "imdbid",
+    "douban": "doubanid",
+}
+
+
+def with_legacy_media_id_keys(row: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    为「缺失媒体」行补回旧版前端依赖的四个媒体 ID 键（新键原样保留）
+
+    两套键名共存：``media_source`` / ``media_id`` 是 V3 的媒体身份契约，四个旧键只为
+    兼容现有前端产物。按 ``media_source`` 的值回填对应旧键，其余留空；已带旧键的
+    记录先原样保留（``setdefault``），因此对历史落盘数据同样安全。
+
+    :param row (Dict): 缺失媒体行（``row_from_transfer_history`` 的产物或已存记录）
+    :return Dict: 补全后的副本（不修改入参）
+    """
+    out = dict(row)
+    for key in _LEGACY_MEDIA_ID_KEYS.values():
+        out.setdefault(key, None)
+    source = row.get("media_source")
+    media_id = row.get("media_id")
+    legacy_key = _LEGACY_MEDIA_ID_KEYS.get(str(source)) if source else None
+    if legacy_key and media_id:
+        out[legacy_key] = media_id
+    return out
+
+
 class ShareStrmMissingMediaStore:
     """
     失效分享对应的缺失媒体记录
@@ -281,7 +316,8 @@ class ShareStrmMissingMediaStore:
             "episodes": getattr(th, "episodes", None),
             "image": getattr(th, "image", None),
         }
-        return base
+        # 兼容旧前端：按 media_source 反填 tmdbid / tvdbid / imdbid / doubanid
+        return with_legacy_media_id_keys(base)
 
     def extend(self, rows: List[Dict[str, Any]]) -> None:
         """
@@ -309,7 +345,9 @@ class ShareStrmMissingMediaStore:
         :param limit (int): 每页条数
         :return Tuple: ``(当前页条目列表, 总条数)``
         """
-        return self._store.page(page, limit)
+        items, total = self._store.page(page, limit)
+        # 落盘数据可能来自补兼容键之前的版本，读取时再补一次
+        return [with_legacy_media_id_keys(item) for item in items], total
 
     def clear(self, uid: Optional[str], clear_all: bool) -> bool:
         """

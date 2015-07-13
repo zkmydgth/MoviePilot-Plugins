@@ -13,14 +13,20 @@ class MediaType(Enum):
 
 
 class MediaSource(str, Enum):
-    """媒体数据源。"""
+    """媒体数据源（成员名与取值都对齐真机 ``app/schemas/types.py``）。"""
 
-    TMDB = "tmdb"
-    DOUBAN = "douban"
-    BANGUMI = "bangumi"
-    ANILIST = "anilist"
+    # 桩宿主必须与真机同形，否则「按 media_source 值分派」的代码会在测试里看似
+    # 通过、到真机才失效。2026-10-09 实测踩到两处失真：TMDB 的规范值是
+    # "themoviedb"（不是 "tmdb"）、成员名是 IMDb（不是 IMDB）。
+    TMDB = "themoviedb"
+    Douban = "douban"
+    Bangumi = "bangumi"
+    AniList = "anilist"
+    IMDb = "imdb"
     TVDB = "tvdb"
-    IMDB = "imdb"
+    MusicBrainz = "musicbrainz"
+    TheAudioDB = "theaudiodb"
+    DoubanMusic = "doubanmusic"
 
 
 class MessageType(Enum):
