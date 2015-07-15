@@ -29,6 +29,8 @@ class MediaInfoDownloader:
             "Cookie": self.cookie,
         }
 
+        self.stop_all_flag = None
+
         logger.debug(f"【媒体信息文件下载】初始化请求头：{self.headers}")
 
     @staticmethod
@@ -50,6 +52,8 @@ class MediaInfoDownloader:
             data={"data": encrypt(f'{{"pick_code":"{pickcode}"}}').decode("utf-8")},
             headers=self.headers,
         )
+        if resp.status_code == 403:
+            self.stop_all_flag = True
         check_response(resp)
         json = loads(cast(bytes, resp.content))
         if not json["state"]:
@@ -69,6 +73,8 @@ class MediaInfoDownloader:
             timeout=30,
             headers=self.headers,
         ) as response:
+            if response.status_code == 403:
+                self.stop_all_flag = True
             response.raise_for_status()
             with open(file_path, "wb") as f:
                 for chunk in response.iter_content(chunk_size=8192):
@@ -107,6 +113,8 @@ class MediaInfoDownloader:
             data={"data": encrypt(dumps(payload)).decode("utf-8")},
             headers=self.headers,
         )
+        if resp.status_code == 403:
+            self.stop_all_flag = True
         check_response(resp)
         json = loads(cast(bytes, resp.content))
         if not json["state"]:
@@ -133,12 +141,23 @@ class MediaInfoDownloader:
         """
         根据列表自动下载
         """
+        self.stop_all_flag = False
         mediainfo_count: int = 0
         mediainfo_fail_count: int = 0
         mediainfo_fail_dict: List = []
+        stop_all_msg_flag = True
         try:
             for item in downloads_list:
                 if not item:
+                    continue
+                if self.stop_all_flag is True:
+                    if stop_all_msg_flag:
+                        logger.error(
+                            "【媒体信息文件下载】触发风控，停止所有媒体信息文件下载"
+                        )
+                        stop_all_msg_flag = False
+                    mediainfo_fail_count += 1
+                    mediainfo_fail_dict.append(item["path"])
                     continue
                 download_success = False
                 if item["type"] == "local":
