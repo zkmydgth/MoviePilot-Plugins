@@ -65,6 +65,7 @@ Co-authored-by: Cursor Agent <cursoragent@cursor.com>
 - Follow **PEP 8**: 4-space indent, line length ~88–120 chars, spaces around operators, etc.
 - Strings: prefer double quotes `"`; use single quotes when embedding double quotes.
 - Trailing commas: allowed at end of multi-line structures (lists, dicts, args) for cleaner diffs.
+- **Comments** (`#` line comments) **and docstrings**: do not end a line with a terminal period (neither `.` nor Chinese `。`). Applies to summary lines and `:param` / `:return` / `:raises` lines alike.
 
 ### 2. Type Annotations
 
@@ -84,15 +85,16 @@ async def run_tool(api: Any, name: str, arguments: Dict[str, Any]) -> str:
 - Module: brief description at top of file (one line or short paragraph).
 - Class/function/method: docstring for purpose; required for public API.
 - **Multi-line docstrings**: Use **multi-line** docstrings for functions, classes, and methods (opening `"""` on its own line, description on the next line(s), closing `"""` on its own line). Do not use single-line `"""..."""`.
+- **Punctuation**: no terminal period at the end of docstring lines (same rule as `#` comments).
 - Format: this repo uses **Chinese** + **reStructuredText** style (`:param`, `:return`, `:raises`).
 
 ```python
 def _dump(obj: Any) -> str:
     """
-    将对象序列化为 JSON 字符串。
+    将对象序列化为 JSON 字符串
 
-    :param obj: 支持 model_dump()、dict() 或普通可序列化对象。
-    :return: UTF-8 JSON 字符串。
+    :param obj: 支持 model_dump()、dict() 或普通可序列化对象
+    :return: UTF-8 JSON 字符串
     """
 ```
 
