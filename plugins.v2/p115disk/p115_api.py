@@ -1,14 +1,23 @@
 from pathlib import Path
 from time import time, monotonic
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Tuple
+from datetime import datetime, timezone
 
+from cryptography.hazmat.primitives import hashes
+from httpx import stream, RequestError
+from oss2 import SizedFileAdapter, determine_part_size, StsAuth, Bucket
+from oss2.models import PartInfo
+from oss2.utils import b64encode_as_string
+from oss2.exceptions import ServerError
 from p115client import P115Client, check_response
 from p115client.tool.attr import normalize_attr, get_id_to_path, get_attr
 from p115client.tool.fs_files import iter_fs_files
 from p115client.tool.iterdir import iter_files_with_path_skim
 
 from app.chain.storage import StorageChain
+from app.core.config import settings, global_vars
 from app.log import logger
+from app.modules.filemanager.storages import transfer_process
 from app.schemas import FileItem, StorageUsage
 
 from .cache import IdPathCache, ItemIdCache
@@ -43,17 +52,17 @@ class P115Api:
             max_calls=2, time_window=2.0, name="get_item"
         )
         self._delete_rate_limiter = RateLimiter(
-            max_calls=1, time_window=3.0, name="delete"
+            max_calls=1, time_window=2.0, name="delete"
         )
         self._get_pid_by_path_rate_limiter = RateLimiter(
             max_calls=1, time_window=1.0, name="get_pid_by_path"
         )
         self._rename_rate_limiter = RateLimiter(
-            max_calls=1, time_window=3.0, name="rename"
+            max_calls=1, time_window=2.0, name="rename"
         )
-        self._move_rate_limiter = RateLimiter(max_calls=1, time_window=3.0, name="move")
-        self._copy_rate_limiter = RateLimiter(max_calls=1, time_window=3.0, name="copy")
-        self._list_rate_limiter = RateLimiter(max_calls=1, time_window=3.0, name="list")
+        self._move_rate_limiter = RateLimiter(max_calls=1, time_window=2.0, name="move")
+        self._copy_rate_limiter = RateLimiter(max_calls=1, time_window=2.0, name="copy")
+        self._list_rate_limiter = RateLimiter(max_calls=1, time_window=2.0, name="list")
 
         self._get_item_fail_records: Dict[str, Dict[str, float]] = {}
         self._get_item_blacklist: Dict[str, float] = {}
@@ -603,12 +612,118 @@ class P115Api:
 
         :return: 下载成功返回本地文件路径，失败返回None
         """
-        storage_chain = StorageChain()
-        fileitem = FileItem(
-            storage="u115",
-            **fileitem.model_dump(exclude={"storage"}),
+        detail = self.get_item(Path(fileitem.path))
+        if not detail:
+            logger.error(f"【P115Disk】获取文件详情失败: {fileitem.name}")
+            return None
+
+        download_url = self.client.download_url(
+            detail.pickcode, user_agent=settings.USER_AGENT
+        ).geturl()
+        if not download_url:
+            logger.error(f"【P115Disk】下载链接为空: {fileitem.name}")
+            return None
+
+        local_path = path or settings.TEMP_PATH / fileitem.name
+
+        # 获取文件大小
+        file_size = detail.size
+
+        # 初始化进度条
+        logger.info(f"【P115Disk】开始下载: {fileitem.name} -> {local_path}")
+        progress_callback = transfer_process(Path(fileitem.path).as_posix())
+
+        try:
+            with stream(
+                "GET", download_url, headers={"user-agent": settings.USER_AGENT}
+            ) as r:
+                r.raise_for_status()
+                downloaded_size = 0
+
+                with open(local_path, "wb") as f:
+                    for chunk in r.iter_bytes(chunk_size=10 * 1024 * 1024):
+                        if global_vars.is_transfer_stopped(fileitem.path):
+                            logger.info(f"【P115Disk】{fileitem.path} 下载已取消！")
+                            r.close()
+                            return None
+                        f.write(chunk)
+                        downloaded_size += len(chunk)
+                        if file_size:
+                            progress = (downloaded_size * 100) / file_size
+                            progress_callback(progress)
+
+                # 完成下载
+                progress_callback(100)
+                logger.info(f"【P115Disk】下载完成: {fileitem.name}")
+        except RequestError as e:
+            logger.error(f"【P115Disk】下载网络错误: {fileitem.name} - {str(e)}")
+            if local_path.exists():
+                local_path.unlink()
+            return None
+        except Exception as e:
+            logger.error(f"【P115Disk】下载失败: {fileitem.name} - {str(e)}")
+            if local_path.exists():
+                local_path.unlink()
+            return None
+
+        return local_path
+
+    @staticmethod
+    def _calc_sha1(filepath: Path, size: Optional[int] = None) -> str:
+        """
+        计算文件SHA1
+        size: 前多少字节
+        """
+        sha1 = hashes.Hash(hashes.SHA1())
+        with open(filepath, "rb") as f:
+            if size:
+                chunk = f.read(size)
+                sha1.update(chunk)
+            else:
+                while chunk := f.read(8192):
+                    sha1.update(chunk)
+        return sha1.finalize().hex()
+
+    def _get_oss_token(self) -> Tuple[str, str, str, str, datetime]:
+        """
+        获取 OSS 上传凭证
+
+        :return: (endpoint, access_key_id, access_key_secret, security_token, expiration_time)
+        """
+        token_resp = self.client.upload_gettoken()
+        check_response(token_resp)
+
+        endpoint = "http://oss-cn-shenzhen.aliyuncs.com"
+        access_key_id = token_resp.get("AccessKeyId")
+        access_key_secret = token_resp.get("AccessKeySecret")
+        security_token = token_resp.get("SecurityToken")
+        expiration_str = token_resp.get("Expiration")
+
+        # 解析过期时间
+        expiration_time = datetime.fromisoformat(expiration_str.replace("Z", "+00:00"))
+
+        return (
+            endpoint,
+            access_key_id,
+            access_key_secret,
+            security_token,
+            expiration_time,
         )
-        return storage_chain.download_file(fileitem=fileitem, path=path)
+
+    @staticmethod
+    def _is_token_expiring(
+        expiration_time: datetime, threshold_minutes: int = 5
+    ) -> bool:
+        """
+        检查 token 是否即将过期
+
+        :param expiration_time: token 过期时间
+        :param threshold_minutes: 提前多少分钟判定为即将过期（默认 5 分钟）
+        :return: True 表示即将过期或已过期
+        """
+        now = datetime.now(timezone.utc)
+        remaining = (expiration_time - now).total_seconds()
+        return remaining < threshold_minutes * 60
 
     def upload(
         self,
@@ -625,21 +740,227 @@ class P115Api:
 
         :return: 上传成功返回文件项，失败返回None
         """
-        storage_chain = StorageChain()
-        target_dir = FileItem(
-            storage="u115",
-            **target_dir.model_dump(exclude={"storage"}),
-        )
-        resp = storage_chain.upload_file(
-            fileitem=target_dir, path=local_path, new_name=new_name
-        )
-        if not resp:
+        if not local_path.exists():
+            logger.error(f"【P115Disk】本地文件不存在: {local_path}")
             return None
-        resp = FileItem(
-            storage=self._disk_name,
-            **resp.model_dump(exclude={"storage"}),
-        )
-        return resp
+
+        target_name = new_name or local_path.name
+        target_path = Path(target_dir.path) / target_name
+
+        # 获取目标目录ID
+        target_pid = target_dir.fileid
+
+        # 计算文件特征值
+        file_size = local_path.stat().st_size
+        file_sha1 = self._calc_sha1(local_path)
+
+        # 清理缓存
+        cache_id = self._id_cache.get_id_by_dir(target_path.as_posix())
+        if cache_id:
+            self._id_cache.remove(id=cache_id)
+            self._id_item_cache.remove(id=cache_id)
+
+        # 初始化进度条
+        logger.info(f"【P115Disk】开始上传: {local_path} -> {target_path}")
+        progress_callback = transfer_process(local_path.as_posix())
+
+        try:
+            # Step 1: 初始化上传
+            def read_range_hash(range_str: str) -> str:
+                start, end = map(int, range_str.split("-"))
+                with open(local_path, "rb") as f:
+                    f.seek(start)
+                    chunk = f.read(end - start + 1)
+                    sha1 = hashes.Hash(hashes.SHA1())
+                    sha1.update(chunk)
+                    return sha1.finalize().hex().upper()
+
+            init_resp = self.client.upload_file_init(
+                filename=target_name,
+                filesize=file_size,
+                filesha1=file_sha1,
+                pid=target_pid,
+                read_range_bytes_or_hash=read_range_hash,
+            )
+            check_response(init_resp)
+
+            if not init_resp.get("state"):
+                logger.error(f"【P115Disk】初始化上传失败: {init_resp.get('error')}")
+                return None
+
+            # 检查是否秒传成功
+            if init_resp.get("reuse"):
+                logger.info(f"【P115Disk】{target_name} 秒传成功")
+                progress_callback(100)
+                return self.get_item(target_path)
+
+            logger.debug(f"【P115Disk】上传初始化结果: {init_resp}")
+
+            # 获取上传信息
+            bucket_name = init_resp.get("bucket")
+            object_name = init_resp.get("object")
+            callback_info = init_resp.get("callback")
+
+            if not all([bucket_name, object_name, callback_info]):
+                logger.error(f"【P115Disk】上传信息不完整: {init_resp}")
+                return None
+
+            # Step 2: 获取OSS上传凭证
+            (
+                endpoint,
+                access_key_id,
+                access_key_secret,
+                security_token,
+                token_expiration,
+            ) = self._get_oss_token()
+            logger.info(
+                f"【P115Disk】OSS Token 过期时间: {token_expiration.strftime('%Y-%m-%d %H:%M:%S UTC')}"
+            )
+
+            # Step 3: OSS分片上传
+            auth = StsAuth(
+                access_key_id=access_key_id,
+                access_key_secret=access_key_secret,
+                security_token=security_token,
+            )
+            bucket = Bucket(auth, endpoint, bucket_name)  # noqa
+            part_size = determine_part_size(file_size, preferred_size=10 * 1024 * 1024)
+
+            logger.info(
+                f"【P115Disk】开始分片上传，分片大小: {part_size // 1024 // 1024}MB"
+            )
+
+            # 初始化分片上传
+            upload_id = bucket.init_multipart_upload(
+                object_name, params={"encoding-type": "url", "sequential": ""}
+            ).upload_id
+            parts = []
+
+            # 逐个上传分片并更新进度
+            with open(local_path, "rb") as fileobj:
+                part_number = 1
+                offset = 0
+                while offset < file_size:
+                    # 检查是否取消上传
+                    if global_vars.is_transfer_stopped(local_path.as_posix()):
+                        logger.info(f"【P115Disk】{local_path} 上传已取消！")
+                        bucket.abort_multipart_upload(object_name, upload_id)
+                        return None
+
+                    # 检查 token 是否即将过期（提前 5 分钟刷新）
+                    if self._is_token_expiring(token_expiration, threshold_minutes=5):
+                        logger.info("【P115Disk】Token 即将过期，正在刷新...")
+                        try:
+                            (
+                                endpoint,
+                                access_key_id,
+                                access_key_secret,
+                                security_token,
+                                token_expiration,
+                            ) = self._get_oss_token()
+                            # 重新创建认证和 bucket 对象
+                            auth = StsAuth(
+                                access_key_id=access_key_id,
+                                access_key_secret=access_key_secret,
+                                security_token=security_token,
+                            )
+                            bucket = Bucket(auth, endpoint, bucket_name)  # noqa
+                            logger.info(
+                                f"【P115Disk】Token 刷新成功，新的过期时间: "
+                                f"{token_expiration.strftime('%Y-%m-%d %H:%M:%S UTC')}"
+                            )
+                        except Exception as e:
+                            logger.error(f"【P115Disk】刷新 Token 失败: {str(e)}")
+                            bucket.abort_multipart_upload(object_name, upload_id)
+                            return None
+
+                    num_to_upload = min(part_size, file_size - offset)
+
+                    # 上传分片，带重试机制处理 token 过期错误
+                    max_retries = 2
+                    for retry in range(max_retries):
+                        try:
+                            result = bucket.upload_part(
+                                object_name,
+                                upload_id,
+                                part_number,
+                                data=SizedFileAdapter(fileobj, num_to_upload),
+                            )
+                            parts.append(PartInfo(part_number, result.etag))
+                            break  # 上传成功，跳出重试循环
+                        except ServerError as e:
+                            # 检查是否是 token 过期错误
+                            error_code = getattr(e, "code", "")
+                            if (
+                                error_code
+                                in ("InvalidAccessKeyId", "SecurityTokenExpired")
+                                and retry < max_retries - 1
+                            ):
+                                logger.warn(
+                                    f"【P115Disk】检测到 Token 过期错误 ({error_code})，"
+                                    f"正在刷新并重试..."
+                                )
+                                # 刷新 token
+                                (
+                                    endpoint,
+                                    access_key_id,
+                                    access_key_secret,
+                                    security_token,
+                                    token_expiration,
+                                ) = self._get_oss_token()
+                                auth = StsAuth(
+                                    access_key_id=access_key_id,
+                                    access_key_secret=access_key_secret,
+                                    security_token=security_token,
+                                )
+                                bucket = Bucket(auth, endpoint, bucket_name)  # noqa
+                                # 需要重新定位文件指针
+                                fileobj.seek(offset)
+                                continue
+                            else:
+                                # 其他错误或重试次数用尽，放弃上传
+                                logger.error(f"【P115Disk】上传分片失败: {str(e)}")
+                                bucket.abort_multipart_upload(object_name, upload_id)
+                                raise
+
+                    # 更新偏移和分片号
+                    offset += num_to_upload
+                    part_number += 1
+
+                    # 实时更新进度
+                    progress = (offset * 100) / file_size
+                    progress_callback(progress)
+                    logger.debug(f"【P115Disk】上传进度: {progress:.1f}%")
+
+            # 完成上传
+            progress_callback(100)
+
+            # Step 4: 完成OSS上传并回调115服务器
+            def encode_callback(cb: str) -> str:
+                return b64encode_as_string(cb)
+
+            headers = {
+                "X-oss-callback": encode_callback(callback_info["callback"]),
+                "x-oss-callback-var": encode_callback(callback_info["callback_var"]),
+                "x-oss-forbid-overwrite": "false",
+            }
+
+            result = bucket.complete_multipart_upload(
+                object_name, upload_id, parts, headers=headers
+            )
+
+            if result.status == 200:
+                logger.info(f"【P115Disk】{target_name} 上传成功")
+                return self.get_item(target_path)
+            else:
+                logger.error(
+                    f"【P115Disk】{target_name} 上传失败，状态码: {result.status}"
+                )
+                return None
+
+        except Exception as e:
+            logger.error(f"【P115Disk】上传失败: {local_path} - {str(e)}")
+            return None
 
     def detail(self, fileitem: FileItem) -> Optional[FileItem]:
         """
