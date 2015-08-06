@@ -263,6 +263,11 @@ class P115Disk(_PluginBase):
         if fileitem.storage != self._disk_name:
             return None
 
+        if recursion:
+            result = self._p115_api.iter_files(fileitem)
+            if result is not None:
+                return result
+
         def __get_files(_item: FileItem, _r: Optional[bool] = False):
             """
             递归处理

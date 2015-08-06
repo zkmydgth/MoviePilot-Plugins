@@ -5,6 +5,7 @@ from typing import Optional, List, Dict
 from p115client import P115Client, check_response
 from p115client.tool.attr import normalize_attr, get_id_to_path, get_attr
 from p115client.tool.fs_files import iter_fs_files
+from p115client.tool.iterdir import iter_files_with_path_skim
 
 from app.chain.storage import StorageChain
 from app.log import logger
@@ -36,12 +37,16 @@ class P115Api:
         self._copy_call_counter = 0
         self._move_call_counter = 0
         self._delete_call_counter = 0
+        self._get_pid_by_path_call_counter = 0
 
         self._get_item_rate_limiter = RateLimiter(
             max_calls=2, time_window=1.0, name="get_item"
         )
         self._delete_rate_limiter = RateLimiter(
             max_calls=1, time_window=1.0, name="delete"
+        )
+        self._get_pid_by_path_rate_limiter = RateLimiter(
+            max_calls=1, time_window=1.0, name="get_pid_by_path"
         )
 
         self._get_item_fail_records: Dict[str, Dict[str, float]] = {}
@@ -55,23 +60,100 @@ class P115Api:
 
         :return: 目录 ID
         """
-        if path.as_posix() == "/":
-            return 0
-        pid = self._id_cache.get_id_by_dir(directory=path.as_posix())
-        if pid:
-            return pid
-        resp = self.client.fs_dir_getid(path.as_posix())
-        check_response(resp)
-        pid = resp.get("id", -1)
-        if pid == 0:
-            resp = self.client.fs_makedirs_app(path.as_posix(), pid=0)
+        try:
+            if path.as_posix() == "/":
+                return 0
+            pid = self._id_cache.get_id_by_dir(directory=path.as_posix())
+            if pid:
+                return pid
+            self._get_pid_by_path_rate_limiter.acquire()
+            self._get_pid_by_path_call_counter = (
+                self._get_pid_by_path_call_counter + 1
+            ) % 2
+            if self._get_pid_by_path_call_counter == 0:
+                resp = self.client.fs_dir_getid(path.as_posix())
+            else:
+                resp = self.client.fs_dir_getid_app(path.as_posix())
             check_response(resp)
-            pid = resp["cid"]
-            self._id_cache.add_cache(id=int(pid), directory=path.as_posix())
-            return pid
-        if pid != 0:
-            return pid
-        return -1
+            pid = resp.get("id", -1)
+            if pid == 0:
+                resp = self.client.fs_makedirs_app(path.as_posix(), pid=0)
+                check_response(resp)
+                pid = resp["cid"]
+                self._id_cache.add_cache(id=int(pid), directory=path.as_posix())
+                return pid
+            if pid != 0:
+                return pid
+            return -1
+        except Exception as e:
+            logger.warn(f"【P115Disk】获取文件夹ID失败: {str(e)}")
+            file_item = self.get_item(path)
+            if file_item:
+                return int(file_item.fileid)
+            return -1
+
+    def iter_files(self, fileitem: FileItem) -> Optional[List[FileItem]]:
+        """
+        递归遍历文件夹
+
+        :param fileitem: 文件项，可以是文件或目录
+
+        :return: 文件项列表
+        """
+        if fileitem.type == "file":
+            item = self.detail(fileitem)
+            if item:
+                return [item]
+            return []
+        if fileitem.path == "/":
+            file_id = "0"
+        else:
+            file_id = fileitem.fileid
+            if not file_id:
+                file_id = self.get_pid_by_path(Path(fileitem.path))
+            if file_id == -1:
+                return []
+
+        items = []
+        try:
+            for item in iter_files_with_path_skim(
+                client=self.client,
+                cid=file_id,
+                with_ancestors=False,
+            ):
+                file_path = item["path"] + ("/" if item["is_dir"] else "")
+                self._id_cache.add_cache(id=item["id"], directory=item["path"])
+                self._id_item_cache.add_cache(
+                    id=item["id"],
+                    item={
+                        "path": file_path,
+                        "id": item["id"],
+                        "size": item["size"],
+                        "modify_time": None,
+                        "pickcode": item["pickcode"],
+                        "is_dir": item["is_dir"],
+                    },
+                )
+                items.append(
+                    FileItem(
+                        storage=self._disk_name,
+                        fileid=str(item["id"]),
+                        parent_fileid=str(item["parent_id"]),
+                        name=item["name"],
+                        basename=Path(item["name"]).stem,
+                        extension=Path(item["name"]).suffix[1:]
+                        if not item["is_dir"]
+                        else None,
+                        type="dir" if item["is_dir"] else "file",
+                        path=file_path,
+                        size=item["size"] if not item["is_dir"] else None,
+                        modify_time=None,
+                        pickcode=item["pickcode"],
+                    )
+                )
+        except Exception as e:
+            logger.warn(f"【P115Disk】递归遍历文件夹失败: {str(e)}")
+            return None
 
     def list(self, fileitem: FileItem) -> List[FileItem]:
         """

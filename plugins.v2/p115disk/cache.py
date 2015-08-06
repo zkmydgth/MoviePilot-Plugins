@@ -1,6 +1,6 @@
 from typing import Optional
 
-from app.core.cache import LRUCache
+from app.core.cache import TTLCache
 
 
 class IdPathCache:
@@ -14,13 +14,15 @@ class IdPathCache:
 
         :param maxsize: 缓存最大大小，默认128
         """
-        self.id_to_dir = LRUCache(
+        self.id_to_dir = TTLCache(
             region="p115disk_id_path_cache_id_to_dir",
             maxsize=maxsize,
+            ttl=60 * 30,
         )
-        self.dir_to_id = LRUCache(
+        self.dir_to_id = TTLCache(
             region="p115disk_id_path_cache_dir_to_id",
             maxsize=maxsize,
+            ttl=60 * 30,
         )
 
     def add_cache(self, id: int, directory: str):
@@ -105,9 +107,10 @@ class ItemIdCache:
 
         :param maxsize: 缓存最大大小，默认128
         """
-        self.id_to_item = LRUCache(
+        self.id_to_item = TTLCache(
             region="p115disk_item_id_cache",
             maxsize=maxsize,
+            ttl=60 * 30,
         )
 
     def add_cache(self, id: int, item: dict):
