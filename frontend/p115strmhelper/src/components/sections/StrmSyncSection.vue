@@ -767,6 +767,46 @@
             </v-col>
           </v-row>
 
+          <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
+            <div class="text-body-2 mb-1"><strong>事件处理逻辑：</strong></div>
+            <div class="text-caption">
+              <div class="d-flex align-start mb-1">
+                <v-icon icon="mdi-upload-outline" size="x-small" class="mr-2 mt-1 flex-shrink-0"
+                  color="success"></v-icon>
+                <span><strong>upload_image_file / upload_file（上传）</strong>：直接生成 STRM 文件</span>
+              </div>
+              <div class="d-flex align-start mb-1">
+                <v-icon icon="mdi-file-move-outline" size="x-small" class="mr-2 mt-1 flex-shrink-0"
+                  color="warning"></v-icon>
+                <span><strong>move_image_file / move_file（移动）</strong>：按照「移动事件处理策略」决定是否生成或删除对应的本地文件</span>
+              </div>
+              <div class="d-flex align-start mb-1">
+                <v-icon icon="mdi-inbox-arrow-down-outline" size="x-small" class="mr-2 mt-1 flex-shrink-0"
+                  color="success"></v-icon>
+                <span><strong>receive_files（接收文件）</strong>：直接生成 STRM 文件</span>
+              </div>
+              <div class="d-flex align-start mb-1">
+                <v-icon icon="mdi-content-copy" size="x-small" class="mr-2 mt-1 flex-shrink-0" color="success"></v-icon>
+                <span><strong>copy_file / copy_folder（复制）</strong>：直接生成 STRM 文件</span>
+              </div>
+              <div class="d-flex align-start mb-1">
+                <v-icon icon="mdi-folder-edit-outline" size="x-small" class="mr-2 mt-1 flex-shrink-0"
+                  color="primary"></v-icon>
+                <span><strong>folder_rename（文件夹重命名）</strong>：判断本地文件夹是否存在，若存在则直接重命名本地文件夹</span>
+              </div>
+              <div class="d-flex align-start mb-1">
+                <v-icon icon="mdi-file-edit-outline" size="x-small" class="mr-2 mt-1 flex-shrink-0"
+                  color="primary"></v-icon>
+                <span><strong>rename_file（文件重命名）</strong>：判断本地文件是否存在——若不存在则走 STRM 创建流程；若存在则对 STRM
+                  文件重命名，并同步重命名其关联的媒体信息文件</span>
+              </div>
+              <div class="d-flex align-start">
+                <v-icon icon="mdi-delete-outline" size="x-small" class="mr-2 mt-1 flex-shrink-0" color="error"></v-icon>
+                <span><strong>delete_file（删除）</strong>：按删除流程正常删除本地对应文件</span>
+              </div>
+            </div>
+          </v-alert>
+
           <v-alert type="warning" variant="tonal" density="compact" class="mt-3" icon="mdi-alert">
             <div class="text-caption">注意：当 MoviePilot 主程序运行整理任务时 115生活事件 监控会自动暂停，整理运行完成后会继续监控。</div>
           </v-alert>
