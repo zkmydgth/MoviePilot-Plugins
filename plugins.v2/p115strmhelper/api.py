@@ -57,6 +57,8 @@ from .utils.oopserver import OOPServerHelper
 from app.log import logger
 from app.core.cache import cached, TTLCache
 from app.helper.mediaserver import MediaServerHelper
+from app.schemas import Response as SchemasResponse
+from app.core.config import settings
 
 
 @sentry_manager.capture_all_class_exceptions
@@ -85,6 +87,12 @@ class Api:
             {"title": config.name, "value": config.name}
             for config in mediaserver_helper.get_configs().values()
         ]
+        config["sync_del_mediaservers"] = [
+            {"title": config.name, "value": config.name}
+            for config in mediaserver_helper.get_configs().values()
+            if config.type == "emby"
+        ]
+
         return config
 
     @staticmethod
@@ -93,6 +101,33 @@ class Api:
         获取 Machine ID
         """
         return MachineID(machine_id=configer.MACHINE_ID)
+
+    @staticmethod
+    def get_sync_del_history() -> SchemasResponse:
+        """
+        获取同步删除历史记录
+
+        :return: 历史记录列表
+        """
+        historys = configer.get_plugin_data(key="sync_del_history") or []
+        return SchemasResponse(success=True, data=historys, message="获取成功")
+
+    @staticmethod
+    def delete_sync_del_history(key: str, apikey: str) -> SchemasResponse:
+        """
+        删除同步删除历史记录
+
+        :param key: 历史记录唯一标识
+        :param apikey: API密钥
+        """
+        if apikey != settings.API_TOKEN:
+            return SchemasResponse(success=False, message="API密钥错误")
+        historys = configer.get_plugin_data(key="sync_del_history") or []
+        if not historys:
+            return SchemasResponse(success=False, message="未找到历史记录")
+        historys = [h for h in historys if h.get("unique") != key]
+        configer.save_plugin_data(key="sync_del_history", value=historys)
+        return SchemasResponse(success=True, message="删除成功")
 
     @cached(
         region="p115strmhelper_api_get_user_storage_status", ttl=60 * 60, skip_none=True

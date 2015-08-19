@@ -144,6 +144,9 @@
               <v-tab value="tab-cleanup" class="text-caption">
                 <v-icon size="small" start>mdi-broom</v-icon>定期清理
               </v-tab>
+              <v-tab value="tab-sync-del" class="text-caption">
+                <v-icon size="small" start>mdi-delete-sweep</v-icon>同步删除
+              </v-tab>
               <v-tab value="tab-pan-transfer" class="text-caption">
                 <v-icon size="small" start>mdi-transfer</v-icon>网盘整理
               </v-tab>
@@ -870,6 +873,92 @@
                       </VCronField>
                     </v-col>
                   </v-row>
+                </v-card-text>
+              </v-window-item>
+
+              <!-- 同步删除 -->
+              <v-window-item value="tab-sync-del">
+                <v-card-text>
+                  <v-row>
+                    <v-col cols="12" md="3">
+                      <v-switch v-model="config.sync_del_enabled" label="启用同步删除" color="warning"
+                        density="compact"></v-switch>
+                    </v-col>
+                    <v-col cols="12" md="3">
+                      <v-switch v-model="config.sync_del_notify" label="发送通知" color="success"
+                        density="compact"></v-switch>
+                    </v-col>
+                    <v-col cols="12" md="3">
+                      <v-switch v-model="config.sync_del_source" label="删除源文件" color="error"
+                        density="compact"></v-switch>
+                    </v-col>
+                    <v-col cols="12" md="3">
+                      <v-switch v-model="config.sync_del_p115_force_delete_files" label="强制删除文件" color="warning"
+                        density="compact"></v-switch>
+                    </v-col>
+                  </v-row>
+
+                  <v-row>
+                    <v-col cols="12" md="6">
+                      <v-select v-model="config.sync_del_mediaservers" label="媒体服务器" :items="syncDelMediaservers"
+                        multiple chips closable-chips hint="用于获取TMDB ID，仅支持Emby" persistent-hint></v-select>
+                    </v-col>
+                  </v-row>
+
+                  <v-row>
+                    <v-col cols="12">
+                      <div class="d-flex flex-column">
+                        <div v-for="(path, index) in syncDelLibraryPaths" :key="`sync-del-${index}`"
+                          class="mb-3 pa-3 border rounded">
+                          <v-row dense>
+                            <v-col cols="12" md="4">
+                              <v-text-field v-model="path.mediaserver" label="媒体服务器STRM路径" density="compact"
+                                variant="outlined" hint="例如：/media/strm" persistent-hint
+                                append-icon="mdi-folder-network"
+                                @click:append="openDirSelector(index, 'remote', 'syncDelLibrary', 'mediaserver')"></v-text-field>
+                            </v-col>
+                            <v-col cols="12" md="4">
+                              <v-text-field v-model="path.moviepilot" label="MoviePilot路径" density="compact"
+                                variant="outlined" hint="例如：/mnt/strm" persistent-hint append-icon="mdi-folder-home"
+                                @click:append="openDirSelector(index, 'local', 'syncDelLibrary', 'moviepilot')"></v-text-field>
+                            </v-col>
+                            <v-col cols="12" md="4">
+                              <v-text-field v-model="path.p115" label="115网盘媒体库路径" density="compact" variant="outlined"
+                                hint="例如：/影视" persistent-hint append-icon="mdi-cloud"
+                                @click:append="openDirSelector(index, 'remote', 'syncDelLibrary', 'p115')"></v-text-field>
+                            </v-col>
+                          </v-row>
+                          <v-row dense>
+                            <v-col cols="12" class="d-flex justify-end">
+                              <v-btn icon size="small" color="error" @click="removePath(index, 'syncDelLibrary')">
+                                <v-icon>mdi-delete</v-icon>
+                              </v-btn>
+                            </v-col>
+                          </v-row>
+                        </div>
+                        <v-btn size="small" prepend-icon="mdi-plus" variant="outlined" class="mt-2 align-self-start"
+                          @click="addPath('syncDelLibrary')">
+                          添加路径映射
+                        </v-btn>
+                      </div>
+                    </v-col>
+                  </v-row>
+
+                  <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
+                    <div class="text-body-2 mb-1"><strong>关于路径映射：</strong></div>
+                    <div class="text-caption">
+                      <div class="mb-1">• <strong>媒体服务器STRM路径：</strong>媒体服务器中STRM文件的实际路径</div>
+                      <div class="mb-1">• <strong>MoviePilot路径：</strong>MoviePilot中对应的路径</div>
+                      <div>• <strong>115网盘媒体库路径：</strong>115网盘中媒体库的路径</div>
+                    </div>
+                  </v-alert>
+
+                  <v-alert type="warning" variant="tonal" density="compact" class="mt-3" icon="mdi-alert">
+                    <div class="text-caption">
+                      <div class="mb-1">• 不正确配置会导致查询不到转移记录！</div>
+                      <div>• 需要使用神医助手PRO且版本在v3.0.0.3及以上或神医助手社区版且版本在v2.0.0.27及以上！</div>
+                    </div>
+                  </v-alert>
                 </v-card-text>
               </v-window-item>
 
@@ -2010,7 +2099,7 @@
                         size="small" class="mr-2"></v-icon>
                       <span class="text-caption">MonitorLife初始化:
                         <strong>{{ lifeEventCheckDialog.result.data?.summary?.monitorlife_initialized ? '是' : '否'
-                          }}</strong>
+                        }}</strong>
                       </span>
                     </div>
                   </v-col>
@@ -2126,6 +2215,7 @@ const clearIdPathCacheLoading = ref(false);
 const clearIncrementSkipCacheLoading = ref(false);
 const activeTab = ref('tab-transfer');
 const mediaservers = ref([]);
+const syncDelMediaservers = ref([]);
 const isCookieVisible = ref(false);
 const isAliTokenVisible = ref(false);
 const isTransferModuleEnhancementLocked = ref(true);
@@ -2233,7 +2323,13 @@ const config = reactive({
   mediainfo_download_whitelist: [],
   mediainfo_download_blacklist: [],
   strm_url_encode: false,
-  storage_module: 'u115'
+  storage_module: 'u115',
+  sync_del_enabled: false,
+  sync_del_notify: true,
+  sync_del_source: false,
+  sync_del_p115_library_path: '',
+  sync_del_p115_force_delete_files: false,
+  sync_del_mediaservers: []
 });
 
 // 消息提示
@@ -2345,6 +2441,7 @@ const transferExcludePaths = ref([{ path: '' }]);
 const incrementSyncExcludePaths = ref([{ local: '', remote: '' }]);
 const monitorLifeExcludePaths = ref([{ path: '' }]);
 const directoryUploadPaths = ref([{ src: '', dest_remote: '', dest_local: '', delete: false }]);
+const syncDelLibraryPaths = ref([{ mediaserver: '', moviepilot: '', p115: '' }]);
 const fullSyncConfirmDialog = ref(false);
 const machineId = ref('');
 const tgChannels = ref([{ name: '', id: '' }]);
@@ -2616,6 +2713,30 @@ watch(() => config.api_strm_config, (newVal) => {
   }
 }, { immediate: true });
 
+watch(() => config.sync_del_p115_library_path, (newVal) => {
+  if (!newVal) {
+    syncDelLibraryPaths.value = [{ mediaserver: '', moviepilot: '', p115: '' }];
+    return;
+  }
+  try {
+    const paths = newVal.split('\n').filter(line => line.trim());
+    syncDelLibraryPaths.value = paths.map(path => {
+      const parts = path.split('#');
+      return {
+        mediaserver: parts[0] || '',
+        moviepilot: parts[1] || '',
+        p115: parts[2] || ''
+      };
+    });
+    if (syncDelLibraryPaths.value.length === 0) {
+      syncDelLibraryPaths.value = [{ mediaserver: '', moviepilot: '', p115: '' }];
+    }
+  } catch (e) {
+    console.error('解析sync_del_p115_library_path出错:', e);
+    syncDelLibraryPaths.value = [{ mediaserver: '', moviepilot: '', p115: '' }];
+  }
+}, { immediate: true });
+
 watch(() => config.api_strm_mp_mediaserver_paths, (newVal) => {
   if (!newVal) {
     apiStrmMPPaths.value = [{ local: '', remote: '' }];
@@ -2830,6 +2951,7 @@ const loadConfig = async () => {
       }
       if (data.mediaservers) {
         mediaservers.value = data.mediaservers;
+        syncDelMediaservers.value = data.sync_del_mediaservers || [];
       }
       const p115LocalPaths = new Set();
       if (config.transfer_monitor_paths) {
@@ -2872,6 +2994,15 @@ const saveConfig = async () => {
       .filter(p => p.local?.trim() && p.remote?.trim())
       .map(p => ({ local_path: p.local.trim(), pan_path: p.remote.trim() }));
     config.api_strm_mp_mediaserver_paths = generatePathsConfig(apiStrmMPPaths.value, 'apiStrm-mp');
+    config.sync_del_p115_library_path = syncDelLibraryPaths.value
+      .filter(p => p.mediaserver?.trim() || p.moviepilot?.trim() || p.p115?.trim())
+      .map(p => `${p.mediaserver || ''}#${p.moviepilot || ''}#${p.p115 || ''}`)
+      .join('\n');
+    if (Array.isArray(config.sync_del_mediaservers)) {
+      config.sync_del_mediaservers = config.sync_del_mediaservers.map(item => {
+        return typeof item === 'string' ? item : (item?.value || item);
+      }).filter(Boolean);
+    }
     config.pan_transfer_paths = generatePathsConfig(panTransferPaths.value, 'panTransfer');
     config.share_recieve_paths = shareReceivePaths.value.filter(p => p.path?.trim()).map(p => p.path);
     config.offline_download_paths = offlineDownloadPaths.value.filter(p => p.path?.trim()).map(p => p.path);
@@ -3013,6 +3144,7 @@ const addPath = (type) => {
     case 'monitorLifeMp': monitorLifeMpPaths.value.push({ local: '', remote: '' }); break;
     case 'apiStrm': apiStrmPaths.value.push({ local: '', remote: '' }); break;
     case 'apiStrm-mp': apiStrmMPPaths.value.push({ local: '', remote: '' }); break;
+    case 'syncDelLibrary': syncDelLibraryPaths.value.push({ mediaserver: '', moviepilot: '', p115: '' }); break;
     case 'directoryUpload': directoryUploadPaths.value.push({ src: '', dest_remote: '', dest_local: '', delete: false }); break;
   }
 };
@@ -3053,6 +3185,10 @@ const removePath = (index, type) => {
     case 'apiStrm-mp':
       apiStrmMPPaths.value.splice(index, 1);
       if (apiStrmMPPaths.value.length === 0) apiStrmMPPaths.value = [{ local: '', remote: '' }];
+      break;
+    case 'syncDelLibrary':
+      syncDelLibraryPaths.value.splice(index, 1);
+      if (syncDelLibraryPaths.value.length === 0) syncDelLibraryPaths.value = [{ mediaserver: '', moviepilot: '', p115: '' }];
       break;
     case 'directoryUpload':
       directoryUploadPaths.value.splice(index, 1);
@@ -3196,7 +3332,15 @@ const openDirSelector = (index, locationType, pathType, fieldKey = null) => {
   dirDialog.targetConfigKeyForExclusion = null;
   dirDialog.originalPathTypeBackup = '';
   dirDialog.originalIndexBackup = -1;
-  dirDialog.currentPath = '/';
+
+  // 设置初始路径
+  if (pathType === 'syncDelLibrary' && index >= 0 && syncDelLibraryPaths.value[index] && fieldKey) {
+    const currentPath = syncDelLibraryPaths.value[index][fieldKey] || '/';
+    dirDialog.currentPath = currentPath;
+  } else {
+    dirDialog.currentPath = '/';
+  }
+
   loadDirContent();
 };
 
@@ -3319,6 +3463,11 @@ const confirmDirSelection = () => {
       case 'panTransfer': panTransferPaths.value[dirDialog.index].path = processedPath; break;
       case 'shareReceive': shareReceivePaths.value[dirDialog.index].path = processedPath; break;
       case 'offlineDownload': offlineDownloadPaths.value[dirDialog.index].path = processedPath; break;
+      case 'syncDelLibrary':
+        if (dirDialog.index >= 0 && syncDelLibraryPaths.value[dirDialog.index] && dirDialog.fieldKey) {
+          syncDelLibraryPaths.value[dirDialog.index][dirDialog.fieldKey] = processedPath;
+        }
+        break;
       case 'directoryUpload':
         if (dirDialog.fieldKey && directoryUploadPaths.value[dirDialog.index]) directoryUploadPaths.value[dirDialog.index][dirDialog.fieldKey] = processedPath;
         break;

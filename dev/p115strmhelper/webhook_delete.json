@@ -1,0 +1,76 @@
+{
+  "Title": "神医助手 - 媒体深度删除",
+  "Description": "Item Name:\n狂怒沙暴\n\nItem Path:\n/data2/test/狂怒沙暴 (2023)/狂怒沙暴 (2023) - 1080p.strm\n\nMount Paths:\nhttp://192.168.31.99:23000/api/v1/plugin/P115StrmHelper/redirect_url?apikey=mtf&pickcode=cg04ctinkn3aidbzc",
+  "Date": "2026-01-12T22:56:45.2907443Z",
+  "Event": "deep.delete",
+  "User": {
+    "Name": "Rem",
+    "Id": "mtf"
+  },
+  "Item": {
+    "Name": "狂怒沙暴",
+    "OriginalTitle": "Hidden Strike",
+    "ServerId": "a455ead86ce2479a8e1d91c15acf1240",
+    "Id": "60750",
+    "DateCreated": "2026-01-12T22:47:07.0000000Z",
+    "SortName": "狂怒沙暴",
+    "PremiereDate": "2023-07-05T16:00:00.0000000Z",
+    "ExternalUrls": [
+      {
+        "Name": "IMDb",
+        "Url": "https://www.imdb.com/title/tt6879446"
+      },
+      {
+        "Name": "MovieDb",
+        "Url": "https://www.themoviedb.org/movie/457332"
+      },
+      {
+        "Name": "TheTVDB",
+        "Url": "https://thetvdb.com/dereferrer/movie/7318"
+      },
+      {
+        "Name": "Trakt",
+        "Url": "https://trakt.tv/search/tmdb/457332?id_type=movie"
+      }
+    ],
+    "Path": "/data2/test/狂怒沙暴 (2023)/狂怒沙暴 (2023) - 1080p.strm",
+    "OfficialRating": "PG-13",
+    "Overview": "成龙饰演一名中国私人保安承包商，当中国在中东的一家炼油厂遭到袭击时，该承包商被召来营救当地的石油工人，随后他意识到攻击者的真正计划是窃取石油财富，他与 一位前海军陆战队队员(塞纳)合作阻止他们。",
+    "Taglines": [],
+    "Genres": [],
+    "CommunityRating": 6.901,
+    "FileName": "狂怒沙暴 (2023) - 1080p.strm",
+    "ProductionYear": 2023,
+    "RemoteTrailers": [
+      {
+        "Url": "https://www.youtube.com/watch?v=SS4xaLNVqfc"
+      }
+    ],
+    "ProviderIds": {
+      "Tmdb": "457332",
+      "Imdb": "tt6879446",
+      "Tvdb": "7318"
+    },
+    "IsFolder": false,
+    "ParentId": "60424",
+    "Type": "Movie",
+    "Studios": [],
+    "GenreItems": [],
+    "TagItems": [],
+    "PrimaryImageAspectRatio": 0.6666666666666666,
+    "ImageTags": {
+      "Primary": "40aab69bafee231cc055e6b2088cda92",
+      "Logo": "55bb47292586b5fc28beb6f346da3135",
+      "Thumb": "9c76d752297c2f64f0f8774c8260aa54"
+    },
+    "BackdropImageTags": [
+      "585aa9b183886c21a17dac175e9be976"
+    ],
+    "MediaType": "Video"
+  },
+  "Server": {
+    "Name": "emby",
+    "Id": "a455ead86ce2479a8e1d91c15acf1240",
+    "Version": "4.8.10.0"
+  }
+}

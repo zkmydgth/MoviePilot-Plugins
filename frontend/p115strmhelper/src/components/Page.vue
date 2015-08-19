@@ -222,6 +222,76 @@
                       </template>
                     </v-list-item>
                     <v-divider class="my-0"></v-divider>
+                    <v-list-item class="px-3 py-0" style="min-height: 34px;">
+                      <template v-slot:prepend>
+                        <v-icon :color="initialConfig?.sync_del_enabled ? 'warning' : 'grey'" icon="mdi-delete-sweep"
+                          size="small" />
+                      </template>
+                      <v-list-item-title class="text-body-2">同步删除</v-list-item-title>
+                      <template v-slot:append>
+                        <v-chip :color="initialConfig?.sync_del_enabled ? 'warning' : 'grey'" size="x-small"
+                          variant="tonal">
+                          {{ initialConfig?.sync_del_enabled ? '已启用' : '已禁用' }}
+                        </v-chip>
+                      </template>
+                    </v-list-item>
+                    <v-divider class="my-0"></v-divider>
+                  </v-list>
+                </v-card-text>
+              </v-card>
+
+              <!-- 同步删除历史记录 -->
+              <v-card v-if="initialConfig?.sync_del_enabled" flat class="rounded mb-3 border config-card">
+                <v-card-title class="text-subtitle-2 d-flex align-center px-3 py-1 bg-primary-gradient">
+                  <v-icon icon="mdi-history" class="mr-2" color="primary" size="small" />
+                  <span>同步删除历史</span>
+                  <v-spacer></v-spacer>
+                  <v-btn v-if="syncDelHistory.length > 6" size="x-small" variant="text"
+                    @click="syncDelHistoryDialog.show = true" prepend-icon="mdi-open-in-new">
+                    查看全部 ({{ syncDelHistory.length }})
+                  </v-btn>
+                  <v-btn icon size="x-small" variant="text" @click="loadSyncDelHistory" :loading="syncDelHistoryLoading"
+                    class="ml-1">
+                    <v-icon>mdi-refresh</v-icon>
+                  </v-btn>
+                </v-card-title>
+                <v-card-text class="pa-0">
+                  <v-skeleton-loader v-if="syncDelHistoryLoading"
+                    type="list-item-avatar-three-line@3"></v-skeleton-loader>
+                  <div v-else-if="syncDelHistory.length === 0" class="text-center py-4">
+                    <v-icon icon="mdi-information-outline" size="large" color="grey" class="mb-2"></v-icon>
+                    <div class="text-caption text-grey">暂无删除历史</div>
+                  </div>
+                  <v-list v-else class="bg-transparent pa-0">
+                    <template v-for="(item, index) in displayedSyncDelHistory" :key="item.unique || index">
+                      <v-list-item class="px-3 py-2">
+                        <template v-slot:prepend>
+                          <v-avatar size="48" rounded class="mr-3">
+                            <v-img :src="item.image" :alt="item.title" cover v-if="item.image"></v-img>
+                            <v-icon icon="mdi-movie" v-else></v-icon>
+                          </v-avatar>
+                        </template>
+                        <v-list-item-title class="text-body-2 font-weight-medium">{{ item.title }}</v-list-item-title>
+                        <v-list-item-subtitle class="text-caption">
+                          <div class="d-flex flex-wrap align-center gap-1 mt-1">
+                            <v-chip size="x-small" variant="tonal" color="primary">{{ item.type }}</v-chip>
+                            <span v-if="item.year" class="text-grey">· {{ item.year }}</span>
+                            <span v-if="item.season" class="text-grey">· S{{ String(item.season).padStart(2, '0')
+                            }}</span>
+                            <span v-if="item.episode" class="text-grey">· E{{ String(item.episode).padStart(2, '0')
+                            }}</span>
+                          </div>
+                          <div class="text-grey mt-1">{{ item.del_time }}</div>
+                        </v-list-item-subtitle>
+                        <template v-slot:append>
+                          <v-btn icon size="x-small" variant="text" color="error"
+                            @click="deleteSyncDelHistory(item.unique)" :loading="deletingHistoryId === item.unique">
+                            <v-icon>mdi-delete</v-icon>
+                          </v-btn>
+                        </template>
+                      </v-list-item>
+                      <v-divider v-if="index < displayedSyncDelHistory.length - 1" class="my-0"></v-divider>
+                    </template>
                   </v-list>
                 </v-card-text>
               </v-card>
@@ -1074,10 +1144,64 @@
     </v-card>
   </v-dialog>
 
+  <!-- 同步删除历史记录对话框 -->
+  <v-dialog v-model="syncDelHistoryDialog.show" max-width="900" scrollable>
+    <v-card>
+      <v-card-title class="text-subtitle-1 d-flex align-center px-3 py-2 bg-primary-gradient">
+        <v-icon icon="mdi-history" class="mr-2" color="primary" size="small" />
+        <span>同步删除历史记录 (共 {{ syncDelHistory.length }} 条)</span>
+        <v-spacer></v-spacer>
+        <v-btn icon size="x-small" variant="text" @click="loadSyncDelHistory" :loading="syncDelHistoryLoading">
+          <v-icon>mdi-refresh</v-icon>
+        </v-btn>
+        <v-btn icon size="small" variant="text" @click="syncDelHistoryDialog.show = false">
+          <v-icon>mdi-close</v-icon>
+        </v-btn>
+      </v-card-title>
+      <v-card-text class="pa-0">
+        <v-skeleton-loader v-if="syncDelHistoryLoading" type="list-item-avatar-three-line@5"></v-skeleton-loader>
+        <div v-else-if="syncDelHistory.length === 0" class="text-center py-8">
+          <v-icon icon="mdi-information-outline" size="large" color="grey" class="mb-2"></v-icon>
+          <div class="text-caption text-grey">暂无删除历史</div>
+        </div>
+        <v-list v-else class="bg-transparent pa-0" style="max-height: 70vh; overflow-y: auto;">
+          <template v-for="(item, index) in syncDelHistory" :key="item.unique || index">
+            <v-list-item class="px-3 py-2">
+              <template v-slot:prepend>
+                <v-avatar size="56" rounded class="mr-3">
+                  <v-img :src="item.image" :alt="item.title" cover v-if="item.image"></v-img>
+                  <v-icon icon="mdi-movie" v-else></v-icon>
+                </v-avatar>
+              </template>
+              <v-list-item-title class="text-body-1 font-weight-medium">{{ item.title }}</v-list-item-title>
+              <v-list-item-subtitle class="text-caption">
+                <div class="d-flex flex-wrap align-center gap-1 mt-1">
+                  <v-chip size="small" variant="tonal" color="primary">{{ item.type }}</v-chip>
+                  <span v-if="item.year" class="text-grey">· {{ item.year }}</span>
+                  <span v-if="item.season" class="text-grey">· S{{ String(item.season).padStart(2, '0') }}</span>
+                  <span v-if="item.episode" class="text-grey">· E{{ String(item.episode).padStart(2, '0') }}</span>
+                </div>
+                <div v-if="item.path" class="text-grey mt-1" style="word-break: break-all;">{{ item.path }}</div>
+                <div class="text-grey mt-1">{{ item.del_time }}</div>
+              </v-list-item-subtitle>
+              <template v-slot:append>
+                <v-btn icon size="small" variant="text" color="error" @click="deleteSyncDelHistory(item.unique)"
+                  :loading="deletingHistoryId === item.unique">
+                  <v-icon>mdi-delete</v-icon>
+                </v-btn>
+              </template>
+            </v-list-item>
+            <v-divider v-if="index < syncDelHistory.length - 1" class="my-0"></v-divider>
+          </template>
+        </v-list>
+      </v-card-text>
+    </v-card>
+  </v-dialog>
+
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, watch } from 'vue';
+import { ref, reactive, computed, onMounted, onBeforeUnmount, watch } from 'vue';
 
 const props = defineProps({
   api: {
@@ -1131,6 +1255,20 @@ const actionMessageType = ref('info');
 const actionLoading = ref(false);
 const fullSyncConfirmDialog = ref(false);
 const fullSyncDbConfirmDialog = ref(false);
+const syncDelHistory = ref([]);
+const syncDelHistoryLoading = ref(false);
+const deletingHistoryId = ref(null);
+let syncDelHistoryRefreshTimer = null;
+
+// 只显示最近6条记录
+const displayedSyncDelHistory = computed(() => {
+  return syncDelHistory.value.slice(0, 6);
+});
+
+// 同步删除历史记录对话框
+const syncDelHistoryDialog = reactive({
+  show: false
+});
 
 const status = reactive({
   enabled: false,
@@ -1787,8 +1925,83 @@ watch(() => props.initialConfig, (newConfig) => {
   if (newConfig) {
     status.enabled = newConfig.enabled || false;
     status.has_client = Boolean(newConfig.cookies && newConfig.cookies.trim() !== '');
+    if (newConfig.sync_del_enabled) {
+      loadSyncDelHistory();
+      // 清除旧的定时器
+      if (syncDelHistoryRefreshTimer) {
+        clearInterval(syncDelHistoryRefreshTimer);
+      }
+      // 设置定期刷新历史记录（每30秒刷新一次）
+      syncDelHistoryRefreshTimer = setInterval(() => {
+        if (props.initialConfig?.sync_del_enabled) {
+          loadSyncDelHistory();
+        }
+      }, 30000);
+    } else {
+      syncDelHistory.value = [];
+      // 清除定时器
+      if (syncDelHistoryRefreshTimer) {
+        clearInterval(syncDelHistoryRefreshTimer);
+        syncDelHistoryRefreshTimer = null;
+      }
+    }
   }
 }, { immediate: true });
+
+const loadSyncDelHistory = async () => {
+  if (!props.initialConfig?.sync_del_enabled) {
+    syncDelHistory.value = [];
+    return;
+  }
+  syncDelHistoryLoading.value = true;
+  try {
+    const pluginId = "P115StrmHelper";
+    const response = await props.api.get(`plugin/${pluginId}/get_sync_del_history`);
+    if (response && response.success && response.data) {
+      syncDelHistory.value = Array.isArray(response.data)
+        ? response.data.sort((a, b) => {
+          const timeA = new Date(a.del_time || 0).getTime();
+          const timeB = new Date(b.del_time || 0).getTime();
+          return timeB - timeA;
+        })
+        : [];
+    } else {
+      syncDelHistory.value = [];
+    }
+  } catch (err) {
+    console.error('加载同步删除历史失败:', err);
+    syncDelHistory.value = [];
+  } finally {
+    syncDelHistoryLoading.value = false;
+  }
+};
+
+const deleteSyncDelHistory = async (unique) => {
+  if (!unique) return;
+  deletingHistoryId.value = unique;
+  try {
+    const pluginId = "P115StrmHelper";
+    const apiToken = await props.api.get('system/config?key=app.api_token');
+    const token = apiToken?.value || '';
+    const response = await props.api.get(
+      `plugin/${pluginId}/delete_sync_del_history?key=${encodeURIComponent(unique)}&apikey=${encodeURIComponent(token)}`
+    );
+    if (response && response.success) {
+      actionMessage.value = '删除成功';
+      actionMessageType.value = 'success';
+      await loadSyncDelHistory();
+    } else {
+      actionMessage.value = response?.message || '删除失败';
+      actionMessageType.value = 'error';
+    }
+  } catch (err) {
+    console.error('删除同步删除历史失败:', err);
+    actionMessage.value = `删除失败: ${err.message || '未知错误'}`;
+    actionMessageType.value = 'error';
+  } finally {
+    deletingHistoryId.value = null;
+  }
+};
 
 onMounted(async () => {
   await getStatus();
@@ -1813,6 +2026,23 @@ onMounted(async () => {
     }
   } catch (err) {
     console.error('加载媒体服务器列表失败:', err);
+  }
+  if (props.initialConfig?.sync_del_enabled) {
+    await loadSyncDelHistory();
+    // 设置定期刷新历史记录（每30秒刷新一次）
+    syncDelHistoryRefreshTimer = setInterval(() => {
+      if (props.initialConfig?.sync_del_enabled) {
+        loadSyncDelHistory();
+      }
+    }, 30000);
+  }
+});
+
+// 清理定时器
+onBeforeUnmount(() => {
+  if (syncDelHistoryRefreshTimer) {
+    clearInterval(syncDelHistoryRefreshTimer);
+    syncDelHistoryRefreshTimer = null;
   }
 });
 

@@ -1,4 +1,5 @@
-from typing import List
+from time import strftime, localtime, time
+from typing import List, Tuple, Optional, Dict, Any
 from pathlib import Path
 
 from jieba import cut as jieba_cut
@@ -11,9 +12,13 @@ from app.db.transferhistory_oper import TransferHistoryOper
 from app.db.downloadhistory_oper import DownloadHistoryOper
 from app.db.plugindata_oper import PluginDataOper
 from app.helper.downloader import DownloaderHelper
+from app.chain.storage import StorageChain
+from app.schemas.types import MediaType, MediaImageType, NotificationType
+from app.schemas.mediaserver import WebhookEventInfo
 
 from ..core.config import configer
 from ..core.plunins import PluginChian
+from ..helper.mediaserver import MediaServerRefresh
 from ..utils.path import PathUtils, PathRemoveUtils
 
 
@@ -47,6 +52,7 @@ class MediaSyncDelHelper:
     感谢：
       - https://github.com/thsrite/MoviePilot-Plugins/tree/main/plugins.v2/mediasyncdel
         - LICENSE: https://github.com/thsrite/MoviePilot-Plugins/blob/main/LICENSE
+      - https://github.com/DDSRem/MoviePilot-Plugins/tree/main/plugins.v2/samediasyncdel
     """
 
     def __init__(self):
@@ -56,11 +62,26 @@ class MediaSyncDelHelper:
         self.transferhisb = TransferHBOper()
         self.downloader_helper = DownloaderHelper()
         self.chain = PluginChian()
+        self.storagechain = StorageChain()
+        self.mediaserver_refresh: Optional[MediaServerRefresh] = None
 
         downloader_services = self.downloader_helper.get_services()
         for downloader_name, downloader_info in downloader_services.items():
             if downloader_info.config.default:
                 self.default_downloader = downloader_name
+
+    def init_mediaserver(self, mediaservers: Optional[List[str]] = None):
+        """
+        初始化媒体服务器配置
+
+        :param mediaservers: 媒体服务器列表
+        """
+        if mediaservers:
+            self.mediaserver_refresh = MediaServerRefresh(
+                func_name="【同步删除】",
+                enabled=True,
+                mediaservers=mediaservers,
+            )
 
     def remove_by_path(self, path: str, del_source: bool = False):
         """
@@ -102,7 +123,7 @@ class MediaSyncDelHelper:
                         PathRemoveUtils.remove_parent_dir(
                             file_path=Path(transferhis.src),
                             mode=settings.RMT_MEDIAEXT,
-                            func_type="【同步删除】"
+                            func_type="【同步删除】",
                         )
 
                     if transferhis.download_hash:
@@ -141,7 +162,9 @@ class MediaSyncDelHelper:
         download = self.default_downloader
         history_key = f"{download}-{torrent_hash}"
         plugin_id = "TorrentTransfer"
-        transfer_history = configer.get_plugin_data(key=history_key, plugin_id=plugin_id)
+        transfer_history = configer.get_plugin_data(
+            key=history_key, plugin_id=plugin_id
+        )
         logger.info(f"【同步删除】查询到 {history_key} 转种历史 {transfer_history}")
 
         handle_torrent_hashs = []
@@ -363,7 +386,9 @@ class MediaSyncDelHelper:
         # 查询是否有辅种记录
         history_key = download_id
         plugin_id = "IYUUAutoSeed"
-        seed_history = configer.get_plugin_data(key=history_key, plugin_id=plugin_id) or []
+        seed_history = (
+            configer.get_plugin_data(key=history_key, plugin_id=plugin_id) or []
+        )
         logger.info(f"【同步删除】查询到 {history_key} 辅种历史 {seed_history}")
 
         # 有辅种记录则处理辅种
@@ -399,3 +424,521 @@ class MediaSyncDelHelper:
             if delete_flag:
                 configer.del_plugin_data(key=history_key, plugin_id=plugin_id)
         return handle_torrent_hashs
+
+    def __get_p115_media_suffix(
+        self, file_path: str, p115_library_path: str
+    ) -> Optional[str]:
+        """
+        115 网盘 遍历文件夹获取媒体文件后缀
+
+        :param file_path: 文件路径
+        :param p115_library_path: 115 网盘 媒体库路径映射
+        """
+        _, sub_paths = PathUtils.get_p115_media_path(file_path, p115_library_path)
+        if not sub_paths:
+            return None
+        file_path = file_path.replace(sub_paths[0], sub_paths[2]).replace("\\", "/")
+        file_dir = Path(file_path).parent
+        file_basename = Path(file_path).stem
+        try:
+            file_dir_fileitem = self.storagechain.get_file_item(
+                storage=configer.storage_module, path=Path(file_dir)
+            )
+            for item in self.storagechain.list_files(file_dir_fileitem):
+                if item.basename == file_basename:
+                    return item.extension
+        except Exception as e:
+            logger.error(f"【同步删除】获取115网盘媒体后缀失败: {e}")
+        return None
+
+    def __get_transfer_his(
+        self,
+        media_type: str,
+        media_name: str,
+        media_path: str,
+        tmdb_id: int,
+        season_num: Optional[str],
+        episode_num: Optional[str],
+    ) -> Tuple[str, List[TransferHistory]]:
+        """
+        查询转移记录
+
+        :param media_type: 媒体类型
+        :param media_name: 媒体名称
+        :param media_path: 媒体路径
+        :param tmdb_id: TMDB ID
+        :param season_num: 季数
+        :param episode_num: 集数
+        """
+        # 季数
+        if season_num and str(season_num).isdigit():
+            season_num = str(season_num).rjust(2, "0")
+        else:
+            season_num = None
+        # 集数
+        if episode_num and str(episode_num).isdigit():
+            episode_num = str(episode_num).rjust(2, "0")
+        else:
+            episode_num = None
+
+        # 类型
+        mtype = MediaType.MOVIE if media_type in ["Movie", "MOV"] else MediaType.TV
+        # 删除电影
+        if mtype == MediaType.MOVIE:
+            msg = f"电影 {media_name} {tmdb_id}"
+            transfer_history: List[TransferHistory] = self.transferhis.get_by(
+                tmdbid=tmdb_id, mtype=mtype.value, dest=media_path
+            )
+        # 删除电视剧
+        elif mtype == MediaType.TV and not season_num and not episode_num:
+            msg = f"剧集 {media_name} {tmdb_id}"
+            transfer_history: List[TransferHistory] = self.transferhis.get_by(
+                tmdbid=tmdb_id, mtype=mtype.value
+            )
+        # 删除季
+        elif mtype == MediaType.TV and season_num and not episode_num:
+            if not season_num or not str(season_num).isdigit():
+                logger.error(f"【同步删除】{media_name} 季同步删除失败，未获取到具体季")
+                return "", []
+            msg = f"剧集 {media_name} S{season_num} {tmdb_id}"
+            transfer_history: List[TransferHistory] = self.transferhis.get_by(
+                tmdbid=tmdb_id, mtype=mtype.value, season=f"S{season_num}"
+            )
+        # 删除集
+        elif mtype == MediaType.TV and season_num and episode_num:
+            if (
+                not season_num
+                or not str(season_num).isdigit()
+                or not episode_num
+                or not str(episode_num).isdigit()
+            ):
+                logger.error(f"【同步删除】{media_name} 集同步删除失败，未获取到具体集")
+                return "", []
+            msg = f"剧集 {media_name} S{season_num}E{episode_num} {tmdb_id}"
+            transfer_history: List[TransferHistory] = self.transferhis.get_by(
+                tmdbid=tmdb_id,
+                mtype=mtype.value,
+                season=f"S{season_num}",
+                episode=f"E{episode_num}",
+                dest=media_path,
+            )
+        else:
+            return "", []
+        return msg, transfer_history
+
+    def __delete_p115_files(self, file_path: str, media_name: str):
+        """
+        删除 115 网盘文件
+
+        :param file_path: 文件路径
+        :param media_name: 媒体名称
+        """
+        try:
+            # 获取文件(夹)详细信息
+            fileitem = self.storagechain.get_file_item(
+                storage=configer.storage_module, path=Path(file_path)
+            )
+            if fileitem.type == "dir":
+                # 删除整个文件夹
+                self.storagechain.delete_file(fileitem)
+                logger.info(f"【同步删除】{media_name} 删除网盘文件夹：{file_path}")
+            else:
+                # 调用 MP 模块删除媒体文件和空媒体目录
+                self.storagechain.delete_media_file(fileitem=fileitem)
+                logger.info(f"【同步删除】{media_name} 删除网盘媒体文件：{file_path}")
+        except Exception as e:
+            logger.error(f"【同步删除】{media_name} 删除网盘媒体 {file_path} 失败: {e}")
+
+    def sync_del_by_webhook(
+        self,
+        event_data: WebhookEventInfo,
+        enabled: bool,
+        notify: bool,
+        del_source: bool,
+        p115_library_path: Optional[str],
+        p115_force_delete_files: bool,
+        chain=None,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        通过Webhook事件同步删除媒体
+
+        :param event_data: 事件数据
+        :param enabled: 是否启用
+        :param notify: 是否通知
+        :param del_source: 是否删除源文件
+        :param p115_library_path: 115 网盘媒体库路径映射
+        :param p115_force_delete_files: 115 网盘强制删除
+        :param chain: 插件链（用于获取图片等）
+        """
+        if not enabled:
+            return None
+
+        event_type = event_data.event
+
+        # 神医助手深度删除标识
+        if not event_type or str(event_type) != "deep.delete":
+            return None
+
+        logger.debug(f"【同步删除】收到删除事件: {event_data}")
+
+        # 媒体类型
+        media_type = event_data.item_type
+        # 媒体名称
+        media_name = event_data.item_name
+        # 媒体路径
+        media_path = event_data.item_path
+        # tmdb_id
+        tmdb_id = event_data.tmdb_id
+        # 季数
+        season_num = event_data.season_id
+        # 集数
+        episode_num = event_data.episode_id
+        # 原始数据
+        json_object = getattr(event_data, "json_object", {})
+
+        if not media_path:
+            return None
+
+        media_suffix = None
+
+        if not p115_library_path:
+            return None
+
+        status, _ = PathUtils.get_p115_media_path(media_path, p115_library_path)
+        if not status:
+            logger.error(
+                f"【同步删除】{media_name} 同步删除失败，未识别到115网盘储存类型"
+            )
+            return None
+
+        # 对于 115 网盘文件需要获取媒体后缀名
+        if Path(media_path).suffix:
+            media_suffix = json_object.get("Item", {}).get("Container", None)
+            if not media_suffix:
+                media_suffix = self.__get_p115_media_suffix(
+                    media_path, p115_library_path
+                )
+                if not media_suffix:
+                    logger.error(
+                        f"【同步删除】{media_name} 同步删除失败，未识别媒体后缀名"
+                    )
+                    return None
+        else:
+            logger.debug(f"【同步删除】{media_name} 跳过识别媒体后缀名")
+
+        # 单集或单季缺失 TMDB ID 获取
+        if (episode_num or season_num) and (not tmdb_id or not str(tmdb_id).isdigit()):
+            series_id = json_object.get("Item", {}).get("SeriesId")
+            if series_id and self.mediaserver_refresh:
+                series_tmdb_id = self.mediaserver_refresh.get_series_tmdb_id(series_id)
+                if series_tmdb_id:
+                    tmdb_id = series_tmdb_id
+
+        tmdb_id_int: Optional[int] = None
+        if tmdb_id and str(tmdb_id).isdigit():
+            tmdb_id_int = int(tmdb_id)
+
+        if not tmdb_id_int:
+            if not p115_force_delete_files:
+                logger.error(
+                    f"【同步删除】{media_name} 同步删除失败，未获取到TMDB ID，请检查媒体库媒体是否刮削"
+                )
+                return None
+
+        return self.__sync_del(
+            media_type=media_type,
+            media_name=media_name,
+            media_path=media_path,
+            tmdb_id=tmdb_id_int,
+            season_num=season_num,
+            episode_num=episode_num,
+            media_suffix=media_suffix,
+            p115_library_path=p115_library_path,
+            p115_force_delete_files=p115_force_delete_files,
+            del_source=del_source,
+            notify=notify,
+            chain=chain,
+        )
+
+    def __sync_del(
+        self,
+        media_type: str,
+        media_name: str,
+        media_path: str,
+        tmdb_id: int,
+        season_num: Optional[str],
+        episode_num: Optional[str],
+        media_suffix: Optional[str],
+        p115_library_path: Optional[str],
+        p115_force_delete_files: bool,
+        del_source: bool,
+        notify: bool,
+        chain=None,
+    ) -> Dict[str, Any]:
+        """
+        执行同步删除
+
+        :param media_type: 媒体类型
+        :param media_name: 媒体名称
+        :param media_path: 媒体路径
+        :param tmdb_id: TMDB ID
+        :param season_num: 季数
+        :param episode_num: 集数
+        :param media_suffix: 媒体后缀
+        :param p115_library_path: 115 网盘 媒体库路径映射
+        :param p115_force_delete_files: 115 网盘 强制删除
+        :param del_source: 是否删除源文件
+        :param notify: 是否通知
+        :param chain: 插件链
+        """
+        if not media_type:
+            logger.error(
+                f"【同步删除】{media_name} 同步删除失败，未获取到媒体类型，请检查媒体是否刮削"
+            )
+            return {}
+
+        year = None
+        del_torrent_hashs = []
+        stop_torrent_hashs = []
+        error_cnt = 0
+        image = "https://emby.media/notificationicon.png"
+
+        mp_media_path: Optional[Path] = None
+        if p115_library_path:
+            _, sub_paths = PathUtils.get_p115_media_path(media_path, p115_library_path)
+            if sub_paths:
+                mp_media_path = Path(
+                    media_path.replace(sub_paths[0], sub_paths[1]).replace("\\", "/")
+                )
+                media_path = media_path.replace(sub_paths[0], sub_paths[2]).replace(
+                    "\\", "/"
+                )
+
+        if Path(media_path).suffix:
+            media_path = str(
+                Path(media_path).parent
+                / str(Path(media_path).stem + "." + media_suffix)
+            )
+            # 大小写适配，有些 SB 资源是大写的
+            if media_suffix.isupper():
+                media_suffix = media_suffix.lower()
+            elif media_suffix.islower():
+                media_suffix = media_suffix.upper()
+            media_path_final = str(
+                Path(media_path).parent
+                / str(Path(media_path).stem + "." + media_suffix)
+            )
+        else:
+            media_path_final = media_path
+
+        if mp_media_path and mp_media_path.exists():
+            logger.warn(
+                f"【同步删除】转移路径 {media_path} 未被删除或重新生成，跳过处理"
+            )
+            return {}
+
+        msg, transfer_history = self.__get_transfer_his(
+            media_type=media_type,
+            media_name=media_name,
+            media_path=media_path,
+            tmdb_id=tmdb_id,
+            season_num=season_num,
+            episode_num=episode_num,
+        )
+
+        if not msg:
+            msg = media_name
+
+        logger.info(f"【同步删除】正在同步删除 {msg}")
+
+        if not transfer_history:
+            # 大小写转换二次查询
+            msg, transfer_history = self.__get_transfer_his(
+                media_type=media_type,
+                media_name=media_name,
+                media_path=media_path_final,
+                tmdb_id=tmdb_id,
+                season_num=season_num,
+                episode_num=episode_num,
+            )
+            if not msg:
+                msg = media_name
+            if not transfer_history:
+                if p115_force_delete_files:
+                    logger.warn(f"【同步删除】{media_name} 强制删除网盘媒体文件")
+                    self.__delete_p115_files(
+                        file_path=media_path,
+                        media_name=media_name,
+                    )
+                else:
+                    logger.warn(
+                        f"【同步删除】{media_type} {media_name} 未获取到可删除数据，请检查路径映射是否配置错误，请检查tmdbid获取是否正确"
+                    )
+                    return {}
+
+        if transfer_history:
+            logger.info(
+                f"【同步删除】获取到 {len(transfer_history)} 条转移记录，开始同步删除"
+            )
+            for transferhis in transfer_history:
+                title = transferhis.title
+                if title not in media_name:
+                    logger.warn(
+                        f"【同步删除】当前转移记录 {transferhis.id} {title} {transferhis.tmdbid} 与删除媒体 {media_name} 不符，防误删，暂不自动删除"
+                    )
+                    continue
+                image = transferhis.image or image
+                year = transferhis.year
+
+                self.transferhis.delete(transferhis.id)
+
+                self.__delete_p115_files(
+                    file_path=transferhis.dest,
+                    media_name=media_name,
+                )
+
+                if del_source:
+                    if (
+                        transferhis.src
+                        and Path(transferhis.src).suffix in settings.RMT_MEDIAEXT
+                        and transferhis.src_storage == "local"
+                        and transferhis.mode != "move"  # 如果是移动 -> 本地资源已经删除
+                    ):
+                        if Path(transferhis.src).exists():
+                            logger.info(
+                                f"【同步删除】源文件 {transferhis.src} 开始删除"
+                            )
+                            Path(transferhis.src).unlink(missing_ok=True)
+                            logger.info(f"【同步删除】源文件 {transferhis.src} 已删除")
+                            PathRemoveUtils.remove_parent_dir(
+                                file_path=Path(transferhis.src),
+                                mode=settings.RMT_MEDIAEXT,
+                                func_type="【同步删除】",
+                            )
+
+                        if transferhis.download_hash:
+                            try:
+                                delete_flag, success_flag, handle_torrent_hashs = (
+                                    self.handle_torrent(
+                                        type=transferhis.type,
+                                        src=transferhis.src,
+                                        torrent_hash=transferhis.download_hash,
+                                    )
+                                )
+                                if not success_flag:
+                                    error_cnt += 1
+                                else:
+                                    if delete_flag:
+                                        del_torrent_hashs += handle_torrent_hashs
+                                    else:
+                                        stop_torrent_hashs += handle_torrent_hashs
+                            except Exception as e:
+                                logger.error(f"【同步删除】删除种子失败：{str(e)}")
+
+        logger.info(f"【同步删除】同步删除 {msg} 完成！")
+
+        media_type_enum = (
+            MediaType.MOVIE if media_type in ["Movie", "MOV"] else MediaType.TV
+        )
+
+        result = {
+            "msg": msg,
+            "transfer_history": transfer_history,
+            "del_torrent_hashs": del_torrent_hashs,
+            "stop_torrent_hashs": stop_torrent_hashs,
+            "error_cnt": error_cnt,
+            "image": image,
+            "year": year,
+            "media_type": media_type_enum,
+            "tmdb_id": tmdb_id,
+            "season_num": season_num,
+            "episode_num": episode_num,
+            "media_name": media_name,
+        }
+
+        if notify and chain:
+            backrop_image = (
+                chain.obtain_specific_image(
+                    mediaid=tmdb_id,
+                    mtype=media_type_enum,
+                    image_type=MediaImageType.Backdrop,
+                    season=season_num,
+                    episode=episode_num,
+                )
+                or image
+            )
+
+            torrent_cnt_msg = ""
+            if del_torrent_hashs:
+                torrent_cnt_msg += f"删除种子{len(set(del_torrent_hashs))}个\n"
+            if stop_torrent_hashs:
+                stop_cnt = 0
+                for stop_hash in set(stop_torrent_hashs):
+                    if stop_hash not in set(del_torrent_hashs):
+                        stop_cnt += 1
+                if stop_cnt > 0:
+                    torrent_cnt_msg += f"暂停种子{stop_cnt}个\n"
+            if error_cnt:
+                torrent_cnt_msg += f"删种失败{error_cnt}个\n"
+            chain.post_message(
+                mtype=NotificationType.Plugin,
+                title="媒体库同步删除任务完成",
+                image=backrop_image,
+                text=f"{msg}\n"
+                f"删除记录{len(transfer_history) if transfer_history else '0'}个\n"
+                f"{torrent_cnt_msg}"
+                f"时间 {strftime('%Y-%m-%d %H:%M:%S', localtime(time()))}",
+            )
+
+        self._save_sync_del_history(result, chain)
+
+        return result
+
+    def _save_sync_del_history(self, result: Dict[str, Any], chain=None):
+        """
+        保存同步删除历史记录
+
+        :param result: 同步删除结果
+        :param chain: 插件链（用于获取图片）
+        """
+        if not result:
+            logger.warning("【同步删除】历史记录保存失败：result 为空")
+            return
+
+        try:
+            history = configer.get_plugin_data(key="sync_del_history") or []
+            poster_image = (
+                chain.obtain_specific_image(
+                    mediaid=result.get("tmdb_id"),
+                    mtype=result.get("media_type"),
+                    image_type=MediaImageType.Poster,
+                )
+                if chain
+                else None
+            ) or result.get("image", "https://emby.media/notificationicon.png")
+
+            history_item = {
+                "type": result.get("media_type").value
+                if result.get("media_type")
+                else "未知",
+                "title": result.get("media_name", ""),
+                "year": result.get("year"),
+                "path": result.get("msg", ""),
+                "season": result.get("season_num")
+                if result.get("season_num") and str(result.get("season_num")).isdigit()
+                else None,
+                "episode": result.get("episode_num")
+                if result.get("episode_num")
+                and str(result.get("episode_num")).isdigit()
+                else None,
+                "image": poster_image,
+                "del_time": strftime("%Y-%m-%d %H:%M:%S", localtime(time())),
+                "unique": f"{result.get('media_name', '')}:{result.get('tmdb_id', '')}:{strftime('%Y-%m-%d %H:%M:%S', localtime(time()))}",
+            }
+            history.append(history_item)
+            configer.save_plugin_data(key="sync_del_history", value=history)
+            logger.info(
+                f"【同步删除】历史记录已保存：{history_item.get('title')} (TMDB ID: {result.get('tmdb_id')})"
+            )
+        except Exception as e:
+            logger.error(f"【同步删除】保存历史记录失败: {e}", exc_info=True)

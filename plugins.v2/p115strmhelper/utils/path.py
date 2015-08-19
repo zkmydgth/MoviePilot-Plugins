@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Tuple, Optional
+from typing import Tuple, Optional, List
 from shutil import rmtree
 
 from app.log import logger
@@ -80,6 +80,28 @@ class PathUtils:
                 local_path = Path(parts[0]) / Path(media_path).relative_to(parts[1])
                 final_paths = f"{local_path}#{media_path}"
                 return True, final_paths
+        return False, None
+
+    @staticmethod
+    def get_p115_media_path(
+        media_path: str, p115_library_path: str
+    ) -> Tuple[bool, Optional[List[str]]]:
+        """
+        获取 115 网盘媒体目录路径
+
+        :param media_path: 媒体路径
+        :param p115_library_path: 115 网盘媒体库路径映射（格式：媒体服务器STRM路径#MoviePilot路径# 115 网盘路径）
+        :return: (是否匹配, 路径部分列表)
+        """
+        if not p115_library_path:
+            return False, None
+        media_paths = p115_library_path.split("\n")
+        for path in media_paths:
+            if not path:
+                continue
+            parts = path.split("#", 2)
+            if PathUtils.has_prefix(media_path, parts[0]):
+                return True, parts
         return False, None
 
 

@@ -1,5 +1,5 @@
 import re
-import time
+from time import sleep
 from copy import deepcopy
 from dataclasses import asdict
 from functools import wraps
@@ -34,6 +34,7 @@ from .interactive.session import Session
 from .interactive.views import ViewRenderer
 from .helper.strm import FullSyncStrmHelper, TransferStrmHelper
 from .helper.share import U115_SHARE_URL_MATCH, ALIYUN_SHARE_URL_MATCH
+from .helper.mediasyncdel import MediaSyncDelHelper
 from .utils.path import PathUtils
 from .utils.sentry import sentry_manager
 from .utils.strm import StrmGenerater
@@ -428,6 +429,19 @@ class P115StrmHelper(_PluginBase):
                 "methods": ["POST"],
                 "auth": "bear",
                 "summary": "手动触发网盘整理",
+            },
+            {
+                "path": "/get_sync_del_history",
+                "endpoint": self.api.get_sync_del_history,
+                "methods": ["GET"],
+                "auth": "bear",
+                "summary": "获取同步删除历史记录",
+            },
+            {
+                "path": "/delete_sync_del_history",
+                "endpoint": self.api.delete_sync_del_history,
+                "methods": ["GET"],
+                "summary": "删除同步删除历史记录",
             },
         ]
 
@@ -835,7 +849,7 @@ class P115StrmHelper(_PluginBase):
             delete_message_data = deepcopy(session.get_delete_message_data())
             session_manager.end(session.session_id)
             # 等待一段时间让用户看到最后一条消息
-            time.sleep(5)
+            sleep(5)
             self.__delete_message(**delete_message_data)
 
     def __send_message(
@@ -1143,6 +1157,31 @@ class P115StrmHelper(_PluginBase):
                     storage=configer.storage_module, path=Path(_path)
                 )
                 file_rename(fileitem=fileitem)
+
+    @eventmanager.register(EventType.WebhookMessage)
+    def sync_del_by_webhook(self, event: Event):
+        """
+        通过Webhook事件同步删除媒体
+        """
+
+        if not configer.sync_del_enabled:
+            return
+
+        if not event or not event.event_data:
+            return
+
+        mediasyncdel_helper = MediaSyncDelHelper()
+        mediasyncdel_helper.init_mediaserver(configer.sync_del_mediaservers)
+
+        mediasyncdel_helper.sync_del_by_webhook(
+            event_data=event.event_data,
+            enabled=configer.sync_del_enabled,
+            notify=configer.sync_del_notify,
+            del_source=configer.sync_del_source,
+            p115_library_path=configer.sync_del_p115_library_path,
+            p115_force_delete_files=configer.sync_del_p115_force_delete_files,
+            chain=self.chain,
+        )
 
     def stop_service(self):
         """
