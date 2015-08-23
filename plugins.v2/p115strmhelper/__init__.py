@@ -264,6 +264,27 @@ class P115StrmHelper(_PluginBase):
                 "description": "115网盘302跳转",
             },
             {
+                "path": "/redirect_url/{args}",
+                "endpoint": self.api.redirect_url_get,
+                "methods": ["GET"],
+                "summary": "302跳转",
+                "description": "115网盘302跳转",
+            },
+            {
+                "path": "/redirect_url/{args}",
+                "endpoint": self.api.redirect_url_post,
+                "methods": ["POST"],
+                "summary": "302跳转",
+                "description": "115网盘302跳转",
+            },
+            {
+                "path": "/redirect_url/{args}",
+                "endpoint": self.api.redirect_url_head,
+                "methods": ["HEAD"],
+                "summary": "302跳转",
+                "description": "115网盘302跳转",
+            },
+            {
                 "path": "/api_strm_sync_creata",
                 "endpoint": self.api.api_strm_sync_creata,
                 "methods": ["POST"],
