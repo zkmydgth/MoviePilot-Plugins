@@ -28,6 +28,48 @@ MUTANTS = [
     ),
     (
         "core/config.py",
+        '    "暂不可用",',
+        '    "__never_matches__",',
+        "内置失败词表丢失「暂不可用」（HDHaven 用例回归）",
+    ),
+    (
+        "core/signin.py",
+        "    failure_words = tuple(failure_keywords or DEFAULT_FAILURE_KEYWORDS)",
+        "    failure_words = ()",
+        "失败关键词失效：明确失败文案回到「未确认」且不进重试",
+    ),
+    (
+        "core/signin.py",
+        "    if status == STATUS_UNCONFIRMED and ai_judge is not None:",
+        "    if False:  # 变异：AI 复核不再接线",
+        "AI 复核不再接线（未确认永远保持未确认）",
+    ),
+    (
+        "core/signin.py",
+        "        if verdict in (AI_VERDICT_SUCCESS, AI_VERDICT_FAILURE):",
+        "        if False:  # 变异：忽略复核结论",
+        "AI 复核结论被忽略（判定不生效）",
+    ),
+    (
+        "core/signin.py",
+        "        # 失败不能计入成功：失败会进失败重试窗口\n        result[\"ok\"] = False",
+        "        # 变异：失败不再回写 ok（不会进重试）",
+        "失败不再回写 ok：失败目标进不了重试窗口",
+    ),
+    (
+        "core/ai.py",
+        "        if not self.enabled:\n            return None",
+        "        if False:  # 变异：忽略启用开关\n            return None",
+        "AI 启用开关失效：关闭时仍会调用模型",
+    ),
+    (
+        "core/ai.py",
+        '            if value in {"failure", "fail", "false", "失败"}:\n                return AI_VERDICT_FAILURE',
+        '            if value in {"failure", "fail", "false", "失败"}:\n                return AI_VERDICT_SUCCESS',
+        "复核结论翻转：失败被判成成功",
+    ),
+    (
+        "core/config.py",
         "        wait_seconds = 15\n        if len(fields) > 4 and fields[4]:",
         "        wait_seconds = 5\n        if len(fields) > 4 and fields[4]:",
         "等待秒数默认值被改小",

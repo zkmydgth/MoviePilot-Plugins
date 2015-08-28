@@ -48,6 +48,7 @@ __all__ = [
     "MAX_RETRY_INTERVAL_HOURS",
     "DEFAULT_SUCCESS_KEYWORDS",
     "DEFAULT_REPEATED_KEYWORDS",
+    "DEFAULT_FAILURE_KEYWORDS",
     "parse_keywords",
     "DEFAULT_API_ID",
     "DEFAULT_API_HASH",
@@ -129,6 +130,28 @@ DEFAULT_REPEATED_KEYWORDS = (
     "重复签到",
     "already checked in",
     "already signed in",
+)
+
+# 失败关键词（内置默认）：命中即判「失败」，并因此进入失败重试。
+#
+# 场景（2026-10-08 用户定案）：@HDHaven_Bot 回「签到服务暂不可用，请稍后重试。」——
+# 这类文案既不含成功词也不含已签到词，旧逻辑会落到「未确认」（既不计失败、也不重试），
+# 与用户口径不符。故新增本词表；判定顺序在成功/已签到之后，避免误伤成功文案。
+DEFAULT_FAILURE_KEYWORDS = (
+    "暂不可用",
+    "服务不可用",
+    "服务暂不可用",
+    "服务异常",
+    "系统繁忙",
+    "稍后重试",
+    "稍后再试",
+    "请重试",
+    "签到失败",
+    "签到未成功",
+    "打卡失败",
+    "try again later",
+    "service unavailable",
+    "temporarily unavailable",
 )
 
 # 交接单里已实测确认的默认账号与签到目标（用户可随意增删改）

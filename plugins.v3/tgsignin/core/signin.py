@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 from .config import (
+    DEFAULT_FAILURE_KEYWORDS,
     DEFAULT_REPEATED_KEYWORDS,
     DEFAULT_SUCCESS_KEYWORDS,
     SIGN_TYPE_BUTTON,
@@ -28,6 +29,7 @@ from .config import (
     AccountConfig,
     BotTarget,
 )
+from .ai import AI_VERDICT_FAILURE, AI_VERDICT_SUCCESS
 from .retry import signed_today
 from .session import build_client
 from .store import load_state
@@ -191,6 +193,7 @@ def classify_result(
     already_signed_today: bool = False,
     success_keywords: Optional[Sequence[str]] = None,
     repeated_keywords: Optional[Sequence[str]] = None,
+    failure_keywords: Optional[Sequence[str]] = None,
 ) -> str:
     """
     按 bot 回复内容给签到结果分档。
@@ -206,6 +209,7 @@ def classify_result(
     :param already_signed_today: 今天此前是否已经签到成功过（按钮式只回菜单时用于分档）
     :param success_keywords: 自定义「签到成功」关键词（None 用内置默认）
     :param repeated_keywords: 自定义「已签到」关键词（None 用内置默认）
+    :param failure_keywords: 自定义「签到失败」关键词（None 用内置默认）
     :return str: STATUS_SUCCESS / STATUS_REPEATED / STATUS_UNCONFIRMED / STATUS_FAILED
     """
 
@@ -213,6 +217,7 @@ def classify_result(
         return STATUS_FAILED
     success_words = tuple(success_keywords or DEFAULT_SUCCESS_KEYWORDS)
     repeated_words = tuple(repeated_keywords or DEFAULT_REPEATED_KEYWORDS)
+    failure_words = tuple(failure_keywords or DEFAULT_FAILURE_KEYWORDS)
     alert_text = str(alert or "")
     text = str(reply or "")
     if not text.strip() and not alert_text.strip():
@@ -228,6 +233,12 @@ def classify_result(
         alert_text, repeated_words
     ):
         return STATUS_REPEATED
+    if _matches_keywords(text, failure_words) or _matches_keywords(
+        alert_text, failure_words
+    ):
+        # 明确失败文案（如「签到服务暂不可用，请稍后重试。」）：
+        # 判失败 → signin_one 会把 ok 置 False → 进入失败重试窗口（2026-10-08 用户定案）
+        return STATUS_FAILED
     if "按钮" in str(method or ""):
         # 按钮点到了、bot 只回菜单（没有任何签到结果）：
         # 仅当「今天此前已经签到成功过」才算「今日已签到、不再重复发放」；
@@ -244,6 +255,8 @@ async def signin_one(
     already_signed_today: bool = False,
     success_keywords: Optional[Sequence[str]] = None,
     repeated_keywords: Optional[Sequence[str]] = None,
+    failure_keywords: Optional[Sequence[str]] = None,
+    ai_judge: Optional[Any] = None,
 ) -> Dict[str, Any]:
     """
     对单个 bot 执行一次签到，并补上结果状态分类。
@@ -253,6 +266,8 @@ async def signin_one(
     :param already_signed_today: 今天此前是否已经签到成功过
     :param success_keywords: 自定义「签到成功」关键词（None 用内置默认）
     :param repeated_keywords: 自定义「已签到」关键词（None 用内置默认）
+    :param failure_keywords: 自定义「签到失败」关键词（None 用内置默认）
+    :param ai_judge: 可选的 AI 复核协程（仅「未确认」时调用；默认 None = 不启用）
     :return Dict[str, Any]: 结果字典（含 status）
     """
 
@@ -265,14 +280,38 @@ async def signin_one(
         already_signed_today=already_signed_today,
         success_keywords=success_keywords,
         repeated_keywords=repeated_keywords,
+        failure_keywords=failure_keywords,
     )
+    if status == STATUS_UNCONFIRMED and ai_judge is not None:
+        # 「未确认」时才用 MP 内置 AI 复核（默认关闭）：
+        # AI 不可用 / 超时 / 输出无法解析 → 一律保持「未确认」，不影响其它判定
+        try:
+            verdict = await ai_judge(result)
+        except Exception:  # pylint: disable=broad-except
+            verdict = None
+        if verdict in (AI_VERDICT_SUCCESS, AI_VERDICT_FAILURE):
+            result["ai_verdict"] = verdict
+            status = (
+                STATUS_SUCCESS if verdict == AI_VERDICT_SUCCESS else STATUS_FAILED
+            )
     result["status"] = status
     if status == STATUS_FAILED and result.get("ok"):
-        # 只可能是「按钮式只回菜单 + 今天此前没成功过」：失败不能计入成功
+        # 失败不能计入成功：失败会进失败重试窗口
         result["ok"] = False
-        result["error"] = str(result.get("error") or "") or (
-            "bot 只回了菜单/没有给出签到结果，且今天此前没有签到成功记录"
-        )
+        if not result.get("error"):
+            if result.get("ai_verdict") == AI_VERDICT_FAILURE:
+                result["error"] = (
+                    "AI 复核判定本次签到失败："
+                    + str(result.get("reply") or result.get("alert") or "无回复")[:120]
+                )
+            elif "按钮" in str(result.get("method") or ""):
+                result["error"] = (
+                    "bot 只回了菜单/没有给出签到结果，且今天此前没有签到成功记录"
+                )
+            else:
+                result["error"] = "bot 回复被判定为签到失败：" + str(
+                    result.get("reply") or result.get("alert") or "无回复"
+                )[:120]
     return result
 
 
@@ -352,6 +391,8 @@ async def run_account(
     proxy: Optional[Tuple[str, str, int]],
     success_keywords: Optional[Sequence[str]] = None,
     repeated_keywords: Optional[Sequence[str]] = None,
+    failure_keywords: Optional[Sequence[str]] = None,
+    ai_judge: Optional[Any] = None,
 ) -> Tuple[List[Dict[str, Any]], str]:
     """
     对单个账号执行它名下所有启用的签到目标。
@@ -362,6 +403,8 @@ async def run_account(
     :param proxy: 代理元组，None 表示直连
     :param success_keywords: 自定义「签到成功」关键词（None 用内置默认）
     :param repeated_keywords: 自定义「已签到」关键词（None 用内置默认）
+    :param failure_keywords: 自定义「签到失败」关键词（None 用内置默认）
+    :param ai_judge: 可选的 AI 复核协程（仅「未确认」时调用）
     :return Tuple[List[Dict[str, Any]], str]: ``(结果列表, 账号级错误)``；
         账号级错误非空时结果列表为空
     """
@@ -383,6 +426,8 @@ async def run_account(
                 already_signed_today=signed_today(load_state(data_dir), target),
                 success_keywords=success_keywords,
                 repeated_keywords=repeated_keywords,
+                failure_keywords=failure_keywords,
+                ai_judge=ai_judge,
             )
             # 带上显示名：通知正文里显示「账号1(acc1)」比纯标识好认
             item["account_label"] = account.display()
@@ -407,6 +452,8 @@ async def run_all(
     only_targets: Optional[Sequence[BotTarget]] = None,
     success_keywords: Optional[Sequence[str]] = None,
     repeated_keywords: Optional[Sequence[str]] = None,
+    failure_keywords: Optional[Sequence[str]] = None,
+    ai_judge: Optional[Any] = None,
 ) -> List[Dict[str, Any]]:
     """
     按账号维度依次签到（同一时刻只连一个账号，避免并发触发风控）。
@@ -420,6 +467,8 @@ async def run_all(
     :param only_targets: 只跑给定的目标集合（失败重试用），None 表示按账号/bot 过滤
     :param success_keywords: 自定义「签到成功」关键词（None 用内置默认）
     :param repeated_keywords: 自定义「已签到」关键词（None 用内置默认）
+    :param failure_keywords: 自定义「签到失败」关键词（None 用内置默认）
+    :param ai_judge: 可选的 AI 复核协程（仅「未确认」时调用）
     :return List[Dict[str, Any]]: 扁平的结果列表
     """
 
@@ -452,6 +501,8 @@ async def run_all(
             proxy,
             success_keywords=success_keywords,
             repeated_keywords=repeated_keywords,
+            failure_keywords=failure_keywords,
+            ai_judge=ai_judge,
         )
         if account_error:
             results.append(
@@ -525,6 +576,13 @@ def _status_note(item: Mapping[str, Any]) -> str:
     alert = " ".join(str(item.get("alert") or "").split())
     reply = " ".join(str(item.get("reply") or "").split())
     if status == STATUS_SUCCESS:
+        if item.get("ai_verdict") == AI_VERDICT_SUCCESS:
+            # 回复里没有成功词，是 AI 复核判定的成功：通知里标注，便于回溯
+            return (
+                f"（AI 复核判定成功）｜{_snippet(reply)}"
+                if reply
+                else "（AI 复核判定成功）"
+            )
         if alert:
             return f"（bot 弹窗：{_snippet(alert, 40)}）"
         return f"｜{_snippet(reply)}" if reply else ""

@@ -56,6 +56,7 @@ from .core.config import (
     AccountConfig,
     BotTarget,
     accounts_to_text,
+    DEFAULT_FAILURE_KEYWORDS,
     account_login_fields,
     accounts_from_slots,
     coerce_scalar,
@@ -69,6 +70,7 @@ from .core.config import (
     validate_config,
 )
 from .core.login import clear_pending, confirm_login, load_pending, send_code
+from .core.ai import AiSigninJudge
 from .core.session import (
     connection_selftest,
     delete_session,
@@ -149,6 +151,9 @@ class TgSignin(_PluginBase):
         self._retry_interval_hours = DEFAULT_RETRY_INTERVAL_HOURS
         self._success_keywords = list(DEFAULT_SUCCESS_KEYWORDS)
         self._repeated_keywords = list(DEFAULT_REPEATED_KEYWORDS)
+        self._failure_keywords = list(DEFAULT_FAILURE_KEYWORDS)
+        # AI 复核器：默认关闭；开启后仅对「未确认」结果调用 MP 内置智能助手
+        self._ai_judge = AiSigninJudge(enabled=False, logger=logger)
         self._use_text_mode = False
         self._accounts_text = DEFAULT_ACCOUNTS_TEXT
         self._targets_text = DEFAULT_TARGETS_TEXT
@@ -198,6 +203,11 @@ class TgSignin(_PluginBase):
             self._repeated_keywords = parse_keywords(
                 config.get("repeated_keywords"), DEFAULT_REPEATED_KEYWORDS
             )
+            # 失败关键词：明确失败文案（如「签到服务暂不可用，请稍后重试。」）判为失败并进入失败重试
+            self._failure_keywords = parse_keywords(
+                config.get("failure_keywords"), DEFAULT_FAILURE_KEYWORDS
+            )
+            self._ai_judge.enabled = bool(config.get("ai_confirm_enabled"))
             self._use_text_mode = bool(config.get("use_text_mode"))
             self._accounts_text = str(config.get("accounts_text") or DEFAULT_ACCOUNTS_TEXT)
             self._targets_text = str(config.get("targets_text") or DEFAULT_TARGETS_TEXT)
@@ -577,6 +587,46 @@ class TgSignin(_PluginBase):
                                     "persistent-hint": True,
                                     "hint": "回复/弹窗里出现任一关键词即判「今日已签到」；多个用 | 或逗号分隔，留空用内置默认",
                                     "placeholder": "|".join(DEFAULT_REPEATED_KEYWORDS),
+                                },
+                            }
+                        ],
+                    },
+                ],
+            },
+            {
+                "component": "VRow",
+                "content": [
+                    {
+                        "component": "VCol",
+                        "props": {"cols": 12, "md": 6},
+                        "content": [
+                            {
+                                "component": "VTextField",
+                                "props": {
+                                    "model": "failure_keywords",
+                                    "label": "签到失败关键词",
+                                    "persistent-hint": True,
+                                    "hint": "回复/弹窗里出现任一关键词即判「失败」，并进入失败重试"
+                                    "（如 bot 回「签到服务暂不可用，请稍后重试。」）；"
+                                    "多个用 | 或逗号分隔，留空用内置默认",
+                                    "placeholder": "|".join(DEFAULT_FAILURE_KEYWORDS),
+                                },
+                            }
+                        ],
+                    },
+                    {
+                        "component": "VCol",
+                        "props": {"cols": 12, "md": 6},
+                        "content": [
+                            {
+                                "component": "VSwitch",
+                                "props": {
+                                    "model": "ai_confirm_enabled",
+                                    "label": "自动使用 AI 确认",
+                                    "persistent-hint": True,
+                                    "hint": "仅当结果落到「未确认」时，调用 MoviePilot 内置智能助手判定"
+                                    "成功/失败；判定失败会进入失败重试，无法判定则保持「未确认」。"
+                                    "需在 MP 里配置好智能助手（LLM）。默认关闭",
                                 },
                             }
                         ],
@@ -981,6 +1031,8 @@ class TgSignin(_PluginBase):
             "retry_interval_hours": DEFAULT_RETRY_INTERVAL_HOURS,
             "success_keywords": "|".join(DEFAULT_SUCCESS_KEYWORDS),
             "repeated_keywords": "|".join(DEFAULT_REPEATED_KEYWORDS),
+            "failure_keywords": "|".join(DEFAULT_FAILURE_KEYWORDS),
+            "ai_confirm_enabled": False,
             "use_text_mode": False,
             "accounts_text": DEFAULT_ACCOUNTS_TEXT,
             "targets_text": DEFAULT_TARGETS_TEXT,
@@ -1555,6 +1607,8 @@ class TgSignin(_PluginBase):
                 "retry_interval_hours": self._retry_interval_hours,
                 "success_keywords": "|".join(self._success_keywords),
                 "repeated_keywords": "|".join(self._repeated_keywords),
+                "failure_keywords": "|".join(self._failure_keywords),
+                "ai_confirm_enabled": self._ai_judge.enabled,
                 "use_text_mode": self._use_text_mode,
             }
         )
@@ -1717,6 +1771,8 @@ class TgSignin(_PluginBase):
             only_targets=only_targets,
             success_keywords=self._success_keywords,
             repeated_keywords=self._repeated_keywords,
+            failure_keywords=self._failure_keywords,
+            ai_judge=self._ai_judge.judge,
         )
         summary = summarize_results(results)
         record_run(self.get_data_path(), results, source, summary)
