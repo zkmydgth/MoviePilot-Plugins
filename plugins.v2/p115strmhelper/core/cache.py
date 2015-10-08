@@ -4,16 +4,19 @@ __all__ = [
     "lifeeventcacher",
     "r302cacher",
     "DirectoryCache",
+    "OofFastMiCache",
 ]
 
 
 from abc import ABC, abstractmethod
+from base64 import b64encode, b64decode
 from pathlib import Path
-from typing import List, Dict, MutableMapping, Optional, Union, Set
+from typing import List, Dict, MutableMapping, Optional, Union, Set, Any
 from time import time
 
 from cachetools import TTLCache as MemoryTTLCache
 from diskcache import Cache as DiskCache
+from orjson import dumps
 
 from app.core.cache import Cache, LRUCache
 from app.core.config import settings
@@ -254,7 +257,7 @@ class RedisCacheDirectory(BaseCacheDirectory):
     def get_group_paths(self, group_name: str) -> Set[str]:
         key = self._make_set_key(group_name)
         byte_set = self.client.smembers(key)
-        return {b.decode('utf-8') for b in byte_set}
+        return {b.decode("utf-8") for b in byte_set}
 
     def clear_group(self, group_name: str):
         key = self._make_set_key(group_name)
@@ -292,6 +295,71 @@ class DirectoryCache:
 
     def close(self):
         self._storage.close()
+
+
+class OofFastMiCache:
+    """
+    OOF 快速媒体信息文件缓存器
+    """
+
+    def __init__(self, cache_dir: Path):
+        """
+        初始化缓存器
+
+        :param cache_dir: 缓存文件在磁盘上存储的目录
+        """
+        if not cache_dir.exists():
+            cache_dir.mkdir(parents=True, exist_ok=True)
+
+        self.cache = DiskCache(
+            cache_dir.as_posix(),
+            size_limit=10 * (1024**3),
+            sqlite_journal_mode="WAL",
+            sqlite_synchronous="NORMAL",
+            sqlite_mmap_size=2**28,
+            sqlite_cache_size=131072,
+        )
+
+    def batch_set(self, items: List[Any | Dict]):
+        """
+        批量写入
+        """
+        with self.cache.transact():
+            for item in items:
+                if isinstance(item, dict):
+                    sha1_key = item.get("sha1")
+                    b64_data = item.get("data")
+                    if not b64_data:
+                        continue
+                    compressed_data = b64decode(b64_data)
+                else:
+                    _, (sha1_key, compressed_data, *_) = item
+                if isinstance(sha1_key, str) and isinstance(compressed_data, bytes):
+                    self.cache.set(sha1_key, compressed_data)
+
+    def batch_get(self, sha1_keys: List[str]) -> bytes:
+        """
+        批量获取
+        """
+        results = {}
+        retrieved_items = {}
+        for key in sha1_keys:
+            value = self.cache.get(key)
+            if value is not None:
+                retrieved_items[key] = value
+        results.update(
+            {
+                key: b64encode(value).decode("utf-8")
+                for key, value in retrieved_items.items()
+            }
+        )
+        missed_keys = set(sha1_keys) - set(retrieved_items)
+        for key in missed_keys:
+            results[key] = None
+        return dumps(results)
+
+    def close(self):
+        self.cache.close()
 
 
 idpathcacher = IdPathCache(maxsize=4096)

@@ -1,9 +1,10 @@
 import asyncio
 import time
+from base64 import b64decode
 from itertools import batched
 from pathlib import Path
 from uuid import uuid4
-from typing import List, cast, Dict, Set
+from typing import List, cast, Dict, Set, Optional, Tuple, Generator
 from errno import EIO
 from urllib.parse import unquote, urlsplit
 
@@ -16,12 +17,18 @@ from p115pickcode import pickcode_to_id
 from p115client import P115Client, check_response as p115_check_response
 from p115client.const import TYPE_TO_SUFFIXES
 from p115client.tool.util import reduce_image_url_layers
-from p115client.tool.iterdir import _iter_fs_files, iter_files
-from p115client.tool.download import iter_files_with_url
+from p115client.tool.iterdir import (
+    _iter_fs_files,
+    iter_files,
+    iter_files_with_path_skim,
+)
+from zstandard import ZstdCompressor, ZstdDecompressor
 
 from app.log import logger
 
 from ..core.config import configer
+from ..core.cache import OofFastMiCache
+from ..utils.oopserver import OOPServerRequest
 from ..utils.http import check_response
 from ..utils.url import Url
 from ..utils.sentry import sentry_manager
@@ -42,6 +49,13 @@ class MediaInfoDownloader:
     def __init__(self, cookie: str):
         self.cookie = cookie
         self.client = P115Client(cookie)
+
+        self.oof_fast_mi_cacher = OofFastMiCache(
+            configer.PLUGIN_TEMP_PATH / "oof_fast_mi"
+        )
+        self.oof_r = OOPServerRequest()
+        self.zstd_compressor = ZstdCompressor()
+        self.zstd_decompressor = ZstdDecompressor()
 
         base_headers = {
             "User-Agent": configer.get_user_agent(),
@@ -66,6 +80,9 @@ class MediaInfoDownloader:
 
         logger.debug(f"【媒体信息文件下载】初始化请求头：{self.headers}")
 
+    def __del__(self):
+        self.oof_fast_mi_cacher.close()
+
     @staticmethod
     async def async_is_file_leq_1k(file_path: str | Path) -> bool:
         """
@@ -80,6 +97,27 @@ class MediaInfoDownloader:
             return True
         except Exception:
             return False
+
+    def _oof_data_upload(self, upload_lst: List):
+        """
+        上传数据到服务器
+
+        :param upload_lst: 上传列表
+        """
+        try:
+            resp = self.oof_r.make_request(
+                method="POST",
+                path="/mediainfo_data/bulk",
+                files_data=upload_lst,
+            )
+            if resp is not None and resp.status_code == 200:
+                logger.debug(
+                    f"【媒体信息文件下载】数据上传 OOF 服务器成功: {resp.json()}"
+                )
+            self.oof_fast_mi_cacher.batch_set(upload_lst)
+            logger.debug(f"【媒体信息文件下载】OOF 数据缓存本地成功: {len(upload_lst)}")
+        except Exception as e:
+            logger.warn(f"【媒体信息文件下载】获取 OOF 服务器数据失败: {e}")
 
     def get_download_url(self, pickcode: str):
         """
@@ -100,6 +138,42 @@ class MediaInfoDownloader:
         data = json["data"] = loads(decrypt(json["data"]))
         data["file_name"] = unquote(urlsplit(data["url"]).path.rpartition("/")[-1])
         return Url.of(data["url"], data)
+
+    def save_oof_mediainfo_file(
+        self, item_list: List | Tuple, json_data: Dict, key: str
+    ) -> Generator:
+        """
+        将 OOF base64 数据解码后存入文件
+
+        :param item_list: 待处理的列表
+        :param json_data: 数据字典
+        :param key: 数据类型（Cache ｜ Api）
+
+        :return: 迭代器，返回未能处理的项目
+        """
+        for item in item_list:
+            base64_data = json_data.get(item["sha1"])
+            if base64_data:
+                try:
+                    file_path = Path(item["path"])
+                    file_name = file_path.name
+                    file_path.parent.mkdir(parents=True, exist_ok=True)
+                    decompressed_data = self.zstd_decompressor.decompress(
+                        b64decode(base64_data)
+                    )
+                    with open(file_path, "wb") as f:
+                        f.write(decompressed_data)
+                    logger.info(
+                        f"【媒体信息文件下载】OOF {key} 保存 {file_name} 成功: {file_path}"
+                    )
+                    self.mediainfo_count += 1
+                except Exception as e:
+                    logger.error(
+                        f"【媒体信息文件下载】处理 {item['path']} 时发生错误: {e}"
+                    )
+                    yield item
+            else:
+                yield item
 
     def save_mediainfo_file(self, file_path: Path, file_name: str, download_url: str):
         """
@@ -129,13 +203,23 @@ class MediaInfoDownloader:
         file_name: str,
         download_url: str,
         hide_cookies: bool = False,
-    ):
+        sha1: str | None = None,
+    ) -> Optional[Tuple[str, Tuple[str, bytes, str]]]:
         """
         带验证和重试机制的异步下载
+
+        :param client: HTTPX 客户端
+        :param semaphore: 并发量
+        :param file_path: 文件路径
+        :param file_name：文件名称
+        :param download_url: 下载地址
+        :param hide_cookies: 是否使用 Cookie 下载，默认 False
+        :param sha1: 文件 115 网盘 sha1，如果设置则会返回数据压缩信息
         """
         async with semaphore:
             max_retries = 3
             for attempt in range(max_retries):
+                file_content_buffer = bytearray()
                 try:
                     request_headers = self.headers.copy()
                     request_headers["Connection"] = "close"
@@ -153,6 +237,7 @@ class MediaInfoDownloader:
                         async with aiofiles.open(file_path, "wb") as f:
                             async for chunk in response.aiter_bytes(chunk_size=8192):
                                 await f.write(chunk)
+                                file_content_buffer.extend(chunk)
 
                     if await self.async_is_file_leq_1k(file_path):
                         raise DownloadValidationFail(
@@ -163,7 +248,14 @@ class MediaInfoDownloader:
                         f"【媒体信息文件下载】保存 {file_name} 成功: {file_path}"
                     )
                     self.mediainfo_count += 1
-                    return
+
+                    if sha1:
+                        return "files", (
+                            sha1,
+                            self.zstd_compressor.compress(file_content_buffer),
+                            "application/octet-stream",
+                        )
+                    return None
 
                 except DownloadValidationFail as e:
                     error_message = str(e)
@@ -174,7 +266,7 @@ class MediaInfoDownloader:
                         logger.error(
                             f"【下载失败】获取 {file_name} 时被拒绝 (403 Forbidden)，将不会重试。"
                         )
-                        return
+                        return None
                     error_message = f"HTTP错误 {e.response.status_code}"
                 except httpx.RequestError as e:
                     error_message = f"网络请求错误 {type(e).__name__}"
@@ -195,8 +287,12 @@ class MediaInfoDownloader:
                     )
 
     async def __async_download_batch_subtitle_image(
-        self, data_map: Dict[str | int, str], item_list, value: str = "sha1"
-    ):
+        self,
+        data_map: Dict[str | int, str],
+        item_list,
+        value: str = "sha1",
+        oof_upload: bool = False,
+    ) -> Optional[List]:
         """
         为单个批次创建并并发执行所有下载任务
         """
@@ -214,12 +310,18 @@ class MediaInfoDownloader:
                         path.name,
                         url,
                         hide_cookies=bool(value == "sha1"),
+                        sha1=item["sha1"] if oof_upload else None,
                     )
                     tasks.append(task)
             if tasks:
-                await asyncio.gather(*tasks)
+                result = await asyncio.gather(*tasks)
+                if oof_upload:
+                    return list(filter(bool, result))
+        return None
 
-    async def __async_download_batch_share(self, item_list, value: str = "thumb"):
+    async def __async_download_batch_share(
+        self, item_list, value: str = "thumb", oof_upload: bool = False
+    ) -> Optional[List]:
         """
         为单个批次分享创建并并发执行所有下载任务
         """
@@ -234,10 +336,14 @@ class MediaInfoDownloader:
                     path,
                     path.name,
                     item.get(value),
+                    sha1=item["sha1"] if oof_upload else None,
                 )
                 tasks.append(task)
             if tasks:
-                await asyncio.gather(*tasks)
+                result = await asyncio.gather(*tasks)
+                if oof_upload:
+                    return list(filter(bool, result))
+        return None
 
     def batch_subtitle_downloader(self, downloads_list: List):
         """
@@ -313,6 +419,8 @@ class MediaInfoDownloader:
                 }
                 resp = self.client.share_receive(payload)
                 p115_check_response(resp)
+                # 休眠等待 115 全部转存完成
+                time.sleep(8)
                 attr = next(
                     _iter_fs_files(
                         client=self.client,
@@ -386,10 +494,53 @@ class MediaInfoDownloader:
             finally:
                 self.client.fs_delete(scid)
 
-    def batch_share_downloader(self, downloads_list: List):
+    def batch_oof_fast_mi_downloader(
+        self, downloads_list: List, u115_share: bool = False
+    ):
+        """
+        处理 OOF 数据库类文件下载
+
+        1. 本地缓存读取
+        2. 请求 OOF API 获取
+        3. 115 cdn 下载（下载完成后自动上传+本地缓存）
+        """
+        for item_list in batched(downloads_list, self.batch_size):
+            json = loads(
+                self.oof_fast_mi_cacher.batch_get([item["sha1"] for item in item_list])
+            )
+            api_item_lst = list(self.save_oof_mediainfo_file(item_list, json, "Cache"))
+            dl_lst: List = api_item_lst
+            if not api_item_lst:
+                continue
+            try:
+                resp = self.oof_r.make_request(
+                    method="POST",
+                    path="/mediainfo_data/get",
+                    json_data={"sha1s": [item["sha1"] for item in api_item_lst]},
+                )
+                if resp is not None and resp.status_code == 200:
+                    json = {i["sha1"]: i["data"] for i in resp.json() if i["data"]}
+                    dl_lst = list(
+                        self.save_oof_mediainfo_file(api_item_lst, json, "Api")
+                    )
+                    self.oof_fast_mi_cacher.batch_set(resp.json())
+                    logger.debug(
+                        f"【媒体信息文件下载】OOF 数据本地缓存成功: {len(json.keys())}"
+                    )
+            except Exception as e:
+                logger.warn(f"【媒体信息文件下载】获取 OOF 服务器数据失败: {e}")
+            if not dl_lst:
+                continue
+            if u115_share:
+                self.batch_share_downloader(dl_lst, oof_upload=True)
+            else:
+                self.batch_downloader(dl_lst, oof_upload=True)
+
+    def batch_share_downloader(self, downloads_list: List, oof_upload: bool = False):
         """
         批处理分享其它类型文件下载
         """
+        upload_lst: List = []
         for item_list in batched(downloads_list, 50):
             sha1_to_path = {info["sha1"]: info["path"] for info in item_list}
             resp = self.client.fs_mkdir(
@@ -407,56 +558,75 @@ class MediaInfoDownloader:
                 }
                 resp = self.client.share_receive(payload)
                 p115_check_response(resp)
-                for batch in batched(
-                    iter_files_with_url(
+                # 休眠等待 115 全部转存完成
+                time.sleep(8)
+                file_info_lst = list(
+                    iter_files_with_path_skim(
                         client=self.client,
                         cid=scid,
-                        user_agent=configer.get_user_agent(),
-                    ),
-                    self.max_workers,
-                ):
-                    asyncio.run(
+                        with_ancestors=False,
+                    )
+                )
+                pcs = [i["pickcode"] for i in file_info_lst]
+                resp = self.client.download_urls(
+                    ",".join(pcs), user_agent=configer.get_user_agent()
+                )
+                for batch in batched(resp.items(), self.max_workers):
+                    r_lst = asyncio.run(
                         self.__async_download_batch_share(
                             [
-                                {"url": i["url"], "path": sha1_to_path.get(i["sha1"])}
-                                for i in batch
+                                {
+                                    "url": value.geturl(),
+                                    "path": sha1_to_path.get(value["sha1"]),
+                                    "sha1": value["sha1"],
+                                }
+                                for _, value in batch
                             ],
-                            "url",
+                            value="url",
+                            oof_upload=oof_upload,
                         )
                     )
+                    if oof_upload:
+                        upload_lst.extend(r_lst)
+                    time.sleep(1)
             except Exception as e:
                 logger.error(f"【媒体信息文件下载】批处理下载文件失败: {e}")
             finally:
                 self.client.fs_delete(scid)
 
-    def batch_downloader(self, downloads_list: List, **request_kwargs):
+        if oof_upload and upload_lst:
+            self._oof_data_upload(upload_lst)
+
+    def batch_downloader(self, downloads_list: List, oof_upload: bool = False):
         """
         批处理其它类型文件下载
         """
-        if headers := request_kwargs.get("headers"):
-            request_kwargs["headers"] = dict(
-                headers, **{"user-agent": configer.get_user_agent()}
-            )
-        else:
-            request_kwargs["headers"] = {"user-agent": configer.get_user_agent()}
         for item in downloads_list:
             item["file_id"] = pickcode_to_id(item["pickcode"])
+        upload_lst: List = []
         try:
             for item_list in batched(downloads_list, self.batch_size):
                 pcs = [item["pickcode"] for item in item_list]
-                resp = self.client.download_urls(",".join(pcs), **request_kwargs)
+                resp = self.client.download_urls(
+                    ",".join(pcs), user_agent=configer.get_user_agent()
+                )
                 data_map = {key: value.geturl() for key, value in resp.items()}
                 for batch in batched(item_list, self.max_workers):
                     if self.stop_all_flag:
                         return
-                    asyncio.run(
+                    r_lst = asyncio.run(
                         self.__async_download_batch_subtitle_image(
-                            data_map, batch, "file_id"
+                            data_map, batch, value="file_id", oof_upload=oof_upload
                         )
                     )
+                    if oof_upload:
+                        upload_lst.extend(r_lst)
                     time.sleep(1)
         except Exception as e:
             logger.error(f"【媒体信息文件下载】批处理下载文件失败: {e}")
+
+        if oof_upload and upload_lst:
+            self._oof_data_upload(upload_lst)
 
     def batch_auto_downloader(self, downloads_list: List):
         """
@@ -464,6 +634,7 @@ class MediaInfoDownloader:
         """
         image_suffix: Set[str] = set(TYPE_TO_SUFFIXES[2])
         subtitle_suffix: Set[str] = {".srt", ".ass", ".ssa"}
+        oof_fast_mi_suffix: Set[str] = {".nfo"}
 
         self.stop_all_flag = False
         self.mediainfo_count: int = 0
@@ -472,19 +643,31 @@ class MediaInfoDownloader:
 
         image_list: List = []
         subtitle_list: List = []
+        oof_fast_mi_list: List = []
         other_list: List = []
+
+        subtitle_list_append = subtitle_list.append
+        image_list_append = image_list.append
+        oof_fast_mi_append = oof_fast_mi_list.append
+        other_list_append = other_list.append
+
         for item in downloads_list:
             suffix = Path(item["path"]).suffix
             if suffix in subtitle_suffix:
-                subtitle_list.append(item)
+                subtitle_list_append(item)
             elif suffix in image_suffix:
-                image_list.append(item)
+                image_list_append(item)
+            elif suffix in oof_fast_mi_suffix:
+                oof_fast_mi_append(item)
             else:
-                other_list.append(item)
+                other_list_append(item)
+
         if subtitle_list and not self.stop_all_flag:
             self.batch_subtitle_downloader(subtitle_list)
         if image_list and not self.stop_all_flag:
             self.batch_image_downloader(image_list)
+        if oof_fast_mi_list and not self.stop_all_flag:
+            self.batch_oof_fast_mi_downloader(oof_fast_mi_list, u115_share=False)
         if other_list and not self.stop_all_flag:
             self.batch_downloader(other_list)
 
@@ -495,6 +678,7 @@ class MediaInfoDownloader:
         根据列表自动批量分享下载
         """
         subtitle_suffix: Set[str] = {".srt", ".ass", ".ssa"}
+        oof_fast_mi_suffix: Set[str] = {".nfo"}
 
         self.mediainfo_count: int = 0
         self.mediainfo_fail_count: int = 0
@@ -502,19 +686,31 @@ class MediaInfoDownloader:
 
         image_list: List = []
         subtitle_list: List = []
+        oof_fast_mi_list: List = []
         other_list: List = []
+
+        subtitle_list_append = subtitle_list.append
+        image_list_append = image_list.append
+        oof_fast_mi_append = oof_fast_mi_list.append
+        other_list_append = other_list.append
+
         for item in downloads_list:
+            suffix = Path(item["path"]).suffix
             if item.get("thumb"):
-                image_list.append(item)
-            elif Path(item["path"]).suffix in subtitle_suffix:
-                subtitle_list.append(item)
+                image_list_append(item)
+            elif suffix in subtitle_suffix:
+                subtitle_list_append(item)
+            elif suffix in oof_fast_mi_suffix:
+                oof_fast_mi_append(item)
             else:
-                other_list.append(item)
+                other_list_append(item)
 
         if image_list:
             asyncio.run(self.__async_download_batch_share(image_list))
         if subtitle_list:
             self.batch_share_subtitle_downloader(subtitle_list)
+        if oof_fast_mi_list:
+            self.batch_oof_fast_mi_downloader(oof_fast_mi_list, u115_share=True)
         if other_list:
             self.batch_share_downloader(other_list)
 

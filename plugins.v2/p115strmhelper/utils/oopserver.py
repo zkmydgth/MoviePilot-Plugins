@@ -1,6 +1,6 @@
 import time
 import base64
-from typing import Any, Optional, Dict
+from typing import Any, Optional, Dict, List, Tuple
 
 import httpx
 
@@ -65,6 +65,7 @@ class OOPServerRequest:
         method: str = "POST",
         headers: Optional[Dict[str, str]] = None,
         json_data: Optional[Dict[str, Any]] = None,
+        files_data: Optional[List[Tuple[str, Tuple[str, bytes, str]]]] = None,
         timeout: float = 10.0,
     ) -> Optional[httpx.Response]:
         """
@@ -74,6 +75,9 @@ class OOPServerRequest:
         :param method: HTTP方法 (GET, POST等)
         :param headers: 请求头
         :param json_data: JSON请求体
+        :param files_data: 文件上传数据。格式为 httpx 的 files 参数格式，例如:
+                         [('files', ('filename1.txt', b'content1', 'text/plain')),
+                          ('files', ('filename2.jpg', b'content2', 'image/jpeg'))]
         :param timeout: 超时时间(秒)
         :return: 响应对象或None
         """
@@ -86,7 +90,12 @@ class OOPServerRequest:
 
         kwargs = {"headers": final_headers, "timeout": timeout}
         if json_data and method.upper() in ["POST", "PUT", "PATCH"]:
+            final_headers["accept"] = "application/json"
+            final_headers["Content-Type"] = "application/json"
             kwargs["json"] = json_data
+        elif files_data and method.upper() == "POST":
+            kwargs["files"] = files_data  # noqa
+            final_headers.pop("Content-Type", None)
 
         last_exception = None
 

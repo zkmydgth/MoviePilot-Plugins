@@ -5,9 +5,9 @@ __all__ = ["iter_share_files_with_path", "get_pid_by_path"]
 from itertools import cycle
 from os import PathLike
 from pathlib import Path
-from threading import Lock
+from threading import Lock, Event
 from queue import Queue, Empty
-from typing import Iterator, Literal
+from typing import Iterator, Literal, List
 from concurrent.futures import ThreadPoolExecutor
 
 from p115client import P115Client, check_response, normalize_attr
@@ -79,6 +79,8 @@ def iter_share_files_with_path(
     result_queue = Queue(maxsize=max_workers * 2)
     active_tasks = AtomicCounter(1)
     task_queue.put((cid, "", 0))
+    exit_event = Event()
+    exception_holder: List = []
     apps = [
         "ios",
         "android",
@@ -106,13 +108,15 @@ def iter_share_files_with_path(
     api_cycler = cycle(apis)
 
     def worker():
-        while True:
+        while not exit_event.is_set():
             try:
                 current_cid, current_path_prefix, offset = task_queue.get(timeout=0.1)
             except Empty:
                 if active_tasks.is_zero():
                     break
                 continue
+            if exit_event.is_set():
+                break
             payload = {
                 "share_code": share_code,
                 "receive_code": receive_code,
@@ -152,7 +156,9 @@ def iter_share_files_with_path(
                     for task in new_tasks:
                         task_queue.put(task)
             except Exception as e:
-                raise e
+                if not exit_event.is_set():
+                    exception_holder.append(e)
+                exit_event.set()
             finally:
                 active_tasks.decrement()
 
@@ -164,7 +170,8 @@ def iter_share_files_with_path(
                 yield result_queue.get(timeout=0.1)
             except Empty:
                 continue
-
+    if exit_event.is_set() and exception_holder:
+        raise exception_holder[0]
 
 def get_pid_by_path(
     client: P115Client,
