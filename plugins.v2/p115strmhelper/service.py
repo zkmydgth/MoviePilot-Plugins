@@ -14,6 +14,7 @@ from .helper.life import MonitorLife
 from .helper.strm import FullSyncStrmHelper, ShareStrmHelper, IncrementSyncStrmHelper
 from .helper.monitor import handle_file, FileMonitorHandler
 from .helper.share import ShareTransferHelper
+from .helper.clean import Cleaner
 from .core.config import configer
 from .core.message import post_message
 
@@ -335,40 +336,13 @@ class ServiceHelper:
         """
         主清理模块
         """
+        client = Cleaner(client=self.client)
+
         if configer.get_config("clear_receive_path_enabled"):
-            self.clear_receive_path()
+            client.clear_receive_path()
 
         if configer.get_config("clear_recyclebin_enabled"):
-            self.clear_recyclebin()
-
-    def clear_recyclebin(self):
-        """
-        清空回收站
-        """
-        try:
-            logger.info("【回收站清理】开始清理回收站")
-            self.client.recyclebin_clean(password=configer.get_config("password"))
-            logger.info("【回收站清理】回收站已清空")
-        except Exception as e:
-            logger.error(f"【回收站清理】清理回收站运行失败: {e}")
-            return
-
-    def clear_receive_path(self):
-        """
-        清空最近接收
-        """
-        try:
-            logger.info("【最近接收清理】开始清理最近接收")
-            parent_id = int(self.client.fs_dir_getid("/最近接收")["id"])
-            if parent_id == 0:
-                logger.info("【最近接收清理】最近接收目录为空，无需清理")
-                return
-            logger.info(f"【最近接收清理】最近接收目录 ID 获取成功: {parent_id}")
-            self.client.fs_delete(parent_id)
-            logger.info("【最近接收清理】最近接收已清空")
-        except Exception as e:
-            logger.error(f"【最近接收清理】清理最近接收运行失败: {e}")
-            return
+            client.clear_recyclebin()
 
     def stop(self):
         """
