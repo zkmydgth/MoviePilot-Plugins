@@ -1,6 +1,5 @@
-import sqlite3
-import subprocess
 import threading
+import sys
 from collections.abc import Mapping
 from datetime import datetime, timedelta
 from threading import Event as ThreadEvent
@@ -16,8 +15,11 @@ import requests
 from requests.exceptions import HTTPError
 from orjson import dumps, loads
 from cachetools import cached, TTLCache
-from .p115rsacipher import decrypt, encrypt
-from .p115updatedb_query import iter_children, get_path, get_pickcode, id_to_path
+from p115client import P115Client
+from p115client.tool.iterdir import (
+    iter_files_with_path,
+)
+from p115rsacipher import encrypt, decrypt
 
 from app import schemas
 from app.core.config import settings
@@ -82,101 +84,86 @@ class Url(str):
 
 class FullSyncStrmHelper:
     """
-    解析数据库，生成 STRM 文件
+    全量生成 STRM 文件
     """
 
-    def __init__(self, dbfile: str):
-        self.dbfile = dbfile
-        self.connection = sqlite3.connect(dbfile)
-        self.path_list = []
+    def __init__(
+        self,
+        cookies: str,
+        user_rmt_mediaext: str = "mp4,mkv,ts,iso,rmvb,avi,mov,mpeg,mpg,wmv,3gp,asf,m4v,flv,m2ts,tp,f4v",
+    ):
         self.rmt_mediaext = [
-            ".mp4",
-            ".mkv",
-            ".ts",
-            ".iso",
-            ".rmvb",
-            ".avi",
-            ".mov",
-            ".mpeg",
-            ".mpg",
-            ".wmv",
-            ".3gp",
-            ".asf",
-            ".m4v",
-            ".flv",
-            ".m2ts",
-            ".tp",
-            ".f4v",
+            f".{ext.strip()}" for ext in user_rmt_mediaext.replace("，", ",").split(",")
         ]
-
-    def close_sqlite_connect(self):
-        """
-        关闭数据库连接
-        """
-        self.connection.close()
-
-    def get_id_by_path(self, path):
-        """
-        通过文件夹路径获取文件夹 ID
-        """
-        return id_to_path(self.connection, path, False)
-
-    def get_video_file_path(self, parent_id: int):
-        """
-        获取视频文件路径
-        """
-        for attr in iter_children(self.connection, parent_id):
-            if attr["is_dir"] == 1:
-                self.get_video_file_path(attr["id"])
-            else:
-                path = get_path(self.connection, attr["id"])
-                file_parent_id = attr["id"]
-                self.path_list.append([path, file_parent_id])
-        return self.path_list
+        self.client = P115Client(cookies)
+        self.count = 0
 
     def generate_strm_files_db(self, pan_media_dir, target_dir, server_address):
         """
-        依据数据库生成 STRM 文件
+        生成 STRM 文件
         """
-        parent_id = self.get_id_by_path(pan_media_dir)
-        if parent_id != 0:
-            removal_path = get_path(self.connection, parent_id)
-        else:
-            removal_path = ""
-        path_list = self.get_video_file_path(parent_id)
-
+        pan_media_dir = pan_media_dir.rstrip("/")
         target_dir = target_dir.rstrip("/")
         server_address = server_address.rstrip("/")
 
-        for file_path, file_parent_id in path_list:
-            file_path = Path(target_dir) / Path(file_path).relative_to(removal_path)
-            file_target_dir = file_path.parent
-            original_file_name = file_path.name
-            file_name = file_path.stem + ".strm"
-            new_file_path = file_target_dir / file_name
+        try:
+            parent_id = int(self.client.fs_dir_getid(pan_media_dir)["id"])
+            logger.info(f"【全量STRM生成】网盘媒体目录 ID 获取成功: {parent_id}")
+        except Exception as e:
+            logger.error(f"【全量STRM生成】网盘媒体目录 ID 获取失败: {e}")
+            return False
 
-            if file_path.suffix not in self.rmt_mediaext:
-                logger.warn(
-                    "跳过网盘路径: %s", str(file_path).replace(str(target_dir), "", 1)
+        try:
+            for item in iter_files_with_path(self.client, cid=parent_id, cooldown=2):
+                if item["is_dir"] or item["is_directory"]:
+                    continue
+                file_path = item["path"]
+                file_path = Path(target_dir) / Path(file_path).relative_to(
+                    pan_media_dir
                 )
-                continue
+                file_target_dir = file_path.parent
+                original_file_name = file_path.name
+                file_name = file_path.stem + ".strm"
+                new_file_path = file_target_dir / file_name
 
-            pickcode = get_pickcode(self.connection, file_parent_id)
-            new_file_path.parent.mkdir(parents=True, exist_ok=True)
+                if file_path.suffix not in self.rmt_mediaext:
+                    logger.warn(
+                        "【全量STRM生成】跳过网盘路径: %s",
+                        str(file_path).replace(str(target_dir), "", 1),
+                    )
+                    continue
 
-            if not pickcode:
-                logger.error(
-                    f"{original_file_name} 不存在 pickcode 值，无法生成 STRM 文件"
+                pickcode = item["pickcode"]
+                if not pickcode:
+                    pickcode = item["pick_code"]
+
+                new_file_path.parent.mkdir(parents=True, exist_ok=True)
+
+                if not pickcode:
+                    logger.error(
+                        f"【全量STRM生成】{original_file_name} 不存在 pickcode 值，无法生成 STRM 文件"
+                    )
+                    continue
+                if not (len(pickcode) == 17 and str(pickcode).isalnum()):
+                    logger.error(
+                        f"【全量STRM生成】错误的 pickcode 值 {pickcode}，无法生成 STRM 文件"
+                    )
+                    continue
+                strm_url = f"{server_address}/api/v1/plugin/P115StrmHelper/redirect_url?apikey={settings.API_TOKEN}&pickcode={pickcode}"
+
+                with open(new_file_path, "w", encoding="utf-8") as file:
+                    file.write(strm_url)
+                self.count += 1
+                logger.info(
+                    "【全量STRM生成】生成 STRM 文件成功: %s", str(new_file_path)
                 )
-                continue
-            if not (len(pickcode) == 17 and str(pickcode).isalnum()):
-                logger.error(f"错误的 pickcode 值 {pickcode}，无法生成 STRM 文件")
-                continue
-            strm_url = f"{server_address}/api/v1/plugin/P115StrmHelper/redirect_url?apikey={settings.API_TOKEN}&pickcode={pickcode}"
-
-            with open(new_file_path, "w", encoding="utf-8") as file:
-                file.write(strm_url)
-            logger.info("生成 STRM 文件成功: %s", str(new_file_path))
+            logger.info(
+                f"【全量STRM生成】全量生成 STRM 文件完成，总共生成 {self.count} 个文件"
+            )
+            return True
+        except Exception as e:
+            logger.error(f"【全量STRM生成】全量生成 STRM 文件失败: {e}")
+            return False
 
 
 class P115StrmHelper(_PluginBase):
@@ -187,7 +174,7 @@ class P115StrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png"
     # 插件版本
-    plugin_version = "0.1.1"
+    plugin_version = "1.0.0"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -207,24 +194,14 @@ class P115StrmHelper(_PluginBase):
     pan_media_dir = None
     local_media_dir = None
     moviepilot_address = None
+    _user_rmt_mediaext = None
     # 退出事件
     _event = ThreadEvent()
-
-    def __init__(self):
-        """
-        初始化
-        """
-        super().__init__()
-        # 类名小写
-        class_name = self.__class__.__name__.lower()
-        self.__config_path = settings.PLUGIN_DATA_PATH / class_name
-        self.__db_filename = "file_list.db"
 
     def init_plugin(self, config: dict = None):
         """
         初始化插件
         """
-        Path(self.__config_path).mkdir(parents=True, exist_ok=True)
 
         if config:
             self._enabled = config.get("enabled")
@@ -233,7 +210,15 @@ class P115StrmHelper(_PluginBase):
             self.pan_media_dir = config.get("pan_media_dir")
             self.local_media_dir = config.get("local_media_dir")
             self.moviepilot_address = config.get("moviepilot_address")
+            self._user_rmt_mediaext = config.get("user_rmt_mediaext")
+            if not self._user_rmt_mediaext:
+                self._user_rmt_mediaext = "mp4,mkv,ts,iso,rmvb,avi,mov,mpeg,mpg,wmv,3gp,asf,m4v,flv,m2ts,tp,f4v"
             self.__update_config()
+
+        if self.__check_python_version() is False:
+            self._enabled, self._once_full_sync_strm = False, False
+            self.__update_config()
+            return False
 
         # 停止现有任务
         self.stop_service()
@@ -385,6 +370,24 @@ class P115StrmHelper(_PluginBase):
                             },
                         ],
                     },
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12},
+                                "content": [
+                                    {
+                                        "component": "VTextField",
+                                        "props": {
+                                            "model": "user_rmt_mediaext",
+                                            "label": "可整理媒体文件扩展名",
+                                        },
+                                    }
+                                ],
+                            },
+                        ],
+                    },
                 ],
             },
         ], {
@@ -394,6 +397,7 @@ class P115StrmHelper(_PluginBase):
             "moviepilot_address": "",
             "pan_media_dir": "",
             "local_media_dir": "",
+            "user_rmt_mediaext": "mp4,mkv,ts,iso,rmvb,avi,mov,mpeg,mpg,wmv,3gp,asf,m4v,flv,m2ts,tp,f4v",
         }
 
     def get_page(self) -> List[dict]:
@@ -408,8 +412,21 @@ class P115StrmHelper(_PluginBase):
                 "moviepilot_address": self.moviepilot_address,
                 "pan_media_dir": self.pan_media_dir,
                 "local_media_dir": self.local_media_dir,
+                "user_rmt_mediaext": self._user_rmt_mediaext,
             }
         )
+
+    @staticmethod
+    def __check_python_version() -> bool:
+        """
+        检查Python版本
+        """
+        if not (sys.version_info.major == 3 and sys.version_info.minor >= 12):
+            logger.error(
+                "当前MoviePilot使用的Python版本不支持本插件，请升级到Python 3.12及以上的版本使用！"
+            )
+            return False
+        return True
 
     @cached(cache=TTLCache(maxsize=1, ttl=2 * 60))
     def redirect_url(
@@ -591,27 +608,27 @@ class P115StrmHelper(_PluginBase):
                 if not id:
                     return f"Please specify id or name: share_code={share_code!r}"
                 url = get_share_downurl(share_code, receive_code, id, app=app)
-                logger.info(f"获取 115 下载地址成功: {url}")
+                logger.info(f"【302跳转服务】获取 115 下载地址成功: {url}")
             except Exception as e:
-                logger.error(f"获取 115 下载地址失败: {e}")
+                logger.error(f"【302跳转服务】获取 115 下载地址失败: {e}")
                 return f"获取 115 下载地址失败: {e}"
         else:
             if not pickcode:
-                logger.debug("Missing pickcode parameter")
+                logger.debug("【302跳转服务】Missing pickcode parameter")
                 return "Missing pickcode parameter"
 
             if not (len(pickcode) == 17 and pickcode.isalnum()):
-                logger.debug(f"Bad pickcode: {pickcode} {file_name}")
+                logger.debug(f"【302跳转服务】Bad pickcode: {pickcode} {file_name}")
                 return f"Bad pickcode: {pickcode} {file_name}"
 
             user_agent = request.headers.get("User-Agent") or b""
-            logger.debug(f"获取到客户端UA: {user_agent}")
+            logger.debug(f"【302跳转服务】获取到客户端UA: {user_agent}")
 
             try:
                 url = get_downurl(pickcode.lower(), user_agent, app=app)
-                logger.info(f"获取 115 下载地址成功: {url}")
+                logger.info(f"【302跳转服务】获取 115 下载地址成功: {url}")
             except Exception as e:
-                logger.error(f"获取 115 下载地址失败: {e}")
+                logger.error(f"【302跳转服务】获取 115 下载地址失败: {e}")
                 return f"获取 115 下载地址失败: {e}"
 
         return Response(
@@ -652,10 +669,14 @@ class P115StrmHelper(_PluginBase):
                 new_file_path.parent.mkdir(parents=True, exist_ok=True)
                 with open(new_file_path, "w", encoding="utf-8") as file:
                     file.write(url)
-                logger.info("生成 STRM 文件成功: %s", str(new_file_path))
+                logger.info(
+                    "【监控整理STRM生成】生成 STRM 文件成功: %s", str(new_file_path)
+                )
                 return True
             except Exception as e:  # noqa: F841
-                logger.error("生成 %s 文件失败: %s", str(new_file_path), e)
+                logger.error(
+                    "【监控整理STRM生成】生成 %s 文件失败: %s", str(new_file_path), e
+                )
                 return False
 
         if (
@@ -691,20 +712,26 @@ class P115StrmHelper(_PluginBase):
         item_bluray = SystemUtils.is_bluray_dir(Path(itemdir_dest_path))
 
         if not itemdir_dest_path.startswith(self.pan_media_dir):
-            logger.debug(f"{item_dest_name} 路径匹配不符合，跳过整理")
+            logger.debug(
+                f"【监控整理STRM生成】{item_dest_name} 路径匹配不符合，跳过整理"
+            )
             return
 
         if item_bluray:
             logger.warning(
-                f"{item_dest_name} 为蓝光原盘，不支持生成 STRM 文件: {item_dest_path}"
+                f"【监控整理STRM生成】{item_dest_name} 为蓝光原盘，不支持生成 STRM 文件: {item_dest_path}"
             )
             return
 
         if not item_dest_pickcode:
-            logger.error(f"{item_dest_name} 不存在 pickcode 值，无法生成 STRM 文件")
+            logger.error(
+                f"【监控整理STRM生成】{item_dest_name} 不存在 pickcode 值，无法生成 STRM 文件"
+            )
             return
         if not (len(item_dest_pickcode) == 17 and str(item_dest_pickcode).isalnum()):
-            logger.error(f"错误的 pickcode 值 {item_dest_name}，无法生成 STRM 文件")
+            logger.error(
+                f"【监控整理STRM生成】错误的 pickcode 值 {item_dest_name}，无法生成 STRM 文件"
+            )
             return
         strm_url = f"{self.moviepilot_address.rstrip('/')}/api/v1/plugin/P115StrmHelper/redirect_url?apikey={settings.API_TOKEN}&pickcode={item_dest_pickcode}"
 
@@ -723,31 +750,13 @@ class P115StrmHelper(_PluginBase):
         """
         全量同步
         """
-        try:
-            result = subprocess.run(
-                [
-                    f"{str(Path(self.__config_path) / 'p115dbhelper')}",
-                    f"--cookies={self.cookies}",
-                    f"--dbfile_path={str(Path(self.__config_path) / self.__db_filename)}",
-                    f"--media_path={self.pan_media_dir}",
-                ],
-                check=True,
-            )
-            logger.info(result.stdout)
-        except subprocess.CalledProcessError as e:
-            logger.error(f"批量拉取网盘文件结构失败: {e}")
-            return
-        except Exception as e:
-            logger.error(f"批量拉取网盘文件结构失败: {e}")
-            return
-
         strm_helper = FullSyncStrmHelper(
-            str(Path(self.__config_path) / self.__db_filename)
+            user_rmt_mediaext=self._user_rmt_mediaext,
+            cookies=self.cookies,
         )
         strm_helper.generate_strm_files_db(
             self.pan_media_dir, self.local_media_dir, self.moviepilot_address
         )
-        strm_helper.close_sqlite_connect()
 
     def stop_service(self):
         """
