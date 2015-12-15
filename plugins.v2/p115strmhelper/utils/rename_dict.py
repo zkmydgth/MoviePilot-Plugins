@@ -1,5 +1,4 @@
-__all__ = ["FFprobeUtils"]
-
+__all__ = ["RenameDictUtils"]
 
 from typing import Tuple, Optional, Dict, Any, List
 from pathlib import Path
@@ -9,9 +8,9 @@ from subprocess import run, TimeoutExpired
 from orjson import loads, JSONDecodeError
 
 
-class FFprobeUtils:
+class RenameDictUtils:
     """
-    FFprobe 工具类
+    重命名字典工具类
     """
 
     FFPROBE_TIMEOUT_SEC = 30
@@ -134,7 +133,7 @@ class FFprobeUtils:
         :param height: ffprobe 报告的帧高度
         :return: 吸附后的高度（未命中任一容差则原样返回）
         """
-        for target, tolerance in FFprobeUtils._HEIGHT_SNAP_TIERS:
+        for target, tolerance in RenameDictUtils._HEIGHT_SNAP_TIERS:
             if abs(height - target) <= tolerance:
                 return target
         return height
@@ -152,8 +151,8 @@ class FFprobeUtils:
             return None
         if h <= 0:
             return None
-        h = FFprobeUtils._snap_height_to_standard(h)
-        for min_h, label in FFprobeUtils._HEIGHT_FORMAT_BUCKETS:
+        h = RenameDictUtils._snap_height_to_standard(h)
+        for min_h, label in RenameDictUtils._HEIGHT_FORMAT_BUCKETS:
             if h >= min_h:
                 return label
         return f"{h}p"
@@ -163,14 +162,14 @@ class FFprobeUtils:
         if not codec_name:
             return None
         key = codec_name.lower().strip()
-        return FFprobeUtils._VIDEO_CODEC_MAP.get(key, codec_name.upper())
+        return RenameDictUtils._VIDEO_CODEC_MAP.get(key, codec_name.upper())
 
     @staticmethod
     def _map_audio_codec(codec_name: Optional[str]) -> Optional[str]:
         if not codec_name:
             return None
         key = codec_name.lower().strip()
-        return FFprobeUtils._AUDIO_CODEC_MAP.get(key, codec_name.upper())
+        return RenameDictUtils._AUDIO_CODEC_MAP.get(key, codec_name.upper())
 
     @staticmethod
     def _video_stream_hdr_flags(video_s: Dict[str, Any]) -> Tuple[bool, bool]:
@@ -183,7 +182,7 @@ class FFprobeUtils:
         has_dovi = False
         has_hdr10plus = False
         tag = (video_s.get("codec_tag_string") or "").strip().lower()
-        if tag in FFprobeUtils._DV_CODEC_TAGS:
+        if tag in RenameDictUtils._DV_CODEC_TAGS:
             has_dovi = True
         side_list = video_s.get("side_data_list")
         if not isinstance(side_list, list):
@@ -210,7 +209,7 @@ class FFprobeUtils:
         :param video_s: ffprobe 单路视频流 dict
         :return: 供 rename_dict["effect"] 使用的字符串，无法判断则 None
         """
-        has_dovi, has_hdr10plus = FFprobeUtils._video_stream_hdr_flags(video_s)
+        has_dovi, has_hdr10plus = RenameDictUtils._video_stream_hdr_flags(video_s)
         ct = (video_s.get("color_transfer") or "").lower().strip()
         cp = (video_s.get("color_primaries") or "").lower().strip()
 
@@ -260,29 +259,29 @@ class FFprobeUtils:
         streams = probe_json.get("streams")
         if not isinstance(streams, list):
             return out
-        video_s, audio_s = FFprobeUtils._pick_video_audio_streams(streams)
+        video_s, audio_s = RenameDictUtils._pick_video_audio_streams(streams)
         if video_s:
             height = video_s.get("height")
             try:
                 h_int = int(height) if height is not None else None
             except (TypeError, ValueError):
                 h_int = None
-            vf = FFprobeUtils._height_to_video_format(h_int)
+            vf = RenameDictUtils._height_to_video_format(h_int)
             if vf:
                 out["videoFormat"] = vf
-            vc = FFprobeUtils._map_video_codec(video_s.get("codec_name"))
+            vc = RenameDictUtils._map_video_codec(video_s.get("codec_name"))
             if vc:
                 out["videoCodec"] = vc
-            fps = FFprobeUtils._parse_frame_rate(
+            fps = RenameDictUtils._parse_frame_rate(
                 video_s.get("avg_frame_rate")
-            ) or FFprobeUtils._parse_frame_rate(video_s.get("r_frame_rate"))
+            ) or RenameDictUtils._parse_frame_rate(video_s.get("r_frame_rate"))
             if fps:
                 out["fps"] = fps
-            eff = FFprobeUtils._infer_effect_from_video_stream(video_s)
+            eff = RenameDictUtils._infer_effect_from_video_stream(video_s)
             if eff:
                 out["effect"] = eff
         if audio_s:
-            ac = FFprobeUtils._map_audio_codec(audio_s.get("codec_name"))
+            ac = RenameDictUtils._map_audio_codec(audio_s.get("codec_name"))
             if ac:
                 out["audioCodec"] = ac
         return out
@@ -323,7 +322,7 @@ class FFprobeUtils:
             line = line.strip()
             if not line or line.lstrip().startswith("#"):
                 continue
-            normalized = FFprobeUtils._normalize_strm_target(line)
+            normalized = RenameDictUtils._normalize_strm_target(line)
             if normalized:
                 return normalized, ""
         return None, f"STRM 内容为空 {source_path}"
@@ -346,12 +345,12 @@ class FFprobeUtils:
                 cmd,
                 capture_output=True,
                 text=True,
-                timeout=FFprobeUtils.FFPROBE_TIMEOUT_SEC,
+                timeout=RenameDictUtils.FFPROBE_TIMEOUT_SEC,
             )
         except TimeoutExpired:
             return (
                 None,
-                f"ffprobe 超时({FFprobeUtils.FFPROBE_TIMEOUT_SEC}s) target={probe_target}",
+                f"ffprobe 超时({RenameDictUtils.FFPROBE_TIMEOUT_SEC}s) target={probe_target}",
             )
         except OSError as e:
             return None, f"无法执行 ffprobe: {e}"
@@ -367,16 +366,185 @@ class FFprobeUtils:
             return None, f"ffprobe JSON 解析失败: {e}"
 
     @staticmethod
-    def get_media_info(source_path: str) -> Tuple[Optional[Dict[str, Any]], str]:
+    def ffprobe_get_media_info(
+        source_path: Optional[str] = None, url: Optional[str] = None
+    ) -> Tuple[Optional[Dict[str, Any]], str]:
         """
         获取媒体信息
         """
-        probe_target, error_message = FFprobeUtils._resolve_probe_target(source_path)
-        if not probe_target:
-            return None, error_message
+        if source_path:
+            probe_target, error_message = RenameDictUtils._resolve_probe_target(
+                source_path
+            )
+            if not probe_target:
+                return None, error_message
+        else:
+            probe_target = url
 
-        probe_json, error_message = FFprobeUtils._run_ffprobe(probe_target)
+        probe_json, error_message = RenameDictUtils._run_ffprobe(probe_target)
         if not probe_json:
             return None, error_message
 
-        return FFprobeUtils._probe_to_rename_fields(probe_json), ""
+        return RenameDictUtils._probe_to_rename_fields(probe_json), ""
+
+    @staticmethod
+    def _emby_numeric_fps_to_str(value: Any) -> Optional[str]:
+        """
+        将 Emby 的帧率数值格式化为与 _parse_frame_rate 一致的展示字符串
+        """
+        if value is None:
+            return None
+        try:
+            v = float(value)
+        except (TypeError, ValueError):
+            return None
+        if abs(v - round(v)) < 1e-3:
+            return str(int(round(v)))
+        text = f"{v:.3f}".rstrip("0").rstrip(".")
+        return text or None
+
+    @staticmethod
+    def _infer_effect_from_emby_video_stream(
+        video_s: Dict[str, Any],
+    ) -> Optional[str]:
+        """
+        根据 Emby MediaStream 推断与 rename_dict effect 一致的标签
+
+        :param video_s: Type 为 Video 的单路 MediaStream
+        :return: 与 RenameDictUtils._infer_effect_from_video_stream 风格一致，无法判断则 None
+        """
+        vr_raw = (video_s.get("VideoRange") or "").strip()
+        vr = vr_raw.lower()
+
+        tokens: List[str] = []
+        if "dolby" in vr or "dovi" in vr or "vision" in vr:
+            tokens.append("DoVi")
+        if "hdr10+" in vr or "hdr10plus" in vr or "hdr 10+" in vr:
+            tokens.append("HDR10+")
+        elif "hdr10" in vr:
+            if "hdr10+" not in vr:
+                tokens.append("HDR10")
+        elif vr == "hdr":
+            tokens.append("HDR10")
+
+        if "hlg" in vr and "HLG" not in tokens:
+            tokens.append("HLG")
+
+        if not tokens:
+            ct = (video_s.get("ColorTransfer") or "").lower().strip()
+            cp = (video_s.get("ColorPrimaries") or "").lower().strip()
+            if ct == "smpte2084":
+                tokens.append("HDR10")
+            elif "arib-std-b67" in ct:
+                tokens.append("HLG")
+
+        if not tokens and vr_raw.upper() == "SDR":
+            tokens.append("SDR")
+
+        if not tokens:
+            ct = (video_s.get("ColorTransfer") or "").lower().strip()
+            cp = (video_s.get("ColorPrimaries") or "").lower().strip()
+            if ct == "bt709" and (not cp or cp == "bt709"):
+                tokens.append("SDR")
+
+        if not tokens:
+            return None
+        return " ".join(tokens)
+
+    @staticmethod
+    def _pick_emby_video_audio_streams(
+        streams: List[Dict[str, Any]],
+    ) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
+        """
+        从 MediaStreams 选取默认视频、音频流（优先 IsDefault，否则同类型首条）
+        """
+        videos: List[Dict[str, Any]] = []
+        audios: List[Dict[str, Any]] = []
+        for s in streams:
+            if not isinstance(s, dict):
+                continue
+            st = s.get("Type")
+            if st == "Video":
+                videos.append(s)
+            elif st == "Audio":
+                audios.append(s)
+
+        def _pick_default(cands: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+            if not cands:
+                return None
+            for c in cands:
+                if c.get("IsDefault"):
+                    return c
+            return cands[0]
+
+        return _pick_default(videos), _pick_default(audios)
+
+    @staticmethod
+    def _extract_media_streams(payload: Any) -> Optional[List[Dict[str, Any]]]:
+        """
+        兼容多种 Emby 媒体信息外层结构，取出 MediaStreams 列表
+        """
+        if payload is None:
+            return None
+        if isinstance(payload, list):
+            for item in payload:
+                if not isinstance(item, dict):
+                    continue
+                msi = item.get("MediaSourceInfo")
+                if isinstance(msi, dict):
+                    ms = msi.get("MediaStreams")
+                    if isinstance(ms, list) and ms:
+                        return ms
+            return None
+        if isinstance(payload, dict):
+            ms = payload.get("MediaStreams")
+            if isinstance(ms, list) and ms:
+                return ms
+            msi = payload.get("MediaSourceInfo")
+            if isinstance(msi, dict):
+                ms = msi.get("MediaStreams")
+                if isinstance(ms, list) and ms:
+                    return ms
+        return None
+
+    @staticmethod
+    def emby_mediainfo_to_rename_fields(payload: Any) -> Dict[str, str]:
+        """
+        从 Emby 媒体信息 JSON 提取写入 rename_dict 的命名模板字段
+
+        输出键与 RenameDictUtils._probe_to_rename_fields 一致：
+        videoFormat、videoCodec、fps、effect、audioCodec（有则写入）
+
+        :param payload: download_emby_mediainfo_data 单条值，或含 MediaSourceInfo 的 list/dict
+        :return: 字符串字典，无法解析时为空 dict
+        """
+        out: Dict[str, str] = {}
+        streams = RenameDictUtils._extract_media_streams(payload)
+        if not streams:
+            return out
+        video_s, audio_s = RenameDictUtils._pick_emby_video_audio_streams(streams)
+        if video_s:
+            height = video_s.get("Height")
+            try:
+                h_int = int(height) if height is not None else None
+            except (TypeError, ValueError):
+                h_int = None
+            vf = RenameDictUtils._height_to_video_format(h_int)
+            if vf:
+                out["videoFormat"] = vf
+            vc = RenameDictUtils._map_video_codec(video_s.get("Codec"))
+            if vc:
+                out["videoCodec"] = vc
+            fps = RenameDictUtils._emby_numeric_fps_to_str(
+                video_s.get("AverageFrameRate")
+            ) or RenameDictUtils._emby_numeric_fps_to_str(video_s.get("RealFrameRate"))
+            if fps:
+                out["fps"] = fps
+            eff = RenameDictUtils._infer_effect_from_emby_video_stream(video_s)
+            if eff:
+                out["effect"] = eff
+        if audio_s:
+            ac = RenameDictUtils._map_audio_codec(audio_s.get("Codec"))
+            if ac:
+                out["audioCodec"] = ac
+        return out
