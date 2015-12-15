@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import threading
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
@@ -83,8 +84,15 @@ from .core.session import (
     resolve_proxy,
     session_files,
 )
-from .core.retry import evaluate_retry
-from .core.signin import build_notify_text, now_text, run_all, summarize_results
+from .core.retry import TZ, evaluate_retry, today_text
+from .core.signin import (
+    build_notify_text,
+    normalize_bot,
+    now_text,
+    probe_target,
+    run_all,
+    summarize_results,
+)
 from .core.store import (
     PAGE_RESULT_LIMIT,
     load_state,
@@ -134,6 +142,34 @@ def _table(headers: List[str], rows: List[Dict[str, Any]]) -> dict:
             {"component": "tbody", "content": rows},
         ],
     }
+
+
+# 后台任务互斥登记表（同名任务不重复启动，2026-10-11 加）
+_RUNNING_JOBS: Dict[str, bool] = {}
+_RUNNING_JOBS_LOCK = threading.Lock()
+
+
+def _truthy(value: Any, default: bool = False) -> bool:
+    """
+    把配置值（布尔 / 字符串 / 数字 / 下拉对象）统一成布尔。
+
+    :param value: 原始配置值
+    :param default: 无法判断时的返回值
+    :return bool: 布尔结果
+    """
+
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, dict):
+        return _truthy(value.get("value"), default)
+    text = str(value).strip().lower()
+    if not text:
+        return default
+    return text in ("1", "true", "yes", "on", "是", "开")
 
 
 class TgSignin(_PluginBase):
@@ -398,23 +434,39 @@ class TgSignin(_PluginBase):
         return account_login_fields(self._raw_config, account_key)
 
     @staticmethod
-    def _spawn_background(target: Callable[[], None], name: str) -> None:
+    def _spawn_background(target: Callable[[], None], name: str) -> bool:
         """
         在后台线程执行一个同步函数（前台请求立即返回，避免页面进度条）。
 
+        **同名任务互斥**（2026-10-11 加）：同名的任务已在跑时直接跳过，
+        避免连点「立即签到」叠成多份并发全量（同一 session 并发连接、
+        重复签到、状态互相覆盖）。
+
         :param target: 无参可调用对象
-        :param name: 线程名（便于排障）
-        :return None
+        :param name: 线程名（同时作为互斥键，便于排障）
+        :return bool: True = 已启动；False = 同名任务在运行，本次未启动
         """
 
+        with _RUNNING_JOBS_LOCK:
+            if _RUNNING_JOBS.get(name):
+                logger.info(
+                    "【TgSignin】已有同名后台任务在运行，跳过本次触发：%s", name
+                )
+                return False
+            _RUNNING_JOBS[name] = True
+
         def runner() -> None:
-            """线程体：执行目标，异常只记日志不外抛。"""
+            """线程体：执行目标，异常只记日志不外抛；结束务必释放互斥标记。"""
             try:
                 target()
             except Exception as error:  # pylint: disable=broad-except
                 logger.error("【TgSignin】后台任务 %s 失败：%s", name, error)
+            finally:
+                with _RUNNING_JOBS_LOCK:
+                    _RUNNING_JOBS.pop(name, None)
 
         threading.Thread(target=runner, name=f"tgsignin-{name}", daemon=True).start()
+        return True
 
     def _dispatch_login_actions(self) -> None:
         """
@@ -435,10 +487,11 @@ class TgSignin(_PluginBase):
             reset_payload[f"account_{index}_login_action"] = LOGIN_ACTION_NONE
         self._raw_config = reset_payload
         self.update_config(reset_payload)
-        self._spawn_background(
+        if not self._spawn_background(
             lambda: self._run_sync(lambda: self._execute_login_actions(actions)),
             "login-actions",
-        )
+        ):
+            logger.info("【TgSignin】登录动作已在执行中，本次保存不再重复触发")
 
     async def _execute_login_actions(self, actions: List[Any]) -> None:
         """
@@ -608,9 +661,12 @@ class TgSignin(_PluginBase):
                                     "model": "retry_interval_hours",
                                     "label": "失败重试间隔（小时）",
                                     "type": "number",
+                                    "min": 0,
+                                    "max": MAX_RETRY_INTERVAL_HOURS,
                                     "placeholder": f"默认 {DEFAULT_RETRY_INTERVAL_HOURS}，0=不重试",
                                     "persistent-hint": True,
-                                    "hint": "当天签到失败后每隔这么久重试一次；到次日 0 点自动重置重试窗口",
+                                    "hint": "当天签到失败后每隔这么久重试一次；到次日 0 点自动重置重试窗口；"
+                                    f"超出范围按 0-{MAX_RETRY_INTERVAL_HOURS} 截断",
                                 },
                             }
                         ],
@@ -625,10 +681,11 @@ class TgSignin(_PluginBase):
                         "props": {"cols": 12, "md": 6},
                         "content": [
                             {
-                                "component": "VTextField",
+                                "component": "VTextarea",
                                 "props": {
                                     "model": "success_keywords",
                                     "label": "签到成功关键词",
+                                    "rows": 3,
                                     "persistent-hint": True,
                                     "hint": "回复/弹窗里出现任一关键词即判「签到成功」；多个用 | 或逗号分隔，留空用内置默认",
                                     "placeholder": "|".join(DEFAULT_SUCCESS_KEYWORDS),
@@ -641,10 +698,11 @@ class TgSignin(_PluginBase):
                         "props": {"cols": 12, "md": 6},
                         "content": [
                             {
-                                "component": "VTextField",
+                                "component": "VTextarea",
                                 "props": {
                                     "model": "repeated_keywords",
                                     "label": "已签到关键词",
+                                    "rows": 3,
                                     "persistent-hint": True,
                                     "hint": "回复/弹窗里出现任一关键词即判「今日已签到」；多个用 | 或逗号分隔，留空用内置默认",
                                     "placeholder": "|".join(DEFAULT_REPEATED_KEYWORDS),
@@ -662,10 +720,11 @@ class TgSignin(_PluginBase):
                         "props": {"cols": 12, "md": 6},
                         "content": [
                             {
-                                "component": "VTextField",
+                                "component": "VTextarea",
                                 "props": {
                                     "model": "failure_keywords",
                                     "label": "签到失败关键词",
+                                    "rows": 3,
                                     "persistent-hint": True,
                                     "hint": "回复/弹窗里出现任一关键词即判「失败」，并进入失败重试"
                                     "（如 bot 回「签到服务暂不可用，请稍后重试。」）；"
@@ -707,9 +766,12 @@ class TgSignin(_PluginBase):
                                     "model": "concurrency",
                                     "label": "并发签到上限",
                                     "type": "number",
+                                    "min": 1,
+                                    "max": MAX_CONCURRENCY,
                                     "persistent-hint": True,
                                     "hint": "1 = 串行（默认，行为与旧版一致）；2-4 = 同一账号内「每个 bot 一路」"
-                                    "同时触发（账号之间仍串行，避免同账号多连接风控）。建议 3",
+                                    "同时触发（账号之间仍串行，避免同账号多连接风控）。建议 3；"
+                                    f"超出范围按 1-{MAX_CONCURRENCY} 截断",
                                     "placeholder": f"默认 {DEFAULT_CONCURRENCY}",
                                 },
                             }
@@ -1068,7 +1130,10 @@ class TgSignin(_PluginBase):
                 },
                 self._group_header(
                     "高级：文本批量配置",
-                    "默认关闭；开启后用多行文本代替上面的槽位（适合批量粘贴或超过槽位数）",
+                    "默认关闭；开启后用多行文本代替上面的槽位（适合批量粘贴或超过槽位数）。"
+                    "注意：两种模式是各自独立的数据源 —— 关掉文本模式后按上面的槽位解析，"
+                    "槽位为空会回落到内置示例值；且账号标识（acc1…）决定 session 文件名，"
+                    "切换模式后可能需要重新登录",
                 ),
                 {
                     "component": "VRow",
@@ -1176,6 +1241,23 @@ class TgSignin(_PluginBase):
                         {"component": "td", "text": account.display()},
                         {"component": "td", "text": account.phone or "-"},
                         {"component": "td", "text": status},
+                        {
+                            "component": "td",
+                            "content": [
+                                self._button(
+                                    "退出",
+                                    "/logout",
+                                    color="warning",
+                                    params={"account": account.key},
+                                ),
+                                self._button(
+                                    "确认退出",
+                                    "/logout",
+                                    color="error",
+                                    params={"account": account.key, "confirm": "true"},
+                                ),
+                            ],
+                        },
                     ],
                 }
             )
@@ -1184,7 +1266,7 @@ class TgSignin(_PluginBase):
                 {
                     "component": "tr",
                     "content": [
-                        {"component": "td", "props": {"colspan": 3}, "text": "尚未配置账号"},
+                        {"component": "td", "props": {"colspan": 4}, "text": "尚未配置账号"},
                     ],
                 }
             )
@@ -1217,6 +1299,25 @@ class TgSignin(_PluginBase):
             return ""
         return f"{text}｜词={'/'.join(str(w) for w in keywords)}" if keywords else text
 
+    def _row_retry_button(self, item: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        构造结果表行内的「重试」按钮（单目标手动重试，2026-10-11 加）。
+
+        :param item: 一条历史结果（需含 account / bot）
+        :return Dict[str, Any]: VBtn 节点；账号或 bot 缺失时返回占位文本
+        """
+
+        account = str(item.get("account") or "")
+        bot = str(item.get("bot") or "")
+        if not account or not bot or bot == "-":
+            return {"component": "span", "text": "—"}
+        return self._button(
+            "重试",
+            "/signin/run",
+            color="secondary",
+            params={"account": account, "bot": bot},
+        )
+
     def _result_rows(self) -> List[Dict[str, Any]]:
         """
         构造最近签到结果行（详情页表格用）。
@@ -1245,8 +1346,20 @@ class TgSignin(_PluginBase):
                             "component": "td",
                             "text": f"{'✅' if ok else '❌'} {status}",
                         },
-                        {"component": "td", "text": str(detail)[:120]},
-                        {"component": "td", "text": ai_note},
+                        {
+                            "component": "td",
+                            "props": {"class": "text-truncate", "style": "max-width: 320px"},
+                            "text": str(detail)[:120],
+                        },
+                        {
+                            "component": "td",
+                            "props": {"class": "text-truncate", "style": "max-width: 220px"},
+                            "text": ai_note,
+                        },
+                        {
+                            "component": "td",
+                            "content": [self._row_retry_button(item)],
+                        },
                     ],
                 }
             )
@@ -1255,7 +1368,11 @@ class TgSignin(_PluginBase):
                 {
                     "component": "tr",
                     "content": [
-                        {"component": "td", "props": {"colspan": 6}, "text": "还没有签到记录"},
+                        {
+                            "component": "td",
+                            "props": {"colspan": 7},
+                            "text": "还没有签到记录",
+                        },
                     ],
                 }
             )
@@ -1331,6 +1448,122 @@ class TgSignin(_PluginBase):
             },
         }
 
+    def _next_fire_text(self) -> str:
+        """
+        返回执行周期（cron）的下一次触发时间文本（解析失败时返回空串）。
+
+        :return str: ``YYYY-MM-DD HH:MM:SS`` 或空串
+        """
+
+        try:
+            trigger = CronTrigger.from_crontab(self._cron)
+            fire = trigger.get_next_fire_time(None, datetime.now(TZ))
+        except Exception:  # pylint: disable=broad-except
+            return ""
+        if fire is None:
+            return ""
+        return fire.astimezone(TZ).strftime("%Y-%m-%d %H:%M:%S")
+
+    @staticmethod
+    def _stamp_text(value: Any) -> str:
+        """
+        把 unix 时间戳转成北京时间文本（空值或非法值返回空串）。
+
+        :param value: 时间戳
+        :return str: ``YYYY-MM-DD HH:MM:SS`` 或空串
+        """
+
+        try:
+            stamp = float(value or 0)
+        except (TypeError, ValueError):
+            return ""
+        if stamp <= 0:
+            return ""
+        return datetime.fromtimestamp(stamp, TZ).strftime("%Y-%m-%d %H:%M:%S")
+
+    def _today_rows(self) -> List[Dict[str, Any]]:
+        """
+        构造「今日签到状态」表行（每个目标一行，2026-10-11 加）。
+
+        数据来自 ``state.json`` 的 ``signin_state``（``core/retry.py`` 维护）：
+        今日是否成功 / 尝试次数 / 最后一次尝试时间 / 按重试间隔算出的下次重试时间。
+
+        :return List[Dict[str, Any]]: 表格行
+        """
+
+        self._refresh_parsed_config()
+        state = load_state(self.get_data_path())
+        signin_state = dict(state.get("signin_state") or {})
+        today = today_text()
+        interval_seconds = max(0, int(self._retry_interval_hours)) * 3600
+        rows: List[Dict[str, Any]] = []
+        for target in self._targets:
+            key = f"{target.account_key}|{target.bot_username}"
+            record = dict(signin_state.get(key) or {})
+            if record.get("date") != today:
+                status, attempts, last_text, next_text = "—（今天还没跑）", "0", "", ""
+            else:
+                if record.get("ok_today"):
+                    status = "✅ 已成功"
+                elif record.get("ok") is False:
+                    status = "❌ 上次失败"
+                else:
+                    status = "—（未完成）"
+                attempts = str(int(record.get("attempts") or 0))
+                last_text = self._stamp_text(record.get("last_attempt_at"))
+                next_text = ""
+                if (
+                    interval_seconds
+                    and record.get("ok") is False
+                    and record.get("last_attempt_at")
+                ):
+                    next_text = self._stamp_text(
+                        float(record["last_attempt_at"]) + interval_seconds
+                    )
+            rows.append(
+                {
+                    "component": "tr",
+                    "content": [
+                        {
+                            "component": "td",
+                            "text": f"{target.account_key} → {target.bot_username}",
+                        },
+                        {"component": "td", "text": status},
+                        {"component": "td", "text": attempts},
+                        {"component": "td", "text": last_text or "—"},
+                        {"component": "td", "text": next_text or "—"},
+                        {
+                            "component": "td",
+                            "content": [
+                                self._button(
+                                    "测试",
+                                    "/target/probe",
+                                    color="secondary",
+                                    params={
+                                        "account": target.account_key,
+                                        "bot": target.bot_username,
+                                    },
+                                )
+                            ],
+                        },
+                    ],
+                }
+            )
+        if not rows:
+            rows.append(
+                {
+                    "component": "tr",
+                    "content": [
+                        {
+                            "component": "td",
+                            "props": {"colspan": 6},
+                            "text": "还没有配置签到目标",
+                        },
+                    ],
+                }
+            )
+        return rows
+
     def get_page(self) -> Optional[List[dict]]:
         """
         返回插件详情页：状态、操作按钮与最近结果表。
@@ -1349,6 +1582,7 @@ class TgSignin(_PluginBase):
         state = load_state(self.get_data_path())
         pending = load_pending(self.get_data_path())
         proxy = self._proxy_tuple()
+        next_fire = self._next_fire_text()
 
         header: List[dict] = [
             {
@@ -1358,7 +1592,8 @@ class TgSignin(_PluginBase):
                     "class": "mb-3",
                     "text": f"代理：{proxy_desc(proxy)}　|　账号：{len(self._accounts)} 个"
                             f"　|　签到目标：{len(self._targets)} 条　|　"
-                            f"执行周期：{self._cron}　|　通知：{self._notify_label()}",
+                            f"执行周期：{self._cron}　|　下次执行：{next_fire or '—'}"
+                            f"　|　通知：{self._notify_label()}",
                 },
             }
         ]
@@ -1423,7 +1658,7 @@ class TgSignin(_PluginBase):
         for account in self._accounts:
             actions.append(
                 self._button(
-                    f"发送验证码 · {account.label}",
+                    f"发码 · {account.label}",
                     "/login/send_code",
                     color="primary",
                     params={"account": account.key},
@@ -1431,7 +1666,7 @@ class TgSignin(_PluginBase):
             )
             actions.append(
                 self._button(
-                    f"确认登录 · {account.label}",
+                    f"确认 · {account.label}",
                     "/login/confirm",
                     color="success",
                     params={"account": account.key},
@@ -1460,10 +1695,33 @@ class TgSignin(_PluginBase):
                 + [actions_block]
                 + [
                     self._group_header("账号登录状态"),
-                    _table(["账号", "手机号", "状态"], self._login_status_rows()),
+                    _table(
+                        ["账号", "手机号", "状态", "操作"],
+                        self._login_status_rows(),
+                    ),
+                    self._group_header("今日签到状态（按目标）"),
+                    _table(
+                        [
+                            "目标",
+                            "今日状态",
+                            "尝试次数",
+                            "最后尝试",
+                            "下次重试",
+                            "操作",
+                        ],
+                        self._today_rows(),
+                    ),
                     self._group_header(f"最近 {PAGE_RESULT_LIMIT} 条签到结果"),
                     _table(
-                        ["时间", "账号", "bot", "状态", "回复/错误", "AI 复核"],
+                        [
+                            "时间",
+                            "账号",
+                            "bot",
+                            "状态",
+                            "回复/错误",
+                            "AI 复核",
+                            "操作",
+                        ],
                         self._result_rows(),
                     ),
                 ]
@@ -1528,6 +1786,13 @@ class TgSignin(_PluginBase):
                 "methods": ["GET", "POST"],
                 "summary": "退出登录（两阶段）",
                 "description": "不带 confirm=true 时只做确认提示；带 confirm=true 才删除 session。",
+            },
+            {
+                "path": "/target/probe",
+                "endpoint": self.api_probe_target,
+                "methods": ["GET", "POST"],
+                "summary": "测试单个签到目标",
+                "description": "发一次 /start（或命令）并回读实际看到的按钮文案，用于修正「按钮文字」。",
             },
         ]
 
@@ -1608,10 +1873,15 @@ class TgSignin(_PluginBase):
             return {"success": False, "message": "找不到要登录的账号，请先配置", "data": None}
         if params.get("phone"):
             account.phone = str(params["phone"])
-        self._spawn_background(
+        if not self._spawn_background(
             lambda: self._run_sync(lambda: self._do_send_code(account)),
             f"send-code-{account.key}",
-        )
+        ):
+            return {
+                "success": False,
+                "message": f"{account.display()} 的发码任务已在运行，稍后看详情页状态",
+                "data": {"account": account.key},
+            }
         return {
             "success": True,
             "message": f"已在后台给 {account.display()} 发送验证码；收到后填进该账号的"
@@ -1661,12 +1931,17 @@ class TgSignin(_PluginBase):
                 "message": "验证码为空：请先把验证码填进该账号的「登录验证码」并保存",
                 "data": {"account": account.key},
             }
-        self._spawn_background(
+        if not self._spawn_background(
             lambda: self._run_sync(
                 lambda: self._do_confirm_login(account, code, password)
             ),
             f"confirm-{account.key}",
-        )
+        ):
+            return {
+                "success": False,
+                "message": f"{account.display()} 的确认登录已在运行，稍后看详情页状态",
+                "data": {"account": account.key},
+            }
         return {
             "success": True,
             "message": f"已在后台确认 {account.display()} 的登录，稍后到详情页看状态",
@@ -1692,12 +1967,42 @@ class TgSignin(_PluginBase):
         message = str(result.get("message") or "")
         if ok:
             record_login(self.get_data_path(), account.key, result.get("me") or {})
+            # 登录成功后立刻清掉该槽的一次性凭据（验证码 / 两步验证密码 / 动作），
+            # 避免长期明文留在插件配置里（2026-10-11 加）
+            self._clear_login_slot(account.key)
         record_login_event(
             self.get_data_path(), account.key, LOGIN_ACTION_CONFIRM, ok, message
         )
         logger.info("【TgSignin】确认登录：%s → %s", account.key, message)
         if not ok:
             self._notify_login_failure(account, LOGIN_ACTION_CONFIRM, message)
+
+    def _clear_login_slot(self, account_key: str) -> None:
+        """
+        清空某个账号槽的一次性登录字段（登录动作 / 验证码 / 两步验证密码）。
+
+        :param account_key: 账号标识（``acc1``…）
+        :return None
+        """
+
+        payload = dict(self._raw_config)
+        changed = False
+        for index in range(1, MAX_ACCOUNT_SLOTS + 1):
+            if f"acc{index}" != account_key:
+                continue
+            if (
+                payload.get(f"account_{index}_login_action") != LOGIN_ACTION_NONE
+                or payload.get(f"account_{index}_login_code")
+                or payload.get(f"account_{index}_login_password")
+            ):
+                changed = True
+            payload[f"account_{index}_login_action"] = LOGIN_ACTION_NONE
+            payload[f"account_{index}_login_code"] = ""
+            payload[f"account_{index}_login_password"] = ""
+        if not changed:
+            return
+        self._raw_config = payload
+        self.update_config(payload)
 
     def _notify_login_failure(
         self, account: AccountConfig, action: str, message: str
@@ -1741,7 +2046,11 @@ class TgSignin(_PluginBase):
                 "success_keywords": "|".join(self._success_keywords),
                 "repeated_keywords": "|".join(self._repeated_keywords),
                 "failure_keywords": "|".join(self._failure_keywords),
-                "ai_confirm_enabled": self._ai_judge.enabled,
+                # 写回配置里真实的值：不要用合并后的 judge.enabled
+                # （任一 AI 开关为真它都是 True，会把「只开了 AI 归纳」变成「AI 复核也开」）
+                "ai_confirm_enabled": _truthy(
+                    self._raw_config.get("ai_confirm_enabled")
+                ),
                 "concurrency": self._concurrency,
                 "ai_keyword_autofill": self._ai_keyword_autofill,
                 "use_text_mode": self._use_text_mode,
@@ -1769,14 +2078,19 @@ class TgSignin(_PluginBase):
         params = await self._read_params(request)
         only_account = params.get("account") or None
         only_bot = params.get("bot") or None
-        self._spawn_background(
+        if not self._spawn_background(
             lambda: self._run_sync(
                 lambda: self._signin(
                     source="手动", only_account=only_account, only_bot=only_bot
                 )
             ),
             "signin",
-        )
+        ):
+            return {
+                "success": False,
+                "message": "已有签到任务在运行，请稍等到详情页看结果",
+                "data": None,
+            }
         return {
             "success": True,
             "message": "已在后台执行签到，稍后到详情页看结果（失败会通知）",
@@ -1798,6 +2112,131 @@ class TgSignin(_PluginBase):
             "message": result.get("message", ""),
             "data": {"proxy": proxy_desc(proxy)},
         }
+
+    def _targets_hint(self) -> str:
+        """
+        返回「可用账号 / bot」提示串（命令参数写错时展示）。
+
+        :return str: 形如 ``账号 acc1、acc2；bot @bb_emby_bot、@okemby_bot``
+        """
+
+        self._refresh_parsed_config()
+        accounts = "、".join(account.key for account in self._accounts) or "（未配置账号）"
+        bots = (
+            "、".join(target.bot_username for target in self._targets if target.enabled)
+            or "（未配置目标）"
+        )
+        return f"账号 {accounts}；bot {bots}"
+
+    async def api_probe_target(self, request: Request) -> Dict[str, Any]:
+        """
+        测试单个签到目标：发一次 /start（或命令）并回读实际看到的按钮文案。
+
+        :param request: FastAPI 请求对象
+        :return Dict[str, Any]: 统一响应结构
+        """
+
+        if not self._enabled:
+            return {"success": False, "message": "插件未启用", "data": None}
+        params = await self._read_params(request)
+        account = self._find_account(params.get("account"))
+        if account is None:
+            return {
+                "success": False,
+                "message": f"找不到账号 {params.get('account')}",
+                "data": {"hint": self._targets_hint()},
+            }
+        bot = str(params.get("bot") or "")
+        target = next(
+            (
+                item
+                for item in self._targets
+                if item.account_key == account.key
+                and normalize_bot(item.bot_username) == normalize_bot(bot)
+            ),
+            None,
+        )
+        if target is None:
+            return {
+                "success": False,
+                "message": f"找不到目标 {bot}",
+                "data": {"hint": self._targets_hint()},
+            }
+        result = await probe_target(
+            target, self.get_data_path(), account, self._proxy_tuple()
+        )
+        return {
+            "success": bool(result.get("ok")),
+            "message": str(result.get("message") or ""),
+            "data": {"buttons": result.get("buttons") or []},
+        }
+
+    @staticmethod
+    def get_dashboard_meta() -> Optional[List[Dict[str, str]]]:
+        """
+        声明插件仪表盘（首页卡片）。
+
+        :return Optional[List[Dict[str, str]]]: 仪表盘 key 与名称
+        """
+
+        return [{"key": "main", "name": "签到概览"}]
+
+    def get_dashboard(
+        self, key: str = "", **kwargs: Any
+    ) -> Optional[Tuple[Dict[str, Any], Dict[str, Any], List[Dict[str, Any]]]]:
+        """
+        返回首页仪表盘内容（今日完成数 / 最近一次 / 失败目标）。
+
+        :param key: 仪表盘 key（缺省返回固定的主卡片）
+        :param kwargs: 宿主附加上下文（浏览器 UA 等）
+        :return Optional[Tuple[Dict, Dict, List]]: ``(col 配置, 全局配置, 页面元素)``
+        """
+
+        del key, kwargs
+        if not self._enabled:
+            return None
+        self._refresh_parsed_config()
+        state = load_state(self.get_data_path())
+        signin_state = dict(state.get("signin_state") or {})
+        today = today_text()
+        done = 0
+        failed: List[str] = []
+        for target in self._targets:
+            record = dict(
+                signin_state.get(f"{target.account_key}|{target.bot_username}") or {}
+            )
+            if record.get("date") != today:
+                continue
+            if record.get("ok_today"):
+                done += 1
+            elif record.get("ok") is False:
+                failed.append(target.bot_username)
+        elements: List[Dict[str, Any]] = [
+            {
+                "component": "div",
+                "props": {"class": "text-h6"},
+                "text": f"今日 {done}/{len(self._targets)} 个目标已完成",
+            },
+            {
+                "component": "div",
+                "props": {"class": "text-caption"},
+                "text": f"最近一次：{state.get('last_run_at') or '未运行'}　"
+                f"{state.get('last_summary') or ''}",
+            },
+        ]
+        if failed:
+            elements.append(
+                {
+                    "component": "div",
+                    "props": {"class": "text-caption text-error"},
+                    "text": "失败目标：" + "、".join(failed),
+                }
+            )
+        return (
+            {"cols": 12, "md": 6},
+            {"refresh": 0, "title": "Telegram 签到", "subtitle": "今日概览"},
+            elements,
+        )
 
     async def api_logout(self, request: Request) -> Dict[str, Any]:
         """
@@ -2165,6 +2604,11 @@ class TgSignin(_PluginBase):
                     )
                 )
                 text = str(result.get("message") or "")
+                data_block = result.get("data") or {}
+                if not (data_block.get("results") or []):
+                    # 参数写错（如漏了 @、或账号不存在）时把可用值列出来，
+                    # 别只回一句「没有可执行的目标」（2026-10-11 加）
+                    text = f"{text}；可用：{self._targets_hint()}"
             except Exception as error:  # pylint: disable=broad-except
                 text = f"执行失败：{type(error).__name__}: {error}"
             self.post_message(

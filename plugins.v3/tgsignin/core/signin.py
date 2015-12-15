@@ -40,11 +40,13 @@ from .ai import (
     AiReview,
 )
 from .retry import signed_today
-from .session import build_client
+from .session import build_client, secure_session_files
 from .store import load_state
 
 __all__ = [
     "signin_one",
+    "normalize_bot",
+    "probe_target",
     "run_account",
     "run_all",
     "summarize_results",
@@ -78,13 +80,17 @@ _AI_VERDICT_TO_STATUS = {
 # 并发签到：每路启动抖动与 FloodWait 退避上限
 _JITTER_STEP_SECONDS = 0.05
 _JITTER_MAX_SECONDS = 0.3
-_FLOOD_WAIT_CAP_SECONDS = 60
+_FLOOD_WAIT_CAP_SECONDS = 600
 _FLOOD_WAIT_RE = re.compile(
     r"(?:FloodWait|Flood|FLOOD_WAIT)[^0-9]{0,20}(\d{1,5})", re.IGNORECASE
 )
 
 # 读取 bot 消息的条数上限（够覆盖菜单与回复）
 _MSG_SCAN_LIMIT = 5
+# 按钮式：等待菜单出现的轮询间隔（秒）
+_MENU_POLL_INTERVAL_SECONDS = 2.0
+# 失败信息里最多列出的候选按钮文案个数
+_BUTTON_HINT_LIMIT = 5
 TZ = timezone(timedelta(hours=8))
 
 
@@ -96,6 +102,123 @@ def now_text() -> str:
     """
 
     return datetime.now(TZ).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def normalize_bot(name: str) -> str:
+    """
+    归一化 bot 用户名（去 ``@``、忽略大小写与空白），用于命令参数匹配。
+
+    :param name: 原始 bot 用户名（可带或不带 ``@``）
+    :return str: 归一化后的字符串
+    """
+
+    return str(name or "").strip().lstrip("@").lower()
+
+
+def _split_candidates(text: str) -> List[str]:
+    """
+    把「按钮文字」配置拆成多个候选（支持 ``|`` / ``,`` / ``，`` / ``、`` 分隔）。
+
+    :param text: 配置里的按钮文字或命令
+    :return List[str]: 候选列表（去空、保序、去重）
+    """
+
+    parts = re.split(r"[|,，、]", str(text or ""))
+    result: List[str] = []
+    for part in parts:
+        word = part.strip()
+        if word and word not in result:
+            result.append(word)
+    return result
+
+
+def _matches_candidates(text: str, candidates: Sequence[str]) -> bool:
+    """
+    按钮文案是否命中任一候选（忽略大小写）。
+
+    :param text: 按钮文案
+    :param candidates: 候选列表
+    :return bool: 命中返回 True
+    """
+
+    lowered = str(text or "").lower()
+    return any(str(word).lower() in lowered for word in candidates if word)
+
+
+def _find_menu(
+    messages: Sequence[Any],
+    candidates: Sequence[str],
+) -> Optional[Tuple[Any, Any]]:
+    """
+    在消息列表里找一条带候选按钮的消息（不分新旧，用于兜底）。
+
+    :param messages: telethon 消息列表（新→旧）
+    :param candidates: 按钮文案候选
+    :return Optional[Tuple[Any, Any]]: ``(消息, 按钮)``；没找到返回 None
+    """
+
+    for message in messages:
+        for row in (getattr(message, "buttons", None) or []):
+            for button in row:
+                text = str(getattr(button, "text", "") or "")
+                if _matches_candidates(text, candidates):
+                    return message, button
+    return None
+
+
+def _collect_button_texts(messages: Sequence[Any]) -> List[str]:
+    """
+    收集消息里出现过的按钮文案（用于失败时提示，帮用户改「按钮文字」）。
+
+    :param messages: telethon 消息列表
+    :return List[str]: 去重后的按钮文案（保序）
+    """
+
+    found: List[str] = []
+    for message in messages:
+        for row in (getattr(message, "buttons", None) or []):
+            for button in row:
+                text = str(getattr(button, "text", "") or "").strip()
+                if text and text not in found:
+                    found.append(text)
+    return found
+
+
+async def _click_and_read(
+    client: Any,
+    entity: Any,
+    message: Any,
+    button: Any,
+    wait_seconds: int,
+    sent_at: Optional[Any] = None,
+) -> Tuple[bool, str, str, str]:
+    """
+    点击按钮并读回「点击之后」的新回复 / 弹窗。
+
+    判据（2026-10-07 定案）：只认 ``sent_at``（本次 /start）之后的新消息，
+    点旧菜单兜底时同样如此，避免把历史残留当成本次结果。
+
+    :param client: 已连接的 TelegramClient
+    :param entity: bot 实体
+    :param message: 承载按钮的那条消息
+    :param button: 待点击的按钮
+    :param wait_seconds: 点击后等待秒数
+    :param sent_at: 本次 /start 的发送时刻（新证据的时间下界）
+    :return Tuple[bool, str, str, str]: ``(是否点到, 回复文本, 弹窗文本, 错误信息)``
+    """
+
+    # click() 对 inline 按钮返回 BotCallbackAnswer（含 .message/.alert）
+    answer = await button.click()
+    alert = str(getattr(answer, "message", "") or "")
+    # 证据下界：菜单自身不算「点击后的新回复」，但也不能早于本次 /start
+    menu_date = getattr(message, "date", None)
+    cutoff = sent_at
+    if menu_date is not None:
+        edge = menu_date + timedelta(microseconds=1)
+        cutoff = edge if cutoff is None or edge > cutoff else cutoff
+    await asyncio.sleep(max(1, min(int(wait_seconds), 60)))
+    latest = await client.get_messages(entity, limit=3)
+    return True, _pick_reply(latest, cutoff), alert, ""
 
 
 def _fresh_messages(
@@ -163,33 +286,48 @@ async def _click_button(
         弹的那句提示，例如「您今天已经签到过了」），拿不到时为空串
     """
 
-    messages = _fresh_messages(
-        await client.get_messages(entity, limit=_MSG_SCAN_LIMIT), sent_at
-    )
-    for message in messages:
-        for row in (getattr(message, "buttons", None) or []):
-            for button in row:
-                text = str(getattr(button, "text", "") or "")
-                if keyword and keyword in text:
-                    # click() 对 inline 按钮返回 BotCallbackAnswer（含 .message/.alert）
-                    answer = await button.click()
-                    alert = str(getattr(answer, "message", "") or "")
-                    # 只认「点击这条菜单之后」新出现的消息：
-                    # bot 对点击毫无反应时，不能拿这条菜单自身当成本次回复
-                    menu_date = getattr(message, "date", None)
-                    reply_after = (
-                        menu_date + timedelta(microseconds=1)
-                        if menu_date is not None
-                        else sent_at
-                    )
-                    await asyncio.sleep(wait_seconds)
-                    latest = await client.get_messages(entity, limit=3)
-                    return True, _pick_reply(latest, reply_after), alert, ""
+    candidates = _split_candidates(keyword) or [str(keyword or "")]
+    budget = max(_MENU_POLL_INTERVAL_SECONDS * 2, float(max(3, int(wait_seconds))))
+    # 轮询次数按预算折算（用次数而非墙钟，测试里 sleep 是桩也能毫秒级跑完）
+    polls = max(1, int(budget / _MENU_POLL_INTERVAL_SECONDS))
+    observed: List[str] = []
+    fallback: Optional[Tuple[Any, Any]] = None
+    # 轮询等菜单（2026-10-11 修）：bot 回菜单慢、或菜单按钮文案与配置不同，
+    # 单次 sleep 后只扫一遍必然假失败（@okemby_bot 的历史高频失败即此）
+    for _ in range(polls):
+        messages = await client.get_messages(entity, limit=_MSG_SCAN_LIMIT)
+        fresh = _fresh_messages(messages, sent_at)
+        for message in fresh:
+            for row in (getattr(message, "buttons", None) or []):
+                for button in row:
+                    text = str(getattr(button, "text", "") or "")
+                    if text and text not in observed:
+                        observed.append(text)
+        menu = _find_menu(fresh, candidates)
+        if menu is not None:
+            return await _click_and_read(
+                client, entity, menu[0], menu[1], wait_seconds, sent_at
+            )
+        if fallback is None:
+            # 没等到新菜单：留一条「最近一条含候选按钮的旧消息」兜底，
+            # 点击后仍然只认本次之后的新证据（不会因此误判成功）
+            fallback = _find_menu(messages, candidates)
+        await asyncio.sleep(_MENU_POLL_INTERVAL_SECONDS)
+    if fallback is not None:
+        return await _click_and_read(
+            client, entity, fallback[0], fallback[1], wait_seconds, sent_at
+        )
+    if not observed:
+        observed = _collect_button_texts(
+            await client.get_messages(entity, limit=_MSG_SCAN_LIMIT)
+        )
+    hint = "、".join(observed[:_BUTTON_HINT_LIMIT]) or "（最近消息里没有任何按钮）"
     return (
         False,
         "",
         "",
-        f"本次发送后 bot 没有新消息/新按钮（最近 {_MSG_SCAN_LIMIT} 条里没找到含「{keyword}」的按钮）",
+        f"本次发送后 bot 没有新消息/新按钮（最近 {_MSG_SCAN_LIMIT} 条里没找到含"
+        f"「{keyword}」的按钮；实际看到的按钮：{hint}）",
     )
 
 
@@ -389,7 +527,7 @@ async def _signin_one_impl(
         if target.sign_type == SIGN_TYPE_BUTTON:
             start_message = await client.send_message(entity, "/start")
             sent_at = getattr(start_message, "date", None)
-            await asyncio.sleep(max(3, min(target.wait_seconds, 30)))
+            # 等菜单交给 _click_button 内部轮询（不再单次 sleep 后只扫一遍）
             clicked, reply, alert, error = await _click_button(
                 client, entity, target.action_text, target.wait_seconds, sent_at
             )
@@ -458,16 +596,29 @@ async def run_account(
     except RuntimeError as error:
         return [], str(error)
 
-    try:
+    # 整轮超时预算：每目标（等待秒数 + 45 秒），下限 120 秒（2026-10-11 加，
+    # 防止连接卡住长期占线程、与下一次定时重叠）
+    per_target = max(15, max((target.wait_seconds for target in targets), default=15)) + 45
+    budget = max(120.0, len(targets) * per_target)
+
+    async def _run_account() -> Tuple[List[Dict[str, Any]], str]:
+        """
+        连接账号并把该账号下的目标跑完（串行或按并发度）。
+
+        :return Tuple[List[Dict[str, Any]], str]: ``(结果列表, 账号级错误)``
+        """
+
         await client.connect()
+        # session 里是 Telegram 授权密钥：连上后立刻收紧到 0600（2026-10-11 加固）
+        secure_session_files(data_dir, account.key)
         if not await client.is_user_authorized():
             return [], f"账号 {account.key} 未登录或 session 已失效，请重新登录"
         if max(1, int(concurrency)) <= 1:
-            # 串行：与 1.0.x 完全一致的行为（默认路径）
+            # 串行：与 1.0.x 一致的行为（默认路径），同样接入 FloodWait 退避重试
             results: List[Dict[str, Any]] = []
             for target in targets:
                 results.append(
-                    await _signin_target(
+                    await _signin_target_with_flood_retry(
                         client,
                         target,
                         data_dir,
@@ -492,6 +643,11 @@ async def run_account(
             ai_judge=ai_judge,
         )
         return results, ""
+
+    try:
+        return await asyncio.wait_for(_run_account(), timeout=budget)
+    except asyncio.TimeoutError:
+        return [], f"账号 {account.key} 执行超时（>{int(budget)}s），已中止本轮"
     except Exception as error:  # pylint: disable=broad-except
         return [], f"账号 {account.key} 执行异常：{type(error).__name__}: {error}"
     finally:
@@ -567,6 +723,60 @@ def _flood_wait_seconds(text: str) -> Optional[int]:
         return None
 
 
+async def _signin_target_with_flood_retry(
+    client: Any,
+    target: BotTarget,
+    data_dir: Path,
+    account: AccountConfig,
+    success_keywords: Optional[Sequence[str]] = None,
+    repeated_keywords: Optional[Sequence[str]] = None,
+    failure_keywords: Optional[Sequence[str]] = None,
+    ai_judge: Optional[Any] = None,
+) -> Dict[str, Any]:
+    """
+    跑一次目标；命中 Telegram FloodWait 时按提示等待后**重试一次**。
+
+    退避期间不占并发信号量（2026-10-11 修：此前在信号量内 sleep 会把整路并发一起堵住），
+    上限提高到 600 秒（原 60 秒常小于 Telegram 实际要求，到点重试仍被限流）；
+    串行路径（并发=1）也走这里，不再完全没有退避。
+
+    :param client: 已登录的 TelegramClient
+    :param target: 签到目标
+    :param data_dir: 插件数据目录
+    :param account: 账号配置
+    :param success_keywords: 自定义「签到成功」关键词
+    :param repeated_keywords: 自定义「已签到」关键词
+    :param failure_keywords: 自定义「签到失败」关键词
+    :param ai_judge: 可选的 AI 复核协程
+    :return Dict[str, Any]: 单条签到结果
+    """
+
+    item = await _signin_target(
+        client,
+        target,
+        data_dir,
+        account,
+        success_keywords,
+        repeated_keywords,
+        failure_keywords,
+        ai_judge,
+    )
+    wait_seconds = _flood_wait_seconds(str(item.get("error") or ""))
+    if wait_seconds is None:
+        return item
+    await asyncio.sleep(min(wait_seconds, _FLOOD_WAIT_CAP_SECONDS))
+    return await _signin_target(
+        client,
+        target,
+        data_dir,
+        account,
+        success_keywords,
+        repeated_keywords,
+        failure_keywords,
+        ai_judge,
+    )
+
+
 async def _run_targets_concurrently(
     client: Any,
     targets: Sequence[BotTarget],
@@ -606,7 +816,7 @@ async def _run_targets_concurrently(
 
         async with semaphore:
             await asyncio.sleep(_jitter_seconds(index))
-            item = await _signin_target(
+            return await _signin_target_with_flood_retry(
                 client,
                 target,
                 data_dir,
@@ -616,25 +826,75 @@ async def _run_targets_concurrently(
                 failure_keywords,
                 ai_judge,
             )
-            wait_seconds = _flood_wait_seconds(str(item.get("error") or ""))
-            if wait_seconds is not None:
-                await asyncio.sleep(min(wait_seconds, _FLOOD_WAIT_CAP_SECONDS))
-                item = await _signin_target(
-                    client,
-                    target,
-                    data_dir,
-                    account,
-                    success_keywords,
-                    repeated_keywords,
-                    failure_keywords,
-                    ai_judge,
-                )
-            return item
 
     gathered = await asyncio.gather(
         *(_one(target, index) for index, target in enumerate(targets))
     )
     return list(gathered)
+
+
+async def probe_target(
+    target: BotTarget,
+    data_dir: Path,
+    account: AccountConfig,
+    proxy: Optional[Tuple[str, str, int]] = None,
+    wait_seconds: int = 15,
+) -> Dict[str, Any]:
+    """
+    测试单个目标：连上去发一次 ``/start``（或命令），把**实际看到的按钮文案**列出来。
+
+    只回证据、不判成败，用于「按钮文字」配置的自助修正（2026-10-11 加）。
+
+    :param target: 签到目标
+    :param data_dir: 插件数据目录
+    :param account: 账号配置
+    :param proxy: 代理元组，None 表示直连
+    :param wait_seconds: 等待秒数
+    :return Dict[str, Any]: ``{ok, message, buttons}``
+    """
+
+    try:
+        client = build_client(data_dir, account, proxy)
+    except RuntimeError as error:
+        return {"ok": False, "message": str(error), "buttons": []}
+    try:
+        await asyncio.wait_for(client.connect(), timeout=25)
+        secure_session_files(data_dir, account.key)
+        if not await client.is_user_authorized():
+            return {
+                "ok": False,
+                "message": f"账号 {account.key} 未登录或 session 已失效，请重新登录",
+                "buttons": [],
+            }
+        entity = await client.get_entity(target.bot_username)
+        if target.sign_type == SIGN_TYPE_BUTTON:
+            await client.send_message(entity, "/start")
+        else:
+            await client.send_message(entity, target.action_text or "/checkin")
+        await asyncio.sleep(max(3, min(int(wait_seconds), 30)))
+        messages = await client.get_messages(entity, limit=_MSG_SCAN_LIMIT)
+        buttons = _collect_button_texts(messages)
+        reply = _pick_reply(messages, None)
+        return {
+            "ok": True,
+            "buttons": buttons,
+            "message": (
+                f"{target.account_key} → {target.bot_username}："
+                f"看到的按钮 {('、'.join(buttons) if buttons else '（无）')}；"
+                f"最近回复：{str(reply)[:80] or '（无）'}"
+            ),
+        }
+    except Exception as error:  # pylint: disable=broad-except
+        return {
+            "ok": False,
+            "message": f"测试失败：{type(error).__name__}: {error}",
+            "buttons": [],
+        }
+    finally:
+        try:
+            await client.disconnect()
+        except Exception:  # pylint: disable=broad-except
+            pass
 
 
 async def run_all(
@@ -683,7 +943,10 @@ async def run_all(
             for target in targets
             if target.account_key == account.key
             and target.enabled
-            and (not only_bot or target.bot_username == only_bot)
+            and (
+                not only_bot
+                or normalize_bot(target.bot_username) == normalize_bot(only_bot)
+            )
             and (
                 allowed is None
                 or f"{target.account_key}|{target.bot_username}" in allowed
@@ -729,7 +992,17 @@ def summarize_results(results: Sequence[Dict[str, Any]]) -> str:
 
     if not results:
         return "没有可执行的目标"
-    ok = sum(1 for item in results if item.get("ok"))
+    unconfirmed = sum(
+        1 for item in results if item.get("status") == STATUS_UNCONFIRMED
+    )
+    # 「未确认」保持 ok=True（不算失败）但不能并进成功数（2026-10-11 修）
+    ok = sum(
+        1
+        for item in results
+        if item.get("ok") and item.get("status") != STATUS_UNCONFIRMED
+    )
+    if unconfirmed:
+        return f"{ok}/{len(results)} 成功，{unconfirmed} 项未确认"
     return f"{ok}/{len(results)} 成功"
 
 
@@ -826,8 +1099,17 @@ def build_notify_text(
 
     time_text = str(results[0].get("time") or now_text())
     repeated = sum(1 for item in results if item.get("status") == STATUS_REPEATED)
+    unconfirmed = sum(
+        1 for item in results if item.get("status") == STATUS_UNCONFIRMED
+    )
+    ok_count = total - len(failed) - unconfirmed
     if failed:
-        head = f"{total - len(failed)}/{total} 成功，{len(failed)} 项失败"
+        head = f"{ok_count}/{total} 成功，{len(failed)} 项失败"
+        if unconfirmed:
+            head += f"，{unconfirmed} 项未确认"
+    elif unconfirmed:
+        # 未确认既非成功也非失败：别写成「全部成功」（2026-10-11 修）
+        head = f"{ok_count}/{total} 成功，{unconfirmed} 项未确认"
     else:
         head = f"{total}/{total} 全部成功"
         if repeated:

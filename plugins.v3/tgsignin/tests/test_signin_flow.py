@@ -41,7 +41,21 @@ from tgsignin.core.signin import (
 
 
 class _FakeAsyncio:
-    """asyncio 替身：把 sleep 变成空操作，让测试毫秒级完成。"""
+    """asyncio 替身：sleep 空操作、wait_for 直接透传，让测试毫秒级完成。"""
+
+    TimeoutError = asyncio.TimeoutError
+
+    @staticmethod
+    async def wait_for(awaitable, timeout=None):
+        """
+        直接 await 传入的协程（测试不做真实超时）。
+
+        :param awaitable: 待执行的协程
+        :param timeout: 忽略的超时秒数
+        :return object: 协程结果
+        """
+        del timeout
+        return await awaitable
 
     @staticmethod
     async def sleep(_seconds: float) -> None:
@@ -658,8 +672,8 @@ class TestSigninStaleGuard(unittest.TestCase):
             action_text="签到" if sign_type == SIGN_TYPE_BUTTON else "/checkin",
         )
 
-    def test_stale_menu_not_clicked(self) -> None:
-        """bot 离线：只剩上次的旧菜单 → 本次无新消息 → 判失败。"""
+    def test_stale_menu_clicked_but_needs_fresh_evidence(self) -> None:
+        """bot 离线：只剩上次的旧菜单 → 可点旧菜单兜底，但无本次新证据 → 判失败。"""
         client = _FakeClient(batches=[], sent_date=self.SENT)
         client._batches = [
             [
@@ -673,7 +687,9 @@ class TestSigninStaleGuard(unittest.TestCase):
         result = asyncio.run(signin_one(client, self._target()))
         self.assertFalse(result["ok"])
         self.assertEqual(result["status"], STATUS_FAILED)
-        self.assertIn("没有新消息", result["error"])
+        # 兜底确实点过旧菜单，但只认「本次 /start 之后」的新证据
+        self.assertEqual(client.clicks, ["🎯 签到"])
+        self.assertIn("无任何返回", result["error"])
 
     def test_stale_reply_not_success(self) -> None:
         """命令式：旧消息里的「签到成功」不能顶本次结果。"""
@@ -790,6 +806,261 @@ class TestSigninStaleGuard(unittest.TestCase):
         result = asyncio.run(signin_one(client, self._target()))
         self.assertTrue(result["ok"])
         self.assertEqual(result["status"], STATUS_SUCCESS)
+
+
+class TestButtonCandidates(unittest.TestCase):
+    """按钮文字支持多候选，失败信息带出实际看到的按钮（2026-10-11 加）。"""
+
+    def setUp(self) -> None:
+        """替换 sleep，避免测试真的等待。"""
+        patcher = mock.patch.object(signin_mod, "asyncio", _FakeAsyncio)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    @staticmethod
+    def _target(action: str = "签到|每日签到") -> BotTarget:
+        """
+        构造按钮式目标。
+
+        :param action: 按钮文字（可多候选）
+        :return BotTarget: 目标
+        """
+        return BotTarget(
+            account_key="acc1",
+            bot_username="@okemby_bot",
+            sign_type=SIGN_TYPE_BUTTON,
+            action_text=action,
+        )
+
+    def test_multi_candidate_matches_second(self) -> None:
+        """第一个候选不中、第二个候选命中时也能点到。"""
+        sent = datetime(2026, 10, 7, 15, 0, tzinfo=timezone(timedelta(hours=8)))
+        client = _FakeClient(batches=[], sent_date=sent)
+        menu = _FakeMessage(
+            "请选择功能",
+            buttons=client.make_buttons(["📅 每日签到"]),
+            date=sent + timedelta(seconds=1),
+        )
+        reply = _FakeMessage("🎉 签到成功 | 8 HG币", date=sent + timedelta(seconds=3))
+        client._batches = [[menu], [reply]]
+        result = asyncio.run(signin_one(client, self._target()))
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["status"], STATUS_SUCCESS)
+        self.assertEqual(client.clicks, ["📅 每日签到"])
+
+    def test_failure_lists_seen_buttons(self) -> None:
+        """没有候选命中时，失败信息里带上实际看到的按钮文案。"""
+        sent = datetime(2026, 10, 7, 15, 0, tzinfo=timezone(timedelta(hours=8)))
+        client = _FakeClient(batches=[], sent_date=sent)
+        client._batches = [
+            [
+                _FakeMessage(
+                    "请选择功能",
+                    buttons=client.make_buttons(["📅 打卡", "👤 我的"]),
+                    date=sent + timedelta(seconds=1),
+                )
+            ]
+        ]
+        result = asyncio.run(signin_one(client, self._target("签到")))
+        self.assertFalse(result["ok"])
+        self.assertIn("📅 打卡", result["error"])
+        self.assertIn("👤 我的", result["error"])
+
+
+class TestSummarizeUnconfirmed(unittest.TestCase):
+    """「未确认」不再并进成功数（2026-10-11 加）。"""
+
+    def test_summary_and_notify_count_unconfirmed(self) -> None:
+        """摘要与通知头都单列未确认条数。"""
+        results = [
+            {
+                "ok": True,
+                "status": STATUS_SUCCESS,
+                "time": "t",
+                "account": "acc1",
+                "bot": "@a",
+            },
+            {
+                "ok": True,
+                "status": STATUS_UNCONFIRMED,
+                "time": "t",
+                "account": "acc1",
+                "bot": "@b",
+            },
+        ]
+        self.assertEqual(summarize_results(results), "1/2 成功，1 项未确认")
+        text = build_notify_text(results, "定时", NOTIFY_MODE_ALL)
+        self.assertIn("1/2 成功，1 项未确认", text)
+        self.assertNotIn("全部成功", text)
+
+
+class TestFloodWaitRetry(unittest.TestCase):
+    """FloodWait 退避重试（2026-10-11 加）。"""
+
+    @staticmethod
+    def _target() -> BotTarget:
+        """
+        构造一个最小目标。
+
+        :return BotTarget: 目标
+        """
+        return BotTarget(
+            account_key="acc1",
+            bot_username="@okemby_bot",
+            sign_type=SIGN_TYPE_COMMAND,
+            action_text="/checkin",
+        )
+
+    def test_serial_retry_after_flood_wait(self) -> None:
+        """第一次返回 FloodWait、退避后重试成功；退避上限已提到 600 秒。"""
+        calls: list = []
+
+        async def _fake_signin_target(
+            client, target, data_dir, account, *args, **kwargs
+        ):
+            """
+            第一次报 FloodWait、第二次成功。
+
+            :param client: 忽略
+            :param target: 忽略
+            :param data_dir: 忽略
+            :param account: 忽略
+            :param args: 忽略
+            :param kwargs: 忽略
+            :return dict: 结果
+            """
+            del client, target, data_dir, account, args, kwargs
+            calls.append(1)
+            if len(calls) == 1:
+                return {
+                    "ok": False,
+                    "error": "FloodWait: 120 seconds",
+                    "status": STATUS_FAILED,
+                }
+            return {"ok": True, "error": "", "status": STATUS_SUCCESS}
+
+        with mock.patch.object(
+            signin_mod, "_signin_target", _fake_signin_target
+        ), mock.patch.object(signin_mod, "asyncio", _FakeAsyncio):
+            item = asyncio.run(
+                signin_mod._signin_target_with_flood_retry(
+                    None, self._target(), Path("/tmp"), AccountConfig(key="acc1")
+                )
+            )
+        self.assertEqual(len(calls), 2)
+        self.assertTrue(item["ok"])
+        self.assertEqual(signin_mod._FLOOD_WAIT_CAP_SECONDS, 600)
+
+
+class TestAccountTimeout(unittest.TestCase):
+    """整轮超时保护（2026-10-11 加）。"""
+
+    @staticmethod
+    def _target() -> BotTarget:
+        """
+        构造一个最小目标。
+
+        :return BotTarget: 目标
+        """
+        return BotTarget(
+            account_key="acc1",
+            bot_username="@okemby_bot",
+            sign_type=SIGN_TYPE_COMMAND,
+            action_text="/checkin",
+        )
+
+    def test_timeout_returns_account_error(self) -> None:
+        """wait_for 抛超时时返回账号级错误，不再无限等。"""
+
+        class _TimeoutAsyncio(_FakeAsyncio):
+            """wait_for 直接抛 TimeoutError 的替身。"""
+
+            @staticmethod
+            async def wait_for(awaitable, timeout=None):
+                """
+                立刻抛超时。
+
+                :param awaitable: 忽略
+                :param timeout: 忽略
+                :return None: 永不返回
+                """
+                del timeout
+                awaitable.close()
+                raise asyncio.TimeoutError
+
+        client = _FakeClient(batches=[])
+        account = AccountConfig(key="acc1", label="账号1")
+        with mock.patch.object(
+            signin_mod, "build_client", return_value=client
+        ), mock.patch.object(signin_mod, "asyncio", _TimeoutAsyncio):
+            results, error = asyncio.run(
+                run_account(account, [self._target()], Path("/tmp"), None)
+            )
+        self.assertEqual(results, [])
+        self.assertIn("执行超时", error)
+
+
+class TestNormalizeBot(unittest.TestCase):
+    """bot 用户名归一化（2026-10-11 加）。"""
+
+    def test_normalize(self) -> None:
+        """带不带 @、大小写不同都视为同一个 bot。"""
+        self.assertEqual(signin_mod.normalize_bot("@OKEmby_Bot"), "okemby_bot")
+        self.assertEqual(signin_mod.normalize_bot("okemby_bot"), "okemby_bot")
+
+    def test_run_all_matches_without_at(self) -> None:
+        """命令里漏了 @ 也能匹配到目标。"""
+        client = _FakeClient(batches=[[_FakeMessage("🎉 签到成功 | 5 积分")]])
+        account = AccountConfig(key="acc1", label="账号1")
+        target = BotTarget(
+            account_key="acc1",
+            bot_username="@HDHaven_Bot",
+            sign_type=SIGN_TYPE_COMMAND,
+            action_text="/checkin",
+        )
+        with mock.patch.object(
+            signin_mod, "build_client", return_value=client
+        ), mock.patch.object(signin_mod, "asyncio", _FakeAsyncio):
+            results = asyncio.run(
+                signin_mod.run_all(
+                    [account], [target], Path("/tmp"), None, only_bot="HDHaven_Bot"
+                )
+            )
+        self.assertEqual(len(results), 1)
+
+
+class TestProbeTarget(unittest.TestCase):
+    """目标探测：返回实际看到的按钮文案（2026-10-11 加）。"""
+
+    def test_probe_lists_buttons(self) -> None:
+        """探测按钮式目标时列出菜单按钮。"""
+        sent = datetime(2026, 10, 7, 15, 0, tzinfo=timezone(timedelta(hours=8)))
+        client = _FakeClient(batches=[], sent_date=sent)
+        client._batches = [
+            [
+                _FakeMessage(
+                    "请选择功能",
+                    buttons=client.make_buttons(["📅 打卡", "🎯 签到"]),
+                    date=sent + timedelta(seconds=1),
+                )
+            ]
+        ]
+        target = BotTarget(
+            account_key="acc1",
+            bot_username="@okemby_bot",
+            sign_type=SIGN_TYPE_BUTTON,
+            action_text="签到",
+        )
+        account = AccountConfig(key="acc1", label="账号1")
+        with mock.patch.object(
+            signin_mod, "build_client", return_value=client
+        ), mock.patch.object(signin_mod, "asyncio", _FakeAsyncio):
+            result = asyncio.run(
+                signin_mod.probe_target(target, Path("/tmp"), account, None)
+            )
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["buttons"], ["📅 打卡", "🎯 签到"])
+        self.assertIn("📅 打卡", result["message"])
 
 
 if __name__ == "__main__":

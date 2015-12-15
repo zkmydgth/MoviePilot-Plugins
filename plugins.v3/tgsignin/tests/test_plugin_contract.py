@@ -8,7 +8,9 @@
 
 import asyncio
 import json
+import time
 import unittest
+from datetime import datetime
 from pathlib import Path
 from unittest import mock
 from unittest.mock import AsyncMock, MagicMock
@@ -25,7 +27,13 @@ from tgsignin.core.config import (
     NOTIFY_MODE_SUCCESS,
     default_slot_config,
 )
-from tgsignin.core.store import record_ai_keywords
+from tgsignin.core.store import (
+    load_state,
+    record_ai_keywords,
+    record_run,
+    save_state,
+)
+from tgsignin.core.retry import TZ, today_text
 from tgsignin.version import VERSION
 
 PLUGIN_ROOT = Path(__file__).resolve().parent.parent
@@ -179,11 +187,11 @@ class TestPage(unittest.TestCase):
             self.assertTrue(button["events"]["click"]["api"].startswith("plugin/TgSignin/"))
 
     def test_page_contains_tables(self) -> None:
-        """详情页包含账号状态表与结果表。"""
+        """详情页包含账号状态表、今日状态表与结果表。"""
         plugin = TgSignin()
         plugin.init_plugin({"enabled": True})
         tables = [node for node in _walk(plugin.get_page()) if node.get("component") == "VTable"]
-        self.assertEqual(len(tables), 2)
+        self.assertEqual(len(tables), 3)
 
     def test_buttons_are_wrapped_in_flex_container(self) -> None:
         """按钮必须包在 flex 容器里（回归：直接平铺时移动端会与上方色块重叠）。"""
@@ -198,9 +206,20 @@ class TestPage(unittest.TestCase):
                 child.get("component") == "VBtn" for child in (node.get("content") or [])
             )
         ]
-        self.assertEqual(len(wrappers), 1, "应恰有一个承载按钮的 flex 容器")
-        buttons = [n for n in _walk(plugin.get_page()) if n.get("component") == "VBtn"]
-        self.assertEqual(len(wrappers[0]["content"]), len(buttons), "所有按钮都要在容器内")
+        self.assertEqual(len(wrappers), 1, "应恰有一个承载操作按钮的 flex 容器")
+        top_buttons = [
+            child
+            for child in wrappers[0]["content"]
+            if child.get("component") == "VBtn"
+        ]
+        self.assertGreaterEqual(len(top_buttons), 5, "顶部操作按钮齐全")
+        # 页面内所有按钮（含表格行内的「重试 / 测试 / 退出」）都要带 apikey
+        for button in [n for n in _walk(plugin.get_page()) if n.get("component") == "VBtn"]:
+            params = button["events"]["click"]["params"]
+            self.assertIn("apikey", params)
+            self.assertTrue(
+                button["events"]["click"]["api"].startswith("plugin/TgSignin/")
+            )
 
     def test_top_alerts_have_bottom_margin(self) -> None:
         """顶部信息块带 mb-3，避免与下一块贴在一起。"""
@@ -240,7 +259,7 @@ class TestPage(unittest.TestCase):
         )
         page = plugin.get_page()
         tables = [node for node in _walk(page) if node.get("component") == "VTable"]
-        self.assertEqual(len(tables), 3, "账号状态表 + 结果表 + AI 归纳关键词表")
+        self.assertEqual(len(tables), 4, "账号状态表 + 今日状态表 + 结果表 + AI 归纳关键词表")
         blob = json.dumps(page, ensure_ascii=False)
         self.assertIn("AI 归纳关键词", blob)
         self.assertIn("连续签到", blob)
@@ -505,10 +524,22 @@ class TestBackgroundApi(unittest.TestCase):
     def setUp(self) -> None:
         """构造启用状态的插件，并拦截后台派发。"""
         self.spawned: list = []
+        def _fake_spawn(target, name) -> bool:
+            """
+            记录派发并声明已启动。
+
+            :param target: 忽略
+            :param name: 线程名（同时是互斥键）
+            :return bool: 恒为 True
+            """
+            del target
+            self.spawned.append(name)
+            return True
+
         patcher = mock.patch.object(
             TgSignin,
             "_spawn_background",
-            staticmethod(lambda target, name: self.spawned.append(name)),
+            staticmethod(_fake_spawn),
         )
         patcher.start()
         self.addCleanup(patcher.stop)
@@ -567,6 +598,221 @@ class TestBackgroundApi(unittest.TestCase):
         self.assertEqual(payload["account_2_login_action"], LOGIN_ACTION_NONE)
         self.assertEqual(payload["account_2_login_code"], "")
         self.assertEqual(payload["account_2_login_password"], "")
+
+
+class TestPageExtras(unittest.TestCase):
+    """2026-10-11 新增：详情页信息与按钮、落盘字段、仪表盘、配置项形态。"""
+
+    @staticmethod
+    def _request(**params) -> MagicMock:
+        """
+        构造带查询参数的请求替身。
+
+        :param params: 查询参数
+        :return MagicMock: 请求替身
+        """
+
+        request = MagicMock()
+        request.query_params = dict(params)
+        request.json = AsyncMock(return_value={})
+        return request
+
+    @staticmethod
+    def _plugin() -> TgSignin:
+        """
+        构造启用状态的插件。
+
+        :return TgSignin: 插件实例
+        """
+
+        plugin = TgSignin()
+        plugin.init_plugin({"enabled": True})
+        return plugin
+
+    def test_today_table_and_probe_buttons(self) -> None:
+        """详情页含「今日签到状态」表，行内「测试」按钮带 apikey 与 account/bot。"""
+        page = self._plugin().get_page()
+        blob = json.dumps(page, ensure_ascii=False)
+        self.assertIn("今日签到状态", blob)
+        probes = [
+            node
+            for node in _walk(page)
+            if node.get("component") == "VBtn" and node.get("text") == "测试"
+        ]
+        self.assertTrue(probes, "目标行应有「测试」按钮")
+        for node in probes:
+            params = node["events"]["click"]["params"]
+            self.assertIn("apikey", params)
+            self.assertIn("account", params)
+            self.assertIn("bot", params)
+
+    def test_today_table_with_today_records(self) -> None:
+        """
+        回归：state 里「今天已有记录」时今日状态表必须能渲染。
+
+        修复前 ``_today_rows`` 的 ``next_text`` 只在「需要重试」分支赋值，
+        今天已有成败记录（但无需重试）时会抛 UnboundLocalError，
+        整个详情页再次变成「数据加载失败」（2026-10-11 端到端实测发现）。
+        """
+        plugin = self._plugin()
+        data_dir = plugin.get_data_path()
+        state = load_state(data_dir)
+        stamp = time.time()
+        today = today_text()
+        state["signin_state"] = {
+            "acc1|@bb_emby_bot": {
+                "date": today,
+                "ok": True,
+                "ok_today": True,
+                "attempts": 1,
+                "last_attempt_at": stamp,
+            },
+            "acc1|@HG_Emby_bot": {
+                "date": today,
+                "ok": False,
+                "ok_today": False,
+                "attempts": 2,
+                "last_attempt_at": stamp,
+            },
+            "acc1|@okemby_bot": {"date": "2000-01-01"},
+        }
+        save_state(data_dir, state)
+        blob = json.dumps(plugin.get_page(), ensure_ascii=False)
+        self.assertIn("✅ 已成功", blob)
+        self.assertIn("❌ 上次失败", blob)
+        self.assertIn("—（今天还没跑）", blob)
+        # 「最后尝试」列填的是本地时间文本，不是空值
+        expected = datetime.fromtimestamp(stamp, TZ).strftime("%Y-%m-%d %H:%M:%S")
+        self.assertIn(expected, blob)
+
+    def test_logout_buttons_are_two_stage(self) -> None:
+        """账号行有「退出 / 确认退出」两阶段按钮（后者带 confirm=true）。"""
+        page = self._plugin().get_page()
+        buttons = {
+            node.get("text"): node["events"]["click"]["params"]
+            for node in _walk(page)
+            if node.get("component") == "VBtn"
+        }
+        self.assertIn("退出", buttons)
+        self.assertIn("确认退出", buttons)
+        self.assertEqual(buttons["确认退出"].get("confirm"), "true")
+
+    def test_result_rows_have_retry_buttons(self) -> None:
+        """结果表行内「重试」按钮带 apikey 与 account/bot。"""
+        plugin = self._plugin()
+        record_run(
+            plugin.get_data_path(),
+            [
+                {
+                    "time": "2026-10-11 00:01:00",
+                    "account": "acc1",
+                    "bot": "@okemby_bot",
+                    "method": "按钮式",
+                    "ok": False,
+                    "reply": "",
+                    "error": "失败",
+                    "status": "失败",
+                }
+            ],
+            "定时",
+            "0/1 成功，1 项失败",
+        )
+        retries = [
+            node
+            for node in _walk(plugin.get_page())
+            if node.get("component") == "VBtn" and node.get("text") == "重试"
+        ]
+        self.assertEqual(len(retries), 1)
+        params = retries[0]["events"]["click"]["params"]
+        self.assertEqual(params["account"], "acc1")
+        self.assertEqual(params["bot"], "@okemby_bot")
+
+    def test_history_keeps_status_and_alert(self) -> None:
+        """history 落盘保留 status/alert/ai_*（详情页 AI 复核列不再恒空的前提）。"""
+        plugin = self._plugin()
+        record_run(
+            plugin.get_data_path(),
+            [
+                {
+                    "time": "t",
+                    "account": "acc1",
+                    "bot": "@a",
+                    "ok": True,
+                    "status": "今日已签到",
+                    "alert": "您今天已经签到过了",
+                    "ai_state": "judged",
+                    "ai_verdict": "repeated",
+                    "ai_keywords": ["赌狗签到"],
+                }
+            ],
+            "定时",
+        )
+        item = load_state(plugin.get_data_path())["history"][-1]
+        self.assertEqual(item["status"], "今日已签到")
+        self.assertEqual(item["alert"], "您今天已经签到过了")
+        self.assertEqual(item["ai_verdict"], "repeated")
+        self.assertEqual(item["ai_keywords"], ["赌狗签到"])
+
+    def test_dashboard_returns_cards(self) -> None:
+        """仪表盘返回 col 配置 / 全局配置 / 页面元素三段结构。"""
+        plugin = self._plugin()
+        meta = TgSignin.get_dashboard_meta()
+        self.assertEqual(meta[0]["key"], "main")
+        cols, conf, elements = plugin.get_dashboard("main")
+        self.assertIn("cols", cols)
+        self.assertIn("title", conf)
+        self.assertTrue(elements)
+
+    def test_reset_keeps_raw_ai_confirm_flag(self) -> None:
+        """「清空验证码/密码」不会顺手打开「自动使用 AI 确认」（只开 AI 归纳时）。"""
+        plugin = TgSignin()
+        config = dict(default_slot_config())
+        config.update(
+            {
+                "enabled": True,
+                "ai_confirm_enabled": False,
+                "ai_keyword_autofill": True,
+            }
+        )
+        plugin.init_plugin(config)
+        self.assertTrue(plugin._ai_judge.enabled)
+        asyncio.run(plugin.api_login_reset(self._request()))
+        self.assertFalse(plugin._raw_config["ai_confirm_enabled"])
+
+    def test_dedupe_returns_busy_message(self) -> None:
+        """同名任务在跑时接口回「已有任务在运行」，不重复启动。"""
+        plugin = self._plugin()
+        with mock.patch.object(
+            TgSignin, "_spawn_background", staticmethod(lambda target, name: False)
+        ):
+            result = asyncio.run(plugin.api_signin(self._request()))
+        self.assertFalse(result["success"])
+        self.assertIn("已有签到任务在运行", result["message"])
+
+    def test_keyword_fields_are_textareas(self) -> None:
+        """关键词三栏用多行文本（AI 自动加词后单行看不清）。"""
+        form, _ = self._plugin().get_form()
+        for model in ("success_keywords", "repeated_keywords", "failure_keywords"):
+            node = next(
+                item
+                for item in _walk(form)
+                if isinstance(item.get("props"), dict)
+                and item["props"].get("model") == model
+            )
+            self.assertEqual(node["component"], "VTextarea")
+
+    def test_number_fields_declare_range(self) -> None:
+        """并发上限 / 重试间隔声明取值范围（与后端 clamp 口径一致）。"""
+        form, _ = self._plugin().get_form()
+        for model, low in (("concurrency", 1), ("retry_interval_hours", 0)):
+            node = next(
+                item
+                for item in _walk(form)
+                if isinstance(item.get("props"), dict)
+                and item["props"].get("model") == model
+            )
+            self.assertEqual(node["props"].get("min"), low)
+            self.assertIn("max", node["props"])
 
 
 if __name__ == "__main__":

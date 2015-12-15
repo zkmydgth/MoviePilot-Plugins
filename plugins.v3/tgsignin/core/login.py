@@ -16,7 +16,14 @@ from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
 from .config import AccountConfig
-from .session import build_client, import_telethon, session_base
+from .session import (
+    build_client,
+    import_telethon,
+    mask_phone,
+    secure_session_files,
+    session_base,
+)
+from .store import read_json, write_json_atomic
 
 __all__ = [
     "pending_path",
@@ -51,14 +58,8 @@ def load_pending(data_dir: Path) -> Dict[str, Any]:
     :return Dict[str, Any]: ``账号标识 -> {phone, phone_code_hash, ts}``
     """
 
-    path = pending_path(data_dir)
-    if not path.exists():
-        return {}
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-        return data if isinstance(data, dict) else {}
-    except (ValueError, OSError):
-        return {}
+    data = read_json(pending_path(data_dir), {})
+    return data if isinstance(data, dict) else {}
 
 
 def save_pending(data_dir: Path, data: Dict[str, Any]) -> None:
@@ -70,9 +71,7 @@ def save_pending(data_dir: Path, data: Dict[str, Any]) -> None:
     :return None
     """
 
-    path = pending_path(data_dir)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    write_json_atomic(pending_path(data_dir), data)
 
 
 def clear_pending(data_dir: Path, account_key: str) -> None:
@@ -107,7 +106,8 @@ def describe_me(me: Any) -> Dict[str, Any]:
         "name": name or getattr(me, "username", "") or "",
         "username": getattr(me, "username", "") or "",
         "user_id": str(getattr(me, "id", "") or ""),
-        "phone": getattr(me, "phone", "") or "",
+        # 手机号只留打码形式，避免明文进 state.json 与日志（2026-10-11 加固）
+        "phone": mask_phone(getattr(me, "phone", "") or ""),
     }
 
 
@@ -138,6 +138,7 @@ async def send_code(
         """执行发码流程。"""
 
         await client.connect()
+        secure_session_files(data_dir, account.key)
         if await client.is_user_authorized():
             me = describe_me(await client.get_me())
             return {
@@ -155,7 +156,10 @@ async def send_code(
         save_pending(data_dir, pending)
         return {
             "ok": True,
-            "message": f"验证码已发往 {account.phone}，请查看 Telegram 后执行「确认登录」",
+            "message": (
+                f"验证码已发往 {mask_phone(account.phone)}，"
+                "请查看 Telegram 后执行「确认登录」"
+            ),
         }
 
     try:
@@ -213,6 +217,7 @@ async def confirm_login(
         """执行确认登录流程。"""
 
         await client.connect()
+        secure_session_files(data_dir, account.key)
         try:
             await client.sign_in(phone=phone, code=code, phone_code_hash=phone_code_hash)
         except needs_password_error:

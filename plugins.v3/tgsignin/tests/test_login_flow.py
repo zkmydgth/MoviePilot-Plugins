@@ -7,6 +7,7 @@
 
 import asyncio
 import json
+import stat
 import tempfile
 import time
 import unittest
@@ -259,6 +260,39 @@ class TestConfirmLogin(unittest.TestCase):
         result = asyncio.run(confirm_login(self.data_dir, self.account, "", "", None))
         self.assertFalse(result["ok"])
         self.assertIn("验证码为空", result["message"])
+
+
+class TestPhoneMasking(unittest.TestCase):
+    """手机号打码：日志与状态文件里不再出现完整号码（2026-10-11 加）。"""
+
+    def test_send_code_message_is_masked(self) -> None:
+        """发码提示里的手机号是打码形态。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            data_dir = Path(tmp)
+            account = AccountConfig(key="acc1", label="一号", phone="+12025550101")
+            client = _FakeLoginClient()
+            with mock.patch.object(login_mod, "build_client", return_value=client):
+                result = asyncio.run(send_code(data_dir, account, None))
+            self.assertTrue(result["ok"])
+            self.assertIn("+1******0101", result["message"])
+            self.assertNotIn("+12025550101", result["message"])
+
+    def test_describe_me_masks_phone(self) -> None:
+        """describe_me 只回打码手机号（写进 state.json 的也是打码值）。"""
+        info = login_mod.describe_me(_Me())
+        self.assertEqual(info["phone"], "+1******0101")
+        self.assertNotIn("+12025550101", json.dumps(info, ensure_ascii=False))
+
+    def test_pending_file_is_private(self) -> None:
+        """待登录状态文件权限 0600（含 phone_code_hash，属敏感数据）。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            data_dir = Path(tmp)
+            login_mod.save_pending(
+                data_dir,
+                {"acc1": {"phone": "+12025550101", "phone_code_hash": "h", "ts": 1}},
+            )
+            mode = stat.S_IMODE(pending_path(data_dir).stat().st_mode)
+            self.assertEqual(mode, 0o600)
 
 
 if __name__ == "__main__":

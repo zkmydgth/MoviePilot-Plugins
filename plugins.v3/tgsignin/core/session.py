@@ -8,6 +8,8 @@ Telegram 客户端构建、会话文件管理与连通性自检。
 
 from __future__ import annotations
 
+import os
+import re
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
@@ -18,6 +20,7 @@ __all__ = [
     "parse_proxy_url",
     "resolve_proxy",
     "proxy_desc",
+    "mask_phone",
     "session_base",
     "session_exists",
     "session_files",
@@ -104,6 +107,24 @@ def parse_proxy_url(raw: str) -> Optional[Tuple[str, str, int]]:
     return (kind, host, port)
 
 
+def mask_phone(phone: str) -> str:
+    """
+    给手机号打码，避免明文进日志与状态文件。
+
+    :param phone: 原始手机号（可含 + 与空格）
+    :return str: 形如 ``+1******0126``；位数不足时整串打码
+    """
+
+    text = str(phone or "").strip()
+    if not text:
+        return ""
+    digits = re.sub(r"\D", "", text)
+    if len(digits) <= 6:
+        return "*" * len(text)
+    head = text[:2] if text.startswith("+") else text[:1]
+    return f"{head}******{digits[-4:]}"
+
+
 def resolve_proxy(
     mode: str,
     proxy_type: str,
@@ -126,7 +147,12 @@ def resolve_proxy(
     if wanted == "direct":
         return None
     if wanted == "custom":
-        return build_proxy(proxy_type, proxy_host, proxy_port)
+        custom = build_proxy(proxy_type, proxy_host, proxy_port)
+        if custom is not None:
+            return custom
+        # 自定义代理但主机留空：不要静默直连（用户以为在走代理），
+        # 回退到 MoviePilot 自己的代理设置（2026-10-11 修）
+        return parse_proxy_url(mp_proxy_host)
     # 默认：与 MoviePilot 保持一致；MP 没配代理则直连
     return parse_proxy_url(mp_proxy_host)
 
@@ -191,6 +217,29 @@ def delete_session(data_dir: Path, account_key: str) -> bool:
             path.unlink()
             removed = True
     return removed
+
+
+def secure_session_files(data_dir: Path, account_key: str) -> None:
+    """
+    把某个账号的 session 文件权限收紧到 0600（授权密钥只给属主读写）。
+
+    :param data_dir: 插件数据目录
+    :param account_key: 账号标识
+    :return None
+    """
+
+    base = session_base(data_dir, account_key)
+    for path in (
+        base.with_suffix(".session"),
+        base.with_suffix(".session-journal"),
+        base.with_suffix(".session-wal"),
+        base.with_suffix(".session-shm"),
+    ):
+        if path.exists():
+            try:
+                os.chmod(path, 0o600)
+            except OSError:  # pragma: no cover - 权限设置失败不阻断流程
+                pass
 
 
 def import_telethon() -> Any:

@@ -196,8 +196,8 @@ MUTANTS = [
     ),
     (
         "core/signin.py",
-        "            if wait_seconds is not None:",
-        "            if False:  # 变异：FloodWait 不再重试",
+        "    if wait_seconds is None:\n        return item",
+        "    if True:  # 变异：FloodWait 不再重试\n        return item",
         "FloodWait 不再退避重试",
     ),
     (

@@ -9,6 +9,8 @@
 from __future__ import annotations
 
 import json
+import os
+import threading
 from pathlib import Path
 from typing import Any, Dict, List, Sequence
 
@@ -18,6 +20,8 @@ __all__ = [
     "state_path",
     "load_state",
     "save_state",
+    "write_json_atomic",
+    "read_json",
     "record_login",
     "record_login_event",
     "record_run",
@@ -32,6 +36,49 @@ MAX_HISTORY_PER_BOT = 10
 PAGE_RESULT_LIMIT = 30
 # AI 归纳关键词的审计日志保留条数
 AI_KEYWORD_LOG_LIMIT = 100
+# 状态/待登录文件权限：只给属主读写（2026-10-11 加固）
+STATE_FILE_MODE = 0o600
+# 进程内写锁：多个后台线程各自「读-改-写」时避免丢更新
+_WRITE_LOCK = threading.Lock()
+
+
+def write_json_atomic(path: Path, data: Any, mode: int = STATE_FILE_MODE) -> None:
+    """
+    原子写入 JSON（临时文件 + ``os.replace``），并把权限收紧到 ``mode``。
+
+    :param path: 目标文件路径
+    :param data: 可序列化对象
+    :param mode: 文件权限（默认 0600）
+    :return None
+    """
+
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    tmp = target.with_name(target.name + ".tmp")
+    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    try:
+        os.chmod(tmp, mode)
+    except OSError:  # pragma: no cover - 权限设置失败不阻断写入
+        pass
+    os.replace(tmp, target)
+
+
+def read_json(path: Path, default: Any = None) -> Any:
+    """
+    读取 JSON 文件（不存在或损坏时返回默认值）。
+
+    :param path: 文件路径
+    :param default: 读取失败时的返回值
+    :return Any: 解析结果或默认值
+    """
+
+    target = Path(path)
+    if not target.exists():
+        return default
+    try:
+        return json.loads(target.read_text(encoding="utf-8"))
+    except (ValueError, OSError):
+        return default
 
 
 def state_path(data_dir: Path) -> Path:
@@ -86,8 +133,8 @@ def save_state(data_dir: Path, state: Dict[str, Any]) -> None:
     """
 
     path = state_path(data_dir)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+    with _WRITE_LOCK:
+        write_json_atomic(path, state)
 
 
 def record_login(data_dir: Path, account_key: str, info: Dict[str, Any]) -> None:
@@ -141,6 +188,16 @@ def record_run(
                 "ok": bool(item.get("ok")),
                 "reply": str(item.get("reply", ""))[:300],
                 "error": str(item.get("error", ""))[:300],
+                # 详情页还要展示的字段（2026-10-11 修：此前只落 7 个字段，
+                # 导致页面「AI 复核」列恒空、状态细分与弹窗文本丢失）
+                "status": str(item.get("status", ""))[:60],
+                "alert": str(item.get("alert", ""))[:300],
+                "ai_state": str(item.get("ai_state", ""))[:40],
+                "ai_verdict": str(item.get("ai_verdict", ""))[:40],
+                "ai_message": str(item.get("ai_message", ""))[:300],
+                "ai_keywords": [
+                    str(word) for word in (item.get("ai_keywords") or [])
+                ][:10],
             }
         )
     # 只保留最近 N 条，避免状态文件无限膨胀

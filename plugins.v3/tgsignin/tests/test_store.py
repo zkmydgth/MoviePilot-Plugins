@@ -2,6 +2,7 @@
 状态持久化测试：运行记录、每个 bot 的历史上限、最近结果排序、登录信息。
 """
 
+import stat
 import tempfile
 import unittest
 from pathlib import Path
@@ -103,6 +104,54 @@ class TestStore(unittest.TestCase):
         """写入的状态能被读回来。"""
         save_state(self.data_dir, {"last_run_at": "x", "history": [], "accounts": {}})
         self.assertEqual(load_state(self.data_dir)["last_run_at"], "x")
+
+
+class TestStateHardening(unittest.TestCase):
+    """状态文件加固：原子写 + 0600 权限 + 详情字段落盘（2026-10-11 加）。"""
+
+    def setUp(self) -> None:
+        """准备临时数据目录。"""
+        self._tmp = tempfile.TemporaryDirectory()
+        self.data_dir = Path(self._tmp.name)
+        self.addCleanup(self._tmp.cleanup)
+
+    def test_save_is_atomic_and_private(self) -> None:
+        """写完只剩 state.json、权限 0600，且不残留 .tmp。"""
+        save_state(self.data_dir, {"last_run_at": "x"})
+        path = state_path(self.data_dir)
+        self.assertTrue(path.exists())
+        self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+        self.assertEqual(list(self.data_dir.glob("*.tmp")), [])
+        self.assertEqual(load_state(self.data_dir)["last_run_at"], "x")
+
+    def test_history_keeps_detail_fields(self) -> None:
+        """record_run 落盘保留 status/alert/ai_*（详情页展示所需）。"""
+        record_run(
+            self.data_dir,
+            [
+                {
+                    "time": "t",
+                    "account": "acc1",
+                    "bot": "@a",
+                    "method": "按钮式",
+                    "ok": True,
+                    "reply": "OK",
+                    "error": "",
+                    "status": "签到成功",
+                    "alert": "✔️ Done!",
+                    "ai_state": "judged",
+                    "ai_verdict": "success",
+                    "ai_keywords": ["签到成功"],
+                }
+            ],
+            "定时",
+            "1/1 成功",
+        )
+        item = recent_results(load_state(self.data_dir), 5)[0]
+        self.assertEqual(item["status"], "签到成功")
+        self.assertEqual(item["alert"], "✔️ Done!")
+        self.assertEqual(item["ai_state"], "judged")
+        self.assertEqual(item["ai_keywords"], ["签到成功"])
 
 
 if __name__ == "__main__":
