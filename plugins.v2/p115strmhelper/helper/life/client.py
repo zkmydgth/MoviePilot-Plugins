@@ -998,7 +998,7 @@ class MonitorLife:
                     client=self._client,
                     attr=event["file_id"],
                     root_id=None,
-                    refresh=False,
+                    refresh=True,
                     **configer.get_ios_ua_app(app=False),
                 )
             )
