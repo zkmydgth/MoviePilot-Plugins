@@ -154,11 +154,31 @@ class CloudDriveApi:
             path_str = "/"
         try:
             f = self.client.find_file_by_path(path_str)
+            logger.info("【CloudDrive】查找文件成功 %s: %s", path_str, f)
         except RpcError as e:
             if e.code() == StatusCode.NOT_FOUND:
+                try:
+                    f = self.client.get_file_detail_properties(path_str)
+                    logger.info("【CloudDrive】获取文件详情成功 %s: %s", path_str, f)
+                except RpcError as e2:
+                    if e2.code() == StatusCode.NOT_FOUND:
+                        return None
+                    logger.error(
+                        "【CloudDrive】GetFileDetailProperties 失败 %s: %s",
+                        path_str,
+                        e2,
+                    )
+                    return None
+                except Exception as e2:
+                    logger.error(
+                        "【CloudDrive】GetFileDetailProperties 失败 %s: %s",
+                        path_str,
+                        e2,
+                    )
+                    return None
+            else:
+                logger.error("【CloudDrive】FindFileByPath 失败 %s: %s", path_str, e)
                 return None
-            logger.error("【CloudDrive】FindFileByPath 失败 %s: %s", path_str, e)
-            return None
         except Exception as e:
             logger.error("【CloudDrive】FindFileByPath 失败 %s: %s", path_str, e)
             return None
