@@ -122,7 +122,7 @@ class OfflineDownloadHelper:
         """
         获取当前所有任务
         """
-        return offline_iter(self.client, cooldown=2)
+        return offline_iter(self.client, cooldown=2, type="web")
 
     def get_tasks_status(self, info_hash: List):
         """
