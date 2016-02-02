@@ -353,19 +353,22 @@ def create_app(emby_host: str) -> FastAPI:
         headers = _build_forward_headers(request)
         client = request.app.state.http_client_follow
         try:
-            req = client.build_request(
-                method=request.method,
-                url=target_url,
+            resp = await client.request(
+                request.method,
+                target_url,
                 headers=headers,
+                timeout=10,
             )
-            resp = await client.send(req, timeout=10)
-        except Exception:
-            logger.warning("System/Info 请求失败: %s", target_url, exc_info=True)
+        except Exception as e:
+            err_msg = str(e) or type(e).__name__
+            logger.warning(
+                "System/Info 请求失败: %s — %s", target_url, err_msg, exc_info=True
+            )
             return JSONResponse(
                 status_code=502,
                 content={
                     "error": "Bad Gateway",
-                    "detail": "System/Info 请求失败",
+                    "detail": f"System/Info 请求失败: {err_msg}",
                 },
             )
         if resp.status_code != 200:
