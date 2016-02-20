@@ -175,9 +175,9 @@ class ConfigManager:
     def __init__(self):
         self._configs = {}
 
-    def fix_bool_config(self, config_dict: Dict[str, Any]) -> Dict:
+    def fix_config(self, config_dict: Dict[str, Any]) -> Dict:
         """
-        修复非法的布尔值
+        修复非法值
         """
         fixed_dict = config_dict
         for field_name, field in BaseConfig.__fields__.items():
@@ -214,7 +214,7 @@ class ConfigManager:
         从字典加载配置
         """
         try:
-            fixed_dict = self.fix_bool_config(config_dict.copy())
+            fixed_dict = self.fix_config(config_dict.copy())
             validated = BaseConfig(**fixed_dict)
             self._configs = validated.dict()
             return True
@@ -249,7 +249,7 @@ class ConfigManager:
         """
         获取所有配置的副本
         """
-        self._configs = self.fix_bool_config(self._configs)
+        self._configs = self.fix_config(self._configs)
         return self._configs.copy()
 
     def update_config(self, updates: Dict[str, Any]) -> bool:
@@ -258,7 +258,7 @@ class ConfigManager:
         """
         try:
             # 合并现有配置和更新
-            self._configs = self.fix_bool_config(self._configs)
+            self._configs = self.fix_config(self._configs)
             current = BaseConfig(**self._configs)
             updated = current.copy(update=updates)
             self._configs.update(updated.dict())
