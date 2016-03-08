@@ -114,7 +114,7 @@ def iter_share_files_with_path(
     repeating_pair = [snap_app_http_info, snap_app_https_info]
     first_page_api_pool = repeating_pair * 6
     first_page_api_pool.insert(6, snap_api_info)
-    first_page_api_cycler = cycle(first_page_api_pool)
+    first_page_api_cycler = cycle(repeating_pair)
 
     def _job(
         api_info: ApiEndpointInfo,
