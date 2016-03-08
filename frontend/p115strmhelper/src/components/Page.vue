@@ -982,8 +982,16 @@ const navigateToParentDir = () => {
 const confirmDirSelection = () => {
   if (!dirDialog.currentPath) return;
 
+  let processedPath = dirDialog.currentPath;
+  // 移除末尾的斜杠，除非路径是 "/" 或者类似 "C:/" 的驱动器根目录
+  if (processedPath !== '/' &&
+    !(/^[a-zA-Z]:[\\\/]$/.test(processedPath)) &&
+    (processedPath.endsWith('/') || processedPath.endsWith('\\\\'))) {
+    processedPath = processedPath.slice(0, -1);
+  }
+
   if (typeof dirDialog.callback === 'function') {
-    dirDialog.callback(dirDialog.currentPath);
+    dirDialog.callback(processedPath);
   }
 
   // 关闭对话框
