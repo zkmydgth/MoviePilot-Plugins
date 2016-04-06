@@ -12,6 +12,7 @@ from app.utils.system import SystemUtils
 from app.schemas import FileItem
 
 from ...core.config import configer
+from ...helper.strm import MonitorStrmHelper
 
 
 directory_upload_dict = defaultdict(Lock)
@@ -64,7 +65,10 @@ def handle_file(event_path: str, mon_path: str):
                 logger.warn(f"【目录上传】{event_path} 未找到对应的文件")
                 return
 
-            # 获取此监控目录配置
+            delete = False
+            dest_remote = ""
+            dest_local = ""
+            dest_strm = ""
             for item in configer.get_config("directory_upload_path"):
                 if not item:
                     continue
@@ -72,6 +76,7 @@ def handle_file(event_path: str, mon_path: str):
                     delete = item.get("delete", False)
                     dest_remote = item.get("dest_remote", "")
                     dest_local = item.get("dest_local", "")
+                    dest_strm = item.get("dest_strm", "") or ""
                     break
 
             if file_path.suffix.lower() in [
@@ -114,7 +119,9 @@ def handle_file(event_path: str, mon_path: str):
                         if dir_file:
                             target_fileitem = dir_file
                         else:
-                            dir_file = storage_chain.create_folder(target_fileitem, part)
+                            dir_file = storage_chain.create_folder(
+                                target_fileitem, part
+                            )
                             if not dir_file:
                                 logger.error(
                                     f"【目录上传】创建目录 {target_fileitem.path}{part} 失败！"
@@ -123,10 +130,20 @@ def handle_file(event_path: str, mon_path: str):
                             target_fileitem = dir_file
 
                 # 上传流程
-                if storage_chain.upload_file(target_fileitem, file_path, file_path.name):
+                uploaded_file_item = storage_chain.upload_file(
+                    target_fileitem, file_path, file_path.name
+                )
+                if uploaded_file_item:
                     logger.info(
                         f"【目录上传】{file_path} 上传到网盘 {target_file_path} 成功 "
                     )
+                    if dest_strm:
+                        MonitorStrmHelper.generate_strm_after_upload(
+                            uploaded_file_item=uploaded_file_item,
+                            dest_strm=dest_strm,
+                            mon_path=mon_path,
+                            local_file_path=file_path,
+                        )
                 else:
                     logger.error(f"【目录上传】{file_path} 上传网盘失败")
                     return

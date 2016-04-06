@@ -4,6 +4,7 @@ from .increment import IncrementSyncStrmHelper
 from .transfer import TransferStrmHelper
 from .open import OpenStrmHelper
 from .api import ApiSyncStrmHelper
+from .monitor import MonitorStrmHelper
 
 
 __all__ = [
@@ -13,4 +14,5 @@ __all__ = [
     "TransferStrmHelper",
     "OpenStrmHelper",
     "ApiSyncStrmHelper",
+    "MonitorStrmHelper",
 ]

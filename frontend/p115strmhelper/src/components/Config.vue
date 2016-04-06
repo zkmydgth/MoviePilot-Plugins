@@ -903,8 +903,8 @@
 
                   <v-row>
                     <v-col cols="12" md="6">
-                      <v-switch v-model="config.sync_del_remove_versions" label="开启多版本删除" color="info"
-                        density="compact" chips closable-chips hint="请查看下方警告提示了解详细说明" persistent-hint></v-switch>
+                      <v-switch v-model="config.sync_del_remove_versions" label="开启多版本删除" color="info" density="compact"
+                        chips closable-chips hint="请查看下方警告提示了解详细说明" persistent-hint></v-switch>
                     </v-col>
                     <v-col cols="12" md="6">
                       <v-select v-model="config.sync_del_mediaservers" label="媒体服务器" :items="embyMediaservers" multiple
@@ -963,7 +963,8 @@
                       <div class="mb-1">• 不正确配置会导致查询不到转移记录！</div>
                       <div class="mb-1">• 需要使用神医助手PRO且版本在v3.0.0.3及以上或神医助手社区版且版本在v2.0.0.27及以上！</div>
                       <div class="mb-1">• 同步删除多版本功能需要使用助手Pro v3.0.0.22才支持！</div>
-                      <div>• <strong>开启多版本删除：</strong>开启后会将电影和电视剧季删除通过神医返回的路径改为电影单部/电视剧单集删除，从而防止误删其它版本，如果无多版本电影和电视剧季删除的需求，推荐关闭此按钮，提升删除效率
+                      <div>•
+                        <strong>开启多版本删除：</strong>开启后会将电影和电视剧季删除通过神医返回的路径改为电影单部/电视剧单集删除，从而防止误删其它版本，如果无多版本电影和电视剧季删除的需求，推荐关闭此按钮，提升删除效率
                       </div>
                     </div>
                   </v-alert>
@@ -1203,15 +1204,28 @@
                           </template>
                         </v-text-field>
                       </v-col>
+                      <!-- STRM 输出目录 -->
+                      <v-col cols="12" md="6">
+                        <v-text-field v-model="pair.dest_strm" label="STRM 输出目录 (可选)" density="compact"
+                          variant="outlined" append-icon="mdi-file-document-outline"
+                          hide-details="auto"
+                          @click:append="openDirSelector(index, 'local', 'directoryUpload', 'dest_strm')">
+                          <template v-slot:prepend-inner>
+                            <v-icon color="purple">mdi-file-star</v-icon>
+                          </template>
+                        </v-text-field>
+                      </v-col>
+                    </v-row>
+                    <v-row dense class="mt-1">
                       <!-- 删除源文件开关 -->
-                      <v-col cols="12" md="4" class="d-flex align-center">
+                      <v-col cols="12" md="10" class="d-flex align-center">
                         <v-switch v-model="pair.delete" label="处理后删除源文件" color="error" density="compact"
                           hide-details></v-switch>
                       </v-col>
                       <!-- 删除按钮 -->
                       <v-col cols="12" md="2" class="d-flex align-center justify-end">
-                        <v-btn icon="mdi-delete-outline" size="small" color="error" variant="text" title="删除此路径配置"
-                          @click="removePath(index, 'directoryUpload')">
+                        <v-btn icon="mdi-delete-outline" size="small" color="error" variant="text"
+                          title="删除此路径配置" @click="removePath(index, 'directoryUpload')">
                         </v-btn>
                       </v-col>
                     </v-row>
@@ -1227,15 +1241,18 @@
                     <div class="text-caption">
                       <div class="mb-1">• 监控指定的"本地监控目录"</div>
                       <div class="mb-1">• 当目录中出现新文件时：</div>
-                      <div class="ml-4 mb-1">- 如果文件扩展名匹配"上传文件扩展名"，则将其上传到对应的"网盘上传目标目录"</div>
+                      <div class="ml-4 mb-1">- 如果文件扩展名匹配"上传文件扩展名"，则将其上传到对应的"网盘上传目标目录"；若配置了"STRM 输出目录"，上传成功后会立即在该目录生成对应
+                        .strm 文件
+                      </div>
                       <div class="ml-4 mb-1">- 如果文件扩展名匹配"复制文件扩展名"，则将其复制到对应的"本地复制目标目录"</div>
                       <div class="mb-1">• 处理完成后，如果"删除源文件"开关打开，则会删除原始文件</div>
-                      <div>• 扩展名不匹配的文件将被忽略</div>
+                      <div class="mb-1">• 扩展名不匹配的文件将被忽略</div>
+                      <div class="mb-1">• "STRM 输出目录"：上传成功后立即在此目录生成对应 .strm 文件，目录结构同监控目录相对路径</div>
                     </div>
                     <strong>注意:</strong><br>
                     - 请确保MoviePilot对本地目录有读写权限，对网盘目录有写入权限。<br>
-                    - "本地复制目标目录"是可选的，如果不填，则仅执行上传操作（如果匹配）。<br>
-                    - 监控模式："兼容模式"适用于Docker或网络共享目录（如SMB），性能较低；"性能模式"仅适用于物理路径，性能较高。
+                    - "本地复制目标目录"和"STRM 输出目录"是可选的，如果不填，则仅执行上传操作（如果匹配）。<br>
+                    - 监控模式："性能模式"使用系统原生文件系统事件，适用于物理路径，性能高且更稳定；"兼容模式"使用轮询方式，适用于网络共享目录（如SMB/NFS），性能较低但兼容性好。
                   </v-alert>
                 </v-card-text>
               </v-window-item>
@@ -2780,7 +2797,7 @@ const offlineDownloadPaths = ref([{ path: '' }]);
 const transferExcludePaths = ref([{ path: '' }]);
 const incrementSyncExcludePaths = ref([{ local: '', remote: '' }]);
 const monitorLifeExcludePaths = ref([{ path: '' }]);
-const directoryUploadPaths = ref([{ src: '', dest_remote: '', dest_local: '', delete: false }]);
+const directoryUploadPaths = ref([{ src: '', dest_remote: '', dest_local: '', dest_strm: '', delete: false }]);
 const syncDelLibraryPaths = ref([{ mediaserver: '', moviepilot: '', p115: '' }]);
 const fuseStrmTakeoverRules = ref([{ extensions: '', names: '', paths: '', _use_extensions: false, _use_names: false, _use_paths: false }]);
 const fullSyncConfirmDialog = ref(false);
@@ -3278,8 +3295,8 @@ const loadConfig = async () => {
     if (data) {
       Object.assign(config, data);
       directoryUploadPaths.value = (Array.isArray(config.directory_upload_path) && config.directory_upload_path.length > 0)
-        ? JSON.parse(JSON.stringify(config.directory_upload_path))
-        : [{ src: '', dest_remote: '', dest_local: '', delete: false }];
+        ? config.directory_upload_path.map(p => ({ src: p.src ?? '', dest_remote: p.dest_remote ?? '', dest_local: p.dest_local ?? '', dest_strm: p.dest_strm ?? '', delete: !!p.delete }))
+        : [{ src: '', dest_remote: '', dest_local: '', dest_strm: '', delete: false }];
       let parsedChannels = [];
       if (config.tg_search_channels) {
         if (Array.isArray(config.tg_search_channels)) {
@@ -3376,7 +3393,7 @@ const saveConfig = async () => {
     config.pan_transfer_paths = generatePathsConfig(panTransferPaths.value, 'panTransfer');
     config.share_recieve_paths = shareReceivePaths.value.filter(p => p.path?.trim()).map(p => p.path);
     config.offline_download_paths = offlineDownloadPaths.value.filter(p => p.path?.trim()).map(p => p.path);
-    config.directory_upload_path = directoryUploadPaths.value.filter(p => p.src?.trim() || p.dest_remote?.trim() || p.dest_local?.trim());
+    config.directory_upload_path = directoryUploadPaths.value.filter(p => p.src?.trim() || p.dest_remote?.trim() || p.dest_local?.trim() || p.dest_strm?.trim());
     const validChannels = tgChannels.value.filter(
       c => c.name && c.name.trim() !== '' && c.id && c.id.trim() !== ''
     );
@@ -3530,7 +3547,7 @@ const addPath = (type) => {
     case 'apiStrm': apiStrmPaths.value.push({ local: '', remote: '' }); break;
     case 'apiStrm-mp': apiStrmMPPaths.value.push({ local: '', remote: '' }); break;
     case 'syncDelLibrary': syncDelLibraryPaths.value.push({ mediaserver: '', moviepilot: '', p115: '' }); break;
-    case 'directoryUpload': directoryUploadPaths.value.push({ src: '', dest_remote: '', dest_local: '', delete: false }); break;
+    case 'directoryUpload': directoryUploadPaths.value.push({ src: '', dest_remote: '', dest_local: '', dest_strm: '', delete: false }); break;
     case 'fuseStrmTakeover': fuseStrmTakeoverRules.value.push({ extensions: '', names: '', paths: '', _use_extensions: false, _use_names: false, _use_paths: false }); break;
   }
 };
@@ -3578,7 +3595,7 @@ const removePath = (index, type) => {
       break;
     case 'directoryUpload':
       directoryUploadPaths.value.splice(index, 1);
-      if (directoryUploadPaths.value.length === 0) directoryUploadPaths.value = [{ src: '', dest_remote: '', dest_local: '', delete: false }];
+      if (directoryUploadPaths.value.length === 0) directoryUploadPaths.value = [{ src: '', dest_remote: '', dest_local: '', dest_strm: '', delete: false }];
       break;
     case 'fuseStrmTakeover':
       fuseStrmTakeoverRules.value.splice(index, 1);
