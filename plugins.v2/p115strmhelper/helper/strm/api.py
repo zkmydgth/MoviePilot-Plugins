@@ -282,14 +282,21 @@ class ApiSyncStrmHelper:
 
         for path in payload.data:
             try:
-                parent_id = get_pid_by_path(self.client, path, True, False, False)
+                parent_id = get_pid_by_path(self.client, path.pan_media_path, True, False, False)
                 logger.info(
-                    f"【API_STRM生成】网盘媒体目录 ID 获取成功: {path} {parent_id}"
+                    f"【API_STRM生成】网盘媒体目录 ID 获取成功: {path.pan_media_path} {parent_id}"
                 )
             except Exception as e:
                 sentry_manager.sentry_hub.capture_exception(e)
-                logger.error(f"【API_STRM生成】网盘媒体目录 ID 获取失败: {path} {e}")
+                logger.error(f"【API_STRM生成】网盘媒体目录 ID 获取失败: {path.pan_media_path} {e}")
                 continue
+
+            path_payload = {}
+            if path.local_path:
+                path_payload = {
+                    "pan_media_path": path.pan_media_path,
+                    "local_path": path.local_path,
+                }
 
             for item in iter_files_with_path_skim(
                 self.client,
@@ -307,6 +314,7 @@ class ApiSyncStrmHelper:
                             pan_path=item["path"],
                             media_server_refresh=payload.media_server_refresh,
                             scrape_metadata=payload.scrape_metadata,
+                            **path_payload,
                         )
                     )
                 except ValueError:

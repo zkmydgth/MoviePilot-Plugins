@@ -50,12 +50,21 @@ class StrmApiPayloadData(BaseModel):
     )
 
 
+class StrmApiPayloadByPathItem(BaseModel):
+    """
+    API 调用生成 STRM 路径组
+    """
+
+    local_path: Optional[str] = Field(default=None, description="本地路径")
+    pan_media_path: str = Field(description="网盘媒体库路径")
+
+
 class StrmApiPayloadByPathData(BaseModel):
     """
     API 调用生成 STRM 参数（by_path）
     """
 
-    data: List[str] = Field(
+    data: List[StrmApiPayloadByPathItem] = Field(
         default_factory=list, description="需要生成STRM的一组文件夹列表"
     )
     media_server_refresh: Optional[bool] = Field(

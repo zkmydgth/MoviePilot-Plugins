@@ -218,10 +218,14 @@ POST {server_url}/api/v1/plugin/P115StrmHelper/api_strm_sync_create_by_path?apik
 
 ### 功能说明
 
-此端点允许您通过提供文件夹路径列表，自动遍历这些文件夹下的所有文件并生成 STRM。系统会自动：
-1. 获取指定文件夹的目录 ID
+此端点允许您通过提供文件夹路径配置列表，自动遍历这些文件夹下的所有文件并生成 STRM。系统会自动：
+1. 获取指定文件夹的目录 ID（通过 `pan_media_path`）
 2. 递归遍历文件夹下的所有文件
-3. 为每个符合条件的媒体文件生成 STRM
+3. 为每个符合条件的媒体文件生成 STRM，使用对应的 `local_path` 作为本地生成路径
+
+**路径映射机制**：
+- 如果提供了 `local_path`，系统会直接使用该路径
+- 如果未提供 `local_path`，系统会根据 `api_strm_config` 配置自动匹配（通过 `pan_media_path` 匹配）
 
 ### 请求参数
 
@@ -230,8 +234,14 @@ POST {server_url}/api/v1/plugin/P115StrmHelper/api_strm_sync_create_by_path?apik
 ```json
 {
   "data": [
-    "/我的资源/电影",
-    "/我的资源/剧集/2024"
+    {
+      "pan_media_path": "/我的资源/电影",
+      "local_path": "/media/movies"
+    },
+    {
+      "pan_media_path": "/我的资源/剧集/2024",
+      "local_path": "/media/tvshows/2024"
+    }
   ],
   "scrape_metadata": true,
   "media_server_refresh": true
@@ -240,7 +250,9 @@ POST {server_url}/api/v1/plugin/P115StrmHelper/api_strm_sync_create_by_path?apik
 
 #### 字段说明
 
-- `data` (array, 必需): 需要生成 STRM 的文件夹路径列表。系统会递归遍历这些文件夹下的所有文件
+- `data` (array, 必需): 需要生成 STRM 的文件夹路径配置列表，每个元素包含：
+  - `pan_media_path` (string, 必需): 网盘媒体库路径，系统会递归遍历此文件夹下的所有文件
+  - `local_path` (string, 可选): 本地生成 STRM 文件的目录路径。如果不提供，系统会根据 `api_strm_config` 配置自动匹配
 - `scrape_metadata` (boolean, 可选): 是否刮削元数据。如果不提供，使用插件配置中的 `api_strm_scrape_metadata_enabled` 默认值
 - `media_server_refresh` (boolean, 可选): 是否刷新媒体服务器。如果不提供，使用插件配置中的 `api_strm_media_server_refresh_enabled` 默认值
 
@@ -264,8 +276,14 @@ api_endpoint = f"{server_url}/api/v1/plugin/P115StrmHelper/api_strm_sync_create_
 # 请求数据
 payload = {
     "data": [
-        "/我的资源/电影",
-        "/我的资源/剧集/2024"
+        {
+            "pan_media_path": "/我的资源/电影",
+            "local_path": "/media/movies"
+        },
+        {
+            "pan_media_path": "/我的资源/剧集/2024",
+            "local_path": "/media/tvshows/2024"
+        }
     ],
     "scrape_metadata": True,
     "media_server_refresh": True
@@ -304,8 +322,14 @@ curl -X POST \
   -H "Content-Type: application/json" \
   -d '{
     "data": [
-      "/我的资源/电影",
-      "/我的资源/剧集/2024"
+      {
+        "pan_media_path": "/我的资源/电影",
+        "local_path": "/media/movies"
+      },
+      {
+        "pan_media_path": "/我的资源/剧集/2024",
+        "local_path": "/media/tvshows/2024"
+      }
     ],
     "scrape_metadata": true,
     "media_server_refresh": true
@@ -314,11 +338,13 @@ curl -X POST \
 
 ### 注意事项
 
-1. **路径格式**: 文件夹路径必须是 115 网盘中的完整路径，以 `/` 开头
-2. **递归遍历**: 系统会递归遍历指定文件夹下的所有子文件夹和文件
-3. **文件过滤**: 只有符合媒体文件扩展名的文件才会生成 STRM（根据 `user_rmt_mediaext` 配置）
-4. **路径映射**: 系统会根据 `api_strm_config` 配置自动匹配本地路径
-5. **性能考虑**: 如果文件夹包含大量文件，处理时间可能较长，建议分批处理
+1. **路径格式**: `pan_media_path` 必须是 115 网盘中的完整路径，以 `/` 开头
+2. **必需字段**: `pan_media_path` 是必需字段，如果缺失或无效，该路径项会被跳过
+3. **本地路径**: `local_path` 是可选的，如果不提供，系统会根据 `api_strm_config` 配置自动匹配
+4. **递归遍历**: 系统会递归遍历指定文件夹下的所有子文件夹和文件
+5. **文件过滤**: 只有符合媒体文件扩展名的文件才会生成 STRM（根据 `user_rmt_mediaext` 配置）
+6. **路径映射**: 如果未提供 `local_path`，系统会根据 `api_strm_config` 配置自动匹配本地路径（通过 `pan_media_path` 匹配）
+7. **性能考虑**: 如果文件夹包含大量文件，处理时间可能较长，建议分批处理
 
 ---
 
@@ -545,6 +571,10 @@ A:
 ### Q: `/api_strm_sync_create_by_path` 会处理子文件夹吗？
 
 A: 是的，`/api_strm_sync_create_by_path` 会递归遍历指定文件夹下的所有子文件夹和文件，为所有符合条件的媒体文件生成 STRM。
+
+### Q: `/api_strm_sync_create_by_path` 中 `local_path` 是必需的吗？
+
+A: 不是必需的。如果提供了 `local_path`，系统会直接使用该路径；如果未提供，系统会根据 `api_strm_config` 配置自动匹配本地路径。但 `pan_media_path` 是必需的，用于指定要遍历的网盘文件夹路径。
 
 ### Q: 如果目标目录不存在会怎样？
 
