@@ -12,8 +12,6 @@ from app.plugins import _PluginBase
 from app.schemas import (
     FileItem,
     NotificationType,
-    TransferOverwriteCheckEventData,
-    TransferInterceptEventData,
 )
 from app.core.meta import MetaVideo
 from app.schemas.types import EventType, MessageChannel, ChainEventType, MediaType
@@ -24,6 +22,16 @@ try:
     from app.schemas import TransferRenameBuildEventData
 except ImportError:
     TransferRenameBuildEventData = None
+
+try:
+    from app.schemas import TransferOverwriteCheckEventData
+except ImportError:
+    TransferOverwriteCheckEventData = None
+
+try:
+    from app.schemas import TransferInterceptEventData
+except ImportError:
+    TransferInterceptEventData = None
 
 from apscheduler.triggers.cron import CronTrigger
 from fastapi import Request
@@ -1912,7 +1920,9 @@ class P115StrmHelper(_PluginBase):
             return
 
         data = event.event_data
-        if not isinstance(data, TransferInterceptEventData):
+        if TransferInterceptEventData is None or not isinstance(
+            data, TransferInterceptEventData
+        ):
             return
 
         if data.cancel:
@@ -1988,7 +1998,9 @@ class P115StrmHelper(_PluginBase):
             return
 
         data = event.event_data
-        if not isinstance(data, TransferOverwriteCheckEventData):
+        if TransferOverwriteCheckEventData is None or not isinstance(
+            data, TransferOverwriteCheckEventData
+        ):
             return
 
         if data.target_path.suffix.lower() != ".strm":
