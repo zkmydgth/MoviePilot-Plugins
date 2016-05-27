@@ -12,10 +12,12 @@ from app.core.config import settings
 from app.core.event import eventmanager, Event
 from app.db.models.transferhistory import TransferHistory
 from app.helper.downloader import DownloaderHelper
+from app.helper.mediaserver import MediaServerHelper
 from app.log import logger
 from app.plugins import _PluginBase
 from app.schemas.types import NotificationType, EventType, MediaType, MediaImageType
 from app.utils.system import SystemUtils
+from app.utils.http import RequestUtils
 
 
 class SaMediaSyncDel(_PluginBase):
@@ -26,7 +28,7 @@ class SaMediaSyncDel(_PluginBase):
     # 插件图标
     plugin_icon = "mediasyncdel.png"
     # 插件版本
-    plugin_version = "0.0.1"
+    plugin_version = "1.0.0"
     # 插件作者
     plugin_author = "DDSRem,thsrite"
     # 作者主页
@@ -51,7 +53,13 @@ class SaMediaSyncDel(_PluginBase):
     _transferhis = None
     _downloadhis = None
     _storagechain = None
+    _mediaserver_helper = None
     _default_downloader = None
+    _mediaserver = None
+    _mediaservers = None
+    _EMBY_HOST = None
+    _EMBY_APIKEY = None
+    _EMBY_USER = None
 
     def init_plugin(self, config: dict = None):
         self._transferchain = TransferChain()
@@ -59,6 +67,8 @@ class SaMediaSyncDel(_PluginBase):
         self._transferhis = self._transferchain.transferhis
         self._downloadhis = self._transferchain.downloadhis
         self._storagechain = StorageChain()
+        self._mediaserver_helper = MediaServerHelper()
+        self._mediaserver = None
 
         # 读取配置
         if config:
@@ -68,6 +78,11 @@ class SaMediaSyncDel(_PluginBase):
             self._del_history = config.get("del_history")
             self._local_library_path = config.get("local_library_path")
             self._p115_library_path = config.get("p115_library_path")
+            self._mediaservers = config.get("mediaservers") or []
+
+            # 获取媒体服务器
+            if self._mediaservers:
+                self._mediaserver = [self._mediaservers[0]]
 
             # 获取默认下载器
             downloader_services = self._downloader_helper.get_services()
@@ -78,16 +93,33 @@ class SaMediaSyncDel(_PluginBase):
             # 清理插件历史
             if self._del_history:
                 self.del_data(key="history")
-                self.update_config(
-                    {
-                        "enabled": self._enabled,
-                        "notify": self._notify,
-                        "del_source": self._del_source,
-                        "del_history": False,
-                        "local_library_path": self._local_library_path,
-                        "p115_library_path": self._p115_library_path,
-                    }
-                )
+
+            self.update_config(
+                {
+                    "enabled": self._enabled,
+                    "notify": self._notify,
+                    "del_source": self._del_source,
+                    "del_history": False,
+                    "local_library_path": self._local_library_path,
+                    "p115_library_path": self._p115_library_path,
+                    "mediaservers": self._mediaserver,
+                }
+            )
+
+        # 获取媒体服务信息
+        if self._mediaserver:
+            emby_servers = self._mediaserver_helper.get_services(
+                name_filters=self._mediaserver, type_filter="emby"
+            )
+
+            for _, emby_server in emby_servers.items():
+                self._EMBY_USER = emby_server.instance.get_user()
+                self._EMBY_APIKEY = emby_server.config.config.get("apikey")
+                self._EMBY_HOST = emby_server.config.config.get("host")
+                if not self._EMBY_HOST.endswith("/"):
+                    self._EMBY_HOST += "/"
+                if not self._EMBY_HOST.startswith("http"):
+                    self._EMBY_HOST = "http://" + self._EMBY_HOST
 
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:
@@ -126,159 +158,339 @@ class SaMediaSyncDel(_PluginBase):
         """
         拼装插件配置页面，需要返回两块数据：1、页面配置；2、数据结构
         """
-        return [
+        local_media_tab = [
             {
-                "component": "VForm",
+                "component": "VRow",
                 "content": [
                     {
-                        "component": "VRow",
+                        "component": "VCol",
+                        "props": {
+                            "cols": 12,
+                        },
                         "content": [
                             {
-                                "component": "VCol",
-                                "props": {"cols": 12, "md": 3},
-                                "content": [
-                                    {
-                                        "component": "VSwitch",
-                                        "props": {
-                                            "model": "enabled",
-                                            "label": "启用插件",
-                                        },
-                                    }
-                                ],
-                            },
-                            {
-                                "component": "VCol",
-                                "props": {"cols": 12, "md": 3},
-                                "content": [
-                                    {
-                                        "component": "VSwitch",
-                                        "props": {
-                                            "model": "notify",
-                                            "label": "发送通知",
-                                        },
-                                    }
-                                ],
-                            },
-                            {
-                                "component": "VCol",
-                                "props": {"cols": 12, "md": 3},
-                                "content": [
-                                    {
-                                        "component": "VSwitch",
-                                        "props": {
-                                            "model": "del_source",
-                                            "label": "删除源文件",
-                                        },
-                                    }
-                                ],
-                            },
-                            {
-                                "component": "VCol",
-                                "props": {"cols": 12, "md": 3},
-                                "content": [
-                                    {
-                                        "component": "VSwitch",
-                                        "props": {
-                                            "model": "del_history",
-                                            "label": "删除历史",
-                                        },
-                                    }
-                                ],
-                            },
-                        ],
-                    },
-                    {
-                        "component": "VRow",
-                        "content": [
-                            {
-                                "component": "VCol",
+                                "component": "VTextarea",
                                 "props": {
-                                    "cols": 12,
+                                    "model": "local_library_path",
+                                    "rows": "2",
+                                    "label": "本地媒体库路径映射",
+                                    "placeholder": "媒体服务器路径#MoviePilot路径（一行一个）",
                                 },
-                                "content": [
-                                    {
-                                        "component": "VTextarea",
-                                        "props": {
-                                            "model": "local_library_path",
-                                            "rows": "2",
-                                            "label": "本地媒体库路径映射",
-                                            "placeholder": "媒体服务器路径#MoviePilot路径（一行一个）",
-                                        },
-                                    }
-                                ],
                             }
                         ],
-                    },
+                    }
+                ],
+            },
+            {
+                "component": "VRow",
+                "content": [
                     {
-                        "component": "VRow",
+                        "component": "VCol",
+                        "props": {
+                            "cols": 12,
+                        },
                         "content": [
                             {
-                                "component": "VCol",
+                                "component": "VAlert",
                                 "props": {
-                                    "cols": 12,
+                                    "type": "info",
+                                    "variant": "tonal",
+                                    "text": "关于路径映射（转移后文件路径）：",
                                 },
-                                "content": [
-                                    {
-                                        "component": "VTextarea",
-                                        "props": {
-                                            "model": "p115_library_path",
-                                            "rows": "2",
-                                            "label": "115网盘媒体库路径映射",
-                                            "placeholder": "媒体服务器STRM路径#MoviePilot路径#115网盘路径（一行一个）",
-                                        },
-                                    }
-                                ],
+                            },
+                            {
+                                "component": "VAlert",
+                                "props": {
+                                    "type": "info",
+                                    "variant": "tonal",
+                                    "text": "emby目录：/data/A.mp4",
+                                },
+                            },
+                            {
+                                "component": "VAlert",
+                                "props": {
+                                    "type": "info",
+                                    "variant": "tonal",
+                                    "text": "moviepilot目录：/mnt/link/A.mp4",
+                                },
+                            },
+                            {
+                                "component": "VAlert",
+                                "props": {
+                                    "type": "info",
+                                    "variant": "tonal",
+                                    "text": "路径映射填：/data#/mnt/link。"
+                                    "不正确配置会导致查询不到转移记录！",
+                                },
+                            },
+                        ],
+                    }
+                ],
+            },
+        ]
+
+        p115_media_tab = [
+            {
+                "component": "VRow",
+                "content": [
+                    {
+                        "component": "VCol",
+                        "props": {
+                            "cols": 12,
+                        },
+                        "content": [
+                            {
+                                "component": "VTextarea",
+                                "props": {
+                                    "model": "p115_library_path",
+                                    "rows": "2",
+                                    "label": "115网盘媒体库路径映射",
+                                    "placeholder": "媒体服务器STRM路径#MoviePilot路径#115网盘路径（一行一个）",
+                                },
                             }
                         ],
-                    },
+                    }
+                ],
+            },
+            {
+                "component": "VRow",
+                "content": [
                     {
-                        "component": "VRow",
+                        "component": "VCol",
+                        "props": {
+                            "cols": 12,
+                        },
                         "content": [
                             {
-                                "component": "VCol",
+                                "component": "VAlert",
                                 "props": {
-                                    "cols": 12,
+                                    "type": "info",
+                                    "variant": "tonal",
+                                    "text": "关于路径映射（转移后文件路径）：",
                                 },
+                            },
+                            {
+                                "component": "VAlert",
+                                "props": {
+                                    "type": "info",
+                                    "variant": "tonal",
+                                    "text": "emby目录：/media/strm",
+                                },
+                            },
+                            {
+                                "component": "VAlert",
+                                "props": {
+                                    "type": "info",
+                                    "variant": "tonal",
+                                    "text": "moviepilot目录：/mnt/strm",
+                                },
+                            },
+                            {
+                                "component": "VAlert",
+                                "props": {
+                                    "type": "info",
+                                    "variant": "tonal",
+                                    "text": "115网盘媒体库目录：/影视",
+                                },
+                            },
+                            {
+                                "component": "VAlert",
+                                "props": {
+                                    "type": "info",
+                                    "variant": "tonal",
+                                    "text": "路径映射填：/media/strm#/mnt/strm#/影视"
+                                    "不正确配置会导致查询不到转移记录！",
+                                },
+                            },
+                        ],
+                    }
+                ],
+            },
+        ]
+
+        return [
+            {
+                "component": "VCard",
+                "props": {"variant": "outlined", "class": "mb-3"},
+                "content": [
+                    {
+                        "component": "VCardTitle",
+                        "props": {"class": "d-flex align-center"},
+                        "content": [
+                            {
+                                "component": "VIcon",
+                                "props": {
+                                    "icon": "mdi-cog",
+                                    "color": "primary",
+                                    "class": "mr-2",
+                                },
+                            },
+                            {"component": "span", "text": "基础设置"},
+                        ],
+                    },
+                    {"component": "VDivider"},
+                    {
+                        "component": "VCardText",
+                        "content": [
+                            {
+                                "component": "VRow",
                                 "content": [
                                     {
-                                        "component": "VAlert",
-                                        "props": {
-                                            "type": "info",
-                                            "variant": "tonal",
-                                            "text": "关于路径映射（转移后文件路径）：",
-                                        },
+                                        "component": "VCol",
+                                        "props": {"cols": 12, "md": 2},
+                                        "content": [
+                                            {
+                                                "component": "VSwitch",
+                                                "props": {
+                                                    "model": "enabled",
+                                                    "label": "启用插件",
+                                                },
+                                            }
+                                        ],
                                     },
                                     {
-                                        "component": "VAlert",
-                                        "props": {
-                                            "type": "info",
-                                            "variant": "tonal",
-                                            "text": "emby目录：/data/A.mp4",
-                                        },
+                                        "component": "VCol",
+                                        "props": {"cols": 12, "md": 2},
+                                        "content": [
+                                            {
+                                                "component": "VSwitch",
+                                                "props": {
+                                                    "model": "notify",
+                                                    "label": "发送通知",
+                                                },
+                                            }
+                                        ],
                                     },
                                     {
-                                        "component": "VAlert",
-                                        "props": {
-                                            "type": "info",
-                                            "variant": "tonal",
-                                            "text": "moviepilot目录：/mnt/link/A.mp4",
-                                        },
+                                        "component": "VCol",
+                                        "props": {"cols": 12, "md": 2},
+                                        "content": [
+                                            {
+                                                "component": "VSwitch",
+                                                "props": {
+                                                    "model": "del_source",
+                                                    "label": "删除源文件",
+                                                },
+                                            }
+                                        ],
                                     },
                                     {
-                                        "component": "VAlert",
-                                        "props": {
-                                            "type": "info",
-                                            "variant": "tonal",
-                                            "text": "路径映射填/data#/mnt/link。"
-                                            "不正确配置会导致查询不到转移记录！",
-                                        },
+                                        "component": "VCol",
+                                        "props": {"cols": 12, "md": 2},
+                                        "content": [
+                                            {
+                                                "component": "VSwitch",
+                                                "props": {
+                                                    "model": "del_history",
+                                                    "label": "删除历史",
+                                                },
+                                            }
+                                        ],
+                                    },
+                                    {
+                                        "component": "VCol",
+                                        "props": {"cols": 12, "md": 4},
+                                        "content": [
+                                            {
+                                                "component": "VSelect",
+                                                "props": {
+                                                    "multiple": True,
+                                                    "chips": True,
+                                                    "clearable": True,
+                                                    "model": "mediaservers",
+                                                    "label": "媒体服务器",
+                                                    "items": [
+                                                        {
+                                                            "title": config.name,
+                                                            "value": config.name,
+                                                        }
+                                                        for config in self._mediaserver_helper.get_configs().values()
+                                                        if config.type == "emby"
+                                                    ],
+                                                },
+                                            }
+                                        ],
                                     },
                                 ],
-                            }
+                            },
+                            {
+                                "component": "VRow",
+                                "content": [
+                                    {
+                                        "component": "VCol",
+                                        "props": {
+                                            "cols": 12,
+                                        },
+                                        "content": [
+                                            {
+                                                "component": "VAlert",
+                                                "props": {
+                                                    "type": "info",
+                                                    "variant": "tonal",
+                                                    "text": "只能配置一个Emby媒体服务器，配置多个默认查寻第一个媒体服务器信息",
+                                                },
+                                            },
+                                        ],
+                                    }
+                                ],
+                            },
                         ],
                     },
                 ],
-            }
+            },
+            {
+                "component": "VCard",
+                "props": {"variant": "outlined"},
+                "content": [
+                    {
+                        "component": "VTabs",
+                        "props": {"model": "tab", "grow": True, "color": "primary"},
+                        "content": [
+                            {
+                                "component": "VTab",
+                                "props": {"value": "tab-local"},
+                                "content": [
+                                    {"component": "span", "text": "本地媒体配置"},
+                                ],
+                            },
+                            {
+                                "component": "VTab",
+                                "props": {"value": "tab-p115"},
+                                "content": [
+                                    {"component": "span", "text": "115网盘媒体配置"},
+                                ],
+                            },
+                        ],
+                    },
+                    {"component": "VDivider"},
+                    {
+                        "component": "VWindow",
+                        "props": {"model": "tab"},
+                        "content": [
+                            {
+                                "component": "VWindowItem",
+                                "props": {"value": "tab-local"},
+                                "content": [
+                                    {
+                                        "component": "VCardText",
+                                        "content": local_media_tab,
+                                    }
+                                ],
+                            },
+                            {
+                                "component": "VWindowItem",
+                                "props": {"value": "tab-p115"},
+                                "content": [
+                                    {
+                                        "component": "VCardText",
+                                        "content": p115_media_tab,
+                                    }
+                                ],
+                            },
+                        ],
+                    },
+                ],
+            },
         ], {
             "enabled": False,
             "notify": True,
@@ -286,6 +498,8 @@ class SaMediaSyncDel(_PluginBase):
             "del_history": False,
             "local_library_path": "",
             "p115_library_path": "",
+            "mediaservers": [],
+            "tab": "local_media_tab",
         }
 
     def get_page(self) -> List[dict]:
@@ -480,6 +694,9 @@ class SaMediaSyncDel(_PluginBase):
         if not self._enabled:
             return
 
+        media_container = None
+        media_storage = None
+
         event_data = event.event_data
         event_type = event_data.event
 
@@ -487,7 +704,7 @@ class SaMediaSyncDel(_PluginBase):
         if not event_type or str(event_type) != "deep.delete":
             return
 
-        logger.info(event.event_data)
+        logger.debug(event.event_data)
 
         # 媒体类型
         media_type = event_data.item_type
@@ -495,8 +712,6 @@ class SaMediaSyncDel(_PluginBase):
         media_name = event_data.item_name
         # 媒体路径
         media_path = event_data.item_path
-        # 媒体后缀名
-        media_container = event_data.json_object["Item"]["Container"]
         # tmdb_id
         tmdb_id = event_data.tmdb_id
         # 季数
@@ -507,7 +722,7 @@ class SaMediaSyncDel(_PluginBase):
         # 执行删除逻辑
         if not media_path:
             return
-        media_storage = None
+
         if self._local_library_path or self._p115_library_path:
             if self._local_library_path:
                 if self.__get_local_media_path(media_path):
@@ -522,9 +737,21 @@ class SaMediaSyncDel(_PluginBase):
             logger.error(f"{media_name} 同步删除失败，未识别到储存类型")
             return
 
-        if media_storage == "p115" and (not media_container):
-            logger.error(f"{media_name} 同步删除失败，未识别媒体后缀名")
-            return
+        if media_type == "TV" and not episode_num:
+            logger.debug(f"{media_name} 跳过识别媒体后缀名")
+        else:
+            media_container = event_data.json_object.get("Item", {}).get(
+                "Container", None
+            )
+            if media_storage == "p115" and (not media_container):
+                logger.error(f"{media_name} 同步删除失败，未识别媒体后缀名")
+                return
+
+        # 单集或单季缺失 TMDB ID 获取
+        if (episode_num or season_num) and (not tmdb_id or not str(tmdb_id).isdigit()):
+            tmdb_id = self.__get_series_tmdb_id(
+                event_data.json_object["Item"]["SeriesId"]
+            )
 
         if not tmdb_id or not str(tmdb_id).isdigit():
             logger.error(
@@ -561,7 +788,7 @@ class SaMediaSyncDel(_PluginBase):
             return
 
         if media_storage == "local":
-            # 处理路径映射 (处理同一媒体多分辨率的情况)
+            # 处理路径映射
             if self._local_library_path:
                 _, sub_paths = self.__get_local_media_path(media_path)
                 media_path = media_path.replace(sub_paths[0], sub_paths[1]).replace(
@@ -649,7 +876,6 @@ class SaMediaSyncDel(_PluginBase):
                                 logger.error("删除种子失败：%s" % str(e))
 
         else:
-            # 115网盘
             mp_media_path: Path
             if self._p115_library_path:
                 _, sub_paths = self.__get_p115_media_path(media_path)
@@ -659,19 +885,25 @@ class SaMediaSyncDel(_PluginBase):
                 media_path = media_path.replace(sub_paths[0], sub_paths[2]).replace(
                     "\\", "/"
                 )
-            media_path = str(
-                Path(media_path).parent
-                / str(Path(media_path).stem + "." + media_container)
-            )
-            # 这里做一次大小写转换，避免资源后缀名为全大写情况
-            if media_container.isupper():
-                media_container = media_container.lower()
-            elif media_container.islower():
-                media_container = media_container.upper()
-            media_path_2 = str(
-                Path(media_path).parent
-                / str(Path(media_path).stem + "." + media_container)
-            )
+            if media_type == "TV" and not episode_num:
+                # 对于季删除和电视节目全部删除无需替换媒体后缀
+                media_path_2 = media_path
+            else:
+                # 自动替换媒体文件后缀名称为真实名称
+                media_path = str(
+                    Path(media_path).parent
+                    / str(Path(media_path).stem + "." + media_container)
+                )
+                # 这里做一次大小写转换，避免资源后缀名为全大写情况
+                if media_container.isupper():
+                    media_container = media_container.lower()
+                elif media_container.islower():
+                    media_container = media_container.upper()
+                media_path_2 = str(
+                    Path(media_path).parent
+                    / str(Path(media_path).stem + "." + media_container)
+                )
+
             # 兼容重新整理的场景
             if Path(mp_media_path).exists():
                 logger.warn(f"转移路径 {media_path} 未被删除或重新生成，跳过处理")
@@ -920,23 +1152,16 @@ class SaMediaSyncDel(_PluginBase):
             transfer_history: List[TransferHistory] = self._transferhis.get_by(
                 tmdbid=tmdb_id, mtype=mtype.value
             )
-        # 删除季 S02
+        # 删除季
         elif mtype == MediaType.TV and season_num and not episode_num:
             if not season_num or not str(season_num).isdigit():
                 logger.error(f"{media_name} 季同步删除失败，未获取到具体季")
                 return
             msg = f"剧集 {media_name} S{season_num} {tmdb_id}"
-            if tmdb_id and str(tmdb_id).isdigit():
-                # 根据tmdb_id查询转移记录
-                transfer_history: List[TransferHistory] = self._transferhis.get_by(
-                    tmdbid=tmdb_id, mtype=mtype.value, season=f"S{season_num}"
-                )
-            else:
-                # 兼容emby webhook不发送tmdb场景
-                transfer_history: List[TransferHistory] = self._transferhis.get_by(
-                    mtype=mtype.value, season=f"S{season_num}", dest=media_path
-                )
-        # 删除剧集S02E02
+            transfer_history: List[TransferHistory] = self._transferhis.get_by(
+                tmdbid=tmdb_id, mtype=mtype.value, season=f"S{season_num}"
+            )
+        # 删除集
         elif mtype == MediaType.TV and season_num and episode_num:
             if (
                 not season_num
@@ -957,6 +1182,24 @@ class SaMediaSyncDel(_PluginBase):
         else:
             return "", []
         return msg, transfer_history
+
+    def __get_series_tmdb_id(self, series_id):
+        """
+        获取剧集 TMDB ID
+        """
+        if not self._EMBY_HOST or not self._EMBY_APIKEY:
+            return []
+        req_url = f"{self._EMBY_HOST}emby/Users/{self._EMBY_USER}/Items/{series_id}?api_key={self._EMBY_APIKEY}"
+        try:
+            with RequestUtils().get_res(req_url) as res:
+                if res:
+                    return res.json().get("ProviderIds", {}).get("Tmdb")
+                else:
+                    logger.info("获取剧集 TMDB ID 失败，无法连接Emby！")
+                    return None
+        except Exception as e:
+            logger.error("连接Items出错：" + str(e))
+            return None
 
     def handle_torrent(self, type: str, src: str, torrent_hash: str):
         """
@@ -1096,7 +1339,7 @@ class SaMediaSyncDel(_PluginBase):
         handle_torrent_hashs: list,
     ):
         """
-        处理合集
+        处理做种合集
         """
         try:
             src_download_files = self._downloadhis.get_files_by_fullpath(fullpath=src)
