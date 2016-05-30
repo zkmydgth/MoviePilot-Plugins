@@ -95,7 +95,7 @@ def handle_file(event_path: str, mon_path: str):
                     dest_local = item.get("dest_local", "")
                     break
 
-            if file_path.suffix in [
+            if file_path.suffix.lower() in [
                 f".{ext.strip()}"
                 for ext in configer.get_config("directory_upload_uploadext")
                 .replace("，", ",")
@@ -150,7 +150,7 @@ def handle_file(event_path: str, mon_path: str):
                     logger.error(f"【目录上传】{file_path} 上传网盘失败")
                     return
 
-            elif file_path.suffix in [
+            elif file_path.suffix.lower() in [
                 f".{ext.strip()}"
                 for ext in configer.get_config("directory_upload_copyext")
                 .replace("，", ",")

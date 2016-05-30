@@ -405,7 +405,7 @@ class U115OpenHelper:
                             type="file" if info_resp["file_category"] == "1" else "dir",
                             name=info_resp["file_name"],
                             basename=Path(info_resp["file_name"]).stem,
-                            extension=Path(info_resp["file_name"]).suffix[1:]
+                            extension=Path(info_resp["file_name"]).suffix[1:].lower()
                             if info_resp["file_category"] == "1"
                             else None,
                             pickcode=info_resp["pick_code"],

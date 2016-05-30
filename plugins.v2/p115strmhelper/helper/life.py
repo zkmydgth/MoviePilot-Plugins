@@ -236,7 +236,7 @@ class MonitorLife:
                     pantransfercacher.delete_pan_transfer_list.append(
                         str(item["parent_id"])
                     )
-                if file_path.suffix in rmt_mediaext:
+                if file_path.suffix.lower() in rmt_mediaext:
                     # 缓存文件ID
                     if (
                         str(item["id"])
@@ -259,7 +259,7 @@ class MonitorLife:
                             type="file",
                             name=file_path.name,
                             basename=file_path.stem,
-                            extension=file_path.suffix[1:],
+                            extension=file_path.suffix[1:].lower(),
                             size=item["size"],
                             pickcode=item["pickcode"],
                             modify_time=item["ctime"],
@@ -267,8 +267,8 @@ class MonitorLife:
                     )
                     logger.info(f"【网盘整理】{file_path} 加入整理列队")
                 if (
-                    file_path.suffix in settings.RMT_AUDIOEXT
-                    or file_path.suffix in settings.RMT_SUBEXT
+                    file_path.suffix.lower() in settings.RMT_AUDIOEXT
+                    or file_path.suffix.lower() in settings.RMT_SUBEXT
                 ):
                     # 如果是MP可处理的音轨或字幕文件，则缓存文件ID
                     if (
@@ -304,7 +304,7 @@ class MonitorLife:
                 ] = cache_file_id_list
         else:
             # 文件情况，直接整理
-            if file_path.suffix in rmt_mediaext:
+            if file_path.suffix.lower() in rmt_mediaext:
                 # 缓存文件ID
                 if (
                     str(event["file_id"])
@@ -322,7 +322,7 @@ class MonitorLife:
                         type="file",
                         name=file_path.name,
                         basename=file_path.stem,
-                        extension=file_path.suffix[1:],
+                        extension=file_path.suffix[1:].lower(),
                         size=event["file_size"],
                         pickcode=event["pick_code"],
                         modify_time=event["update_time"],
@@ -377,7 +377,7 @@ class MonitorLife:
                         if configer.get_config(
                             "monitor_life_auto_download_mediainfo_enabled"
                         ):
-                            if file_path.suffix in self.download_mediaext:
+                            if file_path.suffix.lower() in self.download_mediaext:
                                 pickcode = item["pickcode"]
                                 if not pickcode:
                                     logger.error(
@@ -404,7 +404,7 @@ class MonitorLife:
                                 mediainfo_count += 1
                                 continue
 
-                        if file_path.suffix not in self.rmt_mediaext:
+                        if file_path.suffix.lower() not in self.rmt_mediaext:
                             logger.warn(
                                 "【监控生活事件】跳过网盘路径: %s",
                                 str(file_path).replace(str(target_dir), "", 1),
@@ -486,7 +486,7 @@ class MonitorLife:
                 new_file_path = file_target_dir / file_name
 
                 if configer.get_config("monitor_life_auto_download_mediainfo_enabled"):
-                    if file_path.suffix in self.download_mediaext:
+                    if file_path.suffix.lower() in self.download_mediaext:
                         if not pickcode:
                             logger.error(
                                 f"【监控生活事件】{original_file_name} 不存在 pickcode 值，无法下载该文件"
@@ -520,7 +520,7 @@ class MonitorLife:
                             self._schedule_notification()
                         return
 
-                if file_path.suffix not in self.rmt_mediaext:
+                if file_path.suffix.lower() not in self.rmt_mediaext:
                     logger.warn(
                         "【监控生活事件】跳过网盘路径: %s",
                         str(file_path).replace(str(target_dir), "", 1),
@@ -682,7 +682,7 @@ class MonitorLife:
             return
 
         file_path = Path(target_dir) / Path(file_path).relative_to(pan_media_dir)
-        if file_path.suffix in self.rmt_mediaext:
+        if file_path.suffix.lower() in self.rmt_mediaext:
             file_target_dir = file_path.parent
             file_name = file_path.stem + ".strm"
             file_path = file_target_dir / file_name

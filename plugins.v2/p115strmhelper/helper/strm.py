@@ -116,7 +116,7 @@ class IncrementSyncStrmHelper:
                 continue
             item_path = Path(pan_path) / Path(item).relative_to(relative_path)
             if item_path.name != item_path.stem:
-                if item_path.suffix in self.rmt_mediaext:
+                if item_path.suffix.lower() in self.rmt_mediaext:
                     yield (
                         str(
                             Path(local_path)
@@ -125,7 +125,7 @@ class IncrementSyncStrmHelper:
                         str(item_path),
                     )
                 elif (
-                    item_path.suffix in self.download_mediaext
+                    item_path.suffix.lower() in self.download_mediaext
                     and self.auto_download_mediainfo
                 ):
                     yield (
@@ -353,7 +353,7 @@ class IncrementSyncStrmHelper:
                     return
 
             if self.auto_download_mediainfo:
-                if pan_path.suffix in self.download_mediaext:
+                if pan_path.suffix.lower() in self.download_mediaext:
                     pickcode = self.__get_pickcode(pan_path.as_posix())
                     if not pickcode:
                         logger.error(
@@ -369,7 +369,7 @@ class IncrementSyncStrmHelper:
                     )
                     return
 
-            if pan_path.suffix not in self.rmt_mediaext:
+            if pan_path.suffix.lower() not in self.rmt_mediaext:
                 logger.warn(f"【增量STRM生成】跳过网盘路径: {pan_path}")
                 return
 
@@ -662,7 +662,7 @@ class FullSyncStrmHelper:
                     return _process_item, path_entry
 
             if self.auto_download_mediainfo:
-                if file_path.suffix in self.download_mediaext:
+                if file_path.suffix.lower() in self.download_mediaext:
                     if file_path.exists():
                         if self.overwrite_mode == "never":
                             logger.warn(
@@ -688,7 +688,7 @@ class FullSyncStrmHelper:
                     )
                     return _process_item, path_entry
 
-            if file_path.suffix not in self.rmt_mediaext:
+            if file_path.suffix.lower() not in self.rmt_mediaext:
                 logger.warn(
                     "【全量STRM生成】跳过网盘路径: %s",
                     str(file_path).replace(str(target_dir), "", 1),
@@ -978,7 +978,7 @@ class ShareStrmHelper:
         new_file_path = file_target_dir / file_name
         try:
             if self.auto_download_mediainfo:
-                if file_path.suffix in self.download_mediaext:
+                if file_path.suffix.lower() in self.download_mediaext:
                     self.download_mediainfo_list.append(
                         {
                             "type": "share",
@@ -990,7 +990,7 @@ class ShareStrmHelper:
                     )
                     return
 
-            if file_path.suffix not in self.rmt_mediaext:
+            if file_path.suffix.lower() not in self.rmt_mediaext:
                 logger.warn(
                     "【分享STRM生成】文件后缀不匹配，跳过网盘路径: %s",
                     str(file_path).replace(str(self.local_media_path), "", 1),

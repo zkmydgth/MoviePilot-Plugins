@@ -52,7 +52,7 @@ def media_scrape_metadata(
                     path=file_path.as_posix(),
                     name=file_path.name,
                     basename=file_path.stem,
-                    extension=file_path.suffix[1:],
+                    extension=file_path.suffix[1:].lower(),
                     size=file_path.stat().st_size,
                     modify_time=file_path.stat().st_mtime,
                 )
