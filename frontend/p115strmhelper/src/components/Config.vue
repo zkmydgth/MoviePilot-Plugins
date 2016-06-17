@@ -419,6 +419,7 @@ const config = reactive({
   directory_upload_mode: 'compatibility',
   directory_upload_uploadext: 'mp4,mkv,ts,iso,rmvb,avi,mov,mpeg,mpg,wmv,3gp,asf,m4v,flv,m2ts,tp,f4v',
   directory_upload_copyext: 'srt,ssa,ass',
+  directory_upload_skip_bdmv_stream: true,
   directory_upload_path: [],
   directory_upload_clouddrive2_config: { enabled: false, prefix: '' },
   tg_search_channels: [],

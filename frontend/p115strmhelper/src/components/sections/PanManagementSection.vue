@@ -420,15 +420,20 @@
             </v-col>
           </v-row>
           <v-row>
-            <v-col cols="12" md="6">
+            <v-col cols="12" md="4">
               <v-text-field v-model="config.directory_upload_uploadext" label="上传文件扩展名"
-                hint="指定哪些扩展名的文件会被上传到115网盘，多个用逗号分隔" persistent-hint density="compact" variant="outlined"
+                hint="指定哪些扩展名的文件会被上传到115网盘，多个用逗号分隔；留空或填 * 表示不限制后缀" persistent-hint density="compact" variant="outlined"
                 hide-details="auto"></v-text-field>
             </v-col>
-            <v-col cols="12" md="6">
+            <v-col cols="12" md="4">
               <v-text-field v-model="config.directory_upload_copyext" label="复制文件扩展名"
                 hint="指定哪些扩展名的文件会被复制到本地目标目录，多个用逗号分隔" persistent-hint density="compact" variant="outlined"
                 hide-details="auto"></v-text-field>
+            </v-col>
+            <v-col cols="12" md="4">
+              <v-switch v-model="config.directory_upload_skip_bdmv_stream" label="跳过蓝光原盘 STREAM 目录"
+                hint="关闭后将允许上传 BDMV/STREAM 下的 m2ts 等文件" persistent-hint color="info" density="compact"
+                hide-details="auto"></v-switch>
             </v-col>
           </v-row>
 

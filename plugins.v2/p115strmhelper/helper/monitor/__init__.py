@@ -117,28 +117,36 @@ def _is_directory_upload_ignored_path(path: Path) -> bool:
     :return bool: 应忽略时返回 True
     """
     event_path = str(path)
-    return (
+    if (
         event_path.find("/@Recycle/") != -1
         or event_path.find("/#recycle/") != -1
         or event_path.find("/.") != -1
         or event_path.find("/@eaDir") != -1
-        or re_search(r"BDMV[/\\]STREAM", event_path, IGNORECASE) is not None
-    )
+    ):
+        return True
+    if configer.directory_upload_skip_bdmv_stream and re_search(
+        r"BDMV[/\\]STREAM", event_path, IGNORECASE
+    ):
+        return True
+    return False
 
 
-def _directory_upload_extensions(config_key: str) -> List[str]:
+def _directory_upload_extensions(config_key: str) -> Optional[List[str]]:
     """
     读取目录上传扩展名配置
 
+    配置值为空或 * 时表示匹配任意后缀
+
     :param config_key (str): 配置项名称
 
-    :return List: 扩展名列表
+    :return List: 扩展名列表，None 表示不限制后缀
     """
     value = configer.get_config(config_key) or ""
+    value = value.replace("，", ",").strip()
+    if not value or value == "*":
+        return None
     return [
-        f".{ext.strip().lower().lstrip('.')}"
-        for ext in value.replace("，", ",").split(",")
-        if ext.strip()
+        f".{ext.strip().lower().lstrip('.')}" for ext in value.split(",") if ext.strip()
     ]
 
 
@@ -156,11 +164,11 @@ def _is_directory_upload_candidate(file_path: Path) -> bool:
     if _is_directory_upload_ignored_path(file_path):
         return False
 
-    allowed_extensions = set(
-        _directory_upload_extensions("directory_upload_uploadext")
-        + _directory_upload_extensions("directory_upload_copyext")
-    )
-    return file_path.suffix.lower() in allowed_extensions
+    upload_extensions = _directory_upload_extensions("directory_upload_uploadext")
+    copy_extensions = _directory_upload_extensions("directory_upload_copyext")
+    if upload_extensions is None or copy_extensions is None:
+        return True
+    return file_path.suffix.lower() in set(upload_extensions + copy_extensions)
 
 
 def _is_directory_scan_candidate(directory_path: Path) -> bool:
@@ -824,7 +832,9 @@ def handle_file(
                 return
 
             # 蓝光目录不处理
-            if re_search(r"BDMV[/\\]STREAM", event_path, IGNORECASE):
+            if configer.directory_upload_skip_bdmv_stream and re_search(
+                r"BDMV[/\\]STREAM", event_path, IGNORECASE
+            ):
                 return
 
             # 去重：目录补偿扫描与单文件事件可能针对同一文件
@@ -863,7 +873,10 @@ def handle_file(
                 "directory_upload_uploadext"
             )
             copy_extensions = _directory_upload_extensions("directory_upload_copyext")
-            if file_path.suffix.lower() in upload_extensions:
+            if (
+                upload_extensions is None
+                or file_path.suffix.lower() in upload_extensions
+            ):
                 # 处理上传
                 if not dest_remote:
                     logger.error(f"【目录上传】{file_path} 未找到对应的上传网盘目录")
@@ -971,7 +984,7 @@ def handle_file(
                     logger.error(f"【目录上传】{file_path} 上传网盘失败")
                     return
 
-            elif file_path.suffix.lower() in copy_extensions:
+            elif copy_extensions is None or file_path.suffix.lower() in copy_extensions:
                 # 处理非上传文件
                 if dest_local:
                     target_file_path = Path(dest_local) / Path(file_path).relative_to(

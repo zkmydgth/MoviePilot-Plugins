@@ -650,11 +650,13 @@ class ConfigManager(BaseModel):
     )
     directory_upload_uploadext: str = Field(
         default="mp4,mkv,ts,iso,rmvb,avi,mov,mpeg,mpg,wmv,3gp,asf,m4v,flv,m2ts,tp,f4v",
-        min_length=1,
-        description="可上传文件后缀",
+        description="可上传文件后缀，留空或填 * 表示不限制后缀",
     )
     directory_upload_copyext: str = Field(
-        default="srt,ssa,ass", min_length=1, description="可本地操作文件后缀"
+        default="srt,ssa,ass", description="可本地操作文件后缀"
+    )
+    directory_upload_skip_bdmv_stream: bool = Field(
+        default=True, description="跳过蓝光原盘 STREAM 目录"
     )
     directory_upload_path: Optional[List[Dict]] = Field(
         default=None, description="监控目录信息"
