@@ -438,6 +438,7 @@ class P123Api:
                 "method": "PUT",
                 "headers": {"authorization": ""},
                 "parse": ...,
+                "timeout": 300,  # 设置5分钟超时
             }
 
             if file_size > slice_size:
@@ -474,11 +475,43 @@ class P123Api:
                         )
                         logger.debug(f"{upload_url_resp} {upload_data}")
 
-                        self.client.request(
-                            upload_url_resp["data"]["presignedUrls"][str(slice_no)],
-                            data=chunk,
-                            **upload_request_kwargs,
-                        )
+                        # 上传分片，失败时重试5次，每次重新获取上传URL
+                        max_retries = 6
+                        retry_count = 0
+                        upload_success = False
+                        current_upload_url_resp = upload_url_resp
+                        
+                        while retry_count < max_retries and not upload_success:
+                            try:
+                                self.client.request(
+                                    current_upload_url_resp["data"]["presignedUrls"][str(slice_no)],
+                                    data=chunk,
+                                    **upload_request_kwargs,
+                                )
+                                upload_success = True
+                            except Exception as upload_err:
+                                retry_count += 1
+                                if retry_count < max_retries:
+                                    logger.warning(
+                                        f"【123】{target_name} 分片 {slice_no} 上传失败，正在重试 ({retry_count}/{max_retries}): {upload_err}"
+                                    )
+                                    time.sleep(10)  # 等待10秒后重试
+                                    
+                                    # 重新获取上传URL
+                                    try:
+                                        logger.info(f"【123】重新获取分片 {slice_no} 的上传URL")
+                                        current_upload_url_resp = self.client.upload_prepare(
+                                            upload_data,
+                                        )
+                                        check_response(current_upload_url_resp)
+                                    except Exception as url_err:
+                                        logger.error(f"【123】重新获取上传URL失败: {url_err}")
+                                        raise
+                                else:
+                                    logger.error(
+                                        f"【123】{target_name} 分片 {slice_no} 上传失败，已达到最大重试次数: {upload_err}"
+                                    )
+                                    raise
                         slice_no += 1
                         offset += num_to_upload
 
@@ -496,12 +529,47 @@ class P123Api:
                     upload_data,
                 )
                 check_response(resp)
+                
+                # 上传文件，失败时重试6次，每次重新获取上传URL
+                max_retries = 6
+                retry_count = 0
+                upload_success = False
+                current_resp = resp
+                
                 with open(local_path, "rb") as f:
-                    self.client.request(
-                        resp["data"]["presignedUrls"]["1"],
-                        data=f.read(),
-                        **upload_request_kwargs,
-                    )
+                    file_data = f.read()
+                    
+                while retry_count < max_retries and not upload_success:
+                    try:
+                        self.client.request(
+                            current_resp["data"]["presignedUrls"]["1"],
+                            data=file_data,
+                            **upload_request_kwargs,
+                        )
+                        upload_success = True
+                    except Exception as upload_err:
+                        retry_count += 1
+                        if retry_count < max_retries:
+                            logger.warning(
+                                f"【123】{target_name} 上传失败，正在重试 ({retry_count}/{max_retries}): {upload_err}"
+                            )
+                            time.sleep(10)  # 等待10秒后重试
+                            
+                            # 重新获取上传URL
+                            try:
+                                logger.info(f"【123】重新获取上传URL")
+                                current_resp = self.client.upload_auth(
+                                    upload_data,
+                                )
+                                check_response(current_resp)
+                            except Exception as url_err:
+                                logger.error(f"【123】重新获取上传URL失败: {url_err}")
+                                raise
+                        else:
+                            logger.error(
+                                f"【123】{target_name} 上传失败，已达到最大重试次数: {upload_err}"
+                            )
+                            raise
 
             upload_data["isMultipart"] = file_size > slice_size
             complete_resp = self.client.upload_complete(
