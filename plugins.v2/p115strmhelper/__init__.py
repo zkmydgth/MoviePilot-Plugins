@@ -1709,9 +1709,9 @@ class P115StrmHelper(_PluginBase):
                                     {
                                         "component": "VIcon",
                                         "props": {
-                                            "icon": "mdi-file-move-outline",
+                                            "icon": "mdi-transfer",
                                             "start": True,
-                                            "color": "#1976D2",
+                                            "color": "#418291",
                                         },
                                     },
                                     {"component": "span", "text": "网盘整理"},
