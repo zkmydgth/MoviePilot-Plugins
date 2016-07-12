@@ -7,7 +7,8 @@ from datetime import datetime, timezone
 
 import requests
 import oss2
-from oss2 import determine_part_size
+from oss2 import SizedFileAdapter, determine_part_size
+from oss2.models import PartInfo
 from tqdm import tqdm
 
 from app import schemas
@@ -486,9 +487,9 @@ class U115OpenHelper:
         endpoint = token_resp.get("endpoint")
         if endpoint and endpoint.startswith("http://"):
             endpoint = endpoint.replace("http://", "https://")
-        AccessKeyId = token_resp.get("AccessKeyId")
-        AccessKeySecret = token_resp.get("AccessKeySecret")
-        SecurityToken = token_resp.get("SecurityToken")
+        access_key_id = token_resp.get("AccessKeyId")
+        access_key_secret = token_resp.get("AccessKeySecret")
+        security_token = token_resp.get("SecurityToken")
 
         # Step 5: 断点续传
         resume_resp = self._request_api(
@@ -509,18 +510,12 @@ class U115OpenHelper:
 
         # Step 6: 对象存储上传
         auth = oss2.StsAuth(
-            access_key_id=AccessKeyId,
-            access_key_secret=AccessKeySecret,
-            security_token=SecurityToken,
+            access_key_id=access_key_id,
+            access_key_secret=access_key_secret,
+            security_token=security_token,
         )
         bucket = oss2.Bucket(auth, endpoint, bucket_name, connect_timeout=120)
-        part_size = determine_part_size(file_size, preferred_size=100 * 1024 * 1024)
-
-        headers = {
-            "X-oss-callback": encode_callback(callback["callback"]),
-            "x-oss-callback-var": encode_callback(callback["callback_var"]),
-            "x-oss-forbid-overwrite": "false",
-        }
+        part_size = determine_part_size(file_size, preferred_size=50 * 1024 * 1024)
 
         # 初始化进度条
         logger.info(
@@ -530,44 +525,97 @@ class U115OpenHelper:
             total=file_size, unit="B", unit_scale=True, desc="上传进度", ascii=True
         )
 
-        last_uploaded_size = 0
-
-        def progress_callback(bytes_consumed, total_bytes):
-            """
-            进度条回调函数，并为每个分片增加日志
-            """
-            nonlocal last_uploaded_size
-            chunk_size = bytes_consumed - last_uploaded_size
-            progress_bar.update(chunk_size)
-            if chunk_size > 0:
-                logger.info(
-                    f"【P115Open】分片上传成功: {target_name}, "
-                    f"大小: {StringUtils.str_filesize(chunk_size)}, "
-                    f"总进度: {bytes_consumed}/{total_bytes}"
-                )
-            last_uploaded_size = bytes_consumed
-
         try:
-            result = oss2.resumable_upload(
-                bucket,
-                object_name,
-                str(local_path),
-                headers=headers,
-                part_size=part_size,
-                num_threads=4,
-                progress_callback=progress_callback,
-            )
+            # 初始化分片
+            for attempt in range(3):
+                try:
+                    upload_id = bucket.init_multipart_upload(
+                        object_name, params={"encoding-type": "url", "sequential": ""}
+                    ).upload_id
+                    break
+                except Exception as e:
+                    logger.warn(
+                        f"【P115Open】初始化分片上传失败: {e}，正在重试... ({attempt + 1}/3)"
+                    )
+                    time.sleep(2**attempt)
 
-            if result.status == 200:
-                logger.debug(
-                    f"【P115Open】上传 Step 6 回调结果：{result.resp.response.json()}"
+            if not upload_id:
+                logger.error(
+                    f"【P115Open】{target_name} 初始化分片上传最终失败，上传终止。"
                 )
-                if not result.resp.response.json().get("state"):
-                    if self.upload_fail_count():
-                        logger.warn(f"【P115Open】{target_name} 上传重试")
-                        return self.upload(target_dir, local_path, new_name)
-                    logger.error(f"【P115Open】{target_name} 上传失败")
-                    return None
+                return None
+
+            parts = []
+            # 逐个上传分片
+            with open(local_path, "rb") as fileobj:
+                part_number = 1
+                offset = 0
+                while offset < file_size:
+                    num_to_upload = min(part_size, file_size - offset)
+                    for attempt in range(3):
+                        try:
+                            # 每次重试时，都需要将文件指针移到当前分片的起始位置
+                            fileobj.seek(offset)
+
+                            logger.info(
+                                f"【P115Open】开始上传 {target_name} 分片 {part_number}: {offset} -> {offset + num_to_upload}"
+                            )
+                            result = bucket.upload_part(
+                                object_name,
+                                upload_id,
+                                part_number,
+                                data=SizedFileAdapter(fileobj, num_to_upload),
+                            )
+                            parts.append(PartInfo(part_number, result.etag))
+                            logger.info(
+                                f"【P115Open】{target_name} 分片 {part_number} 上传完成"
+                            )
+                            break
+                        except Exception as e:
+                            logger.warn(
+                                f"【P115Open】上传分片 {part_number} 失败: {e}，正在重试... ({attempt + 1}/3)"
+                            )
+                            time.sleep(2**attempt)
+                    else:
+                        logger.error(
+                            f"【P115Open】{target_name} 分片 {part_number} 达到最大重试次数，上传终止。"
+                        )
+                        return None
+
+                    offset += num_to_upload
+                    part_number += 1
+                    # 更新进度
+                    progress_bar.update(num_to_upload)
+        except Exception as e:
+            logger.error(f"【P115Open】{target_name} 分块生成出现未知错误: {e}")
+            return None
+        finally:
+            # 关闭进度条
+            if progress_bar:
+                progress_bar.close()
+
+        # 请求头
+        headers = {
+            "X-oss-callback": encode_callback(callback["callback"]),
+            "x-oss-callback-var": encode_callback(callback["callback_var"]),
+            "x-oss-forbid-overwrite": "false",
+        }
+        try:
+            result = bucket.complete_multipart_upload(
+                object_name, upload_id, parts, headers=headers
+            )
+            if result.status == 200:
+                try:
+                    data = result.resp.response.json()
+                    logger.debug(f"【P115Open】上传 Step 6 回调结果：{data}")
+                    if data.get("state") is False:
+                        if self.upload_fail_count():
+                            logger.warn(f"【P115Open】{target_name} 上传重试")
+                            return self.upload(target_dir, local_path, new_name)
+                        logger.error(f"【P115Open】{target_name} 上传失败")
+                        return None
+                except Exception:
+                    logger.warn("【P115Open】上传 Step 6 回调无结果")
                 logger.info(f"【P115Open】{target_name} 上传成功")
             else:
                 logger.warn(
@@ -581,22 +629,10 @@ class U115OpenHelper:
                 logger.error(
                     f"【P115Open】{target_name} 上传失败: {e.status}, 错误码: {e.code}, 详情: {e.message}"
                 )
-                if self.upload_fail_count():
-                    logger.warn(f"【P115Open】{target_name} 上传重试")
-                    return self.upload(target_dir, local_path, new_name)
                 return None
-        except oss2.exceptions.RequestError as e:
-            logger.warn(f"【P115Open】连接发生错误: {e}")
-            if self.upload_fail_count():
-                logger.warn(f"【P115Open】{target_name} 上传重试")
-                return self.upload(target_dir, local_path, new_name)
-            return None
         except Exception as e:
-            logger.error(f"【P115Open】上传过程中发生未知错误: {e}")
+            logger.error(f"【P115Open】{target_name} 回调出现未知错误: {e}")
             return None
-        finally:
-            if progress_bar:
-                progress_bar.close()
 
         end_time = time.perf_counter()
         elapsed_time = end_time - start_time
