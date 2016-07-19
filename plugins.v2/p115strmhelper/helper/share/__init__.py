@@ -3,7 +3,6 @@ from queue import Queue, Empty
 from re import match
 from threading import Lock, Thread
 from time import sleep
-from enum import Enum
 from datetime import datetime, timezone
 from typing import Optional, Literal
 
@@ -434,32 +433,6 @@ class ShareTransferHelper:
         if not configer.get_config("upload_share_info"):
             return
 
-        desired_keys = [
-            "source",
-            "type",
-            "title",
-            "en_title",
-            "hk_title",
-            "tw_title",
-            "sg_title",
-            "year",
-            "season",
-            "tmdb_id",
-            "imdb_id",
-            "tvdb_id",
-            "douban_id",
-            "bangumi_id",
-            "collection_id",
-        ]
-        payload: dict = {}
-        if file_mediainfo:
-            for key in desired_keys:
-                value = getattr(file_mediainfo, key)
-                if isinstance(value, Enum):
-                    payload[key] = value.value
-                else:
-                    payload[key] = value
-
         if type == "115":
             url = f"https://115cdn.com/s/{share_code}?password={receive_code}"
             mtype: Literal["115", "ali"] = "115"
@@ -467,14 +440,32 @@ class ShareTransferHelper:
             url = f"https://www.alipan.com/s/{share_code}"
             mtype: Literal["115", "ali"] = "ali"
 
-        payload["url"] = url
-        payload["postime"] = datetime.now(timezone.utc)
+        mi = file_mediainfo
+        payload = ShareInfo(
+            url=url,
+            postime=datetime.now(timezone.utc),
+            source=mi.source if mi else None,
+            type=mi.type.value if mi and mi.type is not None else None,  # noqa
+            title=mi.title if mi else None,
+            en_title=mi.en_title if mi else None,
+            hk_title=mi.hk_title if mi else None,
+            tw_title=mi.tw_title if mi else None,
+            sg_title=mi.sg_title if mi else None,
+            year=mi.year if mi else None,
+            season=mi.season if mi else None,
+            tmdb_id=mi.tmdb_id if mi else None,
+            imdb_id=mi.imdb_id if mi else None,
+            tvdb_id=mi.tvdb_id if mi else None,
+            douban_id=mi.douban_id if mi else None,
+            bangumi_id=mi.bangumi_id if mi else None,
+            collection_id=mi.collection_id if mi else None,
+        )
 
         try:
             client = P115Center(configer.get_config("MACHINE_ID"))
             resp = client.upload_share_info(
                 mtype=mtype,
-                payload=ShareInfo(**payload),
+                payload=payload,
             )
             logger.info(f"【分享转存】分享转存信息报告服务器成功: {resp.model_dump()}")
         except Exception as e:
