@@ -27,6 +27,7 @@ from ...utils.path import PathUtils, PathRemoveUtils
 from ...utils.sentry import sentry_manager
 from ...utils.strm import StrmUrlGetter, StrmGenerater
 from ...utils.tree import DirectoryTree
+from ...utils.http import check_iter_path_data
 
 
 class FullSyncStrmHelper:
@@ -201,14 +202,7 @@ class FullSyncStrmHelper:
         path_entry = None
         try:
             # 判断是否有信息缺失
-            if "path" not in item:
-                raise FileItemKeyMiss(f"缺失 path 信息：{item}")
-            if "is_dir" not in item:
-                raise FileItemKeyMiss(f"缺失 is_dir 信息：{item}")
-            if "sha1" not in item:
-                raise FileItemKeyMiss(f"缺失 sha1 信息：{item}")
-            if ("pickcode" not in item) and ("pick_code" not in item):
-                raise FileItemKeyMiss(f"缺失 pickcode 信息：{item}")
+            check_iter_path_data(item)
             # 判断是否为文件夹
             if item["is_dir"]:
                 return path_entry
