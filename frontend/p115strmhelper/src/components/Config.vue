@@ -233,66 +233,95 @@
               <!-- 全量同步 -->
               <v-window-item value="tab-sync">
                 <v-card-text>
-                  <v-row>
-                    <v-col cols="12" md="4">
-                      <v-select v-model="config.full_sync_overwrite_mode" label="覆盖模式" :items="[
-                        { title: '总是', value: 'always' },
-                        { title: '从不', value: 'never' }
-                      ]" chips closable-chips></v-select>
-                    </v-col>
-                    <v-col cols="12" md="4">
-                      <v-switch v-model="config.full_sync_remove_unless_strm" label="清理失效STRM文件"
-                        color="warning"></v-switch>
-                    </v-col>
-                    <v-col cols="12" md="4">
-                      <v-switch v-model="config.full_sync_auto_download_mediainfo_enabled" label="下载媒体数据文件"
-                        color="warning"></v-switch>
-                    </v-col>
-                  </v-row>
+                  <!-- 基础配置 -->
+                  <div class="basic-config">
+                    <v-row>
+                      <v-col cols="12" md="4">
+                        <v-select v-model="config.full_sync_overwrite_mode" label="覆盖模式" :items="[
+                          { title: '总是', value: 'always' },
+                          { title: '从不', value: 'never' }
+                        ]" chips closable-chips></v-select>
+                      </v-col>
+                      <v-col cols="12" md="4">
+                        <v-switch v-model="config.full_sync_remove_unless_strm" label="清理失效STRM文件"
+                          color="warning"></v-switch>
+                      </v-col>
+                      <v-col cols="12" md="4">
+                        <v-switch v-model="config.full_sync_auto_download_mediainfo_enabled" label="下载媒体数据文件"
+                          color="warning"></v-switch>
+                      </v-col>
+                    </v-row>
 
-                  <v-row>
-                    <v-col cols="12" md="6">
-                      <v-switch v-model="config.timing_full_sync_strm" label="定期全量同步" color="info"></v-switch>
-                    </v-col>
-                    <v-col cols="12" md="6">
-                      <VCronField v-model="config.cron_full_sync_strm" label="运行全量同步周期" hint="设置全量同步的执行周期"
-                        persistent-hint density="compact"></VCronField>
-                    </v-col>
-                  </v-row>
+                    <v-row>
+                      <v-col cols="12" md="6">
+                        <v-switch v-model="config.timing_full_sync_strm" label="定期全量同步" color="info"></v-switch>
+                      </v-col>
+                      <v-col cols="12" md="6">
+                        <VCronField v-model="config.cron_full_sync_strm" label="运行全量同步周期" hint="设置全量同步的执行周期"
+                          persistent-hint density="compact"></VCronField>
+                      </v-col>
+                    </v-row>
 
-                  <v-row>
-                    <v-col cols="12">
-                      <div class="d-flex flex-column">
-                        <div v-for="(pair, index) in fullSyncPaths" :key="`full-${index}`"
-                          class="mb-2 d-flex align-center">
-                          <div class="path-selector flex-grow-1 mr-2">
-                            <v-text-field v-model="pair.local" label="本地STRM目录" density="compact"
-                              append-icon="mdi-folder"
-                              @click:append="openDirSelector(index, 'local', 'fullSync')"></v-text-field>
+                    <v-row>
+                      <v-col cols="12">
+                        <div class="d-flex flex-column">
+                          <div v-for="(pair, index) in fullSyncPaths" :key="`full-${index}`"
+                            class="mb-2 d-flex align-center">
+                            <div class="path-selector flex-grow-1 mr-2">
+                              <v-text-field v-model="pair.local" label="本地STRM目录" density="compact"
+                                append-icon="mdi-folder"
+                                @click:append="openDirSelector(index, 'local', 'fullSync')"></v-text-field>
+                            </div>
+                            <v-icon>mdi-pound</v-icon>
+                            <div class="path-selector flex-grow-1 ml-2">
+                              <v-text-field v-model="pair.remote" label="网盘媒体库目录" density="compact"
+                                append-icon="mdi-folder-network"
+                                @click:append="openDirSelector(index, 'remote', 'fullSync')"></v-text-field>
+                            </div>
+                            <v-btn icon size="small" color="error" class="ml-2" @click="removePath(index, 'fullSync')">
+                              <v-icon>mdi-delete</v-icon>
+                            </v-btn>
                           </div>
-                          <v-icon>mdi-pound</v-icon>
-                          <div class="path-selector flex-grow-1 ml-2">
-                            <v-text-field v-model="pair.remote" label="网盘媒体库目录" density="compact"
-                              append-icon="mdi-folder-network"
-                              @click:append="openDirSelector(index, 'remote', 'fullSync')"></v-text-field>
-                          </div>
-                          <v-btn icon size="small" color="error" class="ml-2" @click="removePath(index, 'fullSync')">
-                            <v-icon>mdi-delete</v-icon>
+                          <v-btn size="small" prepend-icon="mdi-plus" variant="outlined" class="mt-2 align-self-start"
+                            @click="addPath('fullSync')">
+                            添加路径
                           </v-btn>
                         </div>
-                        <v-btn size="small" prepend-icon="mdi-plus" variant="outlined" class="mt-2 align-self-start"
-                          @click="addPath('fullSync')">
-                          添加路径
-                        </v-btn>
-                      </div>
 
-                      <v-alert type="info" variant="tonal" density="compact" class="mt-2">
-                        全量扫描配置的网盘目录，并在对应的本地目录生成STRM文件。<br>
-                        本地STRM目录：本地STRM文件生成路径
-                        网盘媒体库目录：需要生成本地STRM文件的网盘媒体库路径
-                      </v-alert>
-                    </v-col>
-                  </v-row>
+                        <v-alert type="info" variant="tonal" density="compact" class="mt-2">
+                          全量扫描配置的网盘目录，并在对应的本地目录生成STRM文件。<br>
+                          本地STRM目录：本地STRM文件生成路径
+                          网盘媒体库目录：需要生成本地STRM文件的网盘媒体库路径
+                        </v-alert>
+                      </v-col>
+                    </v-row>
+                  </div>
+
+                  <!-- 高级配置 -->
+                  <v-expansion-panels variant="tonal" class="mt-6">
+                    <v-expansion-panel>
+                      <v-expansion-panel-title>
+                        <v-icon icon="mdi-tune-variant" class="mr-2"></v-icon>
+                        高级配置
+                      </v-expansion-panel-title>
+                      <v-expansion-panel-text class="pa-4">
+                        <v-row>
+                          <v-col cols="12" md="4">
+                            <v-switch v-model="config.full_sync_strm_log" label="输出STRM同步日志" color="primary"></v-switch>
+                          </v-col>
+                          <v-col cols="12" md="4">
+                            <v-text-field v-model.number="config.full_sync_batch_num" label="全量同步批处理数量" type="number"
+                              hint="每次批量处理的文件/目录数量" persistent-hint density="compact"></v-text-field>
+                          </v-col>
+                          <v-col cols="12" md="4">
+                            <v-text-field v-model.number="config.full_sync_process_num" label="全量同步生成进程数" type="number"
+                              hint="同时执行同步任务的进程数量" persistent-hint density="compact"></v-text-field>
+                          </v-col>
+                        </v-row>
+                      </v-expansion-panel-text>
+                    </v-expansion-panel>
+                  </v-expansion-panels>
+
                 </v-card-text>
               </v-window-item>
 
@@ -556,7 +585,7 @@
               <v-window-item value="tab-cleanup">
                 <v-card-text>
                   <v-alert type="warning" variant="tonal" density="compact" class="mb-4">
-                    注意，清空 回收站/我的接收 后文件不可恢复，如果产生重要数据丢失本程序不负责！
+                    注意，清空 回收站/最近接收 后文件不可恢复，如果产生重要数据丢失本程序不负责！
                   </v-alert>
 
                   <v-row>
@@ -564,7 +593,7 @@
                       <v-switch v-model="config.clear_recyclebin_enabled" label="清空回收站" color="error"></v-switch>
                     </v-col>
                     <v-col cols="12" md="3">
-                      <v-switch v-model="config.clear_receive_path_enabled" label="清空我的接收目录" color="error"></v-switch>
+                      <v-switch v-model="config.clear_receive_path_enabled" label="清空最近接收目录" color="error"></v-switch>
                     </v-col>
                     <v-col cols="12" md="3">
                       <v-text-field v-model="config.password" label="115访问密码" hint="115网盘登录密码" persistent-hint
@@ -952,6 +981,9 @@ const config = reactive({
   full_sync_overwrite_mode: "never",
   full_sync_remove_unless_strm: false,
   full_sync_auto_download_mediainfo_enabled: false,
+  full_sync_strm_log: true,
+  full_sync_batch_num: 5000,
+  full_sync_process_num: 128,
   cron_full_sync_strm: '0 */7 * * *',
   full_sync_strm_paths: '',
   increment_sync_strm_enabled: false,
@@ -1714,6 +1746,26 @@ const selectDir = (item) => {
 
 const navigateToParentDir = () => {
   const path = dirDialog.currentPath;
+
+  // If it's a remote path (115 Pan), use simple, explicit POSIX path logic.
+  // This prevents any Windows-style path contamination.
+  if (!dirDialog.isLocal) {
+    if (path === '/') return; // Already at root
+
+    // Normalize and remove any trailing slash (unless it's the root)
+    let current = path.replace(/\\/g, '/');
+    if (current.length > 1 && current.endsWith('/')) {
+      current = current.slice(0, -1);
+    }
+
+    const parent = current.substring(0, current.lastIndexOf('/'));
+
+    // If the parent is empty, it means we were in a top-level directory (e.g., '/movies'), so the parent is the root.
+    dirDialog.currentPath = parent === '' ? '/' : parent;
+
+    loadDirContent();
+    return; // IMPORTANT: Stop execution to not use the local path logic below.
+  }
 
   if (path === '/' || path === 'C:\\' || path === 'C:/') return;
 

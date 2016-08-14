@@ -15,7 +15,8 @@ from ..db_manager.oper import FileDbHelper
 from ..helper.mediainfo_download import MediaInfoDownloader
 
 from p115client import P115Client
-from p115client.tool.iterdir import iter_files_with_path, get_path_to_cid
+from p115client.tool.attr import get_path_to_cid
+from p115client.tool.iterdir import iter_files_with_path
 from p115client.tool.life import iter_life_behavior_once, life_show
 
 from app.schemas import NotificationType, ServiceInfo, RefreshMediaItem, FileItem

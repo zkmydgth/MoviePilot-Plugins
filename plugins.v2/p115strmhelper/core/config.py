@@ -1,6 +1,6 @@
 import json
 import platform
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Union
 from pathlib import Path
 
 from pydantic import BaseModel, ValidationError
@@ -82,6 +82,12 @@ class BaseConfig(BaseModel):
     cron_full_sync_strm: str = "0 */7 * * *"
     # 全量同步路径
     full_sync_strm_paths: Optional[str] = None
+    # 全量生成输出详细日志
+    full_sync_strm_log: bool = True
+    # 全量同步单次批处理量
+    full_sync_batch_num: Union[int, str] = 5_000
+    # 全量同步文件处理线程数
+    full_sync_process_num: Union[int, str] = 128
 
     # 增量同步开关
     increment_sync_strm_enabled: bool = False
@@ -136,7 +142,7 @@ class BaseConfig(BaseModel):
 
     # 清理回收站开关
     clear_recyclebin_enabled: bool = False
-    # 清理 我的接收 目录开关
+    # 清理 最近接收 目录开关
     clear_receive_path_enabled: bool = False
     # 清理周期
     cron_clear: str = "0 */7 * * *"
@@ -175,9 +181,9 @@ class ConfigManager:
     def __init__(self):
         self._configs = {}
 
-    def fix_bool_config(self, config_dict: Dict[str, Any]) -> Dict:
+    def fix_config(self, config_dict: Dict[str, Any]) -> Dict:
         """
-        修复非法的布尔值
+        修复非法值
         """
         fixed_dict = config_dict
         for field_name, field in BaseConfig.__fields__.items():
@@ -189,6 +195,24 @@ class ConfigManager:
                         f"【配置管理器】配置项 {field_name} 的值 {value} 不是布尔类型，已替换为默认值 {default_value}"
                     )
                     fixed_dict[field_name] = default_value
+            elif (
+                field.type_ is str
+                and field_name in fixed_dict
+                and field_name
+                in [
+                    "PLUGIN_CONFIG_PATH",
+                    "PLUGIN_TEMP_PATH",
+                    "PLUGIN_DB_PATH",
+                    "PLUGIN_DATABASE_PATH",
+                ]
+            ):
+                value = fixed_dict[field_name]
+                if not isinstance(value, str):
+                    default_value = field.default
+                    logger.warning(
+                        f"【配置管理器】路径 {field_name} 的值 {value} 不是字符串类型，已替换为默认值 {default_value}"
+                    )
+                    fixed_dict[field_name] = default_value
         return fixed_dict
 
     def load_from_dict(self, config_dict: Dict[str, Any]) -> bool:
@@ -196,7 +220,7 @@ class ConfigManager:
         从字典加载配置
         """
         try:
-            fixed_dict = self.fix_bool_config(config_dict.copy())
+            fixed_dict = self.fix_config(config_dict.copy())
             validated = BaseConfig(**fixed_dict)
             self._configs = validated.dict()
             return True
@@ -231,7 +255,7 @@ class ConfigManager:
         """
         获取所有配置的副本
         """
-        self._configs = self.fix_bool_config(self._configs)
+        self._configs = self.fix_config(self._configs)
         return self._configs.copy()
 
     def update_config(self, updates: Dict[str, Any]) -> bool:
@@ -240,7 +264,7 @@ class ConfigManager:
         """
         try:
             # 合并现有配置和更新
-            self._configs = self.fix_bool_config(self._configs)
+            self._configs = self.fix_config(self._configs)
             current = BaseConfig(**self._configs)
             updated = current.copy(update=updates)
             self._configs.update(updated.dict())
@@ -269,7 +293,11 @@ class ConfigManager:
         }
         if utype in user_agents:
             return user_agents[utype]
-        return f"{self._configs.get('PLUSIN_NAME')}/1.0.0 ({platform.system()} {platform.release()}; {SystemUtils.cpu_arch()})"
+        return (
+            f"{self._configs.get('PLUSIN_NAME')}/1.0.0 "
+            f"({platform.system()} {platform.release()}; "
+            f"{SystemUtils.cpu_arch() if hasattr(SystemUtils, 'cpu_arch') and callable(SystemUtils.cpu_arch) else 'UnknownArch'})"
+        )
 
 
 configer = ConfigManager()

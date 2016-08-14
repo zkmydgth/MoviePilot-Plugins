@@ -1,6 +1,6 @@
 from typing import Dict, List
 
-from sqlalchemy import Column, Integer, String, Text, select, delete
+from sqlalchemy import Column, Integer, String, Text, select, delete, or_
 from sqlalchemy.orm import Session
 
 from ...db_manager import db_update, db_query, P115StrmHelperBase
@@ -76,10 +76,25 @@ class Folder(P115StrmHelperBase):
           - 先判断需要写入的数据路径是否存在，存在则先删除记录
           - 写入数据
         """
+        folders_data = []
+        seen_ids = set()
+        seen_paths = set()
+        append = folders_data.append
         for entry in batch:
             if entry["table"] == "folders":
-                db.execute(delete(Folder).where(Folder.path == entry["data"]["path"]))
-                db.merge(Folder(**entry["data"]))
+                data = entry["data"]
+                if data["id"] not in seen_ids:
+                    seen_ids.add(data["id"])
+                    seen_paths.add(data["path"])
+                    append(data)
+        if not folders_data:
+            return True
+        db.execute(
+            delete(Folder).where(
+                or_(Folder.id.in_(seen_ids), Folder.path.in_(seen_paths))
+            )
+        )
+        db.bulk_insert_mappings(Folder, folders_data)
         return True
 
     @staticmethod

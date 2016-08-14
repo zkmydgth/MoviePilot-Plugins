@@ -4,12 +4,13 @@ import shutil
 from typing import List, Dict, Optional
 from pathlib import Path
 from itertools import batched
+import concurrent.futures
 
 from sqlalchemy.orm.exc import MultipleResultsFound
 from p115client import P115Client
 from p115client.tool.export_dir import export_dir_parse_iter
 from p115client.tool.fs_files import iter_fs_files
-from p115client.tool.iterdir import iter_files_with_path, share_iterdir
+from p115client.tool.iterdir import iter_files_with_path_skim, share_iterdir
 
 from ..core.cache import idpathcacher
 from ..core.config import configer
@@ -132,7 +133,7 @@ class IncrementSyncStrmHelper:
         迭代网盘目录
         """
         logger.debug(f"【增量STRM生成】迭代网盘目录: {cid} {path}")
-        for batch in iter_fs_files(self.client, cid):
+        for batch in iter_fs_files(self.client, cid, cooldown=2):
             self.api_count += 1
             for item in batch.get("data", []):
                 item["path"] = path + "/" + item.get("n")
@@ -161,6 +162,8 @@ class IncrementSyncStrmHelper:
         """
         通过路径获取 pickcode
         """
+        last_path = None
+        processed = None
         while True:
             # 这里如果有多条重复数据直接删除文件重复信息，然后迭代重新获取
             try:
@@ -178,12 +181,18 @@ class IncrementSyncStrmHelper:
                     temp_path = part
                     break
             if not temp_path:
-                raise ValueError(f"无法找到路径 {path} 对应的 cid")
-            for batch in batched(self.__iterdir(cid=cid, path=str(temp_path)), 7_000):
+                raise ValueError(f"数据库无数据，无法找到路径 {path} 对应的 cid")
+            if last_path and last_path == temp_path:
+                logger.debug(f"文件夹遍历错误：{last_path} {processed}")
+                raise ValueError(f"文件夹遍历错误，无法找到路径 {path} 对应的 cid")
+            for batch in batched(
+                self.__iterdir(cid=cid, path=temp_path.as_posix()), 5_000
+            ):
                 processed: List = []
                 for item in batch:
                     processed.extend(self.databasehelper.process_fs_files_item(item))
                 self.databasehelper.upsert_batch(processed)
+            last_path = temp_path
             time.sleep(2)
 
     @property
@@ -261,8 +270,6 @@ class IncrementSyncStrmHelper:
         """
         生成本地目录树
         """
-        tree = DirectoryTree()
-
         if Path(self.local_tree).exists():
             Path(self.local_tree).unlink(missing_ok=True)
 
@@ -271,7 +278,7 @@ class IncrementSyncStrmHelper:
             后台运行任务
             """
             logger.info(f"【增量STRM生成】开始扫描本地媒体库文件: {target_dir}")
-            tree.scan_directory_to_tree(
+            DirectoryTree().scan_directory_to_tree(
                 root_path=target_dir,
                 output_file=local_tree,
                 append=False,
@@ -423,7 +430,6 @@ class IncrementSyncStrmHelper:
         """
         生成 STRM 文件
         """
-        tree = DirectoryTree()
         media_paths = sync_strm_paths.split("\n")
         for path in media_paths:
             if not path:
@@ -455,13 +461,17 @@ class IncrementSyncStrmHelper:
                 self.__wait_generate_local_tree(local_tree_task_thread)
 
                 # 生成或者下载文件
-                for line in tree.compare_trees_lines(
+                for line in DirectoryTree().compare_trees_lines(
                     self.pan_to_local_tree, self.local_tree
                 ):
                     self.__handle_addition_path(
-                        pan_path=str(tree.get_path_by_line_number(self.pan_tree, line)),
+                        pan_path=str(
+                            DirectoryTree().get_path_by_line_number(self.pan_tree, line)
+                        ),
                         local_path=str(
-                            tree.get_path_by_line_number(self.pan_to_local_tree, line)
+                            DirectoryTree().get_path_by_line_number(
+                                self.pan_to_local_tree, line
+                            )
                         ),
                     )
             except Exception as e:
@@ -508,7 +518,11 @@ class FullSyncStrmHelper:
     全量生成 STRM 文件
     """
 
-    def __init__(self, client: P115Client, mediainfodownloader: MediaInfoDownloader):
+    def __init__(
+        self,
+        client: P115Client,
+        mediainfodownloader: MediaInfoDownloader,
+    ):
         self.rmt_mediaext = [
             f".{ext.strip()}"
             for ext in configer.get_config("user_rmt_mediaext")
@@ -526,6 +540,9 @@ class FullSyncStrmHelper:
         )
         self.client = client
         self.mediainfodownloader = mediainfodownloader
+        self.total_count = 0
+        self.elapsed_time = 0
+        self.total_db_write_count = 0
         self.strm_count = 0
         self.mediainfo_count = 0
         self.strm_fail_count = 0
@@ -566,11 +583,173 @@ class FullSyncStrmHelper:
                         shutil.rmtree(parent_path)
                         logger.warn(f"【全量STRM生成】本地空目录 {parent_path} 已删除")
 
+    def __remove_unless_strm_local(self, target_dir):
+        """
+        清理无效 STRM 本地扫描
+        """
+        if Path(self.local_tree).exists():
+            Path(self.local_tree).unlink(missing_ok=True)
+        if Path(self.pan_tree).exists():
+            Path(self.pan_tree).unlink(missing_ok=True)
+
+        def background_task(_target_dir, local_tree):
+            """
+            后台运行任务
+            """
+            logger.info(f"【全量STRM生成】开始扫描本地媒体库文件: {_target_dir}")
+            DirectoryTree().scan_directory_to_tree(
+                root_path=_target_dir,
+                output_file=local_tree,
+                append=False,
+                extensions=[".strm"],
+            )
+            logger.info(f"【全量STRM生成】扫描本地媒体库文件完成: {_target_dir}")
+
+        local_tree_task_thread = threading.Thread(
+            target=background_task,
+            args=(
+                target_dir,
+                self.local_tree,
+            ),
+        )
+        local_tree_task_thread.start()
+
+        return local_tree_task_thread
+
+    def __process_single_item(self, item, target_dir, pan_media_dir):
+        """
+        处理单个项目
+        """
+        path_entry = None
+        self.total_count += 1
+        _process_item = self.databasehelper.process_item(item)
+        try:
+            if item["is_dir"]:
+                return _process_item, path_entry
+            file_path = item["path"]
+            file_path = Path(target_dir) / Path(file_path).relative_to(pan_media_dir)
+            file_target_dir = file_path.parent
+            original_file_name = file_path.name
+            file_name = file_path.stem + ".strm"
+            new_file_path = file_target_dir / file_name
+        except Exception as e:
+            logger.error(
+                "【全量STRM生成】生成 STRM 文件失败: %s  %s",
+                str(item),
+                e,
+            )
+            self.strm_fail_count += 1
+            self.strm_fail_dict[str(item)] = str(e)
+            return _process_item, path_entry
+
+        try:
+            if self.pan_transfer_enabled and self.pan_transfer_paths:
+                if PathUtils.get_run_transfer_path(
+                    paths=self.pan_transfer_paths,
+                    transfer_path=item["path"],
+                ):
+                    logger.debug(
+                        f"【全量STRM生成】{item['path']} 为待整理目录下的路径，不做处理"
+                    )
+                    return _process_item, path_entry
+
+            if self.auto_download_mediainfo:
+                if file_path.suffix in self.download_mediaext:
+                    if file_path.exists():
+                        if self.overwrite_mode == "never":
+                            logger.warn(
+                                f"【全量STRM生成】{file_path} 已存在，覆盖模式 {self.overwrite_mode}，跳过此路径"
+                            )
+                            return _process_item, path_entry
+                        else:
+                            logger.warn(
+                                f"【全量STRM生成】{file_path} 已存在，覆盖模式 {self.overwrite_mode}"
+                            )
+                    pickcode = item["pickcode"]
+                    if not pickcode:
+                        logger.error(
+                            f"【全量STRM生成】{original_file_name} 不存在 pickcode 值，无法下载该文件"
+                        )
+                        return _process_item, path_entry
+                    self.download_mediainfo_list.append(
+                        {
+                            "type": "local",
+                            "pickcode": pickcode,
+                            "path": file_path,
+                        }
+                    )
+                    return _process_item, path_entry
+
+            if file_path.suffix not in self.rmt_mediaext:
+                logger.warn(
+                    "【全量STRM生成】跳过网盘路径: %s",
+                    str(file_path).replace(str(target_dir), "", 1),
+                )
+                return _process_item, path_entry
+
+            if self.remove_unless_strm:
+                path_entry = str(new_file_path)
+
+            if new_file_path.exists():
+                if self.overwrite_mode == "never":
+                    logger.warn(
+                        f"【全量STRM生成】{new_file_path} 已存在，覆盖模式 {self.overwrite_mode}，跳过此路径"
+                    )
+                    return _process_item, path_entry
+                else:
+                    logger.warn(
+                        f"【全量STRM生成】{new_file_path} 已存在，覆盖模式 {self.overwrite_mode}"
+                    )
+
+            pickcode = item["pickcode"]
+            if not pickcode:
+                pickcode = item["pick_code"]
+
+            new_file_path.parent.mkdir(parents=True, exist_ok=True)
+
+            if not pickcode:
+                self.strm_fail_count += 1
+                self.strm_fail_dict[str(new_file_path)] = "不存在 pickcode 值"
+                logger.error(
+                    f"【全量STRM生成】{original_file_name} 不存在 pickcode 值，无法生成 STRM 文件"
+                )
+                return _process_item, path_entry
+            if not (len(pickcode) == 17 and str(pickcode).isalnum()):
+                self.strm_fail_count += 1
+                self.strm_fail_dict[str(new_file_path)] = (
+                    f"错误的 pickcode 值 {pickcode}"
+                )
+                logger.error(
+                    f"【全量STRM生成】错误的 pickcode 值 {pickcode}，无法生成 STRM 文件"
+                )
+                return _process_item, path_entry
+            strm_url = f"{self.server_address}/api/v1/plugin/P115StrmHelper/redirect_url?apikey={settings.API_TOKEN}&pickcode={pickcode}"
+            if self.strm_url_format == "pickname":
+                strm_url += f"&file_name={original_file_name}"
+
+            with open(new_file_path, "w", encoding="utf-8") as file:
+                file.write(strm_url)
+            self.strm_count += 1
+            if configer.get_config("full_sync_strm_log"):
+                logger.info(
+                    "【全量STRM生成】生成 STRM 文件成功: %s",
+                    str(new_file_path),
+                )
+            return _process_item, path_entry
+        except Exception as e:
+            logger.error(
+                "【全量STRM生成】生成 STRM 文件失败: %s  %s",
+                str(new_file_path),
+                e,
+            )
+            self.strm_fail_count += 1
+            self.strm_fail_dict[str(new_file_path)] = str(e)
+            return _process_item, path_entry
+
     def generate_strm_files(self, full_sync_strm_paths):
         """
         生成 STRM 文件
         """
-        tree = DirectoryTree()
         media_paths = full_sync_strm_paths.split("\n")
         for path in media_paths:
             if not path:
@@ -580,32 +759,7 @@ class FullSyncStrmHelper:
             target_dir = parts[0]
 
             if self.remove_unless_strm:
-                if Path(self.local_tree).exists():
-                    Path(self.local_tree).unlink(missing_ok=True)
-                if Path(self.pan_tree).exists():
-                    Path(self.pan_tree).unlink(missing_ok=True)
-
-                def background_task(target_dir, local_tree):
-                    """
-                    后台运行任务
-                    """
-                    logger.info(f"【全量STRM生成】开始扫描本地媒体库文件: {target_dir}")
-                    tree.scan_directory_to_tree(
-                        root_path=target_dir,
-                        output_file=local_tree,
-                        append=False,
-                        extensions=[".strm"],
-                    )
-                    logger.info(f"【全量STRM生成】扫描本地媒体库文件完成: {target_dir}")
-
-                local_tree_task_thread = threading.Thread(
-                    target=background_task,
-                    args=(
-                        target_dir,
-                        self.local_tree,
-                    ),
-                )
-                local_tree_task_thread.start()
+                local_tree_task_thread = self.__remove_unless_strm_local(target_dir)
 
             try:
                 parent_id = int(self.client.fs_dir_getid(pan_media_dir)["id"])
@@ -615,149 +769,54 @@ class FullSyncStrmHelper:
                 return False
 
             try:
+                start_time = time.perf_counter()
                 for batch in batched(
-                    iter_files_with_path(self.client, cid=parent_id, cooldown=2), 7_000
+                    iter_files_with_path_skim(
+                        self.client, cid=parent_id, with_ancestors=True
+                    ),
+                    int(configer.get_config("full_sync_batch_num")),
                 ):
                     processed: List = []
                     path_list: List = []
-                    for item in batch:
-                        _process_item = self.databasehelper.process_item(item)
-                        if _process_item not in processed:
-                            processed.extend(_process_item)
-                        try:
-                            if item["is_dir"]:
-                                continue
-                            file_path = item["path"]
-                            file_path = Path(target_dir) / Path(file_path).relative_to(
-                                pan_media_dir
-                            )
-                            file_target_dir = file_path.parent
-                            original_file_name = file_path.name
-                            file_name = file_path.stem + ".strm"
-                            new_file_path = file_target_dir / file_name
-                        except Exception as e:
-                            logger.error(
-                                "【全量STRM生成】生成 STRM 文件失败: %s  %s",
-                                str(item),
-                                e,
-                            )
-                            self.strm_fail_count += 1
-                            self.strm_fail_dict[str(item)] = str(e)
-                            continue
 
-                        try:
-                            if self.pan_transfer_enabled and self.pan_transfer_paths:
-                                if PathUtils.get_run_transfer_path(
-                                    paths=self.pan_transfer_paths,
-                                    transfer_path=item["path"],
-                                ):
-                                    logger.debug(
-                                        f"【全量STRM生成】{item['path']} 为待整理目录下的路径，不做处理"
-                                    )
-                                    continue
+                    with concurrent.futures.ThreadPoolExecutor(
+                        max_workers=int(configer.get_config("full_sync_process_num"))
+                    ) as executor:
+                        future_to_item = {
+                            executor.submit(
+                                self.__process_single_item,
+                                item,
+                                target_dir,
+                                pan_media_dir,
+                            ): item
+                            for item in batch
+                        }
 
-                            if self.auto_download_mediainfo:
-                                if file_path.suffix in self.download_mediaext:
-                                    if file_path.exists():
-                                        if self.overwrite_mode == "never":
-                                            logger.warn(
-                                                f"【全量STRM生成】{file_path} 已存在，覆盖模式 {self.overwrite_mode}，跳过此路径"
-                                            )
-                                            continue
-                                        else:
-                                            logger.warn(
-                                                f"【全量STRM生成】{file_path} 已存在，覆盖模式 {self.overwrite_mode}"
-                                            )
-                                    pickcode = item["pickcode"]
-                                    if not pickcode:
-                                        logger.error(
-                                            f"【全量STRM生成】{original_file_name} 不存在 pickcode 值，无法下载该文件"
-                                        )
-                                        continue
-                                    self.download_mediainfo_list.append(
-                                        {
-                                            "type": "local",
-                                            "pickcode": pickcode,
-                                            "path": file_path,
-                                        }
-                                    )
-                                    continue
-
-                            if file_path.suffix not in self.rmt_mediaext:
-                                logger.warn(
-                                    "【全量STRM生成】跳过网盘路径: %s",
-                                    str(file_path).replace(str(target_dir), "", 1),
-                                )
-                                continue
-
-                            if self.remove_unless_strm:
-                                path_list.append(str(new_file_path))
-
-                            if new_file_path.exists():
-                                if self.overwrite_mode == "never":
-                                    logger.warn(
-                                        f"【全量STRM生成】{new_file_path} 已存在，覆盖模式 {self.overwrite_mode}，跳过此路径"
-                                    )
-                                    continue
-                                else:
-                                    logger.warn(
-                                        f"【全量STRM生成】{new_file_path} 已存在，覆盖模式 {self.overwrite_mode}"
-                                    )
-
-                            pickcode = item["pickcode"]
-                            if not pickcode:
-                                pickcode = item["pick_code"]
-
-                            new_file_path.parent.mkdir(parents=True, exist_ok=True)
-
-                            if not pickcode:
-                                self.strm_fail_count += 1
-                                self.strm_fail_dict[str(new_file_path)] = (
-                                    "不存在 pickcode 值"
-                                )
+                        for future in concurrent.futures.as_completed(future_to_item):
+                            item = future_to_item[future]
+                            try:
+                                item_processed, item_path = future.result()
+                                if item_processed:
+                                    processed.extend(item_processed)
+                                if item_path:
+                                    path_list.append(item_path)
+                            except Exception as e:
                                 logger.error(
-                                    f"【全量STRM生成】{original_file_name} 不存在 pickcode 值，无法生成 STRM 文件"
+                                    f"【全量STRM生成】并发处理出错: {item} - {str(e)}"
                                 )
-                                continue
-                            if not (len(pickcode) == 17 and str(pickcode).isalnum()):
-                                self.strm_fail_count += 1
-                                self.strm_fail_dict[str(new_file_path)] = (
-                                    f"错误的 pickcode 值 {pickcode}"
-                                )
-                                logger.error(
-                                    f"【全量STRM生成】错误的 pickcode 值 {pickcode}，无法生成 STRM 文件"
-                                )
-                                continue
-                            strm_url = f"{self.server_address}/api/v1/plugin/P115StrmHelper/redirect_url?apikey={settings.API_TOKEN}&pickcode={pickcode}"
-                            if self.strm_url_format == "pickname":
-                                strm_url += f"&file_name={original_file_name}"
-
-                            with open(new_file_path, "w", encoding="utf-8") as file:
-                                file.write(strm_url)
-                            self.strm_count += 1
-                            logger.info(
-                                "【全量STRM生成】生成 STRM 文件成功: %s",
-                                str(new_file_path),
-                            )
-                        except Exception as e:
-                            logger.error(
-                                "【全量STRM生成】生成 STRM 文件失败: %s  %s",
-                                str(new_file_path),
-                                e,
-                            )
-                            self.strm_fail_count += 1
-                            self.strm_fail_dict[str(new_file_path)] = str(e)
-                            continue
 
                     self.databasehelper.upsert_batch(processed)
+                    self.total_db_write_count += len(processed)
 
                     if self.remove_unless_strm:
-                        tree.generate_tree_from_list(
+                        DirectoryTree().generate_tree_from_list(
                             path_list, self.pan_tree, append=True
                         )
 
+                end_time = time.perf_counter()
+                self.elapsed_time += end_time - start_time
             except Exception as e:
-                logger.error(f"【全量STRM生成】全量生成 STRM 文件失败: {e}")
+                logger.error(f"【全量STRM生成】全量生成 STRM 文件失败: {e}", exc_info=True)
                 return False
 
             if self.remove_unless_strm:
@@ -766,7 +825,9 @@ class FullSyncStrmHelper:
                     time.sleep(10)
                 if not self.strm_fail_dict:
                     try:
-                        for path in tree.compare_trees(self.local_tree, self.pan_tree):
+                        for path in DirectoryTree().compare_trees(
+                            self.local_tree, self.pan_tree
+                        ):
                             logger.info(f"【全量STRM生成】清理无效 STRM 文件: {path}")
                             Path(path).unlink(missing_ok=True)
                             self.__remove_parent_dir(file_path=Path(path))
@@ -783,6 +844,19 @@ class FullSyncStrmHelper:
                 downloads_list=self.download_mediainfo_list
             )
         )
+
+        self.result_print()
+
+        logger.debug(
+            f"【全量STRM生成】时间 {self.elapsed_time:.6f} 秒，总迭代文件数量 {self.total_count} 个，数据库写入量 {self.total_db_write_count} 条"
+        )
+
+        return True
+
+    def result_print(self):
+        """
+        输出结果信息
+        """
         if self.strm_fail_dict:
             for path, error in self.strm_fail_dict.items():
                 logger.warn(f"【全量STRM生成】{path} 生成错误原因: {error}")
@@ -800,8 +874,6 @@ class FullSyncStrmHelper:
             logger.warn(
                 f"【全量STRM生成】清理 {self.remove_unless_strm_count} 个失效 STRM 文件"
             )
-
-        return True
 
     def get_generate_total(self):
         """
