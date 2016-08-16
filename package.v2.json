@@ -89,11 +89,12 @@
         "name": "115网盘STRM助手",
         "description": "115网盘STRM生成一条龙服务",
         "labels": "云盘",
-        "version": "1.7.9",
+        "version": "1.7.10",
         "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png",
         "author": "DDSRem",
         "level": 1,
         "history": {
+            "v1.7.10": "全量同步更完善的错误捕捉",
             "v1.7.9": "通知交互支持全量同步指定文件夹",
             "v1.7.8": "修复115生活监控修正名称后未刷新",
             "v1.7.7": "115生活监控支持网盘整理（不推荐使用）",

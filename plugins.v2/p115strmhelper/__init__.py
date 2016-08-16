@@ -485,17 +485,18 @@ class FullSyncStrmHelper:
                         _process_item = self.databasehelper.process_item(item)
                         if _process_item not in processed:
                             processed.extend(_process_item)
-                        if item["is_dir"] or item["is_directory"]:
-                            continue
-                        file_path = item["path"]
-                        file_path = Path(target_dir) / Path(file_path).relative_to(
-                            pan_media_dir
-                        )
-                        file_target_dir = file_path.parent
-                        original_file_name = file_path.name
-                        file_name = file_path.stem + ".strm"
-                        new_file_path = file_target_dir / file_name
                         try:
+                            if item["is_dir"] or item["is_directory"]:
+                                continue
+                            file_path = item["path"]
+                            file_path = Path(target_dir) / Path(file_path).relative_to(
+                                pan_media_dir
+                            )
+                            file_target_dir = file_path.parent
+                            original_file_name = file_path.name
+                            file_name = file_path.stem + ".strm"
+                            new_file_path = file_target_dir / file_name
+
                             if self.pan_transfer_enabled and self.pan_transfer_paths:
                                 if self.pathmatchinghelper.get_run_transfer_path(
                                     paths=self.pan_transfer_paths,
@@ -865,7 +866,7 @@ class P115StrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png"
     # 插件版本
-    plugin_version = "1.7.9"
+    plugin_version = "1.7.10"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
