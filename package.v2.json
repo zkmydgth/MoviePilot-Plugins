@@ -369,11 +369,12 @@
         "name": "神医媒体文件同步删除",
         "description": "通过神医插件通知同步删除历史记录、源文件和下载任务。",
         "labels": "媒体库，文件整理",
-        "version": "1.0.7",
+        "version": "1.0.8",
         "icon": "mediasyncdel.png",
         "author": "DDSRem",
         "level": 1,
         "history": {
+            "v1.0.8": "兼容新版本 Emby API 季删除",
             "v1.0.7": "适配 MoviePilot v2.7.4【此版本及插件后续版本均强制要求MPv2.7.4+】",
             "v1.0.6": "更新神医版本提示信息",
             "v1.0.5": "修复引用类丢失",

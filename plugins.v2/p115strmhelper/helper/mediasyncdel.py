@@ -635,6 +635,12 @@ class MediaSyncDelHelper:
         # 原始数据
         json_object = getattr(event_data, "json_object", {})
 
+        # 对于 Emby 新版本 API 单独处理，兼容季删除
+        if json_object.get("Item", {}).get("Type", None) == "Season":
+            if not season_num and episode_num:
+                season_num = episode_num
+                episode_num = None
+
         remove_type = self.__get_remove_type(media_type, season_num, episode_num)
         if remove_type in ["tv_season", "movie"] and configer.sync_del_remove_versions:
             # 为了支持多版本删除，电影和季删除统一退回为集删除

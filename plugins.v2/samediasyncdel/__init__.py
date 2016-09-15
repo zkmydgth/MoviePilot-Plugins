@@ -30,7 +30,7 @@ class SaMediaSyncDel(_PluginBase):
     # 插件图标
     plugin_icon = "mediasyncdel.png"
     # 插件版本
-    plugin_version = "1.0.7"
+    plugin_version = "1.0.8"
     # 插件作者
     plugin_author = "DDSRem,thsrite"
     # 作者主页
@@ -882,6 +882,12 @@ class SaMediaSyncDel(_PluginBase):
         # 执行删除逻辑
         if not media_path:
             return
+
+        # 对于 Emby 新版本 API 单独处理，兼容季删除
+        if event_data.json_object.get("Item", {}).get("Type", None) == "Season":
+            if not season_num and episode_num:
+                season_num = episode_num
+                episode_num = None
 
         # 匹配媒体存储模块
         if (
