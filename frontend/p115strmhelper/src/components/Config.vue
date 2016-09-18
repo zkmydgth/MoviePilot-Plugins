@@ -356,19 +356,29 @@
                             <v-col cols="12">
                               <div class="d-flex flex-column">
                                 <div v-for="(pair, index) in fullSyncPaths" :key="`full-${index}`"
-                                  class="mb-2 d-flex align-center">
-                                  <div class="path-selector flex-grow-1 mr-2">
+                                  class="mb-2 d-flex align-center gap-1">
+                                  <div class="path-selector flex-grow-1 mr-1">
                                     <v-text-field v-model="pair.local" label="本地STRM目录" density="compact"
                                       append-icon="mdi-folder"
                                       @click:append="openDirSelector(index, 'local', 'fullSync')"></v-text-field>
                                   </div>
-                                  <v-icon>mdi-pound</v-icon>
-                                  <div class="path-selector flex-grow-1 ml-2">
+                                  <v-icon class="shrink-0">mdi-pound</v-icon>
+                                  <div class="path-selector flex-grow-1 mx-1">
                                     <v-text-field v-model="pair.remote" label="网盘媒体库目录" density="compact"
                                       append-icon="mdi-folder-network"
                                       @click:append="openDirSelector(index, 'remote', 'fullSync')"></v-text-field>
                                   </div>
-                                  <v-btn icon size="small" color="error" class="ml-2"
+                                  <v-tooltip :text="pair.enabled ? '参与全量同步，点击关闭' : '不参与全量同步，点击开启'"
+                                    location="top">
+                                    <template #activator="{ props: tooltipProps }">
+                                      <v-btn v-bind="tooltipProps" icon size="small"
+                                        :color="pair.enabled ? 'primary' : 'default'" variant="text"
+                                        class="shrink-0" @click="pair.enabled = !pair.enabled">
+                                        <v-icon>{{ pair.enabled ? 'mdi-sync' : 'mdi-sync-off' }}</v-icon>
+                                      </v-btn>
+                                    </template>
+                                  </v-tooltip>
+                                  <v-btn icon size="small" color="error" variant="text" class="shrink-0"
                                     @click="removePath(index, 'fullSync')">
                                     <v-icon>mdi-delete</v-icon>
                                   </v-btn>
@@ -385,6 +395,7 @@
                                 <div class="text-caption">全量扫描配置的网盘目录，并在对应的本地目录生成STRM文件。</div>
                                 <div class="text-body-2 mt-2 mb-1"><strong>配置说明：</strong></div>
                                 <div class="text-caption">
+                                  <div class="mb-1">• <strong>同步：</strong>开启时该目录参与全量同步，关闭则不参与（机器人命令按路径执行不受影响）</div>
                                   <div class="mb-1">• <strong>本地STRM目录：</strong>本地STRM文件生成路径</div>
                                   <div>• <strong>网盘媒体库目录：</strong>需要生成本地STRM文件的网盘媒体库路径</div>
                                 </div>
@@ -2933,7 +2944,7 @@ const formatBytes = (bytes, decimals = 2) => {
 // 路径管理
 const transferPaths = ref([{ local: '', remote: '' }]);
 const transferMpPaths = ref([{ local: '', remote: '' }]);
-const fullSyncPaths = ref([{ local: '', remote: '' }]);
+const fullSyncPaths = ref([{ local: '', remote: '', enabled: true }]);
 const incrementSyncPaths = ref([{ local: '', remote: '' }]);
 const incrementSyncMPPaths = ref([{ local: '', remote: '' }]);
 const monitorLifePaths = ref([{ local: '', remote: '' }]);
@@ -3103,21 +3114,23 @@ watch(() => config.transfer_mp_mediaserver_paths, (newVal) => {
 
 watch(() => config.full_sync_strm_paths, (newVal) => {
   if (!newVal) {
-    fullSyncPaths.value = [{ local: '', remote: '' }];
+    fullSyncPaths.value = [{ local: '', remote: '', enabled: true }];
     return;
   }
   try {
     const paths = newVal.split('\n').filter(line => line.trim());
     fullSyncPaths.value = paths.map(path => {
       const parts = path.split('#');
-      return { local: parts[0] || '', remote: parts[1] || '' };
+      // 无第三段（旧格式）或第三段非 '0' 时均为开启；仅第三段为 '0' 时为关闭
+      const enabled = parts.length < 3 || parts[2].trim() !== '0';
+      return { local: parts[0] || '', remote: parts[1] || '', enabled };
     });
     if (fullSyncPaths.value.length === 0) {
-      fullSyncPaths.value = [{ local: '', remote: '' }];
+      fullSyncPaths.value = [{ local: '', remote: '', enabled: true }];
     }
   } catch (e) {
     console.error('解析full_sync_strm_paths出错:', e);
-    fullSyncPaths.value = [{ local: '', remote: '' }];
+    fullSyncPaths.value = [{ local: '', remote: '', enabled: true }];
   }
 }, { immediate: true });
 
@@ -3416,15 +3429,20 @@ const generatePathsConfig = (paths, key) => {
   const configText = paths.map(p => {
     if (key === 'panTransfer') {
       return p.path?.trim();
-    } else {
-      return `${p.local?.trim()}#${p.remote?.trim()}`;
     }
+    if (key === 'fullSync') {
+      return `${p.local?.trim()}#${p.remote?.trim()}#${p.enabled !== false ? '1' : '0'}`;
+    }
+    return `${p.local?.trim()}#${p.remote?.trim()}`;
   }).filter(p => {
     if (key === 'panTransfer') {
       return p && p !== '';
-    } else {
-      return p !== '#' && p !== '';
     }
+    if (key === 'fullSync') {
+      const parts = p.split('#');
+      return parts.length >= 2 && (parts[0]?.trim() || parts[1]?.trim());
+    }
+    return p !== '#' && p !== '';
   }).join('\n');
 
   return configText;
@@ -3797,7 +3815,7 @@ const addPath = (type) => {
   switch (type) {
     case 'transfer': transferPaths.value.push({ local: '', remote: '' }); break;
     case 'mp': transferMpPaths.value.push({ local: '', remote: '' }); break;
-    case 'fullSync': fullSyncPaths.value.push({ local: '', remote: '' }); break;
+    case 'fullSync': fullSyncPaths.value.push({ local: '', remote: '', enabled: true }); break;
     case 'incrementSync': incrementSyncPaths.value.push({ local: '', remote: '' }); break;
     case 'increment-mp': incrementSyncMPPaths.value.push({ local: '', remote: '' }); break;
     case 'monitorLife': monitorLifePaths.value.push({ local: '', remote: '' }); break;
@@ -3821,7 +3839,7 @@ const removePath = (index, type) => {
       break;
     case 'fullSync':
       fullSyncPaths.value.splice(index, 1);
-      if (fullSyncPaths.value.length === 0) fullSyncPaths.value = [{ local: '', remote: '' }];
+      if (fullSyncPaths.value.length === 0) fullSyncPaths.value = [{ local: '', remote: '', enabled: true }];
       break;
     case 'incrementSync':
       incrementSyncPaths.value.splice(index, 1);

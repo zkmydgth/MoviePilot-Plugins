@@ -607,7 +607,9 @@ class FullSyncStrmHelper:
         for path in media_paths:
             if not path:
                 continue
-            parts = path.split("#", 1)
+            parts = path.split("#", 2)
+            if len(parts) >= 3 and str(parts[2]).strip() == "0":
+                continue
             pan_media_dir = parts[1]
 
             try:
@@ -633,7 +635,7 @@ class FullSyncStrmHelper:
                     iter_kwargs = {
                         "cid": parent_id,
                         "with_ancestors": True,
-                        **configer.get_ios_ua_app()
+                        **configer.get_ios_ua_app(),
                     }
                 else:
                     iter_func = iter_files_with_path
@@ -641,7 +643,7 @@ class FullSyncStrmHelper:
                         "cid": parent_id,
                         "with_ancestors": True,
                         "cooldown": 1.5,
-                        **configer.get_ios_ua_app()
+                        **configer.get_ios_ua_app(),
                     }
                 logger.debug(
                     f"【全量STRM生成】迭代函数 {iter_func}; 参数 {iter_kwargs}"
@@ -714,8 +716,10 @@ class FullSyncStrmHelper:
             for path in media_paths:
                 if not path:
                     continue
+                parts = path.split("#", 2)
+                if len(parts) >= 3 and str(parts[2]).strip() == "0":
+                    continue
                 path_base64 = CBase64.encode(str(path).encode("utf-8"))
-                parts = path.split("#", 1)
                 pan_media_dir = parts[1]
                 target_dir = parts[0]
 
@@ -776,7 +780,7 @@ class FullSyncStrmHelper:
                         iter_kwargs = {
                             "cid": parent_id,
                             "with_ancestors": True,
-                            **configer.get_ios_ua_app()
+                            **configer.get_ios_ua_app(),
                         }
                     else:
                         iter_func = iter_files_with_path

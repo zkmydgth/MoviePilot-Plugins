@@ -78,7 +78,7 @@ class PathUtils:
         for path in media_paths:
             if not path:
                 continue
-            parts = path.split("#", 1)
+            parts = path.split("#", 2)
             if PathUtils.has_prefix(media_path, parts[1]):
                 local_path = Path(parts[0]) / Path(media_path).relative_to(parts[1])
                 final_paths = f"{local_path}#{media_path}"

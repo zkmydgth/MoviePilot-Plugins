@@ -252,7 +252,8 @@ class ConfigManager(BaseModel):
         default=None, description="全量同步刷新媒体服务器列表"
     )
     full_sync_strm_paths: Optional[str] = Field(
-        default=None, description="全量同步路径"
+        default=None,
+        description="全量同步路径，每行格式为 本地目录#网盘目录，行尾可加 #0 表示该目录不参与全量同步",
     )
     full_sync_strm_log: bool = Field(default=True, description="全量生成输出详细日志")
     full_sync_batch_num: Union[int, str] = Field(
