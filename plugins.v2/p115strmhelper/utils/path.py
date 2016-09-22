@@ -47,6 +47,8 @@ class PathUtils:
         :param full_path: 完整路径
         :param prefix_path: 匹配路径
         """
+        if not full_path or not prefix_path:
+            return False
         full = Path(full_path).parts
         prefix = Path(prefix_path).parts
 

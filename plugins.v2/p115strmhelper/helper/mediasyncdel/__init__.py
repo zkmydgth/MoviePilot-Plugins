@@ -86,6 +86,12 @@ class MediaSyncDelHelper:
         for transferhis in transfer_history:
             dest_path = transferhis.dest
 
+            if not dest_path:
+                logger.warn(
+                    f"【同步删除】转移记录 {transferhis.id} 目标路径为空，跳过删除"
+                )
+                continue
+
             if not PathUtils.has_prefix(dest_path, path):
                 logger.warn(f"【同步删除】{dest_path} 不在 {path} 下，跳过删除")
                 continue
