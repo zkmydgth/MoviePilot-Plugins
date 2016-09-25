@@ -2796,12 +2796,25 @@ class P115StrmHelper(_PluginBase):
             )
             if not file_path:
                 return
+
+            # 优先匹配待整理目录，如果删除的目录为待整理目录则不进行操作
+            if self._pan_transfer_enabled and self._pan_transfer_paths:
+                if self.__get_run_transfer_path(
+                    paths=self._pan_transfer_paths, transfer_path=file_path
+                ):
+                    logger.debug(
+                        f"【监控生活事件】: {file_path} 为待整理目录下的路径，不做处理"
+                    )
+                    return
+
+            # 匹配是否是媒体文件夹目录
             status, target_dir, pan_media_dir = self.__get_media_path(
                 self._monitor_life_paths, file_path
             )
             if not status:
                 return
             logger.debug("【监控生活事件】匹配到网盘文件夹路径: %s", str(pan_media_dir))
+
             file_path = Path(target_dir) / Path(file_path).relative_to(pan_media_dir)
             if file_path.suffix in rmt_mediaext:
                 file_target_dir = file_path.parent
