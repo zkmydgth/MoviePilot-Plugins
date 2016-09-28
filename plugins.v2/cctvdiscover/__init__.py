@@ -1,15 +1,17 @@
+import asyncio
 import re
-from typing import Any, List, Dict, Tuple
 from dataclasses import dataclass
+from typing import Any, Dict, List, Optional, Tuple
 
 from app import schemas
 from app.core.config import settings
 from app.core.event import eventmanager, Event
 from app.core.cache import cached
+from app.core.metainfo import MetaInfo
 from app.log import logger
 from app.plugins import _PluginBase
 from app.schemas import DiscoverSourceEventData
-from app.schemas.types import ChainEventType
+from app.schemas.types import ChainEventType, MediaType
 from app.utils.http import RequestUtils
 
 
@@ -62,7 +64,7 @@ class CCTVDiscover(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/DDSRem-Dev/MoviePilot-Plugins/main/icons/CCTV_A.png"
     # 插件版本
-    plugin_version = "1.2.4"
+    plugin_version = "1.2.5"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -77,6 +79,7 @@ class CCTVDiscover(_PluginBase):
     # 私有属性
     _base_api = "https://api.cntv.cn/newVideoset/getCboxVideoAlbumList"
     _enabled = False
+    _identity_cache_key = "media_identity"
 
     def init_plugin(self, config: dict = None):
         """
@@ -94,6 +97,176 @@ class CCTVDiscover(_PluginBase):
         :return: 插件启用状态
         """
         return self._enabled
+
+    def get_module(self) -> Dict[str, Any]:
+        """
+        返回 CCTV 媒体识别模块
+
+        :return Dict: 模块方法映射
+        """
+        return {
+            "recognize_media": self.recognize_media,
+            "async_recognize_media": self.async_recognize_media,
+        }
+
+    @staticmethod
+    def _normalize_media_type(mtype: Any) -> Optional[MediaType]:
+        if isinstance(mtype, MediaType):
+            return mtype
+        try:
+            return MediaType(mtype) if mtype else None
+        except (TypeError, ValueError):
+            return None
+
+    def _save_media_identities(self, items: List[VideoAlbum]) -> None:
+        identities = self.get_data(self._identity_cache_key) or {}
+        for item in items:
+            media_id = str(item.vsetid or item.id or "")
+            title = re.sub("[《》]", "", item.title or "")
+            if not media_id or not title:
+                continue
+            identity = {"title": title}
+            identities[media_id] = identity
+            if item.id:
+                identities[str(item.id)] = identity
+        self.save_data(self._identity_cache_key, dict(list(identities.items())[-2000:]))
+
+    @classmethod
+    def _fetch_cctv_media(cls, media_id: str) -> Optional[Dict[str, Any]]:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+            "Referer": "https://app.cctv.com/",
+        }
+        try:
+            for category in ("电视剧", "电影", "动画片", "纪录片", "特别节目"):
+                response = RequestUtils(headers=headers, timeout=8).get_res(
+                    cls._base_api,
+                    params={
+                        "p": "1",
+                        "n": "100",
+                        "serviceId": "cbox",
+                        "sort": "desc",
+                        "fc": category,
+                    },
+                )
+                if response is None or not response.ok:
+                    continue
+                for item in (response.json().get("data") or {}).get("list", []):
+                    if (
+                        str(item.get("vsetid") or "") != media_id
+                        and str(item.get("id") or "") != media_id
+                    ):
+                        continue
+                    return {
+                        "title": re.sub("[《》]", "", item.get("title") or ""),
+                    }
+        except Exception as err:
+            logger.warning(f"CCTV 媒体详情查询失败：{media_id} - {err}")
+        return None
+
+    def recognize_media(
+        self,
+        meta: Any = None,
+        mtype: Any = None,
+        source: Optional[str] = None,
+        mediaid: Optional[str] = None,
+        cache: bool = True,
+        **kwargs: Any,
+    ) -> Any:
+        """
+        通过 CCTV 专辑 ID 识别媒体信息
+
+        :param meta (Any): 已知媒体元数据
+        :param mtype (MediaType): 媒体类型
+        :param source (str): 媒体来源
+        :param mediaid (str): CCTV 专辑或旧视频 ID
+        :param cache (bool): 是否使用 MoviePilot 识别缓存
+        :param kwargs (Any): 兼容 MoviePilot 模块参数
+
+        :return Any: 识别成功返回媒体信息，否则返回 None
+        """
+        if str(source or "").lower() not in {"cctv", "cctvdiscover"} or not mediaid:
+            return None
+        identities = self.get_data(self._identity_cache_key) or {}
+        source_media = (
+            identities.get(str(mediaid)) or self._fetch_cctv_media(str(mediaid)) or {}
+        )
+        title = source_media.get("title") or getattr(meta, "title", None)
+        if not title:
+            return None
+        identities[str(mediaid)] = {"title": title}
+        self.save_data(self._identity_cache_key, dict(list(identities.items())[-2000:]))
+        media_type = self._normalize_media_type(mtype or getattr(meta, "type", None))
+        recognize_meta = MetaInfo(title)
+        recognize_meta.year = getattr(meta, "year", None)
+        recognize_meta.type = media_type
+        from app.chain.media import MediaChain
+
+        mediainfo = MediaChain().recognize_media(
+            meta=recognize_meta,
+            mtype=media_type,
+            source="themoviedb",
+            cache=cache,
+        )
+        if not mediainfo:
+            return None
+        mediainfo.source = "cctv"
+        mediainfo.media_id = str(mediaid)
+        return mediainfo
+
+    async def async_recognize_media(
+        self,
+        meta: Any = None,
+        mtype: Any = None,
+        source: Optional[str] = None,
+        mediaid: Optional[str] = None,
+        cache: bool = True,
+        **kwargs: Any,
+    ) -> Any:
+        """
+        异步通过 CCTV 专辑 ID 识别媒体信息
+
+        :param meta (Any): 已知媒体元数据
+        :param mtype (MediaType): 媒体类型
+        :param source (str): 媒体来源
+        :param mediaid (str): CCTV 专辑或旧视频 ID
+        :param cache (bool): 是否使用 MoviePilot 识别缓存
+        :param kwargs (Any): 兼容 MoviePilot 模块参数
+
+        :return Any: 识别成功返回媒体信息，否则返回 None
+        """
+        if str(source or "").lower() not in {"cctv", "cctvdiscover"} or not mediaid:
+            return None
+        identities = await self.async_get_data(self._identity_cache_key) or {}
+        source_media = (
+            identities.get(str(mediaid))
+            or await asyncio.to_thread(self._fetch_cctv_media, str(mediaid))
+            or {}
+        )
+        title = source_media.get("title") or getattr(meta, "title", None)
+        if not title:
+            return None
+        identities[str(mediaid)] = {"title": title}
+        await self.async_save_data(
+            self._identity_cache_key, dict(list(identities.items())[-2000:])
+        )
+        media_type = self._normalize_media_type(mtype or getattr(meta, "type", None))
+        recognize_meta = MetaInfo(title)
+        recognize_meta.year = getattr(meta, "year", None)
+        recognize_meta.type = media_type
+        from app.chain.media import MediaChain
+
+        mediainfo = await MediaChain().async_recognize_media(
+            meta=recognize_meta,
+            mtype=media_type,
+            source="themoviedb",
+            cache=cache,
+        )
+        if not mediainfo:
+            return None
+        mediainfo.source = "cctv"
+        mediainfo.media_id = str(mediaid)
+        return mediainfo
 
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:
@@ -230,18 +403,20 @@ class CCTVDiscover(_PluginBase):
         def __movie_to_media(movie_info: VideoAlbum) -> schemas.MediaInfo:
             return schemas.MediaInfo(
                 type="电影",
+                source="cctv",
                 title=re.sub("[《》]", "", movie_info.title),
-                mediaid_prefix="",
-                media_id=movie_info.id,
+                mediaid_prefix="cctv",
+                media_id=movie_info.vsetid or movie_info.id,
                 poster_path=movie_info.image,
             )
 
         def __series_to_media(series_info: VideoAlbum) -> schemas.MediaInfo:
             return schemas.MediaInfo(
                 type="电视剧",
+                source="cctv",
                 title=re.sub("[《》]", "", series_info.title),
-                mediaid_prefix="",
-                media_id=series_info.id,
+                mediaid_prefix="cctv",
+                media_id=series_info.vsetid or series_info.id,
                 poster_path=series_info.image,
             )
 
@@ -269,6 +444,7 @@ class CCTVDiscover(_PluginBase):
             return []
         if not result:
             return []
+        self._save_media_identities(result.data.list)
         if fc == "电影":
             results = [__movie_to_media(movie) for movie in result.data.list[:]]
         else:

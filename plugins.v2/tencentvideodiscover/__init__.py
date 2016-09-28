@@ -1,3 +1,4 @@
+import asyncio
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -7,10 +8,11 @@ from app import schemas
 from app.core.cache import cached
 from app.core.config import settings
 from app.core.event import Event, eventmanager
+from app.core.metainfo import MetaInfo
 from app.log import logger
 from app.plugins import _PluginBase
 from app.schemas import DiscoverSourceEventData
-from app.schemas.types import ChainEventType
+from app.schemas.types import ChainEventType, MediaType
 
 BASE_UI: Optional[List] = None
 
@@ -165,7 +167,7 @@ class TencentVideoDiscover(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/DDSRem-Dev/MoviePilot-Plugins/main/icons/tencentvideo_A.png"
     # 插件版本
-    plugin_version = "1.0.5"
+    plugin_version = "1.0.6"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -179,6 +181,7 @@ class TencentVideoDiscover(_PluginBase):
 
     # 私有属性
     _enabled = False
+    _identity_cache_key = "media_identity"
 
     def init_plugin(self, config: dict = None):
         """
@@ -200,6 +203,194 @@ class TencentVideoDiscover(_PluginBase):
         :return: 插件启用状态
         """
         return self._enabled
+
+    def get_module(self) -> Dict[str, Any]:
+        """
+        返回腾讯视频媒体识别模块
+
+        :return Dict: 模块方法映射
+        """
+        return {
+            "recognize_media": self.recognize_media,
+            "async_recognize_media": self.async_recognize_media,
+        }
+
+    def _save_media_identities(self, items: List[Dict[str, Any]]) -> None:
+        identities = self.get_data(self._identity_cache_key) or {}
+        for item in items:
+            media_id = str(item.get("cid") or "")
+            title = item.get("title")
+            if not media_id or not title:
+                continue
+            identities[media_id] = {
+                "title": title,
+                "year": str(item.get("year") or "").strip() or None,
+            }
+        self.save_data(self._identity_cache_key, dict(list(identities.items())[-2000:]))
+
+    def _get_media_identity(self, media_id: str) -> Dict[str, Any]:
+        identities = self.get_data(self._identity_cache_key) or {}
+        return identities.get(str(media_id)) or {}
+
+    def _remember_media_identity(
+        self, media_id: str, title: str, year: Optional[str]
+    ) -> None:
+        identities = self.get_data(self._identity_cache_key) or {}
+        identities[str(media_id)] = {"title": title, "year": year}
+        self.save_data(self._identity_cache_key, dict(list(identities.items())[-2000:]))
+
+    @staticmethod
+    def _normalize_media_type(mtype: Any) -> Optional[MediaType]:
+        if isinstance(mtype, MediaType):
+            return mtype
+        try:
+            return MediaType(mtype) if mtype else None
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _fetch_tencent_media(media_id: str) -> Optional[Dict[str, Any]]:
+        try:
+            response = requests.get(
+                "https://node.video.qq.com/x/api/float_vinfo2",
+                params={"cid": media_id},
+                headers=HEADERS,
+                timeout=15,
+            )
+            response.raise_for_status()
+            data = response.json().get("c") or {}
+            if not data.get("title"):
+                return None
+            return {
+                "title": data.get("title"),
+                "year": str(data.get("year") or "").strip() or None,
+                "overview": data.get("description"),
+            }
+        except (requests.RequestException, ValueError) as err:
+            logger.warning(f"腾讯视频媒体详情查询失败：{media_id} - {err}")
+            return None
+
+    def recognize_media(
+        self,
+        meta: Any = None,
+        mtype: Any = None,
+        source: Optional[str] = None,
+        mediaid: Optional[str] = None,
+        cache: bool = True,
+        **kwargs: Any,
+    ) -> Any:
+        """
+        通过腾讯视频 CID 识别媒体信息
+
+        :param meta (Any): 已知媒体元数据
+        :param mtype (MediaType): 媒体类型
+        :param source (str): 媒体来源
+        :param mediaid (str): 腾讯视频 CID
+        :param cache (bool): 是否使用 MoviePilot 识别缓存
+        :param kwargs (Any): 兼容 MoviePilot 模块参数
+
+        :return Any: 识别成功返回媒体信息，否则返回 None
+        """
+        if (
+            str(source or "").lower()
+            not in {
+                "tencentvideo",
+                "tencentvideodiscover",
+            }
+            or not mediaid
+        ):
+            return None
+        media_type = self._normalize_media_type(mtype or getattr(meta, "type", None))
+        source_media = self._fetch_tencent_media(
+            str(mediaid)
+        ) or self._get_media_identity(str(mediaid))
+        title = source_media.get("title") or getattr(meta, "title", None)
+        year = source_media.get("year") or getattr(meta, "year", None)
+        if not title:
+            return None
+        self._remember_media_identity(str(mediaid), title, str(year) if year else None)
+        recognize_meta = MetaInfo(title)
+        recognize_meta.year = str(year) if year else None
+        recognize_meta.type = media_type
+        from app.chain.media import MediaChain
+
+        mediainfo = MediaChain().recognize_media(
+            meta=recognize_meta,
+            mtype=media_type,
+            source="themoviedb",
+            cache=cache,
+        )
+        if not mediainfo:
+            return None
+        mediainfo.source = "tencentvideo"
+        mediainfo.media_id = str(mediaid)
+        if source_media.get("overview") and not mediainfo.overview:
+            mediainfo.overview = source_media["overview"]
+        return mediainfo
+
+    async def async_recognize_media(
+        self,
+        meta: Any = None,
+        mtype: Any = None,
+        source: Optional[str] = None,
+        mediaid: Optional[str] = None,
+        cache: bool = True,
+        **kwargs: Any,
+    ) -> Any:
+        """
+        异步通过腾讯视频 CID 识别媒体信息
+
+        :param meta (Any): 已知媒体元数据
+        :param mtype (MediaType): 媒体类型
+        :param source (str): 媒体来源
+        :param mediaid (str): 腾讯视频 CID
+        :param cache (bool): 是否使用 MoviePilot 识别缓存
+        :param kwargs (Any): 兼容 MoviePilot 模块参数
+
+        :return Any: 识别成功返回媒体信息，否则返回 None
+        """
+        if (
+            str(source or "").lower()
+            not in {
+                "tencentvideo",
+                "tencentvideodiscover",
+            }
+            or not mediaid
+        ):
+            return None
+        media_type = self._normalize_media_type(mtype or getattr(meta, "type", None))
+        source_media = await asyncio.to_thread(self._fetch_tencent_media, str(mediaid))
+        source_media = source_media or self._get_media_identity(str(mediaid))
+        title = source_media.get("title") or getattr(meta, "title", None)
+        year = source_media.get("year") or getattr(meta, "year", None)
+        if not title:
+            return None
+        identities = await self.async_get_data(self._identity_cache_key) or {}
+        identities[str(mediaid)] = {
+            "title": title,
+            "year": str(year) if year else None,
+        }
+        await self.async_save_data(
+            self._identity_cache_key, dict(list(identities.items())[-2000:])
+        )
+        recognize_meta = MetaInfo(title)
+        recognize_meta.year = str(year) if year else None
+        recognize_meta.type = media_type
+        from app.chain.media import MediaChain
+
+        mediainfo = await MediaChain().async_recognize_media(
+            meta=recognize_meta,
+            mtype=media_type,
+            source="themoviedb",
+            cache=cache,
+        )
+        if not mediainfo:
+            return None
+        mediainfo.source = "tencentvideo"
+        mediainfo.media_id = str(mediaid)
+        if source_media.get("overview") and not mediainfo.overview:
+            mediainfo.overview = source_media["overview"]
+        return mediainfo
 
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:
@@ -400,10 +591,11 @@ class TencentVideoDiscover(_PluginBase):
             )
             return schemas.MediaInfo(
                 type="电影",
+                source="tencentvideo",
                 title=movie_info.get("title"),
                 year=movie_info.get("year"),
                 title_year=f"{movie_info.get('title')} ({movie_info.get('year')})",
-                mediaid_prefix="",
+                mediaid_prefix="tencentvideo",
                 media_id=str(movie_info.get("cid")),
                 poster_path=poster_url,
             )
@@ -438,10 +630,11 @@ class TencentVideoDiscover(_PluginBase):
             )
             return schemas.MediaInfo(
                 type="电视剧",
+                source="tencentvideo",
                 title=series_info.get("title"),
                 year=series_info.get("year"),
                 title_year=f"{series_info.get('title')} ({series_info.get('year')})",
-                mediaid_prefix="",
+                mediaid_prefix="tencentvideo",
                 media_id=str(series_info.get("cid")),
                 poster_path=poster_url,
             )
@@ -502,18 +695,16 @@ class TencentVideoDiscover(_PluginBase):
             return []
         if not result:
             return []
+        media_items = [
+            item.get("item_params", {})
+            for item in result
+            if str(item.get("item_type", "")) == "2"
+        ]
+        self._save_media_identities(media_items)
         if mtype == "movie":
-            results = [
-                __movie_to_media(movie.get("item_params", {}))
-                for movie in result
-                if str(movie.get("item_type", "")) == "2"
-            ]
+            results = [__movie_to_media(movie_info) for movie_info in media_items]
         else:
-            results = [
-                __series_to_media(series.get("item_params", {}))
-                for series in result
-                if str(series.get("item_type", "")) == "2"
-            ]
+            results = [__series_to_media(series_info) for series_info in media_items]
         return results
 
     @staticmethod
@@ -562,7 +753,7 @@ class TencentVideoDiscover(_PluginBase):
         event_data: DiscoverSourceEventData = event.event_data
         tencentvideo_source = schemas.DiscoverMediaSource(
             name="腾讯视频",
-            mediaid_prefix="tencentvideodiscover",
+            mediaid_prefix="tencentvideo",
             api_path=f"plugin/TencentVideoDiscover/tencentvideo_discover?apikey={settings.API_TOKEN}",
             filter_params={
                 "mtype": "tv",

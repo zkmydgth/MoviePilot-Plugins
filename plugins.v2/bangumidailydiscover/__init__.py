@@ -44,7 +44,7 @@ class BangumiDailyDiscover(_PluginBase):
     # 插件图标
     plugin_icon = "Bangumi_A.png"
     # 插件版本
-    plugin_version = "1.0.9"
+    plugin_version = "1.0.10"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -319,7 +319,7 @@ class BangumiDailyDiscover(_PluginBase):
         event_data: DiscoverSourceEventData = event.event_data
         bangumidaily_source = schemas.DiscoverMediaSource(
             name="Bangumi每日放送",
-            mediaid_prefix="bangumidaily",
+            mediaid_prefix="bangumi",
             api_path=f"plugin/BangumiDailyDiscover/bangumidaily_discover?apikey={settings.API_TOKEN}",
             filter_params={"weekday": WEEKDAY_ALL},
             filter_ui=self.bangumidaily_filter_ui(),

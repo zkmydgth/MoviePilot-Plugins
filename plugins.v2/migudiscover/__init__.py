@@ -1,13 +1,15 @@
-from typing import Any, List, Dict, Tuple
+import asyncio
+from typing import Any, Dict, List, Optional, Tuple
 
 from app import schemas
 from app.core.config import settings
 from app.core.event import eventmanager, Event
 from app.core.cache import cached
+from app.core.metainfo import MetaInfo
 from app.log import logger
 from app.plugins import _PluginBase
 from app.schemas import DiscoverSourceEventData
-from app.schemas.types import ChainEventType
+from app.schemas.types import ChainEventType, MediaType
 from app.utils.http import RequestUtils
 
 
@@ -23,7 +25,7 @@ class MiGuDiscover(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/DDSRem-Dev/MoviePilot-Plugins/main/icons/migu_A.png"
     # 插件版本
-    plugin_version = "1.0.7"
+    plugin_version = "1.0.8"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -38,6 +40,7 @@ class MiGuDiscover(_PluginBase):
     # 私有属性
     _base_api = "https://jadeite.migu.cn/search/v3/category"
     _enabled = False
+    _identity_cache_key = "media_identity"
 
     def init_plugin(self, config: dict = None):
         """
@@ -57,6 +60,181 @@ class MiGuDiscover(_PluginBase):
         :return: 插件启用状态
         """
         return self._enabled
+
+    def get_module(self) -> Dict[str, Any]:
+        """
+        返回咪咕视频媒体识别模块
+
+        :return Dict: 模块方法映射
+        """
+        return {
+            "recognize_media": self.recognize_media,
+            "async_recognize_media": self.async_recognize_media,
+        }
+
+    @staticmethod
+    def _normalize_media_type(mtype: Any) -> Optional[MediaType]:
+        if isinstance(mtype, MediaType):
+            return mtype
+        try:
+            return MediaType(mtype) if mtype else None
+        except (TypeError, ValueError):
+            return None
+
+    def _save_media_identities(self, items: List[Dict[str, Any]]) -> None:
+        identities = self.get_data(self._identity_cache_key) or {}
+        for item in items:
+            media_id = str(item.get("pID") or "")
+            title = item.get("name")
+            if not media_id or not title:
+                continue
+            identities[media_id] = {
+                "title": title,
+                "year": str(item.get("year") or "").strip() or None,
+            }
+        self.save_data(self._identity_cache_key, dict(list(identities.items())[-2000:]))
+
+    @staticmethod
+    def _fetch_migu_media(media_id: str) -> Optional[Dict[str, Any]]:
+        try:
+            response = RequestUtils(
+                headers={
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+                    "Referer": "https://www.miguvideo.com/",
+                },
+                timeout=8,
+            ).get_res(
+                f"https://program-sc.miguvideo.com/program/v4/cont/content-info/{media_id}/1"
+            )
+            if response is None or not response.ok:
+                return None
+            media = (response.json().get("body") or {}).get("data") or {}
+            if not media.get("name"):
+                return None
+            return {
+                "title": media.get("name"),
+                "year": str(media.get("year") or "").strip() or None,
+                "overview": media.get("detail"),
+            }
+        except Exception as err:
+            logger.warning(f"咪咕视频媒体详情查询失败：{media_id} - {err}")
+            return None
+
+    def recognize_media(
+        self,
+        meta: Any = None,
+        mtype: Any = None,
+        source: Optional[str] = None,
+        mediaid: Optional[str] = None,
+        cache: bool = True,
+        **kwargs: Any,
+    ) -> Any:
+        """
+        通过咪咕视频节目 ID 识别媒体信息
+
+        :param meta (Any): 已知媒体元数据
+        :param mtype (MediaType): 媒体类型
+        :param source (str): 媒体来源
+        :param mediaid (str): 咪咕视频节目 ID
+        :param cache (bool): 是否使用 MoviePilot 识别缓存
+        :param kwargs (Any): 兼容 MoviePilot 模块参数
+
+        :return Any: 识别成功返回媒体信息，否则返回 None
+        """
+        if str(source or "").lower() not in {"migu", "migudiscover"} or not mediaid:
+            return None
+        identities = self.get_data(self._identity_cache_key) or {}
+        source_media = (
+            identities.get(str(mediaid)) or self._fetch_migu_media(str(mediaid)) or {}
+        )
+        title = source_media.get("title") or getattr(meta, "title", None)
+        year = source_media.get("year") or getattr(meta, "year", None)
+        if not title:
+            return None
+        identities[str(mediaid)] = {
+            "title": title,
+            "year": str(year) if year else None,
+        }
+        self.save_data(self._identity_cache_key, dict(list(identities.items())[-2000:]))
+        media_type = self._normalize_media_type(mtype or getattr(meta, "type", None))
+        recognize_meta = MetaInfo(title)
+        recognize_meta.year = str(year) if year else None
+        recognize_meta.type = media_type
+        from app.chain.media import MediaChain
+
+        mediainfo = MediaChain().recognize_media(
+            meta=recognize_meta,
+            mtype=media_type,
+            source="themoviedb",
+            cache=cache,
+        )
+        if not mediainfo:
+            return None
+        mediainfo.source = "migu"
+        mediainfo.media_id = str(mediaid)
+        if source_media.get("overview") and not mediainfo.overview:
+            mediainfo.overview = source_media["overview"]
+        return mediainfo
+
+    async def async_recognize_media(
+        self,
+        meta: Any = None,
+        mtype: Any = None,
+        source: Optional[str] = None,
+        mediaid: Optional[str] = None,
+        cache: bool = True,
+        **kwargs: Any,
+    ) -> Any:
+        """
+        异步通过咪咕视频节目 ID 识别媒体信息
+
+        :param meta (Any): 已知媒体元数据
+        :param mtype (MediaType): 媒体类型
+        :param source (str): 媒体来源
+        :param mediaid (str): 咪咕视频节目 ID
+        :param cache (bool): 是否使用 MoviePilot 识别缓存
+        :param kwargs (Any): 兼容 MoviePilot 模块参数
+
+        :return Any: 识别成功返回媒体信息，否则返回 None
+        """
+        if str(source or "").lower() not in {"migu", "migudiscover"} or not mediaid:
+            return None
+        identities = await self.async_get_data(self._identity_cache_key) or {}
+        source_media = (
+            identities.get(str(mediaid))
+            or await asyncio.to_thread(self._fetch_migu_media, str(mediaid))
+            or {}
+        )
+        title = source_media.get("title") or getattr(meta, "title", None)
+        year = source_media.get("year") or getattr(meta, "year", None)
+        if not title:
+            return None
+        identities[str(mediaid)] = {
+            "title": title,
+            "year": str(year) if year else None,
+        }
+        await self.async_save_data(
+            self._identity_cache_key, dict(list(identities.items())[-2000:])
+        )
+        media_type = self._normalize_media_type(mtype or getattr(meta, "type", None))
+        recognize_meta = MetaInfo(title)
+        recognize_meta.year = str(year) if year else None
+        recognize_meta.type = media_type
+        from app.chain.media import MediaChain
+
+        mediainfo = await MediaChain().async_recognize_media(
+            meta=recognize_meta,
+            mtype=media_type,
+            source="themoviedb",
+            cache=cache,
+        )
+        if not mediainfo:
+            return None
+        mediainfo.source = "migu"
+        mediainfo.media_id = str(mediaid)
+        if source_media.get("overview") and not mediainfo.overview:
+            mediainfo.overview = source_media["overview"]
+        return mediainfo
 
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:
@@ -175,10 +353,11 @@ class MiGuDiscover(_PluginBase):
                 first_air_date = movie_info.get("publishTime")
             return schemas.MediaInfo(
                 type="电影",
+                source="migu",
                 title=movie_info.get("name"),
                 year=year,
                 title_year=f"{movie_info.get('name')} ({year})",
-                mediaid_prefix="",
+                mediaid_prefix="migu",
                 media_id=str(movie_info.get("pID")),
                 poster_path=movie_info.get("h5pics")
                 .get("highResolutionV")
@@ -197,10 +376,11 @@ class MiGuDiscover(_PluginBase):
                 first_air_date = series_info.get("publishTime")
             return schemas.MediaInfo(
                 type="电视剧",
+                source="migu",
                 title=series_info.get("name"),
                 year=year,
                 title_year=f"{series_info.get('name')} ({year})",
-                mediaid_prefix="",
+                mediaid_prefix="migu",
                 media_id=str(series_info.get("pID")),
                 release_date=series_info.get("publishTime"),
                 poster_path=series_info.get("h5pics")
@@ -283,6 +463,7 @@ class MiGuDiscover(_PluginBase):
             return []
         if not result:
             return []
+        self._save_media_identities(result)
         if mtype == "电影":
             results = [__movie_to_media(movie) for movie in result]
         else:
