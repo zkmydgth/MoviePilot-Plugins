@@ -5,14 +5,13 @@ __all__ = ["iter_share_files_with_path", "get_pid_by_path"]
 from itertools import cycle
 from os import PathLike
 from pathlib import Path
-from threading import Lock
-from time import monotonic, sleep
 from typing import Iterator, Literal, List, Tuple, Dict, Any, Set
 from concurrent.futures import ThreadPoolExecutor, Future, as_completed
 
 from p115client import P115Client, check_response, normalize_attr
 
 from ..core.cache import idpathcacher
+from ..utils.limiter import ApiEndpointCooldown
 
 
 def iter_share_files_with_path(
@@ -20,7 +19,6 @@ def iter_share_files_with_path(
     share_code: str,
     receive_code: str = "",
     cid: int = 0,
-    cooldown: int | float = 0.05,
     order: Literal[
         "file_name", "file_size", "file_type", "user_utime", "user_ptime", "user_otime"
     ] = "user_ptime",
@@ -35,7 +33,6 @@ def iter_share_files_with_path(
     :param share_code: 分享码或链接
     :param receive_code: 接收码
     :param cid: 目录的 id
-    :param cooldown: 请求冷却时间
     :param order: 排序
 
         - "file_name": 文件名
@@ -52,31 +49,30 @@ def iter_share_files_with_path(
     """
     if isinstance(client, (str, PathLike)):
         client = P115Client(client, check_for_relogin=True)
-    request_kwargs.setdefault(
-        "base_url", cycle(("http://pro.api.115.com", "https://proapi.115.com")).__next__
+    snap_app_http = ApiEndpointCooldown(
+        api_callable=lambda p: client.share_snap_app(
+            p, app="android", base_url="http://pro.api.115.com", **request_kwargs
+        ),
+        cooldown=0.05,
     )
-    apps = [
-        "ios",
-        "android",
-        "ipad",
-        "web",
-        "115ios",
-        "115android",
-        "115ipad",
-        "harmony",
-        "mac",
-        "linux",
-        "windows",
-    ]
-    apis = [
-        lambda payload: client.share_snap_app(payload, app=app, **request_kwargs)
-        for app in apps
-    ]
-    api_cycler = cycle(apis)
-    last_api_call_time = [monotonic() - cooldown]
-    api_lock = Lock()
+    snap_app_https = ApiEndpointCooldown(
+        api_callable=lambda p: client.share_snap_app(
+            p, app="android", base_url="https://proapi.115.com", **request_kwargs
+        ),
+        cooldown=0.05,
+    )
+    snap_api = ApiEndpointCooldown(
+        api_callable=lambda p: P115Client.share_snap(p, **request_kwargs),
+        cooldown=0.15,
+    )
+
+    repeating_pair = [snap_app_http, snap_app_https]
+    first_page_api_pool = repeating_pair * 6
+    first_page_api_pool.insert(6, snap_api)
+    first_page_api_cycler = cycle(first_page_api_pool)
 
     def _job(
+        api_endpoint: ApiEndpointCooldown,
         _cid: int,
         path_prefix: str,
         offset: int,
@@ -90,18 +86,7 @@ def iter_share_files_with_path(
             "asc": asc,
             "o": order,
         }
-        if offset == 0:
-            api_to_use = next(api_cycler)
-        else:
-            api_to_use = P115Client.share_snap
-        if cooldown > 0:
-            with api_lock:
-                now = monotonic()
-                elapsed = now - last_api_call_time[0]
-                if elapsed < cooldown:
-                    sleep(cooldown - elapsed)
-                last_api_call_time[0] = monotonic()
-        resp = api_to_use(payload)
+        resp = api_endpoint(payload)
         check_response(resp)
         data = resp.get("data", {})
         count = data.get("count", 0)
@@ -127,18 +112,22 @@ def iter_share_files_with_path(
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         pending_futures: Set[Future] = set()
-        initial_future = executor.submit(_job, cid, "", 0)
+        initial_future = executor.submit(_job, next(first_page_api_cycler), cid, "", 0)
         pending_futures.add(initial_future)
         while pending_futures:
             for future in as_completed(pending_futures):
-                print(len(pending_futures))
                 pending_futures.remove(future)
                 try:
                     files, subdirs = future.result()
                     for file_info in files:
                         yield file_info
                     for task_args in subdirs:
-                        new_future = executor.submit(_job, *task_args)
+                        task_offset = task_args[2]
+                        if task_offset > 0:
+                            api_to_use = snap_api
+                        else:
+                            api_to_use = next(first_page_api_cycler)
+                        new_future = executor.submit(_job, api_to_use, *task_args)
                         pending_futures.add(new_future)
                 except Exception as e:
                     for f in pending_futures:
