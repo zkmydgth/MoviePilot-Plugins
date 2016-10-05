@@ -336,12 +336,13 @@
         "name": "115网盘储存",
         "description": "更快更强的115网盘存储模块。",
         "labels": "云盘",
-        "version": "0.1.0",
+        "version": "0.1.1",
         "release": true,
         "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png",
         "author": "DDSRem",
         "level": 1,
         "history": {
+            "v0.1.1": "添加缓存清理按钮",
             "v0.1.0": "优化日志，增强稳定性",
             "v0.0.2": "尝试修复上传失败和删除文件失败的问题",
             "v0.0.1": "测试版本"
