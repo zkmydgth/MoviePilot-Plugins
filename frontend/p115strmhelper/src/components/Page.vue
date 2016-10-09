@@ -165,6 +165,20 @@
                     <v-divider class="my-0"></v-divider>
                     <v-list-item class="px-3 py-0" style="min-height: 34px;">
                       <template v-slot:prepend>
+                        <v-icon :color="initialConfig?.increment_sync_strm_enabled ? 'success' : 'grey'" icon="mdi-book-sync"
+                          size="small" />
+                      </template>
+                      <v-list-item-title class="text-body-2">定期增量同步</v-list-item-title>
+                      <template v-slot:append>
+                        <v-chip :color="initialConfig?.increment_sync_strm_enabled ? 'success' : 'grey'" size="x-small"
+                          variant="tonal">
+                          {{ initialConfig?.increment_sync_strm_enabled ? '已启用' : '已禁用' }}
+                        </v-chip>
+                      </template>
+                    </v-list-item>
+                    <v-divider class="my-0"></v-divider>
+                    <v-list-item class="px-3 py-0" style="min-height: 34px;">
+                      <template v-slot:prepend>
                         <v-icon :color="initialConfig?.monitor_life_enabled ? 'success' : 'grey'"
                           icon="mdi-calendar-heart" size="small" />
                       </template>

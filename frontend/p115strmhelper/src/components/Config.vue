@@ -292,16 +292,55 @@
                 <v-card-text>
 
                   <v-row>
-                    <v-col cols="12" md="2">
+                    <v-col cols="12" md="3">
                       <v-switch v-model="config.increment_sync_strm_enabled" label="启用" color="warning"></v-switch>
                     </v-col>
-                    <v-col cols="12" md="5">
+                    <v-col cols="12" md="9">
                       <VCronField v-model="config.increment_sync_cron" label="运行增量同步周期" hint="设置增量同步的执行周期"
                         persistent-hint density="compact"></VCronField>
                     </v-col>
-                    <v-col cols="12" md="5">
+                  </v-row>
+                  <v-row>
+                    <v-col cols="12" md="3">
                       <v-switch v-model="config.increment_sync_auto_download_mediainfo_enabled" label="下载媒体数据文件"
                         color="warning"></v-switch>
+                    </v-col>
+                    <v-col cols="12" md="3">
+                      <v-switch v-model="config.increment_sync_scrape_metadata_enabled" label="STRM自动刮削"
+                        color="primary"></v-switch>
+                    </v-col>
+                    <v-col cols="12" md="3">
+                      <v-switch v-model="config.increment_sync_media_server_refresh_enabled" label="媒体服务器刷新"
+                        color="warning"></v-switch>
+                    </v-col>
+                    <v-col cols="12" md="3">
+                      <v-select v-model="config.increment_sync_mediaservers" label="媒体服务器" :items="mediaservers"
+                        multiple chips closable-chips></v-select>
+                    </v-col>
+                  </v-row>
+
+                  <v-row v-if="config.increment_sync_scrape_metadata_enabled" class="mt-2 mb-2">
+                    <v-col cols="12">
+                      <div class="d-flex flex-column">
+                        <div v-for="(item, index) in incrementSyncExcludePaths" :key="`increment-exclude-${index}`"
+                          class="mb-2 d-flex align-center">
+                          <v-text-field v-model="item.path" label="刮削排除目录" density="compact" variant="outlined" readonly
+                            hide-details class="flex-grow-1 mr-2">
+                          </v-text-field>
+                          <v-btn icon size="small" color="error" class="ml-2"
+                            @click="removeExcludePathEntry(index, 'increment_exclude')" :disabled="!item.path">
+                            <v-icon>mdi-delete</v-icon>
+                          </v-btn>
+                        </div>
+                        <v-btn size="small" prepend-icon="mdi-folder-plus-outline" variant="tonal"
+                          class="mt-1 align-self-start"
+                          @click="openExcludeDirSelector('increment_sync_scrape_metadata_exclude_paths')">
+                          添加刮削排除目录
+                        </v-btn>
+                      </div>
+                      <v-alert density="compact" variant="text" color="info" class="text-caption pa-0 mt-1">
+                        此处添加的本地目录，在STRM文件生成后将不会自动触发刮削。
+                      </v-alert>
                     </v-col>
                   </v-row>
 
@@ -339,6 +378,37 @@
                       </v-alert>
                     </v-col>
                   </v-row>
+
+                  <v-row>
+                    <v-col cols="12">
+                      <div class="d-flex flex-column">
+                        <div v-for="(pair, index) in incrementSyncMPPaths" :key="`increment-mp-${index}`"
+                          class="mb-2 d-flex align-center">
+                          <div class="path-selector flex-grow-1 mr-2">
+                            <v-text-field v-model="pair.local" label="媒体库服务器映射目录" density="compact"></v-text-field>
+                          </div>
+                          <v-icon>mdi-pound</v-icon>
+                          <div class="path-selector flex-grow-1 ml-2">
+                            <v-text-field v-model="pair.remote" label="MP映射目录" density="compact"></v-text-field>
+                          </div>
+                          <v-btn icon size="small" color="error" class="ml-2"
+                            @click="removePath(index, 'increment-mp')">
+                            <v-icon>mdi-delete</v-icon>
+                          </v-btn>
+                        </div>
+                        <v-btn size="small" prepend-icon="mdi-plus" variant="outlined" class="mt-2 align-self-start"
+                          @click="addPath('increment-mp')">
+                          添加路径
+                        </v-btn>
+                      </div>
+
+                      <v-alert type="info" variant="tonal" density="compact" class="mt-2">
+                        媒体服务器映射路径和MP映射路径不一样时请配置此项，如果不配置则无法正常刷新。<br>
+                        当映射路径一样时可省略此配置。
+                      </v-alert>
+                    </v-col>
+                  </v-row>
+
                 </v-card-text>
               </v-window-item>
 
@@ -849,6 +919,11 @@ const config = reactive({
   increment_sync_auto_download_mediainfo_enabled: false,
   increment_sync_cron: "0 * * * *",
   increment_sync_strm_paths: '',
+  increment_sync_mp_mediaserver_paths: '',
+  increment_sync_scrape_metadata_enabled: false,
+  increment_sync_scrape_metadata_exclude_paths: '',
+  increment_sync_media_server_refresh_enabled: false,
+  increment_sync_mediaservers: [],
   monitor_life_enabled: false,
   monitor_life_auto_download_mediainfo_enabled: false,
   monitor_life_paths: '',
@@ -887,10 +962,12 @@ const transferPaths = ref([{ local: '', remote: '' }]);
 const transferMpPaths = ref([{ local: '', remote: '' }]);
 const fullSyncPaths = ref([{ local: '', remote: '' }]);
 const incrementSyncPaths = ref([{ local: '', remote: '' }]);
+const incrementSyncMPPaths = ref([{ local: '', remote: '' }]);
 const monitorLifePaths = ref([{ local: '', remote: '' }]);
 const monitorLifeMpPaths = ref([{ local: '', remote: '' }]);
 const panTransferPaths = ref([{ path: '' }]);
 const transferExcludePaths = ref([{ path: '' }]);
+const incrementSyncExcludePaths = ref([{ local: '', remote: '' }]);
 const monitorLifeExcludePaths = ref([{ path: '' }]);
 const directoryUploadPaths = ref([{ src: '', dest_remote: '', dest_local: '', delete: false }]);
 
@@ -1027,6 +1104,28 @@ watch(() => config.increment_sync_strm_paths, (newVal) => {
   }
 }, { immediate: true });
 
+watch(() => config.increment_sync_mp_mediaserver_paths, (newVal) => {
+  if (!newVal) {
+    incrementSyncMPPaths.value = [{ local: '', remote: '' }];
+    return;
+  }
+
+  try {
+    const paths = newVal.split('\n').filter(line => line.trim());
+    incrementSyncMPPaths.value = paths.map(path => {
+      const parts = path.split('#');
+      return { local: parts[0] || '', remote: parts[1] || '' };
+    });
+
+    if (incrementSyncMPPaths.value.length === 0) {
+      incrementSyncMPPaths.value = [{ local: '', remote: '' }];
+    }
+  } catch (e) {
+    console.error('解析increment_sync_mp_mediaserver_paths出错:', e);
+    incrementSyncMPPaths.value = [{ local: '', remote: '' }];
+  }
+}, { immediate: true });
+
 watch(() => config.monitor_life_paths, (newVal) => {
   if (!newVal) {
     monitorLifePaths.value = [{ local: '', remote: '' }];
@@ -1118,6 +1217,34 @@ watch(transferExcludePaths, (newVal) => {
     .join('\n');
   if (config.transfer_monitor_scrape_metadata_exclude_paths !== pathsString) {
     config.transfer_monitor_scrape_metadata_exclude_paths = pathsString;
+  }
+}, { deep: true });
+
+watch(() => config.increment_sync_scrape_metadata_exclude_paths, (newVal) => {
+  if (typeof newVal !== 'string' || !newVal.trim()) {
+    incrementSyncExcludePaths.value = [{ path: '' }];
+    return;
+  }
+  try {
+    const paths = newVal.split('\n').filter(line => line.trim());
+    incrementSyncExcludePaths.value = paths.map(p => ({ path: p }));
+    if (incrementSyncExcludePaths.value.length === 0) {
+      incrementSyncExcludePaths.value = [{ path: '' }];
+    }
+  } catch (e) {
+    console.error('解析 increment_sync_scrape_metadata_exclude_paths 出错:', e);
+    incrementSyncExcludePaths.value = [{ path: '' }];
+  }
+}, { immediate: true });
+
+watch(incrementSyncExcludePaths, (newVal) => {
+  if (!Array.isArray(newVal)) return;
+  const pathsString = newVal
+    .map(item => item.path?.trim())
+    .filter(p => p)
+    .join('\n');
+  if (config.increment_sync_scrape_metadata_exclude_paths !== pathsString) {
+    config.increment_sync_scrape_metadata_exclude_paths = pathsString;
   }
 }, { deep: true });
 
@@ -1223,6 +1350,7 @@ const saveConfig = async () => {
     config.transfer_mp_mediaserver_paths = generatePathsConfig(transferMpPaths.value, 'mp');
     config.full_sync_strm_paths = generatePathsConfig(fullSyncPaths.value, 'fullSync');
     config.increment_sync_strm_paths = generatePathsConfig(incrementSyncPaths.value, 'incrementSync');
+    config.increment_sync_mp_mediaserver_paths = generatePathsConfig(incrementSyncMPPaths.value, 'increment-mp');
     config.monitor_life_paths = generatePathsConfig(monitorLifePaths.value, 'monitorLife');
     config.monitor_life_mp_mediaserver_paths = generatePathsConfig(monitorLifeMpPaths.value, 'monitorLifeMp');
     config.pan_transfer_paths = generatePathsConfig(panTransferPaths.value, 'panTransfer');
@@ -1361,6 +1489,9 @@ const addPath = (type) => {
     case 'incrementSync':
       incrementSyncPaths.value.push({ local: '', remote: '' });
       break;
+    case 'increment-mp':
+      incrementSyncMPPaths.value.push({ local: '', remote: '' });
+      break;
     case 'monitorLife':
       monitorLifePaths.value.push({ local: '', remote: '' });
       break;
@@ -1397,6 +1528,12 @@ const removePath = (index, type) => {
       incrementSyncPaths.value.splice(index, 1);
       if (incrementSyncPaths.value.length === 0) {
         incrementSyncPaths.value = [{ local: '', remote: '' }];
+      }
+      break;
+    case 'increment-mp':
+      incrementSyncMPPaths.value.splice(index, 1);
+      if (incrementSyncMPPaths.value.length === 0) {
+        incrementSyncMPPaths.value = [{ local: '', remote: '' }];
       }
       break;
     case 'monitorLife':
@@ -1578,6 +1715,8 @@ const confirmDirSelection = () => {
       targetArrayRef = transferExcludePaths;
     } else if (targetKey === 'monitor_life_scrape_metadata_exclude_paths') {
       targetArrayRef = monitorLifeExcludePaths;
+    } else if (targetKey === 'increment_sync_scrape_metadata_exclude_paths') {
+      targetArrayRef = incrementSyncExcludePaths;
     }
 
     if (targetArrayRef) {
@@ -1947,6 +2086,8 @@ const removeExcludePathEntry = (index, type) => {
     targetArrayRef = transferExcludePaths;
   } else if (type === 'life_exclude') {
     targetArrayRef = monitorLifeExcludePaths;
+  } else if (type === 'increment_exclude') {
+    targetArrayRef = incrementSyncExcludePaths;
   }
 
   if (targetArrayRef && targetArrayRef.value && index < targetArrayRef.value.length) {

@@ -94,6 +94,41 @@ class FileDbHelper(DbOper):
             }
         ]
 
+    def process_fs_files_item(self, item) -> List[Dict]:
+        """
+        处理115原始返回数据
+        """
+        if "fc" in item:
+            return [
+                {
+                    "table": "folders",
+                    "data": {
+                        "id": int(item.get("cid")),
+                        "parent_id": int(item.get("pid")),
+                        "name": item.get("n"),
+                        "path": item.get("path", ""),
+                    },
+                }
+            ]
+        else:
+            return [
+                {
+                    "table": "files",
+                    "data": {
+                        "id": int(item.get("fid")),
+                        "parent_id": int(item.get("cid")),
+                        "name": item.get("n"),
+                        "sha1": item.get("sha"),
+                        "size": item.get("s"),
+                        "pickcode": item.get("pc"),
+                        "ctime": item.get("tp", 0),
+                        "mtime": item.get("tu", 0),
+                        "path": item.get("path", ""),
+                        "extra": str(item),
+                    },
+                }
+            ]
+
     def process_fileitem(self, fileitem: FileItem) -> List[Dict]:
         """
         处理MP fileitem 类型数据
