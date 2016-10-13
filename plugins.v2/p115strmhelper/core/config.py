@@ -178,6 +178,8 @@ class ConfigManager(BaseModel):
     full_sync_process_num: Union[int, str] = 128
     # 全量同步使用的函数
     full_sync_iter_function: str = Field("iter_files_with_path_skim", min_length=1)
+    # 全量同步处理数据使用 rust 模块
+    full_sync_process_rust: bool = False
 
     # 增量同步开关
     increment_sync_strm_enabled: bool = False

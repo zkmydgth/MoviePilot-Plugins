@@ -598,10 +598,11 @@ class FullSyncStrmHelper:
             f"【全量STRM生成】全量更新数据库完成，时间 {self.elapsed_time:.6f} 秒，数据库写入量 {self.total_db_write_count} 条"
         )
 
-    def generate_strm_files(self, full_sync_strm_paths, rust: bool = False):
+    def generate_strm_files(self, full_sync_strm_paths):
         """
         生成 STRM 文件
         """
+        rust = configer.full_sync_process_rust
         media_paths = full_sync_strm_paths.split("\n")
 
         num_io_workers = 8
