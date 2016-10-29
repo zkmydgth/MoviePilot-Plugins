@@ -168,4 +168,5 @@ test_pluguns/
 
 # AI
 CLAUDE.md
+!/CLAUDE.md
 .claude/
