@@ -365,14 +365,11 @@ class MediaInfoDownloader:
         批量字幕文件下载
 
         .. caution::
-            这个函数运行时，会把相关文件以 100 为一批，同一批次复制到同一个新建的目录，在批量获取链接后，自动把目录删除到回收站
+            这个函数运行时，会把相关文件以 200 为一批，同一批次复制到同一个新建的目录，在批量获取链接后，自动把目录删除到回收站
 
         .. attention::
             目前 115 只支持：".srt"、".ass"、".ssa"
         """
-        for item in downloads_list:
-            item["file_id"] = pickcode_to_id(item["pickcode"])
-
         for item_list in batched(downloads_list, self.batch_size):
             resp = self.client.fs_mkdir(
                 f"subtitle-{uuid4()}",
@@ -388,7 +385,7 @@ class MediaInfoDownloader:
                     scid = data["file_id"]
             try:
                 resp = self.client.fs_copy(
-                    [item["file_id"] for item in item_list],
+                    [pickcode_to_id(item["pickcode"]) for item in item_list],
                     pid=scid,
                 )
                 p115_check_response(resp)
@@ -422,11 +419,8 @@ class MediaInfoDownloader:
         批量图片文件下载
 
         .. caution::
-            这个函数运行时，会把相关文件以 100 为一批，同一批次复制到同一个新建的目录，在批量获取链接后，自动把目录删除到回收站
+            这个函数运行时，会把相关文件以 200 为一批，同一批次复制到同一个新建的目录，在批量获取链接后，自动把目录删除到回收站
         """
-        for item in downloads_list:
-            item["file_id"] = pickcode_to_id(item["pickcode"])
-
         for item_list in batched(downloads_list, self.batch_size):
             resp = self.client.fs_mkdir(
                 f"image-{uuid4()}",
@@ -434,7 +428,7 @@ class MediaInfoDownloader:
             p115_check_response(resp)
             scid = resp["cid"]
             try:
-                ids = [item["file_id"] for item in item_list]
+                ids = [pickcode_to_id(item["pickcode"]) for item in item_list]
                 resp = self.client.fs_copy(
                     ids,
                     pid=scid,

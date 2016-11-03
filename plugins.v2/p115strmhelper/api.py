@@ -21,6 +21,8 @@ from .core.cache import idpathcacher
 from .core.message import post_message
 from .core.i18n import i18n
 from .core.aliyunpan import AliyunPanLogin
+from .schemas.offline import OfflineTasksPayload, AddOfflineTaskPayload
+from .schemas.machineid import MachineID
 from .utils.sentry import sentry_manager
 from .utils.oopserver import OOPServerHelper
 
@@ -59,11 +61,11 @@ class Api:
         return config
 
     @staticmethod
-    def get_machine_id_api() -> Dict:
+    def get_machine_id_api() -> MachineID:
         """
         获取 Machine ID
         """
-        return {"machine_id": configer.get_config("MACHINE_ID")}
+        return MachineID(machine_id=configer.MACHINE_ID)
 
     @cached(
         region="p115strmhelper_api_get_user_storage_status", ttl=60 * 60, skip_none=True
@@ -620,7 +622,7 @@ class Api:
         )
 
     @staticmethod
-    def trigger_full_sync_api(self) -> Dict:
+    def trigger_full_sync_api() -> Dict:
         """
         触发全量同步
         """
@@ -793,12 +795,12 @@ class Api:
         }
 
     @staticmethod
-    def offline_tasks_api(payload: Dict) -> Dict:
+    def offline_tasks_api(payload: OfflineTasksPayload) -> Dict:
         """
         离线任务列表
         """
-        page = int(payload.get("page", 1))
-        limit = int(payload.get("limit", 10))
+        page = payload.page
+        limit = payload.limit
 
         all_tasks = servicer.offlinehelper.get_cached_data()
         total = len(all_tasks)
@@ -819,12 +821,12 @@ class Api:
         return response
 
     @staticmethod
-    def add_offline_task_api(payload: Dict) -> Dict:
+    def add_offline_task_api(payload: AddOfflineTaskPayload) -> Dict:
         """
         添加离线下载任务
         """
-        links = payload.get("links")
-        path = payload.get("path")
+        links = payload.links
+        path = payload.path
 
         if not path:
             status = servicer.offlinehelper.add_urls_to_transfer(links)

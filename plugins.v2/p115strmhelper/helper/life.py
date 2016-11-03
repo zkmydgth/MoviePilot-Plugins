@@ -201,6 +201,8 @@ class MonitorLife:
         通过 cid 获取路径
         先从缓存获取，再从数据库获取，最后通过API获取
         """
+        if int(cid) == 0:
+            return Path("/")
         _databasehelper = FileDbHelper()
         dir_path = idpathcacher.get_dir_by_id(cid)
         if not dir_path:
@@ -896,7 +898,7 @@ class MonitorLife:
             }
 
             logger.debug(
-                f"【监控生活事件】{BEHAVIOR_TYPE_TO_NAME[event['type']]}: {event}"
+                f"【监控生活事件】{BEHAVIOR_TYPE_TO_NAME.get(event['type'], '未知类型')}: {event}"
             )
 
             if (
