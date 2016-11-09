@@ -16,7 +16,8 @@ from app.schemas import (
     TransferOverwriteCheckEventData,
     TransferInterceptEventData,
 )
-from app.schemas.types import EventType, MessageChannel, ChainEventType
+from app.core.meta import MetaVideo
+from app.schemas.types import EventType, MessageChannel, ChainEventType, MediaType
 from app.chain.storage import StorageChain
 
 from apscheduler.triggers.cron import CronTrigger
@@ -1842,6 +1843,21 @@ class P115StrmHelper(_PluginBase):
 
         if not exist_info:
             return
+
+        # 对于电视剧，需检查具体集是否已存在，而不是整部剧是否存在
+        if getattr(mediainfo, "type", None) == MediaType.TV:
+            season = getattr(mediainfo, "season", None)
+            if season is not None and exist_info.seasons is not None:
+                exist_episodes = set(exist_info.seasons.get(season, []))
+                file_meta = MetaVideo(title=data.target_path.name, isfile=True)
+                if file_meta.begin_season == season and file_meta.episode_list:
+                    file_episodes = set(file_meta.episode_list)
+                    if not file_episodes.issubset(exist_episodes):
+                        logger.info(
+                            f"【媒体库存在拦截】{data.fileitem.path} 集数 {file_episodes}"
+                            f" 不在媒体库季 {season} 已有集 {exist_episodes} 中，跳过拦截"
+                        )
+                        return
 
         data.cancel = True
         data.source = "P115StrmHelper"
