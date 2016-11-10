@@ -59,7 +59,7 @@ class ShareStrmConfig(BaseModel):
     # 是否刮削元数据
     scrape_metadata: bool = False
 
-    @model_validator(mode='after')
+    @model_validator(mode="after")
     def enforce_moviepilot_constraints(self):
         """
         当 moviepilot_transfer 为 True 时，强制关闭其他相关选项
@@ -69,12 +69,3 @@ class ShareStrmConfig(BaseModel):
             self.media_server_refresh = False
             self.scrape_metadata = False
         return self
-
-
-class ShareCode(BaseModel):
-    """
-    分享码
-    """
-
-    share_code: Optional[str] = None
-    receive_code: Optional[str] = None

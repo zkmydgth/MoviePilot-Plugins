@@ -17,7 +17,7 @@ from ...core.p115 import iter_share_files_with_path
 from ...core.scrape import media_scrape_metadata
 from ...helper.mediainfo_download import MediaInfoDownloader
 from ...helper.mediaserver import MediaServerRefresh
-from ...schemas.share import ShareStrmConfig, ShareCode
+from ...schemas.share import ShareStrmConfig
 from ...schemas.size import CompareMinSize
 from ...utils.path import PathUtils
 from ...utils.sentry import sentry_manager
@@ -63,7 +63,7 @@ class ShareStrmHelper:
         self.strmurlgetter = StrmUrlGetter()
 
     @staticmethod
-    def get_share_code(config: ShareStrmConfig) -> ShareCode:
+    def get_share_code(config: ShareStrmConfig) -> ShareStrmConfig:
         """
         解析分享配置，获取分享码和提取码
         """
@@ -76,10 +76,12 @@ class ShareStrmHelper:
             )
         else:
             if not config.share_code or not config.share_receive:
-                return ShareCode(share_code=None, receive_code=None)
+                return config
             share_code = config.share_code
             receive_code = config.share_receive
-        return ShareCode(share_code=share_code, receive_code=receive_code)
+        config.share_code = share_code
+        config.share_receive = receive_code
+        return config
 
     def scrape_refresh_media(self, config: ShareStrmConfig) -> None:
         """
@@ -248,9 +250,9 @@ class ShareStrmHelper:
             return
 
         for config in configer.share_strm_config:
-            code = ShareStrmHelper.get_share_code(config)
+            config = ShareStrmHelper.get_share_code(config)
 
-            if not code.share_code or not code.receive_code:
+            if not config.share_code or not config.share_receive:
                 logger.error(f"【分享STRM生成】缺失分享码或提取码: {config}")
                 continue
 
@@ -258,8 +260,8 @@ class ShareStrmHelper:
             for batch in batched(
                 iter_share_files_with_path(
                     client=self.client,
-                    share_code=code.share_code,
-                    receive_code=code.receive_code,
+                    share_code=config.share_code,
+                    receive_code=config.share_receive,
                     cid=0,
                 ),
                 1_000,
