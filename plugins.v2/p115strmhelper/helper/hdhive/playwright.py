@@ -914,30 +914,51 @@ class HDHivePlaywrightClient:
                 debug.log("未检测到 CF 容器（正常情况）")
 
             if cf_container_found:
-                debug.log("第二阶段：等待 CF iframe 加载 (15s)")
+                cf_retry_sel = "button:has-text('重试')"
                 cf_iframe_found = False
-                try:
-                    page.wait_for_selector(cf_iframe_sel, timeout=15000)
-                    cf_iframe_found = True
-                    debug.log("【CF挑战】CF iframe 已加载，开始尝试点击")
-                    debug.screenshot(page, "cf_iframe_loaded", "CF iframe已加载")
-                    debug.save_html(page, "cf_iframe_loaded")
-                except PlaywrightTimeoutError:
-                    debug.log("【CF挑战】CF 容器存在但 iframe 15s 内未加载！")
-                    debug.screenshot(page, "cf_iframe_timeout", "CF iframe加载超时")
-                    debug.log_page_state(page, "CF iframe超时")
-                    debug.save_html(page, "cf_iframe_timeout")
+                cf_retry_found = False
+                debug.log("第二阶段：等待 CF iframe 或重试按钮 (15s)")
+                deadline = 15000
+                step_ms = 500
+                waited = 0
+                while waited < deadline:
+                    try:
+                        el = page.query_selector(cf_iframe_sel)
+                        if el:
+                            cf_iframe_found = True
+                            debug.log(f"  CF iframe 出现 (waited={waited}ms)")
+                            break
+                    except Exception:
+                        pass
+                    try:
+                        el = page.query_selector(cf_retry_sel)
+                        if el:
+                            cf_retry_found = True
+                            debug.log(f"  CF 重试按钮出现 (waited={waited}ms)")
+                            break
+                    except Exception:
+                        pass
+                    page.wait_for_timeout(step_ms)
+                    waited += step_ms
+
+                debug.screenshot(
+                    page,
+                    "cf_phase2_result",
+                    f"第二阶段结果 iframe={cf_iframe_found} retry={cf_retry_found}",
+                )
+                debug.log_page_state(page, "CF第二阶段")
+                debug.save_html(page, "cf_phase2_result")
 
                 if cf_iframe_found:
+                    debug.log("【CF挑战】CF iframe 已加载，开始尝试点击")
                     cf_frame = page.frame_locator(cf_iframe_sel)
                     cf_click_success = False
-                    cf_selectors = (
+                    for cf_sel in (
                         "input[type='checkbox']",
                         "[class*='ctp-checkbox']",
                         ".mark",
                         "label",
-                    )
-                    for cf_sel in cf_selectors:
+                    ):
                         try:
                             debug.log(f"  尝试 CF 选择器: {cf_sel}")
                             cf_frame.locator(cf_sel).click(timeout=5000)
@@ -971,6 +992,57 @@ class HDHivePlaywrightClient:
                         debug.screenshot(page, "cf_not_resolved", "CF验证未通过超时")
                         debug.log_page_state(page, "CF未通过")
                         debug.save_html(page, "cf_not_resolved")
+
+                elif cf_retry_found:
+                    debug.log("【CF挑战】Turnstile 首次验证失败，点击重试按钮")
+                    try:
+                        page.click(cf_retry_sel)
+                        debug.log("  重试按钮点击成功")
+                        sleep(1)
+                        debug.screenshot(page, "after_cf_retry", "CF重试按钮点击后")
+                    except Exception as e:
+                        debug.log(f"  重试按钮点击失败: {e}")
+
+                    debug.log("等待 Turnstile token 写入（验证通过），超时 30s")
+                    token_sel = "input[name='cf-turnstile-response']"
+                    token_set = False
+                    deadline2 = 30000
+                    waited2 = 0
+                    while waited2 < deadline2:
+                        try:
+                            val = page.eval_on_selector(
+                                token_sel, "el => el.value", timeout=500
+                            )
+                            if val:
+                                token_set = True
+                                debug.log(
+                                    f"  Turnstile token 已写入 (waited={waited2}ms) token[:20]={val[:20]}..."
+                                )
+                                break
+                        except Exception:
+                            pass
+                        page.wait_for_timeout(step_ms)
+                        waited2 += step_ms
+
+                    if token_set:
+                        debug.log("Turnstile 验证通过，继续等待签到结果")
+                        debug.screenshot(
+                            page, "cf_token_received", "Turnstile token已获取"
+                        )
+                    else:
+                        debug.log(
+                            "【CF挑战】30s 内未获得 Turnstile token，验证可能未通过"
+                        )
+                        debug.screenshot(page, "cf_token_timeout", "等待token超时")
+                        debug.log_page_state(page, "token超时")
+                        debug.save_html(page, "cf_token_timeout")
+
+                else:
+                    debug.log("【CF挑战】15s 内既无 iframe 也无重试按钮，CF 状态异常")
+                    debug.screenshot(page, "cf_unknown_state", "CF状态未知")
+                    debug.log_page_state(page, "CF未知状态")
+                    debug.save_html(page, "cf_unknown_state")
+
             else:
                 cf_signals = _CheckinDebugSession._detect_cf_signals(page)
                 if cf_signals:
@@ -982,7 +1054,7 @@ class HDHivePlaywrightClient:
                     )
                     debug.save_html(page, "cf_signals_no_container")
 
-            debug.log("开始轮询签到结果（最长 30s）")
+            debug.log("开始轮询签到结果（最长 60s）")
             _RESULT_PHRASES = [
                 "签到成功",
                 "签到失败",
@@ -1002,7 +1074,7 @@ class HDHivePlaywrightClient:
                 "  return t.slice(Math.max(0, idx - 10), idx + 80).trim();"
                 "}"
             )
-            deadline_ms = 30000
+            deadline_ms = 60000
             interval_ms = 500
             elapsed = 0
             result_text = None
