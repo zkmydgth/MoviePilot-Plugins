@@ -37,7 +37,7 @@ class SeedSpaceGuard(_PluginBase):
     plugin_name = "保种空间守护"
     plugin_desc = ("存储空间不足时自动清理保种目录中「保种最久」的资源（种子+文件），"
                    "避免 H&R。支持种子级删除与仅文件两种模式，可限定目标下载器。")
-    plugin_version = "1.0.7"
+    plugin_version = "1.0.8"
     plugin_author = "zkmydgth"
     plugin_config_prefix = "seedspaceguard_"
     plugin_order = 100
@@ -55,6 +55,8 @@ class SeedSpaceGuard(_PluginBase):
     _dry_run: bool = False
     _notify: bool = True
     _downloaders: List[str] = []
+    # 真实删除后等待「源文件联动清理」等插件释放媒体库侧硬链接的秒数
+    _sync_wait_seconds: int = 90
     _running: bool = False
     _last_result: str = ""
     _lock: threading.Lock = threading.Lock()
@@ -73,6 +75,7 @@ class SeedSpaceGuard(_PluginBase):
         self._dry_run = False
         self._notify = True
         self._downloaders = []
+        self._sync_wait_seconds = 90
         if not config:
             return
         self._enabled = bool(config.get("enabled"))
@@ -202,8 +205,8 @@ class SeedSpaceGuard(_PluginBase):
                                             "type": "info",
                                             "variant": "tonal",
                                             "text": "使用说明：卷剩余空间低于阈值时，按「保种最久」优先自动清理下载目录中的资源，"
-                                                    "直到空间恢复到阈值以上。删除前会先按缺口预选清单，删除后等待"
-                                                    "「源文件联动清理」等插件释放媒体库侧硬链接再复核空间（不会因空间释放"
+                                                    "直到空间恢复到阈值以上。删除前会先按缺口预选清单，删除后等待约 90 秒"
+                                                    "让「源文件联动清理」等插件释放媒体库侧硬链接，再复核空间（不会因空间释放"
                                                     "滞后而一次性过量删除）。种子级=删除下载器中最旧的已完成种子（连带文件，"
                                                     "可用下方「目标下载器」限定范围，留空=全部）；"
                                                     "仅文件=只删文件（可配合源文件联动插件）。建议先试运行预览将删内容，确认后再正式启用；"
