@@ -229,6 +229,17 @@
       </v-window-item>
       <v-window-item value="tab-advanced-configuration">
         <v-card-text>
+          <v-row>
+            <v-col cols="12">
+              <v-switch v-model="config.native_emby_mediainfo_enabled" label="原生 Emby 媒体信息提取"
+                color="primary" density="compact"
+                hint="开启后各处的「Emby 媒体信息提取」将仅通过 Emby API 触发，不依赖神医助手PRO"
+                persistent-hint></v-switch>
+            </v-col>
+          </v-row>
+
+          <v-divider class="my-6"></v-divider>
+
           <!-- STRM URL 自定义模板 -->
           <v-row>
             <v-col cols="12">

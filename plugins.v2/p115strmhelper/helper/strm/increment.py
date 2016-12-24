@@ -528,15 +528,19 @@ class IncrementSyncStrmHelper:
             file_name=new_file_path.name,
         )
 
-        if self.emby_mediainfo_enabled and sha1:
-            emby_mediainfo_queue.enqueue(
+        if self.emby_mediainfo_enabled and (
+            configer.native_emby_mediainfo_enabled or sha1
+        ):
+            enqueue_kw = dict(
                 func_name="【增量STRM生成】",
-                sha1=sha1,
                 path=Path(local_path),
                 mp_mediaserver=self.mp_mediaserver_paths,
                 mediaservers=self.mediaservers,
-                size=self.__get_size(pan_path),
             )
+            if not configer.native_emby_mediainfo_enabled:
+                enqueue_kw["sha1"] = sha1
+                enqueue_kw["size"] = self.__get_size(pan_path)
+            emby_mediainfo_queue.enqueue(**enqueue_kw)
 
     def __scan_second_level_directory(self, path: str) -> List[str]:
         """

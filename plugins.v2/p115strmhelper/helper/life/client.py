@@ -508,17 +508,19 @@ class MonitorLife:
                             file_path=str(new_file_path),
                             file_name=str(original_file_name),
                         )
-                        if configer.monitor_life_emby_mediainfo_enabled and item.get(
-                            "sha1"
+                        if configer.monitor_life_emby_mediainfo_enabled and (
+                            configer.native_emby_mediainfo_enabled or item.get("sha1")
                         ):
-                            emby_mediainfo_queue.enqueue(
+                            life_enqueue_kw = dict(
                                 func_name="【监控生活事件】",
-                                sha1=item["sha1"],
                                 path=Path(new_file_path),
                                 mp_mediaserver=configer.monitor_life_mp_mediaserver_paths,
                                 mediaservers=configer.monitor_life_mediaservers,
-                                size=item["size"],
                             )
+                            if not configer.native_emby_mediainfo_enabled:
+                                life_enqueue_kw["sha1"] = item["sha1"]
+                                life_enqueue_kw["size"] = item["size"]
+                            emby_mediainfo_queue.enqueue(**life_enqueue_kw)
                 _databasehelper.upsert_batch(processed)
             if configer.get_config("notify"):
                 if strm_count > 0 or mediainfo_count > 0:
@@ -665,15 +667,19 @@ class MonitorLife:
                     file_path=new_file_path.as_posix(),
                     file_name=str(original_file_name),
                 )
-                if configer.monitor_life_emby_mediainfo_enabled and event.get("sha1"):
-                    emby_mediainfo_queue.enqueue(
+                if configer.monitor_life_emby_mediainfo_enabled and (
+                    configer.native_emby_mediainfo_enabled or event.get("sha1")
+                ):
+                    life_enqueue_kw = dict(
                         func_name="【监控生活事件】",
-                        sha1=event["sha1"],
                         path=Path(new_file_path),
                         mp_mediaserver=configer.monitor_life_mp_mediaserver_paths,
                         mediaservers=configer.monitor_life_mediaservers,
-                        size=event["file_size"],
                     )
+                    if not configer.native_emby_mediainfo_enabled:
+                        life_enqueue_kw["sha1"] = event["sha1"]
+                        life_enqueue_kw["size"] = event["file_size"]
+                    emby_mediainfo_queue.enqueue(**life_enqueue_kw)
 
     def remove_strm(self, event: Dict):
         """

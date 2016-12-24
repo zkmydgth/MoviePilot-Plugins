@@ -249,6 +249,10 @@ class ConfigManager(BaseModel):
     transfer_monitor_emby_mediainfo_enabled: bool = Field(
         default=False, description="EMBY 媒体信息提取开关"
     )
+    native_emby_mediainfo_enabled: bool = Field(
+        default=False,
+        description="原生 Emby 媒体信息提取",
+    )
     transfer_monitor_clouddrive2_enabled: bool = Field(
         default=False, description="监控MP整理开启CloudDrive2储存监控"
     )

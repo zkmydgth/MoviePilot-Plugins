@@ -12,6 +12,6 @@ class EmbyMediainfoTask:
     func_name: str
     mp_mediaserver: Optional[str]
     mediaservers: Optional[List[str]]
-    sha1: str
+    sha1: Optional[str]
     path: Union[str, Path]
     size: Optional[int]

@@ -51,7 +51,8 @@
             </v-col>
           </v-row>
 
-          <v-row v-if="config.transfer_monitor_emby_mediainfo_enabled">
+          <v-row
+            v-if="config.transfer_monitor_emby_mediainfo_enabled && !config.native_emby_mediainfo_enabled">
             <v-col cols="12">
               <v-alert type="warning" variant="tonal" density="compact" icon="mdi-alert-circle-outline">
                 <div class="text-caption">
@@ -390,7 +391,8 @@
             </v-col>
           </v-row>
 
-          <v-row v-if="config.increment_sync_emby_mediainfo_enabled">
+          <v-row
+            v-if="config.increment_sync_emby_mediainfo_enabled && !config.native_emby_mediainfo_enabled">
             <v-col cols="12">
               <v-alert type="warning" variant="tonal" density="compact" icon="mdi-alert-circle-outline">
                 <div class="text-caption">
@@ -566,7 +568,8 @@
             </v-col>
           </v-row>
 
-          <v-row v-if="config.monitor_life_emby_mediainfo_enabled">
+          <v-row
+            v-if="config.monitor_life_emby_mediainfo_enabled && !config.native_emby_mediainfo_enabled">
             <v-col cols="12">
               <v-alert type="warning" variant="tonal" density="compact" icon="mdi-alert-circle-outline">
                 <div class="text-caption">

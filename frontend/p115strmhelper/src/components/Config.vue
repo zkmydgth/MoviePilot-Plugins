@@ -350,6 +350,7 @@ const config = reactive({
   transfer_mp_mediaserver_paths: '',
   transfer_monitor_media_server_refresh_enabled: false,
   transfer_monitor_emby_mediainfo_enabled: false,
+  native_emby_mediainfo_enabled: false,
   transfer_monitor_clouddrive2_enabled: false,
   transfer_monitor_mediaservers: [],
   timing_full_sync_strm: false,

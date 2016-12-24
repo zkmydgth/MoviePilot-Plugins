@@ -355,6 +355,59 @@ class EmbyMediaInfoOperate:
             logger.error(f"{self.func_name}{service_name} 更新媒体信息失败: {e}")
         return False, need_upload, media_data
 
+    def get_mediainfo_native(self, path: Path) -> None:
+        """
+        执行原生 Emby 提取媒体信息
+
+        :param path: 媒体路径
+        """
+        media_server = self.service_infos
+        if not media_server:
+            return
+
+        file_path = path.as_posix()
+        if self.mp_mediaserver:
+            status, mediaserver_path, moviepilot_path = PathUtils.get_media_path(
+                self.mp_mediaserver,
+                path.as_posix(),
+            )
+            if not status:
+                logger.error(
+                    f"{self.func_name}{path} 无法确定媒体库路径，无法媒体信息提取"
+                )
+                return
+            logger.info(f"{self.func_name}{path.name} 提取媒体信息目录替换中...")
+            file_path = path.as_posix().replace(moviepilot_path, mediaserver_path)
+            logger.info(
+                f"{self.func_name}提取媒体信息目录替换: {moviepilot_path} --> {mediaserver_path}"
+            )
+            logger.info(f"{self.func_name}提取媒体信息目录: {file_path}")
+
+        for service_name, _ in media_server.items():
+            item_id = self.emby_operate.get_item_id_by_path(service_name, file_path)
+            if not item_id:
+                sleep(10)
+                if self.emby_operate.trigger_refresh_by_path(service_name, file_path):
+                    for _ in range(3):
+                        sleep(10)
+                        item_id = self.emby_operate.get_item_id_by_path(
+                            service_name, file_path
+                        )
+                        if item_id:
+                            break
+            if not item_id:
+                logger.error(
+                    f"{self.func_name}无法获取媒体 Id 提取媒体信息: {file_path}"
+                )
+            else:
+                status = self.emby_operate.trigger_mediainfo_refresh(
+                    service_name, item_id
+                )
+                if not status:
+                    logger.error(
+                        f"{self.func_name}使用媒体 Id 原生提取媒体信息失败: [{item_id}] {file_path}"
+                    )
+
     def get_mediainfo(self, sha1: str, path: Path, size: Optional[int] = None):
         """
         执行提取媒体信息，并上传服务器
@@ -500,7 +553,14 @@ class EmbyMediainfoQueue:
                     mp_mediaserver=task.mp_mediaserver,
                     mediaservers=task.mediaservers,
                 )
-                helper.get_mediainfo(task.sha1, path, size=task.size)
+                if configer.native_emby_mediainfo_enabled:
+                    helper.get_mediainfo_native(path)
+                elif not task.sha1:
+                    logger.warning(
+                        f"{task.func_name} Emby 媒体信息提取跳过：未配置原生模式且缺少 sha1，path={path}"
+                    )
+                else:
+                    helper.get_mediainfo(task.sha1, path, size=task.size)
             except Exception as e:
                 logger.error(
                     f"{task.func_name} Emby 媒体信息提取失败: {e}",
@@ -550,8 +610,8 @@ class EmbyMediainfoQueue:
     def enqueue(
         self,
         func_name: str,
-        sha1: str,
         path: Union[str, Path],
+        sha1: Optional[str] = None,
         mp_mediaserver: Optional[str] = None,
         mediaservers: Optional[List[str]] = None,
         size: Optional[int] = None,
@@ -560,8 +620,8 @@ class EmbyMediainfoQueue:
         将一条 Emby 媒体信息提取任务加入全局队列
 
         :param func_name: 调用方标识，用于日志
-        :param sha1: 媒体文件 sha1
         :param path: 媒体路径
+        :param sha1: 媒体文件 sha1
         :param mp_mediaserver: MoviePilot 媒体服务器路径配置，可选
         :param mediaservers: 媒体服务器名称列表，可选
         :param size: 文件大小（字节），可选
