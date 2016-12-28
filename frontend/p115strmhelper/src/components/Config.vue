@@ -996,6 +996,10 @@
                             <v-switch v-model="config.upload_module_skip_slow_upload" label="秒传失败直接退出" color="info"
                               density="compact"></v-switch>
                           </v-col>
+                          <v-col cols="12" md="4">
+                            <v-switch v-model="config.upload_module_notify" label="秒传等待发送通知" color="info"
+                              density="compact"></v-switch>
+                          </v-col>
                         </v-row>
                         <v-row>
                           <v-col cols="12" md="6">
