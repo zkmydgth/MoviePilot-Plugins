@@ -10,7 +10,7 @@ from sqlalchemy.orm.exc import MultipleResultsFound
 from p115client import P115Client
 from p115client.tool.export_dir import export_dir_parse_iter
 from p115client.tool.fs_files import iter_fs_files
-from p115client.tool.iterdir import iter_files_with_path_skim, share_iterdir
+from p115client.tool.iterdir import iter_files_with_path, share_iterdir
 
 from ..core.cache import idpathcacher
 from ..core.config import configer
@@ -771,8 +771,8 @@ class FullSyncStrmHelper:
             try:
                 start_time = time.perf_counter()
                 for batch in batched(
-                    iter_files_with_path_skim(
-                        self.client, cid=parent_id, with_ancestors=True
+                    iter_files_with_path(
+                        self.client, cid=parent_id, with_ancestors=True, cooldown=1.5
                     ),
                     int(configer.get_config("full_sync_batch_num")),
                 ):
