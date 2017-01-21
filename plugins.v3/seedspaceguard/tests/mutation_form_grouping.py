@@ -17,6 +17,12 @@
 而它实为两模式通用（执行体 ``_reap_orphan_seeds`` 的调用点在模式分派之外）。
 一旦有人把前缀改回来，误会就回归了。
 
+以及**说明文字常驻**：Vuetify 的 ``persistentHint`` 默认 ``false``，而
+MoviePilot 的 ``FormRender.vue`` 未替插件控件传 ``persistent-hint``，
+于是带 ``hint`` 的控件在桌面端要「点开/关闭开关」才显示说明（用户报过这个问题）。
+插件侧显式传 ``"persistent-hint": True`` 解决之 —— 少传、传成字符串、传成
+``False`` 都会让说明又退回「需交互才显示」。
+
 用法（在插件目录下）::
 
     python3 tests/mutation_form_grouping.py
@@ -57,12 +63,14 @@ MISSING_SHOW_OLD = (
     '                            "hint": "以 | 分隔的通配符，命中的文件不删除。"\n'
     '                                    "在「仅文件」模式与种子级的「清理无主文件」中生效；"\n'
     '                                    "种子级主链路（直接删种子）不适用",\n'
+    '                            "persistent-hint": True,\n'
     '                            "show": "mode === \'file\'",\n'
 )
 MISSING_SHOW_NEW = (
     '                            "hint": "以 | 分隔的通配符，命中的文件不删除。"\n'
     '                                    "在「仅文件」模式与种子级的「清理无主文件」中生效；"\n'
     '                                    "种子级主链路（直接删种子）不适用",\n'
+    '                            "persistent-hint": True,\n'
 )
 
 # ③ 把种子级项的 show 写成 file（条件写反）→ 种子级模式下看不到自己的设置
@@ -128,6 +136,38 @@ POLLUTE_NOTICE_NEW = (
 )
 
 
+# ⑧ 删掉「启用插件」控件的 persistent-hint → 说明文字又退回「点开关才显示」
+DROP_PERSISTENT_OLD = (
+    '                            "hint": "启用后按下方定时规则检查空间，'
+    '不足时自动清理保种最久的资源",\n'
+    '                            "persistent-hint": True,\n'
+)
+DROP_PERSISTENT_NEW = (
+    '                            "hint": "启用后按下方定时规则检查空间，'
+    '不足时自动清理保种最久的资源",\n'
+)
+
+# ⑨ 把 persistent-hint 的值写成字符串 "true" → 可能被 parseProps 当配置 key 取值
+STRINGY_PERSISTENT_OLD = (
+    '                            "hint": "df 对应的卷路径，插件读取其剩余空间",\n'
+    '                            "persistent-hint": True,\n'
+)
+STRINGY_PERSISTENT_NEW = (
+    '                            "hint": "df 对应的卷路径，插件读取其剩余空间",\n'
+    '                            "persistent-hint": "true",\n'
+)
+
+# ⑩ 把 persistent-hint 的值改成 False（等价于没加）→ 说明又变成需交互才显示
+FALSE_PERSISTENT_OLD = (
+    '                            "hint": "清理完成后发送站内消息通知",\n'
+    '                            "persistent-hint": True,\n'
+)
+FALSE_PERSISTENT_NEW = (
+    '                            "hint": "清理完成后发送站内消息通知",\n'
+    '                            "persistent-hint": False,\n'
+)
+
+
 MUTANTS = [
     ("给全局项（试运行）误加 show，导致另一种模式下被误藏",
      HIDE_GLOBAL_OLD, HIDE_GLOBAL_NEW,
@@ -150,6 +190,15 @@ MUTANTS = [
     ("分组标题文案塞入「使用说明」，污染顶部说明专项断言",
      POLLUTE_NOTICE_OLD, POLLUTE_NOTICE_NEW,
      "组标题被误当成顶部说明 → 长度/关键词断言取错对象"),
+    ("删掉某控件的 persistent-hint，说明文字退回「点开关才显示」",
+     DROP_PERSISTENT_OLD, DROP_PERSISTENT_NEW,
+     "缺 persistent-hint → 桌面端 hint 又要在聚焦时才出现"),
+    ("把 persistent-hint 的值写成字符串 \"true\"",
+     STRINGY_PERSISTENT_OLD, STRINGY_PERSISTENT_NEW,
+     "字符串可能被 parseProps 当成配置 key 取值 → 属性失效"),
+    ("把 persistent-hint 的值改成 False（等价于未设置）",
+     FALSE_PERSISTENT_OLD, FALSE_PERSISTENT_NEW,
+     "值为假 → hint 仍只在聚焦时显示，等同于没加"),
 ]
 
 
