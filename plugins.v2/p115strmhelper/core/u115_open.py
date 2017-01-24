@@ -7,8 +7,7 @@ from datetime import datetime, timezone
 
 import requests
 import oss2
-from oss2 import SizedFileAdapter, determine_part_size
-from oss2.models import PartInfo
+from oss2 import determine_part_size
 from tqdm import tqdm
 
 from app import schemas
@@ -512,9 +511,16 @@ class U115OpenHelper:
             access_key_secret=AccessKeySecret,
             security_token=SecurityToken,
         )
-        bucket = oss2.Bucket(auth, endpoint, bucket_name)  # noqa
-        # determine_part_size方法用于确定分片大小，设置分片大小为 100M
-        part_size = determine_part_size(file_size, preferred_size=100 * 1024 * 1024)
+        bucket = oss2.Bucket(
+            auth, endpoint, bucket_name, connect_timeout=60, read_timeout=240
+        )
+        part_size = determine_part_size(file_size, preferred_size=10 * 1024 * 1024)
+
+        headers = {
+            "X-oss-callback": encode_callback(callback["callback"]),
+            "x-oss-callback-var": encode_callback(callback["callback_var"]),
+            "x-oss-forbid-overwrite": "false",
+        }
 
         # 初始化进度条
         logger.info(
@@ -524,48 +530,23 @@ class U115OpenHelper:
             total=file_size, unit="B", unit_scale=True, desc="上传进度", ascii=True
         )
 
-        # 初始化分片
-        upload_id = bucket.init_multipart_upload(
-            object_name, params={"encoding-type": "url", "sequential": ""}
-        ).upload_id
-        parts = []
-        # 逐个上传分片
-        with open(local_path, "rb") as fileobj:
-            part_number = 1
-            offset = 0
-            while offset < file_size:
-                num_to_upload = min(part_size, file_size - offset)
-                # 调用SizedFileAdapter(fileobj, size)方法会生成一个新的文件对象，重新计算起始追加位置。
-                logger.info(
-                    f"【P115Open】开始上传 {target_name} 分片 {part_number}: {offset} -> {offset + num_to_upload}"
-                )
-                result = bucket.upload_part(
-                    object_name,
-                    upload_id,
-                    part_number,
-                    data=SizedFileAdapter(fileobj, num_to_upload),
-                )
-                parts.append(PartInfo(part_number, result.etag))
-                logger.info(f"【P115Open】{target_name} 分片 {part_number} 上传完成")
-                offset += num_to_upload
-                part_number += 1
-                # 更新进度
-                progress_bar.update(num_to_upload)
+        def progress_callback(bytes_consumed, _):
+            """
+            进度条回调函数
+            """
+            progress_bar.update(bytes_consumed - progress_bar.n)
 
-        # 关闭进度条
-        if progress_bar:
-            progress_bar.close()
-
-        # 请求头
-        headers = {
-            "X-oss-callback": encode_callback(callback["callback"]),
-            "x-oss-callback-var": encode_callback(callback["callback_var"]),
-            "x-oss-forbid-overwrite": "false",
-        }
         try:
-            result = bucket.complete_multipart_upload(
-                object_name, upload_id, parts, headers=headers
+            result = oss2.resumable_upload(
+                bucket,
+                object_name,
+                str(local_path),
+                headers=headers,
+                part_size=part_size,
+                num_threads=4,
+                progress_callback=progress_callback,
             )
+
             if result.status == 200:
                 logger.debug(
                     f"【P115Open】上传 Step 6 回调结果：{result.resp.response.json()}"
@@ -589,7 +570,16 @@ class U115OpenHelper:
                 logger.error(
                     f"【P115Open】{target_name} 上传失败: {e.status}, 错误码: {e.code}, 详情: {e.message}"
                 )
+                if self.upload_fail_count():
+                    return self.upload(target_dir, local_path, new_name)
                 return None
+        except Exception as e:
+            logger.error(f"【P115Open】上传过程中发生未知错误: {e}")
+            return None
+        finally:
+            if progress_bar:
+                progress_bar.close()
+
         end_time = time.perf_counter()
         elapsed_time = end_time - start_time
         send_upload_info(

@@ -1,7 +1,9 @@
+import concurrent.futures
 from hashlib import sha1
 from time import sleep
 from typing import List
 from urllib.parse import urlparse
+from pathlib import Path
 
 import requests
 from p115client import P115Client
@@ -11,10 +13,6 @@ from app.core.metainfo import MetaInfo
 from app.chain.media import MediaChain
 
 from ..core.aliyunpan import BAligo
-from ..core.i18n import i18n
-from ..core.config import configer
-from ..core.message import post_message
-from ..core.cache import idpathcacher
 from ..utils.sentry import sentry_manager
 
 
@@ -86,7 +84,7 @@ class Ali2115Helper:
         self.folder_id = folder_id
         return folder_id
 
-    def ali_tree_share(self, share_token, parent_file_id="root"):
+    def ali_tree_share(self, share_token, rmt_mediaext: List, parent_file_id="root"):
         """
         递归分享文件
         """
@@ -95,9 +93,12 @@ class Ali2115Helper:
         )
         for file in file_list:
             if file.type == "folder":
-                yield from self.ali_tree_share(share_token, file.file_id)
+                yield from self.ali_tree_share(share_token, rmt_mediaext, file.file_id)
             else:
-                yield file
+                if Path(file.name).suffix.lower() in rmt_mediaext:
+                    yield file
+                else:
+                    logger.warn(f"【Ali2115】{file.name} 不符合媒体文件后缀，跳过秒传")
 
     def share_recognize_mediainfo(self, share_token):
         """
@@ -120,12 +121,6 @@ class Ali2115Helper:
         """
         return self.ali_client.get_download_url(file_id=file_id)
 
-    def get_ali_share_list(self, share_token):
-        """
-        获取所有分享文件信息
-        """
-        return self.ali_tree_share(share_token)
-
     def save_ali_share_to_pan(self, share_token: str):
         """
         保存分享文件到阿里云盘
@@ -141,7 +136,7 @@ class Ali2115Helper:
         """
         return self.ali_client.get_share_token(share_id)
 
-    def share_upload(self, share_token: str, parent_id: int):
+    def share_upload(self, share_token: str, parent_id: int, rmt_mediaext: List):
         """
         运行分享秒传
         """
@@ -173,7 +168,9 @@ class Ali2115Helper:
 
         self.save_ali_share_to_pan(share_token)
         sleep(2)
-        self.file_name_list = [item.name for item in self.ali_tree_share(share_token)]
+        self.file_name_list = [
+            item.name for item in self.ali_tree_share(share_token, rmt_mediaext)
+        ]
 
         while self.file_name_list:
             self.ali_client.walk_files(
@@ -187,16 +184,82 @@ class Ali2115Helper:
             f"【Ali2115】秒传文件列表: {[lst[2] for lst in download_url_list]}"
         )
 
-        for url in download_url_list:
-            self.upload_115(
-                file_name=url[2],
-                file_size=url[1],
-                m115_dir_id=parent_id,
-                full_sha1=url[3],
-                ali_download_url=url[0],
-            )
+        futures_map = {}
+        fail_upload = 0
+        success_upload = 0
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+            for url in download_url_list:
+                future = executor.submit(
+                    self.upload_115,
+                    file_name=url[2],
+                    file_size=url[1],
+                    m115_dir_id=parent_id,
+                    full_sha1=url[3],
+                    ali_download_url=url[0],
+                )
+                futures_map[future] = {"url": url, "retries": 0}
 
-        logger.info(f"【Ali2115】秒传文件成功: {[lst[2] for lst in download_url_list]}")
+            while futures_map:
+                done_futures, _ = concurrent.futures.wait(
+                    futures_map.keys(), return_when=concurrent.futures.FIRST_COMPLETED
+                )
+
+                for future in done_futures:
+                    task_info = futures_map.pop(future)
+                    url = task_info["url"]
+                    retries = task_info["retries"]
+                    file_name = url[2]
+
+                    try:
+                        result = future.result()
+                        if (
+                            result
+                            and isinstance(result, dict)
+                            and result.get("status") == 2
+                        ):
+                            logger.info(f"【Ali2115】文件 '{file_name}' 秒传成功")
+                            success_upload += 1
+                            continue
+                        else:
+                            status_code = (
+                                result.get("status", "N/A")
+                                if isinstance(result, dict)
+                                else "N/A"
+                            )
+                            logger.warn(
+                                f"【Ali2115】文件 '{file_name}' 上传状态异常 (status: {status_code})，准备重试..."
+                            )
+                    except Exception as exc:
+                        logger.warn(
+                            f"【Ali2115】文件 '{file_name}' 上传时发生异常: {exc}，准备重试..."
+                        )
+
+                    if retries < 3:
+                        new_retries = retries + 1
+
+                        delay = 2 * (2**retries)
+                        logger.warn(
+                            f"【Ali2115】文件 '{file_name}' 将在 {delay} 秒后进行第 {new_retries} 次重试..."
+                        )
+                        sleep(delay)
+                        new_future = executor.submit(
+                            self.upload_115,
+                            file_name=url[2],
+                            file_size=url[1],
+                            m115_dir_id=parent_id,
+                            full_sha1=url[3],
+                            ali_download_url=url[0],
+                        )
+                        futures_map[new_future] = {"url": url, "retries": new_retries}
+                    else:
+                        logger.error(
+                            f"【Ali2115】文件 '{file_name}' 已达到最大重试次数 (3)，放弃上传"
+                        )
+                        fail_upload += 1
+
+        logger.info(
+            f"【Ali2115】秒传文件成功 {success_upload} 个，失败 {fail_upload} 个"
+        )
 
     @staticmethod
     def extract_share_code_from_url(url: str) -> str | None:
@@ -213,58 +276,3 @@ class Ali2115Helper:
         except Exception as e:
             raise e
         return None
-
-    def add_share(self, url, channel, userid):
-        """
-        添加分享任务
-        """
-        share_id = self.extract_share_code_from_url(url)
-        logger.info(f"【Ali2115】解析分享链接 share_id={share_id}")
-        if not share_id:
-            logger.error(f"【Ali2115】解析分享链接失败：{url}")
-            post_message(
-                channel=channel,
-                title=f"{i18n.translate('share_url_extract_error', url=url)}",
-                userid=userid,
-            )
-            return
-        parent_path = configer.get_config("pan_transfer_paths").split("\n")[0]
-        parent_id = idpathcacher.get_id_by_dir(directory=str(parent_path))
-        if not parent_id:
-            parent_id = self.u115_client.fs_dir_getid(parent_path)["id"]
-            logger.info(f"【Ali2115】获取到转存目录 ID：{parent_id}")
-            idpathcacher.add_cache(id=int(parent_id), directory=str(parent_path))
-
-        share_token = self.get_ali_share_token(share_id)
-
-        # 尝试识别媒体信息
-        file_mediainfo = self.share_recognize_mediainfo(share_token)
-
-        self.share_upload(share_token, parent_id)
-
-        logger.info(f"【Ali2115】秒传 {share_id} 到 {parent_path} 成功！")
-        if not file_mediainfo:
-            post_message(
-                channel=channel,
-                title=i18n.translate("share_add_success"),
-                text=f"""
-分享链接：https://www.alipan.com/s/{share_id}
-秒传目录：{parent_path}
-""",
-                userid=userid,
-            )
-        else:
-            post_message(
-                channel=channel,
-                title=i18n.translate(
-                    "share_add_success_2",
-                    title=file_mediainfo.title,
-                    year=file_mediainfo.year,
-                ),
-                text=f"""
-链接：https://www.alipan.com/s/{share_id}
-简介：{file_mediainfo.overview}
-""",
-                image=file_mediainfo.poster_path,
-                userid=userid,
-            )

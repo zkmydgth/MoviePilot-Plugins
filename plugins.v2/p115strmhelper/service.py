@@ -1,6 +1,8 @@
+import logging
 from time import time, sleep
 from threading import Event, Thread
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import pytz
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -59,38 +61,63 @@ class ServiceHelper:
         初始化服务
         """
         try:
+            # 115 网盘客户端初始化
             self.client = P115Client(configer.get_config("cookies"))
+
+            # 阿里云盘登入
+            aligo_config = configer.get_config("PLUGIN_ALIGO_PATH")
+            if configer.get_config("aliyundrive_token"):
+                set_config_folder(aligo_config)
+                if Path(aligo_config / "aligo.json").exists():
+                    logger.debug("Config login aliyunpan")
+                    self.aligo = BAligo(level=logging.ERROR, re_login=False)
+                else:
+                    logger.debug("Refresh token login aliyunpan")
+                    self.aligo = BAligo(
+                        refresh_token=configer.get_config("aliyundrive_token"),
+                        level=logging.ERROR,
+                        re_login=False,
+                    )
+                # 默认操作资源盘
+                v2_user = self.aligo.v2_user_get()
+                logger.debug(f"AliyunPan user info: {v2_user}")
+                resource_drive_id = v2_user.resource_drive_id
+                self.aligo.default_drive_id = resource_drive_id
+            elif (
+                not configer.get_config("aliyundrive_token")
+                and not Path(aligo_config / "aligo.json").exists()
+            ):
+                logger.debug("Login out aliyunpan")
+                self.aligo = None
+
+            # 媒体信息下载工具初始化
             self.mediainfodownloader = MediaInfoDownloader(
                 cookie=configer.get_config("cookies")
             )
+
+            # 生活事件监控初始化
             self.monitorlife = MonitorLife(
                 client=self.client, mediainfodownloader=self.mediainfodownloader
             )
+
+            # 分享转存初始化
             self.sharetransferhelper = ShareTransferHelper(self.client, self.aligo)
+
+            # 离线下载初始化
             self.offlinehelper = OfflineDownloadHelper(
                 client=self.client, monitorlife=self.monitorlife
             )
+
+            # 多端播放初始化
             pid = None
             if configer.get_config("same_playback"):
                 pid = self.client.fs_dir_getid("/多端播放")["id"]
                 if pid == 0:
                     payload = {"cname": "多端播放", "pid": 0}
                     pid = self.client.fs_mkdir(payload)["file_id"]
+
+            # 302跳转初始化
             self.redirect = Redirect(client=self.client, pid=pid)
-            if configer.get_config("aliyundrive_token"):
-                set_config_folder(
-                    str(configer.get_config("PLUGIN_CONFIG_PATH")) + "/" + "aligo"
-                )
-                # 第一次使用最新 Token 登入
-                self.aligo = BAligo(
-                    refresh_token=configer.get_config("aliyundrive_token")
-                )
-                # 第二次固化使用配置文件信息
-                self.aligo = BAligo()
-                # 默认操作资源盘
-                v2_user = self.aligo.v2_user_get()
-                resource_drive_id = v2_user.resource_drive_id
-                self.aligo.default_drive_id = resource_drive_id
             return True
         except Exception as e:
             logger.error(f"服务项初始化失败: {e}")

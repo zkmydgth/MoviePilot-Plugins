@@ -463,7 +463,6 @@ class Api:
             data = AliyunPanLogin.qr().get("content").get("data")
             if data:
                 code_content = data.get("codeContent")
-                logger.info(data)
                 t_param = data.get("t")
                 ck_param = data.get("ck")
 
@@ -517,6 +516,10 @@ class Api:
                 }
             elif data["data"]["qrCodeStatus"] == "EXPIRED":
                 return {"code": -1, "status": "error", "msg": "二维码无效或已过期"}
+            elif data["data"]["qrCodeStatus"] == "CANCELED":
+                return {"code": -1, "status": "error", "msg": "用户取消登录"}
+            elif data["data"]["qrCodeStatus"] == "SCANED":
+                return {"code": 0, "status": "scanned", "msg": "请在手机上确认"}
             else:
                 return {"code": 0, "status": "waiting", "msg": "等待扫码"}
         except Exception as e:
@@ -728,7 +731,7 @@ class Api:
                         image=file_mediainfo.poster_path,
                     )
             servicer.sharetransferhelper.post_share_info(
-                share_code, receive_code, file_mediainfo
+                "115", share_code, receive_code, file_mediainfo
             )
             return {
                 "code": 0,
