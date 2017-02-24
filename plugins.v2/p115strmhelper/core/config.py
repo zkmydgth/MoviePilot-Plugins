@@ -563,6 +563,10 @@ class ConfigManager(BaseModel):
         default=False,
         description="接管网盘整理（启用后将接管 115 → 115 的整理任务进行批量处理，需要存储模块为 '115网盘Plus'）",
     )
+    pan_transfer_linked_subtitle_audio: bool = Field(
+        default=True,
+        description="字幕与音轨关联整理，默认开启（开启：同目录发现字幕/音轨并随主视频批量处理，队列中忽略独立字幕/音轨任务；关闭：与 MoviePilot 一致，字幕/音轨为独立任务并按批次排序以配合刮削）",
+    )
     storage_module: Literal["u115", "115网盘Plus"] = Field(
         default="u115", description="存储模块选择"
     )

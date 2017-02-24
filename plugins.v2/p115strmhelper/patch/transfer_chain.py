@@ -244,6 +244,24 @@ class TransferChainPatcher:
                     f"【整理接管】检测到 115 → 115 整理任务: {task.fileitem.name}"
                 )
 
+                from ..core.config import configer
+                from ..helper.transfer.linked_subtitle_audio import (
+                    is_subtitle_or_audio_file,
+                )
+
+                if (
+                    configer.pan_transfer_linked_subtitle_audio
+                    and is_subtitle_or_audio_file(task.fileitem)
+                ):
+                    logger.debug(
+                        f"【整理接管】忽略字幕/音频文件（将跟随主文件一起处理）: {task.fileitem.name}"
+                    )
+                    chain_self.jobview.running_task(task)
+                    chain_self.jobview.finish_task(task)
+                    if chain_self.jobview.is_done(task):
+                        chain_self.jobview.remove_job(task)
+                    return True, "已由插件接管（字幕/音频文件，跟随主文件处理）"
+
                 need_rename, need_notify, need_scrape = cls._derive_transfer_flags(task)
 
                 # 注意：这个验证在 transfer_media 中进行，但由于我们拦截了，需要在这里进行

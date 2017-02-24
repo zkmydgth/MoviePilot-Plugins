@@ -21,7 +21,9 @@ from app.utils.string import StringUtils
 
 from ...core.config import configer
 from ...schemas.transfer import TransferTask
+from . import linked_subtitle_audio
 from .cache_updater import CacheUpdater
+from .handler_linked_batch import TransferHandlerLinkedBatch
 
 
 class TransferHandler:
@@ -44,6 +46,8 @@ class TransferHandler:
         self.cache_updater = CacheUpdater.create(
             client=client, storage_name=storage_name
         )
+
+        self._linked_batch = TransferHandlerLinkedBatch(self)
 
         logger.info(f"【整理接管】初始化整理执行器，存储: {storage_name}")
 
@@ -233,6 +237,13 @@ class TransferHandler:
             logger.error(f"【整理接管】创建目录失败 ({path}): {e}", exc_info=True)
             return None
 
+    @staticmethod
+    def _pan_transfer_linked_subtitle_audio() -> bool:
+        """
+        是否启用字幕/音轨关联整理（与主视频同批）
+        """
+        return bool(configer.pan_transfer_linked_subtitle_audio)
+
     def process_batch(self, tasks: List[TransferTask]) -> None:
         """
         批量处理整理任务
@@ -245,16 +256,33 @@ class TransferHandler:
 
         logger.info(f"【整理接管】开始批量处理 {len(tasks)} 个任务")
 
-        remaining_tasks = self._sort_tasks_for_batch(tasks)
+        remaining_tasks = list(tasks)
+        if self._pan_transfer_linked_subtitle_audio():
+            try:
+                linked_subtitle_audio.discover_related_files(self, remaining_tasks)
+            except Exception as e:
+                error_msg = f"发现关联文件失败: {e}"
+                logger.error(f"【整理接管】{error_msg}", exc_info=True)
+                self._batch_record_failures(
+                    [(task, error_msg) for task in remaining_tasks]
+                )
+                return
+        else:
+            remaining_tasks = self._sort_tasks_for_batch(tasks)
         failed_tasks: List[Tuple[TransferTask, str]] = []
 
         try:
             # 批量创建目标目录
             if remaining_tasks:
                 try:
-                    failed_in_step, remaining_tasks = self._batch_create_directories(
-                        remaining_tasks
-                    )
+                    if self._pan_transfer_linked_subtitle_audio():
+                        failed_in_step, remaining_tasks = (
+                            self._linked_batch.batch_create_directories(remaining_tasks)
+                        )
+                    else:
+                        failed_in_step, remaining_tasks = (
+                            self._batch_create_directories(remaining_tasks)
+                        )
                     failed_tasks.extend(failed_in_step)
                 except Exception as e:
                     error_msg = f"批量创建目录失败: {e}"
@@ -269,9 +297,14 @@ class TransferHandler:
             # 批量移动/复制文件
             if remaining_tasks:
                 try:
-                    failed_in_step, remaining_tasks = self._batch_move_or_copy(
-                        remaining_tasks
-                    )
+                    if self._pan_transfer_linked_subtitle_audio():
+                        failed_in_step, remaining_tasks = (
+                            self._linked_batch.batch_move_or_copy(remaining_tasks)
+                        )
+                    else:
+                        failed_in_step, remaining_tasks = self._batch_move_or_copy(
+                            remaining_tasks
+                        )
                     failed_tasks.extend(failed_in_step)
                 except Exception as e:
                     error_msg = f"批量移动/复制文件失败: {e}"
@@ -286,9 +319,14 @@ class TransferHandler:
             # 批量重命名文件
             if remaining_tasks:
                 try:
-                    failed_in_step, remaining_tasks = self._batch_rename_files(
-                        remaining_tasks
-                    )
+                    if self._pan_transfer_linked_subtitle_audio():
+                        failed_in_step, remaining_tasks = (
+                            self._linked_batch.batch_rename_files(remaining_tasks)
+                        )
+                    else:
+                        failed_in_step, remaining_tasks = self._batch_rename_files(
+                            remaining_tasks
+                        )
                     failed_tasks.extend(failed_in_step)
                 except Exception as e:
                     error_msg = f"批量重命名文件失败: {e}"
@@ -303,7 +341,10 @@ class TransferHandler:
             # 记录历史（只处理成功的任务）
             if remaining_tasks:
                 try:
-                    self._record_history(remaining_tasks)
+                    if self._pan_transfer_linked_subtitle_audio():
+                        self._linked_batch.record_history(remaining_tasks)
+                    else:
+                        self._record_history(remaining_tasks)
                 except Exception as e:
                     error_msg = f"记录历史失败: {e}"
                     logger.error(f"【整理接管】{error_msg}", exc_info=True)

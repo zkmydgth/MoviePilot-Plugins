@@ -11,6 +11,7 @@
 - [关键实现细节](#关键实现细节)
 - [数据流](#数据流)
 - [与 MoviePilot 的差异](#与-moviepilot-的差异)
+- [字幕与音轨两种模式](#字幕与音轨两种模式)
 - [注意事项](#注意事项)
 
 ---
@@ -99,11 +100,12 @@ MoviePilot 的原始整理逻辑是**单文件逐个处理**：
 │                                                               │
 │  ┌─────────────────────────────────────────────────────┐   │
 │  │  process_batch(tasks)                                │   │
-│  │  ├─ 批次排序（字幕→音频→其它→主视频）                │   │
-│  │  ├─ _batch_create_directories()     # 批量创建目录     │   │
-│  │  ├─ _batch_move_or_copy()          # 批量移动/复制    │   │
-│  │  ├─ _batch_rename_files()          # 批量重命名       │   │
-│  │  ├─ _record_history()               # 记录历史         │   │
+│  │  ├─ 关闭关联整理：批次排序（字幕→音频→其它→主视频）   │   │
+│  │  ├─ 关联整理（默认开启）：发现 related_files，走 linked │   │
+│  │  ├─ _batch_create_directories[_linked]()             │   │
+│  │  ├─ _batch_move_or_copy[_linked]()                   │   │
+│  │  ├─ _batch_rename_files[_linked]()                   │   │
+│  │  ├─ _record_history[_linked]()                       │   │
 │  │  └─ _batch_delete_empty_dirs()      # 删除空目录       │   │
 │  └─────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────┘
@@ -213,12 +215,14 @@ MoviePilot 的原始整理逻辑是**单文件逐个处理**：
 - 同步 MoviePilot 状态
 
 **关键方法**：
-- `process_batch()`: 批量处理主流程（含 `_sort_tasks_for_batch`）
-- `_batch_create_directories()`: 批量创建目录
-- `_batch_move_or_copy()`: 批量移动/复制
-- `_batch_rename_files()`: 批量重命名
-- `_record_history()`: 记录历史
+- `process_batch()`: 批量处理主流程（**默认**开启关联整理时先 `discover_related_files` 再走 linked；关闭该项时用 `_sort_tasks_for_batch`）
+- `_batch_create_directories()` / `TransferHandlerLinkedBatch.batch_create_directories()`: 批量创建目录
+- `_batch_move_or_copy()` / `TransferHandlerLinkedBatch.batch_move_or_copy()`: 批量移动/复制
+- `_batch_rename_files()` / `TransferHandlerLinkedBatch.batch_rename_files()`: 批量重命名
+- `_record_history()` / `TransferHandlerLinkedBatch.record_history()`: 记录历史
 - `_batch_delete_empty_dirs()`: 删除空目录
+
+**关联模式实现文件**：[`handler_linked_batch.py`](../../plugins.v2/p115strmhelper/helper/transfer/handler_linked_batch.py)（`TransferHandler` 在 `__init__` 中持有 `self._linked_batch` 并委托调用）
 
 **辅助方法**：
 - `_create_mp_task()`: 创建 MoviePilot TransferTask
@@ -248,7 +252,22 @@ class TransferTask:
 **与 MoviePilot TransferTask 的区别**：
 - 插件版本：包含已计算的 `target_path`，以及与 `filemanager.transfer()` 对齐的 `need_rename` / `need_notify` / `need_scrape`
 - MoviePilot 版本：含 `target_directory`，由 `transfer_media` 内部推导上述标志
-- **不再使用** `related_files`：字幕/音轨各为独立任务，与 MP `do_transfer` 一致
+- **`related_files`**：仅在开启「关联整理」时使用（见下节）；**默认开启**下会按关联路径发现并填充；关闭该项时 `related_files` 为空列表，字幕/音轨与 MoviePilot 一致为独立任务
+
+---
+
+## 字幕与音轨两种模式
+
+插件配置 **`pan_transfer_linked_subtitle_audio`**（默认 **`true`**，默认开启关联整理）：
+
+| 设置 | 含义 |
+|------|------|
+| **true（默认）** | **关联整理**：补丁层对 `RMT_SUBEXT` / `RMT_AUDIOEXT` 的独立任务不入队，直接 `finish_task`（随主文件处理）；批量层按源目录 **发现** 同目录字幕/音轨并写入 `related_files`，由 [`handler_linked_batch.py`](../../plugins.v2/p115strmhelper/helper/transfer/handler_linked_batch.py) 的 `TransferHandlerLinkedBatch` 执行批量目录/移动/重命名/历史；发现与匹配逻辑在 [`linked_subtitle_audio.py`](../../plugins.v2/p115strmhelper/helper/transfer/linked_subtitle_audio.py) |
+| **false** | 与当前 MoviePilot 队列语义一致：字幕、音轨各自作为独立 `TransferTask` 进入批量队列；`process_batch` 内通过 `_sort_tasks_for_batch` 排序为「字幕 → 音频 → 其它 → 主视频」，以便 `is_finished` 时主视频最后完成，从而正确发出 `MetadataScrape`；`TransferTask.related_files` 不使用 |
+
+**补丁层**（`transfer_chain.py`）：仅在关联模式且文件为字幕/音轨时短路，避免与主视频任务重复入队。
+
+**批量层**（`handler.py`）：关联模式下不调用 `_sort_tasks_for_batch`，先 `discover_related_files` 再执行带 `related_files` 的目录/移动/重命名/历史；历史与事件语义与旧版一致（主任务 `TransferComplete`，关联文件单独历史及 `SubtitleTransferComplete` / `AudioTransferComplete`）。
 
 ---
 
@@ -273,7 +292,8 @@ class TransferTask:
    └─ 调用 TransferHandler.process_batch(tasks)
 
 3. TransferHandler 批量处理
-   ├─ 批次内排序（字幕 → 音频 → 其它 → 主视频；主视频最后，便于 is_finished 时当前任务仍为主视频从而发出 MetadataScrape）
+   ├─ 关闭 `pan_transfer_linked_subtitle_audio`：批次内排序（字幕 → 音频 → 其它 → 主视频；主视频最后，便于 is_finished 时发出 MetadataScrape）
+   ├─ 开启关联整理（**默认**）：`discover_related_files` → `TransferHandlerLinkedBatch` 各步（不排序）
    │
    ├─ _batch_create_directories()     # 批量创建目录
    │   └─ 失败 → 受影响任务标记失败，停止
