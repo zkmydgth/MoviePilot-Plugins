@@ -816,7 +816,7 @@ class FullSyncStrmHelper:
                 end_time = time.perf_counter()
                 self.elapsed_time += end_time - start_time
             except Exception as e:
-                logger.error(f"【全量STRM生成】全量生成 STRM 文件失败: {e}")
+                logger.error(f"【全量STRM生成】全量生成 STRM 文件失败: {e}", exc_info=True)
                 return False
 
             if self.remove_unless_strm:
