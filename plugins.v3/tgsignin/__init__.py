@@ -964,6 +964,9 @@ class TgSignin(_PluginBase):
             ok = bool(item.get("ok"))
             status = str(item.get("status") or ("签到成功" if ok else "失败"))
             detail = item.get("reply") or item.get("error") or ""
+            alert = str(item.get("alert") or "")
+            if alert:
+                detail = f"弹窗：{alert}｜{detail}" if detail else f"弹窗：{alert}"
             rows.append(
                 {
                     "component": "tr",

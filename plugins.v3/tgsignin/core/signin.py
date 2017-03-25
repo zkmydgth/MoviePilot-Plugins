@@ -87,7 +87,7 @@ async def _click_button(
     entity: Any,
     keyword: str,
     wait_seconds: int,
-) -> Tuple[bool, str, str]:
+) -> Tuple[bool, str, str, str]:
     """
     在最近消息里点文字含关键词的按钮，并读回回复。
 
@@ -95,7 +95,9 @@ async def _click_button(
     :param entity: bot 实体
     :param keyword: 按钮关键词（如「签到」）
     :param wait_seconds: 点击后等待秒数
-    :return Tuple[bool, str, str]: ``(是否点到, 回复文本, 错误信息)``
+    :return Tuple[bool, str, str, str]: ``(是否点到, 回复文本, 弹窗文本, 错误信息)``；
+        弹窗文本来自 Telegram 的 callback 应答（bot 用 ``answerCallbackQuery``
+        弹的那句提示，例如「您今天已经签到过了」），拿不到时为空串
     """
 
     messages = await client.get_messages(entity, limit=_MSG_SCAN_LIMIT)
@@ -104,35 +106,48 @@ async def _click_button(
             for button in row:
                 text = str(getattr(button, "text", "") or "")
                 if keyword and keyword in text:
-                    await button.click()
+                    # click() 对 inline 按钮返回 BotCallbackAnswer（含 .message/.alert）
+                    answer = await button.click()
+                    alert = str(getattr(answer, "message", "") or "")
                     await asyncio.sleep(wait_seconds)
                     latest = await client.get_messages(entity, limit=3)
-                    return True, _pick_reply(latest), ""
-    return False, "", f"最近 {_MSG_SCAN_LIMIT} 条消息里没找到含「{keyword}」的按钮"
+                    return True, _pick_reply(latest), alert, ""
+    return False, "", "", f"最近 {_MSG_SCAN_LIMIT} 条消息里没找到含「{keyword}」的按钮"
 
 
-def classify_result(reply: str, ok: bool, method: str = "") -> str:
+def classify_result(
+    reply: str,
+    ok: bool,
+    method: str = "",
+    alert: str = "",
+) -> str:
     """
     按 bot 回复内容给签到结果分档。
 
     判据来自交接单实测：emby 类 bot 真签到成功会回「🎉 签到成功 | N 子弹…」，
-    重复签到只回主菜单（不再发放）；HDHaven 重复签到回「✅ 今日已签到，明天再来。」。
+    重复签到只回主菜单并弹一句提示（callback 应答）；HDHaven 重复签到回
+    「✅ 今日已签到，明天再来。」。
 
     :param reply: bot 回复文本
     :param ok: 本次是否判定为成功（有回复即算动作完成）
     :param method: 签到方式描述（用于区分「点了按钮但只回菜单」）
+    :param alert: 点击按钮时 Telegram 返回的弹窗提示（callback 应答文本）
     :return str: STATUS_SUCCESS / STATUS_REPEATED / STATUS_UNCONFIRMED / STATUS_FAILED
     """
 
     if not ok:
         return STATUS_FAILED
+    alert_text = str(alert or "")
     text = str(reply or "")
-    if "签到成功" in text:
+    if alert_text and "已签到" in alert_text:
+        return STATUS_REPEATED
+    if "签到成功" in text or "签到成功" in alert_text:
         return STATUS_SUCCESS
-    if "已签到" in text:
+    if "已签到" in text or "已签到" in alert_text:
         return STATUS_REPEATED
     if "按钮" in str(method or ""):
-        # 按钮点到了、bot 只回菜单：按交接单，这就是「今日已签到、不再重复发放」
+        # 按钮点到了、bot 只回菜单：按交接单，这就是「今日已签到、不再重复发放」，
+        # 部分 bot 会另发一条弹窗提示（alert），拿不到也不影响判定
         return STATUS_REPEATED
     return STATUS_UNCONFIRMED
 
@@ -176,6 +191,7 @@ async def _signin_one_impl(
         "method": target.method_desc(),
         "ok": False,
         "reply": "",
+        "alert": "",
         "error": "",
         "time": now_text(),
     }
@@ -189,11 +205,12 @@ async def _signin_one_impl(
         if target.sign_type == SIGN_TYPE_BUTTON:
             await client.send_message(entity, "/start")
             await asyncio.sleep(max(3, min(target.wait_seconds, 30)))
-            clicked, reply, error = await _click_button(
+            clicked, reply, alert, error = await _click_button(
                 client, entity, target.action_text, target.wait_seconds
             )
             result["ok"] = clicked
             result["reply"] = reply
+            result["alert"] = alert
             result["error"] = error
             return result
 
@@ -349,6 +366,35 @@ def _account_name(item: Mapping[str, Any]) -> str:
     return str(item.get("account_label") or item.get("account") or "")
 
 
+def _status_note(item: Mapping[str, Any]) -> str:
+    """
+    生成结果行的状态补充说明。
+
+    用来区分「bot 弹窗说已签到」「回复里说已签到」「只回了菜单」等不同情形，
+    避免所有重复签到都显示成同一句话。
+
+    :param item: 一条签到结果
+    :return str: 形如 ``（bot 弹窗：您今天已经签到过了）``；无需补充时返回空串
+    """
+
+    status = str(item.get("status") or STATUS_SUCCESS)
+    alert = " ".join(str(item.get("alert") or "").split())
+    reply = " ".join(str(item.get("reply") or "").split())
+    if status == STATUS_SUCCESS:
+        if alert:
+            return f"（bot 弹窗：{_snippet(alert, 40)}）"
+        return f"｜{_snippet(reply)}" if reply else ""
+    if status == STATUS_REPEATED:
+        if alert:
+            return f"（bot 弹窗：{_snippet(alert, 40)}）"
+        if "已签到" in reply:
+            return f"｜{_snippet(reply)}"
+        return "（按钮式：已点击，bot 未返回签到结果）"
+    if status == STATUS_UNCONFIRMED:
+        return "（未在回复里看到签到结果）"
+    return ""
+
+
 def build_notify_text(
     results: Sequence[Dict[str, Any]],
     source: str,
@@ -399,16 +445,9 @@ def build_notify_text(
     else:
         for item in list(results)[:_DETAIL_LIMIT]:
             status = str(item.get("status") or STATUS_SUCCESS)
-            line = f"- {_account_name(item)} → {item.get('bot')}：{status}"
-            if status == STATUS_REPEATED:
-                line += "（bot 只回菜单，未重复发放）"
-            elif status == STATUS_UNCONFIRMED:
-                line += "（未在回复里看到签到结果）"
-            else:
-                snippet = _snippet(item.get("reply"))
-                if snippet:
-                    line += f"｜{snippet}"
-            lines.append(line)
+            lines.append(
+                f"- {_account_name(item)} → {item.get('bot')}：{status}{_status_note(item)}"
+            )
         if total > _DETAIL_LIMIT:
             lines.append(f"…等 {total} 项")
     return "\n".join(lines)

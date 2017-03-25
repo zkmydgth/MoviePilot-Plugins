@@ -94,9 +94,15 @@ MUTANTS = [
     ),
     (
         "core/signin.py",
-        '    if "签到成功" in text:',
+        '    if "签到成功" in text or "签到成功" in alert_text:',
         "    if False:",
         "「签到成功」不再被识别（状态分类失真）",
+    ),
+    (
+        "core/signin.py",
+        '    if alert_text and "已签到" in alert_text:',
+        "    if False:",
+        "弹窗提示的「已签到」被忽略（通知里看不出区别）",
     ),
     (
         "core/login.py",

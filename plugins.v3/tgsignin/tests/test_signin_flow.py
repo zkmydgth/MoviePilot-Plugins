@@ -55,19 +55,39 @@ class _FakeAsyncio:
 class _FakeButton:
     """inline 按钮替身：点击时把文字记到 sink。"""
 
-    def __init__(self, text: str, sink: list) -> None:
+    def __init__(self, text: str, sink: list, alert: str = "") -> None:
         """
         构造按钮。
 
         :param text: 按钮文字
         :param sink: 点击记录列表
+        :param alert: 点击后 Telegram 返回的弹窗文本（callback 应答）
         """
         self.text = text
         self._sink = sink
+        self._alert = alert
 
-    async def click(self) -> None:
-        """点击并记录。"""
+    async def click(self):
+        """
+        点击并返回 callback 应答（含弹窗文本）。
+
+        :return _FakeCallbackAnswer: 应答替身
+        """
         self._sink.append(self.text)
+        return _FakeCallbackAnswer(self._alert)
+
+
+class _FakeCallbackAnswer:
+    """BotCallbackAnswer 替身：只带 message/alert。"""
+
+    def __init__(self, message: str = "") -> None:
+        """
+        构造应答。
+
+        :param message: 弹窗文本
+        """
+        self.message = message
+        self.alert = bool(message)
 
 
 class _FakeMessage:
@@ -110,6 +130,16 @@ class _FakeClient:
         :return list: 按钮矩阵
         """
         return [[_FakeButton(text, self.clicks) for text in texts]]
+
+    def make_buttons_with_alert(self, texts, alert: str) -> list:
+        """
+        生成带弹窗提示的按钮行。
+
+        :param texts: 按钮文字列表
+        :param alert: 点击后弹窗文本
+        :return list: 按钮矩阵
+        """
+        return [[_FakeButton(text, self.clicks, alert) for text in texts]]
 
     async def get_entity(self, username: str):
         """
@@ -207,6 +237,31 @@ class TestSigninButtonMode(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertIn("找不到 bot", result["error"])
 
+    def test_button_alert_is_captured(self) -> None:
+        """点击按钮时 bot 的弹窗提示（callback 应答）要被记录，并据此分档。"""
+        client = _FakeClient(batches=[])
+        client._batches = [
+            [
+                _FakeMessage(
+                    "请选择功能",
+                    buttons=client.make_buttons_with_alert(
+                        ["🎯 签到"], "您今天已经签到过了"
+                    ),
+                )
+            ],
+            [_FakeMessage("🍉 你好鸭 请选择功能")],
+        ]
+        target = BotTarget(
+            account_key="acc1",
+            bot_username="@okemby_bot",
+            sign_type=SIGN_TYPE_BUTTON,
+            action_text="签到",
+        )
+        result = asyncio.run(signin_one(client, target))
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["alert"], "您今天已经签到过了")
+        self.assertEqual(result["status"], STATUS_REPEATED)
+
 
 class TestSigninCommandMode(unittest.TestCase):
     """命令式签到。"""
@@ -294,6 +349,25 @@ class TestClassifyResult(unittest.TestCase):
         self.assertEqual(
             classify_result("🍉 你好鸭 请选择功能", True, "点按钮「签到」"),
             STATUS_REPEATED,
+        )
+
+    def test_alert_repeated(self) -> None:
+        """bot 用弹窗提示已签到时（回复只有菜单）同样判为今日已签到。"""
+        self.assertEqual(
+            classify_result(
+                "🍉 你好鸭 请选择功能",
+                True,
+                "点按钮「签到」",
+                "您今天已经签到过了",
+            ),
+            STATUS_REPEATED,
+        )
+
+    def test_alert_success(self) -> None:
+        """弹窗里出现「签到成功」时判为签到成功。"""
+        self.assertEqual(
+            classify_result("", True, "点按钮「签到」", "签到成功，获得 5 积分"),
+            STATUS_SUCCESS,
         )
 
     def test_command_reply_without_marker_is_unconfirmed(self) -> None:
@@ -407,10 +481,52 @@ class TestBuildNotifyText(unittest.TestCase):
         results = self._results(2, 0)
         results[0]["status"] = STATUS_SUCCESS
         results[1]["status"] = STATUS_REPEATED
+        results[1]["reply"] = "🍉 你好鸭 请选择功能"
         text = build_notify_text(results, "手动", NOTIFY_MODE_SUCCESS)
         self.assertIsNotNone(text)
         self.assertIn("2/2 全部成功（其中 1 项为今日已签到）", text)
-        self.assertIn("今日已签到（bot 只回菜单，未重复发放）", text)
+        self.assertIn("今日已签到（按钮式：已点击，bot 未返回签到结果）", text)
+
+    def test_status_notes_distinguish_cases(self) -> None:
+        """三种「已签到」情形与「未确认」在通知里要能区分开。"""
+
+        def item(bot: str, status: str, reply: str = "", alert: str = "") -> dict:
+            """
+            构造一条结果。
+
+            :param bot: bot 用户名
+            :param status: 状态
+            :param reply: 回复文本
+            :param alert: 弹窗文本
+            :return dict: 结果字典
+            """
+
+            return {
+                "account": "acc1",
+                "account_label": "账号1(acc1)",
+                "bot": bot,
+                "ok": True,
+                "reply": reply,
+                "alert": alert,
+                "error": "",
+                "time": "2026-10-06 09:00:03",
+                "status": status,
+            }
+
+        results = [
+            item("@bb_emby_bot", STATUS_SUCCESS, "🎉 签到成功 | 10 子弹 💴 当前持有"),
+            item("@HG_Emby_bot", STATUS_REPEATED, "🍉 你好鸭 请选择功能", "您今天已经签到过了"),
+            item("@HDHaven_Bot", STATUS_REPEATED, "✅ 今日已签到，明天再来。"),
+            item("@okemby_bot", STATUS_REPEATED, "🍉 你好鸭 请选择功能"),
+            item("@other_bot", STATUS_UNCONFIRMED, "我不知道你在说什么"),
+        ]
+        text = build_notify_text(results, "手动", NOTIFY_MODE_SUCCESS)
+        self.assertIsNotNone(text)
+        self.assertIn("签到成功｜🎉 签到成功", text)
+        self.assertIn("今日已签到（bot 弹窗：您今天已经签到过了）", text)
+        self.assertIn("今日已签到｜✅ 今日已签到，明天再来。", text)
+        self.assertIn("今日已签到（按钮式：已点击，bot 未返回签到结果）", text)
+        self.assertIn("未确认（未在回复里看到签到结果）", text)
 
     def test_success_line_keeps_reply_snippet(self) -> None:
         """签到成功那行会带上 bot 回复摘要。"""
