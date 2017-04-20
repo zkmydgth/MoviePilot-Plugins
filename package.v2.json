@@ -89,11 +89,12 @@
         "name": "115网盘STRM助手",
         "description": "115网盘STRM生成一条龙服务",
         "labels": "云盘",
-        "version": "1.8.7",
+        "version": "1.8.9",
         "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png",
         "author": "DDSRem",
         "level": 1,
         "history": {
+            "v1.8.9": "加强增量同步错误捕捉",
             "v1.8.8": "移除增量删除本地文件功能",
             "v1.8.7": "修复全量删除空目录错误，添加增量同步（测试功能）",
             "v1.8.6": "修复网盘浏览分页错误",

@@ -652,27 +652,6 @@ class IncrementSyncStrmHelper:
                     processed.extend(self.databasehelper.process_fs_files_item(item))
                 self.databasehelper.upsert_batch(processed)
 
-    @staticmethod
-    def __remove_parent_dir(file_path: Path):
-        """
-        删除父目录
-        """
-        # 删除空目录
-        # 判断当前媒体父路径下是否有文件，如有则无需遍历父级
-        if not any(file_path.parent.iterdir()):
-            # 判断父目录是否为空, 为空则删除
-            i = 0
-            for parent_path in file_path.parents:
-                i += 1
-                if i > 3:
-                    break
-                if str(parent_path.parent) != str(file_path.root):
-                    # 父目录非根目录，才删除父目录
-                    if not any(parent_path.iterdir()):
-                        # 当前路径下没有媒体文件则删除
-                        shutil.rmtree(parent_path)
-                        logger.warn(f"【增量STRM生成】本地空目录 {parent_path} 已删除")
-
     @property
     def service_infos(self) -> Optional[Dict[str, ServiceInfo]]:
         """
@@ -929,25 +908,33 @@ class IncrementSyncStrmHelper:
             pan_media_dir = pan_media_dir.rstrip("/")
             target_dir = target_dir.rstrip("/")
 
-            # 生成本地目录树文件
-            local_tree_task_thread = self.__generate_local_tree(target_dir=target_dir)
-
-            # 生成网盘目录树文件
-            self.__generate_pan_tree(pan_media_dir=pan_media_dir, target_dir=target_dir)
-
-            # 等待生成本地目录树运行完成
-            self.__wait_generate_local_tree(local_tree_task_thread)
-
-            # 生成或者下载文件
-            for line in tree.compare_trees_lines(
-                self.pan_to_local_tree, self.local_tree
-            ):
-                self.__handle_addition_path(
-                    pan_path=str(tree.get_path_by_line_number(self.pan_tree, line)),
-                    local_path=str(
-                        tree.get_path_by_line_number(self.pan_to_local_tree, line)
-                    ),
+            try:
+                # 生成本地目录树文件
+                local_tree_task_thread = self.__generate_local_tree(
+                    target_dir=target_dir
                 )
+
+                # 生成网盘目录树文件
+                self.__generate_pan_tree(
+                    pan_media_dir=pan_media_dir, target_dir=target_dir
+                )
+
+                # 等待生成本地目录树运行完成
+                self.__wait_generate_local_tree(local_tree_task_thread)
+
+                # 生成或者下载文件
+                for line in tree.compare_trees_lines(
+                    self.pan_to_local_tree, self.local_tree
+                ):
+                    self.__handle_addition_path(
+                        pan_path=str(tree.get_path_by_line_number(self.pan_tree, line)),
+                        local_path=str(
+                            tree.get_path_by_line_number(self.pan_to_local_tree, line)
+                        ),
+                    )
+            except Exception as e:
+                logger.error(f"【增量STRM生成】增量同步 STRM 文件失败: {e}")
+                return
 
         # 下载媒体信息文件
         self.mediainfo_count, self.mediainfo_fail_count, self.mediainfo_fail_dict = (
@@ -1534,7 +1521,7 @@ class P115StrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png"
     # 插件版本
-    plugin_version = "1.8.8"
+    plugin_version = "1.8.9"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
