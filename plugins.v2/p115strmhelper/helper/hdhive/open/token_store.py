@@ -11,7 +11,7 @@ def load_oauth_bundle() -> Dict[str, Any]:
     """
     读取 OAuth Token 包
 
-    :return: 存储 dict，不存在时为空 dict
+    :return Dict: 存储 dict，不存在时为空 dict
     """
     return configer.get_plugin_data(PLUGIN_DATA_KEY_OAUTH) or {}
 
@@ -20,7 +20,7 @@ def save_oauth_bundle(bundle: Dict[str, Any]) -> None:
     """
     保存 OAuth Token 包
 
-    :param bundle: Token 字段 dict
+    :param bundle (Dict): Token 字段 dict
     """
     configer.save_plugin_data(PLUGIN_DATA_KEY_OAUTH, bundle)
 
@@ -36,7 +36,7 @@ def get_or_create_instance_key() -> str:
     """
     获取或生成实例级 instance_key
 
-    :return: instance_key 字符串
+    :return str: instance_key 字符串
     """
     bundle = load_oauth_bundle()
     key = (bundle.get("instance_key") or "").strip()
@@ -56,7 +56,7 @@ def is_access_valid(bundle: Optional[Dict[str, Any]] = None) -> bool:
     """
     Access Token 是否在有效期内
 
-    :param bundle: 可选已加载 bundle
+    :param bundle (Dict): 可选已加载 bundle
     """
     b = bundle if bundle is not None else load_oauth_bundle()
     exp = b.get("expires_at")
@@ -69,7 +69,7 @@ def is_refresh_valid(bundle: Optional[Dict[str, Any]] = None) -> bool:
     """
     Refresh Token 是否仍可用
 
-    :param bundle: 可选已加载 bundle
+    :param bundle (Dict): 可选已加载 bundle
     """
     b = bundle if bundle is not None else load_oauth_bundle()
     rt = (b.get("refresh_token") or "").strip()
@@ -85,7 +85,7 @@ def is_authorized() -> bool:
     """
     是否已 OAuth 授权且凭证仍可用（access 有效或 refresh 可用）
 
-    :return: 是否视为已授权
+    :return bool: 是否视为已授权
     """
     bundle = load_oauth_bundle()
     if not (bundle.get("access_token") or "").strip():
@@ -97,9 +97,9 @@ def apply_token_response(data: Dict[str, Any], *, instance_key: str) -> Dict[str
     """
     将 broker/HDHive 返回的 token 数据写入 bundle 结构
 
-    :param data: 含 access_token、refresh_token、expires_in 等
-    :param instance_key: 实例 key
-    :return: 完整 bundle
+    :param data (Dict): 含 access_token、refresh_token、expires_in 等
+    :param instance_key (str): 实例 key
+    :return Dict: 完整 bundle
     """
     now = _now_ts()
     expires_in = int(data.get("expires_in") or 0)
@@ -122,7 +122,7 @@ def status_snapshot() -> Dict[str, Any]:
     """
     供 API 返回的脱敏状态
 
-    :return: 不含 refresh_token / access_token 明文
+    :return Dict: 不含 refresh_token / access_token 明文
     """
     bundle = load_oauth_bundle()
     oauth_ok = is_authorized()

@@ -42,6 +42,12 @@ class ApiSyncStrmHelper:
     cooldown: int | float = 1
 
     def __init__(self, client: P115Client, mediainfo_downloader: MediaInfoDownloader):
+        """
+        初始化 API STRM 生成器
+
+        :param client (P115Client): P115Client 实例
+        :param mediainfo_downloader (MediaInfoDownloader): 媒体信息下载器实例
+        """
         self.client = client
         self.open_client = U115OpenHelper()
         self.mediainfo_downloader = mediainfo_downloader
@@ -62,6 +68,10 @@ class ApiSyncStrmHelper:
     ) -> Tuple[int, str, StrmApiResponseData]:
         """
         生成 STRM 文件
+
+        :param payload (StrmApiPayloadData): STRM 生成请求数据
+
+        :return Tuple: 状态码、消息和响应数据
         """
         if not payload.data:
             return StrmApiStatusCode.MissPayload, "未传有效参数", StrmApiResponseData()
@@ -332,6 +342,10 @@ class ApiSyncStrmHelper:
     ) -> Tuple[int, str, StrmApiResponseByPathData]:
         """
         根据文件夹列表生成 STRM 文件
+
+        :param payload (StrmApiPayloadByPathData): 按路径的 STRM 生成请求数据
+
+        :return Tuple: 状态码、消息和响应数据
         """
         if not payload.data:
             return (
@@ -471,6 +485,10 @@ class ApiSyncStrmHelper:
     ) -> Tuple[int, str, StrmApiResponseRemoveData]:
         """
         删除无效 STRM 文件
+
+        :param payload (StrmApiPayloadRemoveData): STRM 删除请求数据
+
+        :return Tuple: 状态码、消息和响应数据
         """
 
         if not payload.data:

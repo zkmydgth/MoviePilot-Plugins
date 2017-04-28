@@ -13,9 +13,9 @@ class DirectoryUploadTask:
     """
     单条目录上传处理任务
 
-    :param client: 115 客户端
-    :param file_path: 事件文件路径
-    :param mon_path: 监控根目录
+    :param client (P115Client): 115 客户端
+    :param file_path (str): 事件文件路径
+    :param mon_path (str): 监控根目录
     """
 
     client: P115Client
@@ -120,7 +120,7 @@ class DirectoryUploadQueue:
         """
         将一条处理任务加入队列
 
-        :param task: 任务参数
+        :param task (DirectoryUploadTask): 任务参数
         """
         with self._lock:
             q = self._queue

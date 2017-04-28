@@ -19,7 +19,7 @@ def is_subtitle_or_audio_file(fileitem: FileItem) -> bool:
     """
     判断是否为字幕或独立音轨文件（与 MoviePilot RMT 后缀一致）
 
-    :param fileitem: 文件项
+    :param fileitem (FileItem): 文件项
     :return: 是否为字幕或音轨
     """
     try:
@@ -40,8 +40,8 @@ def discover_related_files(
     """
     发现关联文件（字幕、音轨）
 
-    :param handler: 整理执行器
-    :param tasks: 任务列表（就地写入 related_files）
+    :param handler (TransferHandler): 整理执行器
+    :param tasks (List): 任务列表（就地写入 related_files）
     """
     logger.info("【整理接管】开始发现关联文件")
 
@@ -274,8 +274,8 @@ def record_related_files_success_history(
     """
     为关联文件（字幕、音轨）补充独立的成功历史记录
 
-    :param handler: 整理执行器
-    :param task: 整理任务
+    :param handler (TransferHandler): 整理执行器
+    :param task (TransferTask): 整理任务
     :return: (写入数量, 历史记录字典 {源路径: history 对象})
     """
     if not task.related_files:

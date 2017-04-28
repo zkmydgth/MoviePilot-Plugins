@@ -34,8 +34,8 @@ class BackupStrmHelper:
         """
         生成备份文件名
 
-        :param task_name: 备份任务名称
-        :return: 备份文件名
+        :param task_name (str): 备份任务名称
+        :return str: 备份文件名
         """
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         safe_name = task_name.replace("/", "_").replace("\\", "_").replace(" ", "_")
@@ -49,9 +49,9 @@ class BackupStrmHelper:
         """
         将多个源目录打包为 tar.gz 文件
 
-        :param source_paths: 要打包的源目录列表
-        :param output_path: 输出文件路径
-        :return: (是否成功, 错误信息)
+        :param source_paths (List): 要打包的源目录列表
+        :param output_path (Path): 输出文件路径
+        :return Tuple: (是否成功, 错误信息)
         """
         try:
             output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -83,9 +83,9 @@ class BackupStrmHelper:
         """
         解压 tar.gz 文件到目标目录
 
-        :param archive_path: 备份文件路径
-        :param target_dir: 解压目标目录
-        :return: (是否成功, 错误信息)
+        :param archive_path (Path): 备份文件路径
+        :param target_dir (Path): 解压目标目录
+        :return Tuple: (是否成功, 错误信息)
         """
         try:
             target_dir.mkdir(parents=True, exist_ok=True)
@@ -106,10 +106,10 @@ class BackupStrmHelper:
         """
         清理旧的备份文件，保留最新的 N 个
 
-        :param backup_dir: 备份目录
-        :param task_name: 备份任务名称
-        :param retain_count: 保留数量
-        :return: 删除的文件数量
+        :param backup_dir (Path): 备份目录
+        :param task_name (str): 备份任务名称
+        :param retain_count (int): 保留数量
+        :return int: 删除的文件数量
         """
         safe_name = task_name.replace("/", "_").replace("\\", "_").replace(" ", "_")
         prefix = f"{safe_name}_"
@@ -139,8 +139,8 @@ class BackupStrmHelper:
         """
         执行本地备份
 
-        :param task: 备份任务配置
-        :return: 备份历史记录
+        :param task (StrmBackupItem): 备份任务配置
+        :return BackupHistory: 备份历史记录
         """
         filename = self._generate_filename(task.name)
         target_dir = Path(task.local_target_path)
@@ -181,9 +181,9 @@ class BackupStrmHelper:
         """
         执行 115 网盘备份
 
-        :param task: 备份任务配置
-        :param client: P115Client 实例
-        :return: 备份历史记录
+        :param task (StrmBackupItem): 备份任务配置
+        :param client (P115Client): P115Client 实例
+        :return BackupHistory: 备份历史记录
         """
         filename = self._generate_filename(task.name)
         temp_dir = configer.PLUGIN_TEMP_PATH / "backup"
@@ -281,9 +281,9 @@ class BackupStrmHelper:
         """
         清理 115 网盘上旧的备份文件
 
-        :param task_name: 备份任务名称
-        :param cloud_path: 115 网盘备份目录
-        :param retain_count: 保留数量
+        :param task_name (str): 备份任务名称
+        :param cloud_path (str): 115 网盘备份目录
+        :param retain_count (int): 保留数量
         """
         try:
             dir_item = self._storage_chain.get_file_item(
@@ -320,8 +320,8 @@ class BackupStrmHelper:
         """
         列出本地备份文件
 
-        :param task: 备份任务配置
-        :return: 备份历史记录列表
+        :param task (StrmBackupItem): 备份任务配置
+        :return List: 备份历史记录列表
         """
         if not task.local_target_path:
             return []
@@ -358,8 +358,8 @@ class BackupStrmHelper:
         """
         列出 115 网盘备份文件
 
-        :param task: 备份任务配置
-        :return: 备份历史记录列表
+        :param task (StrmBackupItem): 备份任务配置
+        :return List: 备份历史记录列表
         """
         if not task.cloud_target_path:
             return []
@@ -402,9 +402,9 @@ class BackupStrmHelper:
         """
         从本地备份恢复
 
-        :param backup_path: 备份文件路径
-        :param source_paths: 恢复目标目录列表（取第一个的父目录作为解压根目录）
-        :return: (是否成功, 错误信息)
+        :param backup_path (str): 备份文件路径
+        :param source_paths (List): 恢复目标目录列表（取第一个的父目录作为解压根目录）
+        :return Tuple: (是否成功, 错误信息)
         """
         archive_path = Path(backup_path)
         if not archive_path.exists():
@@ -426,10 +426,10 @@ class BackupStrmHelper:
         """
         从 115 网盘备份恢复
 
-        :param cloud_path: 115 网盘备份文件路径
-        :param source_paths: 恢复目标目录列表（取第一个作为恢复根目录）
-        :param client: P115Client 实例
-        :return: (是否成功, 错误信息)
+        :param cloud_path (str): 115 网盘备份文件路径
+        :param source_paths (List): 恢复目标目录列表（取第一个作为恢复根目录）
+        :param client (P115Client): P115Client 实例
+        :return Tuple: (是否成功, 错误信息)
         """
         if not source_paths:
             return False, "未指定恢复目标目录"
@@ -496,9 +496,9 @@ class BackupStrmHelper:
         """
         执行备份任务
 
-        :param task: 备份任务配置
-        :param client: P115Client 实例
-        :return: 备份历史记录
+        :param task (StrmBackupItem): 备份任务配置
+        :param client (P115Client): P115Client 实例
+        :return BackupHistory: 备份历史记录
         """
         if not task.enabled:
             return BackupHistory(

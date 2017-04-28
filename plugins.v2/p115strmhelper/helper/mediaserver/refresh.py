@@ -24,6 +24,15 @@ class MediaServerRefresh:
         mp_mediaserver: Optional[str] = None,
         delay_seconds: int = 0,
     ):
+        """
+        初始化媒体服务器刷新器
+
+        :param func_name (str): 调用方标识，用于日志
+        :param enabled (bool): 是否启用刷新
+        :param mediaservers (List): 媒体服务器名称列表
+        :param mp_mediaserver (str): MoviePilot 媒体服务器路径配置
+        :param delay_seconds (int): 刷新延迟秒数
+        """
         self.func_name = func_name
         self.media_servers = mediaservers
         self.mp_mediaserver = mp_mediaserver
@@ -35,7 +44,7 @@ class MediaServerRefresh:
         """
         媒体服务器服务信息
 
-        :return: 媒体服务器服务信息
+        :return Dict: 媒体服务器服务信息
         """
         if not self.media_servers:
             logger.warning(f"{self.func_name}尚未配置媒体服务器，请检查配置")
@@ -69,10 +78,10 @@ class MediaServerRefresh:
         """
         尝试使用 Emby API 刷新
 
-        :param file_path: 文件路径
-        :param file_name: 文件名
+        :param file_path (str): 文件路径
+        :param file_name (str): 文件名
 
-        :return: 是否有 Emby 服务并已完成刷新尝试
+        :return bool: 是否有 Emby 服务并已完成刷新尝试
         """
         from .emby import EmbyOperate
 
@@ -112,12 +121,12 @@ class MediaServerRefresh:
         """
         刷新媒体服务器
 
-        :param file_path: 文件路径
-        :param file_name: 文件名
-        :param mediainfo: 媒体信息
-        :param refresh_all: 是否刷新所有媒体服务器
+        :param file_path (str): 文件路径
+        :param file_name (str): 文件名
+        :param mediainfo (MediaInfo): 媒体信息
+        :param refresh_all (bool): 是否刷新所有媒体服务器
 
-        :return: 是否刷新成功
+        :return bool: 是否刷新成功
         """
         if not self.enabled:
             return True
@@ -145,12 +154,12 @@ class MediaServerRefresh:
         """
         执行媒体服务器刷新
 
-        :param file_path: 文件路径
-        :param file_name: 文件名
-        :param mediainfo: 媒体信息
-        :param refresh_all: 是否刷新所有媒体服务器
+        :param file_path (str): 文件路径
+        :param file_name (str): 文件名
+        :param mediainfo (MediaInfo): 媒体信息
+        :param refresh_all (bool): 是否刷新所有媒体服务器
 
-        :return: 是否刷新成功
+        :return bool: 是否刷新成功
         """
         logger.info(f"{self.func_name}{file_name} 开始刷新媒体服务器")
         if refresh_all:

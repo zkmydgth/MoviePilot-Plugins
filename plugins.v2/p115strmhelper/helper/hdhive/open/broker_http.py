@@ -13,7 +13,7 @@ def broker_http_client() -> Client:
     """
     创建访问 OAuth 中转的 httpx 客户端
 
-    :return: 配置好 base_url 与代理的 Client
+    :return Client: 配置好 base_url 与代理的 Client
     """
     proxy_h = (
         AsyncRequestUtils._convert_proxies_for_httpx(settings.PROXY)
@@ -31,8 +31,8 @@ def broker_request_headers(instance_key: str) -> Dict[str, str]:
     """
     中转请求通用头（实例标识 + 可选 Machine ID）
 
-    :param instance_key: 实例 key
-    :return: 请求头 dict
+    :param instance_key (str): 实例 key
+    :return Dict: 请求头 dict
     """
     headers = {
         "X-Instance-Key": instance_key,

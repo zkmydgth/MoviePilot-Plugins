@@ -41,9 +41,9 @@ class MediaSearcher:
         """
         同步入口：与主程序媒体搜索 API 一致，返回前 ``count`` 条
 
-        :param title: 搜索关键词（与端点 ``title`` 一致）
-        :param count: 最大条数，对应端点 ``count``；应 >= 1
-        :return: 媒体 ``to_dict()`` 列表
+        :param title (str): 搜索关键词（与端点 ``title`` 一致）
+        :param count (int): 最大条数，对应端点 ``count``；应 >= 1
+        :return List: 媒体 ``to_dict()`` 列表
         """
         if not title or not str(title).strip():
             return []

@@ -86,9 +86,9 @@ class MonitorLife:
         """
         初始化生活事件监听器
 
-        :param client: P115Client 实例
-        :param mediainfodownloader: 媒体信息下载器实例
-        :param stop_event: 可选的停止事件，用于控制监听循环
+        :param client (P115Client): P115Client 实例
+        :param mediainfodownloader (MediaInfoDownloader): 媒体信息下载器实例
+        :param stop_event (Event): 可选的停止事件，用于控制监听循环
         """
         self._client = client
         self.mediainfodownloader = mediainfodownloader
@@ -209,9 +209,9 @@ class MonitorLife:
         """
         在 CloudDrive2 挂载路径上递归 list_files，将媒体文件加入整理队列
 
-        :param org_file_path: 115 侧目录路径（posix）
-        :param rmt_mediaext: 待整理媒体扩展名列表（含前导点）
-        :param transferchain: 整理链实例
+        :param org_file_path (str): 115 侧目录路径（posix）
+        :param rmt_mediaext (List): 待整理媒体扩展名列表（含前导点）
+        :param transferchain (TransferChain): 整理链实例
         """
         cd2_root = Path(
             configer.pan_transfer_clouddrive2_config.prefix
@@ -232,7 +232,7 @@ class MonitorLife:
             """
             递归遍历 CloudDrive2 目录，将媒体文件加入整理队列
 
-            :param dir_item: CloudDrive2 目录 FileItem
+            :param dir_item (FileItem): CloudDrive2 目录 FileItem
             """
             try:
                 entries = self.storagechain.list_files(dir_item)
@@ -304,9 +304,9 @@ class MonitorLife:
         """
         运行媒体文件整理
 
-        :param event: 事件
-        :param file_path: 文件路径
-        :param rmt_mediaext: 媒体文件后缀名
+        :param event (Dict): 事件
+        :param file_path (Path): 文件路径
+        :param rmt_mediaext (List): 媒体文件后缀名
         """
         org_file_path = file_path.as_posix()
         _databasehelper = FileDbHelper()
@@ -513,8 +513,8 @@ class MonitorLife:
         """
         创建 STRM 文件
 
-        :param event: 事件
-        :param file_path: 路径
+        :param event (Dict): 事件
+        :param file_path (Path): 路径
         """
         _databasehelper = FileDbHelper()
 
@@ -851,7 +851,7 @@ class MonitorLife:
         """
         移动操作
 
-        :param event: 事件
+        :param event (Dict): 事件
         """
         _databasehelper = FileDbHelper()
 
@@ -988,7 +988,7 @@ class MonitorLife:
         """
         重命名事件处理
 
-        :param event: 事件对象
+        :param event (Dict): 事件对象
         """
         if not configer.monitor_life_enabled or not configer.monitor_life_paths:
             return
@@ -1282,8 +1282,8 @@ class MonitorLife:
         """
         删除 STRM 文件
 
-        :param event: 事件对象
-        :param remove_local: 是否删除本地 STRM 文件
+        :param event (Dict): 事件对象
+        :param remove_local (bool): 是否删除本地 STRM 文件
         """
 
         # def __get_file_path(
@@ -1475,7 +1475,7 @@ class MonitorLife:
         """
         处理新出现的路径
 
-        :param event: 事件
+        :param event (Dict): 事件
         """
         # 1.获取绝对文件路径
         file_name = event["file_name"]
@@ -1513,8 +1513,8 @@ class MonitorLife:
         """
         命中整理缓存时按事件模式门控，再调用 STRM 生成
 
-        :param event: 事件
-        :param file_path: 文件路径
+        :param event (Dict): 事件
+        :param file_path (Path): 文件路径
         """
         if str(event["file_id"]) in pantransfercacher.creata_pan_transfer_list:
             pantransfercacher.creata_pan_transfer_list.remove(str(event["file_id"]))
@@ -1536,13 +1536,13 @@ class MonitorLife:
         """
         将 STRM 文本与事件期望 URL 对齐
 
-        :param strm_path: 本地 STRM 路径
-        :param pickcode: 事件 pickcode
-        :param local_file_name: 本地媒体文件名
-        :param pan_file_path: 网盘路径
-        :param scene: 日志场景前缀，例如「重命名」「模式 local_move」
-        :param create_if_missing: 为 True 时若文件不存在则创建；重命名流程应传 False，与旧逻辑一致（仅对已存在文件读-比较-写）
-        :return: (ok, wrote) ok 为 False 表示读写失败；wrote 为 True 表示新建或覆盖写入
+        :param strm_path (Path): 本地 STRM 路径
+        :param pickcode (str): 事件 pickcode
+        :param local_file_name (str): 本地媒体文件名
+        :param pan_file_path (str): 网盘路径
+        :param scene (str): 日志场景前缀，例如「重命名」「模式 local_move」
+        :param create_if_missing (bool): 为 True 时若文件不存在则创建；重命名流程应传 False，与旧逻辑一致（仅对已存在文件读-比较-写）
+        :return Tuple: (ok, wrote) ok 为 False 表示读写失败；wrote 为 True 表示新建或覆盖写入
         """
         getter = StrmUrlGetter()
         expected = getter.get_strm_url(
@@ -1617,9 +1617,9 @@ class MonitorLife:
         """
         媒体目录内移动时，纯本地迁移 STRM 与关联文件
 
-        :param event: 事件
-        :param old_file_path: 旧网盘路径
-        :param new_file_path: 新网盘路径
+        :param event (Dict): 事件
+        :param old_file_path (str): 旧网盘路径
+        :param new_file_path (str): 新网盘路径
         """
         old_status, old_target_dir, old_pan_media_dir = PathUtils.get_media_path(
             configer.monitor_life_paths, old_file_path
@@ -1793,8 +1793,8 @@ class MonitorLife:
         """
         同步移动事件后的数据库路径记录
 
-        :param event: 事件
-        :param new_file_path: 新网盘路径
+        :param event (Dict): 事件
+        :param new_file_path (str): 新网盘路径
         """
         _databasehelper = FileDbHelper()
         file_id = int(event["file_id"])
@@ -1867,10 +1867,10 @@ class MonitorLife:
         """
         单次拉取
 
-        :param from_time: 起始时间
-        :param from_id: 起始 ID
+        :param from_time (int): 起始时间
+        :param from_id (int): 起始 ID
 
-        :return: tuple (from_time: int, from_id: int)
+        :return Tuple: (from_time, from_id)
         """
         if self._wait_for_transfer_complete():
             return from_time, from_id
@@ -2025,7 +2025,7 @@ class MonitorLife:
         """
         手动运行网盘整理
 
-        :param path: 网盘路径
+        :param path (str): 网盘路径
         """
         if not path or not isinstance(path, str):
             logger.error(f"【监控生活事件】无效的路径参数: {path}")
@@ -2177,8 +2177,8 @@ class MonitorLife:
         """
         启动后台手动整理任务
 
-        :param path: 网盘路径
-        :return: 是否成功启动任务
+        :param path (str): 网盘路径
+        :return bool: 是否成功启动任务
         """
         if not path or not isinstance(path, str) or not path.strip():
             logger.error(f"【监控生活事件】无效的路径参数: {path}")

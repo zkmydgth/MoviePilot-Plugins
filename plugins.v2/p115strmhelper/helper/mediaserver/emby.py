@@ -33,9 +33,9 @@ class EmbyOperate:
         """
         获取 Emby 服务器信息
 
-        :param name: Emby Server Name
+        :param name (str): Emby Server Name
 
-        :return: Emby 服务器信息
+        :return Tuple: Emby 服务器信息
         """
         emby_server = self.mediaserver_helper.get_service(name=name, type_filter="emby")
         emby_user = emby_server.instance.get_user()
@@ -53,10 +53,10 @@ class EmbyOperate:
         """
         获取剧集 TMDB ID
 
-        :param name: Emby Server Name
-        :param series_id: 剧集ID
+        :param name (str): Emby Server Name
+        :param series_id (str): 剧集ID
 
-        :return: TMDB ID
+        :return str: TMDB ID
         """
         emby_host, emby_user, emby_apikey = self.get_emby_info(name)
         if not emby_host:
@@ -86,11 +86,11 @@ class EmbyOperate:
         """
         依据路径获取 Emby 项目 ID
 
-        :param name: Emby Server Name
-        :param path: 项目路径
-        :param log_warning: 是否输出 warn 日志，当在遍历父目录等场景下可设为 False
+        :param name (str): Emby Server Name
+        :param path (str): 项目路径
+        :param log_warning (bool): 是否输出 warn 日志，当在遍历父目录等场景下可设为 False
 
-        :return: 项目 ID
+        :return str: 项目 ID
         """
         emby_host, _, emby_apikey = self.get_emby_info(name)
         if not emby_host:
@@ -144,15 +144,15 @@ class EmbyOperate:
         """
         触发指定 ID 的刷新任务
 
-        :param name: Emby Server Name
-        :param item_id: ID
-        :param recursive: 是否递归刷新子项
-        :param metadata_refresh_mode: 元数据刷新模式（如 Default、FullRefresh）
-        :param image_refresh_mode: 图片刷新模式（如 Default、FullRefresh）
-        :param replace_all_metadata: 是否替换全部元数据
-        :param replace_all_images: 是否替换全部图片
+        :param name (str): Emby Server Name
+        :param item_id (str): ID
+        :param recursive (bool): 是否递归刷新子项
+        :param metadata_refresh_mode (str): 元数据刷新模式（如 Default、FullRefresh）
+        :param image_refresh_mode (str): 图片刷新模式（如 Default、FullRefresh）
+        :param replace_all_metadata (bool): 是否替换全部元数据
+        :param replace_all_images (bool): 是否替换全部图片
 
-        :return: 是否触发成功
+        :return bool: 是否触发成功
         """
         emby_host, _, emby_apikey = self.get_emby_info(name)
         if not emby_host:
@@ -198,15 +198,15 @@ class EmbyOperate:
         """
         依据路径触发刷新任务
 
-        :param name: Emby Server Name
-        :param path: 项目路径
-        :param recursive: 是否递归刷新子项
-        :param metadata_refresh_mode: 元数据刷新模式（如 Default、FullRefresh）
-        :param image_refresh_mode: 图片刷新模式（如 Default、FullRefresh）
-        :param replace_all_metadata: 是否替换全部元数据
-        :param replace_all_images: 是否替换全部图片
+        :param name (str): Emby Server Name
+        :param path (str): 项目路径
+        :param recursive (bool): 是否递归刷新子项
+        :param metadata_refresh_mode (str): 元数据刷新模式（如 Default、FullRefresh）
+        :param image_refresh_mode (str): 图片刷新模式（如 Default、FullRefresh）
+        :param replace_all_metadata (bool): 是否替换全部元数据
+        :param replace_all_images (bool): 是否替换全部图片
 
-        :return: 是否触发成功
+        :return bool: 是否触发成功
         """
         path_obj = Path(path)
         for parent in path_obj.parents:
@@ -232,10 +232,10 @@ class EmbyOperate:
         """
         触发 Emby 提取媒体信息
 
-        :param name: Emby Server Name
-        :param item_id: ID
+        :param name (str): Emby Server Name
+        :param item_id (str): ID
 
-        :return: 是否触发成功
+        :return bool: 是否触发成功
         """
         emby_host, emby_user, emby_apikey = self.get_emby_info(name)
         if not emby_host:
@@ -292,7 +292,7 @@ class EmbyMediaInfoOperate:
         """
         媒体服务器服务信息
 
-        :return: 媒体服务器服务信息
+        :return Dict: 媒体服务器服务信息
         """
         if not self.media_servers:
             logger.warning(f"{self.func_name}尚未配置媒体服务器，请检查配置")
@@ -376,7 +376,7 @@ class EmbyMediaInfoOperate:
         """
         执行原生 Emby 提取媒体信息
 
-        :param path: 媒体路径
+        :param path (Path): 媒体路径
         """
         media_server = self.service_infos
         if not media_server:
@@ -431,9 +431,9 @@ class EmbyMediaInfoOperate:
         """
         执行提取媒体信息，并上传服务器
 
-        :param sha1: 媒体文件的 sha1 值
-        :param path: 媒体路径
-        :param size: 可选，当前文件大小（字节）
+        :param sha1 (str): 媒体文件的 sha1 值
+        :param path (Path): 媒体路径
+        :param size (int): 可选，当前文件大小（字节）
         """
         media_server = self.service_infos
         if not media_server:
@@ -640,12 +640,12 @@ class EmbyMediainfoQueue:
         """
         将一条 Emby 媒体信息提取任务加入全局队列
 
-        :param func_name: 调用方标识，用于日志
-        :param path: 媒体路径
-        :param sha1: 媒体文件 sha1
-        :param mp_mediaserver: MoviePilot 媒体服务器路径配置，可选
-        :param mediaservers: 媒体服务器名称列表，可选
-        :param size: 文件大小（字节），可选
+        :param func_name (str): 调用方标识，用于日志
+        :param path (str): 媒体路径
+        :param sha1 (str): 媒体文件 sha1
+        :param mp_mediaserver (str): MoviePilot 媒体服务器路径配置，可选
+        :param mediaservers (List): 媒体服务器名称列表，可选
+        :param size (int): 文件大小（字节），可选
         """
         q = self._queue
         if q is None:

@@ -44,9 +44,9 @@ class StrmCleanupInteraction:
         """
         解析 STRM 清理二次验证回调
 
-        :param raw: 规范化后的回调文本，形如 p115scc|request_id|y 或 |n
+        :param raw (str): 规范化后的回调文本，形如 p115scc|request_id|y 或 |n
 
-        :return: (request_id, True 为确认删除) 或 None
+        :return Optional[Tuple]: (request_id, True 为确认删除) 或 None
         """
         parts = raw.strip().split("|")
         if len(parts) != 3 or parts[0] != self._CB_PREFIX:
@@ -116,7 +116,7 @@ class StrmCleanupInteraction:
         """
         取消待删除批次（仅从队列移除，不删文件）
 
-        :return: 是否找到并移除
+        :return bool: 是否找到并移除
         """
         store = self._load_store()
         batches: List[Dict[str, Any]] = store.get("batches") or []
@@ -139,7 +139,7 @@ class StrmCleanupInteraction:
         """
         物理删除 STRM 及关联清理
 
-        :return: (成功删除数, 最后一则错误摘要)
+        :return Tuple: (成功删除数, 最后一则错误摘要)
         """
         ok = 0
         last_err: Optional[str] = None
@@ -174,7 +174,7 @@ class StrmCleanupInteraction:
         """
         执行一批待确认的 STRM 删除（从队列移除后执行）
 
-        :return: (删除条数, 错误摘要；全部成功则为 None，未找到批次为 batch_not_found)
+        :return Tuple: (删除条数, 错误摘要；全部成功则为 None，未找到批次为 batch_not_found)
         """
         store = self._load_store()
         batches: List[Dict[str, Any]] = store.get("batches") or []
@@ -245,7 +245,7 @@ class StrmCleanupInteraction:
         """
         处理 MessageAction 中的 STRM 清理二次验证回调（无 interactive session）
 
-        :return: 已处理则为 True，否则 False
+        :return bool: 已处理则为 True，否则 False
         """
         if not event_data:
             return False

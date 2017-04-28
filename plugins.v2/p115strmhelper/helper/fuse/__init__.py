@@ -58,8 +58,8 @@ def log(func=None, *, level=None):
         """
         为被装饰函数包装访问日志记录
 
-        :param f: 原始函数
-        :return: 包装后的函数
+        :param f (Callable): 原始函数
+        :return Callable: 包装后的函数
         """
 
         @wraps(f)
@@ -67,9 +67,9 @@ def log(func=None, *, level=None):
             """
             执行原函数并记录调用参数与返回值
 
-            :param args: 位置参数
-            :param kwargs: 关键字参数
-            :return: 原函数的返回值
+            :param args (Tuple): 位置参数
+            :param kwargs (Dict): 关键字参数
+            :return Any: 原函数的返回值
             """
             try:
                 result = f(*args, **kwargs)
@@ -102,10 +102,10 @@ def attr_to_stat(attr: Mapping, /, uid: int = 0, gid: int = 0) -> dict:
     """
     将 115 文件属性转换为 FUSE stat 结构
 
-    :param attr: 115 文件属性字典
-    :param uid: 文件所有者 UID
-    :param gid: 文件所有者 GID
-    :return: FUSE stat 字典
+    :param attr (Mapping): 115 文件属性字典
+    :param uid (int): 文件所有者 UID
+    :param gid (int): 文件所有者 GID
+    :return Dict: FUSE stat 字典
     """
     return {
         "st_mode": (S_IFDIR if attr["is_dir"] else S_IFREG) | 0o777,
@@ -151,10 +151,10 @@ class P115FuseOperations(Operations):
         """
         初始化 FUSE 操作类
 
-        :param client: P115Client 实例或 cookie 字符串/路径
-        :param readdir_ttl: 目录读取缓存 TTL（秒）
-        :param uid: 文件所有者 UID
-        :param gid: 文件所有者 GID
+        :param client (Any): P115Client 实例或 cookie 字符串/路径
+        :param readdir_ttl (float): 目录读取缓存 TTL（秒）
+        :param uid (int): 文件所有者 UID
+        :param gid (int): 文件所有者 GID
         """
         if not FUSE_AVAILABLE:
             raise ImportError(
@@ -185,9 +185,9 @@ class P115FuseOperations(Operations):
         """
         获取文件或目录的属性信息
 
-        :param path: 文件路径
-        :param fh: 文件句柄（未使用）
-        :return: FUSE stat 属性字典
+        :param path (str): 文件路径
+        :param fh (int): 文件句柄（未使用）
+        :return Dict: FUSE stat 属性字典
         :raises OSError: 文件不存在或发生 IO 错误
         """
         max_retries = 2
@@ -215,10 +215,10 @@ class P115FuseOperations(Operations):
         """
         获取文件的扩展属性值
 
-        :param path: 文件路径
-        :param name: 扩展属性名称
-        :param position: 偏移位置（未使用）
-        :return: 扩展属性的 JSON 字节数据
+        :param path (str): 文件路径
+        :param name (str): 扩展属性名称
+        :param position (int): 偏移位置（未使用）
+        :return bytes: 扩展属性的 JSON 字节数据
         """
         attr = self.getattr(path)["xattr"]
         if name in attr:
@@ -230,8 +230,8 @@ class P115FuseOperations(Operations):
         """
         列出文件的所有扩展属性名
 
-        :param path: 文件路径
-        :return: 扩展属性名列表
+        :param path (str): 文件路径
+        :return List: 扩展属性名列表
         """
         attr = self.getattr(path)["xattr"]
         return list(attr)
@@ -241,9 +241,9 @@ class P115FuseOperations(Operations):
         """
         创建目录
 
-        :param path: 目录路径
-        :param mode: 权限模式（未使用）
-        :return: 始终返回 0
+        :param path (str): 目录路径
+        :param mode (int): 权限模式（未使用）
+        :return int: 始终返回 0
         """
         dir_, name = splitpath(path)
         self.fs.mkdir(dir_, name, **configer.get_ios_ua_app(app=False))
@@ -254,9 +254,9 @@ class P115FuseOperations(Operations):
         """
         打开文件并返回文件句柄
 
-        :param path: 文件路径
-        :param flags: 打开标志
-        :return: 文件句柄 ID
+        :param path (str): 文件路径
+        :param flags (int): 打开标志
+        :return int: 文件句柄 ID
         """
         file = self.fs.open(path, mode="rb", **configer.get_ios_ua_app(app=False))
         fh = self._get_id()
@@ -268,8 +268,8 @@ class P115FuseOperations(Operations):
         """
         打开目录
 
-        :param path: 目录路径
-        :return: 始终返回 0
+        :param path (str): 目录路径
+        :return int: 始终返回 0
         """
         return 0
 
@@ -278,11 +278,11 @@ class P115FuseOperations(Operations):
         """
         从文件中读取数据
 
-        :param path: 文件路径
-        :param size: 读取的字节数
-        :param offset: 起始偏移位置
-        :param fh: 文件句柄
-        :return: 读取的字节数据
+        :param path (str): 文件路径
+        :param size (int): 读取的字节数
+        :param offset (int): 起始偏移位置
+        :param fh (int): 文件句柄
+        :return bytes: 读取的字节数据
         """
         file = self._opened[fh]
         file.seek(offset)
@@ -293,9 +293,9 @@ class P115FuseOperations(Operations):
         """
         读取目录内容，返回目录项名称列表
 
-        :param path: 目录路径
-        :param fh: 目录句柄（未使用）
-        :return: 包含 .、.. 及子条目名称的列表
+        :param path (str): 目录路径
+        :param fh (int): 目录句柄（未使用）
+        :return List: 包含 .、.. 及子条目名称的列表
         """
         max_retries = 2
         for attempt in range(max_retries + 1):
@@ -317,9 +317,9 @@ class P115FuseOperations(Operations):
         """
         关闭已打开的文件并释放资源
 
-        :param path: 文件路径
-        :param fh: 文件句柄
-        :return: 始终返回 0
+        :param path (str): 文件路径
+        :param fh (int): 文件句柄
+        :return int: 始终返回 0
         """
         if file := self._opened.pop(fh, None):
             file.close()
@@ -330,9 +330,9 @@ class P115FuseOperations(Operations):
         """
         关闭已打开的目录
 
-        :param path: 目录路径
-        :param fh: 目录句柄
-        :return: 始终返回 0
+        :param path (str): 目录路径
+        :param fh (int): 目录句柄
+        :return int: 始终返回 0
         """
         return 0
 
@@ -341,9 +341,9 @@ class P115FuseOperations(Operations):
         """
         重命名或移动文件/目录
 
-        :param src: 源路径
-        :param dst: 目标路径
-        :return: 始终返回 0
+        :param src (str): 源路径
+        :param dst (str): 目标路径
+        :return int: 始终返回 0
         """
         if src != dst:
             src_dir, src_name = splitpath(src)
@@ -369,8 +369,8 @@ class P115FuseOperations(Operations):
         """
         删除文件
 
-        :param path: 文件路径
-        :return: 始终返回 0
+        :param path (str): 文件路径
+        :return int: 始终返回 0
         """
         self.fs.remove(path, **configer.get_ios_ua_app(app=False))
         return 0
@@ -380,8 +380,8 @@ class P115FuseOperations(Operations):
         """
         删除目录
 
-        :param path: 目录路径
-        :return: 始终返回 0
+        :param path (str): 目录路径
+        :return int: 始终返回 0
         """
         self.fs.remove(path, **configer.get_ios_ua_app(app=False))
         return 0
@@ -390,9 +390,9 @@ class P115FuseOperations(Operations):
         """
         启动 FUSE 文件系统并阻塞运行
 
-        :param mountpoint: 挂载点路径，为 None 时自动生成临时路径
-        :param options: 传递给 FUSE 的额外选项
-        :return: FUSE 运行结果
+        :param mountpoint (str): 挂载点路径，为 None 时自动生成临时路径
+        :param options (Any): 传递给 FUSE 的额外选项
+        :return Any: FUSE 运行结果
         :raises ImportError: FUSE 功能不可用时抛出
         """
         if not FUSE_AVAILABLE:

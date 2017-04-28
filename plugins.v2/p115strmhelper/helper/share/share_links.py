@@ -59,8 +59,8 @@ def extract_cloud_links_from_text(text: str) -> Tuple[List[str], str]:
     """
     从任意字符串（含 HTML）中提取 115 与阿里云盘链接
 
-    :param text: 网页或纯文本
-    :return: (链接列表, 首个匹配到的云类型 u115/aliyun，可能为空串)
+    :param text (str): 网页或纯文本
+    :return Tuple: (链接列表, 首个匹配到的云类型 u115/aliyun，可能为空串)
     """
     try:
         return extract_cloud_link_urls_from_text(text)
@@ -73,8 +73,8 @@ def _pick_first_u115_url(links: List[str]) -> Optional[str]:
     """
     在已提取的链接中只取第一条 115 分享 URL
 
-    :param links: 原始链接列表
-    :return: 规范化后的第一条 115 URL，否则 None
+    :param links (List): 原始链接列表
+    :return str: 规范化后的第一条 115 URL，否则 None
     """
     normalized = [normalize_share_url_candidate(x) for x in links if x]
     for cand in normalized:
@@ -87,8 +87,8 @@ def _pick_preferred_share_url(links: List[str]) -> Optional[str]:
     """
     在已提取的链接中优先 115，其次阿里云
 
-    :param links: 原始链接列表
-    :return: 规范化后的第一条可用分享 URL
+    :param links (List): 原始链接列表
+    :return str: 规范化后的第一条可用分享 URL
     """
     normalized = [normalize_share_url_candidate(x) for x in links if x]
     for cand in normalized:
@@ -104,8 +104,8 @@ def _fetch_share_url_from_telegra(telegra_url: str) -> Optional[str]:
     """
     拉取 telegra.ph 页面并解析其中的云盘分享链接
 
-    :param telegra_url: Telegraph 页面 URL
-    :return: 优先 115 的分享 URL，失败为 None
+    :param telegra_url (str): Telegraph 页面 URL
+    :return str: 优先 115 的分享 URL，失败为 None
     """
     try:
         client = build_share_page_client()
@@ -130,8 +130,8 @@ def _fetch_u115_share_url_from_telegra(telegra_url: str) -> Optional[str]:
     """
     拉取 telegra.ph 页面并解析其中的 115 分享链接（忽略阿里云等）
 
-    :param telegra_url: Telegraph 页面 URL
-    :return: 第一条 115 分享 URL，失败为 None
+    :param telegra_url (str): Telegraph 页面 URL
+    :return str: 第一条 115 分享 URL，失败为 None
     """
     try:
         client = build_share_page_client()
@@ -158,8 +158,8 @@ def _fetch_u115_share_urls_from_telegra(telegra_url: str) -> List[str]:
     """
     拉取 telegra.ph 页面并解析其中的所有 115 分享链接
 
-    :param telegra_url: Telegraph 页面 URL
-    :return: 115 分享 URL 列表
+    :param telegra_url (str): Telegraph 页面 URL
+    :return List: 115 分享 URL 列表
     """
     try:
         client = build_share_page_client()
@@ -181,8 +181,8 @@ def _filter_all_u115_urls(links: List[str]) -> List[str]:
     """
     从链接列表中过滤出所有 115 分享 URL，去重并保持顺序
 
-    :param links: 原始链接列表
-    :return: 去重后的 115 URL 列表
+    :param links (List): 原始链接列表
+    :return List: 去重后的 115 URL 列表
     """
     normalized = [normalize_share_url_candidate(x) for x in links if x]
     seen: Set[str] = set()
@@ -206,8 +206,8 @@ class ShareLinkResolver:
         """
         从整段消息文本中提取第一条可用的 115 或阿里云分享链接
 
-        :param text: 用户消息全文
-        :return: 合法分享 URL，否则 None
+        :param text (str): 用户消息全文
+        :return str: 合法分享 URL，否则 None
         """
         if not text or not isinstance(text, str):
             return None
@@ -230,8 +230,8 @@ class ShareLinkResolver:
         """
         从整段消息文本中提取第一条 115 分享链接（不接受阿里云盘）
 
-        :param text: 用户消息全文或命令参数
-        :return: 合法 115 分享 URL，否则 None
+        :param text (str): 用户消息全文或命令参数
+        :return str: 合法 115 分享 URL，否则 None
         """
         if not text or not isinstance(text, str):
             return None
@@ -256,8 +256,8 @@ class ShareLinkResolver:
         """
         从整段消息文本中提取所有 115 分享链接（支持多行输入）
 
-        :param text: 用户消息全文或命令参数
-        :return: 115 分享 URL 列表，无匹配时为空列表
+        :param text (str): 用户消息全文或命令参数
+        :return List: 115 分享 URL 列表，无匹配时为空列表
         """
         if not text or not isinstance(text, str):
             return []

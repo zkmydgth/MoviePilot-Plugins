@@ -109,7 +109,7 @@ class MediaInfoDownloader:
         """
         将单次失败的媒体信息文件计入统计
 
-        :param path: 文件路径（posix 形式）
+        :param path (str): 文件路径（posix 形式）
         """
         self.mediainfo_fail_count += 1
         self.mediainfo_fail_dict.append(path)
@@ -118,7 +118,7 @@ class MediaInfoDownloader:
         """
         按条目将本批全部记为下载失败（用于批处理在异步下载前异常等场景）
 
-        :param item_list: 含 path 键的条目列表或批次
+        :param item_list (List): 含 path 键的条目列表或批次
         """
         for item in item_list:
             path = item.get("path")
@@ -144,7 +144,7 @@ class MediaInfoDownloader:
         """
         上传数据到服务器
 
-        :param upload_lst: 上传列表
+        :param upload_lst (List): 上传列表
         """
         try:
             resp = self.p115_center.upload_mediainfo_data(upload_lst)
@@ -176,7 +176,7 @@ class MediaInfoDownloader:
         """
         对一批 scid 执行 fs_delete，使用 check_response 校验结果，最多重试 3 次
 
-        :param scids: 待删除的文件夹 id 列表（≤ 50 个）
+        :param scids (List): 待删除的文件夹 id 列表（≤ 50 个）
         """
         for attempt in range(3):
             try:
@@ -200,7 +200,7 @@ class MediaInfoDownloader:
         """
         将 _pending_delete_scids 中积累的 scid 批量删除
 
-        :param force: 为 True 时清空所有剩余；为 False 时仅在 >= 50 时触发
+        :param force (bool): 为 True 时清空所有剩余；为 False 时仅在 >= 50 时触发
         """
         while len(self._pending_delete_scids) >= (1 if force else 50):
             batch = self._pending_delete_scids[:50]
@@ -213,11 +213,11 @@ class MediaInfoDownloader:
         """
         将 OOF base64 数据解码后存入文件
 
-        :param item_list: 待处理的列表
-        :param json_data: 数据字典
-        :param key: 数据类型（Cache ｜ Api）
+        :param item_list (List): 待处理的列表
+        :param json_data (Dict): 数据字典
+        :param key (str): 数据类型（Cache ｜ Api）
 
-        :return: 迭代器，返回未能处理的项目
+        :return Generator: 迭代器，返回未能处理的项目
         """
         for item in item_list:
             base64_data = json_data.get(item["sha1"])
@@ -281,15 +281,15 @@ class MediaInfoDownloader:
         """
         带验证和重试机制的异步下载
 
-        :param client: HTTPX 客户端
-        :param semaphore: 并发量
-        :param file_path: 文件路径
-        :param file_name：文件名称
-        :param download_url: 下载地址，为空则直接记失败并返回
-        :param hide_cookies: 是否使用 Cookie 下载，默认 False
-        :param sha1: 文件 115 网盘 sha1，如果设置则会返回数据压缩信息
+        :param client (AsyncClient): HTTPX 客户端
+        :param semaphore (Semaphore): 并发量
+        :param file_path (Path): 文件路径
+        :param file_name (str): 文件名称
+        :param download_url (str): 下载地址，为空则直接记失败并返回
+        :param hide_cookies (bool): 是否使用 Cookie 下载，默认 False
+        :param sha1 (str): 文件 115 网盘 sha1，如果设置则会返回数据压缩信息
 
-        :return: 成功且需要 OOF 上传时返回元组，否则返回 None（含失败与 403 中止）
+        :return Tuple: 成功且需要 OOF 上传时返回元组，否则返回 None（含失败与 403 中止）
         """
         if not download_url:
             self._record_mediainfo_failure(file_path.as_posix())

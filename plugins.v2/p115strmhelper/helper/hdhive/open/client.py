@@ -61,11 +61,11 @@ class HDHiveOpenClient:
         """
         初始化客户端
 
-        :param api_key: OpenAPI 应用 Secret（仅服务端/中转使用）
-        :param access_token: OAuth 用户 Access Token，非 meta 接口必填
-        :param timeout: 单次请求超时秒数
-        :param client: 可选外部 ``Client``；传入时会合并鉴权头
-        :param defer_client: 为 True 时不创建 httpx 客户端（由子类覆写 ``_request``）
+        :param api_key (str): OpenAPI 应用 Secret（仅服务端/中转使用）
+        :param access_token (str): OAuth 用户 Access Token，非 meta 接口必填
+        :param timeout (float): 单次请求超时秒数
+        :param client (Client): 可选外部 ``Client``；传入时会合并鉴权头
+        :param defer_client (bool): 为 True 时不创建 httpx 客户端（由子类覆写 ``_request``）
         """
         self._api_key = api_key
         self._access_token = access_token
@@ -92,7 +92,7 @@ class HDHiveOpenClient:
         """
         进入上下文，返回自身
 
-        :return: 当前客户端实例
+        :return HDHiveOpenClient: 当前客户端实例
         """
         return self
 
@@ -121,12 +121,12 @@ class HDHiveOpenClient:
         """
         发起请求并解析 JSON，失败时抛出 ``HDHiveAPIError`` 子类
 
-        :param method: HTTP 方法
-        :param path: 相对 ``BASE_URL`` 的路径
-        :param params: 查询参数
-        :param json: JSON 请求体
-        :param access_token: 覆盖实例级 Bearer Token
-        :return: ``(data, meta)`` 元组，与 Open API 响应结构一致
+        :param method (str): HTTP 方法
+        :param path (str): 相对 ``BASE_URL`` 的路径
+        :param params (Dict): 查询参数
+        :param json (Any): JSON 请求体
+        :param access_token (str): 覆盖实例级 Bearer Token
+        :return Tuple: ``(data, meta)`` 元组，与 Open API 响应结构一致
         """
         token = access_token if access_token is not None else self._access_token
         headers: dict[str, str] = {}
@@ -147,7 +147,7 @@ class HDHiveOpenClient:
         """
         ``GET /ping``：健康检查并校验 API Key
 
-        :return: 响应 ``data`` 字段
+        :return Dict: 响应 ``data`` 字段
         """
         data, _ = self._request("GET", "/ping")
         return data
@@ -156,7 +156,7 @@ class HDHiveOpenClient:
         """
         ``GET /quota``：查询 API Key 配额信息（meta scope）
 
-        :return: 响应 ``data`` 字段
+        :return Dict: 响应 ``data`` 字段
         """
         data, _ = self._request("GET", "/quota")
         return data
@@ -169,9 +169,9 @@ class HDHiveOpenClient:
         """
         ``GET /usage``：按日期区间查询用量（meta scope）
 
-        :param start_date: 起始日期，可选
-        :param end_date: 结束日期，可选
-        :return: 响应 ``data`` 字段
+        :param start_date (str): 起始日期，可选
+        :param end_date (str): 结束日期，可选
+        :return Dict: 响应 ``data`` 字段
         """
         params: dict[str, Any] = {}
         if start_date:
@@ -185,7 +185,7 @@ class HDHiveOpenClient:
         """
         ``GET /usage/today``：当日用量统计（meta scope）
 
-        :return: 响应 ``data`` 字段
+        :return Dict: 响应 ``data`` 字段
         """
         data, _ = self._request("GET", "/usage/today")
         return data
@@ -198,9 +198,9 @@ class HDHiveOpenClient:
         """
         ``GET /resources/:type/:tmdb_id``：按 TMDB ID 列出资源（query scope）
 
-        :param media_type: ``movie`` 或 ``tv``
-        :param tmdb_id: TMDB 作品 ID
-        :return: ``(data 列表, meta)``，``meta`` 中含 ``total`` 等分页信息
+        :param media_type (MediaType): ``movie`` 或 ``tv``
+        :param tmdb_id (str | int): TMDB 作品 ID
+        :return Tuple: ``(data 列表, meta)``，``meta`` 中含 ``total`` 等分页信息
         """
         data, meta = self._request("GET", f"/resources/{media_type}/{tmdb_id}")
         return data or [], meta or {}
@@ -209,8 +209,8 @@ class HDHiveOpenClient:
         """
         ``POST /resources/unlock``：消耗积分解锁资源（unlock scope）
 
-        :param slug: 资源 slug
-        :return: 含 ``url``、``access_code``、``full_url``、``already_owned`` 等字段
+        :param slug (str): 资源 slug
+        :return Dict: 含 ``url``、``access_code``、``full_url``、``already_owned`` 等字段
         """
         data, _ = self._request("POST", "/resources/unlock", json={"slug": slug})
         return data
@@ -219,8 +219,8 @@ class HDHiveOpenClient:
         """
         ``POST /check/resource``：识别网盘类型并从链接解析提取码等（query scope）
 
-        :param url: 资源链接
-        :return: 含 ``website``、``url``、``base_link``、``access_code`` 等字段
+        :param url (str): 资源链接
+        :return Dict: 含 ``website``、``url``、``base_link``、``access_code`` 等字段
         """
         data, _ = self._request("POST", "/check/resource", json={"url": url})
         return data
@@ -229,7 +229,7 @@ class HDHiveOpenClient:
         """
         ``GET /me``：当前授权用户基础信息（query scope）
 
-        :return: 响应 ``data`` 字段
+        :return Dict: 响应 ``data`` 字段
         """
         data, _ = self._request("GET", "/me")
         return data
@@ -238,8 +238,8 @@ class HDHiveOpenClient:
         """
         ``POST /checkin``：每日签到（write scope）
 
-        :param is_gambler: 是否开启赌徒模式（高风险高回报）
-        :return: 含 ``checked_in``（bool）、``message``（str）等字段
+        :param is_gambler (bool): 是否开启赌徒模式（高风险高回报）
+        :return Dict: 含 ``checked_in``（bool）、``message``（str）等字段
         """
         body: dict[str, Any] = {}
         if is_gambler:
@@ -251,7 +251,7 @@ class HDHiveOpenClient:
         """
         ``GET /vip/entitlements``：Premium 用户权益摘要（vip scope）
 
-        :return: 响应 ``data`` 字段
+        :return Dict: 响应 ``data`` 字段
         """
         data, _ = self._request("GET", "/vip/entitlements")
         return data
@@ -260,7 +260,7 @@ class HDHiveOpenClient:
         """
         ``GET /vip/weekly-free-quota``：永久 VIP 每周免费解锁配额（vip scope）
 
-        :return: 响应 ``data`` 字段
+        :return Dict: 响应 ``data`` 字段
         """
         data, _ = self._request("GET", "/vip/weekly-free-quota")
         return data
@@ -273,9 +273,9 @@ class HDHiveOpenClient:
         """
         ``GET /shares``：分页列出当前用户的分享（write scope）
 
-        :param page: 页码
-        :param page_size: 每页条数
-        :return: ``(data 列表, meta)``，``meta`` 含 ``total``、``page``、``page_size``
+        :param page (int): 页码
+        :param page_size (int): 每页条数
+        :return Tuple: ``(data 列表, meta)``，``meta`` 含 ``total``、``page``、``page_size``
         """
         params = {"page": page, "page_size": page_size}
         data, meta = self._request("GET", "/shares", params=params)
@@ -285,8 +285,8 @@ class HDHiveOpenClient:
         """
         ``GET /shares/:slug``：按 slug 获取分享详情（query scope）
 
-        :param slug: 分享 slug
-        :return: 响应 ``data`` 字段
+        :param slug (str): 分享 slug
+        :return Dict: 响应 ``data`` 字段
         """
         data, _ = self._request("GET", f"/shares/{slug}")
         return data
@@ -408,6 +408,6 @@ class HDHiveOpenClient:
         """
         ``DELETE /shares/:slug``：删除分享（write scope）
 
-        :param slug: 分享 slug
+        :param slug (str): 分享 slug
         """
         self._request("DELETE", f"/shares/{slug}")

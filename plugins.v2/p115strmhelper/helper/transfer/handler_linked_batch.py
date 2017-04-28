@@ -30,7 +30,7 @@ class TransferHandlerLinkedBatch:
         """
         初始化关联批量整理处理器
 
-        :param handler: 所属的 TransferHandler 实例
+        :param handler (TransferHandler): 所属的 TransferHandler 实例
         """
         self._handler = handler
 
@@ -40,9 +40,9 @@ class TransferHandlerLinkedBatch:
         """
         批量创建目标目录
 
-        :param tasks: 任务列表
+        :param tasks (List): 任务列表
 
-        :return: (失败任务列表, 成功任务列表)
+        :return Tuple: (失败任务列表, 成功任务列表)
         """
         logger.info("【整理接管】开始批量创建目标目录")
 
@@ -116,9 +116,9 @@ class TransferHandlerLinkedBatch:
         """
         批量移动/复制文件（按目标目录分组）
 
-        :param tasks: 任务列表
+        :param tasks (List): 任务列表
 
-        :return: (失败任务列表, 成功任务列表)
+        :return Tuple: (失败任务列表, 成功任务列表)
         """
         logger.info("【整理接管】开始批量移动/复制文件")
 
@@ -731,8 +731,8 @@ class TransferHandlerLinkedBatch:
         """
         批量更新复制后的 文件 ID
 
-        :param target_dir: 目标目录
-        :param file_mapping: 文件ID到任务信息的映射
+        :param target_dir (Path): 目标目录
+        :param file_mapping (Dict): 文件ID到任务信息的映射
         """
         try:
             # 获取目标目录的文件列表
@@ -802,9 +802,9 @@ class TransferHandlerLinkedBatch:
         """
         批量重命名文件
 
-        :param tasks: 任务列表
+        :param tasks (List): 任务列表
 
-        :return: (失败任务列表, 成功任务列表)
+        :return Tuple: (失败任务列表, 成功任务列表)
         """
         logger.info("【整理接管】开始批量重命名文件")
 
@@ -863,7 +863,7 @@ class TransferHandlerLinkedBatch:
         """
         记录转移历史
 
-        :param tasks: 任务列表
+        :param tasks (List): 任务列表
         """
         logger.info("【整理接管】开始记录转移历史")
 

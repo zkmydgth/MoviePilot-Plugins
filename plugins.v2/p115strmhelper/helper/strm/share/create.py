@@ -42,6 +42,11 @@ class ShareStrmHelper:
     """
 
     def __init__(self, mediainfodownloader: MediaInfoDownloader):
+        """
+        初始化 STRM 生成器
+
+        :param mediainfodownloader (MediaInfoDownloader): 媒体信息下载器实例
+        """
         self.rmt_mediaext: Set[str] = {
             f".{ext.strip()}"
             for ext in configer.user_rmt_mediaext.replace("，", ",").split(",")
@@ -112,7 +117,7 @@ class ShareStrmHelper:
         """
         刮削媒体 & 刷新媒体服务器
 
-        :param config: 分享 STRM 生成配置
+        :param config (ShareStrmConfig): 分享 STRM 生成配置
         """
         media_server_refresh = MediaServerRefresh(
             func_name="【分享STRM生成】",
@@ -177,8 +182,8 @@ class ShareStrmHelper:
         """
         处理单个 STRM 文件
 
-        :param item: 网盘文件信息
-        :param config: 分享 STRM 生成配置
+        :param item (Dict): 网盘文件信息
+        :param config (ShareStrmConfig): 分享 STRM 生成配置
         """
         file_path = item["path"]
 
@@ -316,6 +321,8 @@ class ShareStrmHelper:
     def generate_strm_files_for_configs(self, configs: List[ShareStrmConfig]) -> None:
         """
         按给定分享配置列表生成 STRM
+
+        :param configs (List): 分享 STRM 配置列表
         """
         if not configs:
             return
@@ -439,7 +446,7 @@ class ShareStrmHelper:
                 """
                 清理临时数据文件
 
-                :param file_path: 临时文件路径
+                :param file_path (str): 临时文件路径
                 """
                 if path_exists(file_path):
                     try:
@@ -504,7 +511,7 @@ class ShareStrmHelper:
 
     def generate_strm_files(self) -> None:
         """
-        获取分享文件，生成 STRM（
+        获取分享文件，生成 STRM
         """
         if not configer.share_strm_config:
             return
@@ -579,7 +586,7 @@ class ShareInteractiveGenStrmQueue:
         """
         绑定媒体信息下载器
 
-        :param mediainfodownloader: MediaInfoDownloader 实例，可为 None
+        :param mediainfodownloader (MediaInfoDownloader): MediaInfoDownloader 实例，可为 None
         """
         self.mediainfodownloader = mediainfodownloader
 
@@ -588,7 +595,7 @@ class ShareInteractiveGenStrmQueue:
         """
         校验分享交互生成 STRM 是否可入队
 
-        :return: 失败时返回 i18n 键名，成功返回 None
+        :return str: 失败时返回 i18n 键名，成功返回 None
         """
         if not configer.enabled:
             return "p115_share_strm_plugin_disabled"
@@ -749,11 +756,11 @@ class ShareInteractiveGenStrmQueue:
         """
         将任务入队
 
-        :param share_url: 115 分享链接
-        :param channel: 消息渠道
-        :param source: 消息来源
-        :param userid: 用户 ID
-        :return: 入队后队列中等待执行的任务数量
+        :param share_url (str): 115 分享链接
+        :param channel (Any): 消息渠道
+        :param source (str): 消息来源
+        :param userid (str): 用户 ID
+        :return int: 入队后队列中等待执行的任务数量
         """
         self._task_queue.put((share_url, channel, source, userid))
         self._ensure_worker_running()
@@ -769,11 +776,11 @@ class ShareInteractiveGenStrmQueue:
         """
         入队并向用户发送排队提示
 
-        :param share_url: 115 分享链接
-        :param channel: 消息渠道
-        :param source: 消息来源
-        :param userid: 用户 ID
-        :return: 入队后队列中等待执行的任务数量
+        :param share_url (str): 115 分享链接
+        :param channel (Any): 消息渠道
+        :param source (str): 消息来源
+        :param userid (str): 用户 ID
+        :return int: 入队后队列中等待执行的任务数量
         """
         pending = self.enqueue(
             share_url=share_url,

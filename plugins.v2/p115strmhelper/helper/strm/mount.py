@@ -12,6 +12,11 @@ class ProcessedRule:
     """
 
     def __init__(self, rule: Dict[str, Any]):
+        """
+        预处理规则配置
+
+        :param rule (Dict): 原始规则字典
+        """
         extensions = rule.get("extensions", [])
         if extensions:
             self.extensions: Set[str] = {
@@ -69,11 +74,11 @@ class FuseStrmTakeoverMatcher:
         """
         匹配文件是否应该被接管，如果匹配则返回生成的 STRM 内容
 
-        :param file_name: 文件名称
-        :param file_path: 文件网盘路径
-        :param file_ext: 文件后缀（可选，如果不提供则从 file_name 提取）
+        :param file_name (str): 文件名称
+        :param file_path (str): 文件网盘路径
+        :param file_ext (str): 文件后缀（可选，如果不提供则从 file_name 提取）
 
-        :return: 如果匹配则返回 STRM 内容路径，否则返回 None
+        :return Optional[str]: 如果匹配则返回 STRM 内容路径，否则返回 None
         """
         if not self.processed_rules:
             return None
@@ -108,12 +113,12 @@ class FuseStrmTakeoverMatcher:
         """
         匹配预处理后的规则
 
-        :param rule: 预处理后的规则
-        :param file_name_lower: 小写的文件名称
-        :param normalized_file_path: 标准化后的文件路径
-        :param file_ext: 小写的文件后缀
+        :param rule (ProcessedRule): 预处理后的规则
+        :param file_name_lower (str): 小写的文件名称
+        :param normalized_file_path (str): 标准化后的文件路径
+        :param file_ext (str): 小写的文件后缀
 
-        :return: 是否匹配
+        :return bool: 是否匹配
         """
         if rule.extensions:
             if file_ext not in rule.extensions:
@@ -133,9 +138,9 @@ class FuseStrmTakeoverMatcher:
         """
         快速生成 STRM 内容
 
-        :param normalized_file_path: 已标准化的文件路径
+        :param normalized_file_path (str): 已标准化的文件路径
 
-        :return: STRM 内容路径
+        :return str: STRM 内容路径
         """
         path_stripped = normalized_file_path.strip("/")
         return f"{self.mount_dir_rstrip}/{path_stripped}"
@@ -149,7 +154,7 @@ def get_fuse_strm_takeover_matcher() -> Optional[FuseStrmTakeoverMatcher]:
     """
     获取 FUSE STRM 接管匹配器实例
 
-    :return: 匹配器实例，如果未启用则返回 None
+    :return Optional[FuseStrmTakeoverMatcher]: 匹配器实例，如果未启用则返回 None
     """
     global _fuse_strm_takeover_matcher, _config_version
 
@@ -182,10 +187,10 @@ def match_fuse_strm_takeover(
     """
     匹配文件是否应该被 FUSE STRM 接管
 
-    :param file_name: 文件名称
-    :param file_path: 文件网盘路径
-    :param file_ext: 文件后缀（可选）
-    :return: 如果匹配则返回 STRM 内容路径，否则返回 None
+    :param file_name (str): 文件名称
+    :param file_path (str): 文件网盘路径
+    :param file_ext (str): 文件后缀（可选）
+    :return Optional[str]: 如果匹配则返回 STRM 内容路径，否则返回 None
     """
     if not configer.fuse_strm_takeover_enabled:
         return None

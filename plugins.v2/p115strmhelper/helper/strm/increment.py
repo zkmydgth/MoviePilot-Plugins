@@ -73,8 +73,8 @@ class IncrementSyncStrmHelper:
         """
         初始化增量同步 STRM 生成器
 
-        :param client: P115Client 实例
-        :param mediainfodownloader: 媒体信息下载器实例
+        :param client (P115Client): P115Client 实例
+        :param mediainfodownloader (MediaInfoDownloader): 媒体信息下载器实例
         """
         self.client = client
         self.mediainfodownloader = mediainfodownloader
@@ -193,7 +193,7 @@ class IncrementSyncStrmHelper:
         """
         供 export_dir_parse_iter(show_clock=...) 使用：在等待云端导出目录树时用 info 打日志并按时间节流
 
-        :param interval_sec: 节流间隔秒数，默认使用类属性 _EXPORT_DIR_WAIT_LOG_INTERVAL_SEC
+        :param interval_sec (float): 节流间隔秒数，默认使用类属性 _EXPORT_DIR_WAIT_LOG_INTERVAL_SEC
         """
         sec = (
             float(interval_sec)
@@ -218,8 +218,8 @@ class IncrementSyncStrmHelper:
         """
         迭代目录树
 
-        :param pan_path: 网盘路径
-        :param local_path: 本地路径
+        :param pan_path (str): 网盘路径
+        :param local_path (str): 本地路径
 
         :return Iterator: 网盘路径迭代器
         :raises PanPathNotFound: 网盘路径不存在
@@ -271,8 +271,8 @@ class IncrementSyncStrmHelper:
                 """
                 处理导出目录树中的单个文件路径条目
 
-                :param item_str: 网盘中的相对文件路径
-                :yields: (本地 STRM 路径, 网盘路径) 元组
+                :param item_str (str): 网盘中的相对文件路径
+                :yields Tuple: (本地 STRM 路径, 网盘路径) 元组
                 """
                 item_path = Path(pan_path) / Path(item_str).relative_to(relative_path)
                 relative_item_path = item_path.relative_to(pan_path)
@@ -311,8 +311,8 @@ class IncrementSyncStrmHelper:
         """
         迭代网盘目录
 
-        :param cid: 网盘目录 ID
-        :param path: 网盘路径
+        :param cid (int): 网盘目录 ID
+        :param path (str): 网盘路径
 
         :return Iterator: 网盘文件(夹)信息迭代器
         """
@@ -330,7 +330,7 @@ class IncrementSyncStrmHelper:
         通过路径获取 cid
         先从缓存获取，再从数据库获取
 
-        :param path: 网盘目录
+        :param path (str): 网盘目录
 
         :return int: 网盘目录 ID
         """
@@ -352,7 +352,7 @@ class IncrementSyncStrmHelper:
         """
         通过数据库获取文件大小
 
-        :param path: 网盘路径
+        :param path (str): 网盘路径
 
         :return int: 文件大小
         """
@@ -367,9 +367,9 @@ class IncrementSyncStrmHelper:
         """
         通过路径获取 pick_code, sha1
 
-        :param path: 文件网盘路径
+        :param path (str): 文件网盘路径
 
-        :return pick_code, sha1: 返回此文件的 pick_code 和 sha1
+        :return Tuple: 返回此文件的 pick_code 和 sha1
         """
         last_path = None
         processed = []
@@ -413,7 +413,7 @@ class IncrementSyncStrmHelper:
         """
         生成本地目录树
 
-        :param target_dir: 本地目录
+        :param target_dir (str): 本地目录
         """
         self.local_tree.clear()
         self.local_strm_tree.clear()
@@ -459,7 +459,7 @@ class IncrementSyncStrmHelper:
         """
         等待生成本地目录树运行完成
 
-        :param thread: 本地目录树线程
+        :param thread (Thread): 本地目录树线程
         """
         while thread.is_alive():
             logger.info("【增量STRM生成】扫描本地媒体库运行中...")
@@ -469,8 +469,8 @@ class IncrementSyncStrmHelper:
         """
         生成网盘目录树
 
-        :param pan_media_dir: 网盘目录
-        :param target_dir: 本地目录
+        :param pan_media_dir (str): 网盘目录
+        :param target_dir (str): 本地目录
 
         :raise: ItertreeInternalError: 网盘目录树生成失败
         """
@@ -540,8 +540,8 @@ class IncrementSyncStrmHelper:
         """
         处理新增路径
 
-        :param pan_path: 网盘路径
-        :param local_path: 本地路径
+        :param pan_path (str): 网盘路径
+        :param local_path (str): 本地路径
         """
         pan_path_obj = Path(pan_path)
         new_file_path = Path(local_path)
@@ -715,8 +715,8 @@ class IncrementSyncStrmHelper:
         """
         获取增量同步清理无效 STRM 的持久化数据
 
-        :param path_base64: 路径 base64 信息
-        :return: 数据字典
+        :param path_base64 (str): 路径 base64 信息
+        :return Dict: 数据字典
         """
         data: Dict = configer.get_plugin_data("increment_remove_unless_strm")
         if data:
@@ -727,8 +727,8 @@ class IncrementSyncStrmHelper:
         """
         保存增量同步清理无效 STRM 的持久化数据
 
-        :param path_base64: 路径 base64 信息
-        :param value: 保存字典
+        :param path_base64 (str): 路径 base64 信息
+        :param value (Dict): 保存字典
         """
         data: Optional[Dict] = configer.get_plugin_data("increment_remove_unless_strm")
         if data:
@@ -760,9 +760,9 @@ class IncrementSyncStrmHelper:
         """
         扫描二级目录
 
-        :param path: 路径
+        :param path (str): 路径
 
-        :return: 目录名称列表
+        :return List: 目录名称列表
         """
         self.api_count += 2
         name_list: List[str] = []
@@ -790,7 +790,7 @@ class IncrementSyncStrmHelper:
         """
         生成 STRM 文件
 
-        :param sync_strm_paths: 同步 STRM 路径
+        :param sync_strm_paths (str): 同步 STRM 路径
         """
         t0 = perf_counter()
         try:

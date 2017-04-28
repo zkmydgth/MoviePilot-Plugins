@@ -28,9 +28,9 @@ def process_file_change(client: P115Client, file_path: str, mon_path: str) -> No
     """
     处理 watchfiles 产生的文件变更
 
-    :param client: 115 客户端
-    :param file_path: 事件文件路径
-    :param mon_path: 监控目录
+    :param client (P115Client): 115 客户端
+    :param file_path (str): 事件文件路径
+    :param mon_path (str): 监控目录
     """
     p = Path(file_path)
     if p.exists() and p.is_dir():
@@ -44,9 +44,9 @@ def handle_file(client: P115Client, event_path: str, mon_path: str):
     """
     同步一个文件
 
-    :param client: 115 客户端
-    :param event_path: 事件文件路径
-    :param mon_path: 监控目录
+    :param client (P115Client): 115 客户端
+    :param event_path (str): 事件文件路径
+    :param mon_path (str): 监控目录
     """
     file_path = Path(event_path)
     storage_chain = StorageChain()

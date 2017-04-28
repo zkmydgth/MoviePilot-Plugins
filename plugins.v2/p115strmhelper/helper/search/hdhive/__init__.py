@@ -18,7 +18,7 @@ class HDHiveSearch:
         """
         拉取并过滤 pan_type=115，映射为与 TG 合并兼容的字典列表
 
-        :param resource_dict: 含 type、tmdb_id、name 等
+        :param resource_dict (Dict): 含 type、tmdb_id、name 等
         """
         return fetch_resources_impl(resource_dict, HDHiveSearch.SOURCE)
 
@@ -27,7 +27,7 @@ class HDHiveSearch:
         """
         交互资源列表中单条 HDHive 的展示文案（Markdown）
 
-        :param data: 与 ``fetch_resources`` 输出项一致
-        :param line_prefix: 如 ``1. `` 或 emoji 序号前缀
+        :param data (Dict): 与 ``fetch_resources`` 输出项一致
+        :param line_prefix (str): 如 ``1. `` 或 emoji 序号前缀
         """
         return format_list_block_impl(data, line_prefix)

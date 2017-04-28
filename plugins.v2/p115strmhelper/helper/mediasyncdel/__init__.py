@@ -71,8 +71,8 @@ class MediaSyncDelHelper:
         """
         通过路径删除历史记录和源文件
 
-        :param path: 删除路径
-        :param del_source: 删除源文件
+        :param path (str): 删除路径
+        :param del_source (bool): 删除源文件
         """
         transfer_history = self.transferhisb.get_transfer_his_by_path_title(path)
 
@@ -144,9 +144,9 @@ class MediaSyncDelHelper:
         局部删除则暂停种子
         全部删除则删除种子
 
-        :param type: 类型
-        :param src: 目录
-        :param torrent_hash: 种子 hash 值
+        :param type (str): 类型
+        :param src (str): 目录
+        :param torrent_hash (str): 种子 hash 值
         """
         download_id = torrent_hash
         download = self.default_downloader
@@ -292,11 +292,11 @@ class MediaSyncDelHelper:
         """
         处理做种合集
 
-        :param src: 路径
-        :param delete_flag: 删除合集种子
-        :param torrent_hash: 种子 hash 值
-        :param download_files: 下载文件列表
-        :param handle_torrent_hashs: 种子文件 hash 列表
+        :param src (str): 路径
+        :param delete_flag (bool): 删除合集种子
+        :param torrent_hash (str): 种子 hash 值
+        :param download_files (list): 下载文件列表
+        :param handle_torrent_hashs (list): 种子文件 hash 列表
         """
         try:
             src_download_files = self.downloadhis.get_files_by_fullpath(fullpath=src)
@@ -369,9 +369,9 @@ class MediaSyncDelHelper:
         """
         删除辅种
 
-        :param download_id: 下载 ID
-        :param delete_flag: 删除辅种
-        :param handle_torrent_hashs: 种子 hash 列表
+        :param download_id (str): 下载 ID
+        :param delete_flag (bool): 删除辅种
+        :param handle_torrent_hashs (list): 种子 hash 列表
         """
         # 查询是否有辅种记录
         history_key = download_id
@@ -421,8 +421,8 @@ class MediaSyncDelHelper:
         """
         115 网盘 遍历文件夹获取媒体文件后缀
 
-        :param file_path: 文件路径
-        :param p115_library_path: 115 网盘 媒体库路径映射
+        :param file_path (str): 文件路径
+        :param p115_library_path (str): 115 网盘 媒体库路径映射
         """
         stem_suffix = Path(Path(file_path).stem).suffix
         mediaext = {ext.lstrip(".").lower() for ext in settings.RMT_MEDIAEXT or []}
@@ -455,9 +455,9 @@ class MediaSyncDelHelper:
         """
         获取删除媒体的类型
 
-        :param media_type: 媒体类型
-        :param season_num: 季数
-        :param episode_num: 集数
+        :param media_type (str): 媒体类型
+        :param season_num (str): 季数
+        :param episode_num (str): 集数
         """
         # 季数
         if season_num and str(season_num).isdigit():
@@ -500,12 +500,12 @@ class MediaSyncDelHelper:
         """
         查询转移记录
 
-        :param media_type: 媒体类型
-        :param media_name: 媒体名称
-        :param media_path: 媒体路径
-        :param tmdb_id: TMDB ID
-        :param season_num: 季数
-        :param episode_num: 集数
+        :param media_type (str): 媒体类型
+        :param media_name (str): 媒体名称
+        :param media_path (str): 媒体路径
+        :param tmdb_id (int): TMDB ID
+        :param season_num (str): 季数
+        :param episode_num (str): 集数
         """
         # 季数
         if season_num and str(season_num).isdigit():
@@ -590,9 +590,9 @@ class MediaSyncDelHelper:
         """
         删除 115 网盘文件
 
-        :param storage: 储存类型
-        :param file_path: 文件路径
-        :param media_name: 媒体名称
+        :param storage (str): 储存类型
+        :param file_path (str): 文件路径
+        :param media_name (str): 媒体名称
         """
         try:
             if storage not in {"u115", "115网盘Plus", "CloudDrive储存"}:
@@ -627,12 +627,12 @@ class MediaSyncDelHelper:
         """
         通过Webhook事件同步删除媒体
 
-        :param event_data: 事件数据
-        :param enabled: 是否启用
-        :param notify: 是否通知
-        :param del_source: 是否删除源文件
-        :param p115_library_path: 115 网盘媒体库路径映射
-        :param p115_force_delete_files: 115 网盘强制删除
+        :param event_data (WebhookEventInfo): 事件数据
+        :param enabled (bool): 是否启用
+        :param notify (bool): 是否通知
+        :param del_source (bool): 是否删除源文件
+        :param p115_library_path (str): 115 网盘媒体库路径映射
+        :param p115_force_delete_files (bool): 115 网盘强制删除
         """
         if not enabled:
             return None
@@ -784,17 +784,17 @@ class MediaSyncDelHelper:
         """
         执行同步删除
 
-        :param media_type: 媒体类型
-        :param media_name: 媒体名称
-        :param media_path: 媒体路径
-        :param tmdb_id: TMDB ID
-        :param season_num: 季数
-        :param episode_num: 集数
-        :param media_suffix: 媒体后缀
-        :param p115_library_path: 115 网盘 媒体库路径映射
-        :param p115_force_delete_files: 115 网盘 强制删除
-        :param del_source: 是否删除源文件
-        :param notify: 是否通知
+        :param media_type (str): 媒体类型
+        :param media_name (str): 媒体名称
+        :param media_path (str): 媒体路径
+        :param tmdb_id (int): TMDB ID
+        :param season_num (str): 季数
+        :param episode_num (str): 集数
+        :param media_suffix (str): 媒体后缀
+        :param p115_library_path (str): 115 网盘 媒体库路径映射
+        :param p115_force_delete_files (bool): 115 网盘 强制删除
+        :param del_source (bool): 是否删除源文件
+        :param notify (bool): 是否通知
         """
         if not media_type:
             logger.error(
@@ -1002,7 +1002,7 @@ class MediaSyncDelHelper:
         """
         保存同步删除历史记录
 
-        :param result: 同步删除结果
+        :param result (Dict): 同步删除结果
         """
         if not result:
             logger.warning("【同步删除】历史记录保存失败：result 为空")

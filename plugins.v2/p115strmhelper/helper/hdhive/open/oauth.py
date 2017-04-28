@@ -20,9 +20,9 @@ def broker_oauth_start(
     """
     向中转请求授权 URL
 
-    :param scope: OAuth scope
-    :param instance_key: 可选已有 instance_key
-    :return: authorize_url、state、redirect_uri 等
+    :param scope (str): OAuth scope
+    :param instance_key (str): 可选已有 instance_key
+    :return Dict: authorize_url、state、redirect_uri 等
     """
     ik = instance_key or get_or_create_instance_key()
     with broker_http_client() as client:
@@ -50,7 +50,7 @@ def broker_exchange(
     """
     用授权码换取 Token 并写入 plugin_data
 
-    :return: 脱敏后的 bundle 摘要
+    :return Dict: 脱敏后的 bundle 摘要
     """
     ik = instance_key or get_or_create_instance_key()
     payload = {
@@ -83,7 +83,7 @@ def broker_refresh(*, instance_key: Optional[str] = None) -> bool:
     """
     通过中转刷新 Access Token
 
-    :return: 是否刷新成功
+    :return bool: 是否刷新成功
     """
     bundle = load_oauth_bundle()
     ik = instance_key or bundle.get("instance_key") or get_or_create_instance_key()

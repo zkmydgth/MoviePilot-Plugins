@@ -12,12 +12,12 @@ class SyncDelWebhookTask:
     """
     单条 Webhook 同步删除任务快照
 
-    :param event_data: 已 deepcopy 的 Webhook 事件数据
-    :param enabled: 是否启用同步删除（入队时快照）
-    :param notify: 是否通知
-    :param del_source: 是否删除源文件
-    :param p115_library_path: 115 媒体库路径映射
-    :param p115_force_delete_files: 是否强制删除无 TMDB 的文件
+    :param event_data (WebhookEventInfo): 已 deepcopy 的 Webhook 事件数据
+    :param enabled (bool): 是否启用同步删除（入队时快照）
+    :param notify (bool): 是否通知
+    :param del_source (bool): 是否删除源文件
+    :param p115_library_path (str): 115 媒体库路径映射
+    :param p115_force_delete_files (bool): 是否强制删除无 TMDB 的文件
     """
 
     event_data: WebhookEventInfo
@@ -128,7 +128,7 @@ class SyncDelWebhookQueue:
         """
         将一条同步删除任务加入队列（无界，put_nowait 不阻塞事件线程）
 
-        :param task: 任务快照（event_data 须已在调用方 deepcopy）
+        :param task (SyncDelWebhookTask): 任务快照（event_data 须已在调用方 deepcopy）
         """
         self._ensure_started()
         with self._lock:

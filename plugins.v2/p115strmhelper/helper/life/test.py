@@ -17,9 +17,9 @@ class MonitorLifeTest:
         """
         测试生活事件开启状态
 
-        :param client: P115Client实例
+        :param client (P115Client): P115Client实例
 
-        :return: tuple (success: bool, debug_info: List[str], error_message: Optional[str])
+        :return Tuple: tuple (success: bool, debug_info: List[str], error_message: Optional[str])
         """
         debug_info = []
         try:
@@ -41,9 +41,9 @@ class MonitorLifeTest:
         """
         测试拉取生活事件数据
 
-        :param client: P115Client实例
+        :param client (P115Client): P115Client实例
 
-        :return: tuple (success: bool, debug_info: List[str], error_messages: List[str])
+        :return Tuple: tuple (success: bool, debug_info: List[str], error_messages: List[str])
         """
         debug_info = []
         error_messages = []
@@ -97,10 +97,10 @@ class MonitorLifeTest:
         """
         拉取指定开始时间以来的全部生活事件数据，统计数量并逐条输出到调试信息
 
-        :param client: P115Client 实例
-        :param from_time: 开始时间（Unix 时间戳，秒，含）
+        :param client (P115Client): P115Client 实例
+        :param from_time (int): 开始时间（Unix 时间戳，秒，含）
 
-        :return: tuple (success: bool, debug_info: List[str], error_messages: List[str])
+        :return Tuple: tuple (success: bool, debug_info: List[str], error_messages: List[str])
         """
         debug_info = []
         error_messages = []

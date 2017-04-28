@@ -26,7 +26,7 @@ class CacheUpdater:
         """
         初始化缓存更新器
 
-        :param p115_api: P115Api 实例
+        :param p115_api (P115Api): P115Api 实例
         """
         self._p115_api = p115_api
 
@@ -35,8 +35,8 @@ class CacheUpdater:
         """
         创建缓存更新器实例
 
-        :param client: 115 客户端实例
-        :param storage_name: 存储名称
+        :param client (P115Client): 115 客户端实例
+        :param storage_name (str): 存储名称
         :return: CacheUpdater 实例
         """
         p115_api = None
@@ -52,7 +52,7 @@ class CacheUpdater:
         """
         更新目录缓存
 
-        :param folder_item: 目录文件项
+        :param folder_item (FileItem): 目录文件项
         """
         if not self._p115_api or not folder_item or not folder_item.fileid:
             return
@@ -81,7 +81,7 @@ class CacheUpdater:
         """
         更新文件缓存
 
-        :param file_item: 文件项
+        :param file_item (FileItem): 文件项
         """
         if not self._p115_api or not file_item or not file_item.fileid:
             return
@@ -110,7 +110,7 @@ class CacheUpdater:
         """
         删除缓存
 
-        :param file_id: 文件ID
+        :param file_id (int): 文件ID
         """
         if not self._p115_api:
             return
@@ -126,8 +126,8 @@ class CacheUpdater:
         """
         更新重命名后的缓存
 
-        :param file_id: 文件ID
-        :param new_name: 新文件名
+        :param file_id (int): 文件ID
+        :param new_name (str): 新文件名
         """
         if not self._p115_api:
             return

@@ -22,8 +22,10 @@ class ShareFilesDataCollector:
 
     def __init__(self, data_iter: Iterable[Dict], temp_file: str):
         """
-        :param data_iter: 文件数据迭代器
-        :param temp_file: 临时文件路径
+        初始化分享文件数据收集器
+
+        :param data_iter (Iterable): 文件数据迭代器
+        :param temp_file (str): 临时文件路径
         """
         self.data_iter = data_iter
         self.temp_file = temp_file
@@ -65,7 +67,7 @@ class ShareFilesDataCollector:
         """
         获取临时文件信息
 
-        :return: (文件路径, 数据条数)
+        :return Tuple: (文件路径, 数据条数)
         """
         return self.temp_file, self.count
 
@@ -93,9 +95,9 @@ class ShareOOPServerHelper:
         """
         删除分享文件数据
 
-        :param batch_id: 分享码和提取码组成的 batch_id
+        :param batch_id (str): 分享码和提取码组成的 batch_id
 
-        :return: 删除结果响应数据
+        :return Dict: 删除结果响应数据
         """
         client = ShareOOPServerHelper.get_client()
         resp = client.delete_share_file_iter(
@@ -111,11 +113,11 @@ class ShareOOPServerHelper:
         """
         从服务器下载分享文件数据
 
-        :param share_code: 分享码
-        :param receive_code: 提取码
-        :param temp_file: 临时文件保存路径
+        :param share_code (str): 分享码
+        :param receive_code (str): 提取码
+        :param temp_file (str): 临时文件保存路径
 
-        :return: 下载成功返回 True，失败返回 False
+        :return bool: 下载成功返回 True，失败返回 False
         """
         batch_id = f"{share_code}{receive_code}"
         logger.info(f"【分享STRM生成】尝试下载数据，batch_id: {batch_id}")
@@ -145,9 +147,9 @@ class ShareOOPServerHelper:
         """
         从下载的 gzip 文件中读取数据并返回迭代器
 
-        :param temp_file: 临时文件路径
+        :param temp_file (str): 临时文件路径
 
-        :return: 数据迭代器
+        :return Iterable: 数据迭代器
         """
         with gzip_open(temp_file, "rb") as f:
             for line in f:
@@ -167,11 +169,11 @@ class ShareOOPServerHelper:
         """
         上传文件到服务器
 
-        :param share_code: 分享码
-        :param receive_code: 提取码
-        :param temp_file: 临时文件路径
+        :param share_code (str): 分享码
+        :param receive_code (str): 提取码
+        :param temp_file (str): 临时文件路径
 
-        :return: 上传结果响应数据，失败返回 None
+        :return Dict: 上传结果响应数据，失败返回 None
         """
         batch_id = f"{share_code}{receive_code}"
         logger.info(f"【分享STRM生成】开始上传，batch_id: {batch_id}")
@@ -201,11 +203,11 @@ class ShareOOPServerHelper:
         """
         上传分享文件数据到服务器
 
-        :param share_code: 分享码
-        :param receive_code: 提取码
-        :param temp_file: 临时文件路径
+        :param share_code (str): 分享码
+        :param receive_code (str): 提取码
+        :param temp_file (str): 临时文件路径
 
-        :return: 上传结果响应数据，失败返回 None
+        :return Dict: 上传结果响应数据，失败返回 None
         """
         if not path_exists(temp_file) or path_getsize(temp_file) == 0:
             logger.warn("【分享STRM生成】临时文件不存在或为空，跳过上传")

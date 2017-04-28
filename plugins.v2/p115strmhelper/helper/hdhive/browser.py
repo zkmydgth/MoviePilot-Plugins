@@ -113,7 +113,7 @@ class _CheckinDebugSession:
         """
         初始化 Debug 会话并在插件临时目录下创建输出文件夹
 
-        :param label: 签到类型标签（如「赌狗签到」「每日签到」）
+        :param label (str): 签到类型标签（如「赌狗签到」「每日签到」）
         """
         self._enabled = False
         self._step = 0
@@ -144,7 +144,7 @@ class _CheckinDebugSession:
         """
         清理超出保留数量的旧 Debug 会话目录
 
-        :param base: Debug 会话根目录
+        :param base (Path): Debug 会话根目录
         """
         try:
             sessions = sorted(base.glob("debug_*"), key=lambda p: p.name)
@@ -159,7 +159,7 @@ class _CheckinDebugSession:
         """
         将一行日志追加写入会话 log 文件
 
-        :param msg: 日志内容
+        :param msg (str): 日志内容
         """
         if not self._enabled or self._log_path is None:
             return
@@ -174,7 +174,7 @@ class _CheckinDebugSession:
         """
         记录一条 Debug 日志
 
-        :param msg: 日志内容
+        :param msg (str): 日志内容
         """
         self._log(msg)
 
@@ -182,9 +182,9 @@ class _CheckinDebugSession:
         """
         截取当前页面全页截图并写入会话目录
 
-        :param page: 浏览器页面对象
-        :param name: 截图文件名前缀
-        :param note: 可选说明，写入日志
+        :param page (Any): 浏览器页面对象
+        :param name (str): 截图文件名前缀
+        :param note (str): 可选说明，写入日志
         """
         if not self._enabled or self._dir is None:
             return
@@ -212,8 +212,8 @@ class _CheckinDebugSession:
         """
         保存当前页面 HTML 到会话目录
 
-        :param page: 浏览器页面对象
-        :param name: 输出文件名前缀（不含扩展名）
+        :param page (Any): 浏览器页面对象
+        :param name (str): 输出文件名前缀（不含扩展名）
         """
         if not self._enabled or self._dir is None:
             return
@@ -229,8 +229,8 @@ class _CheckinDebugSession:
         """
         记录当前页面 URL、标题及 Cloudflare 相关信号
 
-        :param page: 浏览器页面对象
-        :param tag: 可选标签，便于在日志中区分阶段
+        :param page (Any): 浏览器页面对象
+        :param tag (str): 可选标签，便于在日志中区分阶段
         """
         if not self._enabled:
             return
@@ -253,9 +253,9 @@ class _CheckinDebugSession:
         """
         检测页面上是否存在 Cloudflare 挑战相关 DOM 或文案
 
-        :param page: 浏览器页面对象
+        :param page (Any): 浏览器页面对象
 
-        :return: 检测到的信号描述列表
+        :return List: 检测到的信号描述列表
         """
         signals = []
         try:
@@ -305,9 +305,9 @@ class _CheckinDebugSession:
         """
         写入签到流程结束摘要
 
-        :param success: 签到是否成功
+        :param success (bool): 签到是否成功
 
-        :param result: 结果文案或错误信息
+        :param result (str): 结果文案或错误信息
         """
         self._log(f"{'=' * 60}")
         self._log(f"签到结束: {'成功' if success else '失败'}")
@@ -332,7 +332,7 @@ class HDHivePlaywrightClient:
 
     def __init__(self, headless: bool = True) -> None:
         """
-        :param headless: 浏览器是否无头模式
+        :param headless (bool): 浏览器是否无头模式
         """
         self._headless = headless
         self._cookie_str: Optional[str] = None
@@ -344,7 +344,7 @@ class HDHivePlaywrightClient:
         """
         检测可用的浏览器后端，优先返回 cloakbrowser
 
-        :return: 'cloakbrowser' 或 'playwright'
+        :return str: 'cloakbrowser' 或 'playwright'
 
         :raises RuntimeError: 两者均不可用时
         """
@@ -364,7 +364,7 @@ class HDHivePlaywrightClient:
         """
         根据当前运行平台返回 UA product 字段和 Sec-Ch-Ua-Platform 值
 
-        :return: (UA product 字符串, Sec-Ch-Ua-Platform 值)
+        :return Tuple: (UA product 字符串, Sec-Ch-Ua-Platform 值)
         """
         m = _machine().lower()
         arm_like = "arm" in m or "aarch" in m
@@ -384,7 +384,7 @@ class HDHivePlaywrightClient:
         """
         构造与当前运行平台匹配的 Chrome User-Agent（用于 httpx 请求）
 
-        :return: UA 字符串
+        :return str: UA 字符串
         """
         product, _ = HDHivePlaywrightClient._platform_product_and_hint()
         return f"Mozilla/5.0 ({product}) {HDHivePlaywrightClient._CHROME_UA_SUFFIX}"
@@ -394,8 +394,8 @@ class HDHivePlaywrightClient:
         """
         根据实际 Chromium 版本构建与平台一致的 UA 和 Sec-Ch-Ua 系列请求头
 
-        :param chrome_major: Chromium 主版本号字符串（如 "135"）
-        :return: (UA 字符串, extra_http_headers 字典)
+        :param chrome_major (str): Chromium 主版本号字符串（如 "135"）
+        :return Tuple: (UA 字符串, extra_http_headers 字典)
         """
         product, platform_hint = HDHivePlaywrightClient._platform_product_and_hint()
         ua = (
@@ -425,7 +425,7 @@ class HDHivePlaywrightClient:
         - 从 navigator.userAgentData.brands 移除 HeadlessChrome
         - 同步 patch getHighEntropyValues 返回值
 
-        :return: JS 字符串
+        :return str: JS 字符串
         """
         return """
             try { Object.defineProperty(navigator, 'webdriver', {get: () => undefined}); } catch(e) {}
@@ -494,8 +494,8 @@ class HDHivePlaywrightClient:
         - sec-ch-ua / sec-ch-ua-full-version-list 中的 HeadlessChrome 项替换为 Google Chrome
         - 用作 extra_http_headers 的兜底（部分 Chromium 行为不受 extra_http_headers 覆盖）
 
-        :param context: BrowserContext
-        :param chrome_major: Chromium 主版本号
+        :param context (BrowserContext): BrowserContext
+        :param chrome_major (str): Chromium 主版本号
         """
         sec_ch_ua = (
             f'"Chromium";v="{chrome_major}", '
@@ -533,7 +533,7 @@ class HDHivePlaywrightClient:
         """
         返回 Chromium 进程启动参数（仅用于 playwright 后端）
 
-        :return: 传给 chromium.launch(args=...) 的参数列表
+        :return List: 传给 chromium.launch(args=...) 的参数列表
         """
         args = [
             "--disable-blink-features=AutomationControlled",
@@ -555,7 +555,7 @@ class HDHivePlaywrightClient:
         """
         从 settings.PROXY 得到单一代理 URL 字符串
 
-        :return: http(s)://... 或 socks5://... 字符串，未配置或无法解析时为 None
+        :return str: http(s)://... 或 socks5://... 字符串，未配置或无法解析时为 None
         """
         p = settings.PROXY
         if not p:
@@ -574,7 +574,7 @@ class HDHivePlaywrightClient:
 
         不含认证的 SOCKS5 可直接传给 playwright；含认证的 SOCKS5 须经由 slippers 转发
 
-        :return: 含 server，可选 username / password 的字典；无代理时为 None
+        :return Dict: 含 server，可选 username / password 的字典；无代理时为 None
         """
         raw = HDHivePlaywrightClient._proxy_url_from_settings()
         if not raw:
@@ -648,9 +648,9 @@ class HDHivePlaywrightClient:
         - 用 channel="chromium" 强制使用完整 Chromium 二进制（新 headless 模式），
           避免 chromium-headless-shell 暴露 HeadlessChrome brand
 
-        :param headless: 是否无头模式
-        :param proxy: 已解析的 playwright proxy 字典；为 None 时不设置
-        :return: 传给 launch 的关键字参数
+        :param headless (bool): 是否无头模式
+        :param proxy (Dict): 已解析的 playwright proxy 字典；为 None 时不设置
+        :return Dict: 传给 launch 的关键字参数
         """
         kwargs: Dict[str, Any] = {
             "headless": headless,
@@ -670,10 +670,10 @@ class HDHivePlaywrightClient:
         """
         playwright 后端：启动 Chromium 并创建登录页用上下文（语言、时区、视口）
 
-        :param pw: sync_playwright() 返回的 Playwright 实例
-        :param headless: 是否无头模式
-        :param proxy: 已解析的 playwright proxy 字典
-        :return: (browser, context)
+        :param pw (Playwright): sync_playwright() 返回的 Playwright 实例
+        :param headless (bool): 是否无头模式
+        :param proxy (Dict): 已解析的 playwright proxy 字典
+        :return Tuple: (browser, context)
         """
         browser = pw.chromium.launch(
             **HDHivePlaywrightClient._chromium_launch_kwargs(headless, proxy),
@@ -703,10 +703,10 @@ class HDHivePlaywrightClient:
         :meth:`_slippers_proxy_if_needed` 转发后将本地 URL 以
         ``proxy_override`` 传入。
 
-        :param headless: 是否无头模式
-        :param proxy_override: 覆盖全局代理的本地代理 URL（如 slippers 转发地址）；
+        :param headless (bool): 是否无头模式
+        :param proxy_override (str): 覆盖全局代理的本地代理 URL（如 slippers 转发地址）；
                                为 None 时从 settings 读取
-        :return: playwright BrowserContext（由 cloakbrowser 内部创建）
+        :return Any: playwright BrowserContext（由 cloakbrowser 内部创建）
         """
         proxy = (
             proxy_override
@@ -764,9 +764,9 @@ class HDHivePlaywrightClient:
         """
         创建已注入 Cookie 的浏览器页面，自动管理上下文生命周期
 
-        :param cookies: name → value Cookie 映射
-        :param domain: Cookie 所属域名
-        :yield: 已注入 Cookie 的页面对象
+        :param cookies (Dict): name → value Cookie 映射
+        :param domain (str): Cookie 所属域名
+        :yields Any: 已注入 Cookie 的页面对象
         """
         with self._fresh_context() as context:
             self._inject_cookies(context, cookies, domain)
@@ -777,9 +777,9 @@ class HDHivePlaywrightClient:
         """
         将 Cookie 字典批量注入浏览器上下文
 
-        :param context: 浏览器上下文
-        :param cookies: name → value 映射
-        :param domain: Cookie 所属域名
+        :param context (Any): 浏览器上下文
+        :param cookies (Dict): name → value 映射
+        :param domain (str): Cookie 所属域名
         """
         context.add_cookies(
             [
@@ -793,8 +793,8 @@ class HDHivePlaywrightClient:
         """
         解析 name=value; ... 格式的 Cookie 字符串
 
-        :param cookie_str: Cookie 头字符串
-        :return: 名称到值的映射
+        :param cookie_str (str): Cookie 头字符串
+        :return Dict: 名称到值的映射
         """
         cookies: dict[str, str] = {}
         for item in cookie_str.split(";"):
@@ -808,7 +808,7 @@ class HDHivePlaywrightClient:
         """
         返回 HDHive Cookie 持久化文件路径
 
-        :return: 插件数据目录下的 Cookie JSON 文件路径
+        :return Path: 插件数据目录下的 Cookie JSON 文件路径
         """
         return configer.PLUGIN_CONFIG_PATH / cls._COOKIE_FILENAME
 
@@ -819,8 +819,8 @@ class HDHivePlaywrightClient:
         从浏览器原始 Cookie 列表中提取 token / csrf_access_token，
         组装 cookie_str 并写入持久化文件
 
-        :param raw_cookies: context.cookies() 返回的 Cookie 字典列表
-        :return: (cookie_str, token)；token 不存在时为 None
+        :param raw_cookies (List): context.cookies() 返回的 Cookie 字典列表
+        :return Tuple: (cookie_str, token)；token 不存在时为 None
         """
         token = next((c["value"] for c in raw_cookies if c["name"] == "token"), None)
         csrf = next(
@@ -858,7 +858,7 @@ class HDHivePlaywrightClient:
         """
         从持久化文件读取 Cookie 字符串
 
-        :return: cookie_str；文件不存在或解析失败时为 None
+        :return str: cookie_str；文件不存在或解析失败时为 None
         """
         try:
             path = cls._cookie_file_path()
@@ -873,7 +873,7 @@ class HDHivePlaywrightClient:
         """
         从持久化文件加载上次保存的 Cookie，写入实例并返回 cookie_str
 
-        :return: cookie_str；文件不存在或无有效 token 时为 None
+        :return str: cookie_str；文件不存在或无有效 token 时为 None
         """
         cookie_str = self._load_cookie_from_file()
         if not cookie_str:
@@ -900,9 +900,9 @@ class HDHivePlaywrightClient:
         """
         存储账号密码，供 Cookie 过期时自动重新登录
 
-        :param username: 账号或邮箱
-        :param password: 密码
-        :return: self（支持链式调用）
+        :param username (str): 账号或邮箱
+        :param password (str): 密码
+        :return Any: self（支持链式调用）
         """
         self._username = username.strip()
         self._password = password.strip()
@@ -913,7 +913,7 @@ class HDHivePlaywrightClient:
         """
         从 JWT token 字符串解析 ``exp`` 字段（UNIX 时间戳）
 
-        :return: 过期时间戳；无法解析时为 None
+        :return int: 过期时间戳；无法解析时为 None
         """
         try:
             parts = token.split(".")
@@ -930,8 +930,8 @@ class HDHivePlaywrightClient:
         """
         检查当前 Cookie 中的 JWT token 是否仍在有效期内
 
-        :param buffer_secs: 提前多少秒视为「即将过期」（默认 5 分钟）
-        :return: 有效返回 True；过期、无 token 或无法解析返回 False
+        :param buffer_secs (int): 提前多少秒视为「即将过期」（默认 5 分钟）
+        :return bool: 有效返回 True；过期、无 token 或无法解析返回 False
         """
         if not self._cookie_str:
             return False
@@ -948,7 +948,7 @@ class HDHivePlaywrightClient:
         """
         使用存储的账号密码重新进行浏览器登录，成功后更新持久化 Cookie
 
-        :return: 重新登录是否成功
+        :return bool: 重新登录是否成功
         """
         if not self._username or not self._password:
             return False
@@ -964,8 +964,8 @@ class HDHivePlaywrightClient:
         """
         在 token 有效前提下执行浏览器任务，必要时自动重新登录并重试一次
 
-        :param run: 单次浏览器会话 Callable
-        :return: run() 的返回值
+        :param run (Callable): 单次浏览器会话 Callable
+        :return Any: run() 的返回值
         :raises HDHiveLoginError: 认证失败且无法自动重新登录
         :raises HDHiveBrowserError: 浏览器操作失败
         """
@@ -995,10 +995,10 @@ class HDHivePlaywrightClient:
 
         page API 与 playwright / cloakbrowser 均兼容
 
-        :param page: 浏览器页面对象
-        :param username: 登录用户名或邮箱
-        :param password: 登录密码
-        :return: 若 URL 在超时内离开登录页则为 True
+        :param page (Any): 浏览器页面对象
+        :param username (str): 登录用户名或邮箱
+        :param password (str): 登录密码
+        :return bool: 若 URL 在超时内离开登录页则为 True
         :raises HDHiveLoginError: 等待跳转超时
         """
         root = HDHivePlaywrightClient.DEFAULT_BASE_URL
@@ -1095,10 +1095,10 @@ class HDHivePlaywrightClient:
         """
         根据签到结果弹窗文本判断签到是否成功，并返回干净的展示文案
 
-        :param text: 签到结果弹窗文本
-        :param label: 签到类型（赌狗签到或每日签到）
+        :param text (str): 签到结果弹窗文本
+        :param label (str): 签到类型（赌狗签到或每日签到）
 
-        :return: (是否成功, 展示用文案或错误信息)
+        :return Tuple: (是否成功, 展示用文案或错误信息)
         """
         lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
         clean = " ".join(lines)
@@ -1127,9 +1127,9 @@ class HDHivePlaywrightClient:
         """
         模拟签到
 
-        :param gamble: True 为赌狗签到，False 为每日签到
+        :param gamble (bool): True 为赌狗签到，False 为每日签到
 
-        :return: (是否成功, 展示用文案或错误信息)
+        :return Tuple: (是否成功, 展示用文案或错误信息)
         """
         if not self._cookie_str:
             return False, "请先 login 或传入 Cookie"
@@ -1582,8 +1582,8 @@ class HDHivePlaywrightClient:
         """
         签到
 
-        :param gamble: True 为赌狗签到，False 为每日签到
-        :return: (是否成功, 展示用文案或错误信息)
+        :param gamble (bool): True 为赌狗签到，False 为每日签到
+        :return Tuple: (是否成功, 展示用文案或错误信息)
         """
         return self._checkin_via_browser(gamble)
 
@@ -1591,9 +1591,9 @@ class HDHivePlaywrightClient:
         """
         浏览器登录：自动选择 cloakbrowser 或 playwright 后端
 
-        :param username: 登录用户名或邮箱
-        :param password: 登录密码
-        :return: (完整 Cookie 字符串, token)，登录失败为 None
+        :param username (str): 登录用户名或邮箱
+        :param password (str): 登录密码
+        :return Tuple: (完整 Cookie 字符串, token)，登录失败为 None
         :raises HDHiveLoginError: 登录超时或表单交互失败
         """
         with self._fresh_context() as context:
@@ -1616,10 +1616,10 @@ class HDHivePlaywrightClient:
         浏览器登录：不传 cookie_str 时须传入 username 与 password，
         自动选择 cloakbrowser（新版 MoviePilot）或 playwright（旧版 MoviePilot）
 
-        :param cookie_str: 已持有的 token=...; csrf_access_token=... 等 Cookie 串
-        :param username: 浏览器登录用用户名或邮箱
-        :param password: 浏览器登录用密码
-        :return: (完整 Cookie 字符串, token)，失败为 None
+        :param cookie_str (str): 已持有的 token=...; csrf_access_token=... 等 Cookie 串
+        :param username (str): 浏览器登录用用户名或邮箱
+        :param password (str): 浏览器登录用密码
+        :return Tuple: (完整 Cookie 字符串, token)，失败为 None
         :raises HDHiveLoginError: 登录参数无效或表单认证失败
         :raises HDHiveBrowserError: 浏览器登录过程失败
         """
@@ -1649,7 +1649,7 @@ class HDHivePlaywrightClient:
         """
         返回从页面 DOM 提取 115网盘 资源卡片信息的 JavaScript
 
-        :return: 可传给 page.evaluate() 的 JS 函数字符串
+        :return str: 可传给 page.evaluate() 的 JS 函数字符串
         """
         return r"""
         () => {
@@ -1747,10 +1747,10 @@ class HDHivePlaywrightClient:
         """
         浏览器自动化实现：直接导航到媒体详情页获取 115网盘资源
 
-        :param media_type: ``movie`` 或 ``tv``
-        :param tmdb_id: TMDB 作品 ID
+        :param media_type (str): ``movie`` 或 ``tv``
+        :param tmdb_id (int): TMDB 作品 ID
 
-        :return: 资源信息字典列表
+        :return List: 资源信息字典列表
 
         :raises HDHiveLoginError: 认证或 Cookie 失效且无法自动重新登录
         :raises HDHiveBrowserError: 浏览器页面操作失败
@@ -1863,10 +1863,10 @@ class HDHivePlaywrightClient:
         """
         通过浏览器按媒体类型和 TMDB ID 搜索 115网盘资源，返回资源信息列表
 
-        :param media_type: ``movie`` 或 ``tv``
-        :param tmdb_id: TMDB 作品 ID
+        :param media_type (str): ``movie`` 或 ``tv``
+        :param tmdb_id (int): TMDB 作品 ID
 
-        :return: 资源信息字典列表，每项包含 ``user``、``posted_at``、``tags``、
+        :return List: 资源信息字典列表，每项包含 ``user``、``posted_at``、``tags``、
                  ``title``、``resolution``、``size``、``is_free``、``unlock_points`` 等字段
 
         :raises HDHiveLoginError: 认证或 Cookie 失效且无法自动重新登录
@@ -1878,9 +1878,9 @@ class HDHivePlaywrightClient:
         """
         通过浏览器解锁 HDHive 115网盘资源，返回资源链接
 
-        :param slug: 资源 slug（``get_resources`` 返回的 ``href`` 最后一段 UUID）
+        :param slug (str): 资源 slug（``get_resources`` 返回的 ``href`` 最后一段 UUID）
 
-        :return: 含 ``url``、``full_url``、``already_owned`` 的字典
+        :return Dict: 含 ``url``、``full_url``、``already_owned`` 的字典
 
         :raises HDHiveLoginError: 未登录或认证失效且无法自动重新登录
         :raises HDHiveBrowserError: 浏览器页面操作失败
@@ -2003,7 +2003,7 @@ def is_hdhive_search_ready() -> bool:
 
     需开启 hdhive_search_enabled，且已填写账户密码或存在持久化 Cookie
 
-    :return: 可用返回 True
+    :return bool: 可用返回 True
     """
     if not configer.hdhive_search_enabled:
         return False
@@ -2020,7 +2020,7 @@ def get_hdhive_browser_client() -> Optional[HDHivePlaywrightClient]:
 
     按环境自动选用 cloakbrowser 或 Playwright 后端；始终注入凭据以支持 Cookie 过期后自动刷新
 
-    :return: 已就绪的客户端；无法就绪时为 None
+    :return Any: 已就绪的客户端；无法就绪时为 None
     """
     user = (configer.hdhive_checkin_username or "").strip()
     pwd = (configer.hdhive_checkin_password or "").strip()

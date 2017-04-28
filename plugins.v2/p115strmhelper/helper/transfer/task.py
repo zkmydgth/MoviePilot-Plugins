@@ -21,9 +21,9 @@ class TransferTaskManager:
         """
         初始化任务管理器
 
-        :param batch_delay: 批量等待时间（秒），默认 10.0 秒
-        :param batch_max_size: 单批次最大任务数，默认 100
-        :param batch_callback: 批量处理回调函数，接收任务列表作为参数
+        :param batch_delay (float): 批量等待时间（秒），默认 10.0 秒
+        :param batch_max_size (int): 单批次最大任务数，默认 100
+        :param batch_callback (Callable): 批量处理回调函数，接收任务列表作为参数
         """
         self.batch_delay = batch_delay
         self.batch_max_size = batch_max_size
@@ -49,7 +49,7 @@ class TransferTaskManager:
         """
         添加任务到待处理队列
 
-        :param task: 整理任务
+        :param task (TransferTask): 整理任务
         """
         should_trigger_immediately = False
 

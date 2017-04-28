@@ -19,12 +19,12 @@ class HDHiveAPIError(Exception):
         retry_after: float | None = None,
     ) -> None:
         """
-        :param code: 服务端业务错误码或回退为 HTTP 状态码字符串
-        :param message: 错误摘要
-        :param description: 可选详细说明
-        :param http_status: 响应 HTTP 状态码
-        :param limit_scope: 限流范围（global/app/user）
-        :param retry_after: Retry-After 秒数
+        :param code (str): 服务端业务错误码或回退为 HTTP 状态码字符串
+        :param message (str): 错误摘要
+        :param description (str): 可选详细说明
+        :param http_status (int): 响应 HTTP 状态码
+        :param limit_scope (str): 限流范围（global/app/user）
+        :param retry_after (float): Retry-After 秒数
         """
         self.code = code
         self.message = message
@@ -124,7 +124,7 @@ def raise_for_response(resp: Response) -> None:
     """
     解析统一 JSON 错误体并抛出对应异常；成功响应则直接返回
 
-    :param resp: httpx 响应对象
+    :param resp (Response): httpx 响应对象
     :raises HDHiveAPIError: 业务失败或 HTTP 错误时
     """
     retry_after = _parse_retry_after(resp)

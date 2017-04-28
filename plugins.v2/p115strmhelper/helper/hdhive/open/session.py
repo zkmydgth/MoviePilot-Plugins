@@ -24,7 +24,7 @@ def _resolve_auth_mode() -> AuthMode:
     """
     解析当前鉴权模式
 
-    :return: ``oauth`` 或 ``none``
+    :return str: ``oauth`` 或 ``none``
     """
     bundle = load_oauth_bundle()
     if (bundle.get("access_token") or "").strip():
@@ -100,8 +100,8 @@ class HDHiveSession(HDHiveOpenClient):
         """
         经 OAuth 中转代理发起 Open API 请求
 
-        :param access_token: 未使用（由 token_store 提供）
-        :param _retry_refresh: 内部用，是否在 REFRESH_REQUIRED 时自动刷新一次
+        :param access_token (str): 未使用（由 token_store 提供）
+        :param _retry_refresh (bool): 内部用，是否在 REFRESH_REQUIRED 时自动刷新一次
         """
         del access_token
         if _resolve_auth_mode() != "oauth":

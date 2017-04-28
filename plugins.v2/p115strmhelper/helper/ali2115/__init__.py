@@ -102,7 +102,7 @@ class Ali2115Helper:
         """
         递归遍历分享文件，携带相对路径信息
 
-        :return: 生成 (current_path, file) 二元组，current_path 为文件相对于分享根的父目录路径
+        :return Generator: 生成 (current_path, file) 二元组，current_path 为文件相对于分享根的父目录路径
         """
         file_list = self.ali_client.get_share_file_list(
             share_token, parent_file_id=parent_file_id
@@ -242,8 +242,8 @@ class Ali2115Helper:
             """
             获取或创建 115 上 pid 根目录下的子目录，单次请求递归创建多层，带缓存
 
-            :param sub_path: 相对于 pid 的子目录路径，如 "Season 1" 或 "Season 1/Extras"
-            :return: 115 目录 ID
+            :param sub_path (str): 相对于 pid 的子目录路径，如 "Season 1" 或 "Season 1/Extras"
+            :return int: 115 目录 ID
             """
             if not sub_path:
                 return pid

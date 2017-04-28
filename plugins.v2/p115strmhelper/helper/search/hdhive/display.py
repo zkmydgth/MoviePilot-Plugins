@@ -8,8 +8,8 @@ def strip_hdhive_title_points_prefix(title: str) -> str:
     """
     去掉标题行首的「N 积分」前缀，积分仅在元数据行展示
 
-    :param title: 原始标题
-    :return: 清理后的标题；若清理后为空则返回原标题
+    :param title (str): 原始标题
+    :return str: 清理后的标题；若清理后为空则返回原标题
     """
     t = (title or "").strip()
     if not t:

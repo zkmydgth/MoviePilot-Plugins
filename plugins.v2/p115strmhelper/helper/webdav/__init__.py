@@ -44,10 +44,10 @@ class WebdavCore:
         """
         初始化 WebDAV 核心模块
 
-        :param client: P115Client 实例
-        :param cache_dir_ttl: 目录缓存 TTL（秒）
-        :param cache_url: 是否启用 URL 缓存
-        :param cache_propfind: 是否启用 PROPFIND 缓存
+        :param client (P115Client): P115Client 实例
+        :param cache_dir_ttl (float): 目录缓存 TTL（秒）
+        :param cache_url (bool): 是否启用 URL 缓存
+        :param cache_propfind (bool): 是否启用 PROPFIND 缓存
         """
         self.client = client
         self.cache_attr: LRUDict[int | str, dict] = LRUDict(65536)
@@ -80,8 +80,8 @@ class WebdavCore:
         """
         获取文件或目录的属性
 
-        :param path: 文件路径（str）或 115 文件 ID（int）
-        :return: 文件属性字典
+        :param path (int | str): 文件路径（str）或 115 文件 ID（int）
+        :return Dict: 文件属性字典
         """
         if isinstance(path, str):
             path = "/" + path.strip("/")
@@ -126,9 +126,9 @@ class WebdavCore:
         """
         获取目录的子项列表
 
-        :param id: 目录 ID
-        :param refresh: 是否强制刷新缓存
-        :return: 以名称为键的子项属性字典
+        :param id (int): 目录 ID
+        :param refresh (bool): 是否强制刷新缓存
+        :return Dict: 以名称为键的子项属性字典
         """
         start = time()
         async with self.cache_lock.setdefault(id, Lock()):
@@ -158,8 +158,8 @@ class WebdavCore:
         """
         递归遍历目录下的所有后代（文件与子目录）
 
-        :param id: 起始目录 ID
-        :return: 异步迭代器，产出文件/目录属性字典
+        :param id (int): 起始目录 ID
+        :return AsyncIterator: 异步迭代器，产出文件/目录属性字典
         """
         async for attr in traverse_tree_with_path(
             self.client,
@@ -178,10 +178,10 @@ class WebdavCore:
         """
         获取文件的下载直链
 
-        :param id: 文件 ID 或 pickcode
-        :param user_agent: 请求时使用的 User-Agent
-        :param refresh: 是否强制刷新缓存
-        :return: 下载直链 URL
+        :param id (int | str): 文件 ID 或 pickcode
+        :param user_agent (str): 请求时使用的 User-Agent
+        :param refresh (bool): 是否强制刷新缓存
+        :return str: 下载直链 URL
         """
         pickcode = self.client.to_pickcode(id)
         id = self.client.to_id(pickcode)
@@ -211,8 +211,8 @@ class WebdavCore:
         """
         生成单个资源在 PROPFIND 响应中的 XML 片段
 
-        :param attr: 文件属性字典
-        :return: 生成器，产出 XML 字符串片段
+        :param attr (Dict): 文件属性字典
+        :return Generator: 生成器，产出 XML 字符串片段
         """
         if attr["id"]:
             href = f"/<{attr['id']}/{quote(attr['name'])}"
@@ -245,12 +245,12 @@ class WebdavCore:
         """
         处理 WebDAV PROPFIND 请求，返回目录列表的 XML 响应
 
-        :param request: FastAPI Request 对象
-        :param path: 请求路径
-        :param id: 115 目录 ID（优先级高于 path）
-        :param pickcode: 文件 pickcode
-        :param refresh: 是否强制刷新缓存
-        :return: FastAPI Response 对象，状态码 207
+        :param request (Request): FastAPI Request 对象
+        :param path (str): 请求路径
+        :param id (int): 115 目录 ID（优先级高于 path）
+        :param pickcode (str): 文件 pickcode
+        :param refresh (bool): 是否强制刷新缓存
+        :return Response: FastAPI Response 对象，状态码 207
         """
         if id >= 0:
             fid: int | str = id
@@ -310,12 +310,12 @@ class WebdavCore:
         """
         处理 WebDAV GET 请求，返回文件内容或目录列表
 
-        :param request: FastAPI Request 对象
-        :param path: 请求路径
-        :param id: 115 文件 ID
-        :param pickcode: 文件 pickcode
-        :param refresh: 是否强制刷新缓存
-        :return: RedirectResponse 或目录内容
+        :param request (Request): FastAPI Request 对象
+        :param path (str): 请求路径
+        :param id (int): 115 文件 ID
+        :param pickcode (str): 文件 pickcode
+        :param refresh (bool): 是否强制刷新缓存
+        :return RedirectResponse: 重定向响应或目录内容
         """
         if id >= 0:
             pickcode = self.client.to_pickcode(id)
@@ -346,6 +346,6 @@ class WebdavCore:
         """
         处理 WebDAV OPTIONS 请求
 
-        :return: 空字节串
+        :return bytes: 空字节串
         """
         return b""

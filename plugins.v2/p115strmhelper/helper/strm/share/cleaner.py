@@ -33,7 +33,7 @@ class ShareStrmPendingCleanupQueue:
         """
         读取待确认删除批次的 ``plugin_data`` 结构
 
-        :return: 至少含 ``batches`` 列表的字典
+        :return Dict: 至少含 ``batches`` 列表的字典
         """
         raw = configer.get_plugin_data(self._PENDING_KEY)
         if not raw or not isinstance(raw, dict):
@@ -47,7 +47,7 @@ class ShareStrmPendingCleanupQueue:
         """
         持久化待确认批次存储
 
-        :param data: 含 ``batches`` 的完整存储对象
+        :param data (Dict): 含 ``batches`` 的完整存储对象
         """
         configer.save_plugin_data(self._PENDING_KEY, data)
 
@@ -62,11 +62,11 @@ class ShareStrmPendingCleanupQueue:
         """
         追加一批待用户确认的删除任务
 
-        :param request_id: 批次唯一标识
-        :param paths: 待删 STRM 路径列表
-        :param remove_related_mediainfo: 确认执行时是否清理关联媒体信息文件
-        :param remove_empty_parent_dirs: 确认执行时是否清理无效 STRM 目录
-        :param remove_stale_transfer_history: 确认执行时是否删除 MP 整理记录
+        :param request_id (str): 批次唯一标识
+        :param paths (List): 待删 STRM 路径列表
+        :param remove_related_mediainfo (bool): 确认执行时是否清理关联媒体信息文件
+        :param remove_empty_parent_dirs (bool): 确认执行时是否清理无效 STRM 目录
+        :param remove_stale_transfer_history (bool): 确认执行时是否删除 MP 整理记录
         """
         store = self._load_store()
         store["batches"].append(
@@ -98,11 +98,11 @@ class ShareStrmPendingCleanupQueue:
         """
         用单一批次替换整个队列（与「只保留最新一次扫描」一致）
 
-        :param request_id: 批次唯一标识
-        :param paths: 待删 STRM 路径列表
-        :param remove_related_mediainfo: 确认执行时是否清理关联媒体信息文件
-        :param remove_empty_parent_dirs: 确认执行时是否清理无效 STRM 目录
-        :param remove_stale_transfer_history: 确认执行时是否删除 MP 整理记录
+        :param request_id (str): 批次唯一标识
+        :param paths (List): 待删 STRM 路径列表
+        :param remove_related_mediainfo (bool): 确认执行时是否清理关联媒体信息文件
+        :param remove_empty_parent_dirs (bool): 确认执行时是否清理无效 STRM 目录
+        :param remove_stale_transfer_history (bool): 确认执行时是否删除 MP 整理记录
         """
         self._save_store(
             {
@@ -128,9 +128,9 @@ class ShareStrmPendingCleanupQueue:
         """
         在 ``store['batches']`` 中按 ``request_id`` 原地弹出匹配批次
 
-        :param store: ``_load_store`` 返回的存储对象
-        :param request_id: 批次 ID
-        :return: 命中则返回被弹出的批次字典，否则 ``None``
+        :param store (Dict): ``_load_store`` 返回的存储对象
+        :param request_id (str): 批次 ID
+        :return Dict: 命中则返回被弹出的批次字典，否则 ``None``
         """
         batches: List[Dict[str, Any]] = store["batches"]
         for i, b in enumerate(batches):
@@ -142,7 +142,7 @@ class ShareStrmPendingCleanupQueue:
         """
         返回当前所有待确认批次的轻量摘要（不含 ``paths``，避免数万条路径拷贝）
 
-        :return: 每项含 ``request_id``、``created_at``、``path_count`` 及标志位
+        :return List: 每项含 ``request_id``、``created_at``、``path_count`` 及标志位
         """
         out: List[Dict[str, Any]] = []
         for b in self._load_store()["batches"]:
@@ -169,10 +169,10 @@ class ShareStrmPendingCleanupQueue:
         """
         分页返回某待确认批次内的 STRM 路径（服务端切片，避免一次返回数万条）
 
-        :param request_id: 批次 ID
-        :param page: 页码，从 1 开始
-        :param limit: 每页条数，上限 500
-        :return: ``(是否找到批次, 当前页路径字符串列表, 路径总条数)``
+        :param request_id (str): 批次 ID
+        :param page (int): 页码，从 1 开始
+        :param limit (int): 每页条数，上限 500
+        :return Tuple: ``(是否找到批次, 当前页路径字符串列表, 路径总条数)``
         """
         rid = (request_id or "").strip()
         if not rid:
@@ -195,8 +195,8 @@ class ShareStrmPendingCleanupQueue:
         """
         从队列移除指定批次，不删除磁盘文件
 
-        :param request_id: 批次 ID
-        :return: 是否找到并移除
+        :param request_id (str): 批次 ID
+        :return bool: 是否找到并移除
         """
         store = self._load_store()
         if self._pop_batch_by_id(store, request_id) is None:
@@ -210,8 +210,8 @@ class ShareStrmPendingCleanupQueue:
         """
         从待确认队列中原子取出批次并持久化，供后续在后台执行删除
 
-        :param request_id: 批次 ID
-        :return: ``(批次字典, None)`` 表示已取出；``(None, 错误码)`` 为 ``batch_not_found`` 或 ``invalid_batch``
+        :param request_id (str): 批次 ID
+        :return Tuple: ``(批次字典, None)`` 表示已取出；``(None, 错误码)`` 为 ``batch_not_found`` 或 ``invalid_batch``
         """
         store = self._load_store()
         batch = self._pop_batch_by_id(store, request_id)
@@ -249,11 +249,11 @@ class ShareStrmMissingMediaStore:
         """
         组装写入分片存储的「缺失媒体」字典（含固定字段与整理记录子集）
 
-        :param th: ``TransferHistory`` 模型实例
-        :param strm_path: STRM 路径
-        :param share_code: 分享码
-        :param receive_code: 接收码（提取码）
-        :return: 含 ``uid``、``reason``、``detected_at`` 及 ``id``/``title`` 等 API 字段的字典
+        :param th (Any): ``TransferHistory`` 模型实例
+        :param strm_path (str): STRM 路径
+        :param share_code (str): 分享码
+        :param receive_code (str): 接收码（提取码）
+        :return Dict: 含 ``uid``、``reason``、``detected_at`` 及 ``id``/``title`` 等 API 字段的字典
         """
         uid = str(uuid4())
         base: Dict[str, Any] = {
@@ -281,7 +281,7 @@ class ShareStrmMissingMediaStore:
         """
         追加缺失媒体记录
 
-        :param rows: 由 ``row_from_transfer_history`` 等组装的行列表
+        :param rows (List): 由 ``row_from_transfer_history`` 等组装的行列表
         """
         self._store.extend(rows)
 
@@ -289,7 +289,7 @@ class ShareStrmMissingMediaStore:
         """
         用本轮扫描结果替换全部缺失媒体记录（先清空再写入）
 
-        :param rows: 由 ``row_from_transfer_history`` 等组装的行列表，可为空
+        :param rows (List): 由 ``row_from_transfer_history`` 等组装的行列表，可为空
         """
         self._store.clear_all()
         if rows:
@@ -299,9 +299,9 @@ class ShareStrmMissingMediaStore:
         """
         分页读取缺失媒体分片列表（仅加载当前页涉及分片）
 
-        :param page: 页码，从 1 开始
-        :param limit: 每页条数
-        :return: ``(当前页条目列表, 总条数)``
+        :param page (int): 页码，从 1 开始
+        :param limit (int): 每页条数
+        :return Tuple: ``(当前页条目列表, 总条数)``
         """
         return self._store.page(page, limit)
 
@@ -309,9 +309,9 @@ class ShareStrmMissingMediaStore:
         """
         清空全部分片或按 ``uid`` 删除单条
 
-        :param uid: 记录 ``uid``，与 ``clear_all`` 互斥时生效
-        :param clear_all: 为真时删除索引及全部分片
-        :return: 清空全量恒为 ``True``；按 ``uid`` 删除时是否找到并删除
+        :param uid (str): 记录 ``uid``，与 ``clear_all`` 互斥时生效
+        :param clear_all (bool): 为真时删除索引及全部分片
+        :return bool: 清空全量恒为 ``True``；按 ``uid`` 删除时是否找到并删除
         """
         if clear_all:
             self._store.clear_all()
@@ -332,7 +332,7 @@ class ShareStrmCleanupSummaryStore:
         """
         将最近一次扫描摘要写入 ``plugin_data``
 
-        :param summary: 摘要字典，供仪表盘等读取
+        :param summary (Dict): 摘要字典，供仪表盘等读取
         """
         configer.save_plugin_data(self._LAST_SUMMARY_KEY, summary)
 
@@ -340,7 +340,7 @@ class ShareStrmCleanupSummaryStore:
         """
         读取最近一次 ``run_full_cleanup`` 写入的摘要
 
-        :return: 摘要字典，不存在或格式不对则为 ``None``
+        :return Dict: 摘要字典，不存在或格式不对则为 ``None``
         """
         raw = configer.get_plugin_data(self._LAST_SUMMARY_KEY)
         if isinstance(raw, dict):
@@ -361,9 +361,9 @@ class ShareStrmCleaner:
         """
         将 0–1 比例格式化为日志用 ASCII 进度条
 
-        :param ratio: 完成比例
-        :param width: 进度条宽度（字符数）
-        :return: 形如 ``[████████░░░░] 42.5%`` 的字符串
+        :param ratio (float): 完成比例
+        :param width (int): 进度条宽度（字符数）
+        :return str: 形如 ``[████████░░░░] 42.5%`` 的字符串
         """
         ratio = max(0.0, min(1.0, ratio))
         filled = int(ratio * width)
@@ -394,8 +394,8 @@ class ShareStrmCleaner:
         """
         扫描目录，校验分享有效性并返回失效 Pair 对应的 STRM 路径映射
 
-        :param path: 本地扫描根目录
-        :return: 成功时为 ``(True, { (share_code, receive_code): [strm_paths...] })``，失败为 ``(False, {})``
+        :param path (Path): 本地扫描根目录
+        :return Tuple: 成功时为 ``(True, { (share_code, receive_code): [strm_paths...] })``，失败为 ``(False, {})``
         """
         try:
             client = ShareOOPServerHelper.get_client()
@@ -479,8 +479,8 @@ class ShareStrmCleaner:
         """
         将配置中的路径转为绝对路径、去重并跳过非目录
 
-        :param paths: 原始路径字符串列表
-        :return: 规范化后的绝对路径字符串列表（顺序保留首次出现）
+        :param paths (List): 原始路径字符串列表
+        :return List: 规范化后的绝对路径字符串列表（顺序保留首次出现）
         """
         seen: set[str] = set()
         out: List[str] = []
@@ -512,11 +512,11 @@ class ShareStrmCleaner:
         """
         物理删除 STRM 并按配置清理关联媒体文件、空父目录与 MP 整理记录
 
-        :param paths: 待删除 STRM 绝对路径列表
-        :param remove_related_mediainfo: 是否调用 ``clean_related_files``
-        :param remove_empty_parent_dirs: 是否 ``remove_parent_dir``（strm 模式）
-        :param remove_stale_transfer_history: 是否按路径清理 MP 整理记录
-        :return: ``(成功删除条数, 最后一则错误信息；全部成功为 None)``
+        :param paths (List): 待删除 STRM 绝对路径列表
+        :param remove_related_mediainfo (bool): 是否调用 ``clean_related_files``
+        :param remove_empty_parent_dirs (bool): 是否 ``remove_parent_dir``（strm 模式）
+        :param remove_stale_transfer_history (bool): 是否按路径清理 MP 整理记录
+        :return Tuple: ``(成功删除条数, 最后一则错误信息；全部成功为 None)``
         """
         ok = 0
         last_err: Optional[str] = None
@@ -561,8 +561,8 @@ class ShareStrmCleaner:
         """
         是否发送分享 STRM 清理摘要通知（全局通知开启且本次有失效或异常）
 
-        :param summary: ``run_full_cleanup`` 产出的摘要字典
-        :return: 是否发送
+        :param summary (Dict): ``run_full_cleanup`` 产出的摘要字典
+        :return bool: 是否发送
         """
         if not configer.get_config("notify"):
             return False
@@ -578,8 +578,8 @@ class ShareStrmCleaner:
         """
         拼接分享 STRM 清理通知正文（多行）
 
-        :param summary: 摘要字典
-        :return: 纯文本正文
+        :param summary (Dict): 摘要字典
+        :return str: 纯文本正文
         """
         lines: List[str] = []
         lines.append(
@@ -634,7 +634,7 @@ class ShareStrmCleaner:
         """
         按全局通知开关与摘要内容发送单条插件消息
 
-        :param summary: 已持久化的摘要字典
+        :param summary (Dict): 已持久化的摘要字典
         """
         if not self._should_notify_cleanup_result(summary):
             return
@@ -658,10 +658,10 @@ class ShareStrmCleaner:
         """
         插件内确认队列取出后，物理删除完成时发送单条摘要（需全局通知开启）
 
-        :param batch: 已 claim 的批次字典（含 ``request_id``）
-        :param path_total: 本批次 STRM 路径总数
-        :param removed: ``_execute_paths_physical`` 成功删除数
-        :param last_err: 最后一则删除错误，无则为 ``None``
+        :param batch (Dict): 已 claim 的批次字典（含 ``request_id``）
+        :param path_total (int): 本批次 STRM 路径总数
+        :param removed (int): ``_execute_paths_physical`` 成功删除数
+        :param last_err (str): 最后一则删除错误，无则为 ``None``
         """
         if not configer.get_config("notify"):
             return
@@ -697,7 +697,7 @@ class ShareStrmCleaner:
 
         结束时释放扫描缓存与运行锁；若已有实例在跑则返回 ``message=already_running``
 
-        :return: 摘要字典，常见键含 ``ok``、``roots_scanned``、``invalid_strm_count``、
+        :return Dict: 摘要字典，常见键含 ``ok``、``roots_scanned``、``invalid_strm_count``、
             ``deleted_count``、``queued_batch``、``request_id``、``delete_mode``、``message``
         """
         cfg = configer.share_strm_cleanup_config
@@ -795,8 +795,8 @@ class ShareStrmCleaner:
         """
         对已脱离队列的批次执行物理删除及可选整理记录清理
 
-        :param batch: ``claim_pending_batch`` 返回的字典
-        :return: ``(删除成功条数, 最后一则物理删除错误；全部成功为 None)``
+        :param batch (Dict): ``claim_pending_batch`` 返回的字典
+        :return Tuple: ``(删除成功条数, 最后一则物理删除错误；全部成功为 None)``
         """
         paths = batch.get("paths")
         if not isinstance(paths, list) or len(paths) == 0:
@@ -815,8 +815,8 @@ class ShareStrmCleaner:
         """
         从队列取出批次并同步执行物理删除（claim + execute_claimed_batch）
 
-        :param request_id: 批次 ID
-        :return: ``(删除成功条数, 错误码或错误信息)``
+        :param request_id (str): 批次 ID
+        :return Tuple: ``(删除成功条数, 错误码或错误信息)``
         """
         batch, cerr = self._pending_queue.claim_pending_batch(request_id)
         if cerr:

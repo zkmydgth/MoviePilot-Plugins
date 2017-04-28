@@ -38,6 +38,13 @@ class TransferStrmHelper:
     ):
         """
         依据网盘路径生成 STRM 文件
+
+        :param target_dir (str): 本地目标目录
+        :param pan_media_dir (str): 网盘媒体目录
+        :param item_dest_path (Path): 网盘目标文件路径
+        :param url (str): STRM 文件 URL 内容
+
+        :return Tuple: 生成成功时返回 True 和文件路径，失败返回 False 和 None
         """
         try:
             pan_path = item_dest_path.parent.as_posix()
@@ -76,9 +83,9 @@ class TransferStrmHelper:
         仅当 transfer_monitor_remove_stale_strm 开关开启、源路径命中媒体库配置
         且本地旧 STRM 文件实际存在时执行
 
-        :param item_transfer: 转移信息
-        :param strm_target_path: 本次新生成的 STRM 文件路径，用于防止误删
-        :return: None
+        :param item_transfer (TransferInfo): 转移信息
+        :param strm_target_path (str): 本次新生成的 STRM 文件路径，用于防止误删
+        :return None:
         """
         if not configer.transfer_monitor_remove_stale_strm:
             return
@@ -142,9 +149,9 @@ class TransferStrmHelper:
         通过比对 library_storage 与 library_path 前缀来定位匹配的目录配置，
         存在多级目录配置时取最长前缀匹配，避免父级配置覆盖子目录配置
 
-        :param storage_name: 目标存储名称（如 u115、115网盘Plus）
-        :param pan_dir_path: 网盘目标目录路径
-        :return: 覆盖模式字符串（always/size/never/latest），匹配失败时返回 None
+        :param storage_name (str): 目标存储名称（如 u115、115网盘Plus）
+        :param pan_dir_path (str): 网盘目标目录路径
+        :return str: 覆盖模式字符串（always/size/never/latest），匹配失败时返回 None
         """
         try:
             pan_dir_norm = pan_dir_path.rstrip("/") + "/"
@@ -169,8 +176,8 @@ class TransferStrmHelper:
         仿照 MP 的 __delete_version_files 逻辑：扫描新 STRM 所在目录，找出与新文件
         季集信息相同但文件名不同的旧版本 .strm 文件并删除，与 MP 行为保持完全一致
 
-        :param new_strm_path: 本次新生成的 STRM 文件路径
-        :return: None
+        :param new_strm_path (str): 本次新生成的 STRM 文件路径
+        :return None:
         """
         new_path = Path(new_strm_path)
         parent = new_path.parent
@@ -215,6 +222,11 @@ class TransferStrmHelper:
     ):
         """
         生成 STRM 操作
+
+        :param client (P115Client): P115Client 实例
+        :param item (Dict): 事件数据项
+        :param event_type (Union): 事件类型
+        :param mediainfodownloader (MediaInfoDownloader): 媒体信息下载器实例
         """
         _database_helper = FileDbHelper()
         _get_url = StrmUrlGetter()

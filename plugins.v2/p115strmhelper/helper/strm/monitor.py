@@ -23,12 +23,12 @@ class MonitorStrmHelper:
         """
         上传网盘成功后，在本地 STRM 输出目录生成对应 .strm 文件
 
-        :param uploaded_file_item: 上传成功后返回的文件信息
-        :param dest_strm: 本地 STRM 输出目录
-        :param mon_path: 监控目录
-        :param local_file_path: 本地源文件路径
+        :param uploaded_file_item (FileItem): 上传成功后返回的文件信息
+        :param dest_strm (str): 本地 STRM 输出目录
+        :param mon_path (str): 监控目录
+        :param local_file_path (Path): 本地源文件路径
 
-        :return: 是否生成成功
+        :return bool: 是否生成成功
         """
         dest_strm = (dest_strm or "").strip()
         if not dest_strm:
