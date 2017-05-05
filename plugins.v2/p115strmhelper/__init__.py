@@ -1023,6 +1023,8 @@ class P115StrmHelper(_PluginBase):
         )
         self._monitor_life_notification_timer = None
 
+        self._observer: List = []
+
         if config:
             default_config_keys = self.__default_config.keys()
             for key in config.keys():
@@ -3220,7 +3222,8 @@ class P115StrmHelper(_PluginBase):
                 )
                 or bool(
                     self.monitor_life_thread and self.monitor_life_thread.is_alive()
-                ),
+                )
+                or bool(self._observer),
             },
         }
 
