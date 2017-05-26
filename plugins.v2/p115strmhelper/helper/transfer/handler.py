@@ -1218,40 +1218,16 @@ class TransferHandler:
 
                 # 收集需要删除的文件（按季集分组）
                 files_to_delete_by_se: Dict[
-                    Tuple[Optional[int], Optional[int]], List[FileItem]
+                    Tuple[Optional[str], Optional[str]], List[FileItem]
                 ] = defaultdict(list)
 
                 # 收集所有目标文件的季集信息
-                target_seasons_episodes: Set[Tuple[Optional[int], Optional[int]]] = (
+                target_seasons_episodes: Set[Tuple[Optional[str], Optional[str]]] = (
                     set()
                 )
                 for target_path, _ in tasks:
                     meta = MetaInfoPath(target_path)
-                    # 转换为整数（MetaInfoPath 的 season/episode 可能是字符串或整数）
-                    season: Optional[int] = None
-                    episode: Optional[int] = None
-                    if meta.season is not None:
-                        try:
-                            season = (
-                                int(meta.season)
-                                if isinstance(meta.season, (int, str))
-                                and str(meta.season).isdigit()
-                                else None
-                            )
-                        except (ValueError, TypeError):
-                            season = None
-                    if meta.episode is not None:
-                        try:
-                            episode = (
-                                int(meta.episode)
-                                if isinstance(meta.episode, (int, str))
-                                and str(meta.episode).isdigit()
-                                else None
-                            )
-                        except (ValueError, TypeError):
-                            episode = None
-                    if season is not None or episode is not None:
-                        target_seasons_episodes.add((season, episode))
+                    target_seasons_episodes.add((meta.season, meta.episode))
 
                 if not target_seasons_episodes:
                     logger.debug(
@@ -1276,32 +1252,9 @@ class TransferHandler:
 
                     # 识别文件中的季集信息
                     file_meta = MetaInfoPath(Path(file.path))
-                    # 转换为整数（MetaInfoPath 的 season/episode 可能是字符串或整数）
-                    file_season: Optional[int] = None
-                    file_episode: Optional[int] = None
-                    if file_meta.season is not None:
-                        try:
-                            file_season = (
-                                int(file_meta.season)
-                                if isinstance(file_meta.season, (int, str))
-                                and str(file_meta.season).isdigit()
-                                else None
-                            )
-                        except (ValueError, TypeError):
-                            file_season = None
-                    if file_meta.episode is not None:
-                        try:
-                            file_episode = (
-                                int(file_meta.episode)
-                                if isinstance(file_meta.episode, (int, str))
-                                and str(file_meta.episode).isdigit()
-                                else None
-                            )
-                        except (ValueError, TypeError):
-                            file_episode = None
-                    file_se: Tuple[Optional[int], Optional[int]] = (
-                        file_season,
-                        file_episode,
+                    file_se: Tuple[Optional[str], Optional[str]] = (
+                        file_meta.season,
+                        file_meta.episode,
                     )
 
                     # 检查是否与任何目标文件的季集匹配
