@@ -214,6 +214,41 @@ class EmbyOperate:
             )
         return False
 
+    def trigger_mediainfo_refresh(self, name: str, item_id: str) -> bool:
+        """
+        触发 Emby 提取媒体信息
+
+        :param name: Emby Server Name
+        :param item_id: ID
+
+        :return: 是否触发成功
+        """
+        emby_host, emby_user, emby_apikey = self.get_emby_info(name)
+        if not emby_host:
+            return False
+
+        req_url = f"{emby_host}emby/Items/{item_id}/PlaybackInfo"
+        params = {
+            "AutoOpenLiveStream": "true",
+            "IsPlayback": "true",
+            "api_key": emby_apikey,
+            "UserId": emby_user,
+        }
+        try:
+            with RequestUtils().post_res(url=req_url, params=params) as res:
+                if res and res.status_code == 200:
+                    return True
+                else:
+                    logger.warning(
+                        f"{self.func_name}触发提取媒体信息失败，Emby 未返回有效响应 code={res.status_code!r} name={name!r} item_id={item_id!r}"
+                    )
+                    return False
+        except Exception as e:
+            logger.error(
+                f"{self.func_name}触发提取媒体信息异常 name={name!r} item_id={item_id!r}: {e}",
+            )
+            return False
+
 
 class EmbyMediaInfoOperate:
     """
