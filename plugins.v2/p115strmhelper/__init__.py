@@ -231,7 +231,7 @@ class P115StrmHelper(_PluginBase):
         """
         获取 API 接口
         """
-        return [
+        apis = [
             {
                 "path": "/redirect_url",
                 "endpoint": self.api.redirect_url_get,
@@ -278,54 +278,6 @@ class P115StrmHelper(_PluginBase):
                 "methods": ["HEAD"],
                 "summary": "302跳转",
                 "description": "115网盘302跳转",
-                "allow_anonymous": True,
-            },
-            {
-                "path": "/webdav",
-                "endpoint": servicer.webdav_core.propfind,
-                "methods": ["PROPFIND"],
-                "summary": "Webdav PROPFIND",
-                "description": "Webdav PROPFIND",
-                "allow_anonymous": True,
-            },
-            {
-                "path": "/webdav/{path:path}",
-                "endpoint": servicer.webdav_core.propfind,
-                "methods": ["PROPFIND"],
-                "summary": "Webdav PROPFIND",
-                "description": "Webdav PROPFIND",
-                "allow_anonymous": True,
-            },
-            {
-                "path": "/webdav",
-                "endpoint": servicer.webdav_core.get,
-                "methods": ["GET"],
-                "summary": "Webdav GET",
-                "description": "Webdav GET",
-                "allow_anonymous": True,
-            },
-            {
-                "path": "/webdav/{path:path}",
-                "endpoint": servicer.webdav_core.get,
-                "methods": ["GET"],
-                "summary": "Webdav GET",
-                "description": "Webdav GET",
-                "allow_anonymous": True,
-            },
-            {
-                "path": "/webdav",
-                "endpoint": servicer.webdav_core.options,
-                "methods": ["OPTIONS"],
-                "summary": "Webdav OPTIONS",
-                "description": "Webdav OPTIONS",
-                "allow_anonymous": True,
-            },
-            {
-                "path": "/webdav/{path:path}",
-                "endpoint": servicer.webdav_core.options,
-                "methods": ["OPTIONS"],
-                "summary": "Webdav OPTIONS",
-                "description": "Webdav OPTIONS",
                 "allow_anonymous": True,
             },
             {
@@ -545,6 +497,60 @@ class P115StrmHelper(_PluginBase):
                 "summary": "获取 FUSE 状态",
             },
         ]
+        if servicer.webdav_core:
+            apis.extend(
+                [
+                    {
+                        "path": "/webdav",
+                        "endpoint": servicer.webdav_core.propfind,
+                        "methods": ["PROPFIND"],
+                        "summary": "Webdav PROPFIND",
+                        "description": "Webdav PROPFIND",
+                        "allow_anonymous": True,
+                    },
+                    {
+                        "path": "/webdav/{path:path}",
+                        "endpoint": servicer.webdav_core.propfind,
+                        "methods": ["PROPFIND"],
+                        "summary": "Webdav PROPFIND",
+                        "description": "Webdav PROPFIND",
+                        "allow_anonymous": True,
+                    },
+                    {
+                        "path": "/webdav",
+                        "endpoint": servicer.webdav_core.get,
+                        "methods": ["GET"],
+                        "summary": "Webdav GET",
+                        "description": "Webdav GET",
+                        "allow_anonymous": True,
+                    },
+                    {
+                        "path": "/webdav/{path:path}",
+                        "endpoint": servicer.webdav_core.get,
+                        "methods": ["GET"],
+                        "summary": "Webdav GET",
+                        "description": "Webdav GET",
+                        "allow_anonymous": True,
+                    },
+                    {
+                        "path": "/webdav",
+                        "endpoint": servicer.webdav_core.options,
+                        "methods": ["OPTIONS"],
+                        "summary": "Webdav OPTIONS",
+                        "description": "Webdav OPTIONS",
+                        "allow_anonymous": True,
+                    },
+                    {
+                        "path": "/webdav/{path:path}",
+                        "endpoint": servicer.webdav_core.options,
+                        "methods": ["OPTIONS"],
+                        "summary": "Webdav OPTIONS",
+                        "description": "Webdav OPTIONS",
+                        "allow_anonymous": True,
+                    },
+                ]
+            )
+        return apis
 
     def get_service(self) -> List[Dict[str, str | Dict[Any, Any] | Any]] | None:
         """
