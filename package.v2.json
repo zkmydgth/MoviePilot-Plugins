@@ -87,11 +87,12 @@
         "name": "115网盘STRM助手",
         "description": "115网盘STRM生成一条龙服务",
         "labels": "云盘",
-        "version": "1.5.4",
+        "version": "1.5.6",
         "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png",
         "author": "DDSRem",
         "level": 1,
         "history": {
+            "v1.5.6": "修复已知问题，全面优化代码逻辑，增加更多缓存",
             "v1.5.5": "修复监控MP整理事件刷新媒体库失败",
             "v1.5.4": "修复115生活事件未开启导致监控目录失败",
             "v1.5.3": "修复115生活事件监控电视剧文件夹刮削不完整",

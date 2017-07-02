@@ -8,6 +8,7 @@ from threading import Event as ThreadEvent
 from typing import Any, List, Dict, Tuple, Self, cast, Optional
 from errno import EIO, ENOENT
 from urllib.parse import quote, unquote, urlsplit, urlencode
+from itertools import chain
 from pathlib import Path
 
 import pytz
@@ -47,6 +48,65 @@ from app.utils.system import SystemUtils
 
 
 p115strmhelper_lock = threading.Lock()
+
+
+def check_response(
+    resp: requests.Response,
+) -> requests.Response:
+    """
+    检查 HTTP 响应，如果状态码 ≥ 400 则抛出 HTTPError
+    """
+    if resp.status_code >= 400:
+        raise HTTPError(
+            f"HTTP Error {resp.status_code}: {resp.text}",
+            response=resp,
+        )
+    return resp
+
+
+class PathMatchingHelper:
+    """
+    路径匹配
+    """
+
+    def has_prefix(self, full_path, prefix_path):
+        """
+        判断路径是否包含
+        :param full_path: 完整路径
+        :param prefix_path: 匹配路径
+        """
+        full = Path(full_path).parts
+        prefix = Path(prefix_path).parts
+
+        if len(prefix) > len(full):
+            return False
+
+        return full[: len(prefix)] == prefix
+
+    def get_run_transfer_path(self, paths, transfer_path):
+        """
+        判断路径是否为整理路径
+        """
+        transfer_paths = paths.split("\n")
+        for path in transfer_paths:
+            if not path:
+                continue
+            if self.has_prefix(transfer_path, path):
+                return True
+        return False
+
+    def get_media_path(self, paths, media_path):
+        """
+        获取媒体目录路径
+        """
+        media_paths = paths.split("\n")
+        for path in media_paths:
+            if not path:
+                continue
+            parts = path.split("#", 1)
+            if self.has_prefix(media_path, parts[1]):
+                return True, parts[0], parts[1]
+        return False, None, None
 
 
 class IdPathCache:
@@ -133,62 +193,133 @@ class Url(str):
         return self.__dict__.values()
 
 
-def check_response(
-    resp: requests.Response,
-) -> requests.Response:
+class MediaInfoDownloader:
     """
-    检查 HTTP 响应，如果状态码 ≥ 400 则抛出 HTTPError
+    媒体信息文件下载器
     """
-    if resp.status_code >= 400:
-        raise HTTPError(
-            f"HTTP Error {resp.status_code}: {resp.text}",
-            response=resp,
+
+    def __init__(self, cookie: str):
+        self.cookie = cookie
+
+    def get_download_url(self, pickcode: str):
+        """
+        获取下载链接
+        """
+        resp = requests.post(
+            "http://proapi.115.com/android/2.0/ufile/download",
+            data={"data": encrypt(f'{{"pick_code":"{pickcode}"}}').decode("utf-8")},
+            headers={
+                "User-Agent": settings.USER_AGENT,
+                "Cookie": self.cookie,
+            },
         )
-    return resp
+        check_response(resp)
+        json = loads(cast(bytes, resp.content))
+        if not json["state"]:
+            raise OSError(EIO, json)
+        data = json["data"] = loads(decrypt(json["data"]))
+        data["file_name"] = unquote(urlsplit(data["url"]).path.rpartition("/")[-1])
+        return Url.of(data["url"], data)
 
+    def save_mediainfo_file(self, file_path: Path, file_name: str, download_url: str):
+        """
+        保存媒体信息文件
+        """
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        with requests.get(
+            download_url,
+            stream=True,
+            timeout=30,
+            headers={
+                "User-Agent": settings.USER_AGENT,
+                "Cookie": self.cookie,
+            },
+        ) as response:
+            response.raise_for_status()
+            with open(file_path, "wb") as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    f.write(chunk)
+        logger.info(f"【媒体信息文件下载】保存 {file_name} 文件成功: {file_path}")
 
-def get_download_url(pickcode: str, cookie: str):
-    """
-    获取下载链接
-    """
-    resp = requests.post(
-        "http://proapi.115.com/android/2.0/ufile/download",
-        data={"data": encrypt(f'{{"pick_code":"{pickcode}"}}').decode("utf-8")},
-        headers={
-            "User-Agent": settings.USER_AGENT,
-            "Cookie": cookie,
-        },
-    )
-    check_response(resp)
-    json = loads(cast(bytes, resp.content))
-    if not json["state"]:
-        raise OSError(EIO, json)
-    data = json["data"] = loads(decrypt(json["data"]))
-    data["file_name"] = unquote(urlsplit(data["url"]).path.rpartition("/")[-1])
-    return Url.of(data["url"], data)
+    def local_downloader(self, pickcode: str, path: Path):
+        """
+        下载用户网盘文件
+        """
+        download_url = self.get_download_url(pickcode=pickcode)
+        if not download_url:
+            logger.error(
+                f"【媒体信息文件下载】{path.name} 下载链接获取失败，无法下载该文件"
+            )
+            return
+        self.save_mediainfo_file(
+            file_path=path,
+            file_name=path.name,
+            download_url=download_url,
+        )
 
+    def share_downloader(
+        self, share_code: str, receive_code: str, file_id: str, path: Path
+    ):
+        """
+        下载分享链接文件
+        """
+        payload = {
+            "share_code": share_code,
+            "receive_code": receive_code,
+            "file_id": file_id,
+        }
+        resp = requests.post(
+            "http://proapi.115.com/app/share/downurl",
+            data={"data": encrypt(dumps(payload)).decode("utf-8")},
+            headers={
+                "User-Agent": settings.USER_AGENT,
+                "Cookie": self.cookie,
+            },
+        )
+        check_response(resp)
+        json = loads(cast(bytes, resp.content))
+        if not json["state"]:
+            raise OSError(EIO, json)
+        data = json["data"] = loads(decrypt(json["data"]))
+        if not (data and (url_info := data["url"])):
+            raise FileNotFoundError(ENOENT, json)
+        data["file_id"] = data.pop("fid")
+        data["file_name"] = data.pop("fn")
+        data["file_size"] = int(data.pop("fs"))
+        download_url = Url.of(url_info["url"], data)
+        if not download_url:
+            logger.error(
+                f"【媒体信息文件下载】{path.name} 下载链接获取失败，无法下载该文件"
+            )
+            return
+        self.save_mediainfo_file(
+            file_path=path,
+            file_name=path.name,
+            download_url=download_url,
+        )
 
-def save_mediainfo_file(
-    file_path: Path, file_name: str, download_url: str, cookie: str
-):
-    """
-    保存媒体信息文件
-    """
-    file_path.parent.mkdir(parents=True, exist_ok=True)
-    with requests.get(
-        download_url,
-        stream=True,
-        timeout=30,
-        headers={
-            "User-Agent": settings.USER_AGENT,
-            "Cookie": cookie,
-        },
-    ) as response:
-        response.raise_for_status()
-        with open(file_path, "wb") as f:
-            for chunk in response.iter_content(chunk_size=8192):
-                f.write(chunk)
-    logger.info(f"【媒体信息文件】保存 {file_name} 文件成功: {file_path}")
+    def auto_downloader(self, downloads_list: List):
+        """
+        根据列表自动下载
+        """
+        mediainfo_count: int = 0
+        for item in downloads_list:
+            if item["type"] == "local":
+                self.local_downloader(
+                    pickcode=item["pickcode"], path=Path(item["path"])
+                )
+                mediainfo_count += 1
+            elif item["type"] == "share":
+                self.share_downloader(
+                    share_code=item["share_code"],
+                    receive_code=item["receive_code"],
+                    file_id=item["file_id"],
+                    path=Path(item["path"]),
+                )
+                mediainfo_count += 1
+            else:
+                continue
+        return mediainfo_count
 
 
 class FullSyncStrmHelper:
@@ -202,7 +333,9 @@ class FullSyncStrmHelper:
         user_rmt_mediaext: str,
         user_download_mediaext: str,
         server_address: str,
-        cookie: str,
+        pan_transfer_enabled: bool,
+        pan_transfer_paths: str,
+        mediainfodownloader: MediaInfoDownloader,
         auto_download_mediainfo: bool = False,
     ):
         self.rmt_mediaext = [
@@ -214,10 +347,14 @@ class FullSyncStrmHelper:
         ]
         self.auto_download_mediainfo = auto_download_mediainfo
         self.client = client
-        self.cookie = cookie
         self.strm_count = 0
         self.mediainfo_count = 0
         self.server_address = server_address.rstrip("/")
+        self.pan_transfer_enabled = pan_transfer_enabled
+        self.pan_transfer_paths = pan_transfer_paths
+        self.pathmatchinghelper = PathMatchingHelper()
+        self.mediainfodownloader = mediainfodownloader
+        self.download_mediainfo_list = []
 
     def generate_strm_files(self, full_sync_strm_paths):
         """
@@ -253,6 +390,15 @@ class FullSyncStrmHelper:
                     file_name = file_path.stem + ".strm"
                     new_file_path = file_target_dir / file_name
 
+                    if self.pan_transfer_enabled and self.pan_transfer_paths:
+                        if self.pathmatchinghelper.get_run_transfer_path(
+                            paths=self.pan_transfer_paths, transfer_path=item["path"]
+                        ):
+                            logger.debug(
+                                f"【全量STRM生成】{item['path']} 为待整理目录下的路径，不做处理"
+                            )
+                            continue
+
                     if self.auto_download_mediainfo:
                         if file_path.suffix in self.download_mediaext:
                             pickcode = item["pickcode"]
@@ -261,23 +407,13 @@ class FullSyncStrmHelper:
                                     f"【全量STRM生成】{original_file_name} 不存在 pickcode 值，无法下载该文件"
                                 )
                                 continue
-                            download_url = get_download_url(
-                                pickcode=pickcode, cookie=self.cookie
+                            self.download_mediainfo_list.append(
+                                {
+                                    "type": "local",
+                                    "pickcode": pickcode,
+                                    "path": file_path,
+                                }
                             )
-
-                            if not download_url:
-                                logger.error(
-                                    f"【全量STRM生成】{original_file_name} 下载链接获取失败，无法下载该文件"
-                                )
-                                continue
-
-                            save_mediainfo_file(
-                                file_path=Path(file_path),
-                                file_name=original_file_name,
-                                download_url=download_url,
-                                cookie=self.cookie,
-                            )
-                            self.mediainfo_count += 1
                             continue
 
                     if file_path.suffix not in self.rmt_mediaext:
@@ -314,6 +450,9 @@ class FullSyncStrmHelper:
             except Exception as e:
                 logger.error(f"【全量STRM生成】全量生成 STRM 文件失败: {e}")
                 return False
+        self.mediainfo_count = self.mediainfodownloader.auto_downloader(
+            downloads_list=self.download_mediainfo_list
+        )
         logger.info(
             f"【全量STRM生成】全量生成 STRM 文件完成，总共生成 {self.strm_count} 个 STRM 文件，下载 {self.mediainfo_count} 个媒体数据文件"
         )
@@ -339,7 +478,7 @@ class ShareStrmHelper:
         share_media_path: str,
         local_media_path: str,
         server_address: str,
-        cookie: str,
+        mediainfodownloader: MediaInfoDownloader,
         auto_download_mediainfo: bool = False,
     ):
         self.rmt_mediaext = [
@@ -353,22 +492,12 @@ class ShareStrmHelper:
         self.client = client
         self.strm_count = 0
         self.mediainfo_count = 0
-        self.cookie = cookie
         self.share_media_path = share_media_path
         self.local_media_path = local_media_path
         self.server_address = server_address.rstrip("/")
-
-    def has_prefix(self, full_path, prefix_path):
-        """
-        判断路径是否包含
-        """
-        full = Path(full_path).parts
-        prefix = Path(prefix_path).parts
-
-        if len(prefix) > len(full):
-            return False
-
-        return full[: len(prefix)] == prefix
+        self.pathmatchinghelper = PathMatchingHelper()
+        self.mediainfodownloader = mediainfodownloader
+        self.download_mediainfo_list = []
 
     def generate_strm_files(
         self,
@@ -380,7 +509,7 @@ class ShareStrmHelper:
         """
         生成 STRM 文件
         """
-        if not self.has_prefix(file_path, self.share_media_path):
+        if not self.pathmatchinghelper.has_prefix(file_path, self.share_media_path):
             logger.debug(
                 "【分享STRM生成】此文件不在用户设置分享目录下，跳过网盘路径: %s",
                 str(file_path).replace(str(self.local_media_path), "", 1),
@@ -396,46 +525,15 @@ class ShareStrmHelper:
 
         if self.auto_download_mediainfo:
             if file_path.suffix in self.download_mediaext:
-                payload = {
-                    "share_code": share_code,
-                    "receive_code": receive_code,
-                    "file_id": file_id,
-                }
-                resp = requests.post(
-                    "http://proapi.115.com/app/share/downurl",
-                    data={"data": encrypt(dumps(payload)).decode("utf-8")},
-                    headers={
-                        "User-Agent": settings.USER_AGENT,
-                        "Cookie": self.cookie,
-                    },
+                self.download_mediainfo_list.append(
+                    {
+                        "type": "share",
+                        "share_code": share_code,
+                        "receive_code": receive_code,
+                        "file_id": file_id,
+                        "path": file_path,
+                    }
                 )
-                check_response(resp)
-                json = loads(cast(bytes, resp.content))
-                if not json["state"]:
-                    raise OSError(EIO, json)
-                data = json["data"] = loads(decrypt(json["data"]))
-                if not (data and (url_info := data["url"])):
-                    raise FileNotFoundError(ENOENT, json)
-                data["file_id"] = data.pop("fid")
-                data["file_name"] = data.pop("fn")
-                data["file_size"] = int(data.pop("fs"))
-                download_url = Url.of(url_info["url"], data)
-
-                if not download_url:
-                    logger.error(
-                        f"【分享STRM生成】{original_file_name} 下载链接获取失败，无法下载该文件"
-                    )
-                    return
-
-                save_mediainfo_file(
-                    file_path=Path(file_path),
-                    file_name=original_file_name,
-                    download_url=download_url,
-                    cookie=self.cookie,
-                )
-                self.mediainfo_count += 1
-                logger.info("【分享STRM生成】休眠 1s 后继续生成")
-                time.sleep(1)
                 return
 
         if file_path.suffix not in self.rmt_mediaext:
@@ -488,8 +586,8 @@ class ShareStrmHelper:
 
             if item["is_directory"] or item["is_dir"]:
                 if self.strm_count != 0 and self.strm_count % 100 == 0:
-                    logger.info("【分享STRM生成】休眠 2s 后继续生成")
-                    time.sleep(2)
+                    logger.info("【分享STRM生成】休眠 1s 后继续生成")
+                    time.sleep(1)
                 self.get_share_list_creata_strm(
                     cid=int(item["id"]),
                     current_path=item_path,
@@ -505,6 +603,14 @@ class ShareStrmHelper:
                     file_id=item_with_path["id"],
                     file_path=item_with_path["path"],
                 )
+
+    def download_mediainfo(self):
+        """
+        下载媒体信息文件
+        """
+        self.mediainfo_count = self.mediainfodownloader.auto_downloader(
+            downloads_list=self.download_mediainfo_list
+        )
 
     def get_generate_total(self):
         """
@@ -524,7 +630,7 @@ class P115StrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png"
     # 插件版本
-    plugin_version = "1.5.5"
+    plugin_version = "1.5.6"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -540,12 +646,15 @@ class P115StrmHelper(_PluginBase):
     mediaserver_helper = None
     transferchain = None
     mediachain = None
+    pathmatchinghelper = None
+    mediainfodownloader = None
 
     # 目录ID缓存
     id_path_cache = None
     # 生活事件缓存
     cache_delete_pan_transfer_list = None
     cache_creata_pan_transfer_list = None
+    cache_top_delete_pan_transfer_list = None
 
     _client = None
     _scheduler = None
@@ -599,11 +708,13 @@ class P115StrmHelper(_PluginBase):
         self.mediaserver_helper = MediaServerHelper()
         self.transferchain = TransferChain()
         self.mediachain = MediaChain()
+        self.pathmatchinghelper = PathMatchingHelper()
         self.monitor_stop_event = threading.Event()
 
         self.id_path_cache = IdPathCache()
         self.cache_delete_pan_transfer_list = []
         self.cache_creata_pan_transfer_list = []
+        self.cache_top_delete_pan_transfer_list: Dict[str, List] = {}
 
         if config:
             self._enabled = config.get("enabled")
@@ -686,6 +797,7 @@ class P115StrmHelper(_PluginBase):
 
         try:
             self._client = P115Client(self._cookies)
+            self.mediainfodownloader = MediaInfoDownloader(cookie=self._cookies)
         except Exception as e:
             logger.error(f"115网盘客户端创建失败: {e}")
 
@@ -1991,43 +2103,6 @@ class P115StrmHelper(_PluginBase):
             return False
         return True
 
-    def has_prefix(self, full_path, prefix_path):
-        """
-        判断路径是否包含
-        """
-        full = Path(full_path).parts
-        prefix = Path(prefix_path).parts
-
-        if len(prefix) > len(full):
-            return False
-
-        return full[: len(prefix)] == prefix
-
-    def __get_run_transfer_path(self, paths, transfer_path):
-        """
-        判断路径是否为整理路径
-        """
-        transfer_paths = paths.split("\n")
-        for path in transfer_paths:
-            if not path:
-                continue
-            if self.has_prefix(transfer_path, path):
-                return True
-        return False
-
-    def __get_media_path(self, paths, media_path):
-        """
-        获取媒体目录路径
-        """
-        media_paths = paths.split("\n")
-        for path in media_paths:
-            if not path:
-                continue
-            parts = path.split("#", 1)
-            if self.has_prefix(media_path, parts[1]):
-                return True, parts[0], parts[1]
-        return False, None, None
-
     def media_transfer(self, event, file_path: Path, rmt_mediaext):
         """
         运行媒体文件整理
@@ -2038,9 +2113,13 @@ class P115StrmHelper(_PluginBase):
         file_category = event["file_category"]
         file_id = event["file_id"]
         if file_category == 0:
+            cache_top_path = False
+            cache_file_id_list = []
+            logger.info(f"【网盘整理】开始处理 {file_path} 文件夹中...")
             # 文件夹情况，遍历文件夹，获取整理文件
             # 缓存顶层文件夹ID
-            self.cache_delete_pan_transfer_list.append(str(event["file_id"]))
+            if str(event["file_id"]) not in self.cache_delete_pan_transfer_list:
+                self.cache_delete_pan_transfer_list.append(str(event["file_id"]))
             for item in iter_files_with_path(
                 self._client, cid=int(file_id), cooldown=2
             ):
@@ -2050,7 +2129,13 @@ class P115StrmHelper(_PluginBase):
                     self.cache_delete_pan_transfer_list.append(str(item["parent_id"]))
                 if file_path.suffix in rmt_mediaext:
                     # 缓存文件ID
-                    self.cache_creata_pan_transfer_list.append(str(item["id"]))
+                    if str(item["id"]) not in self.cache_creata_pan_transfer_list:
+                        self.cache_creata_pan_transfer_list.append(str(item["id"]))
+                    # 判断此顶层目录MP是否能处理
+                    if str(item["parent_id"]) != event["file_id"]:
+                        cache_top_path = True
+                    if str(item["id"]) not in cache_file_id_list:
+                        cache_file_id_list.append(str(item["id"]))
                     self.transferchain.do_transfer(
                         fileitem=FileItem(
                             storage="u115",
@@ -2067,11 +2152,31 @@ class P115StrmHelper(_PluginBase):
                         )
                     )
                     logger.info(f"【网盘整理】{file_path} 加入整理列队")
+
+            # 顶层目录MP无法处理时添加到缓存字典中
+            if cache_top_path and cache_file_id_list:
+                if str(event["file_id"]) in self.cache_top_delete_pan_transfer_list:
+                    # 如果存在相同ID的根目录则合并
+                    cache_file_id_list = list(
+                        dict.fromkeys(
+                            chain(
+                                cache_file_id_list,
+                                self.cache_top_delete_pan_transfer_list[
+                                    str(event["file_id"])
+                                ],
+                            )
+                        )
+                    )
+                    del self.cache_top_delete_pan_transfer_list[str(event["file_id"])]
+                self.cache_top_delete_pan_transfer_list[str(event["file_id"])] = (
+                    cache_file_id_list
+                )
         else:
             # 文件情况，直接整理
             if file_path.suffix in rmt_mediaext:
                 # 缓存文件ID
-                self.cache_creata_pan_transfer_list.append(str(event["file_id"]))
+                if str(event["file_id"]) not in self.cache_creata_pan_transfer_list:
+                    self.cache_creata_pan_transfer_list.append(str(event["file_id"]))
                 self.transferchain.do_transfer(
                     fileitem=FileItem(
                         storage="u115",
@@ -2193,7 +2298,7 @@ class P115StrmHelper(_PluginBase):
 
         logger.info(f"【媒体刮削】{item_name} 刮削元数据完成")
 
-    @cached(cache=TTLCache(maxsize=1, ttl=2 * 60))
+    @cached(cache=TTLCache(maxsize=48, ttl=2 * 60))
     def redirect_url(
         self,
         request: Request,
@@ -2397,6 +2502,56 @@ class P115StrmHelper(_PluginBase):
         )
 
     @eventmanager.register(EventType.TransferComplete)
+    def delete_top_pan_transfer_path(self, event: Event):
+        """
+        处理网盘整理MP无法删除的顶层目录
+        """
+
+        if not self._pan_transfer_enabled or not self._pan_transfer_paths:
+            return
+
+        if not self.cache_top_delete_pan_transfer_list:
+            return
+
+        item = event.event_data
+        if not item:
+            return
+
+        item_transfer: TransferInfo = item.get("transferinfo")
+        dest_fileitem: FileItem = item_transfer.target_item
+        src_fileitem: FileItem = item.get("fileitem")
+
+        if item_transfer.transfer_type != "move":
+            return
+
+        if dest_fileitem.storage != "u115" or src_fileitem.storage != "u115":
+            return
+
+        if not self.pathmatchinghelper.get_run_transfer_path(
+            paths=self._pan_transfer_paths, transfer_path=src_fileitem.path
+        ):
+            return
+
+        remove_id = ""
+        for key, item_list in self.cache_top_delete_pan_transfer_list.items():
+            self.cache_top_delete_pan_transfer_list[key] = [
+                item for item in item_list if item != str(dest_fileitem.fileid)
+            ]
+            remove_id = key
+            break
+
+        if remove_id:
+            if not self.cache_top_delete_pan_transfer_list.get(remove_id):
+                del self.cache_top_delete_pan_transfer_list[remove_id]
+                resp = self._client.fs_delete(int(remove_id))
+                if resp["state"]:
+                    logger.info(f"【网盘整理】删除 {remove_id} 文件夹成功")
+                else:
+                    logger.error(f"【网盘整理】删除 {remove_id} 文件夹失败: {resp}")
+
+        return
+
+    @eventmanager.register(EventType.TransferComplete)
     def generate_strm(self, event: Event):
         """
         监控目录整理生成 STRM 文件
@@ -2416,7 +2571,7 @@ class P115StrmHelper(_PluginBase):
                 pan_media_dir = str(Path(pan_media_dir))
                 pan_path = Path(item_dest_path).parent
                 pan_path = str(Path(pan_path))
-                if self.has_prefix(pan_path, pan_media_dir):
+                if self.pathmatchinghelper.has_prefix(pan_path, pan_media_dir):
                     pan_path = pan_path[len(pan_media_dir) :].lstrip("/").lstrip("\\")
                 file_path = Path(target_dir) / pan_path
                 file_name = basename + ".strm"
@@ -2470,8 +2625,10 @@ class P115StrmHelper(_PluginBase):
         # 是否蓝光原盘
         item_bluray = SystemUtils.is_bluray_dir(Path(itemdir_dest_path))
 
-        __itemdir_dest_path, local_media_dir, pan_media_dir = self.__get_media_path(
-            self._transfer_monitor_paths, itemdir_dest_path
+        __itemdir_dest_path, local_media_dir, pan_media_dir = (
+            self.pathmatchinghelper.get_media_path(
+                self._transfer_monitor_paths, itemdir_dest_path
+            )
         )
         if not __itemdir_dest_path:
             logger.debug(
@@ -2523,8 +2680,10 @@ class P115StrmHelper(_PluginBase):
             logger.info(f"【监控整理STRM生成】 {item_dest_name} 开始刷新媒体服务器")
 
             if self._transfer_mp_mediaserver_paths:
-                status, mediaserver_path, moviepilot_path = self.__get_media_path(
-                    self._transfer_mp_mediaserver_paths, strm_target_path
+                status, mediaserver_path, moviepilot_path = (
+                    self.pathmatchinghelper.get_media_path(
+                        self._transfer_mp_mediaserver_paths, strm_target_path
+                    )
                 )
                 if status:
                     logger.info(
@@ -2598,55 +2757,68 @@ class P115StrmHelper(_PluginBase):
                     userid=event.event_data.get("user"),
                 )
                 return
-        data = share_extract_payload(args)
-        share_code = data["share_code"]
-        receive_code = data["receive_code"]
-        logger.info(
-            f"【分享转存】解析分享链接 share_code={share_code} receive_code={receive_code}"
-        )
-        if not share_code or not receive_code:
-            logger.error(f"【分享转存】解析分享链接失败：{args}")
+        if not self._pan_transfer_enabled or not self._pan_transfer_paths:
             self.post_message(
                 channel=event.event_data.get("channel"),
-                title=f"解析分享链接失败：{args}",
+                title="配置错误！ 请先进入插件界面配置网盘整理",
                 userid=event.event_data.get("user"),
             )
             return
-        parent_path = self._pan_transfer_paths.split("\n")[0]
-        parent_id = self.id_path_cache.get_id_by_dir(directory=str(parent_path))
-        if not parent_id:
-            parent_id = get_id_to_path(self._client, path=parent_path)
-            logger.info(f"【分享转存】获取到转存目录 ID：{parent_id}")
-            self.id_path_cache.add_cache(id=int(parent_id), directory=str(parent_path))
-        payload = {
-            "share_code": share_code,
-            "receive_code": receive_code,
-            "file_id": 0,
-            "cid": int(parent_id),
-            "is_check": 0,
-        }
-        logger.info(f"【分享转存】开始转存：{share_code}")
-        self.post_message(
-            channel=event.event_data.get("channel"),
-            title=f"开始转存：{share_code}",
-            userid=event.event_data.get("user"),
-        )
-        resp = self._client.share_receive(payload)
-        if resp["state"]:
-            logger.info(f"【分享转存】转存 {share_code} 到 {parent_path} 成功！")
+        try:
+            data = share_extract_payload(args)
+            share_code = data["share_code"]
+            receive_code = data["receive_code"]
+            logger.info(
+                f"【分享转存】解析分享链接 share_code={share_code} receive_code={receive_code}"
+            )
+            if not share_code or not receive_code:
+                logger.error(f"【分享转存】解析分享链接失败：{args}")
+                self.post_message(
+                    channel=event.event_data.get("channel"),
+                    title=f"解析分享链接失败：{args}",
+                    userid=event.event_data.get("user"),
+                )
+                return
+            parent_path = self._pan_transfer_paths.split("\n")[0]
+            parent_id = self.id_path_cache.get_id_by_dir(directory=str(parent_path))
+            if not parent_id:
+                parent_id = get_id_to_path(self._client, path=parent_path)
+                logger.info(f"【分享转存】获取到转存目录 ID：{parent_id}")
+                self.id_path_cache.add_cache(
+                    id=int(parent_id), directory=str(parent_path)
+                )
+            payload = {
+                "share_code": share_code,
+                "receive_code": receive_code,
+                "file_id": 0,
+                "cid": int(parent_id),
+                "is_check": 0,
+            }
+            logger.info(f"【分享转存】开始转存：{share_code}")
             self.post_message(
                 channel=event.event_data.get("channel"),
-                title=f"转存 {share_code} 到 {parent_path} 成功！",
+                title=f"开始转存：{share_code}",
                 userid=event.event_data.get("user"),
             )
-        else:
-            logger.info(f"【分享转存】转存 {share_code} 失败：{resp['error']}")
-            self.post_message(
-                channel=event.event_data.get("channel"),
-                title=f"转存 {share_code} 失败：{resp['error']}",
-                userid=event.event_data.get("user"),
-            )
-        return
+            resp = self._client.share_receive(payload)
+            if resp["state"]:
+                logger.info(f"【分享转存】转存 {share_code} 到 {parent_path} 成功！")
+                self.post_message(
+                    channel=event.event_data.get("channel"),
+                    title=f"转存 {share_code} 到 {parent_path} 成功！",
+                    userid=event.event_data.get("user"),
+                )
+            else:
+                logger.info(f"【分享转存】转存 {share_code} 失败：{resp['error']}")
+                self.post_message(
+                    channel=event.event_data.get("channel"),
+                    title=f"转存 {share_code} 失败：{resp['error']}",
+                    userid=event.event_data.get("user"),
+                )
+            return
+        except Exception as e:
+            logger.error(f"【分享转存】运行失败: {e}")
+            return
 
     def full_sync_strm_files(self):
         """
@@ -2664,8 +2836,10 @@ class P115StrmHelper(_PluginBase):
             user_download_mediaext=self._user_download_mediaext,
             auto_download_mediainfo=self._full_sync_auto_download_mediainfo_enabled,
             client=self._client,
-            cookie=self._cookies,
+            mediainfodownloader=self.mediainfodownloader,
             server_address=self.moviepilot_address,
+            pan_transfer_enabled=self._pan_transfer_enabled,
+            pan_transfer_paths=self._pan_transfer_paths,
         )
         strm_helper.generate_strm_files(
             full_sync_strm_paths=self._full_sync_strm_paths,
@@ -2705,13 +2879,14 @@ class P115StrmHelper(_PluginBase):
                 server_address=self.moviepilot_address,
                 share_media_path=self._user_share_pan_path,
                 local_media_path=self._user_share_local_path,
-                cookie=self._cookies,
+                mediainfodownloader=self.mediainfodownloader,
             )
             strm_helper.get_share_list_creata_strm(
                 cid=0,
                 share_code=share_code,
                 receive_code=receive_code,
             )
+            strm_helper.download_mediainfo()
             strm_helper.get_generate_total()
         except Exception as e:
             logger.error(f"【分享STRM生成】运行失败: {e}")
@@ -2752,8 +2927,10 @@ class P115StrmHelper(_PluginBase):
                     return
                 logger.info(f"【监控生活事件】 {file_name} 开始刷新媒体服务器")
                 if self._monitor_life_mp_mediaserver_paths:
-                    status, mediaserver_path, moviepilot_path = self.__get_media_path(
-                        self._monitor_life_mp_mediaserver_paths, file_path
+                    status, mediaserver_path, moviepilot_path = (
+                        self.pathmatchinghelper.get_media_path(
+                            self._monitor_life_mp_mediaserver_paths, file_path
+                        )
                     )
                     if status:
                         logger.info(
@@ -2790,7 +2967,7 @@ class P115StrmHelper(_PluginBase):
             pickcode = event["pick_code"]
             file_category = event["file_category"]
             file_id = event["file_id"]
-            status, target_dir, pan_media_dir = self.__get_media_path(
+            status, target_dir, pan_media_dir = self.pathmatchinghelper.get_media_path(
                 self._monitor_life_paths, file_path
             )
             if not status:
@@ -2821,8 +2998,8 @@ class P115StrmHelper(_PluginBase):
                                     f"【监控生活事件】{original_file_name} 不存在 pickcode 值，无法下载该文件"
                                 )
                                 continue
-                            download_url = get_download_url(
-                                pickcode=pickcode, cookie=self._cookies
+                            download_url = self.mediainfodownloader.get_download_url(
+                                pickcode=pickcode
                             )
 
                             if not download_url:
@@ -2831,11 +3008,10 @@ class P115StrmHelper(_PluginBase):
                                 )
                                 continue
 
-                            save_mediainfo_file(
+                            self.mediainfodownloader.save_mediainfo_file(
                                 file_path=Path(file_path),
                                 file_name=original_file_name,
                                 download_url=download_url,
-                                cookie=self._cookies,
                             )
                             continue
 
@@ -2892,8 +3068,8 @@ class P115StrmHelper(_PluginBase):
                                 f"【监控生活事件】{original_file_name} 不存在 pickcode 值，无法下载该文件"
                             )
                             return
-                        download_url = get_download_url(
-                            pickcode=pickcode, cookie=self._cookies
+                        download_url = self.mediainfodownloader.get_download_url(
+                            pickcode=pickcode
                         )
 
                         if not download_url:
@@ -2902,11 +3078,10 @@ class P115StrmHelper(_PluginBase):
                             )
                             return
 
-                        save_mediainfo_file(
+                        self.mediainfodownloader.save_mediainfo_file(
                             file_path=Path(file_path),
                             file_name=original_file_name,
                             download_url=download_url,
-                            cookie=self._cookies,
                         )
                         return
 
@@ -3009,16 +3184,16 @@ class P115StrmHelper(_PluginBase):
 
             # 优先匹配待整理目录，如果删除的目录为待整理目录则不进行操作
             if self._pan_transfer_enabled and self._pan_transfer_paths:
-                if self.__get_run_transfer_path(
+                if self.pathmatchinghelper.get_run_transfer_path(
                     paths=self._pan_transfer_paths, transfer_path=file_path
                 ):
                     logger.debug(
-                        f"【监控生活事件】: {file_path} 为待整理目录下的路径，不做处理"
+                        f"【监控生活事件】{file_path} 为待整理目录下的路径，不做处理"
                     )
                     return
 
             # 匹配是否是媒体文件夹目录
-            status, target_dir, pan_media_dir = self.__get_media_path(
+            status, target_dir, pan_media_dir = self.pathmatchinghelper.get_media_path(
                 self._monitor_life_paths, file_path
             )
             if not status:
@@ -3046,14 +3221,20 @@ class P115StrmHelper(_PluginBase):
             """
             # 1.获取绝对文件路径
             file_name = event["file_name"]
-            file_path = (
-                Path(get_path_to_cid(self._client, cid=int(event["parent_id"])))
-                / file_name
-            )
+            dir_path = self.id_path_cache.get_dir_by_id(int(event["parent_id"]))
+            if not dir_path:
+                dir_path = get_path_to_cid(self._client, cid=int(event["parent_id"]))
+                logger.debug(
+                    f"【监控生活事件】获取 {event['parent_id']} 路径: {dir_path}"
+                )
+                self.id_path_cache.add_cache(
+                    id=int(event["parent_id"]), directory=str(dir_path)
+                )
+            file_path = Path(dir_path) / file_name
             # 匹配逻辑 整理路径目录 > 生成STRM文件路径目录
             # 2.匹配是否为整理路径目录
             if self._pan_transfer_enabled and self._pan_transfer_paths:
-                if self.__get_run_transfer_path(
+                if self.pathmatchinghelper.get_run_transfer_path(
                     paths=self._pan_transfer_paths, transfer_path=file_path
                 ):
                     self.media_transfer(
