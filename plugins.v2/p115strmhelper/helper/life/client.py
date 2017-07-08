@@ -869,7 +869,7 @@ class MonitorLife:
                     client=self._client,
                     from_time=from_time,
                     from_id=from_id,
-                    app="web",
+                    app="android",
                     cooldown=2,
                 )
 
