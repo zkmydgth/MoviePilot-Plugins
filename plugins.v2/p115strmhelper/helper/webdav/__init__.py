@@ -1,7 +1,5 @@
 from asyncio import Lock
 from collections.abc import AsyncIterator
-from datetime import datetime
-from email.utils import formatdate
 from html import escape
 from mimetypes import guess_type
 from posixpath import split as splitpath
@@ -27,23 +25,7 @@ from yarl import URL
 
 from app.log import logger
 
-
-def timestamp2isoformat(ts: None | float | datetime = None, /) -> str:
-    if ts is None:
-        dt = datetime.now()
-    elif isinstance(ts, datetime):
-        dt = ts
-    else:
-        dt = datetime.fromtimestamp(ts)
-    return dt.astimezone().isoformat()
-
-
-def timestamp2gmtformat(ts: None | float | datetime = None, /) -> str:
-    if ts is None:
-        ts = time()
-    elif isinstance(ts, datetime):
-        ts = ts.timestamp()
-    return formatdate(ts, usegmt=True)
+from ...utils.time import TimeUtils
 
 
 class WebdavCore:
@@ -190,8 +172,8 @@ class WebdavCore:
             href = "/"
         yield f"<d:response><d:href>{escape(href)}</d:href><d:propstat><d:prop>"
         yield f"<d:displayname>{escape(attr['name'])}</d:displayname>"
-        yield f"<d:creationdate>{timestamp2isoformat(attr.get('ctime', 0))}</d:creationdate>"
-        yield f"<d:getlastmodified>{timestamp2gmtformat(attr.get('mtime', 0))}</d:getlastmodified>"
+        yield f"<d:creationdate>{TimeUtils.timestamp2isoformat(attr.get('ctime', 0))}</d:creationdate>"
+        yield f"<d:getlastmodified>{TimeUtils.timestamp2gmtformat(attr.get('mtime', 0))}</d:getlastmodified>"
         if attr["is_dir"]:
             # yield "<d:getetag></d:getetag>"
             # yield "<d:getcontentlength></d:getcontentlength>"
