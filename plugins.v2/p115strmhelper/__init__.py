@@ -54,7 +54,7 @@ from app.core.config import settings
 from app.core.event import eventmanager, Event
 from app.core.context import MediaInfo
 from app.core.meta import MetaBase
-from app.core.metainfo import MetaInfoPath
+from app.core.metainfo import MetaInfo, MetaInfoPath
 from app.log import logger
 from app.plugins import _PluginBase
 from app.chain.transfer import TransferChain
@@ -1531,7 +1531,7 @@ class P115StrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png"
     # 插件版本
-    plugin_version = "1.8.17"
+    plugin_version = "1.8.18"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -3189,14 +3189,43 @@ class P115StrmHelper(_PluginBase):
                 title=f"开始转存：{share_code}",
                 userid=userid,
             )
+
+            # 尝试识别媒体信息
+            file_num = 0
+            file_mediainfo = None
+            for item in share_iterdir(
+                self._client,
+                receive_code=receive_code,
+                share_code=share_code,
+                cid=0,
+            ):
+                if file_num == 1:
+                    file_num = 2
+                    break
+                item_name = item["name"]
+                file_num += 1
+            if file_num == 1:
+                mediachain = MediaChain()
+                file_meta = MetaInfo(title=item_name)
+                file_mediainfo = mediachain.recognize_by_meta(file_meta)
+
             resp = self._client.share_receive(payload)
             if resp["state"]:
                 logger.info(f"【分享转存】转存 {share_code} 到 {parent_path} 成功！")
-                self.post_message(
-                    channel=channel,
-                    title=f"转存 {share_code} 到 {parent_path} 成功！",
-                    userid=userid,
-                )
+                if not file_mediainfo:
+                    self.post_message(
+                        channel=channel,
+                        title=f"转存 {share_code} 到 {parent_path} 成功！",
+                        userid=userid,
+                    )
+                else:
+                    self.post_message(
+                        channel=channel,
+                        title=f"转存 {file_mediainfo.title}（{file_mediainfo.year}）成功",
+                        text=f"\n简介: {file_mediainfo.overview}",
+                        image=file_mediainfo.poster_path,
+                        userid=userid,
+                    )
             else:
                 logger.info(f"【分享转存】转存 {share_code} 失败：{resp['error']}")
                 self.post_message(
