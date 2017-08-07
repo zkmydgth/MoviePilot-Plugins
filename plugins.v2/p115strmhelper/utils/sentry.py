@@ -10,6 +10,7 @@ from sentry_sdk.integrations.excepthook import ExcepthookIntegration
 from sentry_sdk.integrations.requests import RequestsIntegration
 from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
 from sentry_sdk.integrations.dedupe import DedupeIntegration
+from sentry_sdk.integrations.pydantic import PydanticIntegration
 
 
 sentry_hub = Hub(
@@ -27,6 +28,7 @@ sentry_hub = Hub(
             ExcepthookIntegration(always_run=True),
             RequestsIntegration(),
             SqlalchemyIntegration(),
+            PydanticIntegration(),
         ],
     )
 )
@@ -61,7 +63,7 @@ def capture_plugin_exceptions(func):
             try:
                 return func(*args, **kwargs)
             except Exception as e:
-                with sentry_hub.scope as scope:
+                with sentry_hub.configure_scope() as scope:
                     scope.set_tag("capture_source", "plugin_decorator")
                     scope.set_tag("function_name", func.__name__)
 
