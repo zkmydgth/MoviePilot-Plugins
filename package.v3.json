@@ -3,13 +3,14 @@
     "name": "115网盘STRM助手",
     "description": "115网盘STRM生成一条龙服务（V3 独立维护版）",
     "labels": "云盘",
-    "version": "3.1.0",
+    "version": "3.2.0",
     "release": true,
     "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png",
     "author": "zkmydgth",
     "system_version": ">=3.0.0",
     "level": 1,
     "history": {
+      "v3.2.0": "修复 V3 兼容性两个硬断点：TransferTask 导入路径改为 app.application.transfer.models（V3 已将整理任务工作项迁至 application 层以避免 import 环）；交互视图改用插件本地 ChannelCapabilityManager 兜底实现（V3 已彻底移除 app.schemas.message.ChannelCapabilityManager）；配套补齐 V3 形态测试桩",
       "v3.1.0": "同步上游 V2 主线修复：R302 缓存雪崩防护（并发同键只请求一次 115）、增量清理不再误删目录、远程 ffprobe 稳定性增强、302 接口日志降噪并补充异常堆栈",
       "v3.0.0": "适配 MoviePilot V3 SDK 与插件依赖清单"
     }
