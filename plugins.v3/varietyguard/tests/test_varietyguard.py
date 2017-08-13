@@ -405,12 +405,26 @@ class VarietyGuardTestCase(unittest.TestCase):
         ascii_items = [w for w in DEFAULT_EXCLUDE_KEYWORDS if w.isascii()]
         self.assertEqual(len(chinese_items) + len(ascii_items), 47)
         for item in ascii_items:
+            if item in {"E00", "EP00"}:
+                continue  # 这两条按设计不加词边界（见 test_bare_episode_zero_keywords）
             self.assertTrue(item.startswith("(?<!"), f"{item} 缺少左词边界")
         for item in chinese_items:
             self.assertFalse(item.startswith("(?<!"), f"{item} 中文词不应加词边界")
 
+    def test_bare_episode_zero_keywords(self):
+        """E00 / EP00 刻意不加词边界：能命中 S01E00、S01E0012、EP00 这类串。"""
+        from varietyguard import DEFAULT_EXCLUDE_KEYWORDS
+
+        plugin = VarietyGuard()
+        self.assertIn("E00", DEFAULT_EXCLUDE_KEYWORDS)
+        self.assertIn("EP00", DEFAULT_EXCLUDE_KEYWORDS)
+        for name in ("Show.S01E00.mkv", "Show.S01E0012.mkv", "Show.EP00.mkv"):
+            self.assertIsNotNone(
+                plugin._match_first(DEFAULT_EXCLUDE_KEYWORDS, name), f"{name} 应命中"
+            )
+
     def test_default_boundary_does_not_hit_word_containing_strings(self):
-        """词边界：含词串（MAXPLUS / StartUp / Clubhouse / Reactionary / E0012）不得命中。"""
+        """词边界：含词串（MAXPLUS / StartUp / Clubhouse / Reactionary）不得命中。"""
         from varietyguard import DEFAULT_EXCLUDE_KEYWORDS
 
         plugin = VarietyGuard()
@@ -419,7 +433,6 @@ class VarietyGuardTestCase(unittest.TestCase):
             "StartUp.S01E03.1080p.mkv",
             "Clubhouse.S01E01.mkv",
             "Reactionary.S01E02.mkv",
-            "Show.S01E0012.mkv",
         ):
             self.assertIsNone(
                 plugin._match_first(DEFAULT_EXCLUDE_KEYWORDS, name), f"{name} 不应命中"

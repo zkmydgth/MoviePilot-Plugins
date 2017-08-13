@@ -74,8 +74,6 @@ MUTANTS = [
         "词边界机制失效：包装函数直接返回裸关键词（MAXPLUS / StartUp 会被误伤）",
         """    parts = [re.escape(part) for part in re.split(r"[ ._-]+", keyword) if part]
     body = r"[ ._-]*".join(parts)
-    if re.search(r"\\d", keyword):
-        return rf"(?<![A-Za-z]){body}(?![0-9])"
     return rf"(?<![A-Za-z]){body}(?![A-Za-z])"
 """,
         """    return keyword
@@ -83,10 +81,10 @@ MUTANTS = [
         "应导致 test_default_boundary_does_not_hit_word_containing_strings 失败",
     ),
     (
-        "集号右边界退化：含数字的关键词改用字母边界（S01E0012 会被误命中）",
-        """        return rf"(?<![A-Za-z]){body}(?![0-9])\"""",
-        """        return rf"(?<![A-Za-z]){body}(?![A-Za-z])\"""",
-        "应导致 test_default_boundary_does_not_hit_word_containing_strings 失败",
+        "例外名单失效：E00 / EP00 也被加上词边界（与用户设定不符）",
+        """_BARE_KEYWORDS: frozenset[str] = frozenset({"E00", "EP00"})""",
+        """_BARE_KEYWORDS: frozenset[str] = frozenset()""",
+        "应导致 test_bare_episode_zero_keywords 失败",
     ),
     (
         "异常不再放行：内部异常被抛出（会中断整理链）",

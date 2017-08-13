@@ -106,24 +106,29 @@ _RAW_DEFAULT_EXCLUDE: Tuple[str, ...] = (
 )
 
 
+# 刻意不加词边界的 ASCII 关键词（2026-10-08 用户定：站内 E00 / EP00 命名变体较多，
+# 需要更宽松的匹配；裸词也会命中 `S01E0012` 这类串，属有意为之）
+_BARE_KEYWORDS: frozenset[str] = frozenset({"E00", "EP00"})
+
+
 def _wrap_boundary(keyword: str) -> str:
     """给纯 ASCII 关键词加词边界，避免命中 MAXPLUS / StartUp 这类"含词串"。
 
+    - `_BARE_KEYWORDS` 里的词（E00 / EP00）**原样返回**，不加边界；
     - 中文（或含中文）关键词原样返回；
     - 多词短语允许 `.` `_` `-` 空格 作为词间分隔（如 `Rapid Case` 也能命中 `Rapid.Case`）；
-    - 含数字的关键词右边界改为"不接数字"，这样 `S01E00` 能命中、`E0012` 不会误命中；
     - 大小写不敏感由匹配处的 re.IGNORECASE 保证（与 Plus 一致）。
     """
+    if keyword in _BARE_KEYWORDS:
+        return keyword
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9 ._-]*", keyword or ""):
         return keyword
     parts = [re.escape(part) for part in re.split(r"[ ._-]+", keyword) if part]
     body = r"[ ._-]*".join(parts)
-    if re.search(r"\d", keyword):
-        return rf"(?<![A-Za-z]){body}(?![0-9])"
     return rf"(?<![A-Za-z]){body}(?![A-Za-z])"
 
 
-# 生效的默认词表（ASCII 关键词已带词边界）
+# 生效的默认词表（ASCII 关键词已带词边界，E00 / EP00 例外）
 DEFAULT_EXCLUDE_KEYWORDS: Tuple[str, ...] = tuple(
     _wrap_boundary(word) for word in _RAW_DEFAULT_EXCLUDE
 )
@@ -695,7 +700,7 @@ class VarietyGuard(_PluginBase):
                                             "label": "非正片关键词（每行一个，支持正则）",
                                             "rows": 6,
                                             "persistent-hint": True,
-                                            "hint": "命中即跳过（正则、忽略大小写）。内置默认 47 项已带词边界：中文原样匹配，英文/数字词自动包成「非字母边界」（多词短语可用 . _ - 空格分隔；E00 用「不接数字」右边界）。⚠️ 自己新增的英文词不会自动加边界，若要防误伤请照写 (?<![A-Za-z])Word(?![A-Za-z])。",
+                                            "hint": "命中即跳过（正则、忽略大小写）。内置默认 47 项：中文原样匹配，英文词自动包成「非字母边界」（多词短语可用 . _ - 空格分隔），E00 / EP00 刻意不加边界（站内变体较多，属有意为之）。⚠️ 自己新增的英文词不会自动加边界，若要防误伤请照写 (?<![A-Za-z])Word(?![A-Za-z])。",
                                         },
                                     }
                                 ],
