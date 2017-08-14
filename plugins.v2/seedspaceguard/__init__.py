@@ -4,15 +4,20 @@
 
 存储空间不足时，自动清理 PT 保种目录中「保种最久」的资源，避免触发 H&R。
 
+- 支持多目录：每行一个路径，可同时填写「下载目录」与「媒体库目录」等；
 - 种子级模式：直接调用 qBittorrent/Transmission 下载器，按种子真实添加时间
   从早到晚删除种子（连带删除文件），一步到位不留红种；
-- 仅文件模式：按文件修改时间从旧到新删除文件，种子清理由已安装的
-  「源文件联动清理」+「下载器助手」插件联动完成。
+- 仅文件模式：按文件修改时间从旧到新删除文件。下载目录与媒体库目录中的同名
+  文件常为同一 inode 的硬链接，插件按 (st_dev, st_ino) 自动识别并**双侧一并删除**，
+  无需依赖其它插件联动。
+- 安全兜底：每轮删除后实测空间释放量，若空间几乎未释放（如硬链接仍有残留引用、
+  快照占用），立即停止并告警，宁可空间不足也不过量删除。
 """
 
 import os
 import re
 import shutil
+import stat
 import threading
 import time
 from datetime import datetime
@@ -28,6 +33,21 @@ from app.plugins import _PluginBase
 from app.schemas.types import DownloaderType, EventType, NotificationType
 
 
+# ============================ 释放校验常量 ============================
+
+# 实测释放量 / 名义释放量 的达标比例：删除期间下载器与媒体库几乎必然有写入，
+# 留 10% 余量吸收噪声；不能设为 1.0，否则永远判为「未达标」
+RELEASE_TOLERANCE: float = 0.9
+# 「部分释放」容忍轮数：释放缓慢（如 Btrfs 延迟分配）时最多容忍几轮，
+# 超过即停止，避免在空间迟迟不回收的情况下持续扩张删除范围
+MAX_STALL_ROUNDS: int = 2
+# 释放轮询间隔（秒）：达标即提前退出，无需等到 sync_wait_seconds 上限
+RELEASE_POLL_SECONDS: int = 5
+# 名义释放量低于该值时跳过「未释放即停止」硬判定，避免小文件被测量噪声误伤
+RELEASE_HARD_STOP_MIN_BYTES: int = 1024 ** 3
+GIB: int = 1024 ** 3
+
+
 class SeedSpaceGuard(_PluginBase):
     """
     保种空间守护插件。
@@ -37,7 +57,7 @@ class SeedSpaceGuard(_PluginBase):
     plugin_name = "保种空间守护"
     plugin_desc = ("存储空间不足时自动清理保种目录中「保种最久」的资源（种子+文件），"
                    "避免 H&R。支持种子级删除与仅文件两种模式，可限定目标下载器。")
-    plugin_version = "1.0.9"
+    plugin_version = "1.1.0"
     plugin_author = "zkmydgth"
     plugin_config_prefix = "seedspaceguard_"
     plugin_order = 100
@@ -45,7 +65,12 @@ class SeedSpaceGuard(_PluginBase):
 
     # 运行状态
     _enabled: bool = False
-    _target_dir: str = ""
+    # 保种/清理目录列表（由多行文本解析而来，已去重并剔除嵌套目录）
+    _target_dirs: List[str] = []
+    # 当前生效的目录集合（_target_dirs 中实际存在的那部分）
+    _active_dirs: List[str] = []
+    # 当前待删文件的 inode 索引：(st_dev, st_ino) -> 该文件在所有配置目录内的全部路径
+    _ino_paths: Dict[Tuple[int, int], List[str]] = {}
     _volume_path: str = "/volume1"
     _threshold_gb: int = 500
     _cron: str = "0 */6 * * *"
@@ -71,7 +96,9 @@ class SeedSpaceGuard(_PluginBase):
         """根据插件配置初始化运行状态。"""
         self.stop_service()
         self._enabled = False
-        self._target_dir = ""
+        self._target_dirs = []
+        self._active_dirs = []
+        self._ino_paths = {}
         self._volume_path = "/volume1"
         self._threshold_gb = 500
         self._cron = "0 */6 * * *"
@@ -85,7 +112,24 @@ class SeedSpaceGuard(_PluginBase):
         if not config:
             return
         self._enabled = bool(config.get("enabled"))
-        self._target_dir = str(config.get("target_dir") or "").strip()
+        # 多目录配置：优先读新字段 target_dirs；为空则从旧的单目录 target_dir 迁移
+        raw_dirs = config.get("target_dirs")
+        if not (isinstance(raw_dirs, str) and raw_dirs.strip()):
+            legacy = str(config.get("target_dir") or "").strip()
+            if legacy:
+                raw_dirs = legacy
+                logger.info(
+                    "【保种空间守护】检测到旧版单目录配置，自动迁移为多目录格式：%s", legacy
+                )
+                try:
+                    saved = self.get_config() or {}
+                    self.update_config(
+                        {**saved, "target_dirs": legacy, "target_dir": ""}
+                    )
+                except Exception as err:
+                    # 迁移回写失败不影响本次运行（内存中已生效），下次启动会重试
+                    logger.error("【保种空间守护】迁移多目录配置失败：%s", err)
+        self._target_dirs = self._parse_dirs(raw_dirs)
         self._volume_path = str(config.get("volume_path") or "/volume1").strip()
         self._threshold_gb = int(config.get("threshold_gb") or 500)
         self._cron = str(config.get("cron") or "0 */6 * * *").strip()
@@ -137,10 +181,14 @@ class SeedSpaceGuard(_PluginBase):
             ).start()
         if not self._enabled:
             return
-        if not self._target_dir:
+        if not self._target_dirs:
             logger.error("【保种空间守护】未配置清理目录，插件不生效")
         else:
-            logger.info("【保种空间守护】插件已启用，监控目录：%s", self._target_dir)
+            logger.info(
+                "【保种空间守护】插件已启用，监控 %d 个目录：\n%s",
+                len(self._target_dirs),
+                "\n".join(f"  - {d}" for d in self._target_dirs),
+            )
 
     def get_state(self) -> bool:
         """获取插件启用状态。"""
@@ -218,13 +266,14 @@ class SeedSpaceGuard(_PluginBase):
                                         "props": {
                                             "type": "info",
                                             "variant": "tonal",
-                                            "text": "使用说明：卷剩余空间低于阈值时，按「保种最久」优先自动清理下载目录中的资源，"
-                                                    "直到空间恢复到阈值以上。删除前会先按缺口预选清单，删除后等待指定秒数"
-                                                    "（默认 90 秒，见下方「联动释放等待秒数」）"
-                                                    "让「源文件联动清理」等插件释放媒体库侧硬链接，再复核空间（不会因空间释放"
-                                                    "滞后而一次性过量删除）。种子级=删除下载器中最旧的已完成种子（连带文件，"
+                                            "text": "使用说明：卷剩余空间低于阈值时，按「保种最久」优先自动清理配置目录中的资源，"
+                                                    "直到空间恢复到阈值以上。支持多个目录：把「下载目录」与「媒体库目录」"
+                                                    "都填进来，插件会按 inode 自动识别硬链接并两侧一并删除，无需依赖其它插件联动。"
+                                                    "每轮删除后实测空间释放量，若空间几乎未释放（如硬链接仍有残留引用、"
+                                                    "快照占用），会立即停止并告警，宁可空间不足也不过量删除。"
+                                                    "种子级=删除下载器中最旧的已完成种子（连带文件，"
                                                     "可用下方「目标下载器」限定范围，留空=全部）；"
-                                                    "仅文件=只删文件（可配合源文件联动插件）。建议先试运行预览将删内容，确认后再正式启用；"
+                                                    "仅文件=只删文件。建议先试运行预览将删内容，确认后再正式启用；"
                                                     "清理目录本身不会被删除。删除后还会顺带清理 Synology 在 @eaDir 下遗留的"
                                                     "媒体索引残片，避免出现「仅剩 @eaDir」的空壳目录。",
                                         },
@@ -280,12 +329,16 @@ class SeedSpaceGuard(_PluginBase):
                         },
                     },
                     {
-                        "component": "VTextField",
+                        "component": "VTextarea",
                         "props": {
-                            "model": "target_dir",
-                            "label": "保种/清理目录",
-                            "placeholder": "/volume1/video/下载",
-                            "hint": "只清理该目录下、由本插件判定为保种最久的资源",
+                            "model": "target_dirs",
+                            "label": "保种/清理目录（每行一个）",
+                            "rows": 4,
+                            "placeholder": "/volume1/video/下载\n/volume1/video/媒体库",
+                            "hint": "每行一个绝对路径。若下载目录与媒体库目录中的文件互为硬链接，"
+                                   "请把两个目录都填进来，插件会自动识别并两侧一并删除；"
+                                   "只填一侧会导致删除后空间不释放（插件检测到会停止并告警）。"
+                                   "以 # 开头的行会被忽略，可用于临时停用某个目录",
                         },
                     },
                     {
@@ -328,10 +381,11 @@ class SeedSpaceGuard(_PluginBase):
                         "component": "VTextField",
                         "props": {
                             "model": "sync_wait_seconds",
-                            "label": "联动释放等待秒数",
+                            "label": "空间释放最长等待秒数",
                             "placeholder": "90",
-                            "hint": "真实删除后等待「源文件联动清理」等插件释放媒体库侧硬链接的秒数，"
-                                    "再复核空间；默认 90，可填 0-1800（0=不等待）",
+                            "hint": "删除后轮询等待空间释放的时长上限，默认 90，可填 0-1800（0=不等待）。"
+                                    "每 5 秒轮询一次，释放达标即提前结束，无需空等整个时长；"
+                                    "仅当释放滞后（如快照占用、文件系统延迟回收）时才会等满",
                         },
                     },
                     {
@@ -369,12 +423,19 @@ class SeedSpaceGuard(_PluginBase):
             return None
         free_gb = self._disk_free_gb()
         free_text = f"{free_gb}GB" if free_gb is not None else "未知"
+        if not self._target_dirs:
+            dirs_text = "（未配置）"
+        elif len(self._target_dirs) <= 3:
+            dirs_text = "、".join(self._target_dirs)
+        else:
+            head = "、".join(self._target_dirs[:3])
+            dirs_text = f"{head} 等 {len(self._target_dirs)} 个目录"
         return [
             {
                 "component": "VAlert",
                 "props": {
                     "type": "info",
-                    "text": f"监控目录：{self._target_dir}　|　当前剩余空间：{free_text}"
+                    "text": f"监控目录：{dirs_text}　|　当前剩余空间：{free_text}"
                             f"　|　阈值：{self._threshold_gb}GB　|　模式：{'种子级' if self._mode == 'seed' else '仅文件'}",
                 },
             },
@@ -442,7 +503,9 @@ class SeedSpaceGuard(_PluginBase):
         return {
             "success": True,
             "enabled": self._enabled,
-            "target_dir": self._target_dir,
+            "target_dirs": self._target_dirs,
+            # 兼容旧字段：返回首个目录，便于老调用方平滑过渡
+            "target_dir": self._target_dirs[0] if self._target_dirs else "",
             "volume_path": self._volume_path,
             "free_gb": free_gb,
             "threshold_gb": self._threshold_gb,
@@ -491,30 +554,51 @@ class SeedSpaceGuard(_PluginBase):
             mode = mode_override or self._mode
             dry_run = self._dry_run if dry_run_override is None else bool(dry_run_override)
 
-            if not self._target_dir:
-                return self._finish("未配置清理目录（target_dir）", None)
-            if not os.path.isdir(self._target_dir):
-                return self._finish(f"目标目录不存在：{self._target_dir}", None)
+            if not self._target_dirs:
+                return self._finish("未配置清理目录（target_dirs）", None)
+            # 过滤出实际存在的目录，不存在的记警告并跳过（不因个别目录失效而整体罢工）
+            invalid = [d for d in self._target_dirs if not os.path.isdir(d)]
+            self._active_dirs = [d for d in self._target_dirs if os.path.isdir(d)]
+            # 无效目录不仅记日志，还要带进结果消息：用户配错路径时需要被明确
+            # 告知，否则会误以为插件在正常工作
+            invalid_note = ""
+            if invalid:
+                invalid_note = f"（已跳过不存在的目录：{'、'.join(invalid)}）"
+                logger.warning(
+                    "【保种空间守护】以下目录不存在，本次已跳过：%s", "、".join(invalid)
+                )
+            if not self._active_dirs:
+                return self._finish(
+                    f"所有配置目录均不存在：{'、'.join(self._target_dirs)}", None
+                )
 
-            free_gb = self._disk_free_gb()
-            if free_gb is None:
+            free_bytes = self._disk_free_bytes()
+            if free_bytes is None:
                 return self._finish(f"无法获取 {self._volume_path} 剩余空间", None)
+            free_gb = int(free_bytes // GIB)
+            threshold_bytes = self._threshold_gb * GIB
 
             prefix = f"[{'试运行' if dry_run else '清理'}] "
-            if free_gb >= self._threshold_gb:
-                msg = (f"空间充足（{free_gb}GB ≥ {self._threshold_gb}GB），无需清理")
+            # 阈值比较用字节，避免 GB 取整导致的边界反复触发或永不触发
+            if free_bytes >= threshold_bytes:
+                msg = (
+                    f"空间充足（{free_gb}GB ≥ {self._threshold_gb}GB），无需清理"
+                    f"{invalid_note}"
+                )
                 logger.info("【保种空间守护】%s", msg)
                 return self._finish(msg, None, notify=False)
 
-            logger.info("【保种空间守护】空间不足（%sGB < %sGB），开始%s处理（%s）",
+            logger.info("【保种空间守护】空间不足（%sGB < %sGB），开始%s处理（%s），"
+                        "监控 %d 个目录",
                         free_gb, self._threshold_gb,
                         "试运行" if dry_run else "清理",
-                        "种子级" if mode == "seed" else "仅文件")
+                        "种子级" if mode == "seed" else "仅文件",
+                        len(self._active_dirs))
 
             if mode == "seed":
-                result = self._clean_by_seed(free_gb, dry_run)
+                result = self._clean_by_seed(free_bytes, dry_run)
             else:
-                result = self._clean_by_file(free_gb, dry_run)
+                result = self._clean_by_file(free_bytes, dry_run)
             deleted, released_gb, detail_lines = result
 
             suffix = ""
@@ -526,7 +610,7 @@ class SeedSpaceGuard(_PluginBase):
             elif deleted > 0:
                 suffix = f"，共删除 {deleted} 个（释放约 {released_gb}GB）"
             free_gb_now = self._disk_free_gb()
-            msg = f"{prefix}空间不足处理完成{suffix}，当前剩余 {free_gb_now}GB"
+            msg = f"{prefix}空间不足处理完成{suffix}，当前剩余 {free_gb_now}GB{invalid_note}"
             return self._finish(msg, detail_lines[:10])
         finally:
             self._running = False
@@ -558,33 +642,74 @@ class SeedSpaceGuard(_PluginBase):
                 logger.error("【保种空间守护】发送通知失败：%s", err)
         return msg
 
-    def _disk_free_gb(self) -> Optional[int]:
+    def _disk_free_bytes(self) -> Optional[int]:
         """
-        获取卷剩余空间（GB）。
+        获取卷剩余空间（字节，精确值）。
 
-        :return: 剩余 GB，失败返回 None
+        判定空间是否真正释放必须用字节精度：GB 取整后小于 1GB 的释放量恒为 0，
+        会导致「明明释放了却判定为未释放」的误伤。
+
+        :return: 剩余字节数，失败返回 None
         """
         try:
-            usage = shutil.disk_usage(self._volume_path)
-            return int(usage.free // (1024 ** 3))
+            return shutil.disk_usage(self._volume_path).free
         except Exception as err:
             logger.error("【保种空间守护】获取 %s 剩余空间失败：%s", self._volume_path, err)
             return None
 
+    def _disk_free_gb(self) -> Optional[int]:
+        """
+        获取卷剩余空间（GB，取整，仅用于展示）。
+
+        :return: 剩余 GB，失败返回 None
+        """
+        free = self._disk_free_bytes()
+        return None if free is None else int(free // GIB)
+
+    def _wait_for_release(self, free_before: int, nominal: int) -> int:
+        """
+        轮询等待空间释放，最长 self._sync_wait_seconds 秒。
+
+        相比固定 sleep，轮询可在释放达标时提前退出：独立目录（无硬链接）通常
+        数秒内即达标，无需空等整个等待时长；仅在释放滞后时才等到上限。
+
+        :param free_before: 删除前的剩余字节数
+        :param nominal: 本轮名义释放字节数（按 inode 去重后的真实占用）
+        :return: 实际观察到的释放字节数（可能为负，表示期间有其他进程写入）
+        """
+        if self._sync_wait_seconds <= 0:
+            now = self._disk_free_bytes()
+            return (now if now is not None else free_before) - free_before
+        deadline = time.monotonic() + self._sync_wait_seconds
+        target = int(nominal * RELEASE_TOLERANCE)
+        free_now = free_before
+        while True:
+            measured = self._disk_free_bytes()
+            free_now = measured if measured is not None else free_before
+            if free_now - free_before >= target:
+                break
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            time.sleep(min(RELEASE_POLL_SECONDS, remaining))
+        return free_now - free_before
+
     # ============================ 种子级清理 ============================
 
-    def _clean_by_seed(self, free_gb: int, dry_run: bool) -> Tuple[int, float, List[str]]:
+    def _clean_by_seed(self, free_bytes: int, dry_run: bool) -> Tuple[int, float, List[str]]:
         """
         种子级清理：按种子完成时间从早到晚删除已完成种子（连带文件），
         直到剩余空间恢复到阈值以上。
 
-        真实删除采用「按缺口预选 → 删除 → 等待联动释放 → 复核」的分轮策略：
-        删除前先按当前缺口从旧到新预选种子清单（名义累计 ≥ 缺口），删除后等待
-        「源文件联动清理」等插件释放媒体库侧硬链接（空间才会真正回收），再实测
-        空间决定是否按新缺口补删下一轮——避免边删边用滞后的实时空间判停而
-        一次性删除过量或永不停止。
+        真实删除采用「按缺口预选 → 删除 → 等待释放 → 复核」的分轮策略：
+        删除前先按当前缺口从旧到新预选种子清单（名义累计 ≥ 缺口），删除后轮询
+        等待空间真正回收，再实测空间决定是否按新缺口补删下一轮——避免边删边用
+        滞后的实时空间判停而一次性删除过量或永不停止。
 
-        :param free_gb: 当前剩余空间（GB）
+        注意：种子级由下载器负责删文件，若媒体库侧为硬链接，插件无法触及那一侧；
+        空间迟迟不释放时会按下述闭环停止并告警。
+
+        :param free_bytes: 当前剩余空间（字节）
         :param dry_run: 是否试运行
         :return: （处理数，预计/实际释放 GB，明细行）
         """
@@ -602,7 +727,7 @@ class SeedSpaceGuard(_PluginBase):
 
         # 试运行：空间不会真正释放，用累计候选大小模拟释放量判断是否达标
         if dry_run:
-            est_free = float(free_gb)
+            est_free = free_bytes / GIB
             for cand in candidates:
                 if est_free >= self._threshold_gb:
                     break
@@ -617,23 +742,24 @@ class SeedSpaceGuard(_PluginBase):
                 est_free += float(cand["size_gb"])
             return deleted, round(released_gb, 1), detail_lines
 
-        # 真实删除：分轮按缺口预选并删除，等待联动释放后复核
+        # 真实删除：分轮按缺口预选并删除，等待释放后复核
         idx = 0
+        stall = 0
         while True:
-            free_now = self._disk_free_gb() or free_gb
-            if free_now >= self._threshold_gb:
+            free_now = self._disk_free_bytes()
+            free_now = free_bytes if free_now is None else free_now
+            if free_now >= self._threshold_gb * GIB:
                 break
             # 本轮按缺口预选种子：从最旧开始累计名义大小达到缺口即止
-            gap_gb = max(1, self._threshold_gb - free_now)
-            target_bytes = gap_gb * (1024 ** 3)
+            gap_bytes = max(GIB, self._threshold_gb * GIB - free_now)
             plan: List[Dict[str, Any]] = []
             planned_bytes = 0.0
             while idx < len(candidates):
                 cand = candidates[idx]
                 idx += 1
                 plan.append(cand)
-                planned_bytes += float(cand["size_gb"]) * (1024 ** 3)
-                if planned_bytes >= target_bytes:
+                planned_bytes += float(cand["size_gb"]) * GIB
+                if planned_bytes >= gap_bytes:
                     break
             if not plan:
                 # 候选耗尽仍未达标，结束
@@ -658,15 +784,47 @@ class SeedSpaceGuard(_PluginBase):
                         f"添加于 {added_text}）"
                     )
                     logger.info("【保种空间守护】%s", detail_lines[-1])
-                    # 删除种子连带文件后，清理可能遗留的空目录（保护 target_dir 本身）
+                    # 删除种子连带文件后，清理可能遗留的空目录（保护配置目录本身）
                     self._prune_empty_dirs(cand["path"])
-            # 等待源文件联动清理等插件删除媒体库侧硬链接后再复核空间
+            # 轮询等待空间释放（达标提前退出），再复核
             logger.info(
-                "【保种空间守护】本轮已删除 %d 个种子，等待 %d 秒联动释放后复核空间…",
+                "【保种空间守护】本轮已删除 %d 个种子，等待空间释放（最长 %d 秒）后复核…",
                 len(plan), self._sync_wait_seconds,
             )
-            time.sleep(self._sync_wait_seconds)
+            released_bytes = self._wait_for_release(free_now, int(planned_bytes))
+            if not self._release_is_healthy(released_bytes, int(planned_bytes)):
+                stall += 1
+                if released_bytes <= 0 or stall >= MAX_STALL_ROUNDS:
+                    warn = (
+                        f"删除 {len(plan)} 个种子后空间未按预期释放"
+                        f"（预期 {planned_bytes / GIB:.1f}GB，"
+                        f"实测 {released_bytes / GIB:.1f}GB），"
+                        f"可能存在快照引用或媒体库侧硬链接未被清理。"
+                        f"已停止清理以避免过量删除，请检查「保种/清理目录」"
+                        f"是否已包含媒体库目录"
+                    )
+                    logger.warning("【保种空间守护】%s", warn)
+                    detail_lines.append(warn)
+                    break
         return deleted, round(released_gb, 1), detail_lines
+
+    def _release_is_healthy(self, released: int, nominal: int) -> bool:
+        """
+        判定本轮空间释放是否正常。
+
+        - 名义释放量过小时直接视为正常：小文件组的测量噪声会淹没真实信号，
+          若据此停止会误伤正常清理
+        - 释放量达到名义值的 RELEASE_TOLERANCE 即正常（删除期间下载器与媒体库
+          几乎必然有写入，需留余量）
+
+        :param released: 实测释放字节数（可为负）
+        :param nominal: 名义释放字节数
+        :return: 是否视为正常释放
+        """
+        if nominal <= RELEASE_HARD_STOP_MIN_BYTES:
+            return True
+        return released >= int(nominal * RELEASE_TOLERANCE)
+
 
     def _collect_seed_candidates(self) -> List[Dict[str, Any]]:
         """
@@ -674,7 +832,6 @@ class SeedSpaceGuard(_PluginBase):
 
         :return: 候选列表，每项含 module/downloader/hash/title/added/size_gb
         """
-        target = os.path.normpath(self._target_dir)
         candidates: List[Dict[str, Any]] = []
         manager = ModuleManager()
         for dl_type in (DownloaderType.Qbittorrent, DownloaderType.Transmission):
@@ -703,7 +860,8 @@ class SeedSpaceGuard(_PluginBase):
                         cand = self._parse_torrent(dl_type, item)
                         if not cand:
                             continue
-                        if cand["path"] and self._path_under(cand["path"], target):
+                        # 种子路径落在任一配置目录下即纳入候选
+                        if cand["path"] and self._path_under_any(cand["path"]):
                             cand["module"] = module
                             cand["downloader"] = name
                             candidates.append(cand)
@@ -759,41 +917,137 @@ class SeedSpaceGuard(_PluginBase):
 
     # ============================ 仅文件清理 ============================
 
-    def _clean_by_file(self, free_gb: int, dry_run: bool) -> Tuple[int, float, List[str]]:
+    def _index_files(self, patterns: List[str], recent_secs: float
+                     ) -> Tuple[List[Tuple[float, str, int, Tuple[int, int]]],
+                                Dict[Tuple[int, int], List[str]]]:
         """
-        仅文件清理：按文件修改时间从旧到新删除目标目录内文件，
+        遍历所有配置目录，按 inode 建立文件索引。
+
+        下载目录与媒体库目录中的同名文件常为同一 inode 的硬链接：删除单个路径
+        （``os.remove``）只是减少一处目录项引用，inode 仍被其它链接引用，**空间
+        不会释放**。因此这里以 ``(st_dev, st_ino)`` 为文件身份，把同一文件在所有
+        配置目录内的全部路径收集起来，删除时一并处理。
+
+        关键点：
+        - 使用 ``os.lstat`` 而非 ``os.stat``：symlink 会被 ``lstat`` 标记为链接
+          类型，从而被 ``S_ISREG`` 过滤掉；用 ``stat`` 会取到目标文件的 inode，
+          导致把符号链接误认为硬链接而删除错误对象
+        - ``st_size`` 每个 inode 只累计**一份**，避免同一文件两侧各计一次、
+          预计释放量虚高约 100%
+        - inode 去重判定在保护期过滤**之前**：同一 inode 两侧 mtime 必然相同，
+          但若先过滤 mtime，一旦某侧被保护期拦截会出现去重失效
+
+        :param patterns: 保护文件后缀通配符列表
+        :param recent_secs: 保护期秒数，最近修改的文件不纳入候选
+        :return: (候选文件列表, inode→全部路径映射)
+                 候选元素为 (mtime, 代表路径, 大小字节, inode 键)，按 mtime 升序
+        """
+        now = time.time()
+        files: List[Tuple[float, str, int, Tuple[int, int]]] = []
+        ino_paths: Dict[Tuple[int, int], List[str]] = {}
+        seen_ino: set = set()
+        for target in (self._active_dirs or self._target_dirs):
+            for root, dirs, fnames in os.walk(target):
+                # 排除 DSM 系统目录（@eaDir/@tmp/@SynoFinder/@Recently-Snapshot 等）
+                # 与回收站 #recycle，避免把 0 字节系统文件纳入清理候选
+                dirs[:] = [d for d in dirs if not d.startswith("@") and d != "#recycle"]
+                for fname in fnames:
+                    if any(self._match_pattern(fname, pat) for pat in patterns):
+                        continue
+                    fpath = os.path.join(root, fname)
+                    try:
+                        # lstat：不跟随符号链接，symlink 会被下面的 S_ISREG 排除
+                        st = os.lstat(fpath)
+                    except OSError:
+                        continue
+                    if not stat.S_ISREG(st.st_mode):
+                        # 跳过 symlink/目录/设备文件/fifo 等非普通文件
+                        continue
+                    key = (st.st_dev, st.st_ino)
+                    # 先登记路径映射（不受保护期影响），确保双侧都能被识别到
+                    paths = ino_paths.setdefault(key, [])
+                    if fpath not in paths:
+                        paths.append(fpath)
+                    if key in seen_ino:
+                        continue
+                    if now - st.st_mtime < recent_secs:
+                        continue
+                    seen_ino.add(key)
+                    files.append((st.st_mtime, fpath, st.st_size, key))
+        files.sort(key=lambda x: x[0])
+        return files, ino_paths
+
+    def _delete_one(self, fpath: str, key: Tuple[int, int]) -> int:
+        """
+        删除同一 inode 在所有配置目录内的全部路径（硬链接两侧一并删除）。
+
+        三层安全边界，任一不满足即跳过该路径：
+        1. 词法校验：路径必须落在某个配置目录内
+        2. inode 复核：``lstat`` 确认仍是普通文件且 inode 未变
+           （防止遍历之后下载器重建了同名文件，删错新文件）
+        3. realpath 校验：解析符号链接后仍须在配置目录内，杜绝链接逃逸
+
+        :param fpath: 代表路径（仅在索引缺失时作为兜底）
+        :param key: 文件身份 (st_dev, st_ino)
+        :return: 成功 unlink 的路径数
+        """
+        removed = 0
+        for path in self._ino_paths.get(key, [fpath]):
+            # 边界①：必须在配置目录内
+            if not self._path_under_any(path):
+                logger.warning("【保种空间守护】跳过配置目录外的路径：%s", path)
+                continue
+            try:
+                st = os.lstat(path)
+            except FileNotFoundError:
+                # 已不存在（可能被其它进程删除），视为已处理
+                removed += 1
+                continue
+            except OSError as err:
+                logger.warning("【保种空间守护】无法读取 %s：%s", path, err)
+                continue
+            # 边界②：仍是普通文件且 inode 未变
+            if not stat.S_ISREG(st.st_mode):
+                logger.warning("【保种空间守护】跳过非普通文件：%s", path)
+                continue
+            if (st.st_dev, st.st_ino) != key:
+                logger.warning("【保种空间守护】inode 已变化，跳过（文件可能被重建）：%s", path)
+                continue
+            # 边界③：realpath 不得越界
+            if not self._path_under_any(os.path.realpath(path)):
+                logger.warning("【保种空间守护】realpath 越界，跳过：%s", path)
+                continue
+            try:
+                os.unlink(path)
+                removed += 1
+                # 删除后清理可能遗留的空目录（保护配置目录本身）
+                self._prune_empty_dirs(path)
+            except OSError as err:
+                logger.warning("【保种空间守护】删除文件 %s 失败：%s", path, err)
+        return removed
+
+    def _clean_by_file(self, free_bytes: int, dry_run: bool) -> Tuple[int, float, List[str]]:
+        """
+        仅文件清理：按文件修改时间从旧到新删除配置目录内文件，
         直到剩余空间恢复到阈值以上。
 
-        真实删除采用「按缺口预选 → 删除 → 等待联动释放 → 复核」的分轮策略：
-        下载目录文件与媒体库文件常为同一 inode 的硬链接，os.remove 只删除一侧
-        引用，空间需等「源文件联动清理」插件删除媒体库侧链接后才真正回收，
-        因此删除前先按当前缺口预选文件清单（名义累计 ≥ 缺口），删除后等待
-        联动释放再实测空间，未达标才按新缺口补删下一轮。
+        下载目录与媒体库目录中的同名文件常为同一 inode 的硬链接：只删一侧空间
+        不会释放。因此本方法按 ``(st_dev, st_ino)`` 识别硬链接并**两侧一并删除**，
+        无需依赖「源文件联动清理」等插件。
 
-        :param free_gb: 当前剩余空间（GB）
+        真实删除采用「按缺口预选 → 删除 → 等待释放 → 复核」的分轮策略：
+        删除后轮询等待空间真正回收，再实测空间决定是否按新缺口补删下一轮。
+        若空间几乎未释放（如仍有配置目录外的硬链接、或 Btrfs 快照占用），
+        立即停止并告警，宁可空间不足也不过量删除。
+
+        :param free_bytes: 当前剩余空间（字节）
         :param dry_run: 是否试运行
         :return: （处理数，预计/实际释放 GB，明细行）
         """
         patterns = [p.strip() for p in re.split(r"[,|，]", self._protect_pattern) if p.strip()]
         recent_secs = self._recent_skip_days * 86400
-        now = time.time()
-        files: List[Tuple[float, str, int]] = []
-        for root, dirs, fnames in os.walk(self._target_dir):
-            # 排除 DSM 系统目录（@eaDir/@tmp/@SynoFinder/@Recently-Snapshot 等）与回收站
-            # #recycle，避免把 0 字节系统文件（如 SYNOINDEX_MEDIA_INFO）纳入清理候选
-            dirs[:] = [d for d in dirs if not d.startswith("@") and d != "#recycle"]
-            for fname in fnames:
-                if any(self._match_pattern(fname, pat) for pat in patterns):
-                    continue
-                fpath = os.path.join(root, fname)
-                try:
-                    st = os.stat(fpath)
-                except OSError:
-                    continue
-                if now - st.st_mtime < recent_secs:
-                    continue
-                files.append((st.st_mtime, fpath, st.st_size))
-        files.sort(key=lambda x: x[0])
+        files, ino_paths = self._index_files(patterns, recent_secs)
+        self._ino_paths = ino_paths
 
         detail_lines: List[str] = []
         deleted = 0
@@ -801,81 +1055,121 @@ class SeedSpaceGuard(_PluginBase):
 
         # 试运行：空间不会真正释放，用累计文件大小模拟释放量判断是否达标
         if dry_run:
-            est_free = float(free_gb)
-            for mtime, fpath, size in files:
+            est_free = free_bytes / GIB
+            for mtime, fpath, size, key in files:
                 if est_free >= self._threshold_gb:
                     break
                 mtime_text = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d")
+                linked = ino_paths.get(key, [fpath])
+                side_note = f"，含 {len(linked)} 处硬链接" if len(linked) > 1 else ""
                 detail_lines.append(
-                    f"[试运行] 将删除文件：{fpath}（修改于 {mtime_text}，"
-                    f"{round(size / (1024 ** 3), 1)}GB）"
+                    f"[试运行] 将删除：{fpath}（修改于 {mtime_text}，"
+                    f"{round(size / GIB, 1)}GB{side_note}）"
                 )
                 logger.info("【保种空间守护】%s", detail_lines[-1])
                 deleted += 1
-                released_gb += size / (1024 ** 3)
-                est_free += size / (1024 ** 3)
+                released_gb += size / GIB
+                est_free += size / GIB
             return deleted, round(released_gb, 1), detail_lines
 
-        # 真实删除：分轮按缺口预选文件并删除，等待源文件联动清理释放媒体库侧
-        # 硬链接（空间才会真正回收）后复核，达标或候选耗尽即止
+        # 真实删除：分轮按缺口预选文件并删除，等待空间真正回收后复核，
+        # 达标或候选耗尽即止；出现「删了也不释放」的硬信号则立即停止
         idx = 0
+        stall = 0
         while True:
-            free_now = self._disk_free_gb() or free_gb
-            if free_now >= self._threshold_gb:
+            free_now = self._disk_free_bytes()
+            free_now = free_bytes if free_now is None else free_now
+            if free_now >= self._threshold_gb * GIB:
                 break
             # 本轮按缺口预选文件：从最旧开始累计名义大小达到缺口即止
-            gap_gb = max(1, self._threshold_gb - free_now)
-            target_bytes = gap_gb * (1024 ** 3)
-            plan: List[Tuple[float, str, int]] = []
+            gap_bytes = max(GIB, self._threshold_gb * GIB - free_now)
+            plan: List[Tuple[float, str, int, Tuple[int, int]]] = []
             planned_bytes = 0.0
             while idx < len(files):
                 item = files[idx]
                 idx += 1
                 plan.append(item)
                 planned_bytes += float(item[2])
-                if planned_bytes >= target_bytes:
+                if planned_bytes >= gap_bytes:
                     break
             if not plan:
                 # 候选耗尽仍未达标，结束
                 break
-            for mtime, fpath, size in plan:
-                try:
-                    os.remove(fpath)
-                except OSError as err:
-                    logger.warning("【保种空间守护】删除文件 %s 失败：%s", fpath, err)
+            for mtime, fpath, size, key in plan:
+                removed = self._delete_one(fpath, key)
+                if removed <= 0:
                     continue
                 deleted += 1
-                released_gb += size / (1024 ** 3)
+                released_gb += size / GIB
                 mtime_text = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d")
-                detail_lines.append(f"已删除文件：{fpath}（修改于 {mtime_text}）")
+                linked = self._ino_paths.get(key, [fpath])
+                side_note = f"，连同 {len(linked) - 1} 处硬链接一并删除" if len(linked) > 1 else ""
+                detail_lines.append(
+                    f"已删除文件：{fpath}（修改于 {mtime_text}{side_note}）"
+                )
                 logger.info("【保种空间守护】%s", detail_lines[-1])
-                # 删除文件后清理可能遗留的空目录（保护 target_dir 本身）
-                self._prune_empty_dirs(fpath)
-            # 等待源文件联动清理插件删除媒体库侧硬链接后再复核空间
+            # 轮询等待空间释放（达标提前退出），再复核
             logger.info(
-                "【保种空间守护】本轮已删除 %d 个文件，等待 %d 秒联动释放后复核空间…",
+                "【保种空间守护】本轮已删除 %d 个文件，等待空间释放（最长 %d 秒）后复核…",
                 len(plan), self._sync_wait_seconds,
             )
-            time.sleep(self._sync_wait_seconds)
+            released_bytes = self._wait_for_release(free_now, int(planned_bytes))
+            if not self._release_is_healthy(released_bytes, int(planned_bytes)):
+                stall += 1
+                if released_bytes <= 0 or stall >= MAX_STALL_ROUNDS:
+                    warn = (
+                        f"删除 {len(plan)} 个文件后空间未按预期释放"
+                        f"（预期 {planned_bytes / GIB:.1f}GB，"
+                        f"实测 {released_bytes / GIB:.1f}GB），"
+                        f"可能存在快照引用，或该文件的其它硬链接不在配置目录内。"
+                        f"已停止清理以避免过量删除，请检查「保种/清理目录」"
+                        f"是否已包含与之互为硬链接的全部目录"
+                    )
+                    logger.warning("【保种空间守护】%s", warn)
+                    detail_lines.append(warn)
+                    break
         return deleted, round(released_gb, 1), detail_lines
 
     # ============================ 工具方法 ============================
 
+    def _owner_dir_of(self, path: str) -> Optional[str]:
+        """
+        找出路径所属的配置目录（取最长匹配）。
+
+        _parse_dirs 已剔除嵌套目录，因此正常情况下 owner 唯一；这里取最长匹配
+        仅作防御，避免配置被绕过修改后出现歧义。
+
+        :param path: 待判断路径
+        :return: 所属配置目录，不属于任何配置目录时返回 None
+        """
+        owner: Optional[str] = None
+        for target in (self._active_dirs or self._target_dirs):
+            normalized = os.path.normpath(target)
+            if path == normalized or path.startswith(normalized + os.sep):
+                if owner is None or len(normalized) > len(owner):
+                    owner = normalized
+        return owner
+
     def _prune_empty_dirs(self, file_or_dir: str) -> None:
         """
-        自底向上清理删除后遗留的空目录，直到清理目录（target_dir）为止。
+        自底向上清理删除后遗留的空目录，直到所属配置目录为止。
         - 每层先清理 @eaDir 中「已无对应真实文件」的 DSM 索引残片：Synology 不会
           自动回收这些残片，会阻止父目录 rmdir，留下「仅剩 @eaDir」的空壳目录
         - 只删除空目录（os.rmdir 语义，非空目录会抛 OSError 自动停止）
-        - 不删除 target_dir 本身
+        - 不删除配置目录本身
         - 目录已不存在（如下载器删除种子时已顺带清理）则继续向上
 
         :param file_or_dir: 被删除的文件或目录路径，从它所在层开始向上清理
         """
-        target = os.path.normpath(self._target_dir)
-        start = file_or_dir if os.path.isdir(file_or_dir) else os.path.dirname(file_or_dir)
-        current = os.path.normpath(start or "")
-        while current and current != target and current.startswith(target + os.sep):
+        start = os.path.normpath(
+            file_or_dir if os.path.isdir(file_or_dir) else os.path.dirname(file_or_dir) or ""
+        )
+        owner = self._owner_dir_of(start)
+        if not owner:
+            # 不属于任何配置目录，不动它
+            return
+        current = start
+        while current and current != owner and current.startswith(owner + os.sep):
             # 先清 DSM 索引残片，否则仅剩 @eaDir 的目录永远无法 rmdir
             self._purge_syno_index(current)
             try:
@@ -887,11 +1181,8 @@ class SeedSpaceGuard(_PluginBase):
                 # 目录仍有内容（未删除文件或不可清理的残片），停止向上清理
                 break
             current = os.path.dirname(current)
-        # 目标目录本身不删除，但其内部的索引残片同样会长期堆积，需一并清理
-        # （仅在目标目录之外无须处理时仍会执行；超出 target_dir 的路径不动）
-        start_path = os.path.normpath(start or "")
-        if start_path == target or start_path.startswith(target + os.sep):
-            self._purge_syno_index(target)
+        # 配置目录本身不删除，但其内部的索引残片同样会长期堆积，需一并清理
+        self._purge_syno_index(owner)
 
     # ---------------------- DSM 索引残片清理 ----------------------
 
@@ -990,6 +1281,44 @@ class SeedSpaceGuard(_PluginBase):
         target = os.path.normpath(target_dir).replace("\\", "/")
         return norm == target or norm.startswith(target + "/")
 
+    def _path_under_any(self, path: str, dirs: Optional[List[str]] = None) -> bool:
+        """
+        判断路径是否位于任一配置目录下（安全边界校验用）。
+
+        :param path: 待判断路径
+        :param dirs: 目录列表，默认取当前生效目录
+        :return: 是否在任一目录下
+        """
+        targets = self._active_dirs or dirs or self._target_dirs
+        return any(self._path_under(path, d) for d in targets)
+
+    @staticmethod
+    def _parse_dirs(raw: Any) -> List[str]:
+        """
+        解析多行目录配置为规范化路径列表。
+
+        处理内容：跳过空行与 ``#`` 注释行、normpath 规范化、去重、
+        剔除嵌套目录（父目录已覆盖子目录时丢弃子目录，避免重复遍历与
+        空目录清理时的归属歧义）。
+
+        :param raw: 多行文本（每行一个路径），也兼容单个路径字符串
+        :return: 规范化后的目录列表
+        """
+        seen, dirs = set(), []
+        for line in str(raw or "").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            path = os.path.normpath(line)
+            if path not in seen:
+                seen.add(path)
+                dirs.append(path)
+        # 剔除嵌套：/a 与 /a/b 同时存在时丢弃 /a/b
+        return [
+            d for d in dirs
+            if not any(d != other and d.startswith(other + os.sep) for other in dirs)
+        ]
+
     @staticmethod
     def _match_pattern(fname: str, pattern: str) -> bool:
         """
@@ -1007,7 +1336,9 @@ class SeedSpaceGuard(_PluginBase):
         return {
             "enabled": False,
             "mode": "seed",
-            "target_dir": "/volume1/video/下载",
+            "target_dirs": "/volume1/video/下载",
+            # 兼容字段：旧版单目录配置，升级后由 init_plugin 自动迁移至 target_dirs
+            "target_dir": "",
             "volume_path": "/volume1",
             "threshold_gb": 500,
             "recent_skip_days": 1,
