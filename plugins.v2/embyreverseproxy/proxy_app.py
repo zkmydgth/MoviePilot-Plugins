@@ -55,6 +55,13 @@ def create_app(emby_host: str) -> FastAPI:
         allow_headers=["*"],
     )
 
+    @app.middleware("http")
+    async def path_to_lower_middleware(request: Request, call_next):
+        path = request.scope["path"].lower()
+        if path.startswith(("/emby/", "/items/", "/audio/", "/videos/", "/sync/")):
+            request.scope["path"] = path
+        return await call_next(request)
+
     def _extract_api_key(request: Request) -> str | None:
         """
         从请求中提取 api_key（query 或 X-Emby-Token 头）。
