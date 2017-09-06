@@ -7,7 +7,7 @@ __all__ = [
 
 from re import match as re_match
 from threading import Lock
-from typing import List, Optional, Tuple
+from typing import List, Optional, Set, Tuple
 
 from httpx import Client, RequestError
 
@@ -154,6 +154,46 @@ def _fetch_u115_share_url_from_telegra(telegra_url: str) -> Optional[str]:
         return None
 
 
+def _fetch_u115_share_urls_from_telegra(telegra_url: str) -> List[str]:
+    """
+    拉取 telegra.ph 页面并解析其中的所有 115 分享链接
+
+    :param telegra_url: Telegraph 页面 URL
+    :return: 115 分享 URL 列表
+    """
+    try:
+        client = build_share_page_client()
+        response = client.get(telegra_url, timeout=30)
+        response.raise_for_status()
+        links, _ = extract_cloud_link_urls_from_text(response.text)
+        return _filter_all_u115_urls(links)
+    except RequestError as e:
+        logger.warning(f"【ShareLinks】访问 telegra.ph 失败: {telegra_url}, 错误: {e}")
+        return []
+    except Exception as e:
+        logger.warning(
+            f"【ShareLinks】解析 telegra.ph 页面出错: {telegra_url}, 错误: {e}"
+        )
+        return []
+
+
+def _filter_all_u115_urls(links: List[str]) -> List[str]:
+    """
+    从链接列表中过滤出所有 115 分享 URL，去重并保持顺序
+
+    :param links: 原始链接列表
+    :return: 去重后的 115 URL 列表
+    """
+    normalized = [normalize_share_url_candidate(x) for x in links if x]
+    seen: Set[str] = set()
+    result: List[str] = []
+    for cand in normalized:
+        if cand and re_match(U115_SHARE_URL_MATCH, cand) and cand not in seen:
+            seen.add(cand)
+            result.append(cand)
+    return result
+
+
 class ShareLinkResolver:
     """
     从用户消息中解析 115 / 阿里云分享链接
@@ -210,3 +250,32 @@ class ShareLinkResolver:
                     return resolved
                 continue
         return None
+
+    @staticmethod
+    def extract_all_u115_share_urls_from_text(text: Optional[str]) -> List[str]:
+        """
+        从整段消息文本中提取所有 115 分享链接（支持多行输入）
+
+        :param text: 用户消息全文或命令参数
+        :return: 115 分享 URL 列表，无匹配时为空列表
+        """
+        if not text or not isinstance(text, str):
+            return []
+
+        urls: List[str] = []
+        for m in HTTPS_URL_TOKEN_PATTERN.finditer(text):
+            cand = normalize_share_url_candidate(m.group(0))
+            if not cand:
+                continue
+            if re_match(U115_SHARE_URL_MATCH, cand):
+                urls.append(cand)
+            elif is_telegra_ph_url(cand):
+                urls.extend(_fetch_u115_share_urls_from_telegra(cand))
+
+        seen: Set[str] = set()
+        result: List[str] = []
+        for url in urls:
+            if url not in seen:
+                seen.add(url)
+                result.append(url)
+        return result

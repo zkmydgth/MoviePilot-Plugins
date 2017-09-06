@@ -30,6 +30,7 @@
     "p115_share_strm_config_error": "配置还没齐喵 ~~ MoviePilot地址、115登录和「分享交互生成STRM」本地目录都要配好喵",
     "p115_share_strm_plugin_disabled": "插件总开关没开喵，主人先开一下喵",
     "p115_share_strm_queued": "【115网盘】分享交互生成STRM任务已排队喵，前面大约还有 {pending} 个喵",
+    "p115_share_strm_multi_queued": "共 {count} 个链接一起排队啦喵，前面大约还有 {pending} 个喵",
     "p115_share_strm_done_title": "✅【115网盘】分享交互生成STRM完成啦喵！",
     "p115_share_strm_fail_title": "【115网盘】分享交互生成STRM失败喵",
     "p115_share_strm_fail_text": "{err}",

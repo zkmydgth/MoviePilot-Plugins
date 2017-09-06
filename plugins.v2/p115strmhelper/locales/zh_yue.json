@@ -30,6 +30,7 @@
     "p115_share_strm_config_error": "配置都未整好就想玩？MoviePilot地址、115登录同「分享交互生成STRM」本地目录搞掂先啦！",
     "p115_share_strm_plugin_disabled": "插件都未开，玩咩啊你？",
     "p115_share_strm_queued": "【115网盘】分享交互生成STRM已经入队啦，前面仲有约 {pending} 单排队",
+    "p115_share_strm_multi_queued": "共 {count} 个链接入队啦，前面仲有约 {pending} 单排队",
     "p115_share_strm_done_title": "✅【115网盘】分享交互生成STRM搞掂啦～",
     "p115_share_strm_fail_title": "【115网盘】分享交互生成STRM扑街啦",
     "p115_share_strm_fail_text": "{err}",

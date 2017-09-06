@@ -30,6 +30,7 @@
     "p115_share_strm_config_error": "墙没砌好！先去配 MoviePilot、115登录和「分享交互生成STRM」本地目录",
     "p115_share_strm_plugin_disabled": "工地没开工（插件没开）",
     "p115_share_strm_queued": "【115网盘】分享交互STRM已码进队列，前面还堆着约 {pending} 垛砖",
+    "p115_share_strm_multi_queued": "共 {count} 垛砖已码进队列，前面还堆着约 {pending} 垛砖",
     "p115_share_strm_done_title": "✅【115网盘】分享交互STRM砌完啦！",
     "p115_share_strm_fail_title": "【115网盘】分享交互STRM塌了",
     "p115_share_strm_fail_text": "{err}",

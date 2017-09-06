@@ -30,6 +30,7 @@
     "p115_share_strm_config_error": "設定錯誤！請先設定 MoviePilot 位址、115 登入與「分享互動生成STRM」本機目錄",
     "p115_share_strm_plugin_disabled": "外掛未啟用",
     "p115_share_strm_queued": "【115網盤】分享互動生成 STRM 已加入佇列（目前排隊約 {pending} 個）",
+    "p115_share_strm_multi_queued": "共 {count} 個連結已加入佇列（目前排隊約 {pending} 個）",
     "p115_share_strm_done_title": "✅【115網盤】分享互動生成 STRM 完成",
     "p115_share_strm_fail_title": "【115網盤】分享互動生成 STRM 失敗",
     "p115_share_strm_fail_text": "{err}",

@@ -1656,8 +1656,8 @@ class P115StrmHelper(_PluginBase):
             )
             return
 
-        share_u115 = ShareLinkResolver.extract_u115_share_url_from_text(args)
-        if not share_u115:
+        share_urls = ShareLinkResolver.extract_all_u115_share_urls_from_text(args)
+        if not share_urls:
             if ShareLinkResolver.extract_share_url_from_text(args):
                 post_message(
                     channel=channel,
@@ -1684,10 +1684,24 @@ class P115StrmHelper(_PluginBase):
             )
             return
 
-        servicer.share_interactive_gen_strm_queue.enqueue_and_notify_user(
-            share_url=share_u115,
+        pending = 0
+        for share_url in share_urls:
+            pending = servicer.share_interactive_gen_strm_queue.enqueue(
+                share_url=share_url,
+                channel=channel,
+                source=source,
+                userid=userid,
+            )
+
+        post_message(
             channel=channel,
             source=source,
+            title=i18n.translate("p115_share_strm_done_title"),
+            text=i18n.translate(
+                "p115_share_strm_multi_queued",
+                count=len(share_urls),
+                pending=pending,
+            ),
             userid=userid,
         )
 
