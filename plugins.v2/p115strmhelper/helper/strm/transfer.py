@@ -2,7 +2,7 @@ from pathlib import Path
 from typing import Dict, Union
 
 from p115client import P115Client
-from p115client.tool.attr import get_id_to_path, get_attr
+from p115client.tool.attr import get_attr
 
 from app.chain.storage import StorageChain
 from app.core.context import MediaInfo
@@ -217,22 +217,9 @@ class TransferStrmHelper:
                 mediaservers=configer.transfer_monitor_mediaservers,
             )
             try:
-                try:
-                    file_id = get_id_to_path(
-                        client=client,
-                        path=item_dest_path,
-                        **configer.get_ios_ua_app(app=False),
-                    )
-                except KeyError:
-                    file_id = get_id_to_path(
-                        client=client,
-                        path=item_dest_path,
-                        refresh=True,
-                        **configer.get_ios_ua_app(app=False),
-                    )
                 item = get_attr(
                     client=client,
-                    id=file_id,
+                    id=item_dest_pickcode,
                     skim=True,
                     **configer.get_ios_ua_app(app=False),
                 )
