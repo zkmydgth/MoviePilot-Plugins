@@ -1,25 +1,29 @@
-import time
-import threading
 import hashlib
-from typing import Optional, Union
-from pathlib import Path
+import threading
+import time
 from datetime import datetime, timezone
+from pathlib import Path
+from time import sleep
+from typing import Optional, Union
 
-import requests
 import oss2
+import requests
 from oss2 import SizedFileAdapter, determine_part_size
 from oss2.models import PartInfo
+from p115client import P115Client
 from tqdm import tqdm
 
 from app import schemas
-from app.log import logger
-from app.helper.storage import StorageHelper
 from app.chain.storage import StorageChain
-from app.utils.string import StringUtils
+from app.helper.storage import StorageHelper
+from app.log import logger
 from app.schemas import NotificationType
+from app.utils.string import StringUtils
 
 from ..core.config import configer
 from ..core.message import post_message
+from ..core.cache import idpathcacher
+from ..db_manager.oper import FileDbHelper
 from ..utils.oopserver import OOPServerRequest
 from ..utils.sentry import sentry_manager
 
@@ -51,6 +55,8 @@ class U115OpenHelper:
         self.fail_upload_count = 0
 
         self.oopserver_request = OOPServerRequest(max_retries=3, backoff_factor=1.0)
+        self.databasehelper = FileDbHelper()
+        self.cookie_client = P115Client(configer.cookie)
 
     def _init_session(self):
         """
@@ -697,3 +703,191 @@ class U115OpenHelper:
         )
         # 返回结果
         return self._delay_get_item(target_path)
+
+    def create_folder(
+        self, parent_item: schemas.FileItem, name: str
+    ) -> Optional[schemas.FileItem]:
+        """
+        创建目录
+        """
+        new_path = Path(parent_item.path) / name
+        resp = self._request_api(
+            "POST",
+            "/open/folder/add",
+            data={"pid": int(parent_item.fileid or "0"), "file_name": name},
+        )
+        if not resp:
+            return None
+        if not resp.get("state"):
+            if resp.get("code") == 20004:
+                # 目录已存在
+                return self.get_item(new_path)
+            logger.warn(f"【P115Open】创建目录失败: {resp.get('error')}")
+            return None
+        return schemas.FileItem(
+            storage="u115",
+            fileid=str(resp["data"]["file_id"]),
+            path=str(new_path) + "/",
+            name=name,
+            basename=name,
+            type="dir",
+            modify_time=int(time.time()),
+        )
+
+    def open_get_item(self, path: Path) -> Optional[schemas.FileItem]:
+        """
+        获取指定路径的文件/目录项 OpenAPI
+        """
+        try:
+            resp = self._request_api(
+                "POST", "/open/folder/get_info", "data", data={"path": path.as_posix()}
+            )
+            if not resp:
+                return None
+            return schemas.FileItem(
+                storage="u115",
+                fileid=str(resp["file_id"]),
+                path=path.as_posix() + ("/" if resp["file_category"] == "0" else ""),
+                type="file" if resp["file_category"] == "1" else "dir",
+                name=resp["file_name"],
+                basename=Path(resp["file_name"]).stem,
+                extension=Path(resp["file_name"]).suffix[1:]
+                if resp["file_category"] == "1"
+                else None,
+                pickcode=resp["pick_code"],
+                size=resp["size_byte"] if resp["file_category"] == "1" else None,
+                modify_time=resp["utime"],
+            )
+        except Exception as e:
+            logger.debug(f"【P115Open】OpenAPI 获取文件信息失败: {str(e)}")
+            return None
+
+    def database_get_item(self, path: Path) -> Optional[schemas.FileItem]:
+        """
+        获取指定路径的文件/目录项 DataBase
+        """
+        try:
+            data = self.databasehelper.get_by_path(path=path.as_posix())
+            if data:
+                if data.get("id", None):
+                    return schemas.FileItem(
+                        storage="u115",
+                        fileid=str(data.get("id")),
+                        path=path.as_posix()
+                        + ("/" if data.get("type") == "folder" else ""),
+                        type="file" if data.get("type") == "file" else "dir",
+                        name=data.get("name"),
+                        basename=Path(data.get("name")).stem,
+                        extension=Path(data.get("name")).suffix[1:]
+                        if data.get("type") == "file"
+                        else None,
+                        pickcode=data.get("pickcode"),
+                        size=data.get("size") if data.get("type") == "file" else None,
+                        modify_time=data.get("mtime"),
+                    )
+            return None
+        except Exception as e:
+            logger.debug(f"【P115Open】DataBase 获取文件信息失败: {str(e)}")
+            return None
+
+    def cookie_get_item(self, path: Path) -> Optional[schemas.FileItem]:
+        """
+        获取指定路径的目录项 Cookie
+
+        1. 缓存读取 ｜ Cookie 接口获取目录 ID
+        2. 获取文件详细信息
+        """
+        try:
+            if path.name != path.stem:
+                return None
+            cache_id = idpathcacher.get_id_by_dir(directory=path.as_posix())
+            if cache_id:
+                folder_id = cache_id
+            else:
+                payload = {
+                    "path": path.as_posix(),
+                }
+                resp = self.cookie_client.fs_dir_getid(payload)
+                if not resp.get("state", None):
+                    return None
+                folder_id = resp.get("id", None)
+                if not folder_id:
+                    return None
+            sleep(1)
+            resp = self.cookie_client.fs_file(folder_id)
+            if not resp.get("state", None):
+                return None
+            data: list = resp.get("data", [])
+            if not data:
+                return None
+            data: dict = data[0]
+            self.databasehelper.upsert_batch(
+                self.databasehelper.process_fs_files_item(data)
+            )
+            return schemas.FileItem(
+                storage="u115",
+                fileid=str(data.get("cid")),
+                path=path.as_posix() + "/",
+                type="dir",
+                name=data.get("n"),
+                basename=Path(data.get("n")).stem,
+                extension=None,
+                pickcode=data.get("pc"),
+                size=None,
+                modify_time=data.get("t"),
+            )
+        except Exception as e:
+            logger.debug(f"【P115Open】Cookie 获取文件夹信息失败: {str(e)}")
+            return None
+
+    def get_item(self, path: Path) -> Optional[schemas.FileItem]:
+        """
+        获取指定路径的文件/目录项
+
+        1. 数据库获取
+        2. Cookie 接口缓存获取
+        3. OpenAPI 接口获取
+        """
+        db_item = self.database_get_item(path)
+        if db_item:
+            return db_item
+        ck_item = self.cookie_get_item(path)
+        if ck_item:
+            return ck_item
+        return self.open_get_item(path)
+
+    def get_folder(self, path: Path) -> Optional[schemas.FileItem]:
+        """
+        获取指定路径的文件夹，如不存在则创建
+        """
+
+        def __find_dir(
+            _fileitem: schemas.FileItem, _name: str
+        ) -> Optional[schemas.FileItem]:
+            """
+            查找下级目录中匹配名称的目录
+            """
+            for sub_folder in self.list(_fileitem):
+                if sub_folder.type != "dir":
+                    continue
+                if sub_folder.name == _name:
+                    return sub_folder
+            return None
+
+        # 是否已存在
+        folder = self.get_item(path)
+        if folder:
+            return folder
+        # 逐级查找和创建目录
+        fileitem = schemas.FileItem(storage="u115", path="/")
+        for part in path.parts[1:]:
+            dir_file = __find_dir(fileitem, part)
+            if dir_file:
+                fileitem = dir_file
+            else:
+                dir_file = self.create_folder(fileitem, part)
+                if not dir_file:
+                    logger.warn(f"【P115Open】创建目录 {fileitem.path}{part} 失败！")
+                    return None
+                fileitem = dir_file
+        return fileitem
