@@ -1937,13 +1937,11 @@ class P115StrmHelper(_PluginBase):
                 continue
             if overwrite_mode == "fill_missing":
                 cur = data.rename_dict.get(key)
-                if cur is None:
-                    pass
-                elif isinstance(cur, str):
+                if isinstance(cur, str):
                     cur_stripped = cur.strip()
-                    if cur_stripped and (key != "audioCodec" or re_search(r"\d+\.\d+", cur_stripped)):
+                    if cur_stripped and (key != "audioCodec" or re_search(r"(?:^|\s)\d+\.\d+$", cur_stripped)):
                         continue
-                else:
+                elif cur is not None:
                     continue
             data.rename_dict[key] = value
 

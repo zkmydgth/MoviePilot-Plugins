@@ -764,7 +764,7 @@ class FFprobeNamingSupplement(_PluginBase):
             cur_stripped = cur.strip()
             if not cur_stripped:
                 return True
-            if key == "audioCodec" and not re_search(r"\d+\.\d+", cur_stripped):
+            if key == "audioCodec" and not re_search(r"(?:^|\s)\d+\.\d+$", cur_stripped):
                 return True
         return False
 
