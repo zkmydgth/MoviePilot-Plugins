@@ -574,9 +574,11 @@ const loadConfig = async () => {
   }
 };
 
-const loadPendingPathsPage = async () => {
+const loadPendingPathsPage = async ({ soft = false } = {}) => {
   if (!pendingPaths.requestId) return;
-  pendingPaths.loading = true;
+  if (!soft || pendingPaths.paths.length === 0) {
+    pendingPaths.loading = true;
+  }
   try {
     const qs = new URLSearchParams({
       request_id: pendingPaths.requestId,
@@ -603,8 +605,10 @@ const loadPendingPathsPage = async () => {
   }
 };
 
-const loadPending = async () => {
-  pendingLoading.value = true;
+const loadPending = async ({ soft = false } = {}) => {
+  if (!soft || shareBatches.value.length === 0) {
+    pendingLoading.value = true;
+  }
   try {
     const res = await props.api.get(`plugin/${props.pluginId}/share_strm_cleanup_pending`);
     if (res && res.code === 0 && res.data && Array.isArray(res.data.batches)) {
@@ -614,10 +618,13 @@ const loadPending = async () => {
     }
     if (shareBatches.value.length > 0) {
       const b = shareBatches.value[0];
+      const prevId = pendingPaths.requestId;
       pendingPaths.requestId = b.request_id;
-      pendingPaths.page = 1;
+      if (prevId !== b.request_id) {
+        pendingPaths.page = 1;
+      }
       pendingPaths.limit = pendingPaths.limit || 25;
-      await loadPendingPathsPage();
+      await loadPendingPathsPage({ soft });
     } else {
       pendingPaths.requestId = '';
       pendingPaths.paths = [];
@@ -654,8 +661,10 @@ const onPendingPathsLimitChange = () => {
   loadPendingPathsPage();
 };
 
-const loadMissing = async () => {
-  missingLoading.value = true;
+const loadMissing = async ({ soft = false } = {}) => {
+  if (!soft || missingItems.value.length === 0) {
+    missingLoading.value = true;
+  }
   try {
     const qs = new URLSearchParams({
       page: String(missingPage.value),
@@ -688,7 +697,11 @@ const refreshAll = async () => {
   refreshing.value = true;
   try {
     await loadConfig();
-    await Promise.all([loadPending(), loadSummary(), loadMissing()]);
+    await Promise.all([
+      loadPending({ soft: true }),
+      loadSummary(),
+      loadMissing({ soft: true }),
+    ]);
     showSnack('已刷新', 'success');
   } catch (e) {
     showSnack(e.message || '刷新失败', 'error');
