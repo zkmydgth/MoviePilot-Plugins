@@ -7,7 +7,7 @@
     "p115_strm_start_sync": "開始 {paths} 全量同步...",
     "full_sync_done_title": "✅【115網盤】全量生成 STRM 檔案完成",
     "p115_search_config_error": "設定錯誤！請先進入插件介面設定頻道搜尋",
-    "p115_search_parameter_error": "參數錯誤！ /search 搜尋關鍵字",
+    "p115_search_parameter_error": "參數錯誤！ /sh 搜尋關鍵字",
     "p115_add_share_parameter_error": "參數錯誤！ /p115_add_share 分享連結",
     "p115_add_offline_parameter_error": "參數錯誤！ /ol 連結",
     "p115_add_offline_success": "新增離線下載任務成功！",

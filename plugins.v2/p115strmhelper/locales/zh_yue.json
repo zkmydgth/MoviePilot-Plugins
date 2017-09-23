@@ -7,7 +7,7 @@
     "p115_strm_start_sync": "开始搞你 {paths} 嘅全量数据啦～坐低，饮杯茶等吓！",
     "full_sync_done_title": "✅ 搞掂啦屌你！【115网盘】全量 STRM 文件生成完成，叻个头！",
     "p115_search_config_error": "咩料啊？未设频道搜索你就 search，你想我扑你咩？",
-    "p115_search_parameter_error": "参数都唔识打，/search 后面加关键字啦戇居！",
+    "p115_search_parameter_error": "参数都唔识打，/sh 后面加关键字啦戇居！",
     "p115_add_share_parameter_error": "冇脑啊你？/p115_add_share 后面要跟链接啦！",
     "p115_add_offline_parameter_error": "成日甩漏！/ol 后面唔加链接你搞咩啊？",
     "p115_add_offline_success": "正啦！离线任务加咗落去，饮杯茶等完成啦！",

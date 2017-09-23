@@ -46,10 +46,11 @@
                 <v-col cols="12" md="8">
                   <v-select v-model="config.language" label="通知语言" :items="[
                     { title: '简体中文', value: 'zh_CN' },
-                    { title: '简中猫娘', value: 'zh_CN_catgirl' },
                     { title: '繁中台湾', value: 'zh_TW' },
                     { title: '繁中港澳', value: 'zh_HK' },
-                    { title: '粤韵风华', value: 'zh_yue' }
+                    { title: '柔情猫娘', value: 'zh_CN_catgirl' },
+                    { title: '粤韵风华', value: 'zh_yue' },
+                    { title: '咚咚搬砖', value: 'zh_CN_dong' }
                   ]" chips closable-chips></v-select>
                 </v-col>
               </v-row>
