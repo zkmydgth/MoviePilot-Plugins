@@ -69,13 +69,16 @@ class CloudDriveDisk(_PluginBase):
     _scheduler: Optional[BackgroundScheduler] = None
 
     def __init__(self) -> None:
+        """
+        初始化插件实例
+        """
         super().__init__()
 
     def init_plugin(self, config: Optional[Dict] = None) -> None:
         """
         初始化插件
 
-        :param config: 插件配置
+        :param config (Dict): 插件配置
         """
         if not config:
             return
@@ -220,6 +223,8 @@ class CloudDriveDisk(_PluginBase):
     def get_state(self) -> bool:
         """
         返回插件是否已启用
+
+        :return bool: 插件启用状态
         """
         return self._enabled
 
@@ -240,7 +245,7 @@ class CloudDriveDisk(_PluginBase):
         """
         发送通知
 
-        :param msg: 通知内容
+        :param msg (str): 通知内容
         """
         mtype = NotificationType.Manual
         if self._msgtype:
@@ -259,7 +264,7 @@ class CloudDriveDisk(_PluginBase):
         """
         重启CloudDrive2
 
-        :param event: 事件对象
+        :param event (Event): 事件对象
         """
         if event:
             event_data = event.event_data
@@ -285,7 +290,7 @@ class CloudDriveDisk(_PluginBase):
         """
         离线下载
 
-        :param event: 事件对象
+        :param event (Event): 事件对象
         """
         if event:
             event_data = event.event_data
@@ -339,7 +344,7 @@ class CloudDriveDisk(_PluginBase):
         """
         获取CloudDrive2信息
 
-        :param event: 事件对象
+        :param event (Event): 事件对象
         """
         if event:
             event_data = event.event_data
@@ -371,9 +376,10 @@ class CloudDriveDisk(_PluginBase):
         """
         homepage自定义api
 
-        :param apikey: API密钥
-        :param name: 配置名称（unused，保持兼容）
-        :return: 系统信息字典或错误响应
+        :param apikey (str): API密钥
+        :param name (str): 配置名称（unused，保持兼容）
+
+        :return Any: 系统信息字典或错误响应
         """
         if apikey != settings.API_TOKEN:
             return Response(success=False, message="API密钥错误")
@@ -386,7 +392,7 @@ class CloudDriveDisk(_PluginBase):
         """
         返回插件远程命令列表
 
-        :return: /cd2_restart、/cd2_info、/cd 命令
+        :return List: /cd2_restart、/cd2_info、/cd 命令
         """
         return [
             {
@@ -416,7 +422,7 @@ class CloudDriveDisk(_PluginBase):
         """
         返回插件 API 端点列表
 
-        :return: homepage 自定义 API
+        :return List: homepage 自定义 API
         """
         return [
             {
@@ -432,7 +438,7 @@ class CloudDriveDisk(_PluginBase):
         """
         拼装插件配置页面
 
-        :return: (页面配置列表, 表单默认值字典)
+        :return Tuple: (页面配置列表, 表单默认值字典)
         """
         # 编历 NotificationType 枚举，生成消息类型选项
         MsgTypeOptions = []
@@ -824,7 +830,7 @@ class CloudDriveDisk(_PluginBase):
         """
         拼装插件详情页面
 
-        :return: CloudDrive2 仪表盘页面配置，含系统状态卡片
+        :return List: CloudDrive2 仪表盘页面配置，含系统状态卡片
         """
         if not self._client:
             return []
@@ -1354,6 +1360,8 @@ class CloudDriveDisk(_PluginBase):
     def get_module(self) -> Dict[str, Any]:
         """
         返回储存模块能力映射
+
+        :return Dict: 储存操作函数映射字典
         """
         return {
             "list_files": self.list_files,
@@ -1377,7 +1385,7 @@ class CloudDriveDisk(_PluginBase):
         """
         监听储存选择事件，当所选储存为本插件时注入 storage_oper 为 CloudDriveApi
 
-        :param event: 事件对象，event.event_data 含 storage、storage_oper
+        :param event (Event): 事件对象，event.event_data 含 storage、storage_oper
         """
         if not self._enabled or not self._clouddrive_api:
             return
@@ -1391,9 +1399,10 @@ class CloudDriveDisk(_PluginBase):
         """
         列出目录下文件（及可选递归子目录）
 
-        :param fileitem: 目录或文件项，storage 需为本插件储存名
-        :param recursion: 是否递归列出子目录中的文件
-        :return: 文件项列表；非本储存或未就绪时返回空列表
+        :param fileitem (FileItem): 目录或文件项，storage 需为本插件储存名
+        :param recursion (bool): 是否递归列出子目录中的文件
+
+        :return List: 文件项列表；非本储存或未就绪时返回空列表
         """
         if fileitem.storage != self._disk_name or not self._clouddrive_api:
             return []
@@ -1424,9 +1433,10 @@ class CloudDriveDisk(_PluginBase):
         """
         判断目录（含子目录）下是否存在文件；可限定扩展名
 
-        :param fileitem: 目录项
-        :param extensions: 扩展名列表（如 [".mp4", ".mkv"]），None 表示任意文件
-        :return: 存在返回 True，不存在返回 False；非本储存或未就绪返回 None
+        :param fileitem (FileItem): 目录项
+        :param extensions (list): 扩展名列表（如 [".mp4", ".mkv"]），None 表示任意文件
+
+        :return bool: 存在返回 True，不存在返回 False；非本储存或未就绪返回 None
         """
         if fileitem.storage != self._disk_name or not self._clouddrive_api:
             return None
@@ -1453,9 +1463,10 @@ class CloudDriveDisk(_PluginBase):
         """
         在指定目录下创建文件夹
 
-        :param fileitem: 父目录项
-        :param name: 新文件夹名称
-        :return: 新目录的 FileItem；失败或非本储存时返回 None
+        :param fileitem (FileItem): 父目录项
+        :param name (str): 新文件夹名称
+
+        :return FileItem: 新目录的 FileItem；失败或非本储存时返回 None
         """
         if fileitem.storage != self._disk_name or not self._clouddrive_api:
             return None
@@ -1467,9 +1478,10 @@ class CloudDriveDisk(_PluginBase):
         """
         将云端文件下载到本地
 
-        :param fileitem: 要下载的文件项
-        :param path: 本地保存目录，None 时使用临时目录
-        :return: 本地文件路径；失败或非本储存时返回 None
+        :param fileitem (FileItem): 要下载的文件项
+        :param path (Path): 本地保存目录，None 时使用临时目录
+
+        :return Path: 本地文件路径；失败或非本储存时返回 None
         """
         if fileitem.storage != self._disk_name or not self._clouddrive_api:
             return None
@@ -1484,10 +1496,11 @@ class CloudDriveDisk(_PluginBase):
         """
         将本地文件上传到云端指定目录
 
-        :param fileitem: 目标目录项
-        :param path: 本地文件路径
-        :param new_name: 云端文件名，None 时使用本地文件名
-        :return: 上传成功后的云端文件 FileItem；失败或非本储存时返回 None
+        :param fileitem (FileItem): 目标目录项
+        :param path (Path): 本地文件路径
+        :param new_name (str): 云端文件名，None 时使用本地文件名
+
+        :return FileItem: 上传成功后的云端文件 FileItem；失败或非本储存时返回 None
         """
         if fileitem.storage != self._disk_name or not self._clouddrive_api:
             return None
@@ -1497,8 +1510,9 @@ class CloudDriveDisk(_PluginBase):
         """
         删除云端文件或目录
 
-        :param fileitem: 要删除的文件或目录项
-        :return: 成功返回 True，失败返回 False；非本储存或未就绪返回 None
+        :param fileitem (FileItem): 要删除的文件或目录项
+
+        :return bool: 成功返回 True，失败返回 False；非本储存或未就绪返回 None
         """
         if fileitem.storage != self._disk_name or not self._clouddrive_api:
             return None
@@ -1508,9 +1522,10 @@ class CloudDriveDisk(_PluginBase):
         """
         重命名云端文件或目录
 
-        :param fileitem: 要重命名的项
-        :param name: 新名称
-        :return: 成功返回 True，失败返回 False；非本储存或未就绪返回 None
+        :param fileitem (FileItem): 要重命名的项
+        :param name (str): 新名称
+
+        :return bool: 成功返回 True，失败返回 False；非本储存或未就绪返回 None
         """
         if fileitem.storage != self._disk_name or not self._clouddrive_api:
             return None
@@ -1520,8 +1535,9 @@ class CloudDriveDisk(_PluginBase):
         """
         判断指定路径在云端是否存在
 
-        :param fileitem: 文件或目录项（含 storage、path）
-        :return: 存在返回 True，不存在返回 False；非本储存返回 None
+        :param fileitem (FileItem): 文件或目录项（含 storage、path）
+
+        :return bool: 存在返回 True，不存在返回 False；非本储存返回 None
         """
         if fileitem.storage != self._disk_name:
             return None
@@ -1531,8 +1547,9 @@ class CloudDriveDisk(_PluginBase):
         """
         按文件项获取对应的云端项（用于校验或取详情）
 
-        :param fileitem: 含 storage、path 的文件项
-        :return: 云端 FileItem；不存在或非本储存时返回 None
+        :param fileitem (FileItem): 含 storage、path 的文件项
+
+        :return FileItem: 云端 FileItem；不存在或非本储存时返回 None
         """
         if fileitem.storage != self._disk_name or not self._clouddrive_api:
             return None
@@ -1542,9 +1559,10 @@ class CloudDriveDisk(_PluginBase):
         """
         按储存名与路径获取云端文件或目录项
 
-        :param storage: 储存名称，需为本插件储存名
-        :param path: 云端路径
-        :return: FileItem；不存在或非本储存时返回 None
+        :param storage (str): 储存名称，需为本插件储存名
+        :param path (Path): 云端路径
+
+        :return FileItem: FileItem；不存在或非本储存时返回 None
         """
         if storage != self._disk_name or not self._clouddrive_api:
             return None
@@ -1554,8 +1572,9 @@ class CloudDriveDisk(_PluginBase):
         """
         获取指定文件或目录的父目录项
 
-        :param fileitem: 当前项
-        :return: 父目录 FileItem；非本储存或未就绪时返回 None
+        :param fileitem (FileItem): 当前项
+
+        :return FileItem: 父目录 FileItem；非本储存或未就绪时返回 None
         """
         if fileitem.storage != self._disk_name or not self._clouddrive_api:
             return None
@@ -1571,11 +1590,12 @@ class CloudDriveDisk(_PluginBase):
         """
         对指定目录做快照，收集路径下的文件信息（路径、大小、修改时间等）
 
-        :param storage: 储存名称
-        :param path: 快照根路径
-        :param last_snapshot_time: 仅收录修改时间大于此时间戳的文件，用于增量快照
-        :param max_depth: 最大递归深度
-        :return: 路径到文件信息字典的映射；非本储存或未就绪时返回 None，根路径不存在时返回空字典
+        :param storage (str): 储存名称
+        :param path (Path): 快照根路径
+        :param last_snapshot_time (float): 仅收录修改时间大于此时间戳的文件，用于增量快照
+        :param max_depth (int): 最大递归深度
+
+        :return Dict: 路径到文件信息字典的映射；非本储存或未就绪时返回 None，根路径不存在时返回空字典
         """
         if storage != self._disk_name or not self._clouddrive_api:
             return None
@@ -1619,8 +1639,9 @@ class CloudDriveDisk(_PluginBase):
         """
         获取储存空间用量（总空间、已用、可用）
 
-        :param storage: 储存名称
-        :return: StorageUsage；非本储存或未就绪时返回 None
+        :param storage (str): 储存名称
+
+        :return StorageUsage: StorageUsage；非本储存或未就绪时返回 None
         """
         if storage != self._disk_name or not self._clouddrive_api:
             return None
@@ -1630,8 +1651,9 @@ class CloudDriveDisk(_PluginBase):
         """
         返回该储存支持的整理方式（如移动、复制）及展示名称
 
-        :param storage: 储存名称
-        :return: 如 {"move": "移动", "copy": "复制"}；非本储存或未就绪时返回 None
+        :param storage (str): 储存名称
+
+        :return Dict: 如 {"move": "移动", "copy": "复制"}；非本储存或未就绪时返回 None
         """
         if storage != self._disk_name or not self._clouddrive_api:
             return None

@@ -28,8 +28,9 @@ def escape_apostrophe_in_name(name: str) -> str:
     """
     将名称中的 ASCII 单引号替换为占位串，便于移动前或两步重命名第一步脱敏（针对**源名**）
 
-    :param name: 原始文件名或目录名
-    :return: 替换后的名称
+    :param name (str): 原始文件名或目录名
+
+    :return str: 替换后的名称
     """
 
     return name.replace("'", APOSTROPHE_ESCAPE)
@@ -39,9 +40,10 @@ def _posix_join_parent_name(parent: str, name: str) -> str:
     """
     将父目录路径与末段名称拼接为 POSIX 路径（根目录无双斜杠）
 
-    :param parent: 父目录绝对路径
-    :param name: 文件或目录名
-    :return: 完整路径
+    :param parent (str): 父目录绝对路径
+    :param name (str): 文件或目录名
+
+    :return str: 完整路径
     """
 
     base = (parent or "/").rstrip("/") or "/"
@@ -53,6 +55,11 @@ def _posix_join_parent_name(parent: str, name: str) -> str:
 class UploadStatus(IntEnum):
     """
     上传状态枚举
+
+    Attributes:
+        FINISH: 完成
+        ERROR: 错误
+        FATAL_ERROR: 致命错误
     """
 
     FINISH = 5
@@ -62,7 +69,12 @@ class UploadStatus(IntEnum):
 
 class HashType(IntEnum):
     """
-    Hash 类型，MD5=1, SHA1=2, PIKPAK_SHA1=3
+    Hash 类型
+
+    Attributes:
+        MD5: MD5 哈希
+        SHA1: SHA1 哈希
+        PIKPAK_SHA1: PikPak SHA1 哈希
     """
 
     MD5 = 1
@@ -76,10 +88,11 @@ def _cloudfile_to_fileitem(
     """
     将 proto CloudDriveFile 转为 FileItem
 
-    :param f: proto CloudDriveFile
-    :param disk_name: 磁盘名称
-    :param parent_fileid: 父文件ID
-    :return: FileItem
+    :param f (Any): proto CloudDriveFile
+    :param disk_name (str): 磁盘名称
+    :param parent_fileid (str): 父文件ID
+
+    :return FileItem: 转换后的文件项
     """
     path_str = f.fullPathName or ""
     if f.isDirectory and path_str and not path_str.endswith("/"):
@@ -118,10 +131,12 @@ class CloudDriveApi:
         upload_mode: Literal["remote_upload", "direct_write"] = "direct_write",
     ) -> None:
         """
-        :param client: 已认证的 CloudDrive 客户端
-        :param disk_name: 储存名称，与注册的 storage 一致
-        :param download_base: 下载 URL 基地址
-        :param upload_mode: 上传模式
+        初始化 CloudDrive API 封装
+
+        :param client (CloudDriveClient): 已认证的 CloudDrive 客户端
+        :param disk_name (str): 储存名称，与注册的 storage 一致
+        :param download_base (str): 下载 URL 基地址
+        :param upload_mode (str): 上传模式
         """
         self.client = client
         self._disk_name = disk_name
@@ -133,8 +148,9 @@ class CloudDriveApi:
         """
         列出目录下文件，或单文件则返回包含该文件的列表
 
-        :param fileitem: 目录或文件项
-        :return: FileItem 列表
+        :param fileitem (FileItem): 目录或文件项
+
+        :return List: FileItem 列表
         """
         if fileitem.type == "file":
             item = self.get_item(Path(fileitem.path))
@@ -156,8 +172,9 @@ class CloudDriveApi:
         """
         递归遍历目录，返回扁平文件列表
 
-        :param fileitem: 目录或文件项
-        :return: 所有文件项列表，失败返回 None
+        :param fileitem (FileItem): 目录或文件项
+
+        :return List: 所有文件项列表，失败返回 None
         """
         if fileitem.type == "file":
             item = self.get_item(Path(fileitem.path))
@@ -180,8 +197,9 @@ class CloudDriveApi:
         """
         按路径获取文件或目录项
 
-        :param path: 路径
-        :return: FileItem 或 None
+        :param path (Path): 路径
+
+        :return FileItem: 文件项，未找到返回 None
         """
         path_str = path.as_posix()
         if not path_str or path_str == ".":
@@ -224,8 +242,9 @@ class CloudDriveApi:
         """
         获取父目录项
 
-        :param fileitem: 文件项
-        :return: 父目录项，如果不存在则返回 None
+        :param fileitem (FileItem): 文件项
+
+        :return FileItem: 父目录项，如果不存在则返回 None
         """
         parent_path = Path(fileitem.path).parent
         if parent_path.as_posix() == "." or parent_path.as_posix() == "":
@@ -236,9 +255,10 @@ class CloudDriveApi:
         """
         在指定目录下创建文件夹
 
-        :param fileitem: 父目录项
-        :param name: 新文件夹名
-        :return: 新目录的 FileItem，失败返回 None
+        :param fileitem (FileItem): 父目录项
+        :param name (str): 新文件夹名
+
+        :return FileItem: 新目录的 FileItem，失败返回 None
         """
         parent_path = (fileitem.path or "").rstrip("/") or "/"
         try:
@@ -259,8 +279,9 @@ class CloudDriveApi:
         """
         获取目录，如目录不存在则逐级创建
 
-        :param path: 目录路径
-        :return: 目录文件项，若创建失败则返回 None
+        :param path (Path): 目录路径
+
+        :return FileItem: 目录文件项，若创建失败则返回 None
         """
         normalized = path.as_posix().rstrip("/") or "/"
         if normalized != "/":
@@ -314,9 +335,9 @@ class CloudDriveApi:
         """
         获取文件详情
 
-        :param fileitem: 文件项
+        :param fileitem (FileItem): 文件项
 
-        :return: 包含详细信息的文件项，如果获取失败则返回None
+        :return FileItem: 包含详细信息的文件项，如果获取失败则返回None
         """
         return self.get_item(Path(fileitem.path))
 
@@ -324,8 +345,9 @@ class CloudDriveApi:
         """
         删除文件或目录
 
-        :param fileitem: 文件项
-        :return: 删除成功返回 True，失败返回 False
+        :param fileitem (FileItem): 文件项
+
+        :return bool: 删除成功返回 True，失败返回 False
         """
         try:
             result = self.client.delete_file(fileitem.path)
@@ -338,9 +360,10 @@ class CloudDriveApi:
         """
         若同目录已存在 candidate，则追加随机后缀避免覆盖
 
-        :param parent_dir: 父目录路径
-        :param candidate: 撇号脱敏后的候选名
-        :return: 唯一候选名
+        :param parent_dir (str): 父目录路径
+        :param candidate (str): 撇号脱敏后的候选名
+
+        :return str: 唯一候选名
         """
 
         parent_item = self.get_item(Path(parent_dir))
@@ -365,10 +388,11 @@ class CloudDriveApi:
         """
         在父目录下拼接重命名后的完整路径（目录保留末尾 /）
 
-        :param parent_dir: 父目录路径
-        :param basename: 新末段名
-        :param is_dir: 是否为目录
-        :return: 完整路径
+        :param parent_dir (str): 父目录路径
+        :param basename (str): 新末段名
+        :param is_dir (bool): 是否为目录
+
+        :return str: 完整路径
         """
 
         joined = _posix_join_parent_name(parent_dir, basename)
@@ -386,11 +410,12 @@ class CloudDriveApi:
         """
         列举父目录子项，判断是否已存在指定末段名
 
-        :param parent_str: 父目录绝对路径
-        :param new_basename: 重命名后的末段名
-        :param max_attempts: 最大尝试次数（115 偶发延迟或 RPC 报错后实际已成功）
-        :param delay_s: 两次尝试间隔秒数
-        :return: 子项中存在同名则 True
+        :param parent_str (str): 父目录绝对路径
+        :param new_basename (str): 重命名后的末段名
+        :param max_attempts (int): 最大尝试次数（115 偶发延迟或 RPC 报错后实际已成功）
+        :param delay_s (float): 两次尝试间隔秒数
+
+        :return bool: 子项中存在同名则 True
         """
 
         parent_norm = (parent_str or "/").rstrip("/") or "/"
@@ -410,9 +435,10 @@ class CloudDriveApi:
         """
         重命名并在 API 返回失败时校验路径是否已更新（115/CD2 偶发假失败）
 
-        :param source_path: 当前完整路径
-        :param new_basename: 新名称（仅末段）
-        :return: 成功返回 True
+        :param source_path (str): 当前完整路径
+        :param new_basename (str): 新名称（仅末段）
+
+        :return bool: 成功返回 True
         """
 
         result: Any = None
@@ -463,9 +489,10 @@ class CloudDriveApi:
         若**旧名（源末段）**含撇号：先改为脱敏名再改为 ``name``，避免一步「含撇号旧名 → 其它名」触发的 API 问题
         若 ``name`` 本身含撇号，第二步仍会把它交给 CD2；规避的是**源路径上的撇号**，不是禁止目标名含撇号
 
-        :param fileitem: 文件项
-        :param name: 新名称
-        :return: 重命名成功返回 True，失败返回 False
+        :param fileitem (FileItem): 文件项
+        :param name (str): 新名称
+
+        :return bool: 重命名成功返回 True，失败返回 False
         """
         if name == fileitem.name:
             return True
@@ -507,10 +534,11 @@ class CloudDriveApi:
         若**被移动项当前末段名**含撇号，移动前先脱敏；移动后再 ``rename`` 为 ``new_name``
         ``new_name`` 可含撇号，规避的是**移动时源路径**中的撇号，与最终展示名是否含撇号无关
 
-        :param fileitem: 要移动的文件项
-        :param path: 目标目录路径
-        :param new_name: 移动后的文件名
-        :return: 成功返回 True，失败返回 False
+        :param fileitem (FileItem): 要移动的文件项
+        :param path (Path): 目标目录路径
+        :param new_name (str): 移动后的文件名
+
+        :return bool: 成功返回 True，失败返回 False
         """
         dest_path = (
             Path(path).as_posix().rstrip("/") if path is not None else "/"
@@ -585,10 +613,11 @@ class CloudDriveApi:
         """
         复制文件或目录到目标位置
 
-        :param fileitem: 要复制的文件项
-        :param path: 目标目录路径
-        :param new_name: 复制后的文件名
-        :return: 成功返回 True，失败返回 False
+        :param fileitem (FileItem): 要复制的文件项
+        :param path (Path): 目标目录路径
+        :param new_name (str): 复制后的文件名
+
+        :return bool: 成功返回 True，失败返回 False
         """
         dest_path = (
             Path(path).as_posix().rstrip("/") if path is not None else "/"
@@ -632,9 +661,10 @@ class CloudDriveApi:
         """
         下载文件到本地
 
-        :param fileitem: 文件项
-        :param path: 本地目录，None 则使用临时目录
-        :return: 本地文件路径，失败返回 None
+        :param fileitem (FileItem): 文件项
+        :param path (Path): 本地目录，None 则使用临时目录
+
+        :return Path: 本地文件路径，失败返回 None
         """
         detail = self.get_item(Path(fileitem.path))
         if not detail:
@@ -710,9 +740,10 @@ class CloudDriveApi:
         """
         计算文件 MD5(1)、SHA1(2) 或 PikPakSha1(3)，返回十六进制字符串
 
-        :param path: 文件路径
-        :param hash_type: 哈希类型 (HashType.MD5 / SHA1 / PIKPAK_SHA1)
-        :return: 十六进制字符串（PikPakSha1 为大写，其余小写）
+        :param path (Path): 文件路径
+        :param hash_type (int): 哈希类型 (HashType.MD5 / SHA1 / PIKPAK_SHA1)
+
+        :return str: 十六进制字符串（PikPakSha1 为大写，其余小写）
         """
         if hash_type == HashType.PIKPAK_SHA1:
             return self._compute_pikpak_sha1(path)
@@ -728,8 +759,9 @@ class CloudDriveApi:
         PikPakSha1：按文件大小动态分段，每段 SHA1 后连接再对连接做 SHA1，输出大写十六进制
         分段规则：<=128MiB 用 256KiB；128-256 用 512KiB；256-512 用 1024KiB；>512 用 2048KiB
 
-        :param path: 文件路径
-        :return: 大写十六进制字符串
+        :param path (Path): 文件路径
+
+        :return str: 大写十六进制字符串
         """
         size = path.stat().st_size
         if size <= 128 << 20:
@@ -752,8 +784,9 @@ class CloudDriveApi:
         """
         单遍读取文件同时计算 MD5、SHA1、PikPakSha1
 
-        :param path: 文件路径
-        :return: {HashType.MD5: hex, HashType.SHA1: hex, HashType.PIKPAK_SHA1: hex}
+        :param path (Path): 文件路径
+
+        :return Dict: {HashType.MD5: hex, HashType.SHA1: hex, HashType.PIKPAK_SHA1: hex}
         """
         total_size = path.stat().st_size
         if total_size <= 128 << 20:
@@ -791,11 +824,12 @@ class CloudDriveApi:
         计算文件 MD5 及按 block_size 的每块 MD5（小写十六进制，按序）
         协议要求计算过程中定期上报进度，避免约 60 秒无 RemoteHashProgress 导致会话失效
 
-        :param path: 文件路径
-        :param block_size: 块大小（字节）
-        :param progress_callback: 可选，(bytes_hashed, total_bytes) 回调，建议约 0.25s 节流
-        :param cancelled_ref: 可选，[False] 的列表；若在回调中被设为 [True] 则提前结束
-        :return: (文件 MD5 十六进制, 块 MD5 列表)
+        :param path (Path): 文件路径
+        :param block_size (int): 块大小（字节）
+        :param progress_callback (Callable): 可选，(bytes_hashed, total_bytes) 回调，建议约 0.25s 节流
+        :param cancelled_ref (List): 可选，[False] 的列表；若在回调中被设为 [True] 则提前结束
+
+        :return Tuple: (文件 MD5 十六进制, 块 MD5 列表)
         """
         total_bytes = path.stat().st_size
         file_md5 = hashes.Hash(hashes.MD5())
@@ -823,8 +857,10 @@ class CloudDriveApi:
         """
         包装 gRPC 服务端流，为每条消息添加超时
 
-        :param stream: gRPC 服务端流迭代器
-        :param timeout: 每条消息的超时秒数，默认 300 秒
+        :param stream (Iterator): gRPC 服务端流迭代器
+        :param timeout (int): 每条消息的超时秒数，默认 300 秒
+
+        :return Iterator: 包装后的迭代器
         """
         q: Queue = Queue()
         _SENTINEL = object()
@@ -859,7 +895,7 @@ class CloudDriveApi:
         """
         安全取消远程上传会话，忽略取消过程中的异常
 
-        :param upload_id: StartRemoteUpload 返回的上传会话 ID
+        :param upload_id (str): StartRemoteUpload 返回的上传会话 ID
         """
         try:
             self.client.remote_upload_control_cancel(upload_id)
@@ -879,10 +915,11 @@ class CloudDriveApi:
         - remote_upload: Remote Upload 协议（StartRemoteUpload → RemoteUploadChannel）
         - direct_write: CreateFile/WriteToFile/CloseFile 直写上传，并等待云端上传完成
 
-        :param target_dir: 目标目录 FileItem
-        :param local_path: 本地文件路径
-        :param new_name: 云端文件名，None 则用 local_path.name
-        :return: 上传成功返回云端文件 FileItem，失败返回 None
+        :param target_dir (FileItem): 目标目录 FileItem
+        :param local_path (Path): 本地文件路径
+        :param new_name (str): 云端文件名，None 则用 local_path.name
+
+        :return FileItem: 上传成功返回云端文件 FileItem，失败返回 None
         """
         mode = (self._upload_mode or "direct_write").strip() or "direct_write"
         if mode == "direct_write":
@@ -901,10 +938,11 @@ class CloudDriveApi:
         协议参考: https://www.clouddrive2.com/api/CloudDrive2_gRPC_API_Guide.html
         （远程上传协议：StartRemoteUpload → RemoteUploadChannel 流 → 响应 ReadData/HashData）
 
-        :param target_dir: 目标目录 FileItem
-        :param local_path: 本地文件路径
-        :param new_name: 云端文件名，None 则用 local_path.name
-        :return: 上传成功返回云端文件 FileItem，失败返回 None
+        :param target_dir (FileItem): 目标目录 FileItem
+        :param local_path (Path): 本地文件路径
+        :param new_name (str): 云端文件名，None 则用 local_path.name
+
+        :return FileItem: 上传成功返回云端文件 FileItem，失败返回 None
         """
         max_retries = 3
         if not local_path.exists() or not local_path.is_file():
@@ -958,11 +996,12 @@ class CloudDriveApi:
 
         通过轮询 get_upload_file_list 查找 destPath 匹配项的终态
 
-        :param remote_path: 云端目标路径
-        :param timeout: 总超时时间（秒）
-        :param interval: 轮询间隔（秒）
-        :param stall_timeout: 无进度超时（秒）
-        :return: 成功完成返回 True，否则 False
+        :param remote_path (str): 云端目标路径
+        :param timeout (int): 总超时时间（秒）
+        :param interval (int): 轮询间隔（秒）
+        :param stall_timeout (int): 无进度超时（秒）
+
+        :return bool: 成功完成返回 True，否则 False
         """
         terminal, finish_value = self.client.upload_terminal_enums()
 
@@ -1070,10 +1109,11 @@ class CloudDriveApi:
         """
         直写上传
 
-        :param target_dir: 目标目录 FileItem
-        :param local_path: 本地文件路径
-        :param new_name: 云端文件名，None 则用 local_path.name
-        :return: 上传成功返回云端文件 FileItem，失败返回 None
+        :param target_dir (FileItem): 目标目录 FileItem
+        :param local_path (Path): 本地文件路径
+        :param new_name (str): 云端文件名，None 则用 local_path.name
+
+        :return FileItem: 上传成功返回云端文件 FileItem，失败返回 None
         """
         if not local_path.exists() or not local_path.is_file():
             logger.error("【CloudDrive】上传文件不存在或非文件: %s", local_path)
@@ -1156,13 +1196,14 @@ class CloudDriveApi:
         precomputed_hashes: Dict[int, str],
     ) -> Optional[FileItem]:
         """
-        执行一次上传尝试。成功返回 FileItem，失败返回 None
+        执行一次上传尝试
 
-        :param target_path: 云端目标路径
-        :param local_path: 本地文件路径
-        :param file_size: 文件大小
-        :param precomputed_hashes: 预计算的哈希字典
-        :return: 上传成功返回 FileItem，失败返回 None
+        :param target_path (str): 云端目标路径
+        :param local_path (Path): 本地文件路径
+        :param file_size (int): 文件大小
+        :param precomputed_hashes (Dict): 预计算的哈希字典
+
+        :return FileItem: 上传成功返回 FileItem，失败返回 None
         """
         progress_callback = transfer_process(target_path)
         stream = None
@@ -1352,9 +1393,10 @@ class CloudDriveApi:
         硬链接文件
         云盘存储不支持硬链接操作
 
-        :param fileitem: 文件项
-        :param target_file: 目标文件路径
-        :return: 始终返回False，表示不支持此操作
+        :param fileitem (FileItem): 文件项
+        :param target_file (Path): 目标文件路径
+
+        :return bool: 始终返回False，表示不支持此操作
         """
         return False
 
@@ -1363,9 +1405,10 @@ class CloudDriveApi:
         软链接文件
         云盘存储不支持软链接操作
 
-        :param fileitem: 文件项
-        :param target_file: 目标文件路径
-        :return: 始终返回False，表示不支持此操作
+        :param fileitem (FileItem): 文件项
+        :param target_file (Path): 目标文件路径
+
+        :return bool: 始终返回False，表示不支持此操作
         """
         return False
 
@@ -1373,7 +1416,7 @@ class CloudDriveApi:
         """
         获取存储空间用量
 
-        :return: 存储空间用量，如果获取失败则返回None
+        :return StorageUsage: 存储空间用量，如果获取失败则返回None
         """
         try:
             info = self.client.get_space_info("/")
@@ -1391,7 +1434,7 @@ class CloudDriveApi:
         """
         支持的整理方式
 
-        :return: 支持的整理方式字典
+        :return dict: 支持的整理方式字典
         """
         return self.transtype
 
@@ -1399,8 +1442,8 @@ class CloudDriveApi:
         """
         是否支持整理方式
 
-        :param transtype: 整理方式 (move/copy)
+        :param transtype (str): 整理方式 (move/copy)
 
-        :return: 是否支持
+        :return bool: 是否支持
         """
         return transtype in self.transtype

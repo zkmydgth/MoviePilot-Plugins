@@ -12,8 +12,9 @@ def convert_bytes(size_in_bytes: float) -> str:
     """
     将字节转换为最合适的单位
 
-    :param size_in_bytes: 字节数
-    :return: 转换后的字符串
+    :param size_in_bytes (float): 字节数
+
+    :return str: 转换后的字符串
     """
     units = ["B", "KB", "MB", "GB", "TB", "PB"]
     unit_index = 0
@@ -27,8 +28,9 @@ def convert_seconds(seconds: float) -> str:
     """
     将秒数转换为天时分秒格式
 
-    :param seconds: 秒数
-    :return: 格式化后的时间字符串
+    :param seconds (float): 秒数
+
+    :return str: 格式化后的时间字符串
     """
     days, remainder = divmod(seconds, 86400)
     hours, remainder = divmod(remainder, 3600)
@@ -52,9 +54,10 @@ def check_cookie(client, black_dir: str = "") -> Optional[str]:
     通过遍历根目录下的挂载点，尝试列出每个云盘的内容
     如果列出失败或结果为空，则认为该云盘的cookie已过期
 
-    :param client: CloudDriveClient 实例
-    :param black_dir: 黑名单目录，逗号分隔
-    :return: 错误信息，无错误返回 None
+    :param client (CloudDriveClient): CloudDriveClient 实例
+    :param black_dir (str): 黑名单目录，逗号分隔
+
+    :return str: 错误信息，无错误返回 None
     """
     if not client:
         logger.error("CloudDrive2 客户端未初始化")
@@ -97,9 +100,10 @@ def check_upload_tasks(client, keyword: str = "") -> Optional[str]:
     """
     检查上传任务是否有异常
 
-    :param client: CloudDriveClient 实例
-    :param keyword: 检测关键字正则表达式
-    :return: 异常任务错误信息，无异常返回 None
+    :param client (CloudDriveClient): CloudDriveClient 实例
+    :param keyword (str): 检测关键字正则表达式
+
+    :return str: 异常任务错误信息，无异常返回 None
     """
     if not client:
         logger.error("CloudDrive2 客户端未初始化")
@@ -131,9 +135,10 @@ def get_cloud_space(client, black_dir: str = "") -> str:
     """
     获取云盘空间信息
 
-    :param client: CloudDriveClient 实例
-    :param black_dir: 黑名单目录，逗号分隔
-    :return: 云盘空间信息字符串
+    :param client (CloudDriveClient): CloudDriveClient 实例
+    :param black_dir (str): 黑名单目录，逗号分隔
+
+    :return str: 云盘空间信息字符串
     """
     if not client:
         return "\n"
@@ -172,9 +177,10 @@ def get_cd2_system_info(client, black_dir: str = "") -> Dict[str, Any]:
     """
     获取CloudDrive2系统信息
 
-    :param client: CloudDriveClient 实例
-    :param black_dir: 黑名单目录，逗号分隔
-    :return: 系统信息字典
+    :param client (CloudDriveClient): CloudDriveClient 实例
+    :param black_dir (str): 黑名单目录，逗号分隔
+
+    :return Dict: 系统信息字典
     """
     result: Dict[str, Any] = {
         "cpuUsage": None,
@@ -254,8 +260,9 @@ def restart_cd2(client) -> bool:
     """
     重启CloudDrive2服务
 
-    :param client: CloudDriveClient 实例
-    :return: 成功返回 True，失败返回 False
+    :param client (CloudDriveClient): CloudDriveClient 实例
+
+    :return bool: 成功返回 True，失败返回 False
     """
     if not client:
         logger.error("CloudDrive2 客户端未初始化")
@@ -283,10 +290,11 @@ def add_offline_files(client, urls: str, to_folder: str) -> Tuple[bool, Optional
     """
     添加离线下载任务
 
-    :param client: CloudDriveClient 实例
-    :param urls: 下载链接，多个链接用换行分隔
-    :param to_folder: 保存路径
-    :return: (是否成功, 错误信息)
+    :param client (CloudDriveClient): CloudDriveClient 实例
+    :param urls (str): 下载链接，多个链接用换行分隔
+    :param to_folder (str): 保存路径
+
+    :return Tuple: (是否成功, 错误信息)
     """
     if not client:
         logger.error("CloudDrive2 客户端未初始化")
