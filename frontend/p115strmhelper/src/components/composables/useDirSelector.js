@@ -51,14 +51,19 @@ export function useDirSelector(api, config, message, PLUGIN_ID, pathRefs) {
     try {
       if (dirDialog.isLocal) {
         try {
-          const response = await api.post('storage/list', { path: dirDialog.currentPath || '/', type: 'share', flag: 'ROOT' });
-          if (response && Array.isArray(response)) {
-            dirDialog.items = response
-              .filter(item => item.type === 'dir')
-              .map(item => ({ name: item.name, path: item.path, is_dir: true }))
+          // 本地目录改走插件自带的 browse_dir 接口（is_local=true），
+          // 不再依赖 MP 框架的 storage/list（type:"share"）。后者在实例未配置
+          // 对应存储类型、或返回格式与当前 MP 版本不兼容时会返回非数组，
+          // 触发「浏览目录失败：无效响应」。后端 browse_dir 本地分支基于
+          // path.iterdir() 实现，可列出任意本地路径，不受存储配置约束。
+          const result = await api.get(`plugin/${PLUGIN_ID}/browse_dir?path=${encodeURIComponent(dirDialog.currentPath || '/')}&is_local=true`);
+          if (result && result.code === 0 && result.data) {
+            dirDialog.items = result.data.items
+              .filter(item => item.is_dir)
               .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
+            dirDialog.currentPath = result.data.path || dirDialog.currentPath;
           } else {
-            throw new Error('浏览目录失败：无效响应');
+            throw new Error(result?.msg || '获取本地目录内容失败');
           }
         } catch (error) {
           console.error('浏览本地目录失败:', error);
