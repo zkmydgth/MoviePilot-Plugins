@@ -96,7 +96,7 @@ def process_package_file(filepath, plugins_base_dir):
                 f"Update detected for '{plugin_id}': {old_version} -> {new_version}. Marked for release."
             )
 
-            plugin_dir = os.path.join(plugins_base_dir, plugin_id)
+            plugin_dir = os.path.join(plugins_base_dir, plugin_id.lower())
             if not os.path.isdir(plugin_dir):
                 print(
                     f"  [ERROR] Plugin directory not found: {plugin_dir}. Skipping release."
@@ -119,7 +119,7 @@ def process_package_file(filepath, plugins_base_dir):
                 pass
 
             # 打包插件
-            zip_filename = f"{plugin_id}.v{new_version}.zip"
+            zip_filename = f"{plugin_id.lower()}.zip"
             zip_plugin_directory(plugin_dir, zip_filename)
 
             # 创建 GitHub Release
