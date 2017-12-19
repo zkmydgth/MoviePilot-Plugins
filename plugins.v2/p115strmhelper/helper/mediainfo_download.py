@@ -9,8 +9,8 @@ from orjson import dumps, loads
 from p115rsacipher import encrypt, decrypt
 
 from app.log import logger
-from app.core.config import settings
 
+from ..core.config import configer
 from ..utils.http import check_response
 from ..utils.url import Url
 
@@ -41,7 +41,7 @@ class MediaInfoDownloader:
             "http://proapi.115.com/android/2.0/ufile/download",
             data={"data": encrypt(f'{{"pick_code":"{pickcode}"}}').decode("utf-8")},
             headers={
-                "User-Agent": settings.USER_AGENT,
+                "User-Agent": configer.get_user_agent(),
                 "Cookie": self.cookie,
             },
         )
@@ -63,7 +63,7 @@ class MediaInfoDownloader:
             stream=True,
             timeout=30,
             headers={
-                "User-Agent": settings.USER_AGENT,
+                "User-Agent": configer.get_user_agent(),
                 "Cookie": self.cookie,
             },
         ) as response:
@@ -104,7 +104,7 @@ class MediaInfoDownloader:
             "http://proapi.115.com/app/share/downurl",
             data={"data": encrypt(dumps(payload)).decode("utf-8")},
             headers={
-                "User-Agent": settings.USER_AGENT,
+                "User-Agent": configer.get_user_agent(),
                 "Cookie": self.cookie,
             },
         )

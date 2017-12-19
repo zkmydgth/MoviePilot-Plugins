@@ -1,11 +1,13 @@
-from typing import Dict, Any, Optional, List
 import json
+import platform
+from typing import Dict, Any, Optional, List
 from pathlib import Path
 
 from pydantic import BaseModel, ValidationError
 
 from app.log import logger
 from app.core.config import settings
+from app.utils.system import SystemUtils
 from app.db.systemconfig_oper import SystemConfigOper
 
 
@@ -254,6 +256,20 @@ class ConfigManager:
         systemconfig = SystemConfigOper()
         plugin_id = self._configs.get("PLUSIN_NAME")
         return systemconfig.set(f"plugin.{plugin_id}", self._configs)
+
+    def get_user_agent(self, utype: int = -1):
+        """
+        获取指定 USER_AGENT
+        """
+        user_agents = {
+            1: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+            2: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+            3: settings.USER_AGENT,
+            4: "Mozilla/5.0 (Linux; Android 11; Redmi Note 8 Pro Build/RP1A.200720.011; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/89.0.4389.72 MQQBrowser/6.2 TBS/045913 Mobile Safari/537.36 V1_AND_SQ_8.8.68_2538_YYB_D A_8086800 QQ/8.8.68.7265 NetType/WIFI WebP/0.3.0 Pixel/1080 StatusBarHeight/76 SimpleUISwitch/1 QQTheme/2971 InMagicWin/0 StudyMode/0 CurrentMode/1 CurrentFontScale/1.0 GlobalDensityScale/0.9818182 AppId/537112567 Edg/98.0.4758.102",
+        }
+        if utype in user_agents:
+            return user_agents[utype]
+        return f"{self._configs.get('PLUSIN_NAME')}/1.0.0 ({platform.system()} {platform.release()}; {SystemUtils.cpu_arch()})"
 
 
 configer = ConfigManager()
