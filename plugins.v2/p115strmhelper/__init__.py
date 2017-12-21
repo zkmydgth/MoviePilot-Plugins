@@ -2228,7 +2228,6 @@ class P115StrmHelper(_PluginBase):
                 # 通过重命名格式判断根目录文件夹
                 # 计算重命名中的文件夹层数
                 rename_format_level = len(settings.TV_RENAME_FORMAT.split("/")) - 1
-                logger.info(rename_format_level)
                 if rename_format_level < 1:
                     file_path = Path(path)
                     fileitem = FileItem(
@@ -2243,7 +2242,6 @@ class P115StrmHelper(_PluginBase):
                     )
                 else:
                     dir_path = Path(Path(path).parents[rename_format_level - 1])
-                    logger.info()
                     fileitem = FileItem(
                         storage="local",
                         type="dir",
