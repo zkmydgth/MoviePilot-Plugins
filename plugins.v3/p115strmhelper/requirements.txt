@@ -1,4 +1,11 @@
-p115client==0.0.9.6.5.1
+# p115client 0.0.9.6.5.1 依赖 python-concurrenttools>=0.1.8 且未设上限，
+# 而上游 concurrenttools 在 0.1.9 把 threadpool_map 改名为 thread_conmap，
+# 导致 p115client/tool/upload.py 的 `from concurrenttools import threadpool_map`
+# 报 ImportError —— 插件里 21 个测试模块集体 import 失败、CI 红。
+#
+# 0.0.9.7.2 起上游已跟进改名（import thread_conmap）并把下限抬到 >=0.1.9，
+# 因此这里升版即可根治，无需再给 concurrenttools 加 <0.1.9 的上限约束。
+p115client==0.0.9.7.2
 sentry-sdk~=2.67.1
 aligo~=6.2.8
 qrcode_terminal~=0.8
