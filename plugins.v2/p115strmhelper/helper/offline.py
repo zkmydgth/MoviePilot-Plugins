@@ -1,5 +1,4 @@
 from typing import List
-from time import sleep
 from pathlib import Path
 
 from p115client import P115Client
@@ -21,6 +20,7 @@ class OfflineDownloadHelper:
     def __init__(self, client: P115Client, monitorlife: MonitorLife):
         self.client = client
         self.monitorlife = monitorlife
+        self.transfer_list: List = []
 
     @staticmethod
     def build_offline_urls_payload(urls, savepath=None, wp_path_id=None):
@@ -37,6 +37,59 @@ class OfflineDownloadHelper:
             payload["wp_path_id"] = wp_path_id
 
         return payload
+
+    def __remove_transfer_list_by_hash(self, target_hash):
+        """
+        通过 hash 删除指定字典
+        """
+        i = 0
+        while i < len(self.transfer_list):
+            if self.transfer_list[i]["hash"] == target_hash:
+                target_path = self.transfer_list[i]["path"]
+                del self.transfer_list[i]
+                return target_path
+            i += 1
+        return None
+
+    def __exists_in_transfer_list(self, target_hash):
+        """
+        判断 hash 是否在 transfer_list 中
+        """
+        if any(d.get("hash") == target_hash for d in self.transfer_list):
+            return True
+        return False
+
+    def __add_transfer_task(self, item):
+        """
+        添加整理任务
+        """
+        parent_path = self.__remove_transfer_list_by_hash(item[0])
+        if not item[1].get("data", None):
+            logger.error(f"【离线下载】{item[0]} 下载失败，无法添加到网盘整理队列")
+            return
+        logger.info(f"【离线下载】{item[0]} 下载完成，添加到网盘整理队列")
+        data = get_attr(self.client, id=int(item[1].get("data").get("file_id")))
+        event = {
+            "file_id": int(data["id"]),
+            "file_category": 0 if data["is_dir"] else 1,
+            "parent_id": int(data["parent_id"]),
+            "file_size": int(data["size"]),
+            "pick_code": data["pickcode"],
+            "update_time": data["user_utime"],
+        }
+        file_path = Path(parent_path) / str(item[1].get("data").get("name"))
+        rmt_mediaext = [
+            f".{ext.strip()}"
+            for ext in configer.get_config("user_rmt_mediaext")
+            .replace("，", ",")
+            .split(",")
+        ]
+        # 直接传入网盘整理
+        self.monitorlife.media_transfer(
+            event=event,
+            file_path=file_path,
+            rmt_mediaext=rmt_mediaext,
+        )
 
     def add_urls(self, url_list: List, cid: int):
         """
@@ -75,7 +128,7 @@ class OfflineDownloadHelper:
             parent_id = idpathcacher.get_id_by_dir(directory=str(parent_path))
             if not parent_id:
                 parent_id = self.client.fs_dir_getid(parent_path)["id"]
-                logger.info(f"【离线下载】获取到转存目录 ID：{parent_id}")
+                logger.debug(f"【离线下载】获取到转存目录 ID：{parent_id}")
                 idpathcacher.add_cache(id=int(parent_id), directory=str(parent_path))
 
             resp = self.add_urls(url_list=url_list, cid=parent_id)
@@ -83,51 +136,31 @@ class OfflineDownloadHelper:
                 logger.error(f"【离线下载】下载任务添加失败: {url_list} {resp}")
                 return False
 
-            # 获取所有任务的 hash
-            hash_list: List = []
+            # 获取所有任务的 hash，添加到待整理列表中
             for item in resp.get("data", {}).get("result"):
-                hash_list.append(str(item.get("info_hash")))
-
-            sleep(10)
-
-            # 等待下载完成并添加到网盘整理
-            while hash_list:
-                for item in self.get_tasks_status(hash_list):
-                    if item[1].get("status"):
-                        hash_list.remove(item[0])
-                        if not item[1].get("data", None):
-                            logger.error(f"【离线下载】{item[0]} 下载失败")
-                        logger.info(f"【离线下载】{item[0]} 下载完成")
-                        data = get_attr(
-                            self.client, id=int(item[1].get("data").get("file_id"))
-                        )
-                        event = {
-                            "file_id": int(data["id"]),
-                            "file_category": 0 if data["is_dir"] else 1,
-                            "parent_id": int(data["parent_id"]),
-                            "file_size": int(data["size"]),
-                            "pick_code": data["pickcode"],
-                            "update_time": data["user_utime"],
-                        }
-                        file_path = Path(parent_path) / str(
-                            item[1].get("data").get("name")
-                        )
-                        rmt_mediaext = [
-                            f".{ext.strip()}"
-                            for ext in configer.get_config("user_rmt_mediaext")
-                            .replace("，", ",")
-                            .split(",")
-                        ]
-                        # 直接传入网盘整理
-                        self.monitorlife.media_transfer(
-                            event=event,
-                            file_path=file_path,
-                            rmt_mediaext=rmt_mediaext,
-                        )
-                if hash_list:
-                    logger.info(f"【离线下载】等待任务下载完成：{hash_list}")
-                    sleep(60)
+                self.transfer_list.append(
+                    {"hash": str(item.get("info_hash")), "path": str(parent_path)}
+                )
+            logger.debug(f"【离线下载】下载任务添加完成: {url_list}")
             return True
         except Exception as e:
             logger.error(f"【离线下载】未知错误：{e}")
             return False
+
+    def pull_status_to_task(self):
+        """
+        等待下载完成运行指定任务
+        """
+        if not self.transfer_list:
+            logger.debug("【离线下载】无离线下载任务")
+            return
+        # 获取待整理的 hash 列表
+        hash_list = list(map(lambda x: x["hash"], self.transfer_list))
+        for item in self.get_tasks_status(hash_list):
+            # 判断是否是中止状态
+            if item[1].get("status"):
+                # 判断是否属于整理队列
+                if self.__exists_in_transfer_list(item[0]):
+                    self.__add_transfer_task(item)
+        if self.transfer_list:
+            logger.info(f"【离线下载】等待任务下载完成：{hash_list}")

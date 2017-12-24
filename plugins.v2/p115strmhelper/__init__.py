@@ -19,7 +19,6 @@ from .api import Api
 from .service import servicer
 from .core.cache import pantransfercacher, lifeeventcacher
 from .core.config import configer
-from .helper.offline import OfflineDownloadHelper
 from .db_manager import ct_db_manager
 from .db_manager.init import init_db, update_db
 from .db_manager.oper import FileDbHelper
@@ -308,7 +307,15 @@ class P115StrmHelper(_PluginBase):
         """
         注册插件公共服务
         """
-        cron_service = []
+        cron_service = [
+            {
+                "id": "P115StrmHelper_offline_status",
+                "name": "监控115网盘离线下载进度",
+                "trigger": CronTrigger.from_crontab("*/2 * * * *"),
+                "func": servicer.offline_status,
+                "kwargs": {},
+            }
+        ]
         if (
             configer.get_config("cron_full_sync_strm")
             and configer.get_config("timing_full_sync_strm")
@@ -786,11 +793,18 @@ class P115StrmHelper(_PluginBase):
                     userid=event.event_data.get("user"),
                 )
                 return
-        client = OfflineDownloadHelper(
-            client=servicer.client, monitorlife=servicer.monitorlife
-        )
-        client.add_urls_to_transfer([str(args)])
-        return
+        if servicer.offlinehelper.add_urls_to_transfer([str(args)]):
+            self.post_message(
+                channel=event.event_data.get("channel"),
+                title="添加离线下载任务成功！",
+                userid=event.event_data.get("user"),
+            )
+        else:
+            self.post_message(
+                channel=event.event_data.get("channel"),
+                title="添加离线下载任务失败！",
+                userid=event.event_data.get("user"),
+            )
 
     @eventmanager.register(EventType.TransferComplete)
     def fix_monitor_life_strm(self, event: Event):
