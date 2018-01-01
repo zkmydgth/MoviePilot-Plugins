@@ -2,6 +2,7 @@
   "P115StrmHelper": {
     "name": "115网盘STRM助手",
     "description": "115网盘STRM生成一条龙服务（V3 独立维护版）",
+    "license": "GPL-3.0",
     "labels": "云盘",
     "version": "2.7.22",
     "release": true,
