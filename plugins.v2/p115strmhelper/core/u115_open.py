@@ -61,7 +61,7 @@ class U115OpenHelper:
 
         self.oopserver_request = OOPServerRequest(max_retries=3, backoff_factor=1.0)
         self.databasehelper = FileDbHelper()
-        self.cookie_client = P115Client(configer.cookie)
+        self.cookie_client = P115Client(configer.cookies)
 
     def _init_session(self):
         """
