@@ -281,6 +281,9 @@ class IncrementSyncStrmHelper:
             mediachain = MediaChain()
             meta = MetaInfoPath(path=Path(file_path))
             mediainfo = mediachain.recognize_media(meta=meta)
+            if not mediainfo:
+                logger.warning(f"【增量STRM生成】{file_name} 无法刷新媒体库")
+                return
             items = [
                 RefreshMediaItem(
                     title=mediainfo.title,

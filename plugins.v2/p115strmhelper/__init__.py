@@ -909,6 +909,9 @@ class P115StrmHelper(_PluginBase):
                 mediachain = MediaChain()
                 meta = MetaInfoPath(path=Path(file_path))
                 mediainfo = mediachain.recognize_media(meta=meta)
+                if not mediainfo:
+                    logger.warning(f"【监控生活事件】{file_name} 无法刷新媒体库")
+                    return
                 items = [
                     RefreshMediaItem(
                         title=mediainfo.title,
