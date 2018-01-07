@@ -2,7 +2,7 @@ from shutil import rmtree
 from collections import defaultdict
 from threading import Timer, Event, Thread
 from time import sleep, strftime, localtime, time
-from typing import List, Set, Dict, Optional
+from typing import Dict, List, Optional, Set, Tuple
 from pathlib import Path
 from itertools import batched, chain
 
@@ -105,6 +105,8 @@ class MonitorLife:
             mediaservers=configer.monitor_life_mediaservers,
         )
 
+        self.storagechain = StorageChain()
+
     def _schedule_notification(self):
         """
         安排通知发送，如果一分钟内没有新事件则发送
@@ -179,6 +181,93 @@ class MonitorLife:
         logger.debug(f"获取 {cid} 路径（缓存）: {dir_path}")
         return Path(dir_path)
 
+    def _media_transfer_folder_cd2(
+        self,
+        org_file_path: str,
+        rmt_mediaext: List,
+        transferchain: TransferChain,
+    ) -> Tuple[bool, List[str]]:
+        """
+        在 CloudDrive2 挂载路径上递归 list_files，将媒体文件加入整理队列。
+
+        :param org_file_path: 115 侧目录路径（posix）
+        :param rmt_mediaext: 待整理媒体扩展名列表（含前导点）
+        :param transferchain: 整理链实例
+        :return: (cache_top_path, cache_file_id_list)；根路径无法解析时为 (False, [])
+        """
+        cd2_root = Path(
+            configer.pan_transfer_clouddrive2_config.prefix
+        ) / org_file_path.lstrip("/")
+        root = self.storagechain.get_file_item(
+            storage="CloudDrive储存",
+            path=cd2_root,
+        )
+        if not root:
+            logger.error(
+                "【网盘整理】CloudDrive2 无法解析路径，跳过文件夹遍历: %s",
+                cd2_root,
+            )
+            return False, []
+
+        cache_top_path = False
+        cache_file_id_list: List[str] = []
+
+        if str(root.fileid) not in pantransfercacher.delete_pan_transfer_list:
+            pantransfercacher.delete_pan_transfer_list.append(str(root.fileid))
+        root_id_str = str(root.fileid)
+
+        def walk_cd2_dir(dir_item: FileItem) -> None:
+            nonlocal cache_top_path
+            try:
+                entries = self.storagechain.list_files(dir_item)
+            except Exception as e:
+                logger.error(
+                    "【网盘整理】list_files 失败: %s %s",
+                    dir_item.path,
+                    e,
+                    exc_info=True,
+                )
+                return
+            for entry in entries:
+                parent_s = str(entry.parent_fileid)
+                if parent_s not in pantransfercacher.delete_pan_transfer_list:
+                    pantransfercacher.delete_pan_transfer_list.append(parent_s)
+                if entry.type == "dir":
+                    walk_cd2_dir(entry)
+                    continue
+                p = Path(entry.path)
+                sfx = p.suffix.lower()
+                if sfx in rmt_mediaext:
+                    fid_s = str(entry.fileid)
+                    if fid_s not in pantransfercacher.creata_pan_transfer_list:
+                        pantransfercacher.creata_pan_transfer_list.append(fid_s)
+                    if parent_s != root_id_str:
+                        cache_top_path = True
+                    if fid_s not in cache_file_id_list:
+                        cache_file_id_list.append(fid_s)
+                    fileitem = FileItem(
+                        storage="CloudDrive储存",
+                        fileid=fid_s,
+                        parent_fileid=str(entry.parent_fileid),
+                        path=p.as_posix(),
+                        type="file",
+                        name=entry.name,
+                        basename=entry.basename,
+                        extension=(entry.extension or p.suffix[1:] or "").lower(),
+                        size=entry.size if entry.size is not None else 0,
+                        pickcode=None,
+                        modify_time=int(entry.modify_time or 0),
+                    )
+                    transferchain.do_transfer(fileitem=fileitem)
+                    logger.info("【网盘整理】%s 加入整理列队", p)
+                if sfx in settings.RMT_AUDIOEXT or sfx in settings.RMT_SUBEXT:
+                    fid_s = str(entry.fileid)
+                    if fid_s not in pantransfercacher.creata_pan_transfer_list:
+                        pantransfercacher.creata_pan_transfer_list.append(fid_s)
+
+        walk_cd2_dir(root)
+        return cache_top_path, cache_file_id_list
+
     def media_transfer(self, event: Dict, file_path: Path, rmt_mediaext):
         """
         运行媒体文件整理
@@ -197,82 +286,85 @@ class MonitorLife:
             logger.info(f"【网盘整理】开始处理 {file_path} 文件夹中...")
             _databasehelper.remove_by_id_batch(int(event["file_id"]), False)
             # 文件夹情况，遍历文件夹，获取整理文件
-            # 缓存顶层文件夹ID
-            if str(event["file_id"]) not in pantransfercacher.delete_pan_transfer_list:
-                pantransfercacher.delete_pan_transfer_list.append(str(event["file_id"]))
-            for item in iter_files_with_path(
-                self._client,
-                cid=int(file_id),
-                with_ancestors=True,
-                cooldown=2,
-                **configer.get_ios_ua_app(),
-            ):
-                try:
-                    check_iter_path_data(item)
-                except FileItemKeyMiss as e:
-                    logger.warning(f"【网盘整理】数据拉取异常: {e}")
-                    continue
-                file_path = Path(item["path"])
-                if not PathUtils.has_prefix(file_path, org_file_path):
-                    continue
-                # 缓存文件夹ID
+            if configer.pan_transfer_clouddrive2_config.enabled:
+                cache_top_path, cache_file_id_list = self._media_transfer_folder_cd2(
+                    org_file_path,
+                    rmt_mediaext,
+                    transferchain,
+                )
+            else:
+                # 缓存顶层文件夹ID
                 if (
-                    str(item["parent_id"])
+                    str(event["file_id"])
                     not in pantransfercacher.delete_pan_transfer_list
                 ):
                     pantransfercacher.delete_pan_transfer_list.append(
-                        str(item["parent_id"])
+                        str(event["file_id"])
                     )
-                if file_path.suffix.lower() in rmt_mediaext:
-                    # 缓存文件ID
-                    if (
-                        str(item["id"])
-                        not in pantransfercacher.creata_pan_transfer_list
-                    ):
-                        pantransfercacher.creata_pan_transfer_list.append(
-                            str(item["id"])
-                        )
-                    # 判断此顶层目录MP是否能处理
-                    if str(item["parent_id"]) != event["file_id"]:
-                        cache_top_path = True
-                    if str(item["id"]) not in cache_file_id_list:
-                        cache_file_id_list.append(str(item["id"]))
-                    fileitem = FileItem(
-                        storage=configer.storage_module
-                        if not configer.pan_transfer_clouddrive2_config.enabled
-                        else "CloudDrive储存",
-                        fileid=str(item["id"]),
-                        parent_fileid=str(item["parent_id"]),
-                        path=(
-                            (
-                                Path(configer.pan_transfer_clouddrive2_config.prefix)
-                                / file_path.as_posix().lstrip("/")
-                            ).as_posix()
-                            if configer.pan_transfer_clouddrive2_config.enabled
-                            else file_path.as_posix()
-                        ),
-                        type="file",
-                        name=file_path.name,
-                        basename=file_path.stem,
-                        extension=file_path.suffix[1:].lower(),
-                        size=item["size"],
-                        pickcode=item["pickcode"],
-                        modify_time=item["ctime"],
-                    )
-                    transferchain.do_transfer(fileitem=fileitem)
-                    logger.info(f"【网盘整理】{file_path} 加入整理列队")
-                if (
-                    file_path.suffix.lower() in settings.RMT_AUDIOEXT
-                    or file_path.suffix.lower() in settings.RMT_SUBEXT
+                for item in iter_files_with_path(
+                    self._client,
+                    cid=int(file_id),
+                    with_ancestors=True,
+                    cooldown=2,
+                    **configer.get_ios_ua_app(),
                 ):
-                    # 如果是MP可处理的音轨或字幕文件，则缓存文件ID
+                    try:
+                        check_iter_path_data(item)
+                    except FileItemKeyMiss as e:
+                        logger.warning(f"【网盘整理】数据拉取异常: {e}")
+                        continue
+                    file_path = Path(item["path"])
+                    if not PathUtils.has_prefix(file_path, org_file_path):
+                        continue
+                    # 缓存文件夹ID
                     if (
-                        str(item["id"])
-                        not in pantransfercacher.creata_pan_transfer_list
+                        str(item["parent_id"])
+                        not in pantransfercacher.delete_pan_transfer_list
                     ):
-                        pantransfercacher.creata_pan_transfer_list.append(
-                            str(item["id"])
+                        pantransfercacher.delete_pan_transfer_list.append(
+                            str(item["parent_id"])
                         )
+                    if file_path.suffix.lower() in rmt_mediaext:
+                        # 缓存文件ID
+                        if (
+                            str(item["id"])
+                            not in pantransfercacher.creata_pan_transfer_list
+                        ):
+                            pantransfercacher.creata_pan_transfer_list.append(
+                                str(item["id"])
+                            )
+                        # 判断此顶层目录MP是否能处理
+                        if str(item["parent_id"]) != event["file_id"]:
+                            cache_top_path = True
+                        if str(item["id"]) not in cache_file_id_list:
+                            cache_file_id_list.append(str(item["id"]))
+                        fileitem = FileItem(
+                            storage=configer.storage_module,
+                            fileid=str(item["id"]),
+                            parent_fileid=str(item["parent_id"]),
+                            path=file_path.as_posix(),
+                            type="file",
+                            name=file_path.name,
+                            basename=file_path.stem,
+                            extension=file_path.suffix[1:].lower(),
+                            size=item["size"],
+                            pickcode=item["pickcode"],
+                            modify_time=item["ctime"],
+                        )
+                        transferchain.do_transfer(fileitem=fileitem)
+                        logger.info(f"【网盘整理】{file_path} 加入整理列队")
+                    if (
+                        file_path.suffix.lower() in settings.RMT_AUDIOEXT
+                        or file_path.suffix.lower() in settings.RMT_SUBEXT
+                    ):
+                        # 如果是MP可处理的音轨或字幕文件，则缓存文件ID
+                        if (
+                            str(item["id"])
+                            not in pantransfercacher.creata_pan_transfer_list
+                        ):
+                            pantransfercacher.creata_pan_transfer_list.append(
+                                str(item["id"])
+                            )
 
             # 顶层目录MP无法处理时添加到缓存字典中
             if cache_top_path and cache_file_id_list:
@@ -328,7 +420,11 @@ class MonitorLife:
                     basename=file_path.stem,
                     extension=file_path.suffix[1:].lower(),
                     size=event["file_size"],
-                    pickcode=event["pick_code"],
+                    pickcode=(
+                        None
+                        if configer.pan_transfer_clouddrive2_config.enabled
+                        else event["pick_code"]
+                    ),
                     modify_time=event["update_time"],
                 )
                 transferchain.do_transfer(fileitem=fileitem)
