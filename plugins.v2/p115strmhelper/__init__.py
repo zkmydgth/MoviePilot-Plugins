@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Any, List, Dict, Tuple, Optional, Union
 
 from app.chain.storage import StorageChain
-from app.core.config import settings
 from app.core.event import eventmanager, Event
 from app.log import logger
 from app.plugins import _PluginBase
