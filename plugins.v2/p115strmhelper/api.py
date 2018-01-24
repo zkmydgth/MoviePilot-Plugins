@@ -105,17 +105,22 @@ class Api:
         return MachineID(machine_id=configer.MACHINE_ID)
 
     @staticmethod
-    def generate_emby2alist_config_api(
+    def generate_media_redirect_config_api(
         mount_dir: str = Query(
             default="/emby/115", description="媒体服务器网盘挂载目录"
         ),
         moviepilot_address: str = Query(default="", description="MoviePilot 地址"),
+        config_type: str = Query(
+            default="emby2alist",
+            description="配置类型：emby2alist | emby_reverse_proxy",
+        ),
     ) -> ApiResponse:
         """
-        生成 emby2Alist 配置
+        生成 emby2Alist 或 Emby 302 反向代理配置
 
         :param mount_dir: 媒体服务器网盘挂载目录
         :param moviepilot_address: MoviePilot 地址
+        :param config_type: 配置类型，emby2alist 或 emby_reverse_proxy
 
         :return: 生成的配置
         """
@@ -129,12 +134,14 @@ class Api:
             base_url = moviepilot_address.rstrip("/")
             redirect_url = f"{base_url}/api/v1/plugin/P115StrmHelper/redirect_url"
 
-            config_rules = [
-                f"  // 匹配 {mount_dir} 开头的路径，替换为新的 URL（保留后续路径）",
-                f'  [0, 1, "{mount_dir}", "{redirect_url}"],',
-            ]
-
-            generated_config = "\n".join(config_rules)
+            if config_type == "emby_reverse_proxy":
+                generated_config = f"{mount_dir} => {redirect_url}"
+            else:
+                config_rules = [
+                    f"  // 匹配 {mount_dir} 开头的路径，替换为新的 URL（保留后续路径）",
+                    f'  [0, 1, "{mount_dir}", "{redirect_url}"],',
+                ]
+                generated_config = "\n".join(config_rules)
 
             return ApiResponse(
                 code=0,
@@ -144,6 +151,7 @@ class Api:
                     "mount_dir": mount_dir,
                     "moviepilot_address": moviepilot_address,
                     "redirect_url": redirect_url,
+                    "config_type": config_type,
                 },
             )
         except Exception as e:

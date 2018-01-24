@@ -1154,7 +1154,7 @@
                               <v-col cols="12">
                                 <v-btn color="primary" variant="outlined" prepend-icon="mdi-code-tags" size="small"
                                   @click="openConfigGeneratorDialog">
-                                  生成 emby2Alist 配置
+                                  生成 Emby 反代 302 配置
                                 </v-btn>
                               </v-col>
                             </v-row>
@@ -2569,22 +2569,37 @@
       </v-card>
     </v-dialog>
 
-    <!-- emby2Alist 配置生成对话框 -->
+    <!-- Emby 反代 302 配置生成对话框（emby2Alist / Emby 302 反向代理） -->
     <v-dialog v-model="configGeneratorDialog.show" max-width="900" scrollable>
       <v-card>
         <v-card-title class="d-flex align-center px-3 py-2 bg-primary-lighten-5">
           <v-icon icon="mdi-code-tags" class="mr-2" color="primary" size="small" />
-          <span>生成 emby2Alist 配置</span>
+          <span>生成 Emby 反代 302 配置</span>
         </v-card-title>
         <v-card-text class="pa-4">
           <v-alert type="info" variant="tonal" density="compact" class="mb-4" icon="mdi-information">
             <div class="text-body-2 mb-1"><strong>使用说明：</strong></div>
-            <div class="text-caption">
-              <div class="mb-1">1. 此配置用于 emby2Alist 插件的 <code>mediaPathMapping</code> 规则</div>
+            <div class="text-caption" v-if="configGeneratorDialog.configType === 'emby2alist'">
+              <div class="mb-1">1. 此配置用于 emby2Alist 系列软件的 <code>mediaPathMapping</code> 规则</div>
               <div class="mb-1">2. 将生成的配置复制到 emby2Alist 的配置文件中</div>
               <div>3. 配置会自动匹配 strm 文件中的 <code>/emby/115</code> 路径并替换为插件重定向地址</div>
             </div>
+            <div class="text-caption" v-else>
+              <div class="mb-1">1. 此配置用于 Emby 302 反向代理插件的「顶置路径规则」</div>
+              <div class="mb-1">2. 将生成的配置复制到 Emby 302 反向代理插件的顶置路径规则中（每行一条：路径前缀 => 目标 URL）</div>
+              <div>3. 路径匹配前缀时会先替换为目标 URL 再 302 跳转</div>
+            </div>
           </v-alert>
+
+          <v-row>
+            <v-col cols="12">
+              <v-radio-group v-model="configGeneratorDialog.configType" label="配置类型" density="compact" hide-details
+                class="mb-2">
+                <v-radio label="emby2Alist mediaPathMapping" value="emby2alist"></v-radio>
+                <v-radio label="Emby 302 反向代理 顶置路径规则" value="emby_reverse_proxy"></v-radio>
+              </v-radio-group>
+            </v-col>
+          </v-row>
 
           <v-row>
             <v-col cols="12">
@@ -2612,15 +2627,18 @@
               <div class="text-body-2 text-grey">正在生成配置...</div>
             </div>
             <v-textarea v-else v-model="configGeneratorDialog.generatedConfig" label="配置代码"
-              hint="复制此配置到 emby2Alist 的 mediaPathMapping 数组中" persistent-hint rows="8" variant="outlined"
-              density="compact" readonly class="font-monospace"
+              :hint="configGeneratorDialog.configType === 'emby_reverse_proxy' ? '复制此配置到 Emby 302 反向代理插件的顶置路径规则中' : '复制此配置到 emby2Alist 的 mediaPathMapping 数组中'"
+              persistent-hint rows="8" variant="outlined" density="compact" readonly class="font-monospace"
               style="font-family: 'Courier New', monospace;"></v-textarea>
           </div>
 
           <v-alert type="warning" variant="tonal" density="compact" class="mt-3" icon="mdi-alert">
             <div class="text-body-2 mb-1"><strong>配置说明：</strong></div>
-            <div class="text-caption">
+            <div class="text-caption" v-if="configGeneratorDialog.configType === 'emby2alist'">
               <div>• 规则：将 <code>/emby/115</code> 替换为插件重定向地址（保留后续路径）</div>
+            </div>
+            <div class="text-caption" v-else>
+              <div>• 规则：路径前缀 => 目标 URL，匹配前缀时先替换再 302</div>
             </div>
           </v-alert>
         </v-card-text>
@@ -3151,6 +3169,7 @@ const lifeEventCheckDialog = reactive({
 const configGeneratorDialog = reactive({
   show: false,
   loading: false,
+  configType: 'emby2alist', // 'emby2alist' | 'emby_reverse_proxy'
   mountDir: '',
   moviepilotAddress: '',
   generatedConfig: ''
@@ -4455,6 +4474,7 @@ const closeAliQrCodeDialog = () => {
 // emby2Alist 配置生成相关函数
 const openConfigGeneratorDialog = async () => {
   configGeneratorDialog.show = true;
+  configGeneratorDialog.configType = configGeneratorDialog.configType || 'emby2alist';
   configGeneratorDialog.mountDir = config.fuse_strm_mount_dir || '/emby/115';
   configGeneratorDialog.moviepilotAddress = config.moviepilot_address || window.location.origin || 'http://localhost:3000';
   configGeneratorDialog.generatedConfig = ''; // 清空之前的配置
@@ -4474,8 +4494,9 @@ const generateConfig = async () => {
     const moviepilotAddress = configGeneratorDialog.moviepilotAddress || window.location.origin || 'http://localhost:3000';
 
     // 从后端 API 获取生成的配置
+    const configType = configGeneratorDialog.configType || 'emby2alist';
     const response = await props.api.get(
-      `plugin/${PLUGIN_ID}/generate_emby2alist_config?mount_dir=${encodeURIComponent(mountDir)}&moviepilot_address=${encodeURIComponent(moviepilotAddress)}`
+      `plugin/${PLUGIN_ID}/generate_emby2alist_config?mount_dir=${encodeURIComponent(mountDir)}&moviepilot_address=${encodeURIComponent(moviepilotAddress)}&config_type=${encodeURIComponent(configType)}`
     );
 
     if (response && response.code === 0 && response.data) {
@@ -4516,6 +4537,15 @@ const generateConfig = async () => {
     configGeneratorDialog.loading = false;
   }
 };
+
+// 切换配置类型时重新生成，使下方配置框内容与所选类型一致
+watch(
+  () => configGeneratorDialog.configType,
+  (newVal, oldVal) => {
+    if (!configGeneratorDialog.show || oldVal === undefined || newVal === oldVal) return;
+    generateConfig();
+  }
+);
 
 const copyGeneratedConfig = async () => {
   try {

@@ -339,10 +339,10 @@ class P115StrmHelper(_PluginBase):
             },
             {
                 "path": "/generate_emby2alist_config",
-                "endpoint": self.api.generate_emby2alist_config_api,
+                "endpoint": self.api.generate_media_redirect_config_api,
                 "methods": ["GET"],
                 "auth": "bear",
-                "summary": "生成 emby2Alist 配置",
+                "summary": "生成媒体重定向配置（emby2Alist / Emby 302 反向代理）",
             },
             {
                 "path": "/save_config",
