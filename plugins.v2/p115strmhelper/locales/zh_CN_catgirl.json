@@ -4,6 +4,7 @@
     "p115_strm_parameter_error": "主人，参数错误了喵 ~~ 正确格式是这样的喵：/p115_strm 网盘路径",
     "p115_strm_full_sync_config_error": "全量同步配置错误了喵，劳烦主人前往插件配置喵 ~~",
     "p115_strm_match_path_error": "匹配目录失败喵，劳烦主人请检查输入路径和插件配置喵 ~~",
+    "p115_strm_start_sync": "嘻嘻嘻 ~~ 开始 {paths} 全量同步喵",
     "full_sync_done_title": "✅【115网盘】全量生成 STRM 文件完成喵！",
     "p115_search_config_error": "配置错误了喵 ~~ 主人要先进入插件界面配置频道搜索喵",
     "p115_search_parameter_error": "主人，参数不对喵 ~~ 应该这样用喵：/search 搜索关键词",

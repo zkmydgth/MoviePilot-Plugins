@@ -564,7 +564,7 @@ class P115StrmHelper(_PluginBase):
         )
         self.post_message(
             channel=event.event_data.get("channel"),
-            title=f"开始 {args} 全量同步 ...",
+            title=i18n.translate("p115_strm_start_sync", paths=args),
             userid=event.event_data.get("user"),
         )
         strm_helper.generate_strm_files(
