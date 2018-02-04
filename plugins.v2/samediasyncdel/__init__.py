@@ -837,19 +837,18 @@ class SaMediaSyncDel(_PluginBase):
             )
 
         if not tmdb_id or not str(tmdb_id).isdigit():
-            if not (media_storage == "p115" and self._p115_force_delete_files) or not (
-                media_storage == "p123" and self._p123_force_delete_files
-            ):
-                logger.error(
-                    f"{media_name} 同步删除失败，未获取到TMDB ID，请检查媒体库媒体是否刮削"
-                )
-                return
+            if not (media_storage == "p115" and self._p115_force_delete_files):
+                if not (media_storage == "p123" and self._p123_force_delete_files):
+                    logger.error(
+                        f"{media_name} 同步删除失败，未获取到TMDB ID，请检查媒体库媒体是否刮削"
+                    )
+                    return
 
         self.__sync_del(
             media_type=media_type,
             media_name=media_name,
             media_path=media_path,
-            tmdb_id=int(tmdb_id),
+            tmdb_id=tmdb_id,
             season_num=season_num,
             episode_num=episode_num,
             media_storage=media_storage,
@@ -1286,7 +1285,7 @@ class SaMediaSyncDel(_PluginBase):
                 title="媒体库同步删除任务完成",
                 image=backrop_image,
                 text=f"{msg}\n"
-                f"删除记录{len(transfer_history)}个\n"
+                f"删除记录{len(transfer_history) if transfer_history else '0'}个\n"
                 f"{torrent_cnt_msg}"
                 f"时间 {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}",
             )
