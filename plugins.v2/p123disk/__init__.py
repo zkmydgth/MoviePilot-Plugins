@@ -55,7 +55,7 @@ class P123Disk(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/DDS-Derek/MoviePilot-Plugins/main/icons/P123Disk.png"
     # 插件版本
-    plugin_version = "1.0.19"
+    plugin_version = "1.0.20"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -374,24 +374,59 @@ class P123Disk(_PluginBase):
 
         return self._p123_api.get_parent(fileitem)
 
-    def snapshot_storage(self, storage: str, path: Path) -> Optional[Dict[str, float]]:
+    def snapshot_storage(
+        self,
+        storage: str,
+        path: Path,
+        last_snapshot_time: float = None,
+        max_depth: int = 5,
+    ) -> Optional[Dict[str, Dict]]:
         """
         快照存储
+        :param storage: 存储类型
+        :param path: 路径
+        :param last_snapshot_time: 上次快照时间，用于增量快照
+        :param max_depth: 最大递归深度，避免过深遍历
         """
         if storage != self._disk_name:
             return None
 
         files_info = {}
 
-        def __snapshot_file(_fileitm: schemas.FileItem):
+        def __snapshot_file(_fileitm: schemas.FileItem, current_depth: int = 0):
             """
             递归获取文件信息
             """
-            if _fileitm.type == "dir":
-                for sub_file in self._p123_api.list(_fileitm):
-                    __snapshot_file(sub_file)
-            else:
-                files_info[_fileitm.path] = _fileitm.size
+            try:
+                if _fileitm.type == "dir":
+                    # 检查递归深度限制
+                    if current_depth >= max_depth:
+                        return
+
+                    # 增量检查：如果目录修改时间早于上次快照，跳过
+                    if (
+                        self.snapshot_check_folder_modtime
+                        and last_snapshot_time
+                        and _fileitm.modify_time
+                        and _fileitm.modify_time <= last_snapshot_time
+                    ):
+                        return
+
+                    # 遍历子文件
+                    sub_files = self._p123_api.list(_fileitm)
+                    for sub_file in sub_files:
+                        __snapshot_file(sub_file, current_depth + 1)
+                else:
+                    # 记录文件的完整信息用于比对
+                    if getattr(_fileitm, "modify_time", 0) > last_snapshot_time:
+                        files_info[_fileitm.path] = {
+                            "size": _fileitm.size or 0,
+                            "modify_time": getattr(_fileitm, "modify_time", 0),
+                            "type": _fileitm.type,
+                        }
+
+            except Exception as e:
+                logger.debug(f"Snapshot error for {_fileitm.path}: {e}")
 
         fileitem = self._p123_api.get_item(path)
         if not fileitem:
