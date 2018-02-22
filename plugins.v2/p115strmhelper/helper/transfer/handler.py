@@ -54,6 +54,7 @@ class TransferHandler:
         创建 MoviePilot TransferTask 对象
 
         :param task: 插件任务对象
+
         :return: MoviePilot TransferTask 对象
         """
         return MPTransferTask(
@@ -69,6 +70,7 @@ class TransferHandler:
         按媒体分组任务
 
         :param tasks: 任务列表
+
         :return: 按媒体分组的任务字典，key 为 (media_id, season)
         """
         tasks_by_media: Dict[Tuple, List[TransferTask]] = defaultdict(list)
@@ -93,6 +95,7 @@ class TransferHandler:
         :param tasks_by_media: 按媒体分组的任务字典
         :param task_action: 任务动作，'finish' 或 'fail'
         :param check_method: 检查方法，'is_finished' 或 'is_done'
+
         :return: 移除的任务组数量
         """
         chain = TransferChain()
@@ -1585,6 +1588,95 @@ class TransferHandler:
         # 所有重命名都成功
         return [], tasks
 
+    def _record_related_files_success_history(self, task: TransferTask) -> int:
+        """
+        为关联文件（字幕、音轨）补充独立的成功历史记录。
+
+        :param task: 整理任务
+
+        :return int: 写入数量
+        """
+        if not task.related_files:
+            return 0
+
+        recorded = 0
+        for related_file in task.related_files:
+            try:
+                if (
+                    not related_file
+                    or not related_file.fileitem
+                    or not related_file.fileitem.path
+                    or not related_file.target_path
+                ):
+                    continue
+
+                target_path = related_file.target_path
+
+                # 构造目标文件项
+                target_fileitem = FileItem(
+                    storage=self.storage_name,
+                    path=str(target_path),
+                    name=target_path.name,
+                    fileid=related_file.fileitem.fileid,
+                    type="file",
+                    size=related_file.fileitem.size,
+                    modify_time=related_file.fileitem.modify_time,
+                    pickcode=related_file.fileitem.pickcode,
+                )
+
+                # 构造目标目录项
+                target_diritem = FileItem(
+                    storage=self.storage_name,
+                    path=str(target_path.parent) + "/",
+                    name=target_path.parent.name,
+                    type="dir",
+                )
+
+                # 构造 TransferInfo（不触发通知/刮削）
+                transferinfo = TransferInfo(
+                    success=True,
+                    fileitem=related_file.fileitem,
+                    target_item=target_fileitem,
+                    target_diritem=target_diritem,
+                    transfer_type=task.transfer_type,
+                    file_list=[related_file.fileitem.path],
+                    file_list_new=[target_fileitem.path],
+                    need_scrape=False,
+                    need_notify=False,
+                )
+
+                if related_file.file_type == "subtitle":
+                    transferinfo.subtitle_list.append(related_file.fileitem.path)
+                    transferinfo.subtitle_list_new.append(target_fileitem.path)
+                elif related_file.file_type == "audio_track":
+                    transferinfo.audio_list.append(related_file.fileitem.path)
+                    transferinfo.audio_list_new.append(target_fileitem.path)
+
+                # 写入独立历史记录（每个关联文件一条）
+                self.history_oper.add_success(
+                    fileitem=related_file.fileitem,
+                    mode=task.transfer_type,
+                    meta=task.meta,
+                    mediainfo=task.mediainfo,
+                    transferinfo=transferinfo,
+                    downloader=task.downloader,
+                    download_hash=task.download_hash,
+                )
+                recorded += 1
+            except Exception as e:
+                name = "unknown"
+                try:
+                    if related_file and related_file.fileitem:
+                        name = related_file.fileitem.name
+                except Exception:
+                    pass
+                logger.error(
+                    f"【整理接管】写入关联文件历史失败 (file: {name}): {e}",
+                    exc_info=True,
+                )
+
+        return recorded
+
     def _record_history(self, tasks: List[TransferTask]) -> None:
         """
         记录转移历史
@@ -1658,6 +1750,19 @@ class TransferHandler:
                     downloader=task.downloader,
                     download_hash=task.download_hash,
                 )
+
+                # 关联文件（字幕/音轨）也写入历史（每个关联文件独立一条）
+                try:
+                    related_count = self._record_related_files_success_history(task)
+                    if related_count:
+                        logger.debug(
+                            f"【整理接管】已写入 {related_count} 个关联文件历史记录: {task.fileitem.name}"
+                        )
+                except Exception as e:
+                    logger.debug(
+                        f"【整理接管】写入关联文件历史异常 (任务: {task.fileitem.name}): {e}",
+                        exc_info=True,
+                    )
 
                 # 标记任务完成
                 try:
