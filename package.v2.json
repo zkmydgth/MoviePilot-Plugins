@@ -89,11 +89,12 @@
         "name": "115网盘STRM助手",
         "description": "115网盘STRM生成一条龙服务",
         "labels": "云盘",
-        "version": "1.8.2",
+        "version": "1.8.3",
         "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png",
         "author": "DDSRem",
         "level": 1,
         "history": {
+            "v1.8.3": "清理无效STRM文件时自动清理空目录",
             "v1.8.2": "修复网盘整理删除顶层目录逻辑错误",
             "v1.8.1": "优化115生活事件监控，避免与MP整理冲突",
             "v1.8.0": "全量同步支持删除失效STRM文件，优化通知格式",

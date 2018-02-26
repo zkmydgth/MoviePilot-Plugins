@@ -330,7 +330,8 @@ class MediaInfoDownloader:
     def __init__(self, cookie: str):
         self.cookie = cookie
 
-    def is_file_leq_1k(self, file_path):
+    @staticmethod
+    def is_file_leq_1k(file_path):
         """
         判断文件是否小于 1KB
         """
@@ -555,6 +556,27 @@ class FullSyncStrmHelper:
         if not Path(temp_path).exists():
             Path(temp_path).mkdir(parents=True, exist_ok=True)
 
+    @staticmethod
+    def __remove_parent_dir(file_path: Path):
+        """
+        删除父目录
+        """
+        # 删除空目录
+        # 判断当前媒体父路径下是否有文件，如有则无需遍历父级
+        if not SystemUtils.exits_files(file_path.parent):
+            # 判断父目录是否为空, 为空则删除
+            i = 0
+            for parent_path in file_path.parents:
+                i += 1
+                if i > 3:
+                    break
+                if str(parent_path.parent) != str(file_path.root):
+                    # 父目录非根目录，才删除父目录
+                    if not SystemUtils.exits_files(parent_path):
+                        # 当前路径下没有媒体文件则删除
+                        shutil.rmtree(parent_path)
+                        logger.warn(f"【全量STRM生成】本地空目录 {parent_path} 已删除")
+
     def generate_strm_files(self, full_sync_strm_paths):
         """
         生成 STRM 文件
@@ -757,6 +779,7 @@ class FullSyncStrmHelper:
                 for path in tree.compare_trees(self.local_tree, self.pan_tree):
                     logger.info(f"【全量STRM生成】清理无效 STRM 文件: {path}")
                     Path(path).unlink(missing_ok=True)
+                    self.__remove_parent_dir(file_path=Path(path))
                     self.remove_unless_strm_count += 1
             except Exception as e:
                 logger.error(f"【全量STRM生成】清理无效 STRM 文件失败: {e}")
@@ -1033,7 +1056,7 @@ class P115StrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png"
     # 插件版本
-    plugin_version = "1.8.2"
+    plugin_version = "1.8.3"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
