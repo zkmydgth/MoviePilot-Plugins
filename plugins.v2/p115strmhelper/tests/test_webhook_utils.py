@@ -1,8 +1,12 @@
 import json
+import sys
 import unittest
 from pathlib import Path
 
-from utils.webhook import WebhookUtils
+utils_dir = Path(__file__).resolve().parent.parent / "utils"
+sys.path.insert(0, str(utils_dir))
+
+from webhook import WebhookUtils
 
 
 class TestParseItemPaths(unittest.TestCase):
