@@ -813,3 +813,54 @@ class Api:
             "error": "转存失败",
             "message": resp["error"],
         }
+
+    async def offline_tasks_api(self, request: Request) -> Dict:
+        """
+        离线任务列表
+        """
+        data = await request.json()
+        page = int(data.get("page"))
+        limit = int(data.get("limit"))
+
+        all_tasks = servicer.offlinehelper.get_cached_data()
+        total = len(all_tasks)
+
+        if limit == -1:
+            paginated_tasks = all_tasks
+        else:
+            start = (page - 1) * limit
+            end = start + limit
+            paginated_tasks = all_tasks[start:end]
+
+        response = {
+            "code": 0,
+            "msg": "获取离线任务成功",
+            "data": {"total": total, "tasks": paginated_tasks},
+        }
+
+        return response
+
+    async def add_offline_task_api(self, request: Request) -> Dict:
+        """
+        添加离线下载任务
+        """
+        data = await request.json()
+        links = data.get("links")
+        path = data.get("path")
+
+        if not path:
+            status = servicer.offlinehelper.add_urls_to_transfer(links)
+        else:
+            status = servicer.offlinehelper.add_urls_to_path(links, path)
+
+        if status:
+            return {
+                "code": 0,
+                "msg": f"{len(links)} 个新任务已成功添加，正在后台处理。",
+                "data": "",
+            }
+        return {
+            "code": -1,
+            "msg": "添加失败：请前往后台查看插件日志",
+            "data": "",
+        }

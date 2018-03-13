@@ -176,7 +176,7 @@ class IncrementSyncStrmHelper:
             file_path = Path(path)
             temp_path = None
             for part in file_path.parents:
-                cid = self.__get_cid_by_path(str(part))
+                cid = self.__get_cid_by_path(part.as_posix())
                 if cid:
                     temp_path = part
                     break
@@ -340,7 +340,7 @@ class IncrementSyncStrmHelper:
             if self.pan_transfer_enabled and self.pan_transfer_paths:
                 if PathUtils.get_run_transfer_path(
                     paths=self.pan_transfer_paths,
-                    transfer_path=str(pan_path),
+                    transfer_path=pan_path.as_posix(),
                 ):
                     logger.debug(
                         f"【增量STRM生成】{pan_path} 为待整理目录下的路径，不做处理"
@@ -349,7 +349,7 @@ class IncrementSyncStrmHelper:
 
             if self.auto_download_mediainfo:
                 if pan_path.suffix in self.download_mediaext:
-                    pickcode = self.__get_pickcode(str(pan_path))
+                    pickcode = self.__get_pickcode(pan_path.as_posix())
                     if not pickcode:
                         logger.error(
                             f"【增量STRM生成】{pan_path.name} 不存在 pickcode 值，无法下载该文件"
@@ -368,7 +368,7 @@ class IncrementSyncStrmHelper:
                 logger.warn(f"【增量STRM生成】跳过网盘路径: {pan_path}")
                 return
 
-            pickcode = self.__get_pickcode(str(pan_path))
+            pickcode = self.__get_pickcode(pan_path.as_posix())
 
             new_file_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -816,7 +816,9 @@ class FullSyncStrmHelper:
                 end_time = time.perf_counter()
                 self.elapsed_time += end_time - start_time
             except Exception as e:
-                logger.error(f"【全量STRM生成】全量生成 STRM 文件失败: {e}", exc_info=True)
+                logger.error(
+                    f"【全量STRM生成】全量生成 STRM 文件失败: {e}", exc_info=True
+                )
                 return False
 
             if self.remove_unless_strm:

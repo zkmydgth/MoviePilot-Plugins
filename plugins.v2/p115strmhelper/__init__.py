@@ -301,6 +301,20 @@ class P115StrmHelper(_PluginBase):
                 "auth": "bear",
                 "summary": "检查二维码状态",
             },
+            {
+                "path": "/offline_tasks",
+                "endpoint": self.api.offline_tasks_api,
+                "methods": ["POST"],
+                "auth": "bear",
+                "summary": "离线任务列表",
+            },
+            {
+                "path": "/add_offline_task",
+                "endpoint": self.api.add_offline_task_api,
+                "methods": ["POST"],
+                "auth": "bear",
+                "summary": "添加离线下载任务",
+            },
         ]
 
     def get_service(self) -> List[Dict[str, Any]]:
@@ -885,7 +899,7 @@ class P115StrmHelper(_PluginBase):
                     life_path.rename(target_file_path)
                     _databasehelper.update_path_by_id(
                         id=int(fileitem.fileid),
-                        new_path=str(target_path / fileitem.name),
+                        new_path=Path(target_path / fileitem.name).as_posix(),
                     )
                     _databasehelper.update_name_by_id(
                         id=int(fileitem.fileid),
@@ -899,7 +913,7 @@ class P115StrmHelper(_PluginBase):
                     )
                     if refresh:
                         refresh_mediaserver(
-                            file_path=str(target_file_path),
+                            file_path=Path(target_file_path).as_posix(),
                             file_name=str(target_file_path.name),
                         )
                     return

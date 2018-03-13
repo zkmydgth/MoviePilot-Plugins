@@ -1,3 +1,4 @@
+import time
 from typing import List
 from pathlib import Path
 
@@ -10,6 +11,7 @@ from app.log import logger
 from ..core.config import configer
 from ..core.cache import idpathcacher
 from ..helper.life import MonitorLife
+from ..utils.string import StringUtils
 
 
 class OfflineDownloadHelper:
@@ -21,6 +23,8 @@ class OfflineDownloadHelper:
         self.client = client
         self.monitorlife = monitorlife
         self.transfer_list: List = []
+
+        self.offline_list_cache = {"data": None, "timestamp": None}
 
     @staticmethod
     def build_offline_urls_payload(urls, savepath=None, wp_path_id=None):
@@ -119,7 +123,7 @@ class OfflineDownloadHelper:
                 else:
                     yield [item_hash, {"status": False, "data": item}]
 
-    def add_urls_to_transfer(self, url_list: List):
+    def add_urls_to_transfer(self, url_list: List) -> bool:
         """
         添加一组任务并进行网盘整理
         """
@@ -147,6 +151,28 @@ class OfflineDownloadHelper:
             logger.error(f"【离线下载】未知错误：{e}")
             return False
 
+    def add_urls_to_path(self, url_list: List, path: str) -> bool:
+        """
+        添加一组任务下载到指定路径
+        """
+        try:
+            parent_id = idpathcacher.get_id_by_dir(directory=path)
+            if not parent_id:
+                parent_id = self.client.fs_dir_getid(path)["id"]
+                logger.debug(f"【离线下载】获取到下载目录 {path} ID：{parent_id}")
+                idpathcacher.add_cache(id=int(parent_id), directory=path)
+
+            resp = self.add_urls(url_list=url_list, cid=parent_id)
+            if not resp.get("state", None):
+                logger.error(f"【离线下载】下载任务添加失败: {url_list} {resp}")
+                return False
+
+            logger.debug(f"【离线下载】下载任务添加完成: {url_list}")
+            return True
+        except Exception as e:
+            logger.error(f"【离线下载】未知错误：{e}")
+            return False
+
     def pull_status_to_task(self):
         """
         等待下载完成运行指定任务
@@ -164,3 +190,36 @@ class OfflineDownloadHelper:
                     self.__add_transfer_task(item)
         if self.transfer_list:
             logger.info(f"【离线下载】等待任务下载完成：{hash_list}")
+
+    def get_cached_data(self):
+        """
+        获取缓存离线下载列表
+        """
+        status_mapping = {0: "下载中", 1: "下载失败", 2: "已完成", 3: "重试中"}
+
+        now = time.time()
+        if (
+            self.offline_list_cache["data"] is None
+            or (now - self.offline_list_cache["timestamp"]) > 120
+        ):
+            raw_tasks = self.get_tasks()
+            formatted_tasks = []
+
+            for task in raw_tasks:
+                formatted_task = {
+                    "info_hash": task.get("info_hash", ""),
+                    "name": task.get("name", ""),
+                    "size": task.get("size", 0),
+                    "size_text": StringUtils.format_size(task.get("size", 0)),
+                    "status": task.get("status", 0),
+                    "status_text": status_mapping.get(
+                        task.get("status", 4), "未知状态"
+                    ),
+                    "percent": task.get("percentDone", 0),
+                    "add_time": task.get("add_time", 0),
+                }
+                formatted_tasks.append(formatted_task)
+
+            self.offline_list_cache = {"data": formatted_tasks, "timestamp": now}
+
+        return self.offline_list_cache["data"]
