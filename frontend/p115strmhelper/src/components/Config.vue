@@ -2605,8 +2605,15 @@ const embyMediaservers = computed(() => {
 const isCookieVisible = ref(false);
 const isAliTokenVisible = ref(false);
 const isTransferModuleEnhancementLocked = ref(true);
-// 基础设置折叠状态 - 从 localStorage 读取，默认展开
-const basicConfigExpanded = ref(['basic-config']);
+// 基础设置折叠状态
+const basicConfigExpanded = ref((() => {
+  try {
+    const saved = localStorage.getItem('p115strmhelper_basic_config_expanded');
+    return saved !== null ? JSON.parse(saved) : ['basic-config'];
+  } catch (e) {
+    return ['basic-config'];
+  }
+})());
 const config = reactive({
   language: "zh_CN",
   enabled: false,
@@ -4280,16 +4287,6 @@ const closeQrDialog = () => {
 onMounted(async () => {
   await loadConfig();
   await checkTransferModuleEnhancement();
-
-  // 从 localStorage 读取基础设置折叠状态
-  const savedBasicConfigState = localStorage.getItem('p115strmhelper_basic_config_expanded');
-  if (savedBasicConfigState !== null) {
-    try {
-      basicConfigExpanded.value = JSON.parse(savedBasicConfigState);
-    } catch (e) {
-      console.error('Failed to parse basic config expanded state:', e);
-    }
-  }
 });
 
 onBeforeUnmount(() => {
