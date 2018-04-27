@@ -415,7 +415,7 @@ class StrmUrlGetter:
                     apikey=settings.API_TOKEN,
                     pickcode=pickcode,
                     file_path=file_path,
-                    file_id=to_id(pickcode),
+                    file_id=str(to_id(pickcode)),
                 )
                 if result:
                     return result

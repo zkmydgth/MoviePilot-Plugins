@@ -7,11 +7,11 @@ class U115Cookie(BaseModel):
     """
     115 Cookie 模型
     """
+
     UID: str
     CID: str
     SEID: str
     KID: Optional[str]
-
 
     @classmethod
     def from_string(cls, cookie_string: str) -> "U115Cookie":
@@ -19,17 +19,22 @@ class U115Cookie(BaseModel):
         解析 str Cookie
         """
         if not cookie_string or not isinstance(cookie_string, str):
-            return cls()
+            return cls(
+                UID="",
+                CID="",
+                SEID="",
+                KID=None,
+            )
 
         cookie_dict: Dict[str, Any] = {}
-        parts = cookie_string.strip().rstrip(';').split(';')
+        parts = cookie_string.strip().rstrip(";").split(";")
 
         for part in parts:
-            if '=' in part:
-                key, value = part.split('=', 1)
+            if "=" in part:
+                key, value = part.split("=", 1)
                 key = key.strip()
                 value = value.strip()
-                if key in cls.__fields__:
+                if key in cls.model_fields:
                     cookie_dict[key] = value
 
         return cls(**cookie_dict)

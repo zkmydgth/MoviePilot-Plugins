@@ -890,10 +890,10 @@ class MonitorLife:
                 break
             except Exception as e:
                 if attempt <= 0:
-                    logger.error("【监控生活事件】拉取数据失败：%s", e)
+                    logger.error(f"【监控生活事件】拉取数据失败：{e}")
                     raise
                 logger.warn(
-                    "【监控生活事件】拉取数据失败，剩余重试次数 {attempt} 次：%s", e
+                    f"【监控生活事件】拉取数据失败，剩余重试次数 {attempt} 次：{e}"
                 )
                 if self.stop_event and self.stop_event.wait(timeout=2):
                     return from_time, from_id

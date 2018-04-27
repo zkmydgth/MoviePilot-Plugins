@@ -107,7 +107,7 @@ class TgSearcher:
                 )
 
             time_element = message.select_one("time")
-            pub_date = time_element.get("datetime") if time_element else None
+            pub_date = str(time_element.get("datetime")) if time_element else None
 
             photo_wrap = message.select_one(".tgme_widget_message_photo_wrap")
             image = None
