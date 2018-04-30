@@ -2203,18 +2203,28 @@ class TransferHandler:
                     break
 
             # 检查：目录存在媒体文件，则不删除
+            def __any_file(_item: FileItem):
+                """
+                递归处理
+                """
+                _items = self.cache_updater._p115_api.list(_item)
+                if _items:
+                    if not media_exts:
+                        return True
+                    for t in _items:
+                        if (
+                            t.type == "file"
+                            and t.extension
+                            and f".{t.extension.lower()}" in media_exts
+                        ):
+                            return True
+                        elif t.type == "dir":
+                            if __any_file(t):
+                                return True
+                return False
+
             try:
-                files = self.cache_updater._p115_api.list(dir_item)
-                if files:
-                    has_media = False
-                    for f in files:
-                        if f.type == "file" and f.extension:
-                            ext = f".{f.extension.lower()}"
-                            if ext in media_exts:
-                                has_media = True
-                                break
-                else:
-                    has_media = False
+                has_media = __any_file(dir_item)
                 if has_media is not False:
                     logger.debug(f"【整理接管】{dir_item.path} 存在媒体文件，不删除")
                     break
