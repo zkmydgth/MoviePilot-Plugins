@@ -1,3 +1,9 @@
+__author__ = "ChenyangGao <https://chenyanggao.github.io>"
+__all__ = ["main"]
+__doc__ = "115 网盘批量上传"
+__license__ = "MIT"
+
+
 import errno
 
 from collections.abc import Callable
@@ -19,13 +25,27 @@ from typing import NamedTuple, TypedDict
 from concurrenttools import thread_batch
 from hashtools import file_digest
 from p115 import check_response, MultipartUploadAbort, MultipartResumeData
-from posixpatht import escape, joinpath as pjoinpath, normpath as pnormpath, split as psplit, path_is_dir_form
+from posixpatht import (
+    escape,
+    joinpath as pjoinpath,
+    normpath as pnormpath,
+    split as psplit,
+    path_is_dir_form,
+)
 from rich.progress import (
-    Progress, DownloadColumn, FileSizeColumn, MofNCompleteColumn, SpinnerColumn,
-    TimeElapsedColumn, TransferSpeedColumn,
+    Progress,
+    DownloadColumn,
+    FileSizeColumn,
+    MofNCompleteColumn,
+    SpinnerColumn,
+    TimeElapsedColumn,
+    TransferSpeedColumn,
 )
 from texttools import rotate_text
 from httpx import RequestError
+
+from app.log import logger
+
 
 @dataclass
 class Task:
@@ -49,19 +69,22 @@ class Result(NamedTuple):
 
 
 def get_status_code(e: BaseException, /) -> int:
-    status = getattr(e, "status", None) or getattr(e, "code", None) or getattr(e, "status_code", None)
+    status = (
+        getattr(e, "status", None)
+        or getattr(e, "code", None)
+        or getattr(e, "status_code", None)
+    )
     if status is None and hasattr(e, "response"):
         response = e.response
         status = (
-            getattr(response, "status", None) or 
-            getattr(response, "code", None) or 
-            getattr(response, "status_code", None)
+            getattr(response, "status", None)
+            or getattr(response, "code", None)
+            or getattr(response, "status_code", None)
         )
     return status or 0
 
 
 def upload_files(client, src_path, dst_path):
-
     part_size = 1 << 30
     max_workers = 1
     max_retries = -1
@@ -86,27 +109,27 @@ def upload_files(client, src_path, dst_path):
 
     stats: dict = {
         # 开始时间
-        "start_time": datetime.now(), 
+        "start_time": datetime.now(),
         # 总耗时
-        "elapsed": "", 
+        "elapsed": "",
         # 源路径
-        "src_path": "",  
+        "src_path": "",
         # 目标路径
-        "dst_path": "", 
+        "dst_path": "",
         # 任务总数
-        "tasks": {"total": 0, "files": 0, "dirs": 0, "size": 0}, 
+        "tasks": {"total": 0, "files": 0, "dirs": 0, "size": 0},
         # 成功任务数
-        "success": {"total": 0, "files": 0, "dirs": 0, "size": 0}, 
+        "success": {"total": 0, "files": 0, "dirs": 0, "size": 0},
         # 失败任务数（发生错误但已抛弃）
-        "failed": {"total": 0, "files": 0, "dirs": 0, "size": 0}, 
+        "failed": {"total": 0, "files": 0, "dirs": 0, "size": 0},
         # 重试任务数（发生错误但可重试），一个任务可以重试多次
-        "retry": {"total": 0, "files": 0, "dirs": 0}, 
+        "retry": {"total": 0, "files": 0, "dirs": 0},
         # 未完成任务数：未运行、重试中或运行中
-        "unfinished": {"total": 0, "files": 0, "dirs": 0, "size": 0}, 
+        "unfinished": {"total": 0, "files": 0, "dirs": 0, "size": 0},
         # 各种错误数量和分类汇总
-        "errors": {"total": 0, "files": 0, "dirs": 0, "reasons": {}}, 
+        "errors": {"total": 0, "files": 0, "dirs": 0, "reasons": {}},
         # 是否执行完成：如果是 False，说明是被人为终止
-        "is_completed": False, 
+        "is_completed": False,
     }
     # 任务总数
     tasks: dict[str, int] = stats["tasks"]
@@ -129,11 +152,27 @@ def upload_files(client, src_path, dst_path):
         if isinstance(path, str):
             path = Path(path)
         attr = {
-            "path": fspath(path), 
-            "name": path.name, 
-            "is_directory": path.is_dir(), 
+            "path": fspath(path),
+            "name": path.name,
+            "is_directory": path.is_dir(),
         }
-        attr.update(zip(("mode", "inode", "dev", "nlink", "uid", "gid", "size", "atime", "mtime", "ctime"), path.stat()))
+        attr.update(
+            zip(
+                (
+                    "mode",
+                    "inode",
+                    "dev",
+                    "nlink",
+                    "uid",
+                    "gid",
+                    "size",
+                    "atime",
+                    "mtime",
+                    "ctime",
+                ),
+                path.stat(),
+            )
+        )
         return attr
 
     def update_tasks(total=1, files=0, size=0):
@@ -202,14 +241,25 @@ def upload_files(client, src_path, dst_path):
 
     def hash_report(attr):
         update_desc = rotate_text(attr["name"], 22, interval=0.1).__next__
-        task = progress.add_task("[bold blink red on yellow]DIGESTING[/bold blink red on yellow] " + update_desc(), total=attr["size"])
+        task = progress.add_task(
+            "[bold blink red on yellow]DIGESTING[/bold blink red on yellow] "
+            + update_desc(),
+            total=attr["size"],
+        )
+
         def hash_progress(step):
-            progress.update(task, description="[bold blink red on yellow]DIGESTING[/bold blink red on yellow] " + update_desc(), advance=step)
+            progress.update(
+                task,
+                description="[bold blink red on yellow]DIGESTING[/bold blink red on yellow] "
+                + update_desc(),
+                advance=step,
+            )
             progress.update(statistics_bar, description=get_stat_str())
+
         try:
             return file_digest(
                 open(attr["path"], "rb"),
-                "sha1", 
+                "sha1",
                 callback=hash_progress,
             )
         finally:
@@ -222,7 +272,12 @@ def upload_files(client, src_path, dst_path):
             while not closed:
                 step = yield
                 progress.update(_task, description=update_desc(), advance=step)
-                progress.update(statistics_bar, description=get_stat_str(), advance=step, total=tasks["size"])
+                progress.update(
+                    statistics_bar,
+                    description=get_stat_str(),
+                    advance=step,
+                    total=tasks["size"],
+                )
         finally:
             progress.remove_task(_task)
 
@@ -247,13 +302,22 @@ def upload_files(client, src_path, dst_path):
                             resp = check_response(fs.fs_mkdir(name, dst_pid))
                             name = cast(str, resp["file_name"])
                             dst_id = int(resp["file_id"])
-                            task.dst_attr = {"id": dst_id, "parent_id": dst_pid, "name": name, "is_directory": True}
+                            task.dst_attr = {
+                                "id": dst_id,
+                                "parent_id": dst_pid,
+                                "name": name,
+                                "is_directory": True,
+                            }
                             subdattrs = {}
-                            console_print(f"[bold green][GOOD][/bold green] 📂 创建目录: [blue underline]{src_path!r}[/blue underline] ➜ [blue underline]{name!r}[/blue underline] in {dst_pid}")
+                            logger.info(
+                                f"创建目录: {src_path!r} ➜ {name!r} in {dst_pid}"
+                            )
                         else:
                             dst_id = cast(Mapping, dst_attr)["id"]
                     except FileExistsError:
-                        dst_attr = task.dst_attr = fs.attr([name], pid=dst_pid, ensure_dir=True)
+                        dst_attr = task.dst_attr = fs.attr(
+                            [name], pid=dst_pid, ensure_dir=True
+                        )
                         dst_id = dst_attr["id"]
                 if subdattrs is None:
                     subdattrs = {
@@ -261,15 +325,19 @@ def upload_files(client, src_path, dst_path):
                         for attr in fs.listdir_attr(dst_id)
                     }
                 subattrs = [
-                    a for a in map(get_path_attr, scandir(src_path))
-                    if a["name"] not in (".DS_Store", "Thumbs.db") and not a["name"].startswith("._")
+                    a
+                    for a in map(get_path_attr, scandir(src_path))
+                    if a["name"] not in (".DS_Store", "Thumbs.db")
+                    and not a["name"].startswith("._")
                 ]
                 update_tasks(
-                    total=len(subattrs), 
-                    files=sum(not a["is_directory"] for a in subattrs), 
-                    size=sum(a["size"] for a in subattrs if not a["is_directory"]), 
+                    total=len(subattrs),
+                    files=sum(not a["is_directory"] for a in subattrs),
+                    size=sum(a["size"] for a in subattrs if not a["is_directory"]),
                 )
-                progress.update(statistics_bar, description=get_stat_str(), total=tasks["size"])
+                progress.update(
+                    statistics_bar, description=get_stat_str(), total=tasks["size"]
+                )
                 pending_to_remove: list[int] = []
                 for subattr in subattrs:
                     subname = subattr["name"]
@@ -280,10 +348,14 @@ def upload_files(client, src_path, dst_path):
                         subdattr = subdattrs[key]
                         subdpath = subdattr["path"]
                         if is_directory:
-                            console_print(f"[bold yellow][SKIP][/bold yellow] 📂 目录已建: [blue underline]{subpath!r}[/blue underline] ➜ [blue underline]{subdpath!r}[/blue underline]")
+                            logger.info(f"目录已建: {subpath!r} ➜ {subdpath!r}")
                             subtask = Task(subattr, dst_id, subdattr)
-                        elif resume and subattr["size"] == subdattr["size"] and subattr["mtime"] <= subdattr["ctime"]:
-                            console_print(f"[bold yellow][SKIP][/bold yellow] 📝 跳过文件: [blue underline]{subpath!r}[/blue underline] ➜ [blue underline]{subdpath!r}[/blue underline]")
+                        elif (
+                            resume
+                            and subattr["size"] == subdattr["size"]
+                            and subattr["mtime"] <= subdattr["ctime"]
+                        ):
+                            logger.warn(f"跳过文件: {subpath!r} ➜ {subdpath!r}")
                             update_success(1, 1, subattr["size"])
                             progress.update(statistics_bar, description=get_stat_str())
                             continue
@@ -301,38 +373,38 @@ def upload_files(client, src_path, dst_path):
                         pass
                 if pending_to_remove:
                     for i in range(0, len(pending_to_remove), 1_000):
-                        part_ids = pending_to_remove[i:i+1_000]
+                        part_ids = pending_to_remove[i : i + 1_000]
                         try:
                             resp = fs.fs_delete(part_ids)
-                            console_print(f"""\
-    [bold green][DELETE][/bold green] 📝 删除文件列表
+                            logger.info(f"""\
+    删除文件列表
     ├ ids({len(part_ids)}) = {part_ids}
     ├ response = {resp}""")
                         except BaseException as e:
-                            console_print(f"""[bold yellow][SKIP][/bold yellow] 📝 删除文件列表失败
+                            logger.warn(f"""删除文件列表失败
     ├ ids({len(part_ids)}) = {part_ids}
-    ├ reason = [red]{type(e).__module__}.{type(e).__qualname__}[/red]: {e}""")
+    ├ reason = {type(e).__module__}.{type(e).__qualname__}: {e}""")
                 update_success(1)
             else:
                 if not name:
                     name = src_attr["name"]
                 kwargs: dict = {}
-                if src_attr["size"] <= 1 << 30: # 1 GB
+                if src_attr["size"] <= 1 << 30:  # 1 GB
                     # NOTE: 1 GB 以内使用网页版上传接口，这个接口的优势是上传完成后会自动产生 115 生活事件
                     kwargs["upload_directly"] = None
-                elif src_attr["size"] > 1 << 34: # 16 GB
+                elif src_attr["size"] > 1 << 34:  # 16 GB
                     # NOTE: 介于 1 GB 和 16 GB 时直接流式上传，超过 16 GB 时，使用分块上传
                     kwargs["partsize"] = part_size
                 # TODO: 如果 115 GB < src_attr["size"] <= 500 GB，则计算 ed2k 后离线下载
                 filesize, filehash = hash_report(src_attr)
-                console_print(f"[bold green][HASH][/bold green] 🧠 计算哈希: sha1([blue underline]{src_path!r}[/blue underline]) = {filehash.hexdigest()!r}")
+                logger.info(f"计算哈希: sha1({src_path!r}) = {filehash.hexdigest()!r}")
                 kwargs["filesize"] = filesize
                 kwargs["filesha1"] = filehash.hexdigest()
                 ticket: MultipartResumeData
                 for i in range(5):
                     if i:
-                        console_print(f"""\
-    [bold yellow][RETRY][/bold yellow] 📝 重试上传: [blue underline]{src_path!r}[/blue underline] ➜ [blue underline]{name!r}[/blue underline] in {dst_pid}
+                        logger.warn(f"""\
+    重试上传: {src_path!r} ➜ {name!r} in {dst_pid}
     ├ ticket = {ticket}""")
                     try:
                         resp = client.upload_file(
@@ -349,13 +421,15 @@ def upload_files(client, src_path, dst_path):
                 else:
                     raise exc
                 check_response(resp)
-                task.pickcode = resp.get("pickcode") or resp.get("data", {}).get("pickcode")
+                task.pickcode = resp.get("pickcode") or resp.get("data", {}).get(
+                    "pickcode"
+                )
                 if resp.get("status") == 2 and resp.get("statuscode") == 0:
                     prompt = "秒传文件"
                 else:
                     prompt = "上传文件"
-                console_print(f"""\
-    [bold green][GOOD][/bold green] 📝 {prompt}: [blue underline]{src_path!r}[/blue underline] ➜ [blue underline]{name!r}[/blue underline] in {dst_pid}
+                logger.info(f"""\
+    {prompt}: {src_path!r} ➜ {name!r} in {dst_pid}
     ├ response = {resp}""")
                 update_success(1, 1, src_attr["size"])
                 if remove_done:
@@ -381,14 +455,14 @@ def upload_files(client, src_path, dst_path):
             else:
                 retryable = task.times <= max_retries
             if retryable:
-                console_print(f"""\
-    [bold red][FAIL][/bold red] ♻️ 发生错误（将重试）: [blue underline]{src_path!r}[/blue underline] ➜ [blue underline]{name!r}[/blue underline] in {dst_pid}
-    ├ [red]{type(e).__module__}.{type(e).__qualname__}[/red]: {e}""")
+                logger.error(f"""\
+    发生错误（将重试）: {src_path!r} ➜ {name!r} in {dst_pid}
+    ├ {type(e).__module__}.{type(e).__qualname__}: {e}""")
                 update_retry(1, not src_attr["is_directory"])
                 submit(task)
             else:
-                console_print(f"""\
-    [bold red][FAIL][/bold red] 💀 发生错误（将抛弃）: [blue underline]{src_path!r}[/blue underline] ➜ [blue underline]{name!r}[/blue underline] in {dst_pid}
+                logger.error(f"""\
+    发生错误（将抛弃）: {src_path!r} ➜ {name!r} in {dst_pid}
     {indent(format_exc().strip(), "    ├ ")}""")
                 progress.update(statistics_bar, description=get_stat_str())
                 update_failed(1, not src_attr["is_directory"], src_attr.get("size"))
@@ -411,12 +485,15 @@ def upload_files(client, src_path, dst_path):
         FileSizeColumn(),
         TransferSpeedColumn(),
     ) as progress:
-        console_print = lambda msg: progress.console.print(f"[bold][[cyan]{datetime.now()}[/cyan]][/bold]", msg)
         if isinstance(dst_path, str):
             if dst_path == "0" or pnormpath(dst_path) in ("", "/"):
                 dst_pid = 0
                 dst_path = "/" + name
-            elif not dst_path.startswith("0") and dst_path.isascii() and dst_path.isdecimal():
+            elif (
+                not dst_path.startswith("0")
+                and dst_path.isascii()
+                and dst_path.isdecimal()
+            ):
                 dst_pid = int(dst_path)
             elif is_directory:
                 dst_attr = fs.makedirs(dst_path, pid=0, exist_ok=True)
@@ -464,14 +541,16 @@ def upload_files(client, src_path, dst_path):
         success_tasks: dict[str, Task] = {}
         failed_tasks: dict[str, Task] = {}
         all_tasks: Tasks = {
-            "success": success_tasks, 
-            "failed": failed_tasks, 
-            "unfinished": unfinished_tasks, 
+            "success": success_tasks,
+            "failed": failed_tasks,
+            "unfinished": unfinished_tasks,
         }
         stats["src_path"] = src_attr["path"]
         stats["dst_path"] = dst_path
         update_tasks(1, not src_attr["is_directory"], src_attr.get("size"))
-        get_stat_str = lambda: f"📊 [cyan bold]statistics[/cyan bold] 🧮 {tasks['total']} = 💯 {success['total']} + ⛔ {failed['total']} + ⏳ {unfinished['total']}"
+        get_stat_str = (
+            lambda: f"📊 [cyan bold]statistics[/cyan bold] 🧮 {tasks['total']} = 💯 {success['total']} + ⛔ {failed['total']} + ⏳ {unfinished['total']}"
+        )
         statistics_bar = progress.add_task(get_stat_str(), total=tasks["size"])
         closed = False
         try:
@@ -481,14 +560,21 @@ def upload_files(client, src_path, dst_path):
             closed = True
             progress.remove_task(statistics_bar)
             stats["elapsed"] = str(datetime.now() - start_time)
-            console_print(f"📊 [cyan bold]statistics:[/cyan bold] {stats}")
+            logger.info(f"statistics: {stats}")
 
     return Result(stats, all_tasks)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     from p115 import P115Client
-    test_client = P115Client(Path("cookies.txt"), check_for_relogin=True, ensure_cookies=True, app="wechatmini")
-    result = upload_files(test_client, 'test/', "/test")
+
+    test_client = P115Client(
+        Path("cookies.txt"),
+        check_for_relogin=True,
+        ensure_cookies=True,
+        app="wechatmini",
+    )
+    result = upload_files(test_client, "test/", "/test")
     for task in result.tasks["success"].values():
         if not task.src_attr["is_directory"]:
             print(f"文件: {task.src_attr['name']}")
