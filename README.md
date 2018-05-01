@@ -3,6 +3,8 @@
 > [!NOTE]
 > MoviePilot 第三方插件仓库
 
+Telegram 交流群: https://t.me/+1lcscM_EbqhkN2Rl
+
 ## 插件列表
 
 #### 探索类插件
