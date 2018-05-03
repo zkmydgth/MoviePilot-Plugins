@@ -1,5 +1,5 @@
 import re
-from typing import List
+from typing import List, Optional
 
 import httpx
 from bs4 import BeautifulSoup
@@ -64,6 +64,51 @@ class TgSearcher:
 
         unique_links = list(set(links))
         return unique_links, cloud_type
+
+    @staticmethod
+    def _find_telegra_link_from_button(message_element) -> Optional[str]:
+        """
+        从消息的按钮中查找 telegra.ph 链接
+        """
+        try:
+            button = message_element.select_one(
+                ".tgme_widget_message_inline_button.url_button"
+            )
+            if button:
+                href = button.get("href")
+                if href and "telegra.ph" in href:
+                    return href
+        except Exception as e:
+            logger.debug(f"【TGSearch】查找按钮链接时出错: {str(e)}")
+        return None
+
+    def _extract_links_from_telegra(self, telegra_url: str) -> tuple[List[str], str]:
+        """
+        从 telegra.ph 页面中提取115分享地址
+        """
+        try:
+            response = self.session.get(telegra_url, timeout=30)
+            response.raise_for_status()
+            html = response.text
+
+            cloud_links, cloud_type = self.extract_cloud_links(html)
+
+            if cloud_links:
+                logger.debug(
+                    f"【TGSearch】从 telegra.ph 页面提取到 {len(cloud_links)} 个云盘链接"
+                )
+
+            return cloud_links, cloud_type
+        except httpx.RequestError as e:
+            logger.warning(
+                f"【TGSearch】访问 telegra.ph 链接失败: {telegra_url}, 错误: {e}"
+            )
+            return [], ""
+        except Exception as e:
+            logger.warning(
+                f"【TGSearch】解析 telegra.ph 页面时出错: {telegra_url}, 错误: {e}"
+            )
+            return [], ""
 
     def get_channel(self, url: str, channel_id: str) -> List[ResourceItem]:
         """
@@ -131,6 +176,13 @@ class TgSearcher:
 
             all_links_text = " ".join(found_hrefs)
             cloud_links, cloud_type = self.extract_cloud_links(all_links_text)
+
+            if not cloud_links:
+                telegra_link = self._find_telegra_link_from_button(message)
+                if telegra_link:
+                    cloud_links, cloud_type = self._extract_links_from_telegra(
+                        telegra_link
+                    )
 
             if not cloud_links:
                 continue
