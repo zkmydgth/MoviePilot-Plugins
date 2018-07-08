@@ -1,4 +1,4 @@
-import re
+from re import search
 from typing import Any, Dict, Optional, Tuple
 
 from clouddrive2_client.proto import clouddrive_pb2
@@ -120,7 +120,7 @@ def check_upload_tasks(client, keyword: str = "") -> Optional[str]:
         status = getattr(task, "status", "") or ""
         error_message = getattr(task, "errorMessage", "") or ""
 
-        if status == "FatalError" and keyword and re.search(keyword, error_message):
+        if status == "FatalError" and keyword and search(keyword, error_message):
             logger.info("发现异常上传任务: %s", error_message)
             return error_message
 
