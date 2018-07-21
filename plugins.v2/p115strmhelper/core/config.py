@@ -19,6 +19,7 @@ from app.utils.system import SystemUtils
 from app.db.systemconfig_oper import SystemConfigOper
 from app.db.plugindata_oper import PluginDataOper
 
+from ..sidebar_nav import sidebar_nav_keys_known
 from ..version import VERSION
 from ..core.aliyunpan import AliyunPanLogin
 from ..schemas.cookie import U115Cookie
@@ -151,6 +152,25 @@ class ConfigManager(BaseModel):
                 for item in v
             ]
         return []
+
+    @field_validator("sidebar_nav_keys", mode="before")
+    @classmethod
+    def _normalize_sidebar_nav_keys(cls, v: Any) -> List[str]:
+        """
+        仅保留已注册的 nav_key，去重并保持顺序
+        """
+        _known = sidebar_nav_keys_known()
+        if v is None:
+            return ["start"]
+        if not isinstance(v, list):
+            return ["start"]
+        out: List[str] = []
+        seen: set[str] = set()
+        for x in v:
+            if isinstance(x, str) and x in _known and x not in seen:
+                seen.add(x)
+                out.append(x)
+        return out
 
     @model_validator(mode="before")
     @classmethod
@@ -546,7 +566,6 @@ class ConfigManager(BaseModel):
     storage_module: Literal["u115", "115网盘Plus"] = Field(
         default="u115", description="存储模块选择"
     )
-
     rename_dict_supplement_enabled: bool = Field(
         default=False,
         description="媒体元数据补充",
@@ -555,9 +574,14 @@ class ConfigManager(BaseModel):
         default="fill_missing",
         description="媒体元数据补充写入策略：仅补全缺失或空值 / 始终用探测结果覆盖",
     )
+
     native_emby_mediainfo_enabled: bool = Field(
         default=False,
         description="原生 Emby 媒体信息提取",
+    )
+    sidebar_nav_keys: List[str] = Field(
+        default_factory=lambda: ["start"],
+        description="侧栏显示的联邦全页导航 nav_key 列表，顺序即侧栏顺序；空列表表示不显示",
     )
     strm_url_template_enabled: bool = Field(
         default=False, description="STRM URL 自定义模板是否启用"

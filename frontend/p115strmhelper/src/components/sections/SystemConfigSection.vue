@@ -252,6 +252,17 @@
         <v-card-text>
           <v-row>
             <v-col cols="12">
+              <v-select v-model="config.sidebar_nav_keys" :items="sidebarNavKeyItems" item-title="title"
+                item-value="value" label="侧栏显示的页面" multiple chips closable-chips color="primary" density="compact"
+                hint="可多选，顺序即侧栏顺序；全部取消则侧栏不显示对应入口，保存后刷新页面生效"
+                persistent-hint></v-select>
+            </v-col>
+          </v-row>
+
+          <v-divider class="my-6"></v-divider>
+
+          <v-row>
+            <v-col cols="12">
               <v-switch v-model="config.native_emby_mediainfo_enabled" label="原生 Emby 媒体信息提取" color="primary"
                 density="compact" hint="开启后各处的「Emby 媒体信息提取」将仅通过 Emby API 触发，不依赖神医助手PRO" persistent-hint></v-switch>
             </v-col>
@@ -522,6 +533,11 @@
 import { ref, inject } from 'vue';
 
 const systemSubTab = ref('tab-cache-config');
+
+/** 与后端 sidebar_nav.SIDEBAR_NAV_ITEMS 的 nav_key 一致，新增页面时在此补充 */
+const sidebarNavKeyItems = [
+  { title: '115助手仪表盘', value: 'start' },
+];
 
 const config = inject('config');
 const isTransferModuleEnhancementLocked = inject('isTransferModuleEnhancementLocked');

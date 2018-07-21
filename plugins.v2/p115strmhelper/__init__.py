@@ -17,6 +17,7 @@ from jinja2 import Template
 from fastapi import Request
 from p115center import P115Center
 
+from .sidebar_nav import build_sidebar_nav
 from .version import VERSION
 from .api import Api
 from .service import servicer
@@ -735,18 +736,9 @@ class P115StrmHelper(_PluginBase):
     @staticmethod
     def get_sidebar_nav() -> List[Dict[str, Any]]:
         """
-        侧栏全页导航项：115 助手状态（联邦 AppPageStart）
+        侧栏全页导航项（联邦），由配置 sidebar_nav_keys 决定显示项与顺序
         """
-        return [
-            {
-                "plugin_id": "P115StrmHelper",
-                "nav_key": "start",
-                "title": "115助手仪表盘",
-                "icon": "mdi-speedometer",
-                "section": "start",
-                "order": 10,
-            }
-        ]
+        return build_sidebar_nav(list(configer.sidebar_nav_keys))
 
     @staticmethod
     def _get_event_userid(

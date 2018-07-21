@@ -415,6 +415,7 @@ const config = reactive({
   rename_dict_supplement_enabled: false,
   rename_dict_supplement_overwrite_mode: 'fill_missing',
   native_emby_mediainfo_enabled: false,
+  sidebar_nav_keys: ['start'],
   strm_url_template_enabled: false,
   strm_url_template: '',
   strm_url_template_custom: '',
