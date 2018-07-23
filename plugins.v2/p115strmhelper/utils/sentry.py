@@ -12,7 +12,7 @@ sentry_hub = Hub(
         dsn=base64.b64decode(
             "aHR0cHM6Ly8wZTY4OWY3NTM4N2E0NDMyYjZjYTY4NTc2N2I2MTdhMEBnbGl0Y2h0aXAuZGRzcmVtLmNvbS8z"
         ).decode("utf-8"),
-        release="p115strmhelper@v1.9.18",
+        release="p115strmhelper@v1.9.19",
     )
 )
 
