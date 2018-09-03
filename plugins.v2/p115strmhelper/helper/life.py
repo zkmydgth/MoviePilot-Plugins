@@ -737,8 +737,11 @@ class MonitorLife:
             cooldown=2,
         ):
             if first_loop:
-                from_id = int(event["id"])
-                from_time = int(event["update_time"])
+                if "update_time" in event and "id" in event:
+                    from_id = int(event["id"])
+                    from_time = int(event["update_time"])
+                else:
+                    break
                 first_loop = False
             events_batch.append(event)
         if not events_batch:
