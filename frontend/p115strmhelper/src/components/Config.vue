@@ -279,19 +279,24 @@
                   <!-- 基础配置 -->
                   <div class="basic-config">
                     <v-row>
-                      <v-col cols="12" md="4">
+                      <v-col cols="12" md="3">
                         <v-select v-model="config.full_sync_overwrite_mode" label="覆盖模式" :items="[
                           { title: '总是', value: 'always' },
                           { title: '从不', value: 'never' }
                         ]" chips closable-chips></v-select>
                       </v-col>
-                      <v-col cols="12" md="4">
+                      <v-col cols="12" md="3">
                         <v-switch v-model="config.full_sync_remove_unless_strm" label="清理失效STRM文件"
                           color="warning"></v-switch>
                       </v-col>
-                      <v-col cols="12" md="4">
+                      <v-col cols="12" md="3">
                         <v-switch v-model="config.full_sync_auto_download_mediainfo_enabled" label="下载媒体数据文件"
                           color="warning"></v-switch>
+                      </v-col>
+                      <v-col cols="12" md="3">
+                        <v-text-field v-model="fullSyncMinFileSizeFormatted" label="STRM最小文件大小"
+                          hint="小于此值的文件将不生成STRM(单位K,M,G)" persistent-hint density="compact" placeholder="例如: 100M (可为空)"
+                          clearable></v-text-field>
                       </v-col>
                     </v-row>
 
@@ -382,9 +387,14 @@
                     <v-col cols="12" md="3">
                       <v-switch v-model="config.increment_sync_strm_enabled" label="启用" color="warning"></v-switch>
                     </v-col>
-                    <v-col cols="12" md="9">
+                    <v-col cols="12" md="6">
                       <VCronField v-model="config.increment_sync_cron" label="运行增量同步周期" hint="设置增量同步的执行周期"
                         persistent-hint density="compact"></VCronField>
+                    </v-col>
+                    <v-col cols="12" md="3">
+                      <v-text-field v-model="incrementSyncMinFileSizeFormatted" label="STRM最小文件大小"
+                        hint="小于此值的文件将不生成STRM(单位K,M,G)" persistent-hint density="compact" placeholder="例如: 100M (可为空)"
+                        clearable></v-text-field>
                     </v-col>
                   </v-row>
                   <v-row>
@@ -514,25 +524,6 @@
                       ]" multiple chips closable-chips></v-select>
                     </v-col>
                     <v-col cols="12" md="3">
-                      <v-switch v-model="config.monitor_life_auto_download_mediainfo_enabled" label="下载媒体数据文件"
-                        color="warning"></v-switch>
-                    </v-col>
-                    <v-col cols="12" md="3">
-                      <v-switch v-model="config.monitor_life_scrape_metadata_enabled" label="STRM自动刮削"
-                        color="primary"></v-switch>
-                    </v-col>
-                  </v-row>
-
-                  <v-row>
-                    <v-col cols="12" md="3">
-                      <v-switch v-model="config.monitor_life_media_server_refresh_enabled" label="媒体服务器刷新"
-                        color="warning"></v-switch>
-                    </v-col>
-                    <v-col cols="12" md="3">
-                      <v-select v-model="config.monitor_life_mediaservers" label="媒体服务器" :items="mediaservers" multiple
-                        chips closable-chips></v-select>
-                    </v-col>
-                    <v-col cols="12" md="3">
                       <v-switch v-model="config.monitor_life_remove_mp_history" label="同步删除历史记录" color="warning"
                         :disabled="config.monitor_life_remove_mp_source"></v-switch>
                     </v-col>
@@ -540,7 +531,33 @@
                       <v-switch v-model="config.monitor_life_remove_mp_source" label="同步删除源文件" color="warning"
                         @change="value => { if (value) config.monitor_life_remove_mp_history = true }"></v-switch>
                     </v-col>
+                  </v-row>
 
+                  <v-row>
+                    <v-col cols="12" md="4">
+                      <v-switch v-model="config.monitor_life_media_server_refresh_enabled" label="媒体服务器刷新"
+                        color="warning"></v-switch>
+                    </v-col>
+                    <v-col cols="12" md="8">
+                      <v-select v-model="config.monitor_life_mediaservers" label="媒体服务器" :items="mediaservers" multiple
+                        chips closable-chips></v-select>
+                    </v-col>
+                  </v-row>
+
+                  <v-row>
+                    <v-col cols="12" md="4">
+                      <v-switch v-model="config.monitor_life_auto_download_mediainfo_enabled" label="下载媒体数据文件"
+                        color="warning"></v-switch>
+                    </v-col>
+                    <v-col cols="12" md="4">
+                      <v-switch v-model="config.monitor_life_scrape_metadata_enabled" label="STRM自动刮削"
+                        color="primary"></v-switch>
+                    </v-col>
+                    <v-col cols="12" md="4">
+                      <v-text-field v-model="monitorLifeMinFileSizeFormatted" label="STRM最小文件大小"
+                        hint="小于此值的文件将不生成STRM(单位K,M,G)" persistent-hint density="compact" placeholder="例如: 100M (可为空)"
+                        clearable></v-text-field>
+                    </v-col>
                   </v-row>
 
                   <!-- Monitor Life Exclude Paths -->
@@ -1341,6 +1358,7 @@ const config = reactive({
   cron_full_sync_strm: '0 */7 * * *',
   full_sync_strm_paths: '',
   full_sync_iter_function: 'iter_files_with_path_skim',
+  full_sync_min_file_size: 0,
   increment_sync_strm_enabled: false,
   increment_sync_auto_download_mediainfo_enabled: false,
   increment_sync_cron: "0 * * * *",
@@ -1350,6 +1368,7 @@ const config = reactive({
   increment_sync_scrape_metadata_exclude_paths: '',
   increment_sync_media_server_refresh_enabled: false,
   increment_sync_mediaservers: [],
+  increment_sync_min_file_size: 0,
   monitor_life_enabled: false,
   monitor_life_auto_download_mediainfo_enabled: false,
   monitor_life_paths: '',
@@ -1361,6 +1380,7 @@ const config = reactive({
   monitor_life_scrape_metadata_exclude_paths: '',
   monitor_life_remove_mp_history: false,
   monitor_life_remove_mp_source: false,
+  monitor_life_min_file_size: 0,
   share_strm_auto_download_mediainfo_enabled: false,
   user_share_code: '',
   user_receive_code: '',
@@ -1437,6 +1457,42 @@ const forceUploadWaitSizeFormatted = computed({
    */
   set(newValue) {
     config.upload_module_force_upload_wait_size = parseSize(newValue);
+  },
+});
+
+const fullSyncMinFileSizeFormatted = computed({
+  get() {
+    if (!config.full_sync_min_file_size || config.full_sync_min_file_size <= 0) {
+      return '';
+    }
+    return formatBytes(config.full_sync_min_file_size);
+  },
+  set(newValue) {
+    config.full_sync_min_file_size = parseSize(newValue);
+  },
+});
+
+const incrementSyncMinFileSizeFormatted = computed({
+  get() {
+    if (!config.increment_sync_min_file_size || config.increment_sync_min_file_size <= 0) {
+      return '';
+    }
+    return formatBytes(config.increment_sync_min_file_size);
+  },
+  set(newValue) {
+    config.increment_sync_min_file_size = parseSize(newValue);
+  },
+});
+
+const monitorLifeMinFileSizeFormatted = computed({
+  get() {
+    if (!config.monitor_life_min_file_size || config.monitor_life_min_file_size <= 0) {
+      return '';
+    }
+    return formatBytes(config.monitor_life_min_file_size);
+  },
+  set(newValue) {
+    config.monitor_life_min_file_size = parseSize(newValue);
   },
 });
 

@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Optional
 
 from app.core.config import settings
 
@@ -111,7 +112,26 @@ class StrmGenerater:
     """
 
     @staticmethod
-    def should_generate_strm(filename: str) -> tuple[str, bool]:
+    def should_generate_strm(
+        filename: str, mode: str, filesize: Optional[int] = None
+    ) -> tuple[str, bool]:
+        """
+        判断文件是否能生成总规则
+        """
+        # 1. 判断是否在黑名单
+        blacklist_msg, blacklist_status = StrmGenerater.not_blacklist_key(filename)
+        if not blacklist_status:
+            return blacklist_msg, blacklist_status
+
+        # 2. 判断大小是否低于最低限制
+        minsize_msg, minsize_status = StrmGenerater.not_min_limit(mode, filesize)
+        if not minsize_status:
+            return minsize_msg, minsize_status
+
+        return "", True
+
+    @staticmethod
+    def not_blacklist_key(filename) -> tuple[str, bool]:
         """
         判断文件名是否包含黑名单中的任何关键词
         """
@@ -123,4 +143,30 @@ class StrmGenerater:
         for keyword in blacklist:  # pylint: disable=E1133
             if keyword.lower() in lower_filename:
                 return f"匹配到黑名单关键词 {keyword}", False
+        return "", True
+
+    @staticmethod
+    def not_min_limit(mode: str, filesize: Optional[int] = None) -> tuple[str, bool]:
+        """
+        判断文件大小是否低于最低限制
+        """
+        min_size = None
+        if mode == "full":
+            min_size = configer.full_sync_min_file_size
+        elif mode == "life":
+            min_size = configer.monitor_life_min_file_size
+        elif mode == "increment":
+            min_size = configer.increment_sync_min_file_size
+        elif mode == "share":
+            min_size = configer.share_strm_min_file_size
+
+        if not min_size or min_size == 0:
+            return "", True
+
+        if not filesize:
+            return "", True
+
+        if filesize < min_size:
+            return "小于最小文件大小", False
+
         return "", True
