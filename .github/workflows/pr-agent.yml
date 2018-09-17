@@ -1,0 +1,33 @@
+name: PR Agent
+
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review]
+  issue_comment:
+    types: [created, edited]
+
+permissions:
+  issues: write
+  pull-requests: write
+  contents: write
+
+jobs:
+  pr_agent_job:
+    if: ${{ github.event.sender.type != 'Bot' }}
+    runs-on: ubuntu-latest
+    name: Code Review
+    steps:
+      - name: PR Code Review
+        id: pragent
+        uses: the-pr-agent/pr-agent@v0.35.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DEEPSEEK.KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          CONFIG.MODEL: "deepseek/deepseek-chat"
+          CONFIG.FALLBACK_MODELS: '["deepseek/deepseek-chat"]'
+          github_action_config.auto_review: "true"
+          github_action_config.auto_describe: "true"
+          github_action_config.auto_improve: "true"
+          PR_REVIEWER.EXTRA_INSTRUCTIONS: "请使用中文进行代码审查，重点关注代码质量、潜在安全漏洞和性能问题。"
+          PR_DESCRIPTION.EXTRA_INSTRUCTIONS: "请使用中文生成 PR 描述。"
+          PR_CODE_SUGGESTIONS.EXTRA_INSTRUCTIONS: "请使用中文提供代码改进建议，重点关注可读性和可维护性。"
