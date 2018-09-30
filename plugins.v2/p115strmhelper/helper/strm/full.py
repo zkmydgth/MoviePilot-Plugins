@@ -18,6 +18,7 @@ from app.core.config import settings
 from app.log import logger
 
 from full_strm_sync import Processor, PackedResult
+from full_strm_sync import __version__ as rust_core_version
 
 from ...core.config import configer
 from ...core.p115 import get_pid_by_path
@@ -647,29 +648,32 @@ class FullSyncStrmHelper:
                 if self.remove_unless_strm:
                     local_tree_task_thread = self.__remove_unless_strm_local(target_dir)
 
-                config_for_rust = {
-                    "pan_transfer_enabled": self.pan_transfer_enabled,
-                    "pan_transfer_paths": self.pan_transfer_paths.split("\n")
-                    if self.pan_transfer_paths
-                    else [],
-                    "auto_download_mediainfo": self.auto_download_mediainfo,
-                    "rmt_mediaext_set": list(self.rmt_mediaext_set),
-                    "download_mediaext_set": list(self.download_mediaext_set),
-                    "strm_generate_blacklist": configer.strm_generate_blacklist or [],
-                    "mediainfo_download_whitelist": configer.mediainfo_download_whitelist
-                    or [],
-                    "mediainfo_download_blacklist": configer.mediainfo_download_blacklist
-                    or [],
-                    "full_sync_min_file_size": configer.full_sync_min_file_size or 0,
-                    "pan_media_dir": pan_media_dir,
-                }
-                config_json = dumps(config_for_rust).decode("utf-8")
+                if rust:
+                    config_for_rust = {
+                        "pan_transfer_enabled": self.pan_transfer_enabled,
+                        "pan_transfer_paths": self.pan_transfer_paths.split("\n")
+                        if self.pan_transfer_paths
+                        else [],
+                        "auto_download_mediainfo": self.auto_download_mediainfo,
+                        "rmt_mediaext_set": list(self.rmt_mediaext_set),
+                        "download_mediaext_set": list(self.download_mediaext_set),
+                        "strm_generate_blacklist": configer.strm_generate_blacklist or [],
+                        "mediainfo_download_whitelist": configer.mediainfo_download_whitelist
+                        or [],
+                        "mediainfo_download_blacklist": configer.mediainfo_download_blacklist
+                        or [],
+                        "full_sync_min_file_size": configer.full_sync_min_file_size or 0,
+                        "pan_media_dir": pan_media_dir,
+                    }
+                    config_json = dumps(config_for_rust).decode("utf-8")
 
-                try:
-                    processor = Processor(config_json)
-                except Exception as e:
-                    logger.error(f"【全量STRM生成】初始化 Rust 核心失败: {e}")
-                    return False
+                    try:
+                        processor = Processor(config_json)
+                    except Exception as e:
+                        logger.error(f"【全量STRM生成】初始化 Rust 核心失败: {e}")
+                        return False
+
+                    logger.info(f"【全量STRM生成】Full Sync STRM Rust Core Version：v{rust_core_version}")
 
                 try:
                     parent_id = get_pid_by_path(
