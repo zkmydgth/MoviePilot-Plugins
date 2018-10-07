@@ -6,6 +6,7 @@ from typing import List, Set, Dict, Optional, Any
 from pathlib import Path
 from itertools import batched, chain
 from multiprocessing import Queue as ProcessQueue
+from queue import Empty
 
 from ...core.config import configer
 from ...core.message import post_message
@@ -77,11 +78,13 @@ class MonitorLife:
         mediainfodownloader: MediaInfoDownloader,
         stop_event: Optional[Event] = None,
         transfer_queue: Optional[ProcessQueue] = None,
+        transfer_response_queue: Optional[ProcessQueue] = None,
     ):
         self._client = client
         self.mediainfodownloader = mediainfodownloader
         self.stop_event = stop_event
         self.transfer_queue = transfer_queue
+        self.transfer_response_queue = transfer_response_queue
 
         self.tasks_queue = LifeTasksQueue()
 
@@ -844,7 +847,31 @@ class MonitorLife:
         last_info_time = None
 
         while True:
-            if not TransferChain().get_queue_tasks():
+            has_tasks = False
+
+            if (
+                self.transfer_queue is not None
+                and self.transfer_response_queue is not None
+            ):
+                try:
+                    self.transfer_queue.put({"type": "query_queue_status"})
+                    try:
+                        response = self.transfer_response_queue.get(timeout=2)
+                        has_tasks = (
+                            response.get("has_tasks", False)
+                            if isinstance(response, dict)
+                            else False
+                        )
+                    except Empty:
+                        has_tasks = False
+                        logger.debug("【监控生活事件】队列状态查询超时，继续处理")
+                except Exception as e:
+                    logger.error(f"【监控生活事件】查询队列状态失败: {e}")
+                    has_tasks = False
+            else:
+                has_tasks = len(TransferChain().get_queue_tasks()) > 0
+
+            if not has_tasks:
                 break
 
             if wait_start_time is None:
@@ -1288,6 +1315,20 @@ class MonitorLife:
         except Exception as e:
             logger.error(f"【网盘整理】处理队列任务失败: {e}")
             raise
+
+    def process_queue_status_query(self, response_queue: ProcessQueue):
+        """
+        处理队列状态查询请求（在主进程中调用）
+
+        :param response_queue: 响应队列，用于返回查询结果
+        """
+        try:
+            queue_tasks = TransferChain().get_queue_tasks()
+            has_tasks = len(queue_tasks) > 0 if queue_tasks else False
+            response_queue.put({"has_tasks": has_tasks})
+        except Exception as e:
+            logger.error(f"【监控生活事件】查询队列状态失败: {e}")
+            response_queue.put({"has_tasks": False})
 
     def start_manual_transfer(self, path: str) -> bool:
         """

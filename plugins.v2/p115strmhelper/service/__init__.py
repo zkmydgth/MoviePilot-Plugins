@@ -57,6 +57,7 @@ class ServiceHelper:
         self.monitor_life_fail_time: Optional[float] = None
 
         self.transfer_queue: Optional[ProcessQueue] = None
+        self.transfer_response_queue: Optional[ProcessQueue] = None
         self.transfer_queue_thread: Optional[Thread] = None
         self.transfer_queue_thread_stop = False
 
@@ -226,7 +227,7 @@ class ServiceHelper:
 
     def _process_transfer_queue(self):
         """
-        处理从子进程接收的 do_transfer 任务队列
+        处理从子进程接收的 do_transfer 任务队列和查询请求
         """
         logger.info("【网盘整理】任务队列处理线程已启动")
 
@@ -235,6 +236,24 @@ class ServiceHelper:
                 task_data: Dict[str, Any] = self.transfer_queue.get(timeout=1)
                 if task_data is None:
                     continue
+
+                if (
+                    isinstance(task_data, dict)
+                    and task_data.get("type") == "query_queue_status"
+                ):
+                    if self.monitorlife and self.transfer_response_queue:
+                        try:
+                            self.monitorlife.process_queue_status_query(
+                                self.transfer_response_queue
+                            )
+                        except Exception as e:
+                            logger.error(f"【监控生活事件】处理队列状态查询失败: {e}")
+                            try:
+                                self.transfer_response_queue.put({"has_tasks": False})
+                            except Exception:
+                                pass
+                    continue
+
                 if self.monitorlife:
                     try:
                         self.monitorlife.process_transfer_task(task_data)
@@ -306,11 +325,19 @@ class ServiceHelper:
             if self.transfer_queue is None:
                 self.transfer_queue = ProcessQueue()
 
+            if self.transfer_response_queue is None:
+                self.transfer_response_queue = ProcessQueue()
+
             self._start_transfer_queue_thread()
 
             self.monitor_life_process = Process(
                 target=monitor_life_process_worker,
-                args=(self.monitor_stop_event, configer.cookies, self.transfer_queue),
+                args=(
+                    self.monitor_stop_event,
+                    configer.cookies,
+                    self.transfer_queue,
+                    self.transfer_response_queue,
+                ),
                 name="P115StrmHelper-MonitorLife",
                 daemon=False,
             )

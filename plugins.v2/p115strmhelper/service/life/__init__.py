@@ -14,7 +14,10 @@ from app.log import logger
 
 @sentry_manager.capture_plugin_exceptions
 def monitor_life_process_worker(
-    stop_event, cookies: str, transfer_queue: Optional[ProcessQueue] = None
+    stop_event,
+    cookies: str,
+    transfer_queue: Optional[ProcessQueue] = None,
+    transfer_response_queue: Optional[ProcessQueue] = None,
 ):
     """
     生活事件监控进程工作函数
@@ -22,6 +25,7 @@ def monitor_life_process_worker(
     :param stop_event: multiprocessing.Event 对象，用于接收停止信号
     :param cookies: 115 网盘的 cookies 字符串
     :param transfer_queue: 进程间通信队列，用于将 do_transfer 任务发送到主进程
+    :param transfer_response_queue: 响应队列，用于接收主进程返回的查询结果
     """
     try:
         client = P115Client(cookies)
@@ -33,6 +37,7 @@ def monitor_life_process_worker(
             mediainfodownloader=mediainfodownloader,
             stop_event=stop_event,
             transfer_queue=transfer_queue,
+            transfer_response_queue=transfer_response_queue,
         )
 
         if not monitorlife.check_status():
