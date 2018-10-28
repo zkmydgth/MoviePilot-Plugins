@@ -89,11 +89,12 @@
         "name": "115网盘STRM助手",
         "description": "115网盘STRM生成一条龙服务",
         "labels": "云盘",
-        "version": "1.8.15",
+        "version": "1.8.16",
         "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png",
         "author": "DDSRem",
         "level": 1,
         "history": {
+            "v1.8.16": "优化数据库写入，尽可能避免路径重复",
             "v1.8.15": "修复数据库路径记录重复导致同步失败",
             "v1.8.14": "增加增量同步远程命令，主界面目录配置显示增量同步配置",
             "v1.8.13": "修复目录监控关闭失效",

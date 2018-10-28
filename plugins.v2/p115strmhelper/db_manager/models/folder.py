@@ -1,6 +1,6 @@
 from typing import Dict, List
 
-from sqlalchemy import Column, Integer, String, Text, select
+from sqlalchemy import Column, Integer, String, Text, select, delete
 from sqlalchemy.orm import Session
 
 from ...db_manager import db_update, db_query, P115StrmHelperBase
@@ -22,7 +22,7 @@ class Folder(P115StrmHelperBase):
     @db_query
     def get_by_path(db: Session, file_path: str):
         """
-        通过路径获取
+        通过路径获取（当路径不唯一报错 MultipleResultsFound）
         """
         return db.execute(
             select(Folder).where(Folder.path == file_path)
@@ -51,11 +51,9 @@ class Folder(P115StrmHelperBase):
     @db_update
     def delete_by_path(self, db: Session, file_path: str):
         """
-        通过路径删除
+        通过路径删除（删除所有匹配值）
         """
-        data = self.get_by_path(db, file_path)
-        if data:
-            data.delete(db, data.id)
+        db.execute(delete(Folder).where(Folder.path == file_path))
         return True
 
     @db_update
@@ -73,9 +71,14 @@ class Folder(P115StrmHelperBase):
     def upsert_batch(db: Session, batch: List[Dict]):
         """
         批量写入或更新数据
+
+        逻辑：
+          - 先判断需要写入的数据路径是否存在，存在则先删除记录
+          - 写入数据
         """
         for entry in batch:
             if entry["table"] == "folders":
+                db.execute(delete(Folder).where(Folder.path == entry["data"]["path"]))
                 db.merge(Folder(**entry["data"]))
         db.commit()
         return True
