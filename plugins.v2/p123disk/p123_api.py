@@ -1,4 +1,5 @@
 import ast
+import time
 from pathlib import Path
 from typing import Optional, List, Dict
 from datetime import datetime
@@ -48,16 +49,38 @@ class P123Api:
         rel_path = Path(path).relative_to(parent_path)
         for part in Path(rel_path).parts:
             find_part = False
-            payload = {
-                "parentFileId": int(current_id),
-            }
-            resp = self.client.fs_list(payload)
-            check_response(resp)
-            for item in resp["data"]["InfoList"]:
-                if item["FileName"] == part:
-                    current_id = item["FileId"]
-                    find_part = True
+            page = 1
+            _next = 0
+            first_find = True
+            while True:
+                payload = {
+                    "limit": 100,
+                    "next": _next,
+                    "Page": page,
+                    "parentFileId": int(current_id),
+                    "inDirectSpace": "false",
+                }
+                if first_find:
+                    first_find = False
+                else:
+                    time.sleep(1)
+                resp = self.client.fs_list(payload)
+                check_response(resp)
+                item_list = resp.get("data").get("InfoList")
+                if not item_list:
                     break
+                for item in item_list:
+                    if item["FileName"] == part:
+                        current_id = item["FileId"]
+                        find_part = True
+                        break
+                if find_part:
+                    break
+                if resp.get("data").get("Next") == "-1":
+                    break
+                else:
+                    page += 1
+                    _next = resp.get("data").get("Next")
             if not find_part:
                 raise FileNotFoundError(f"【123】{path} 不存在")
         if not current_id:
@@ -84,38 +107,58 @@ class P123Api:
 
         items = []
         try:
-            payload = {
-                "parentFileId": int(file_id),
-            }
-            resp = self.client.fs_list(payload)
-            check_response(resp)
+            page = 1
+            _next = 0
+            first_find = True
+            while True:
+                payload = {
+                    "limit": 100,
+                    "next": _next,
+                    "Page": page,
+                    "parentFileId": int(file_id),
+                    "inDirectSpace": "false",
+                }
+                if first_find:
+                    first_find = False
+                else:
+                    time.sleep(1)
+                resp = self.client.fs_list(payload)
+                check_response(resp)
+                item_list = resp.get("data").get("InfoList")
+                if not item_list:
+                    break
+                for item in item_list:
+                    path = f"{fileitem.path}{item['FileName']}"
+                    self._id_cache[path] = str(item["FileId"])
+
+                    file_path = path + ("/" if item["Type"] == 1 else "")
+                    items.append(
+                        schemas.FileItem(
+                            storage=self._disk_name,
+                            fileid=str(item["FileId"]),
+                            parent_fileid=str(item["ParentFileId"]),
+                            name=item["FileName"],
+                            basename=Path(item["FileName"]).stem,
+                            extension=Path(item["FileName"]).suffix[1:]
+                            if item["Type"] == 0
+                            else None,
+                            type="dir" if item["Type"] == 1 else "file",
+                            path=file_path,
+                            size=item["Size"] if item["Type"] == 0 else None,
+                            modify_time=int(
+                                datetime.fromisoformat(item["UpdateAt"]).timestamp()
+                            ),
+                            pickcode=str(item),
+                        )
+                    )
+                if resp.get("data").get("Next") == "-1":
+                    break
+                else:
+                    page += 1
+                    _next = resp.get("data").get("Next")
         except Exception as e:
             logger.debug(f"【123】获取信息失败: {str(e)}")
             return items
-        for item in resp["data"]["InfoList"]:
-            path = f"{fileitem.path}{item['FileName']}"
-            self._id_cache[path] = str(item["FileId"])
-
-            file_path = path + ("/" if item["Type"] == 1 else "")
-            items.append(
-                schemas.FileItem(
-                    storage=self._disk_name,
-                    fileid=str(item["FileId"]),
-                    parent_fileid=str(item["ParentFileId"]),
-                    name=item["FileName"],
-                    basename=Path(item["FileName"]).stem,
-                    extension=Path(item["FileName"]).suffix[1:]
-                    if item["Type"] == 0
-                    else None,
-                    type="dir" if item["Type"] == 1 else "file",
-                    path=file_path,
-                    size=item["Size"] if item["Type"] == 0 else None,
-                    modify_time=int(
-                        datetime.fromisoformat(item["UpdateAt"]).timestamp()
-                    ),
-                    pickcode=str(item),
-                )
-            )
         return items
 
     def create_folder(
