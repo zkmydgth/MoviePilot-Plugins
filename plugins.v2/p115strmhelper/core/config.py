@@ -462,6 +462,10 @@ class ConfigManager(BaseModel):
     upload_share_info: bool = Field(default=True, description="上传分享链接")
     upload_offline_info: bool = Field(default=True, description="上传离线下载链接")
     transfer_module_enhancement: bool = Field(default=False, description="115 整理增强")
+    pan_transfer_takeover: bool = Field(
+        default=False,
+        description="接管网盘整理（启用后将接管 115 → 115 的整理任务进行批量处理，需要存储模块为 '115网盘Plus'）",
+    )
     storage_module: Literal["u115", "115网盘Plus"] = Field(
         default="u115", description="存储模块选择"
     )

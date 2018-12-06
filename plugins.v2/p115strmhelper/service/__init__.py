@@ -25,6 +25,8 @@ from ..helper.offline import OfflineDownloadHelper
 from ..helper.share import ShareTransferHelper
 from ..helper.clean import Cleaner
 from ..helper.r302 import Redirect
+from ..helper.transfer import TransferTaskManager, TransferHandler
+from ..patch import TransferChainPatcher
 from ..core.config import configer
 from ..core.message import post_message
 from ..core.aliyunpan import BAligo
@@ -64,6 +66,9 @@ class ServiceHelper:
         self.service_observer: List = []
 
         self.fuse_manager: Optional[FuseManager] = None
+
+        self.transfer_task_manager: Optional[TransferTaskManager] = None
+        self.transfer_handler: Optional[TransferHandler] = None
 
     def init_service(self):
         """
@@ -132,10 +137,57 @@ class ServiceHelper:
             if configer.fuse_enabled and configer.fuse_mountpoint:
                 self.fuse_manager._start_fuse_internal()
 
+            # 初始化整理任务管理器和 TransferChain 补丁
+            self._init_transfer_enhancement()
             return True
         except Exception as e:
             logger.error(f"服务项初始化失败: {e}")
             return False
+
+    def _init_transfer_enhancement(self):
+        """
+        初始化或更新接管网盘整理功能
+        """
+        try:
+            TransferChainPatcher.disable()
+        except Exception:
+            pass
+
+        if self.transfer_task_manager:
+            try:
+                self.transfer_task_manager.shutdown()
+            except Exception:
+                pass
+            self.transfer_task_manager = None
+        self.transfer_handler = None
+
+        if configer.pan_transfer_takeover:
+            if configer.storage_module != "115网盘Plus":
+                logger.warn(
+                    "【整理接管】接管网盘整理功能需要存储模块为 '115网盘Plus'，当前存储模块为 "
+                    f"'{configer.storage_module}'，接管功能已禁用"
+                )
+            else:
+                try:
+                    self.transfer_handler = TransferHandler(
+                        client=self.client,
+                        storage_name="115网盘Plus",
+                    )
+                    self.transfer_task_manager = TransferTaskManager(
+                        batch_delay=10.0,
+                        batch_max_size=500,
+                        batch_callback=self.transfer_handler.process_batch,
+                    )
+                    TransferChainPatcher.enable(
+                        task_manager=self.transfer_task_manager,
+                        handler=self.transfer_handler,
+                        storage_module="115网盘Plus",
+                    )
+                    logger.info("【整理接管】已启用")
+                except Exception as e:
+                    logger.error(f"【整理接管】初始化失败: {e}", exc_info=True)
+                    self.transfer_task_manager = None
+                    self.transfer_handler = None
 
     def check_monitor_life_guard(self):
         """
@@ -618,6 +670,17 @@ class ServiceHelper:
                 self.fuse_manager.stop_fuse()
             if self.redirect:
                 self.redirect.close_http_client_sync()
+            try:
+                TransferChainPatcher.disable()
+            except Exception as e:
+                logger.error(f"【整理接管】禁用补丁失败: {e}")
+            if self.transfer_task_manager:
+                try:
+                    self.transfer_task_manager.shutdown()
+                except Exception as e:
+                    logger.error(f"【整理接管】关闭任务管理器失败: {e}")
+                self.transfer_task_manager = None
+            self.transfer_handler = None
         except Exception as e:
             logger.error(f"发生错误: {e}")
 

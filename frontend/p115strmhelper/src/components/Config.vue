@@ -1334,18 +1334,22 @@
               <v-window-item value="tab-data-enhancement">
                 <v-card-text>
                   <v-row>
-                    <v-col cols="12" md="4">
+                    <v-col cols="12" md="3">
                       <v-switch v-model="config.error_info_upload" label="错误信息上传" color="info"
                         density="compact"></v-switch>
                     </v-col>
-                    <v-col cols="12" md="4">
+                    <v-col cols="12" md="3">
                       <v-switch v-model="config.upload_module_enhancement" label="上传模块增强" color="info"
                         density="compact"></v-switch>
                     </v-col>
-                    <v-col cols="12" md="4">
+                    <v-col cols="12" md="3">
                       <v-switch v-model="config.transfer_module_enhancement" label="整理模块增强" color="info"
                         density="compact" :disabled="isTransferModuleEnhancementLocked" hint="此功能需要授权才能开启"
                         persistent-hint></v-switch>
+                    </v-col>
+                    <v-col cols="12" md="3">
+                      <v-switch v-model="config.pan_transfer_takeover" label="接管网盘整理" color="info" density="compact"
+                        hint="接管 115 → 115 整理任务进行批量处理，需要存储模块为 115网盘Plus" persistent-hint></v-switch>
                     </v-col>
                   </v-row>
                   <v-row>
@@ -1361,7 +1365,32 @@
                       <v-select v-model="config.storage_module" label="存储模块选择" :items="[
                         { title: '115网盘', value: 'u115' },
                         { title: '115网盘Plus', value: '115网盘Plus' }
-                      ]" chips closable-chips hint="选择使用的存储模块" persistent-hint></v-select>
+                      ]" chips closable-chips
+                        :hint="config.pan_transfer_takeover ? '接管网盘整理功能必须使用 115网盘Plus' : '选择使用的存储模块'"
+                        persistent-hint></v-select>
+                    </v-col>
+                  </v-row>
+                  <v-row v-if="config.pan_transfer_takeover">
+                    <v-col cols="12">
+                      <v-alert type="warning" variant="tonal" density="compact" icon="mdi-alert"
+                        v-if="config.storage_module !== '115网盘Plus'">
+                        <div class="text-body-2 mb-1"><strong>提示：</strong></div>
+                        <div class="text-caption">
+                          接管网盘整理功能已启用，但当前存储模块为 <strong>{{ config.storage_module === 'u115' ? '115网盘' :
+                            config.storage_module
+                          }}</strong>。
+                          请将存储模块切换为 <strong>115网盘Plus</strong>，否则接管功能将无法生效。
+                        </div>
+                      </v-alert>
+                      <v-alert type="info" variant="tonal" density="compact" icon="mdi-information" v-else>
+                        <div class="text-body-2 mb-1"><strong>功能说明：</strong></div>
+                        <div class="text-caption">
+                          <div class="mb-1">• <strong>接管网盘整理：</strong>启用后将接管 MoviePilot 的 115 → 115 整理任务，使用批量处理提升整理效率
+                          </div>
+                          <div class="mb-1">• <strong>与整理模块接口增强的区别：</strong>此功能是接管整理流程，而整理模块接口增强是对存储接口的优化</div>
+                          <div>• 当前存储模块为 <strong>115网盘Plus</strong>，功能可以正常使用</div>
+                        </div>
+                      </v-alert>
                     </v-col>
                   </v-row>
                   <v-row>
@@ -1642,8 +1671,8 @@
                     <div class="text-body-2 mb-1"><strong>配置教程：</strong></div>
                     <div class="text-caption">
                       详细的 FUSE 挂载配置指南请参考：
-                      <a href="https://blog.ddsrem.com/archives/115strmhelper-fuse-use" target="_blank" rel="noopener noreferrer"
-                        style="color: inherit; text-decoration: underline;">FUSE 挂载详细配置指南</a>
+                      <a href="https://blog.ddsrem.com/archives/115strmhelper-fuse-use" target="_blank"
+                        rel="noopener noreferrer" style="color: inherit; text-decoration: underline;">FUSE 挂载详细配置指南</a>
                     </div>
                   </v-alert>
                 </v-card-text>
@@ -2604,6 +2633,7 @@ const config = reactive({
   upload_share_info: true,
   upload_offline_info: true,
   transfer_module_enhancement: false,
+  pan_transfer_takeover: false,
   strm_url_template_enabled: false,
   strm_url_template: '',
   strm_url_template_custom: '',
