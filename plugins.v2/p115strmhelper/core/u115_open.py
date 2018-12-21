@@ -6,7 +6,7 @@ from pathlib import Path
 from shutil import rmtree
 from threading import Lock
 from time import sleep, time, perf_counter
-from typing import Optional, Union, Literal, List, Tuple, Dict, Set
+from typing import Optional, Union, Literal, List, Tuple, Dict, Set, Any
 
 import oss2
 import httpx
@@ -1225,4 +1225,116 @@ class U115OpenHelper:
         if files_info_path.exists():
             rmtree(files_info_path)
 
-# TODO 实现通用递归拉取方法
+
+    def iter_files_with_path(
+        self,
+        path: str | int | Path | PathLike,
+        /,
+        qps: int = 5,
+        page_size: int = 1150,
+        max_workers: int = 10,
+        type: Optional[int] = None,
+        suffix: Optional[str] = None,
+        asc: int = 1,
+        order: Literal[
+            "file_name", "file_size", "user_utime", "file_type"
+        ] = "file_name",
+    ):
+        """
+        遍历目录树迭代文件信息对象
+
+        .. attention::
+            此方法通过递归拉取所有文件信息
+            拉取速度与文件夹数成正比
+
+        :param path: 迭代目录（可选目录路径，cid）
+        :param qps: 每秒请求数
+        :param page_size: 分页大小
+        :param max_workers: 最大工作线程数
+        :param type: 文件类型；1.文档；2.图片；3.音乐；4.视频；5.压缩；6.应用；7.书籍
+        :param suffix: 匹配文件后缀名
+        :param asc: 升序排列。0: 否，1: 是
+        :param order: 排序
+
+            - "file_name": 文件名
+            - "file_size": 文件大小
+            - "file_type": 文件种类
+            - "user_utime": 修改时间
+        """
+        rate_limiter = RateLimiter(qps)
+
+        def _job(
+            cid: int, path_prefix: str, offset: int,
+        ) -> Tuple[List[Dict[str, Any]], List[Tuple[int, str, int]]]:
+            rate_limiter.acquire()
+            payload = {
+                "cid": cid,
+                "limit": page_size,
+                "o": order,
+                "asc": asc,
+                "type": type,
+                "suffix": suffix,
+                "offset": offset,
+                "show_dir": 1,
+            }
+            for i in range(1, 4):
+                try:
+                    resp = self._request_api(
+                        "GET",
+                        "/open/ufile/files",
+                        params=payload,
+                    )
+                    break
+                except HTTPStatusError as e:
+                    sleep(2**i)
+                    if i == 3:
+                        raise e
+            items = resp.get("data", [])  # noqa
+            count = resp.get("count", 0)
+            files_found = []
+            sub_dirs_to_scan = []
+            for attr in items:
+                attr = normalize_attr(attr)
+                path = (
+                    f"{path_prefix}/{attr['name']}" if path_prefix else f"/{attr['name']}"
+                )
+                if attr.get("is_dir"):
+                    sub_dirs_to_scan.append((int(attr["id"]), path, 0))
+                else:
+                    attr["path"] = path
+                    files_found.append(attr)
+            new_offset = offset + len(items)
+            if new_offset < count and len(items) > 0:
+                sub_dirs_to_scan.append((cid, path_prefix, new_offset))
+            return files_found, sub_dirs_to_scan
+
+        if isinstance(path, (Path, PathLike)):
+            storage_chain = StorageChain()
+            file_item = storage_chain.get_file_item(storage="u115", path=Path(path))
+            if not file_item:
+                raise CanNotFindPathToCid("无法获取目录信息")
+            path = file_item.fileid
+        initial_cid = int(path)
+        if page_size <= 0 or page_size > 1150:
+            page_size = 1150
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            pending_futures: Set[Future] = set()
+            initial_future = executor.submit(_job, initial_cid, "", 0)
+            pending_futures.add(initial_future)
+            while pending_futures:
+                for future in as_completed(pending_futures):
+                    pending_futures.remove(future)
+                    try:
+                        files, sub_dirs = future.result()
+                        for file_info in files:
+                            yield file_info
+                        for task_args in sub_dirs:
+                            new_future = executor.submit(_job, *task_args)
+                            pending_futures.add(new_future)
+                    except Exception as e:
+                        for f in pending_futures:
+                            f.cancel()
+                        executor.shutdown(wait=False, cancel_futures=True)
+                        raise e
+                    break
