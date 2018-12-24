@@ -582,7 +582,9 @@ class ServiceHelper:
                                 for change in changes:
                                     change_type, path_str = change
                                     if change_type == Change.added:
-                                        process_file_change(path_str, path)
+                                        process_file_change(
+                                            servicer.client, path_str, path
+                                        )
                         except Exception as e:
                             logger.error(
                                 f"【目录上传】{path} 监控线程异常: {e}",

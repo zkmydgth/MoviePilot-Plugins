@@ -7,6 +7,8 @@ from traceback import format_exc
 from typing import Optional
 from time import sleep
 
+from p115client import P115Client
+
 from app.chain.storage import StorageChain
 from app.log import logger
 from app.utils.system import SystemUtils
@@ -19,10 +21,11 @@ from ...helper.strm import MonitorStrmHelper
 directory_upload_dict = defaultdict(Lock)
 
 
-def process_file_change(file_path: str, mon_path: str) -> None:
+def process_file_change(client: P115Client, file_path: str, mon_path: str) -> None:
     """
     处理 watchfiles 产生的文件变更
 
+    :param client: 115 客户端
     :param file_path: 事件文件路径
     :param mon_path: 监控目录
     """
@@ -30,12 +33,14 @@ def process_file_change(file_path: str, mon_path: str) -> None:
     if p.exists() and p.is_dir():
         return
     logger.debug(f"【目录上传】文件 创建: {file_path}")
-    handle_file(event_path=file_path, mon_path=mon_path)
+    handle_file(client, file_path, mon_path)
 
 
-def handle_file(event_path: str, mon_path: str):
+def handle_file(client: P115Client, event_path: str, mon_path: str):
     """
     同步一个文件
+
+    :param client: 115 客户端
     :param event_path: 事件文件路径
     :param mon_path: 监控目录
     """
@@ -91,9 +96,17 @@ def handle_file(event_path: str, mon_path: str):
                     logger.error(f"【目录上传】{file_path} 未找到对应的上传网盘目录")
                     return
 
-                target_file_path = Path(dest_remote) / Path(file_path).relative_to(
-                    mon_path
-                )
+                rel = Path(file_path).relative_to(mon_path)
+                if configer.directory_upload_clouddrive2_config.enabled:
+                    upload_storage = "CloudDrive储存"
+                    target_file_path = (
+                        Path(configer.directory_upload_clouddrive2_config.prefix)
+                        / dest_remote.strip("/")
+                        / rel
+                    )
+                else:
+                    upload_storage = configer.storage_module
+                    target_file_path = Path(dest_remote) / rel
 
                 # 网盘目录创建流程
                 def __find_dir(_fileitem: FileItem, _name: str) -> Optional[FileItem]:
@@ -108,13 +121,11 @@ def handle_file(event_path: str, mon_path: str):
                     return None
 
                 target_fileitem = storage_chain.get_file_item(
-                    storage=configer.storage_module, path=target_file_path.parent
+                    storage=upload_storage, path=target_file_path.parent
                 )
                 if not target_fileitem:
                     # 逐级查找和创建目录
-                    target_fileitem = FileItem(
-                        storage=configer.storage_module, path="/"
-                    )
+                    target_fileitem = FileItem(storage=upload_storage, path="/")
                     for part in target_file_path.parent.parts[1:]:
                         dir_file = __find_dir(target_fileitem, part)
                         if dir_file:
@@ -134,13 +145,19 @@ def handle_file(event_path: str, mon_path: str):
                 storage_chain.upload_file(target_fileitem, file_path, file_path.name)
                 sleep(5)
                 uploaded_file_item = storage_chain.get_file_item(
-                    storage=configer.storage_module, path=target_file_path
+                    storage=upload_storage, path=target_file_path
                 )
                 if uploaded_file_item:
                     logger.info(
                         f"【目录上传】{file_path} 上传到网盘 {target_file_path} 成功 "
                     )
                     if dest_strm:
+                        if upload_storage == "CloudDrive储存":
+                            setattr(
+                                uploaded_file_item,
+                                "pickcode",
+                                client.to_pickcode(int(uploaded_file_item.fileid)),
+                            )
                         MonitorStrmHelper.generate_strm_after_upload(
                             uploaded_file_item=uploaded_file_item,
                             dest_strm=dest_strm,

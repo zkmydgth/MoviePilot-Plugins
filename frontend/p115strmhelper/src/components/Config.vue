@@ -1337,6 +1337,18 @@
                             ]" chips closable-chips density="compact" hide-details></v-select>
                           </v-col>
                         </v-row>
+                        <v-row v-if="config.directory_upload_clouddrive2_config">
+                          <v-col cols="12" md="4">
+                            <v-switch v-model="config.directory_upload_clouddrive2_config.enabled"
+                              label="交由 CloudDrive2 上传" color="info" density="compact"
+                              hide-details></v-switch>
+                          </v-col>
+                          <v-col v-if="config.directory_upload_clouddrive2_config.enabled" cols="12" md="8">
+                            <v-text-field v-model="config.directory_upload_clouddrive2_config.prefix"
+                              label="挂载前缀" placeholder="必填，如 /115open" density="compact"
+                              variant="outlined" hide-details></v-text-field>
+                          </v-col>
+                        </v-row>
                         <v-row>
                           <v-col cols="12" md="6">
                             <v-text-field v-model="config.directory_upload_uploadext" label="上传文件扩展名"
@@ -3003,6 +3015,7 @@ const config = reactive({
   directory_upload_uploadext: 'mp4,mkv,ts,iso,rmvb,avi,mov,mpeg,mpg,wmv,3gp,asf,m4v,flv,m2ts,tp,f4v',
   directory_upload_copyext: 'srt,ssa,ass',
   directory_upload_path: [],
+  directory_upload_clouddrive2_config: { enabled: false, prefix: '' },
   nullbr_app_id: '',
   nullbr_api_key: '',
   tg_search_channels: [],

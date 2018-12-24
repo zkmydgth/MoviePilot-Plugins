@@ -38,6 +38,15 @@ class PanTransferCloudDrive2Config(BaseModel):
     prefix: str = Field(default="", description="CloudDrive2 储存挂载前缀")
 
 
+class DirectoryUploadCloudDrive2Config(BaseModel):
+    """
+    目录上传交由 CloudDrive2 储存配置
+    """
+
+    enabled: bool = Field(default=False, description="交由 CloudDrive2 上传")
+    prefix: str = Field(default="", description="CloudDrive2 储存挂载前缀")
+
+
 class ConfigManager(BaseModel):
     """
     插件配置管理器
@@ -451,6 +460,10 @@ class ConfigManager(BaseModel):
     )
     directory_upload_path: Optional[List[Dict]] = Field(
         default=None, description="监控目录信息"
+    )
+    directory_upload_clouddrive2_config: DirectoryUploadCloudDrive2Config = Field(
+        default_factory=DirectoryUploadCloudDrive2Config,
+        description="目录上传交由CloudDrive2储存",
     )
 
     tg_search_channels: Optional[List[Dict]] = Field(
