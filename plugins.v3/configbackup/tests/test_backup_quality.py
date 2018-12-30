@@ -22,6 +22,7 @@
 6. 并发：已有备份在跑时拒绝第二次
 """
 
+import json
 import os
 import unittest
 import zipfile
@@ -116,6 +117,7 @@ class TestPackageSelfCheck(_BoundaryBase):
         (Path(self.backup_dir) / "bk_20260918_099999.zip.broken").write_bytes(b"junk")
 
         self.plugin._keep_count = 2
+        self.plugin._keep_days = 0    # 本用例只验证个数维度，关掉天数保护
         deleted = self.plugin._ConfigBackup__clean_old_backups(Path(self.backup_dir))
 
         self.assertEqual(deleted, 1, "只应删超出的 1 份，.broken 不参与计数")
@@ -147,6 +149,190 @@ class TestSortByFilename(_BoundaryBase):
         items = self.plugin._ConfigBackup__list_backups(Path(self.backup_dir))
 
         self.assertEqual(items[0]["time"], "2026-01-01 00:00:00")
+
+
+class TestKeepDays(_BoundaryBase):
+    """保留天数：与保留个数「满足其一即保留」。"""
+
+    def test_recent_backups_survive_count_pressure(self):
+        """天数内的备份不该因为超出保留个数被删。"""
+        for i in range(3):
+            self.make_backup(f"2026100{i}000000")
+        self.plugin._keep_count = 1
+        self.plugin._keep_days = 30
+
+        deleted = self.plugin._ConfigBackup__clean_old_backups(Path(self.backup_dir))
+
+        self.assertEqual(deleted, 0, "30 天内的备份一律不删")
+
+    def test_zero_days_means_count_only(self):
+        """keep_days=0 表示只看个数。"""
+        for i in range(3):
+            self.make_backup(f"2026100{i}000000")
+        self.plugin._keep_count = 1
+        self.plugin._keep_days = 0
+
+        self.assertEqual(self.plugin._ConfigBackup__clean_old_backups(Path(self.backup_dir)), 2)
+
+    def test_only_old_and_excess_are_deleted(self):
+        """既超个数、又早于截止时间的才删。"""
+        old = self.make_backup("20260101000000")
+        new = self.make_backup("20261001000000")
+        self.plugin._keep_count = 1
+        self.plugin._keep_days = 30
+
+        self.assertEqual(self.plugin._ConfigBackup__clean_old_backups(Path(self.backup_dir)), 1)
+        self.assertFalse(old.exists())
+        self.assertTrue(new.exists())
+
+
+class TestManifest(_BoundaryBase):
+    """备份包清单：还原前能看清这个包里到底有什么。"""
+
+    def test_manifest_written_into_package(self):
+        """备份包内应写入清单，并记录数据库类型。"""
+        cfg = Path(self.base) / "cfg"
+        cfg.mkdir()
+        (cfg / "category.yaml").write_text("x: 1")
+
+        with mock.patch.object(settings, "CONFIG_PATH", str(cfg)):
+            ok, msg = self.plugin._ConfigBackup__run_backup()
+
+        self.assertTrue(ok, msg)
+        zips = list(Path(self.backup_dir).glob("bk_*.zip"))
+        self.assertEqual(len(zips), 1, f"应产出 1 个备份包，实际：{zips}")
+        data = ConfigBackup._ConfigBackup__read_manifest(zips[0])
+        self.assertIsNotNone(data, "备份包内应有清单")
+        self.assertEqual(data["db_type"], "sqlite")
+        self.assertIn("created", data)
+
+    def test_legacy_package_degrades(self):
+        """老包没有清单：摘要降级，不得因此拒绝还原。"""
+        path = self.make_backup("20260918000000")
+        self.assertEqual(
+            ConfigBackup._ConfigBackup__summarize(str(path)), "老备份包（无清单）"
+        )
+
+    def test_summary_lists_contents(self):
+        """摘要应体现包含的内容。"""
+        path = self.make_backup("20260918000000")
+        with zipfile.ZipFile(path, "a") as zf:
+            zf.writestr("backup_manifest.json", json.dumps({
+                "database": True, "db_type": "postgresql",
+                "plugins": True, "extra_count": 2,
+            }))
+
+        summary = ConfigBackup._ConfigBackup__summarize(str(path))
+        self.assertIn("数据库", summary)
+        self.assertIn("插件配置", summary)
+        self.assertIn("附加×2", summary)
+
+
+class TestOverlayRestore(_BoundaryBase):
+    """完全还原：备份包里出现过的项先删后写。"""
+
+    def test_overwrites_same_name(self):
+        """同名项应被备份内容整体替换，而不是合并。"""
+        src = Path(self.base) / "src"
+        src.mkdir()
+        (src / "a.json").write_text("new")
+        dst = Path(self.base) / "dst"
+        dst.mkdir()
+        (dst / "a.json").write_text("old")
+
+        n = ConfigBackup._ConfigBackup__overlay(src, dst)
+
+        self.assertEqual(n, 1)
+        self.assertEqual((dst / "a.json").read_text(), "new")
+
+    def test_unrelated_items_are_kept(self):
+        """备份包里没有的目标端内容不动——老备份包不能把现在的清光。"""
+        src = Path(self.base) / "src"
+        src.mkdir()
+        (src / "a.json").write_text("new")
+        dst = Path(self.base) / "dst"
+        dst.mkdir()
+        (dst / "unrelated.json").write_text("keep")
+
+        ConfigBackup._ConfigBackup__overlay(src, dst)
+
+        self.assertTrue((dst / "unrelated.json").exists(), "包里没有的不应被清掉")
+
+    def test_directory_is_replaced_not_merged(self):
+        """目录整体替换：备份里没有的文件不得残留（否则还原名不副实）。"""
+        src = Path(self.base) / "src"
+        (src / "cfg").mkdir(parents=True)
+        (src / "cfg" / "x.json").write_text("new")
+        dst = Path(self.base) / "dst"
+        (dst / "cfg").mkdir(parents=True)
+        (dst / "cfg" / "stale.json").write_text("stale")
+
+        ConfigBackup._ConfigBackup__overlay(src, dst)
+
+        self.assertTrue((dst / "cfg" / "x.json").exists())
+        self.assertFalse((dst / "cfg" / "stale.json").exists(), "同目录下备份里没有的文件应清除")
+
+
+class TestRestoreSafetyNet(_BoundaryBase):
+    """完全还原会先删后写，安全网没兜住就不许动手。"""
+
+    def test_restore_aborted_when_safety_backup_fails(self):
+        """安全备份失败时必须中止还原，且不得触碰任何配置。"""
+        name = f"{self._prefix}20260918_100000.zip"
+        self.make_backup("20260918_100000")
+        self.set_pending({"filename": name})
+
+        with mock.patch.object(
+            ConfigBackup, "_ConfigBackup__backup", return_value=(False, "磁盘已满")
+        ), mock.patch.object(ConfigBackup, "_ConfigBackup__restore") as restore:
+            result = self.plugin.api_restore(filename="", confirm="1")
+
+        self.assertFalse(result.get("success"))
+        self.assertIn("中止", result.get("message", ""))
+        self.assertFalse(restore.called, "安全网失败时不得执行还原")
+
+
+class TestExtraPathExcludes(_BoundaryBase):
+    """附加路径排除规则。"""
+
+    def test_exclude_patterns_respected(self):
+        """排除模式生效：附加路径里的日志/缓存不再被塞进备份包。"""
+        src = Path(self.base) / "src"
+        src.mkdir()
+        (src / "keep.txt").write_text("k")
+        (src / "skip.log").write_text("s")
+        (src / "cache").mkdir()
+        (src / "cache" / "x.bin").write_bytes(b"x")
+
+        self.plugin._extra_paths = f"{src}|*.log,cache"
+        temp = Path(self.base) / "t"
+        temp.mkdir()
+        ok, msg = self.plugin._ConfigBackup__copy_extra_paths(temp)
+
+        self.assertTrue(ok, msg)
+        copied = temp / "extra" / src.name
+        self.assertTrue((copied / "keep.txt").exists())
+        self.assertFalse((copied / "skip.log").exists(), "排除模式应生效")
+        self.assertFalse((copied / "cache").exists(), "排除目录应生效")
+
+
+class TestTempDirLocation(_BoundaryBase):
+    """打包临时目录的位置。"""
+
+    def test_no_intermediate_files_left_in_backup_dir(self):
+        """中间产物不落在备份目录（备份目录常挂在网盘上）。"""
+        cfg = Path(self.base) / "cfg"
+        cfg.mkdir()
+        tmp = Path(self.base) / "tmp"
+        tmp.mkdir()
+
+        with mock.patch.object(settings, "CONFIG_PATH", str(cfg)), \
+                mock.patch.object(settings, "TEMP_PATH", str(tmp)):
+            ok, msg = self.plugin._ConfigBackup__run_backup()
+
+        self.assertTrue(ok, msg)
+        left = [p.name for p in Path(self.backup_dir).iterdir() if not p.name.endswith(".zip")]
+        self.assertEqual(left, [], f"备份目录不应残留中间产物：{left}")
 
 
 class TestPendingExpiry(_BoundaryBase):
