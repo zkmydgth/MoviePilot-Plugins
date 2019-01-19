@@ -252,9 +252,11 @@ class RenameDictUtils:
     def _audio_stream_has_dolby_atmos_emby(audio_s: Dict[str, Any]) -> bool:
         """
         根据 Emby MediaStream 判断是否含 Dolby Atmos（与基带编码分列展示）
+
+        Emby 常在 Title 写「杜比全景声」，DisplayTitle 可能仅为「TRUEHD 7.1」，故必须包含 Title
         """
         parts: List[str] = []
-        for key in ("Profile", "DisplayTitle", "Codec", "CodecTag"):
+        for key in ("Profile", "Title", "DisplayTitle", "Codec", "CodecTag"):
             v = audio_s.get(key)
             if v:
                 parts.append(str(v))
