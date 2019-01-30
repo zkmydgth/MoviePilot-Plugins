@@ -550,7 +550,7 @@ class ApiSyncStrmHelper:
                     if item.remove_unless_parent:
                         PathRemoveUtils.remove_parent_dir(
                             file_path=Path(remove_path),
-                            mode=["strm"],
+                            mode="mixed",
                             func_type="【API_STRM生成】",
                         )
                     remove_strm_count += 1

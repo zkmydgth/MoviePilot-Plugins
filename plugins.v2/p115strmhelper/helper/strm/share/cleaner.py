@@ -471,7 +471,7 @@ class ShareStrmCleaner:
                 if remove_empty_parent_dirs:
                     PathRemoveUtils.remove_parent_dir(
                         file_path=Path(remove_path),
-                        mode=["strm"],
+                        mode="mixed",
                         func_type="【分享STRM清理】",
                     )
                 ok += 1

@@ -90,6 +90,28 @@
             </v-col>
           </v-row>
 
+          <v-row>
+            <v-col cols="12">
+              <v-alert type="warning" variant="tonal" density="compact" icon="mdi-recycle">
+                <div class="text-body-2 mb-1"><strong>重新整理清理：</strong></div>
+                <div class="text-caption">当整理方式为「移动」且源路径已在媒体库内时（即重新整理场景），自动清理源路径对应的旧失效 STRM 文件。</div>
+              </v-alert>
+            </v-col>
+          </v-row>
+          <v-row>
+            <v-col cols="12" md="4">
+              <v-switch v-model="config.transfer_monitor_remove_stale_strm" label="清理失效STRM" color="error"></v-switch>
+            </v-col>
+            <v-col cols="12" md="4">
+              <v-switch v-model="config.transfer_monitor_remove_stale_strm_dir" label="清理无效STRM目录" color="error"
+                :disabled="!config.transfer_monitor_remove_stale_strm"></v-switch>
+            </v-col>
+            <v-col cols="12" md="4">
+              <v-switch v-model="config.transfer_monitor_remove_stale_strm_file" label="清理无效STRM关联媒体信息文件" color="error"
+                :disabled="!config.transfer_monitor_remove_stale_strm"></v-switch>
+            </v-col>
+          </v-row>
+
           <v-row v-if="config.transfer_monitor_clouddrive2_enabled">
             <v-col cols="12">
               <v-alert type="info" variant="tonal" density="compact" icon="mdi-information">

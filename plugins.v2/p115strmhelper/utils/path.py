@@ -121,12 +121,12 @@ class PathRemoveUtils:
         删除父目录
 
         :param file_path: 文件夹路径
-        :param mode: 删除模式，支持全部匹配和文件后缀匹配
+        :param mode: 删除模式，支持全部匹配（"all"）、文件后缀匹配（list）和混合模式（"mixed"，
+                     第一层以 "all" 判断空目录，上层以 ["strm"] 判断）
         :param func_type: 日志输出函数名称
         """
-        # 删除空目录
         # 判断当前媒体父路径下是否有媒体文件，如有则无需遍历父级
-        if mode == "all":
+        if mode in ("all", "mixed"):
             func_bool = any(file_path.parent.iterdir())
         else:
             func_bool = SystemUtils.exits_files(
@@ -141,8 +141,13 @@ class PathRemoveUtils:
                     break
                 if str(parent_path.parent) != str(file_path.root):
                     # 父目录非根目录，才删除父目录
-                    if mode == "all":
+                    if mode == "all" or (mode == "mixed" and i == 1):
                         func_bool = any(parent_path.iterdir())
+                    elif mode == "mixed":
+                        # 混合模式：上层以 ["strm"] 判断，允许穿透含 sidecar 的上级目录
+                        func_bool = SystemUtils.exits_files(
+                            directory=parent_path, extensions=["strm"]
+                        )
                     else:
                         func_bool = SystemUtils.exits_files(
                             directory=parent_path, extensions=mode

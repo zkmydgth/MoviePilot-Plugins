@@ -192,7 +192,7 @@ class FullSyncStrmHelper:
         if configer.full_sync_remove_unless_dir:
             PathRemoveUtils.remove_parent_dir(
                 file_path=Path(remove_path),
-                mode=["strm"],
+                mode="mixed",
                 func_type="【全量STRM生成】",
             )
         self.remove_unless_strm_count += 1

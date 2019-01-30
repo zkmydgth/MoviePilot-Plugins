@@ -1768,7 +1768,7 @@ class MonitorLife:
         if moved_any:
             PathRemoveUtils.remove_parent_dir(
                 file_path=old_strm_path,
-                mode="all",
+                mode="mixed",
                 func_type="【监控生活事件】",
             )
 

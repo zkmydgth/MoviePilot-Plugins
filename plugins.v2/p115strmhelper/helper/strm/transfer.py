@@ -1,6 +1,6 @@
 from pathlib import Path
 from threading import Thread
-from typing import Dict, Union, Set
+from typing import Dict, Union, Set, Optional
 
 from p115client import P115Client
 from p115client.tool.attr import get_attr
@@ -17,7 +17,7 @@ from ...core.scrape import media_scrape_metadata
 from ...db_manager.oper import FileDbHelper
 from ...helper.mediainfo_download import MediaInfoDownloader
 from ...helper.mediaserver import MediaServerRefresh, emby_mediainfo_queue
-from ...utils.path import PathUtils
+from ...utils.path import PathRemoveUtils, PathUtils
 from ...utils.sentry import sentry_manager
 from ...utils.strm import StrmUrlGetter, StrmGenerater
 
@@ -60,6 +60,74 @@ class TransferStrmHelper:
             )
             return False, None
 
+    def _cleanup_stale_strm(
+        self, item_transfer: TransferInfo, strm_target_path: str
+    ) -> None:
+        """
+        重新整理场景下清理源路径对应的旧失效 STRM 文件及关联内容
+
+        仅当 transfer_monitor_remove_stale_strm 开关开启、源路径命中媒体库配置
+        且本地旧 STRM 文件实际存在时执行
+
+        :param item_transfer: 转移信息
+        :param strm_target_path: 本次新生成的 STRM 文件路径，用于防止误删
+        :return: None
+        """
+        if not configer.transfer_monitor_remove_stale_strm:
+            return
+
+        source_item: Optional[FileItem] = item_transfer.fileitem
+        if not source_item or not source_item.path:
+            return
+
+        source_path = source_item.path
+        source_dir = Path(source_path).parent.as_posix()
+        status, src_local_dir, src_pan_dir = PathUtils.get_media_path(
+            configer.transfer_monitor_paths, source_dir
+        )
+        # 不属于媒体库路径
+        if not status or not src_local_dir or not src_pan_dir:
+            return
+
+        old_strm_name = StrmGenerater.get_strm_filename(Path(source_path))
+        old_strm_path = (
+            Path(src_local_dir)
+            / Path(source_path).relative_to(src_pan_dir).parent
+            / old_strm_name
+        )
+        # 旧 STRM 不存在
+        if not old_strm_path.exists():
+            return
+
+        # 防止误删：旧路径与新生成路径相同（原地 move 场景）
+        if old_strm_path.resolve() == Path(strm_target_path).resolve():
+            logger.debug(
+                "【监控整理STRM生成】重新整理清理：旧 STRM 与新生成路径相同，跳过: %s",
+                old_strm_path,
+            )
+            return
+
+        logger.info(
+            "【监控整理STRM生成】检测到重新整理，清理旧 STRM 文件: %s", old_strm_path
+        )
+        try:
+            old_strm_path.unlink(missing_ok=True)
+            logger.info("【监控整理STRM生成】已删除旧 STRM 文件: %s", old_strm_path)
+        except Exception as e:
+            logger.error(
+                "【监控整理STRM生成】删除旧 STRM 文件失败: %s, %s", old_strm_path, e
+            )
+            return
+
+        if configer.transfer_monitor_remove_stale_strm_file:
+            PathRemoveUtils.clean_related_files(
+                file_path=old_strm_path, func_type="【监控整理STRM生成】"
+            )
+        if configer.transfer_monitor_remove_stale_strm_dir:
+            PathRemoveUtils.remove_parent_dir(
+                file_path=old_strm_path, mode="mixed", func_type="【监控整理STRM生成】"
+            )
+
     def do_generate(
         self,
         client: P115Client,
@@ -74,13 +142,13 @@ class TransferStrmHelper:
         _get_url = StrmUrlGetter()
 
         # 转移信息
-        item_transfer: TransferInfo = item.get("transferinfo")
+        item_transfer: Optional[TransferInfo] = item.get("transferinfo")
         if isinstance(item_transfer, dict):
             item_transfer: TransferInfo = TransferInfo(**item_transfer)
         # 媒体信息
-        mediainfo: MediaInfo = item.get("mediainfo")
+        mediainfo: Optional[MediaInfo] = item.get("mediainfo")
         # 元数据信息
-        meta: MetaBase = item.get("meta")
+        meta: Optional[MetaBase] = item.get("meta")
 
         # 判断储存类型是否匹配
         allowed_storages: Set[str] = {"u115", "115网盘Plus"}
@@ -194,6 +262,12 @@ class TransferStrmHelper:
         )
         if not status:
             return
+
+        # 重新整理场景：移动整理时清理源路径对应的旧失效 STRM
+        if item_transfer.transfer_type == "move":
+            self._cleanup_stale_strm(
+                item_transfer=item_transfer, strm_target_path=strm_target_path
+            )
 
         scrape_metadata = True
         if configer.get_config("transfer_monitor_scrape_metadata_enabled"):

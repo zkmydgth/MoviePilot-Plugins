@@ -341,6 +341,15 @@ class ConfigManager(BaseModel):
     transfer_monitor_clouddrive2_enabled: bool = Field(
         default=False, description="监控MP整理开启CloudDrive2储存监控"
     )
+    transfer_monitor_remove_stale_strm: bool = Field(
+        default=False, description="重新整理时清理失效 STRM 文件"
+    )
+    transfer_monitor_remove_stale_strm_dir: bool = Field(
+        default=False, description="重新整理时清理失效 STRM 所在的无效目录"
+    )
+    transfer_monitor_remove_stale_strm_file: bool = Field(
+        default=False, description="重新整理时清理失效 STRM 关联的媒体信息文件"
+    )
 
     full_sync_overwrite_mode: str = Field(
         default="never", min_length=1, description="全量同步覆盖模式"
