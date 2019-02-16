@@ -20,7 +20,7 @@ from ...core.scrape import media_scrape_metadata
 from ...core.p115 import get_pid_by_path
 from ...db_manager.oper import FileDbHelper
 from ...helper.mediainfo_download import MediaInfoDownloader
-from ...helper.mediaserver import MediaServerRefresh, EmbyMediaInfoOperate
+from ...helper.mediaserver import MediaServerRefresh, emby_mediainfo_queue
 from ...utils.exception import (
     CanNotFindPathToCid,
     ItertreeInternalError,
@@ -529,21 +529,14 @@ class IncrementSyncStrmHelper:
         )
 
         if self.emby_mediainfo_enabled and sha1:
-
-            def _fetch_emby_mediainfo() -> None:
-                try:
-                    helper = EmbyMediaInfoOperate(
-                        func_name="【增量STRM生成】",
-                        mp_mediaserver=self.mp_mediaserver_paths,
-                        mediaservers=self.mediaservers,
-                    )
-                    helper.get_mediainfo(
-                        sha1, Path(local_path), size=self.__get_size(pan_path)
-                    )
-                except Exception as e:
-                    logger.error(f"【增量STRM生成】提取媒体信息失败: {e}")
-
-            Thread(target=_fetch_emby_mediainfo, daemon=True).start()
+            emby_mediainfo_queue.enqueue(
+                func_name="【增量STRM生成】",
+                sha1=sha1,
+                path=Path(local_path),
+                mp_mediaserver=self.mp_mediaserver_paths,
+                mediaservers=self.mediaservers,
+                size=self.__get_size(pan_path),
+            )
 
     def __scan_second_level_directory(self, path: str) -> List[str]:
         """

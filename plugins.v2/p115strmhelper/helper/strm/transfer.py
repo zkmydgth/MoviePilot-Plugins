@@ -16,7 +16,7 @@ from ...core.config import configer
 from ...core.scrape import media_scrape_metadata
 from ...db_manager.oper import FileDbHelper
 from ...helper.mediainfo_download import MediaInfoDownloader
-from ...helper.mediaserver import MediaServerRefresh, EmbyMediaInfoOperate
+from ...helper.mediaserver import MediaServerRefresh, emby_mediainfo_queue
 from ...utils.path import PathUtils
 from ...utils.sentry import sentry_manager
 from ...utils.strm import StrmUrlGetter, StrmGenerater
@@ -231,7 +231,7 @@ class TransferStrmHelper:
 
         if configer.transfer_monitor_emby_mediainfo_enabled:
 
-            def _fetch_emby_mediainfo() -> None:
+            def _enqueue_emby_mediainfo() -> None:
                 try:
                     item = get_attr(
                         client=client,
@@ -239,15 +239,15 @@ class TransferStrmHelper:
                         skim=True,
                         **configer.get_ios_ua_app(app=False),
                     )
-                    helper = EmbyMediaInfoOperate(
+                    emby_mediainfo_queue.enqueue(
                         func_name="【监控整理STRM生成】",
+                        sha1=item["sha1"],
+                        path=Path(strm_target_path),
                         mp_mediaserver=configer.transfer_mp_mediaserver_paths,
                         mediaservers=configer.transfer_monitor_mediaservers,
-                    )
-                    helper.get_mediainfo(
-                        item["sha1"], Path(strm_target_path), size=item["size"]
+                        size=item["size"],
                     )
                 except Exception as e:
-                    logger.error(f"【监控整理STRM生成】提取媒体信息失败: {e}")
+                    logger.error(f"【监控整理STRM生成】入队媒体信息提取失败: {e}")
 
-            Thread(target=_fetch_emby_mediainfo, daemon=True).start()
+            Thread(target=_enqueue_emby_mediainfo, daemon=True).start()

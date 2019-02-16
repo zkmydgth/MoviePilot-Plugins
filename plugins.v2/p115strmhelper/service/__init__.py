@@ -27,6 +27,7 @@ from ..helper.share import ShareTransferHelper
 from ..helper.strm import FullSyncStrmHelper, ShareStrmHelper, IncrementSyncStrmHelper
 from ..helper.transfer import TransferTaskManager, TransferHandler
 from ..helper.webdav import WebdavCore
+from ..helper.mediaserver import emby_mediainfo_queue
 from ..patch import TransferChainPatcher
 from ..schemas.monitor import ObserverInfo
 from ..service.fuse import FuseManager
@@ -145,6 +146,10 @@ class ServiceHelper:
 
             # 初始化 Webdav 服务
             self.webdav_core = WebdavCore(client=self.client)
+
+            # 启动 Emby 媒体信息提取全局队列 worker
+            emby_mediainfo_queue.start()
+
             return True
         except Exception as e:
             logger.error(f"服务项初始化失败: {e}")
@@ -673,6 +678,10 @@ class ServiceHelper:
                 self.fuse_manager.stop_fuse()
             if self.redirect:
                 self.redirect.close_http_client_sync()
+            try:
+                emby_mediainfo_queue.stop()
+            except Exception as e:
+                logger.debug(f"【Emby 媒体信息队列】停止 worker 异常: {e}")
             try:
                 TransferChainPatcher.disable()
             except Exception as e:
