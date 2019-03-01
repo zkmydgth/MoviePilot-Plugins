@@ -16,11 +16,12 @@
         "name": "咪咕视频探索",
         "description": "让探索支持咪咕视频的数据浏览。",
         "labels": "探索",
-        "version": "1.0",
+        "version": "1.0.1",
         "icon": "https://raw.githubusercontent.com/DDS-Derek/MoviePilot-Plugins/main/icons/migu_A.png",
         "author": "DDSRem",
         "level": 1,
         "history": {
+            "v1.0.1": "媒体数据增加首映时间",
             "v1.0": "发布"
         }
     },
@@ -28,15 +29,28 @@
         "name": "哔哩哔哩探索",
         "description": "让探索支持哔哩哔哩的数据浏览。",
         "labels": "探索",
-        "version": "1.0.0",
+        "version": "1.0.1",
         "icon": "Bilibili_E.png",
         "author": "DDSRem",
         "level": 1,
         "history": {
+            "v1.0.1": "显示B站评分",
             "v1.0.0": "正式发布，检索功能完成",
             "v0.0.3": "修复一系列问题，增加分类",
             "v0.0.2": "移除不必要的日志",
             "v0.0.1": "第一个版本，能用就行（后续补充）"
+        }
+    },
+    "BangumiDailyDiscover": {
+        "name": "Bangumi每日放送探索",
+        "description": "让探索支持Bangumi每日放送的数据浏览。",
+        "labels": "探索",
+        "version": "1.0.0",
+        "icon": "Bangumi_A.png",
+        "author": "DDSRem",
+        "level": 1,
+        "history": {
+            "v1.0.0": "发布"
         }
     }
 }

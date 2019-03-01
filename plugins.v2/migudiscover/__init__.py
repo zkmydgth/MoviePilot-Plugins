@@ -20,7 +20,7 @@ class MiGuDiscover(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/DDS-Derek/MoviePilot-Plugins/main/icons/migu_A.png"
     # 插件版本
-    plugin_version = "1.0"
+    plugin_version = "1.0.1"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -141,6 +141,9 @@ class MiGuDiscover(_PluginBase):
             """
             电影数据转换为MediaInfo
             """
+            first_air_date = None
+            if movie_info.get("publishTime"):
+                first_air_date = movie_info.get("publishTime")
             return schemas.MediaInfo(
                 type="电影",
                 title=movie_info.get("name"),
@@ -150,12 +153,16 @@ class MiGuDiscover(_PluginBase):
                 media_id=str(movie_info.get("pID")),
                 poster_path=movie_info.get("h5pics").get("highResolutionV"),
                 vote_average=movie_info.get("score"),
+                first_air_date=first_air_date,
             )
 
         def __series_to_media(series_info: dict) -> schemas.MediaInfo:
             """
             电视剧数据转换为MediaInfo
             """
+            first_air_date = None
+            if series_info.get("publishTime"):
+                first_air_date = series_info.get("publishTime")
             return schemas.MediaInfo(
                 type="电视剧",
                 title=series_info.get("name"),
@@ -166,6 +173,7 @@ class MiGuDiscover(_PluginBase):
                 release_date=series_info.get("publishTime"),
                 poster_path=series_info.get("h5pics").get("highResolutionV"),
                 vote_average=series_info.get("score"),
+                first_air_date=first_air_date,
             )
 
         try:

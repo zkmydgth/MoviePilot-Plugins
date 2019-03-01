@@ -40,7 +40,7 @@ class BangumiDailyDiscover(_PluginBase):
     # 插件图标
     plugin_icon = "Bangumi_A.png"
     # 插件版本
-    plugin_version = "1.0"
+    plugin_version = "1.0.0"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -138,22 +138,21 @@ class BangumiDailyDiscover(_PluginBase):
         """
 
         def __series_to_media(series_info: dict) -> schemas.MediaInfo:
-            if series_info.get("name_cn"):
-                return schemas.MediaInfo(
-                    type="电视剧",
-                    title=series_info.get("name_cn"),
-                    mediaid_prefix="bangumidaily",
-                    media_id=series_info.get("id"),
-                    poster_path=series_info.get("images").get("large"),
-                )
-            else:
-                return schemas.MediaInfo(
-                    type="电视剧",
-                    title=series_info.get("name"),
-                    mediaid_prefix="bangumidaily",
-                    media_id=series_info.get("id"),
-                    poster_path=series_info.get("images").get("large"),
-                )
+            vote_average = None
+            rating_info = series_info.get("rating", None)
+            if rating_info is not None:
+                vote_average = rating_info.get("score", None)
+            return schemas.MediaInfo(
+                type="电视剧",
+                source="bangumi",
+                title=series_info.get("name_cn", series_info.get("name")),
+                mediaid_prefix="bangumidaily",
+                media_id=series_info.get("id"),
+                bangumi_id=series_info.get("id"),
+                poster_path=series_info.get("images").get("large"),
+                vote_average=vote_average,
+                first_air_date=series_info.get("air_date", None)
+            )
 
         try:
             result = self.__request()

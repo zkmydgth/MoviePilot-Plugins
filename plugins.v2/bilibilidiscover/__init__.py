@@ -730,7 +730,7 @@ class BilibiliDiscover(_PluginBase):
     # 插件图标
     plugin_icon = "Bilibili_E.png"
     # 插件版本
-    plugin_version = "1.0.0"
+    plugin_version = "1.0.1"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -858,24 +858,32 @@ class BilibiliDiscover(_PluginBase):
             """
             电影数据转换为MediaInfo
             """
+            vote_average = None
+            if movie_info.get("score"):
+                vote_average = movie_info.get("score")
             return schemas.MediaInfo(
                 type="电影",
                 title=movie_info.get("title"),
                 mediaid_prefix="bilibili",
                 media_id=str(movie_info.get("media_id")),
                 poster_path=movie_info.get("cover"),
+                vote_average=vote_average,
             )
 
         def __series_to_media(series_info: dict) -> schemas.MediaInfo:
             """
             电视剧数据转换为MediaInfo
             """
+            vote_average = None
+            if series_info.get("score"):
+                vote_average = series_info.get("score")
             return schemas.MediaInfo(
                 type="电视剧",
                 title=series_info.get("title"),
                 mediaid_prefix="bilibili",
                 media_id=str(series_info.get("media_id")),
                 poster_path=series_info.get("cover"),
+                vote_average=vote_average,
             )
 
         try:
