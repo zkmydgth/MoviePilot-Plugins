@@ -1,4 +1,5 @@
 from pathlib import Path
+from threading import Thread
 from typing import Dict, Union
 
 from p115client import P115Client
@@ -211,18 +212,22 @@ class TransferStrmHelper:
             )
 
         if configer.transfer_monitor_emby_mediainfo_enabled:
-            helper = EmbyMediaInfoOperate(
-                func_name="【监控整理STRM生成】",
-                mp_mediaserver=configer.transfer_mp_mediaserver_paths,
-                mediaservers=configer.transfer_monitor_mediaservers,
-            )
-            try:
-                item = get_attr(
-                    client=client,
-                    id=item_dest_pickcode,
-                    skim=True,
-                    **configer.get_ios_ua_app(app=False),
-                )
-                helper.get_mediainfo(item["sha1"], Path(strm_target_path))
-            except Exception as e:
-                logger.error(f"【监控整理STRM生成】提取媒体信息失败: {e}")
+
+            def _fetch_emby_mediainfo() -> None:
+                try:
+                    item = get_attr(
+                        client=client,
+                        id=item_dest_pickcode,
+                        skim=True,
+                        **configer.get_ios_ua_app(app=False),
+                    )
+                    helper = EmbyMediaInfoOperate(
+                        func_name="【监控整理STRM生成】",
+                        mp_mediaserver=configer.transfer_mp_mediaserver_paths,
+                        mediaservers=configer.transfer_monitor_mediaservers,
+                    )
+                    helper.get_mediainfo(item["sha1"], Path(strm_target_path))
+                except Exception as e:
+                    logger.error(f"【监控整理STRM生成】提取媒体信息失败: {e}")
+
+            Thread(target=_fetch_emby_mediainfo, daemon=True).start()
