@@ -181,8 +181,8 @@
                               color="primary"></v-switch>
                           </v-col>
                           <v-col cols="12" md="4">
-                            <v-switch v-model="config.transfer_monitor_clouddrive2_enabled"
-                              label="CloudDrive2储存监控" color="info"></v-switch>
+                            <v-switch v-model="config.transfer_monitor_clouddrive2_enabled" label="CloudDrive2储存监控"
+                              color="info"></v-switch>
                           </v-col>
                         </v-row>
 
@@ -237,23 +237,35 @@
                           </v-col>
                         </v-row>
 
+                        <v-row v-if="config.transfer_monitor_clouddrive2_enabled">
+                          <v-col cols="12">
+                            <v-alert type="info" variant="tonal" density="compact" icon="mdi-information">
+                              <div class="text-caption">仅 CloudDrive2 储存的路径需要填写「CD2 挂载前缀」，该前缀会与该行的网盘媒体库目录拼接成最终路径。</div>
+                            </v-alert>
+                          </v-col>
+                        </v-row>
                         <v-row>
                           <v-col cols="12">
                             <div class="d-flex flex-column">
                               <div v-for="(pair, index) in transferPaths" :key="`transfer-${index}`"
-                                class="mb-2 d-flex align-center">
-                                <div class="path-selector flex-grow-1 mr-2">
+                                class="mb-2 d-flex align-center flex-wrap">
+                                <div class="path-selector flex-grow-1 mr-2" style="min-width: 140px;">
                                   <v-text-field v-model="pair.local" label="本地STRM目录" density="compact"
                                     append-icon="mdi-folder"
                                     @click:append="openDirSelector(index, 'local', 'transfer')"></v-text-field>
                                 </div>
-                                <v-icon>mdi-pound</v-icon>
-                                <div class="path-selector flex-grow-1 ml-2">
+                                <v-icon class="mr-2">mdi-pound</v-icon>
+                                <div class="path-selector flex-grow-1 mr-2" style="min-width: 140px;">
                                   <v-text-field v-model="pair.remote" label="网盘媒体库目录" density="compact"
                                     append-icon="mdi-folder-network"
                                     @click:append="openDirSelector(index, 'remote', 'transfer')"></v-text-field>
                                 </div>
-                                <v-btn icon size="small" color="error" class="ml-2"
+                                <template v-if="config.transfer_monitor_clouddrive2_enabled">
+                                  <v-text-field v-model="pair.cd2Prefix" label="CD2 挂载前缀" density="compact"
+                                    placeholder="可选，如 /115open" class="mr-2" hide-details
+                                    style="max-width: 160px;"></v-text-field>
+                                </template>
+                                <v-btn icon size="small" color="error" class="ml-1"
                                   @click="removePath(index, 'transfer')">
                                   <v-icon>mdi-delete</v-icon>
                                 </v-btn>
@@ -270,7 +282,10 @@
                               <div class="text-body-2 mt-2 mb-1"><strong>配置说明：</strong></div>
                               <div class="text-caption">
                                 <div class="mb-1">• <strong>本地STRM目录：</strong>本地STRM文件生成路径</div>
-                                <div>• <strong>网盘媒体库目录：</strong>需要生成本地STRM文件的网盘媒体库路径</div>
+                                <div class="mb-1">• <strong>网盘媒体库目录：</strong>需要生成本地STRM文件的网盘媒体库路径</div>
+                                <div v-if="config.transfer_monitor_clouddrive2_enabled">• <strong>CD2 挂载前缀：</strong>仅
+                                  CloudDrive2
+                                  储存时填写，将与此行网盘路径拼接</div>
                               </div>
                             </v-alert>
                           </v-col>
@@ -3055,7 +3070,7 @@ const formatBytes = (bytes, decimals = 2) => {
 };
 
 // 路径管理
-const transferPaths = ref([{ local: '', remote: '' }]);
+const transferPaths = ref([{ local: '', remote: '', cd2Prefix: '' }]);
 const transferMpPaths = ref([{ local: '', remote: '' }]);
 const fullSyncPaths = ref([{ local: '', remote: '', enabled: true }]);
 const incrementSyncPaths = ref([{ local: '', remote: '' }]);
@@ -3190,21 +3205,33 @@ const manualTransferDialog = reactive({
 
 watch(() => config.transfer_monitor_paths, (newVal) => {
   if (!newVal) {
-    transferPaths.value = [{ local: '', remote: '' }];
+    transferPaths.value = [{ local: '', remote: '', cd2Prefix: '' }];
     return;
   }
   try {
     const paths = newVal.split('\n').filter(line => line.trim());
     transferPaths.value = paths.map(path => {
       const parts = path.split('#');
-      return { local: parts[0] || '', remote: parts[1] || '' };
+      const local = parts[0] || '';
+      const fullRemote = parts[1] || '';
+      const prefix = parts[2]?.trim() || '';
+      let remote = fullRemote;
+      if (prefix) {
+        const normPrefix = prefix.replace(/^\/+/, '').replace(/\/+$/, '');
+        const normFull = fullRemote.replace(/^\/+/, '').replace(/\/+$/, '');
+        if (normFull === normPrefix || normFull.startsWith(normPrefix + '/')) {
+          const rest = normFull.slice(normPrefix.length);
+          remote = (rest.startsWith('/') ? rest : '/' + rest) || '';
+        }
+      }
+      return { local, remote, cd2Prefix: prefix };
     });
     if (transferPaths.value.length === 0) {
-      transferPaths.value = [{ local: '', remote: '' }];
+      transferPaths.value = [{ local: '', remote: '', cd2Prefix: '' }];
     }
   } catch (e) {
     console.error('解析transfer_monitor_paths出错:', e);
-    transferPaths.value = [{ local: '', remote: '' }];
+    transferPaths.value = [{ local: '', remote: '', cd2Prefix: '' }];
   }
 }, { immediate: true });
 
@@ -3541,6 +3568,14 @@ watch(() => config.full_sync_remove_unless_strm, (newVal) => {
   }
 });
 
+/** 规范化路径拼接，避免双斜杠，保留前缀的绝对路径（前导 /） */
+const normalizePathJoin = (prefix, rest) => {
+  const a = (prefix || '').trim().replace(/\/+$/, '');
+  const b = (rest || '').trim().replace(/^\/+/, '').replace(/\/+$/, '');
+  if (!b) return a || '';
+  return a ? `${a}/${b}` : b;
+};
+
 const generatePathsConfig = (paths, key) => {
   const configText = paths.map(p => {
     if (key === 'panTransfer') {
@@ -3549,12 +3584,26 @@ const generatePathsConfig = (paths, key) => {
     if (key === 'fullSync') {
       return `${p.local?.trim()}#${p.remote?.trim()}#${p.enabled !== false ? '1' : '0'}`;
     }
+    if (key === 'transfer') {
+      const local = p.local?.trim() ?? '';
+      const remote = p.remote?.trim() ?? '';
+      const cd2 = (p.cd2Prefix || '').trim();
+      if (cd2) {
+        const effectiveRemote = normalizePathJoin(cd2, remote);
+        return `${local}#${effectiveRemote}#${cd2}`;
+      }
+      return `${local}#${remote}`;
+    }
     return `${p.local?.trim()}#${p.remote?.trim()}`;
   }).filter(p => {
     if (key === 'panTransfer') {
       return p && p !== '';
     }
     if (key === 'fullSync') {
+      const parts = p.split('#');
+      return parts.length >= 2 && (parts[0]?.trim() || parts[1]?.trim());
+    }
+    if (key === 'transfer') {
       const parts = p.split('#');
       return parts.length >= 2 && (parts[0]?.trim() || parts[1]?.trim());
     }
@@ -3929,7 +3978,7 @@ const clearIncrementSkipCache = async () => {
 
 const addPath = (type) => {
   switch (type) {
-    case 'transfer': transferPaths.value.push({ local: '', remote: '' }); break;
+    case 'transfer': transferPaths.value.push({ local: '', remote: '', cd2Prefix: '' }); break;
     case 'mp': transferMpPaths.value.push({ local: '', remote: '' }); break;
     case 'fullSync': fullSyncPaths.value.push({ local: '', remote: '', enabled: true }); break;
     case 'incrementSync': incrementSyncPaths.value.push({ local: '', remote: '' }); break;
@@ -3947,7 +3996,7 @@ const removePath = (index, type) => {
   switch (type) {
     case 'transfer':
       transferPaths.value.splice(index, 1);
-      if (transferPaths.value.length === 0) transferPaths.value = [{ local: '', remote: '' }];
+      if (transferPaths.value.length === 0) transferPaths.value = [{ local: '', remote: '', cd2Prefix: '' }];
       break;
     case 'mp':
       transferMpPaths.value.splice(index, 1);

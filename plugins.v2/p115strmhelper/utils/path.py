@@ -64,7 +64,7 @@ class PathUtils:
         for path in media_paths:
             if not path:
                 continue
-            parts = path.split("#", 1)
+            parts = path.split("#", 2)
             if PathUtils.has_prefix(media_path, parts[1]):
                 return True, parts[0], parts[1]
         return False, None, None
