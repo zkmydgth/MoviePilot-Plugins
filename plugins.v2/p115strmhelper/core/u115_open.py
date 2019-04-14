@@ -13,12 +13,14 @@ from sqlalchemy.orm.exc import MultipleResultsFound
 from oss2 import SizedFileAdapter, determine_part_size
 from oss2.models import PartInfo
 from p115client import P115Client
-from tqdm import tqdm
 
 from app import schemas
-from app.chain.storage import StorageChain
-from app.helper.storage import StorageHelper
 from app.log import logger
+from app.core.config import global_vars
+from app.helper.storage import StorageHelper
+from app.chain.storage import StorageChain
+from app.modules.filemanager.storages import transfer_process
+from app.utils.string import StringUtils
 from app.schemas import NotificationType
 from app.utils.string import StringUtils
 
@@ -48,6 +50,8 @@ class U115OpenHelper:
     _auth_state = {}
 
     base_url = "https://proapi.115.com"
+
+    chunk_size = 10 * 1024 * 1024
 
     def __init__(self):
         super().__init__()
@@ -530,15 +534,13 @@ class U115OpenHelper:
             security_token=security_token,
         )
         bucket = oss2.Bucket(auth, endpoint, bucket_name, connect_timeout=120)
-        part_size = determine_part_size(file_size, preferred_size=50 * 1024 * 1024)
+        part_size = determine_part_size(file_size, preferred_size=self.chunk_size)
 
         # 初始化进度条
         logger.info(
             f"【P115Open】开始上传: {local_path} -> {target_path}，分片大小：{StringUtils.str_filesize(part_size)}"
         )
-        progress_bar = tqdm(
-            total=file_size, unit="B", unit_scale=True, desc="上传进度", ascii=True
-        )
+        progress_callback = transfer_process(local_path.as_posix())
 
         try:
             # 初始化分片
@@ -567,6 +569,9 @@ class U115OpenHelper:
                 part_number = 1
                 offset = 0
                 while offset < file_size:
+                    if global_vars.is_transfer_stopped(local_path.as_posix()):
+                        logger.info(f"【P115Open】{local_path} 上传已取消！")
+                        return None
                     num_to_upload = min(part_size, file_size - offset)
                     for attempt in range(3):
                         try:
@@ -637,14 +642,14 @@ class U115OpenHelper:
                     offset += num_to_upload
                     part_number += 1
                     # 更新进度
-                    progress_bar.update(num_to_upload)
+                    progress = (offset * 100) / file_size
+                    progress_callback(progress)
         except Exception as e:
             logger.error(f"【P115Open】{target_name} 分块生成出现未知错误: {e}")
             return None
-        finally:
-            # 关闭进度条
-            if progress_bar:
-                progress_bar.close()
+        else:
+            # 完成上传
+            progress_callback(100)
 
         # 请求头
         headers = {

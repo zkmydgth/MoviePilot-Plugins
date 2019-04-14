@@ -30,7 +30,7 @@ class SaMediaSyncDel(_PluginBase):
     # 插件图标
     plugin_icon = "mediasyncdel.png"
     # 插件版本
-    plugin_version = "1.0.6"
+    plugin_version = "1.0.7"
     # 插件作者
     plugin_author = "DDSRem,thsrite"
     # 作者主页
@@ -1128,7 +1128,6 @@ class SaMediaSyncDel(_PluginBase):
                         self.__delete_p115_files(
                             file_path=media_path,
                             media_name=media_name,
-                            media_type=media_type,
                         )
                     else:
                         logger.warn(
@@ -1163,7 +1162,6 @@ class SaMediaSyncDel(_PluginBase):
                     self.__delete_p115_files(
                         file_path=transferhis.dest,
                         media_name=media_name,
-                        media_type=media_type,
                     )
 
                     # 删除种子任务
@@ -1271,7 +1269,6 @@ class SaMediaSyncDel(_PluginBase):
                         self.__delete_p123_files(
                             file_path=media_path,
                             media_name=media_name,
-                            media_type=media_type,
                         )
                     else:
                         logger.warn(
@@ -1306,7 +1303,6 @@ class SaMediaSyncDel(_PluginBase):
                     self.__delete_p123_files(
                         file_path=transferhis.dest,
                         media_name=media_name,
-                        media_type=media_type,
                     )
 
                     # 删除种子任务
@@ -1426,7 +1422,6 @@ class SaMediaSyncDel(_PluginBase):
         self,
         file_path: str,
         media_name: str,
-        media_type: str,
     ):
         """
         删除115网盘文件
@@ -1441,12 +1436,8 @@ class SaMediaSyncDel(_PluginBase):
                 self._storagechain.delete_file(fileitem)
                 logger.info(f"{media_name} 删除网盘文件夹：{file_path}")
             else:
-                # 判断媒体文件类型
-                mtype = (
-                    MediaType.MOVIE if media_type in ["Movie", "MOV"] else MediaType.TV
-                )
                 # 调用 MP 模块删除媒体文件和空媒体目录
-                self._storagechain.delete_media_file(fileitem=fileitem, mtype=mtype)
+                self._storagechain.delete_media_file(fileitem=fileitem)
                 logger.info(f"{media_name} 删除网盘媒体文件：{file_path}")
         except Exception as e:
             logger.error(f"{media_name} 删除网盘媒体 {file_path} 失败: {e}")
@@ -1455,7 +1446,6 @@ class SaMediaSyncDel(_PluginBase):
         self,
         file_path: str,
         media_name: str,
-        media_type: str,
     ):
         """
         删除123云盘文件
@@ -1470,12 +1460,8 @@ class SaMediaSyncDel(_PluginBase):
                 self._storagechain.delete_file(fileitem)
                 logger.info(f"{media_name} 删除网盘文件夹：{file_path}")
             else:
-                # 判断媒体文件类型
-                mtype = (
-                    MediaType.MOVIE if media_type in ["Movie", "MOV"] else MediaType.TV
-                )
                 # 调用 MP 模块删除媒体文件和空媒体目录
-                self._storagechain.delete_media_file(fileitem=fileitem, mtype=mtype)
+                self._storagechain.delete_media_file(fileitem=fileitem)
                 logger.info(f"{media_name} 删除网盘媒体文件：{file_path}")
         except Exception as e:
             logger.error(f"{media_name} 删除网盘媒体 {file_path} 失败: {e}")
