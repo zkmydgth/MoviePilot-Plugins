@@ -22,6 +22,12 @@ class MediaInfoDownloader:
 
     def __init__(self, cookie: str):
         self.cookie = cookie
+        self.headers = {
+            "User-Agent": configer.get_user_agent(),
+            "Cookie": self.cookie,
+        }
+
+        logger.debug(f"【媒体信息文件下载】初始化请求头：{self.headers}")
 
     @staticmethod
     def is_file_leq_1k(file_path):
@@ -40,10 +46,7 @@ class MediaInfoDownloader:
         resp = requests.post(
             "http://proapi.115.com/android/2.0/ufile/download",
             data={"data": encrypt(f'{{"pick_code":"{pickcode}"}}').decode("utf-8")},
-            headers={
-                "User-Agent": configer.get_user_agent(),
-                "Cookie": self.cookie,
-            },
+            headers=self.headers,
         )
         check_response(resp)
         json = loads(cast(bytes, resp.content))
@@ -62,10 +65,7 @@ class MediaInfoDownloader:
             download_url,
             stream=True,
             timeout=30,
-            headers={
-                "User-Agent": configer.get_user_agent(),
-                "Cookie": self.cookie,
-            },
+            headers=self.headers,
         ) as response:
             response.raise_for_status()
             with open(file_path, "wb") as f:
@@ -103,10 +103,7 @@ class MediaInfoDownloader:
         resp = requests.post(
             "http://proapi.115.com/app/share/downurl",
             data={"data": encrypt(dumps(payload)).decode("utf-8")},
-            headers={
-                "User-Agent": configer.get_user_agent(),
-                "Cookie": self.cookie,
-            },
+            headers=self.headers,
         )
         check_response(resp)
         json = loads(cast(bytes, resp.content))
