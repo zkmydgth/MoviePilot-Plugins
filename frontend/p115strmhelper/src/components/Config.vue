@@ -29,10 +29,16 @@
                 <v-col cols="12" md="3">
                   <v-switch v-model="config.notify" label="发送通知" color="success" density="compact"></v-switch>
                 </v-col>
-                <v-col cols="12" md="6">
+                <v-col cols="12" md="3">
                   <v-select v-model="config.strm_url_format" label="STRM文件URL格式" :items="[
                     { title: 'pickcode', value: 'pickcode' },
                     { title: 'pickcode + name', value: 'pickname' }
+                  ]" chips closable-chips></v-select>
+                </v-col>
+                <v-col cols="12" md="3">
+                  <v-select v-model="config.link_redirect_mode" label="直链获取模式" :items="[
+                    { title: 'Cookie', value: 'cookie' },
+                    { title: 'OpenAPI', value: 'open' }
                   ]" chips closable-chips></v-select>
                 </v-col>
               </v-row>
@@ -897,6 +903,7 @@ const config = reactive({
   enabled: false,
   notify: false,
   strm_url_format: 'pickcode',
+  link_redirect_mode: 'cookie',
   cookies: '',
   password: '',
   moviepilot_address: '',
