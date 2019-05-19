@@ -79,6 +79,7 @@ from app.schemas import FileItem
 
 from ...core.cache import sharestrmcacher
 from ...core.config import configer
+from ...core.history import StrmExecHistoryManager
 from ...core.i18n import i18n
 from ...core.message import post_message
 from ...core.p115 import ShareP115Client, iter_share_files_with_path
@@ -288,6 +289,8 @@ class ShareStrmHelper:
         self.mediainfodownloader = mediainfodownloader
 
         self.elapsed_time = 0
+        self.strm_exec_history_kind: Optional[str] = None
+        self.strm_exec_history_extra: Optional[Dict[str, Any]] = None
 
         self.total_count = 0
         self.strm_count = 0
@@ -715,12 +718,31 @@ class ShareStrmHelper:
             f"【分享STRM生成】时间 {self.elapsed_time:.6f} 秒，总迭代文件数量 {self.total_count}"
         )
 
-        return (
+        result = (
             self.strm_count,
             self.mediainfo_count,
             self.strm_fail_count,
             self.mediainfo_fail_count,
         )
+        kind = self.strm_exec_history_kind
+        if kind:
+            StrmExecHistoryManager.append_run(
+                kind=kind,
+                success=True,
+                stats={
+                    "strm_count": self.strm_count,
+                    "mediainfo_count": self.mediainfo_count,
+                    "strm_fail_count": self.strm_fail_count,
+                    "mediainfo_fail_count": self.mediainfo_fail_count,
+                },
+                elapsed_sec=float(self.elapsed_time),
+                total_iterated=int(self.total_count),
+                api_requests=0,
+                extra=self.strm_exec_history_extra,
+            )
+            self.strm_exec_history_kind = None
+            self.strm_exec_history_extra = None
+        return result
 
 
 class ShareInteractiveGenStrmQueue:
@@ -879,6 +901,8 @@ class ShareInteractiveGenStrmQueue:
         )
 
         strm_helper = ShareStrmHelper(mediainfodownloader=self.mediainfodownloader)
+        strm_helper.strm_exec_history_kind = "share_interactive"
+        strm_helper.strm_exec_history_extra = {"share_url": share_url}
         strm_helper.generate_strm_files_for_configs([virtual])
         strm_count, mediainfo_count, strm_fail_count, mediainfo_fail_count = (
             strm_helper.get_generate_total()

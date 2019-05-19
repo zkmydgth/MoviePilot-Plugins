@@ -6,7 +6,7 @@ from os import makedirs
 from queue import Empty, Queue
 from threading import Thread
 from time import perf_counter, sleep
-from typing import List, Dict, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from orjson import dumps
 from p115client import P115Client
@@ -22,6 +22,7 @@ from full_strm_sync import Processor, PackedResult
 from full_strm_sync import __version__ as rust_core_version
 
 from ...core.config import configer
+from ...core.history import StrmExecHistoryManager
 from ...core.p115 import get_pid_by_path
 from ...db_manager.oper import FileDbHelper
 from ...helper.mediainfo_download import MediaInfoDownloader
@@ -76,6 +77,8 @@ class FullSyncStrmHelper:
         self.strm_fail_count = 0
         self.mediainfo_fail_count = 0
         self.remove_unless_strm_count = 0
+        self.strm_exec_history_kind: Optional[str] = None
+        self.strm_exec_history_extra: Optional[Dict[str, Any]] = None
         self.strm_fail_dict: Dict[str, str] = {}
         self.mediainfo_fail_dict: List = []
         self.pan_transfer_enabled = configer.pan_transfer_enabled
@@ -1111,10 +1114,30 @@ class FullSyncStrmHelper:
         """
         输出总共生成文件个数
         """
-        return (
+        result = (
             self.strm_count,
             self.mediainfo_count,
             self.strm_fail_count,
             self.mediainfo_fail_count,
             self.remove_unless_strm_count,
         )
+        kind = self.strm_exec_history_kind
+        if kind:
+            StrmExecHistoryManager.append_run(
+                kind=kind,
+                success=True,
+                stats={
+                    "strm_count": self.strm_count,
+                    "mediainfo_count": self.mediainfo_count,
+                    "strm_fail_count": self.strm_fail_count,
+                    "mediainfo_fail_count": self.mediainfo_fail_count,
+                    "remove_unless_strm_count": self.remove_unless_strm_count,
+                },
+                elapsed_sec=float(self.elapsed_time),
+                total_iterated=int(self.total_count),
+                api_requests=0,
+                extra=self.strm_exec_history_extra,
+            )
+            self.strm_exec_history_kind = None
+            self.strm_exec_history_extra = None
+        return result

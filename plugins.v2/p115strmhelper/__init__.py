@@ -844,6 +844,8 @@ class P115StrmHelper(_PluginBase):
             client=servicer.client,
             mediainfodownloader=servicer.mediainfodownloader,
         )
+        strm_helper.strm_exec_history_kind = "full_partial"
+        strm_helper.strm_exec_history_extra = {"arg_str": args}
         post_message(
             channel=event.event_data.get("channel"),
             source=event.event_data.get("source"),

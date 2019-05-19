@@ -409,6 +409,7 @@ class ServiceHelper:
             client=self.client,
             mediainfodownloader=self.mediainfodownloader,
         )
+        strm_helper.strm_exec_history_kind = "full"
         strm_helper.generate_strm_files(
             full_sync_strm_paths=configer.get_config("full_sync_strm_paths"),
         )
@@ -492,6 +493,7 @@ class ServiceHelper:
 
         try:
             strm_helper = ShareStrmHelper(mediainfodownloader=self.mediainfodownloader)
+            strm_helper.strm_exec_history_kind = "share"
             strm_helper.generate_strm_files()
             strm_count, mediainfo_count, strm_fail_count, mediainfo_fail_count = (
                 strm_helper.get_generate_total()
@@ -538,6 +540,7 @@ class ServiceHelper:
         strm_helper = IncrementSyncStrmHelper(
             client=self.client, mediainfodownloader=self.mediainfodownloader
         )
+        strm_helper.strm_exec_history_kind = "increment"
         strm_helper.generate_strm_files(
             sync_strm_paths=configer.get_config("increment_sync_strm_paths"),
         )

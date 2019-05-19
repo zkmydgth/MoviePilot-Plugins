@@ -2,7 +2,7 @@ from collections import deque
 from itertools import batched
 from pathlib import Path
 from threading import Thread
-from time import sleep
+from time import perf_counter, sleep
 from typing import List, Dict, Optional, Tuple, Iterator, Any, Generator
 
 from p115client import P115Client
@@ -16,6 +16,7 @@ from app.log import logger
 
 from ...core.cache import idpathcacher, DirectoryCache
 from ...core.config import configer
+from ...core.history import StrmExecHistoryManager
 from ...core.scrape import media_scrape_metadata
 from ...core.p115 import get_pid_by_path
 from ...db_manager.oper import FileDbHelper
@@ -77,6 +78,9 @@ class IncrementSyncStrmHelper:
         self.strm_fail_count = 0
         self.mediainfo_fail_count = 0
         self.api_count = 0
+        self.total_iterated = 0
+        self.elapsed_time = 0.0
+        self.strm_exec_history_kind: Optional[str] = None
         self.strm_fail_dict: Dict[str, str] = {}
         self.mediainfo_fail_dict: List = []
         self.pan_transfer_enabled = configer.pan_transfer_enabled
@@ -571,127 +575,153 @@ class IncrementSyncStrmHelper:
 
         :param sync_strm_paths: 同步 STRM 路径
         """
-        media_paths = sync_strm_paths.split("\n")
-        if configer.increment_sync_second_level_dir_scan:
-            try:
-                lst: List[str] = []
-                for path in media_paths:
-                    if not path or not path.strip():
-                        continue
-                    parts = path.strip().split("#", 1)
-                    target_dir = Path(parts[0].strip()).as_posix()
-                    pan_media_dir = Path(parts[1].strip()).as_posix()
-                    for n in self.__scan_second_level_directory(pan_media_dir):
-                        pt_str = f"{target_dir}/{n}#{pan_media_dir}/{n}"
-                        lst.append(pt_str)
-                        logger.info(f"【增量STRM生成】扫描到目录: {pt_str}")
-                queue: deque[Tuple[str, int]] = deque((path.strip(), 0) for path in lst)
-            except Exception as e:
-                logger.error(f"【增量STRM生成】构建目录列表出错: {e}")
-                return
-        else:
-            queue: deque[Tuple[str, int]] = deque(
-                (path.strip(), 0) for path in media_paths if path and path.strip()
-            )
-        while queue:
-            path, retry_count = queue.popleft()
-            if retry_count > 2:
-                continue
-            parts = path.split("#", 1)
-            target_dir = parts[0].strip()
-            pan_media_dir = parts[1].strip()
-
-            if pan_media_dir == "/" or target_dir == "/":
-                logger.error(
-                    f"【增量STRM生成】网盘目录或本地生成目录不能为根目录: {path}"
-                )
-                continue
-
-            pan_media_dir = pan_media_dir.rstrip("/")
-            target_dir = target_dir.rstrip("/")
-
-            try:
-                # 生成本地目录树文件
-                local_tree_task_thread = self.__generate_local_tree(
-                    target_dir=target_dir
-                )
-
-                # 生成网盘目录树文件
-                self.__generate_pan_tree(
-                    pan_media_dir=pan_media_dir, target_dir=target_dir
-                )
-
-                # 等待生成本地目录树运行完成
-                self.__wait_generate_local_tree(local_tree_task_thread)
-
-                if (
-                    not self.pan_to_local_tree_path.exists()
-                    or not self.local_tree_path.exists()
-                ) and settings.CACHE_BACKEND_TYPE != "redis":
-                    logger.error(f"【增量STRM生成】{path} 目录树生成错误")
-                else:
-                    # 生成或者下载文件
-                    for line in self.pan_to_local_tree.compare_trees_lines(
-                        self.local_tree
-                    ):
-                        pan_path_str = self.pan_tree.get_path_by_line_number(line)
-                        local_path_str = self.pan_to_local_tree.get_path_by_line_number(
-                            line
-                        )
-                        if pan_path_str and local_path_str:
-                            self.__handle_addition_path(
-                                pan_path=pan_path_str,
-                                local_path=local_path_str,
-                            )
-            except ItertreeInternalError as e:
-                if retry_count < 2:
-                    queue.append((path, retry_count + 1))
-                    logger.warning(
-                        f"【增量STRM生成】目录同步错误，已加入队尾重试（剩余重试次数 {2 - retry_count}）: {path}，错误: {e}"
+        t0 = perf_counter()
+        try:
+            media_paths = sync_strm_paths.split("\n")
+            if configer.increment_sync_second_level_dir_scan:
+                try:
+                    lst: List[str] = []
+                    for path in media_paths:
+                        if not path or not path.strip():
+                            continue
+                        parts = path.strip().split("#", 1)
+                        target_dir = Path(parts[0].strip()).as_posix()
+                        pan_media_dir = Path(parts[1].strip()).as_posix()
+                        for n in self.__scan_second_level_directory(pan_media_dir):
+                            pt_str = f"{target_dir}/{n}#{pan_media_dir}/{n}"
+                            lst.append(pt_str)
+                            logger.info(f"【增量STRM生成】扫描到目录: {pt_str}")
+                    queue: deque[Tuple[str, int]] = deque(
+                        (path.strip(), 0) for path in lst
                     )
-                else:
+                except Exception as e:
+                    logger.error(f"【增量STRM生成】构建目录列表出错: {e}")
+                    return
+            else:
+                queue: deque[Tuple[str, int]] = deque(
+                    (path.strip(), 0) for path in media_paths if path and path.strip()
+                )
+            while queue:
+                path, retry_count = queue.popleft()
+                if retry_count > 2:
+                    continue
+                parts = path.split("#", 1)
+                target_dir = parts[0].strip()
+                pan_media_dir = parts[1].strip()
+
+                if pan_media_dir == "/" or target_dir == "/":
                     logger.error(
-                        f"【增量STRM生成】目录同步错误，已达重试上限: {path}，错误: {e}"
+                        f"【增量STRM生成】网盘目录或本地生成目录不能为根目录: {path}"
                     )
-            except Exception as e:
-                sentry_manager.sentry_hub.capture_exception(e)
-                logger.error(f"【增量STRM生成】增量同步 STRM 文件失败: {e}")
-                return
+                    continue
 
-            if queue:
-                wait_seconds = 20 + 10 * retry_count
-                sleep(wait_seconds)
+                pan_media_dir = pan_media_dir.rstrip("/")
+                target_dir = target_dir.rstrip("/")
 
-        # 下载媒体信息文件
-        self.mediainfo_count, self.mediainfo_fail_count, self.mediainfo_fail_dict = (
-            self.mediainfodownloader.batch_auto_downloader(
+                try:
+                    # 生成本地目录树文件
+                    local_tree_task_thread = self.__generate_local_tree(
+                        target_dir=target_dir
+                    )
+
+                    # 生成网盘目录树文件
+                    self.__generate_pan_tree(
+                        pan_media_dir=pan_media_dir, target_dir=target_dir
+                    )
+
+                    # 等待生成本地目录树运行完成
+                    self.__wait_generate_local_tree(local_tree_task_thread)
+
+                    if (
+                        not self.pan_to_local_tree_path.exists()
+                        or not self.local_tree_path.exists()
+                    ) and settings.CACHE_BACKEND_TYPE != "redis":
+                        logger.error(f"【增量STRM生成】{path} 目录树生成错误")
+                    else:
+                        # 生成或者下载文件
+                        for line in self.pan_to_local_tree.compare_trees_lines(
+                            self.local_tree
+                        ):
+                            pan_path_str = self.pan_tree.get_path_by_line_number(line)
+                            local_path_str = (
+                                self.pan_to_local_tree.get_path_by_line_number(line)
+                            )
+                            if pan_path_str and local_path_str:
+                                self.total_iterated += 1
+                                self.__handle_addition_path(
+                                    pan_path=pan_path_str,
+                                    local_path=local_path_str,
+                                )
+                except ItertreeInternalError as e:
+                    if retry_count < 2:
+                        queue.append((path, retry_count + 1))
+                        logger.warning(
+                            f"【增量STRM生成】目录同步错误，已加入队尾重试（剩余重试次数 {2 - retry_count}）: {path}，错误: {e}"
+                        )
+                    else:
+                        logger.error(
+                            f"【增量STRM生成】目录同步错误，已达重试上限: {path}，错误: {e}"
+                        )
+                except Exception as e:
+                    sentry_manager.sentry_hub.capture_exception(e)
+                    logger.error(f"【增量STRM生成】增量同步 STRM 文件失败: {e}")
+                    return
+
+                if queue:
+                    wait_seconds = 20 + 10 * retry_count
+                    sleep(wait_seconds)
+
+            # 下载媒体信息文件
+            (
+                self.mediainfo_count,
+                self.mediainfo_fail_count,
+                self.mediainfo_fail_dict,
+            ) = self.mediainfodownloader.batch_auto_downloader(
                 downloads_list=self.download_mediainfo_list
             )
-        )
 
-        # 日志输出
-        if self.strm_fail_dict:
-            for path, error in self.strm_fail_dict.items():
-                logger.warn(f"【增量STRM生成】{path} 生成错误原因: {error}")
-        if self.mediainfo_fail_dict:
-            for path in self.mediainfo_fail_dict:
-                logger.warn(f"【增量STRM生成】{path} 下载错误")
-        logger.info(
-            f"【增量STRM生成】增量生成 STRM 文件完成，总共生成 {self.strm_count} 个 STRM 文件，下载 {self.mediainfo_count} 个媒体数据文件"
-        )
-        if self.strm_fail_count != 0 or self.mediainfo_fail_count != 0:
-            logger.warn(
-                f"【增量STRM生成】{self.strm_fail_count} 个 STRM 文件生成失败，{self.mediainfo_fail_count} 个媒体数据文件下载失败"
+            # 日志输出
+            if self.strm_fail_dict:
+                for path, error in self.strm_fail_dict.items():
+                    logger.warn(f"【增量STRM生成】{path} 生成错误原因: {error}")
+            if self.mediainfo_fail_dict:
+                for path in self.mediainfo_fail_dict:
+                    logger.warn(f"【增量STRM生成】{path} 下载错误")
+            logger.info(
+                f"【增量STRM生成】增量生成 STRM 文件完成，总共生成 {self.strm_count} 个 STRM 文件，下载 {self.mediainfo_count} 个媒体数据文件"
             )
-        logger.info(f"【增量STRM生成】API 请求次数 {self.api_count} 次")
+            if self.strm_fail_count != 0 or self.mediainfo_fail_count != 0:
+                logger.warn(
+                    f"【增量STRM生成】{self.strm_fail_count} 个 STRM 文件生成失败，{self.mediainfo_fail_count} 个媒体数据文件下载失败"
+                )
+            logger.info(f"【增量STRM生成】API 请求次数 {self.api_count} 次")
+        finally:
+            self.elapsed_time = perf_counter() - t0
 
     def get_generate_total(self):
         """
         输出总共生成文件个数
         """
-        return (
+        result = (
             self.strm_count,
             self.mediainfo_count,
             self.strm_fail_count,
             self.mediainfo_fail_count,
         )
+        kind = self.strm_exec_history_kind
+        if kind:
+            StrmExecHistoryManager.append_run(
+                kind=kind,
+                success=True,
+                stats={
+                    "strm_count": self.strm_count,
+                    "mediainfo_count": self.mediainfo_count,
+                    "strm_fail_count": self.strm_fail_count,
+                    "mediainfo_fail_count": self.mediainfo_fail_count,
+                },
+                elapsed_sec=float(self.elapsed_time),
+                total_iterated=int(self.total_iterated),
+                api_requests=int(self.api_count),
+            )
+            self.strm_exec_history_kind = None
+        return result
