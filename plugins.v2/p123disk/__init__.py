@@ -13,6 +13,40 @@ from helper.storage import StorageHelper
 from schemas import StorageOperSelectionEventData, FileItem
 
 
+class P123AutoClient:
+    """
+    123云盘客户端
+    """
+
+    def __init__(self, passport, password):
+        self._client = None
+        self._passport = passport
+        self._password = password
+
+    def __getattr__(self, name):
+        if self._client is None:
+            self._client = P123Client(self._passport, self._password)
+
+        def wrapped(*args, **kwargs):
+            attr = getattr(self._client, name)
+            if not callable(attr):
+                return attr
+            result = attr(*args, **kwargs)
+            if (
+                isinstance(result, dict)
+                and result.get("code") == 401
+                and result.get("message") == "tokens number has exceeded the limit"
+            ):
+                self._client = P123Client(self._passport, self._password)
+                attr = getattr(self._client, name)
+                if not callable(attr):
+                    return attr
+                return attr(*args, **kwargs)
+            return result
+
+        return wrapped
+
+
 class P123Disk(_PluginBase):
     # 插件名称
     plugin_name = "123云盘储存"
@@ -21,7 +55,7 @@ class P123Disk(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/DDS-Derek/MoviePilot-Plugins/main/icons/P123Disk.png"
     # 插件版本
-    plugin_version = "1.0.8"
+    plugin_version = "1.0.9"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -61,7 +95,7 @@ class P123Disk(_PluginBase):
             self._password = config.get("password")
 
             try:
-                self._client = P123Client(self._passport, self._password)
+                self._client = P123AutoClient(self._passport, self._password)
                 self._p123_api = P123Api(client=self._client, disk_name=self._disk_name)
             except Exception as e:
                 logger.error(f"123云盘客户端创建失败: {e}")
