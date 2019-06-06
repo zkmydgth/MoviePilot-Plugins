@@ -130,49 +130,78 @@ class ShareTransferHelper:
             logger.info(f"【Ali2115】获取到转存目录 ID：{parent_id}")
             idpathcacher.add_cache(id=int(parent_id), directory=str(parent_path))
 
+        unrecognized_path = configer.pan_transfer_unrecognized_path
+        unrecognized_id = idpathcacher.get_id_by_dir(directory=str(unrecognized_path))
+        if not unrecognized_id:
+            unrecognized_id = self.client.fs_dir_getid(unrecognized_path)["id"]
+            logger.info(f"【Ali2115】获取到未识别目录 ID：{unrecognized_id}")
+            idpathcacher.add_cache(
+                id=int(unrecognized_id), directory=str(unrecognized_path)
+            )
+
         share_token = ali2115.get_ali_share_token(share_id)
 
         # 尝试识别媒体信息
         file_mediainfo = ali2115.share_recognize_mediainfo(share_token)
 
-        ali2115.share_upload(
-            share_token,
-            parent_id,
-            [
+        status, msg, success_upload, fail_upload = ali2115.share_upload(
+            share_token=share_token,
+            parent_id=int(parent_id),
+            unrecognized_id=int(unrecognized_id),
+            unrecognized_path=unrecognized_path,
+            rmt_mediaext=[
                 f".{ext.strip()}"
                 for ext in configer.get_config("user_rmt_mediaext")
                 .replace("，", ",")
                 .split(",")
             ],
+            file_mediainfo=file_mediainfo,
         )
 
-        logger.info(f"【Ali2115】秒传 {share_id} 到 {parent_path} 完成")
-        if not file_mediainfo:
-            post_message(
-                channel=channel,
-                title=i18n.translate("share_add_success"),
-                text=f"""
+        if status:
+            logger.info(f"【Ali2115】秒传 {share_id} 完成")
+            if not file_mediainfo:
+                post_message(
+                    channel=channel,
+                    title=i18n.translate("share_add_success"),
+                    text=f"""
 分享链接：https://www.alipan.com/s/{share_id}
-秒传目录：{parent_path}
+秒传目录：{unrecognized_path}
+秒传信息：成功 {success_upload} 个，失败 {fail_upload} 个
+
+注意：无法识别媒体信息，请手动整理
 """,
-                userid=userid,
-            )
-        else:
-            post_message(
-                channel=channel,
-                title=i18n.translate(
-                    "share_add_success_2",
-                    title=file_mediainfo.title,
-                    year=file_mediainfo.year,
-                ),
-                text=f"""
+                    userid=userid,
+                )
+            else:
+                post_message(
+                    channel=channel,
+                    title=i18n.translate(
+                        "share_add_success_2",
+                        title=file_mediainfo.title,
+                        year=file_mediainfo.year,
+                    ),
+                    text=f"""
 链接：https://www.alipan.com/s/{share_id}
+信息：秒传成功 {success_upload} 个，失败 {fail_upload} 个
 简介：{file_mediainfo.overview}
 """,
-                image=file_mediainfo.poster_path,
+                    image=file_mediainfo.poster_path,
+                    userid=userid,
+                )
+            self.post_share_info("aliyun", share_id, None, file_mediainfo)
+
+        else:
+            logger.info(f"【分享转存】秒传失败：{msg}")
+            post_message(
+                channel=channel,
+                title=i18n.translate("share_add_fail"),
+                text=f"""
+分享链接：https://www.alipan.com/s/{share_id}
+失败原因：{msg}
+""",
                 userid=userid,
             )
-        self.post_share_info("aliyun", share_id, None, file_mediainfo)
 
     def __add_share(self, url, channel, userid):
         """
@@ -193,6 +222,12 @@ class ShareTransferHelper:
                     r"^https?://(.*\.)?(alipan|aliyundrive)\.[a-zA-Z]{2,}(?:\/|$)", url
                 )
             ):
+                if not configer.pan_transfer_unrecognized_path:
+                    post_message(
+                        channel=channel,
+                        title=i18n.translate("add_share_config_error"),
+                        userid=userid,
+                    )
                 if not self.aligo:
                     post_message(
                         channel=channel,

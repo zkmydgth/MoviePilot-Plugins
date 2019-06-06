@@ -687,6 +687,22 @@
                     </v-col>
                   </v-row>
 
+                  <v-row class="mt-4">
+                    <v-col cols="12">
+                      <v-text-field v-model="config.pan_transfer_unrecognized_path" label="网盘整理未识别目录" density="compact"
+                        append-icon="mdi-folder-network"
+                        @click:append="openDirSelector('unrecognized', 'remote', 'panTransferUnrecognized')"></v-text-field>
+                      <v-alert type="info" variant="tonal" density="compact" class="mt-2">
+                        提示：此目录用于存放整理过程中未能识别的媒体文件。
+                      </v-alert>
+                      <v-alert type="warning" variant="tonal" density="compact" class="mt-2">
+                        注意：未识别目录不能设置在任何媒体库目录或待整理目录的内部。
+                      </v-alert>
+                    </v-col>
+                  </v-row>
+
+                  <v-divider class="my-3"></v-divider>
+
                   <v-alert type="info" variant="tonal" density="compact" class="mt-2">
                     使用本功能需要先进入 设定-目录 进行配置：<br>
                     1. 添加目录配置卡，按需配置媒体类型和媒体类别，资源存储选择115网盘，资源目录输入网盘待整理文件夹<br>
@@ -696,6 +712,13 @@
 
                   <v-alert type="warning" variant="tonal" density="compact" class="mt-2">
                     注意：配置目录时不能选择刮削元数据，否则可能导致风控！
+                  </v-alert>
+
+                  <v-alert type="warning" variant="tonal" density="compact" class="mt-2">
+                    注意：<br>
+                    1. 阿里云盘，115网盘分享链接秒传或转存都依赖于网盘整理<br>
+                    2. TG/Slack资源搜索转存也依赖于网盘整理<br>
+                    3. 当阿里云盘分享秒传未能识别分享媒体信息时，会自动将资源转存到网盘整理未识别目录，后续需要用户手动重命名整理
                   </v-alert>
 
                   <v-alert type="warning" variant="tonal" density="compact" class="mt-2">
@@ -1338,6 +1361,7 @@ const config = reactive({
   cron_clear: '0 */7 * * *',
   pan_transfer_enabled: false,
   pan_transfer_paths: '',
+  pan_transfer_unrecognized_path: '',
   directory_upload_enabled: false,
   directory_upload_mode: 'compatibility',
   directory_upload_uploadext: 'mp4,mkv,ts,iso,rmvb,avi,mov,mpeg,mpg,wmv,3gp,asf,m4v,flv,m2ts,tp,f4v',
@@ -2383,7 +2407,7 @@ const confirmDirSelection = () => {
     dirDialog.originalPathTypeBackup = '';
     dirDialog.originalIndexBackup = -1;
   }
-  // Handle original path selection logic for path mappings
+  // Handle original path selection logic for multi-path mappings
   else if (dirDialog.index >= 0 && dirDialog.type !== 'excludePath') {
     switch (dirDialog.type) {
       case 'transfer':
@@ -2423,9 +2447,13 @@ const confirmDirSelection = () => {
         }
         break;
     }
-  } else if (dirDialog.type === 'sharePath') {
-    // 这个分支主要用于 Page.vue 的分享路径，Config.vue 目前不直接使用此 type 进行赋值
-    // 但保留逻辑以防未来扩展或共享组件
+  }
+  // 处理单路径的网盘整理未识别目录
+  else if (dirDialog.type === 'panTransferUnrecognized') {
+    config.pan_transfer_unrecognized_path = processedPath;
+  }
+  // Handle share path (used in Page.vue, logic kept for consistency)
+  else if (dirDialog.type === 'sharePath') {
     if (dirDialog.isLocal) {
       config.user_share_local_path = processedPath;
     } else {
