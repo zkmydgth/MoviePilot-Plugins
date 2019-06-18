@@ -98,7 +98,7 @@ class FileDbHelper(DbOper):
         """
         处理115原始返回数据
         """
-        if "fc" in item:
+        if "fid" not in item:
             return [
                 {
                     "table": "folders",
