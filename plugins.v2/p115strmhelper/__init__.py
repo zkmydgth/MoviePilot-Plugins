@@ -409,6 +409,7 @@ class FullSyncStrmHelper:
         pan_transfer_enabled: bool,
         pan_transfer_paths: str,
         strm_url_format: str,
+        overwrite_mode: str,
         mediainfodownloader: MediaInfoDownloader,
         auto_download_mediainfo: bool = False,
     ):
@@ -431,6 +432,7 @@ class FullSyncStrmHelper:
         self.pan_transfer_enabled = pan_transfer_enabled
         self.pan_transfer_paths = pan_transfer_paths
         self.strm_url_format = strm_url_format
+        self.overwrite_mode = overwrite_mode
         self.databasehelper = FileDbHelper()
         self.pathmatchinghelper = PathMatchingHelper()
         self.mediainfodownloader = mediainfodownloader
@@ -475,6 +477,16 @@ class FullSyncStrmHelper:
                         file_name = file_path.stem + ".strm"
                         new_file_path = file_target_dir / file_name
                         try:
+                            if new_file_path.exists():
+                                if self.overwrite_mode == "never":
+                                    logger.warn(
+                                        f"【全量STRM生成】{new_file_path} 已存在，覆盖模式 {self.overwrite_mode}，跳过此路径"
+                                    )
+                                    continue
+                                else:
+                                    logger.warn(
+                                        f"【全量STRM生成】{new_file_path} 已存在，覆盖模式 {self.overwrite_mode}"
+                                    )
                             if self.pan_transfer_enabled and self.pan_transfer_paths:
                                 if self.pathmatchinghelper.get_run_transfer_path(
                                     paths=self.pan_transfer_paths,
@@ -790,7 +802,7 @@ class P115StrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png"
     # 插件版本
-    plugin_version = "1.7.0"
+    plugin_version = "1.7.1"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -812,6 +824,7 @@ class P115StrmHelper(_PluginBase):
 
     # 目录ID缓存
     id_path_cache = None
+
     # 生活事件缓存
     cache_delete_pan_transfer_list = None
     cache_creata_pan_transfer_list = None
@@ -821,52 +834,60 @@ class P115StrmHelper(_PluginBase):
     _monitor_life_notification_queue = None
     _monitor_life_notification_timer = None
 
+    # 网盘客户端
     _client = None
+
+    # 任务客户端
     _scheduler = None
-    _enabled = False
-    _notify = False
-    _strm_url_format = None
-    _cookies = None
-    _password = None
-    moviepilot_address = None
-    _user_rmt_mediaext = None
-    _user_download_mediaext = None
-    _transfer_monitor_enabled = False
-    _transfer_monitor_scrape_metadata_enabled = False
-    _transfer_monitor_scrape_metadata_exclude_paths = None
-    _transfer_monitor_paths = None
-    _transfer_mp_mediaserver_paths = None
-    _transfer_monitor_mediaservers = None
-    _transfer_monitor_media_server_refresh_enabled = False
-    _timing_full_sync_strm = False
-    _full_sync_auto_download_mediainfo_enabled = False
-    _cron_full_sync_strm = None
-    _full_sync_strm_paths = None
-    _mediaservers = None
-    _monitor_life_enabled = False
-    _monitor_life_auto_download_mediainfo_enabled = False
-    _monitor_life_paths = None
-    _monitor_life_mp_mediaserver_paths = None
-    _monitor_life_media_server_refresh_enabled = False
-    _monitor_life_mediaservers = None
-    _monitor_life_auto_remove_local_enabled = False
-    _monitor_life_scrape_metadata_enabled = False
-    _monitor_life_scrape_metadata_exclude_paths = None
-    _share_strm_auto_download_mediainfo_enabled = False
-    _user_share_code = None
-    _user_receive_code = None
-    _user_share_link = None
-    _user_share_pan_path = None
-    _user_share_local_path = None
-    _clear_recyclebin_enabled = False
-    _clear_receive_path_enabled = False
-    _cron_clear = None
-    _pan_transfer_enabled = False
-    _pan_transfer_paths = None
+
     # 退出事件
     _event = ThreadEvent()
     monitor_stop_event = None
     monitor_life_thread = None
+
+    # 配置项
+    __default_config = {
+        "enabled": False,
+        "notify": False,
+        "strm_url_format": "pickcode",
+        "cookies": None,
+        "password": None,
+        "moviepilot_address": None,
+        "user_rmt_mediaext": "mp4,mkv,ts,iso,rmvb,avi,mov,mpeg,mpg,wmv,3gp,asf,m4v,flv,m2ts,tp,f4v",
+        "user_download_mediaext": "srt,ssa,ass",
+        "transfer_monitor_enabled": False,
+        "transfer_monitor_scrape_metadata_enabled": False,
+        "transfer_monitor_scrape_metadata_exclude_paths": None,
+        "transfer_monitor_paths": None,
+        "transfer_mp_mediaserver_paths": None,
+        "transfer_monitor_mediaservers": None,
+        "transfer_monitor_media_server_refresh_enabled": False,
+        "full_sync_overwrite_mode": "never",
+        "timing_full_sync_strm": False,
+        "full_sync_auto_download_mediainfo_enabled": False,
+        "cron_full_sync_strm": "0 */7 * * *",
+        "full_sync_strm_paths": None,
+        "monitor_life_enabled": False,
+        "monitor_life_auto_download_mediainfo_enabled": False,
+        "monitor_life_paths": None,
+        "monitor_life_mp_mediaserver_paths": None,
+        "monitor_life_media_server_refresh_enabled": False,
+        "monitor_life_mediaservers": None,
+        "monitor_life_auto_remove_local_enabled": False,
+        "monitor_life_scrape_metadata_enabled": False,
+        "monitor_life_scrape_metadata_exclude_paths": None,
+        "share_strm_auto_download_mediainfo_enabled": False,
+        "user_share_code": None,
+        "user_receive_code": None,
+        "user_share_link": None,
+        "user_share_pan_path": None,
+        "user_share_local_path": None,
+        "clear_recyclebin_enabled": False,
+        "clear_receive_path_enabled": False,
+        "cron_clear": "0 */7 * * *",
+        "pan_transfer_enabled": False,
+        "pan_transfer_paths": None,
+    }
 
     @staticmethod
     def logs_oper(oper_name: str):
@@ -913,6 +934,18 @@ class P115StrmHelper(_PluginBase):
         )
         self.init_database()
 
+    def __getattr__(self, key):
+        """
+        动态获取配置项 - 解决IDE警告
+        """
+        if key.startswith("_") and key[1:] in self.__default_config.keys():
+            if key not in self.__dict__:
+                self.__dict__[key] = self.__default_config[key[1:]]
+            return self.__dict__[key]
+        raise AttributeError(
+            f"'{self.__class__.__name__}' object has no attribute '{key}'"
+        )
+
     def init_plugin(self, config: dict = None):
         """
         初始化插件
@@ -935,82 +968,10 @@ class P115StrmHelper(_PluginBase):
         self._monitor_life_notification_timer = None
 
         if config:
-            self._enabled = config.get("enabled", False)
-            self._notify = config.get("notify", False)
-            self._strm_url_format = config.get("strm_url_format", "pickcode")
-            self._cookies = config.get("cookies")
-            self._password = config.get("password")
-            self.moviepilot_address = config.get("moviepilot_address")
-            self._user_rmt_mediaext = config.get(
-                "user_rmt_mediaext",
-                "mp4,mkv,ts,iso,rmvb,avi,mov,mpeg,mpg,wmv,3gp,asf,m4v,flv,m2ts,tp,f4v",
-            )
-            self._user_download_mediaext = config.get(
-                "user_download_mediaext", "srt,ssa,ass"
-            )
-            self._transfer_monitor_enabled = config.get(
-                "transfer_monitor_enabled", False
-            )
-            self._transfer_monitor_scrape_metadata_enabled = config.get(
-                "transfer_monitor_scrape_metadata_enabled", False
-            )
-            self._transfer_monitor_scrape_metadata_exclude_paths = config.get(
-                "transfer_monitor_scrape_metadata_exclude_paths"
-            )
-            self._transfer_monitor_paths = config.get("transfer_monitor_paths")
-            self._transfer_mp_mediaserver_paths = config.get(
-                "transfer_mp_mediaserver_paths"
-            )
-            self._transfer_monitor_mediaservers = config.get(
-                "transfer_monitor_mediaservers"
-            )
-            self._transfer_monitor_media_server_refresh_enabled = config.get(
-                "transfer_monitor_media_server_refresh_enabled", False
-            )
-            self._timing_full_sync_strm = config.get("timing_full_sync_strm", False)
-            self._full_sync_auto_download_mediainfo_enabled = config.get(
-                "full_sync_auto_download_mediainfo_enabled", False
-            )
-            self._cron_full_sync_strm = config.get("cron_full_sync_strm", "0 */7 * * *")
-            self._full_sync_strm_paths = config.get("full_sync_strm_paths")
-            self._monitor_life_enabled = config.get("monitor_life_enabled", False)
-            self._monitor_life_auto_download_mediainfo_enabled = config.get(
-                "monitor_life_auto_download_mediainfo_enabled", False
-            )
-            self._monitor_life_paths = config.get("monitor_life_paths")
-            self._monitor_life_mp_mediaserver_paths = config.get(
-                "monitor_life_mp_mediaserver_paths"
-            )
-            self._monitor_life_media_server_refresh_enabled = config.get(
-                "monitor_life_media_server_refresh_enabled", False
-            )
-            self._monitor_life_mediaservers = config.get("monitor_life_mediaservers")
-            self._monitor_life_auto_remove_local_enabled = config.get(
-                "monitor_life_auto_remove_local_enabled", False
-            )
-            self._monitor_life_scrape_metadata_enabled = config.get(
-                "monitor_life_scrape_metadata_enabled", False
-            )
-            self._monitor_life_scrape_metadata_exclude_paths = config.get(
-                "monitor_life_scrape_metadata_exclude_paths"
-            )
-            self._share_strm_auto_download_mediainfo_enabled = config.get(
-                "share_strm_auto_download_mediainfo_enabled", False
-            )
-            self._user_share_code = config.get("user_share_code")
-            self._user_receive_code = config.get("user_receive_code")
-            self._user_share_link = config.get("user_share_link")
-            self._user_share_pan_path = config.get("user_share_pan_path")
-            self._user_share_local_path = config.get("user_share_local_path")
-            self._clear_recyclebin_enabled = config.get(
-                "clear_recyclebin_enabled", False
-            )
-            self._clear_receive_path_enabled = config.get(
-                "clear_receive_path_enabled", False
-            )
-            self._cron_clear = config.get("cron_clear", "0 */7 * * *")
-            self._pan_transfer_enabled = config.get("pan_transfer_enabled", False)
-            self._pan_transfer_paths = config.get("pan_transfer_paths")
+            default_config_keys = self.__default_config.keys()
+            for key in config.keys():
+                if key in default_config_keys:
+                    setattr(self, f"_{key}", config[key])
             self.__update_config()
 
         # 停止现有任务
@@ -1271,49 +1232,15 @@ class P115StrmHelper(_PluginBase):
             return cron_service
 
     def __update_config(self):
-        self.update_config(
-            {
-                "enabled": self._enabled,
-                "notify": self._notify,
-                "strm_url_format": self._strm_url_format,
-                "cookies": self._cookies,
-                "password": self._password,
-                "moviepilot_address": self.moviepilot_address,
-                "user_rmt_mediaext": self._user_rmt_mediaext,
-                "user_download_mediaext": self._user_download_mediaext,
-                "transfer_monitor_enabled": self._transfer_monitor_enabled,
-                "transfer_monitor_scrape_metadata_enabled": self._transfer_monitor_scrape_metadata_enabled,
-                "transfer_monitor_scrape_metadata_exclude_paths": self._transfer_monitor_scrape_metadata_exclude_paths,
-                "transfer_monitor_paths": self._transfer_monitor_paths,
-                "transfer_mp_mediaserver_paths": self._transfer_mp_mediaserver_paths,
-                "transfer_monitor_media_server_refresh_enabled": self._transfer_monitor_media_server_refresh_enabled,
-                "transfer_monitor_mediaservers": self._transfer_monitor_mediaservers,
-                "timing_full_sync_strm": self._timing_full_sync_strm,
-                "full_sync_auto_download_mediainfo_enabled": self._full_sync_auto_download_mediainfo_enabled,
-                "cron_full_sync_strm": self._cron_full_sync_strm,
-                "full_sync_strm_paths": self._full_sync_strm_paths,
-                "monitor_life_enabled": self._monitor_life_enabled,
-                "monitor_life_auto_download_mediainfo_enabled": self._monitor_life_auto_download_mediainfo_enabled,
-                "monitor_life_paths": self._monitor_life_paths,
-                "monitor_life_mp_mediaserver_paths": self._monitor_life_mp_mediaserver_paths,
-                "monitor_life_media_server_refresh_enabled": self._monitor_life_media_server_refresh_enabled,
-                "monitor_life_mediaservers": self._monitor_life_mediaservers,
-                "monitor_life_auto_remove_local_enabled": self._monitor_life_auto_remove_local_enabled,
-                "monitor_life_scrape_metadata_enabled": self._monitor_life_scrape_metadata_enabled,
-                "monitor_life_scrape_metadata_exclude_paths": self._monitor_life_scrape_metadata_exclude_paths,
-                "share_strm_auto_download_mediainfo_enabled": self._share_strm_auto_download_mediainfo_enabled,
-                "user_share_code": self._user_share_code,
-                "user_receive_code": self._user_receive_code,
-                "user_share_link": self._user_share_link,
-                "user_share_pan_path": self._user_share_pan_path,
-                "user_share_local_path": self._user_share_local_path,
-                "clear_recyclebin_enabled": self._clear_recyclebin_enabled,
-                "clear_receive_path_enabled": self._clear_receive_path_enabled,
-                "cron_clear": self._cron_clear,
-                "pan_transfer_enabled": self._pan_transfer_enabled,
-                "pan_transfer_paths": self._pan_transfer_paths,
-            }
-        )
+        config = {}
+        keys = self.__default_config.keys()
+        for key in keys:
+            config[key] = (
+                getattr(self, f"_{key}")
+                if hasattr(self, f"_{key}")
+                else self.__default_config[key]
+            )
+        self.update_config(config)
 
     @staticmethod
     def get_render_mode() -> Tuple[str, Optional[str]]:
@@ -1828,7 +1755,7 @@ class P115StrmHelper(_PluginBase):
             not self._enabled
             or not self._transfer_monitor_enabled
             or not self._transfer_monitor_paths
-            or not self.moviepilot_address
+            or not self._moviepilot_address
         ):
             return
 
@@ -1892,7 +1819,7 @@ class P115StrmHelper(_PluginBase):
                 f"【监控整理STRM生成】错误的 pickcode 值 {item_dest_name}，无法生成 STRM 文件"
             )
             return
-        strm_url = f"{self.moviepilot_address.rstrip('/')}/api/v1/plugin/P115StrmHelper/redirect_url?apikey={settings.API_TOKEN}&pickcode={item_dest_pickcode}"
+        strm_url = f"{self._moviepilot_address.rstrip('/')}/api/v1/plugin/P115StrmHelper/redirect_url?apikey={settings.API_TOKEN}&pickcode={item_dest_pickcode}"
         if self._strm_url_format == "pickname":
             strm_url += f"&file_name={item_dest_name}"
 
@@ -2156,7 +2083,7 @@ class P115StrmHelper(_PluginBase):
         """
         if (
             not self._full_sync_strm_paths
-            or not self.moviepilot_address
+            or not self._moviepilot_address
             or not self._user_download_mediaext
         ):
             return
@@ -2167,10 +2094,11 @@ class P115StrmHelper(_PluginBase):
             auto_download_mediainfo=self._full_sync_auto_download_mediainfo_enabled,
             client=self._client,
             mediainfodownloader=self.mediainfodownloader,
-            server_address=self.moviepilot_address,
+            server_address=self._moviepilot_address,
             pan_transfer_enabled=self._pan_transfer_enabled,
             pan_transfer_paths=self._pan_transfer_paths,
             strm_url_format=self._strm_url_format,
+            overwrite_mode=self._full_sync_overwrite_mode,
         )
         strm_helper.generate_strm_files(
             full_sync_strm_paths=self._full_sync_strm_paths,
@@ -2195,7 +2123,7 @@ class P115StrmHelper(_PluginBase):
         if (
             not self._user_share_pan_path
             or not self._user_share_local_path
-            or not self.moviepilot_address
+            or not self._moviepilot_address
         ):
             return
 
@@ -2218,7 +2146,7 @@ class P115StrmHelper(_PluginBase):
                 user_download_mediaext=self._user_download_mediaext,
                 auto_download_mediainfo=self._share_strm_auto_download_mediainfo_enabled,
                 client=self._client,
-                server_address=self.moviepilot_address,
+                server_address=self._moviepilot_address,
                 share_media_path=self._user_share_pan_path,
                 local_media_path=self._user_share_local_path,
                 mediainfodownloader=self.mediainfodownloader,
@@ -2444,7 +2372,7 @@ class P115StrmHelper(_PluginBase):
                                 f"【监控生活事件】错误的 pickcode 值 {pickcode}，无法生成 STRM 文件"
                             )
                             continue
-                        strm_url = f"{self.moviepilot_address.rstrip('/')}/api/v1/plugin/P115StrmHelper/redirect_url?apikey={settings.API_TOKEN}&pickcode={pickcode}"
+                        strm_url = f"{self._moviepilot_address.rstrip('/')}/api/v1/plugin/P115StrmHelper/redirect_url?apikey={settings.API_TOKEN}&pickcode={pickcode}"
                         if self._strm_url_format == "pickname":
                             strm_url += f"&file_name={original_file_name}"
 
@@ -2544,7 +2472,7 @@ class P115StrmHelper(_PluginBase):
                         f"【监控生活事件】错误的 pickcode 值 {pickcode}，无法生成 STRM 文件"
                     )
                     return
-                strm_url = f"{self.moviepilot_address.rstrip('/')}/api/v1/plugin/P115StrmHelper/redirect_url?apikey={settings.API_TOKEN}&pickcode={pickcode}"
+                strm_url = f"{self._moviepilot_address.rstrip('/')}/api/v1/plugin/P115StrmHelper/redirect_url?apikey={settings.API_TOKEN}&pickcode={pickcode}"
                 if self._strm_url_format == "pickname":
                     strm_url += f"&file_name={original_file_name}"
 
@@ -2978,56 +2906,19 @@ class P115StrmHelper(_PluginBase):
         """
         获取配置
         """
-        return {
-            "enabled": self._enabled,
-            "notify": self._notify,
-            "strm_url_format": self._strm_url_format or "pickcode",
-            "cookies": self._cookies or "",
-            "password": self._password or "",
-            "moviepilot_address": self.moviepilot_address or "",
-            "user_rmt_mediaext": self._user_rmt_mediaext
-            or "mp4,mkv,ts,iso,rmvb,avi,mov,mpeg,mpg,wmv,3gp,asf,m4v,flv,m2ts,tp,f4v",
-            "user_download_mediaext": self._user_download_mediaext or "srt,ssa,ass",
-            "transfer_monitor_enabled": self._transfer_monitor_enabled,
-            "transfer_monitor_scrape_metadata_enabled": self._transfer_monitor_scrape_metadata_enabled,
-            "transfer_monitor_scrape_metadata_exclude_paths": self._transfer_monitor_scrape_metadata_exclude_paths
-            or "",
-            "transfer_monitor_paths": self._transfer_monitor_paths or "",
-            "transfer_mp_mediaserver_paths": self._transfer_mp_mediaserver_paths or "",
-            "transfer_monitor_media_server_refresh_enabled": self._transfer_monitor_media_server_refresh_enabled,
-            "transfer_monitor_mediaservers": self._transfer_monitor_mediaservers or [],
-            "timing_full_sync_strm": self._timing_full_sync_strm,
-            "full_sync_auto_download_mediainfo_enabled": self._full_sync_auto_download_mediainfo_enabled,
-            "cron_full_sync_strm": self._cron_full_sync_strm or "0 */7 * * *",
-            "full_sync_strm_paths": self._full_sync_strm_paths or "",
-            "monitor_life_enabled": self._monitor_life_enabled,
-            "monitor_life_auto_download_mediainfo_enabled": self._monitor_life_auto_download_mediainfo_enabled,
-            "monitor_life_paths": self._monitor_life_paths or "",
-            "monitor_life_mp_mediaserver_paths": self._monitor_life_mp_mediaserver_paths
-            or "",
-            "monitor_life_media_server_refresh_enabled": self._monitor_life_media_server_refresh_enabled,
-            "monitor_life_mediaservers": self._monitor_life_mediaservers or [],
-            "monitor_life_auto_remove_local_enabled": self._monitor_life_auto_remove_local_enabled,
-            "monitor_life_scrape_metadata_enabled": self._monitor_life_scrape_metadata_enabled,
-            "monitor_life_scrape_metadata_exclude_paths": self._monitor_life_scrape_metadata_exclude_paths
-            or "",
-            "share_strm_auto_download_mediainfo_enabled": self._share_strm_auto_download_mediainfo_enabled,
-            "user_share_code": self._user_share_code or "",
-            "user_receive_code": self._user_receive_code or "",
-            "user_share_link": self._user_share_link or "",
-            "user_share_pan_path": self._user_share_pan_path or "/",
-            "user_share_local_path": self._user_share_local_path or "",
-            "clear_recyclebin_enabled": self._clear_recyclebin_enabled,
-            "clear_receive_path_enabled": self._clear_receive_path_enabled,
-            "cron_clear": self._cron_clear or "0 */7 * * *",
-            "pan_transfer_enabled": self._pan_transfer_enabled,
-            "pan_transfer_paths": self._pan_transfer_paths or "",
-            # 获取可用的媒体服务器配置
-            "mediaservers": [
-                {"title": config.name, "value": config.name}
-                for config in self.mediaserver_helper.get_configs().values()
-            ],
-        }
+        config = {}
+        keys = self.__default_config.keys()
+        for key in keys:
+            config[key] = (
+                getattr(self, f"_{key}")
+                if hasattr(self, f"_{key}")
+                else self.__default_config[key]
+            )
+        config["mediaservers"] = [
+            {"title": config.name, "value": config.name}
+            for config in self.mediaserver_helper.get_configs().values()
+        ]
+        return config
 
     async def _save_config_api(self, request: Request) -> Dict:
         """
@@ -3035,78 +2926,10 @@ class P115StrmHelper(_PluginBase):
         """
         try:
             data = await request.json()
-            self._enabled = data.get("enabled", False)
-            self._notify = data.get("notify", False)
-            self._strm_url_format = data.get("strm_url_format", "pickcode")
-            self._cookies = data.get("cookies", "")
-            self._password = data.get("password", "")
-            self.moviepilot_address = data.get("moviepilot_address", "")
-            self._user_rmt_mediaext = data.get(
-                "user_rmt_mediaext",
-                "mp4,mkv,ts,iso,rmvb,avi,mov,mpeg,mpg,wmv,3gp,asf,m4v,flv,m2ts,tp,f4v",
-            )
-            self._user_download_mediaext = data.get(
-                "user_download_mediaext", "srt,ssa,ass"
-            )
-            self._transfer_monitor_enabled = data.get("transfer_monitor_enabled", False)
-            self._transfer_monitor_scrape_metadata_enabled = data.get(
-                "transfer_monitor_scrape_metadata_enabled", False
-            )
-            self._transfer_monitor_scrape_metadata_exclude_paths = data.get(
-                "transfer_monitor_scrape_metadata_exclude_paths", ""
-            )
-            self._transfer_monitor_paths = data.get("transfer_monitor_paths", "")
-            self._transfer_mp_mediaserver_paths = data.get(
-                "transfer_mp_mediaserver_paths", ""
-            )
-            self._transfer_monitor_media_server_refresh_enabled = data.get(
-                "transfer_monitor_media_server_refresh_enabled", False
-            )
-            self._transfer_monitor_mediaservers = data.get(
-                "transfer_monitor_mediaservers", []
-            )
-            self._timing_full_sync_strm = data.get("timing_full_sync_strm", False)
-            self._full_sync_auto_download_mediainfo_enabled = data.get(
-                "full_sync_auto_download_mediainfo_enabled", False
-            )
-            self._cron_full_sync_strm = data.get("cron_full_sync_strm", "0 */7 * * *")
-            self._full_sync_strm_paths = data.get("full_sync_strm_paths", "")
-            self._monitor_life_enabled = data.get("monitor_life_enabled", False)
-            self._monitor_life_auto_download_mediainfo_enabled = data.get(
-                "monitor_life_auto_download_mediainfo_enabled", False
-            )
-            self._monitor_life_paths = data.get("monitor_life_paths", "")
-            self._monitor_life_mp_mediaserver_paths = data.get(
-                "monitor_life_mp_mediaserver_paths", ""
-            )
-            self._monitor_life_media_server_refresh_enabled = data.get(
-                "monitor_life_media_server_refresh_enabled", False
-            )
-            self._monitor_life_mediaservers = data.get("monitor_life_mediaservers", [])
-            self._monitor_life_auto_remove_local_enabled = data.get(
-                "monitor_life_auto_remove_local_enabled", False
-            )
-            self._monitor_life_scrape_metadata_enabled = data.get(
-                "monitor_life_scrape_metadata_enabled", False
-            )
-            self._monitor_life_scrape_metadata_exclude_paths = data.get(
-                "monitor_life_scrape_metadata_exclude_paths", ""
-            )
-            self._share_strm_auto_download_mediainfo_enabled = data.get(
-                "share_strm_auto_download_mediainfo_enabled", False
-            )
-            self._user_share_code = data.get("user_share_code", "")
-            self._user_receive_code = data.get("user_receive_code", "")
-            self._user_share_link = data.get("user_share_link", "")
-            self._user_share_pan_path = data.get("user_share_pan_path", "/")
-            self._user_share_local_path = data.get("user_share_local_path", "")
-            self._clear_recyclebin_enabled = data.get("clear_recyclebin_enabled", False)
-            self._clear_receive_path_enabled = data.get(
-                "clear_receive_path_enabled", False
-            )
-            self._cron_clear = data.get("cron_clear", "0 */7 * * *")
-            self._pan_transfer_enabled = data.get("pan_transfer_enabled", False)
-            self._pan_transfer_paths = data.get("pan_transfer_paths", "")
+            default_config_keys = self.__default_config.keys()
+            for key in data.keys():
+                if key in default_config_keys:
+                    setattr(self, f"_{key}", data[key])
 
             # 持久化存储配置
             self.__update_config()

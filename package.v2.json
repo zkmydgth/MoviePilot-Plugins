@@ -88,11 +88,12 @@
         "name": "115网盘STRM助手",
         "description": "115网盘STRM生成一条龙服务",
         "labels": "云盘",
-        "version": "1.7.0",
+        "version": "1.7.1",
         "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png",
         "author": "DDSRem",
         "level": 1,
         "history": {
+            "v1.7.1": "重构配置获取，全量支持配置覆盖模式",
             "v1.7.0": "数据库初步规划完成，专为115生活事件监控设计",
             "v1.6.13": "监控MP整理自动下载字幕和音轨文件 MP2.5.0+支持",
             "v1.6.12": "统一输出下载失败媒体信息文件",
