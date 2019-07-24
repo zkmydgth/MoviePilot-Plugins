@@ -412,6 +412,7 @@ const config = reactive({
   upload_offline_info: true,
   transfer_module_enhancement: false,
   pan_transfer_takeover: false,
+  pan_transfer_linked_subtitle_audio: true,
   rename_dict_supplement_enabled: false,
   rename_dict_supplement_overwrite_mode: 'fill_missing',
   native_emby_mediainfo_enabled: false,

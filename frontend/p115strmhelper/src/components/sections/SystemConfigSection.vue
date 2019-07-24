@@ -87,20 +87,26 @@
       <v-window-item value="tab-data-enhancement">
         <v-card-text>
           <v-row>
-            <v-col cols="12" md="3">
+            <v-col cols="12" md="4">
               <v-switch v-model="config.error_info_upload" label="错误信息上传" color="info" density="compact"></v-switch>
             </v-col>
-            <v-col cols="12" md="3">
+            <v-col cols="12" md="4">
               <v-switch v-model="config.upload_module_enhancement" label="上传模块增强" color="info"
                 density="compact"></v-switch>
             </v-col>
-            <v-col cols="12" md="3">
+            <v-col cols="12" md="4">
               <v-switch v-model="config.transfer_module_enhancement" label="整理模块增强" color="info" density="compact"
                 :disabled="isTransferModuleEnhancementLocked" hint="此功能已废弃" persistent-hint></v-switch>
             </v-col>
-            <v-col cols="12" md="3">
+          </v-row>
+          <v-row>
+            <v-col cols="12" md="6">
               <v-switch v-model="config.pan_transfer_takeover" label="接管网盘整理" color="info" density="compact"
                 hint="接管 115 → 115 整理任务进行批量处理，需要存储模块为 115网盘Plus" persistent-hint></v-switch>
+            </v-col>
+            <v-col cols="12" md="6" v-if="config.pan_transfer_takeover">
+              <v-switch v-model="config.pan_transfer_linked_subtitle_audio" label="字幕与音轨关联整理" color="info"
+                density="compact" hint="开：同目录字幕/音轨随主视频一批处理；关：与 MP 一致，字幕/音轨为独立任务" persistent-hint></v-switch>
             </v-col>
           </v-row>
           <v-row>
@@ -151,6 +157,7 @@
                     整理任务，使用批量处理提升整理效率
                   </div>
                   <div class="mb-1">• <strong>与整理模块接口增强的区别：</strong>此功能是接管整理流程，而整理模块接口增强是对存储接口的优化</div>
+                  <div class="mb-1">• <strong>字幕与音轨关联整理：</strong>可在上方单独开关；关闭后与 MoviePilot 一致按独立字幕/音轨任务处理</div>
                   <div>• 当前存储模块为 <strong>115网盘Plus</strong>，功能可以正常使用</div>
                 </div>
               </v-alert>
@@ -254,8 +261,7 @@
             <v-col cols="12">
               <v-select v-model="config.sidebar_nav_keys" :items="sidebarNavKeyItems" item-title="title"
                 item-value="value" label="侧栏显示的页面" multiple chips closable-chips color="primary" density="compact"
-                hint="可多选，顺序即侧栏顺序；全部取消则侧栏不显示对应入口，保存后刷新页面生效"
-                persistent-hint></v-select>
+                hint="可多选，顺序即侧栏顺序；全部取消则侧栏不显示对应入口，保存后刷新页面生效" persistent-hint></v-select>
             </v-col>
           </v-row>
 
