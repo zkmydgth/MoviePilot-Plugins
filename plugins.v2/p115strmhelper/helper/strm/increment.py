@@ -1,5 +1,5 @@
+from sys import platform as sys_platform
 from collections import deque
-from fcntl import flock, LOCK_EX, LOCK_UN
 from functools import partial
 from itertools import batched
 from os import close, O_CREAT, O_RDWR, open as os_open
@@ -42,6 +42,24 @@ from ...utils.path import PathRemoveUtils, PathUtils
 from ...utils.sentry import sentry_manager
 from ...utils.strm import StrmGenerater, StrmUrlGetter
 from ...utils.tree import DirectoryTree
+
+
+if sys_platform == "win32":
+    from msvcrt import locking as msvcrt_locking, LK_LOCK, LK_UNLCK
+
+    def _flock_ex(fd: int) -> None:
+        msvcrt_locking(fd, LK_LOCK, 1)
+
+    def _flock_un(fd: int) -> None:
+        msvcrt_locking(fd, LK_UNLCK, 1)
+else:
+    from fcntl import flock, LOCK_EX, LOCK_UN
+
+    def _flock_ex(fd: int) -> None:
+        flock(fd, LOCK_EX)
+
+    def _flock_un(fd: int) -> None:
+        flock(fd, LOCK_UN)
 
 
 class IncrementSyncStrmHelper:
@@ -206,7 +224,7 @@ class IncrementSyncStrmHelper:
         lock_fd = os_open(str(lock_path), O_CREAT | O_RDWR)
 
         try:
-            flock(lock_fd, LOCK_EX)
+            _flock_ex(lock_fd)
 
             def custom_escape(name):
                 """
@@ -274,7 +292,7 @@ class IncrementSyncStrmHelper:
             if previous_item is not None:
                 yield from process_file_item(previous_item)
         finally:
-            flock(lock_fd, LOCK_UN)
+            _flock_un(lock_fd)
             close(lock_fd)
 
     def __iterdir(self, cid: int, path: str) -> Iterator:
