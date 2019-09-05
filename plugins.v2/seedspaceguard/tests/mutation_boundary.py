@@ -307,38 +307,56 @@ MUTANTS = [
 
 
 def run_tests():
-    """跑全部测试，返回 (通过, 摘要)。"""
+    """跑全部测试，返回 (通过, 摘要)。
+
+    必须从 ``plugins.v2``（插件目录的**父目录**）发起，并把「桩宿主」与
+    「plugins.v2」同时放进 PYTHONPATH：插件在本地源仓库中是包
+    （目录名 `seedspaceguard` + `__init__.py`），pytest 需以
+    ``seedspaceguard/tests`` 的相对形态收集，包名才解析正确；桩宿主则
+    必须优先于真实 site-packages，否则会 ModuleNotFoundError。
+    """
+    env = dict(os.environ)
+    stub = os.path.join(PLUGIN_DIR, "tests", "_stub_host")
+    env["PYTHONPATH"] = os.pathsep.join(
+        [stub, PLUGINS_V2] + ([env["PYTHONPATH"]] if env.get("PYTHONPATH") else [])
+    )
     proc = subprocess.run(
-        [sys.executable, "-m", "unittest", "discover",
-         "-s", "seedspaceguard/tests", "-t", "seedspaceguard"],
-        cwd=PLUGINS_V2, capture_output=True, text=True,
+        [sys.executable, "-m", "pytest", "seedspaceguard/tests/", "-q",
+         "--no-header", "-p", "no:cacheprovider"],
+        cwd=PLUGINS_V2, env=env, capture_output=True, text=True,
     )
     output = proc.stdout + proc.stderr
-    tail = "\n".join([ln for ln in output.strip().splitlines()[-4:]])
+    tail = "\n".join(output.strip().splitlines()[-3:])
     return proc.returncode == 0, tail
 
 
 def main():
-    shutil.copy(TARGET, BACKUP)
+    # 原文读入内存，全程以它为基准，结束再写回（不依赖 /tmp 残留文件）。
+    # 旧版用固定路径的 /tmp 备份：若该文件恰是历史遗留的旧版本，
+    # 会把源码静默打回旧版；且残留文件会跨脚本互相干扰。
+    if not os.path.exists(TARGET):
+        print(f"❌ 找不到目标源码：{TARGET}")
+        return 1
+    source = open(TARGET, encoding="utf-8").read()
     try:
-        return _run()
+        return _run(source)
     finally:
         # 关键：必须无条件还原。
         # 本脚本会直接覆写插件源码，一旦中途抛异常（如解包错误、语法错误）
         # 而没走到还原那一步，源码就会**永久停留在变异状态**——后续所有测试
         # 都在被污染的源码上跑，表现为"基线即失败"，极易误判为测试坏了。
         # （本次开发中真实踩过一次：框架解包错误导致 7 个测试失败。）
-        shutil.copy(BACKUP, TARGET)
+        with open(TARGET, "w", encoding="utf-8") as handle:
+            handle.write(source)
 
 
-def _run():
+def _run(source):
     base_ok, base_tail = run_tests()
     print(f"基线：{'✅ 全部通过' if base_ok else '❌ 基线即失败'}")
     if not base_ok:
         print(base_tail)
         return 1
 
-    source = open(BACKUP, encoding="utf-8").read()
     caught = escaped = skipped = 0
     escaped_names = []
 

@@ -175,60 +175,74 @@ MUTANTS = [
 
 
 def run_tests():
-    """跑全部测试，返回 (通过, 摘要)。"""
+    """跑全部测试，返回 (通过, 摘要)。
+
+    必须从 ``plugins.v2``（插件目录的**父目录**）发起，并把「桩宿主」与
+    「plugins.v2」同时放进 PYTHONPATH：
+    - 插件在本地源仓库中是包（目录名 `seedspaceguard` + `__init__.py`），
+      pytest 需以 ``seedspaceguard/tests`` 的相对形态收集，包名才解析正确；
+    - 桩宿主必须优先于真实 site-packages，否则 ``from app.core.event import``
+      会直接 ModuleNotFoundError。
+    早期版本用 ``unittest discover``，既不注入桩宿主、也不补 PYTHONPATH，
+    基线恒为失败（9 errors），已统一改为 pytest。
+    """
+    env = dict(os.environ)
+    stub = os.path.join(PLUGIN_DIR, "tests", "_stub_host")
+    env["PYTHONPATH"] = os.pathsep.join(
+        [stub, PLUGINS_V2] + ([env["PYTHONPATH"]] if env.get("PYTHONPATH") else [])
+    )
     proc = subprocess.run(
-        [sys.executable, "-m", "unittest", "discover",
-         "-s", "seedspaceguard/tests", "-t", "seedspaceguard"],
-        cwd=PLUGINS_V2, capture_output=True, text=True,
+        [sys.executable, "-m", "pytest", "seedspaceguard/tests/", "-q",
+         "--no-header", "-p", "no:cacheprovider"],
+        cwd=PLUGINS_V2, env=env, capture_output=True, text=True,
     )
     output = proc.stdout + proc.stderr
-    tail = "\\n".join([ln for ln in output.strip().splitlines()[-4:]])
+    tail = "\n".join(output.strip().splitlines()[-3:])
     return proc.returncode == 0, tail
 
 
 def main():
-    # 必须先把**当前源码**备份下来，而不是假定 BACKUP 已存在。
-    # 原实现在这里直接 ``shutil.copy(BACKUP, TARGET)``，一旦 ``/tmp`` 里没有
-    # 备份文件（新机器、清理过 /tmp、或上次异常退出），就会在本行抛
-    # FileNotFoundError 并导致流程中断；若目录中已存在半成品备份，
-    # 更会把**变异状态**的源码回写到插件目录，等于永久损坏源码。
-    # 改为主动备份 + finally 无条件还原。
-    shutil.copy(TARGET, BACKUP)
-    try:
-        return _run()
-    finally:
-        shutil.copy(BACKUP, TARGET)
+    # 原文读入内存，全程以它为变异基准，结束再写回。
+    # 旧版依赖固定路径的 /tmp 备份文件，一旦该文件是历史遗留的旧版本
+    # （例如残留的 v1.3.4），就会「以旧为基准变异、再把旧版写回仓库」，
+    # 静默把源码打回旧版本。改为内存备份后此风险彻底消除。
+    if not os.path.exists(TARGET):
+        print(f"❌ 找不到目标源码：{TARGET}")
+        return 1
+    source = open(TARGET, encoding="utf-8").read()
 
-
-def _run():
     base_ok, base_tail = run_tests()
     print(f"基线：{'✅ 全部通过' if base_ok else '❌ 基线即失败'}")
     if not base_ok:
         print(base_tail)
         return 1
 
-    source = open(BACKUP, encoding="utf-8").read()
     caught = escaped = 0
     escaped_names = []
 
     print(f"\\n{'='*70}\\n变异测试（共 {len(MUTANTS)} 个变异体）\\n{'='*70}")
-    for idx, (name, old, new, expect) in enumerate(MUTANTS, 1):
-        if old not in source:
-            print(f"[{idx:2d}] ⚠️  跳过（定位失败）：{name}")
-            continue
-        mutated = source.replace(old, new, 1)
+    try:
+        for idx, (name, old, new, expect) in enumerate(MUTANTS, 1):
+            if old not in source:
+                print(f"[{idx:2d}] ⚠️  跳过（定位失败）：{name}")
+                continue
+            mutated = source.replace(old, new, 1)
+            with open(TARGET, "w", encoding="utf-8") as handle:
+                handle.write(mutated)
+            ok, tail = run_tests()
+            if ok:
+                escaped += 1
+                escaped_names.append(name)
+                print(f"[{idx:2d}] ❌ 逃逸：{name}\\n       （{expect}）")
+            else:
+                caught += 1
+                fails = re.search(r"FAILED \\(.*?\\)", tail)
+                detail = fails.group(0) if fails else "有失败"
+                print(f"[{idx:2d}] ✅ 捕获：{name} → {detail}")
+    finally:
+        # 无论中途异常还是正常结束，都必须还原原始源码
         with open(TARGET, "w", encoding="utf-8") as handle:
-            handle.write(mutated)
-        ok, tail = run_tests()
-        if ok:
-            escaped += 1
-            escaped_names.append(name)
-            print(f"[{idx:2d}] ❌ 逃逸：{name}\\n       （{expect}）")
-        else:
-            caught += 1
-            fails = re.search(r"FAILED \\(.*?\\)", tail)
-            detail = fails.group(0) if fails else "有失败"
-            print(f"[{idx:2d}] ✅ 捕获：{name} → {detail}")
+            handle.write(source)
 
     print(f"\\n{'='*70}")
     print(f"结果：捕获 {caught} / 逃逸 {escaped} / 合计 {caught + escaped}")
