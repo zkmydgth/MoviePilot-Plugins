@@ -48,7 +48,8 @@ class TransferHandler:
 
         logger.info(f"【整理接管】初始化整理执行器，存储: {storage_name}")
 
-    def _is_subtitle_file(self, fileitem: FileItem) -> bool:
+    @staticmethod
+    def _is_subtitle_file(fileitem: FileItem) -> bool:
         """
         判断是否为字幕文件
 
@@ -59,7 +60,8 @@ class TransferHandler:
             return False
         return f".{fileitem.extension.lower()}" in settings.RMT_SUBEXT
 
-    def _is_audio_file(self, fileitem: FileItem) -> bool:
+    @staticmethod
+    def _is_audio_file(fileitem: FileItem) -> bool:
         """
         判断是否为音频文件
 
@@ -70,7 +72,8 @@ class TransferHandler:
             return False
         return f".{fileitem.extension.lower()}" in settings.RMT_AUDIOEXT
 
-    def _create_mp_task(self, task: TransferTask) -> MPTransferTask:
+    @staticmethod
+    def _create_mp_task(task: TransferTask) -> MPTransferTask:
         """
         创建 MoviePilot TransferTask 对象
 
@@ -84,8 +87,9 @@ class TransferHandler:
             meta=task.meta,
         )
 
+    @staticmethod
     def _group_tasks_by_media(
-        self, tasks: List[TransferTask]
+        tasks: List[TransferTask],
     ) -> Dict[Tuple, List[TransferTask]]:
         """
         按媒体分组任务
@@ -757,6 +761,10 @@ class TransferHandler:
                     int, Tuple[TransferTask, bool, str, Optional[RelatedFile]]
                 ] = {}
                 files_to_delete: List[FileItem] = []
+                # 收集需要批量删除版本文件的任务（按目录分组）
+                version_delete_tasks: Dict[Path, List[Tuple[Path, TransferTask]]] = (
+                    defaultdict(list)
+                )
 
                 for fileitem, target_name, task, is_main, related_file in files:
                     if not fileitem.fileid:
@@ -791,7 +799,6 @@ class TransferHandler:
                         # 目标文件已存在
                         if is_extra_file:
                             # 附加文件强制覆盖
-                            over_flag = True
                             logger.info(
                                 f"【整理接管】目标文件已存在，附加文件强制覆盖: {target_dir / target_name}"
                             )
@@ -860,11 +867,9 @@ class TransferHandler:
                     else:
                         # 目标文件不存在，但如果是 latest 模式，需要删除其他版本文件
                         if not is_extra_file and task.overwrite_mode == "latest":
-                            # 文件不存在，但仅保留最新版本，需要删除目录下其他版本的文件
-                            self._delete_version_files(
-                                target_dir=target_dir,
-                                target_path=target_dir / target_name,
-                                task=task,
+                            # 收集到批量删除列表，循环外统一处理
+                            version_delete_tasks[target_dir].append(
+                                (target_dir / target_name, task)
                             )
 
                     file_id = int(fileitem.fileid)
@@ -918,6 +923,10 @@ class TransferHandler:
                                     if file_id_to_remove:
                                         file_ids.remove(file_id_to_remove)
                                         file_mapping.pop(file_id_to_remove, None)
+
+                # 批量删除版本文件（latest 模式，目标文件不存在时）
+                if version_delete_tasks:
+                    self._batch_delete_version_files(version_delete_tasks)
 
                 if not file_ids:
                     continue
@@ -1184,97 +1193,165 @@ class TransferHandler:
 
         return failed_tasks, success_tasks
 
-    def _delete_version_files(
+    def _batch_delete_version_files(
         self,
-        target_dir: Path,
-        target_path: Path,
-        task: TransferTask,
+        version_delete_tasks: Dict[Path, List[Tuple[Path, TransferTask]]],
     ) -> None:
         """
-        删除目录下的所有版本文件（仅保留最新版本）
+        批量删除版本文件（latest 模式，目标文件不存在时）
 
-        :param target_dir: 目标目录
-        :param target_path: 目标文件路径
-        :param task: 任务
+        :param version_delete_tasks: 按目录分组的版本删除任务 {目录: [(目标路径, 任务), ...]}
         """
-        try:
-            # 识别文件中的季集信息
-            meta = MetaInfoPath(target_path)
-            season = meta.season
-            episode = meta.episode
+        for target_dir, tasks in version_delete_tasks.items():
+            try:
+                # 获取目标目录
+                folder_item = self._get_folder(target_dir)
+                if not folder_item:
+                    logger.warn(f"【整理接管】无法获取目标目录: {target_dir}")
+                    continue
 
-            if season is None and episode is None:
-                # 没有季集信息，无法判断版本，跳过
-                logger.debug(
-                    f"【整理接管】目标文件无季集信息，跳过版本删除: {target_path}"
+                # 列出目录下所有文件
+                files = self.storage_chain.list_files(fileitem=folder_item)
+                if not files:
+                    logger.debug(f"【整理接管】目录 {target_dir} 中没有文件")
+                    continue
+
+                # 收集需要删除的文件（按季集分组）
+                files_to_delete_by_se: Dict[
+                    Tuple[Optional[int], Optional[int]], List[FileItem]
+                ] = defaultdict(list)
+
+                # 收集所有目标文件的季集信息
+                target_seasons_episodes: set[Tuple[Optional[int], Optional[int]]] = (
+                    set()
                 )
-                return
+                for target_path, task in tasks:
+                    meta = MetaInfoPath(target_path)
+                    # 转换为整数（MetaInfoPath 的 season/episode 可能是字符串或整数）
+                    season: Optional[int] = None
+                    episode: Optional[int] = None
+                    if meta.season is not None:
+                        try:
+                            season = (
+                                int(meta.season)
+                                if isinstance(meta.season, (int, str))
+                                and str(meta.season).isdigit()
+                                else None
+                            )
+                        except (ValueError, TypeError):
+                            season = None
+                    if meta.episode is not None:
+                        try:
+                            episode = (
+                                int(meta.episode)
+                                if isinstance(meta.episode, (int, str))
+                                and str(meta.episode).isdigit()
+                                else None
+                            )
+                        except (ValueError, TypeError):
+                            episode = None
+                    if season is not None or episode is not None:
+                        target_seasons_episodes.add((season, episode))
 
-            logger.info(
-                f"【整理接管】覆盖模式=latest，正在删除目标目录中其它版本的文件: {target_dir}"
-            )
-
-            # 获取目标目录
-            folder_item = self._get_folder(target_dir)
-            if not folder_item:
-                logger.warn(f"【整理接管】无法获取目标目录: {target_dir}")
-                return
-
-            # 列出目录下所有文件
-            files = self.storage_chain.list_files(fileitem=folder_item)
-            if not files:
-                logger.debug(f"【整理接管】目录 {target_dir} 中没有文件")
-                return
-
-            # 收集需要删除的文件
-            files_to_delete = []
-            for file in files:
-                if file.type != "file":
+                if not target_seasons_episodes:
+                    logger.debug(
+                        f"【整理接管】目标文件无季集信息，跳过版本删除: {target_dir}"
+                    )
                     continue
-                if not file.extension:
-                    continue
-                # 只处理媒体文件
-                file_ext = f".{file.extension.lower()}"
-                if file_ext not in settings.RMT_MEDIAEXT:
-                    continue
-                # 跳过目标文件本身
-                if Path(file.path) == target_path:
-                    continue
-                # 识别文件中的季集信息
-                file_meta = MetaInfoPath(Path(file.path))
-                # 相同季集的文件才删除
-                if file_meta.season == season and file_meta.episode == episode:
-                    files_to_delete.append(file)
-                    logger.info(f"【整理接管】发现同版本文件，将删除: {file.name}")
 
-            if not files_to_delete:
-                logger.debug(
-                    f"【整理接管】目录 {target_dir} 中没有找到同版本的其他文件"
+                logger.info(
+                    f"【整理接管】覆盖模式=latest，正在删除目标目录中其它版本的文件: {target_dir}"
                 )
-                return
 
-            # 批量删除
-            delete_file_ids = []
-            for file in files_to_delete:
-                if file.fileid:
-                    delete_file_ids.append(int(file.fileid))
+                # 遍历目录中的文件，找出需要删除的版本文件
+                for file in files:
+                    if file.type != "file":
+                        continue
+                    if not file.extension:
+                        continue
+                    # 只处理媒体文件
+                    file_ext = f".{file.extension.lower()}"
+                    if file_ext not in settings.RMT_MEDIAEXT:
+                        continue
 
-            if delete_file_ids:
-                try:
-                    resp = self.client.fs_delete(delete_file_ids)
-                    check_response(resp)
-                    for file_id in delete_file_ids:
-                        self.cache_updater.remove_cache(file_id)
-                    logger.info(
-                        f"【整理接管】批量删除版本文件成功: {len(delete_file_ids)} 个文件"
+                    # 识别文件中的季集信息
+                    file_meta = MetaInfoPath(Path(file.path))
+                    # 转换为整数（MetaInfoPath 的 season/episode 可能是字符串或整数）
+                    file_season: Optional[int] = None
+                    file_episode: Optional[int] = None
+                    if file_meta.season is not None:
+                        try:
+                            file_season = (
+                                int(file_meta.season)
+                                if isinstance(file_meta.season, (int, str))
+                                and str(file_meta.season).isdigit()
+                                else None
+                            )
+                        except (ValueError, TypeError):
+                            file_season = None
+                    if file_meta.episode is not None:
+                        try:
+                            file_episode = (
+                                int(file_meta.episode)
+                                if isinstance(file_meta.episode, (int, str))
+                                and str(file_meta.episode).isdigit()
+                                else None
+                            )
+                        except (ValueError, TypeError):
+                            file_episode = None
+                    file_se: Tuple[Optional[int], Optional[int]] = (
+                        file_season,
+                        file_episode,
                     )
-                except Exception as e:
-                    logger.error(
-                        f"【整理接管】批量删除版本文件失败: {e}", exc_info=True
-                    )
 
-        except Exception as e:
-            logger.error(f"【整理接管】删除版本文件异常: {e}", exc_info=True)
+                    # 检查是否与任何目标文件的季集匹配
+                    if file_se in target_seasons_episodes:
+                        # 检查是否为目标文件本身（通过路径匹配）
+                        is_target_file = False
+                        for target_path, _ in tasks:
+                            if Path(file.path) == target_path:
+                                is_target_file = True
+                                break
+
+                        if not is_target_file:
+                            files_to_delete_by_se[file_se].append(file)
+                            logger.info(
+                                f"【整理接管】发现同版本文件，将删除: {file.name}"
+                            )
+
+                # 批量删除所有收集到的版本文件
+                all_files_to_delete = []
+                for files_list in files_to_delete_by_se.values():
+                    all_files_to_delete.extend(files_list)
+
+                if not all_files_to_delete:
+                    logger.debug(
+                        f"【整理接管】目录 {target_dir} 中没有找到同版本的其他文件"
+                    )
+                    continue
+
+                # 批量删除
+                delete_file_ids = []
+                for file in all_files_to_delete:
+                    if file.fileid:
+                        delete_file_ids.append(int(file.fileid))
+
+                if delete_file_ids:
+                    try:
+                        resp = self.client.fs_delete(delete_file_ids)
+                        check_response(resp)
+                        for file_id in delete_file_ids:
+                            self.cache_updater.remove_cache(file_id)
+                        logger.info(
+                            f"【整理接管】批量删除版本文件成功: {len(delete_file_ids)} 个文件 (目录: {target_dir})"
+                        )
+                    except Exception as e:
+                        logger.error(
+                            f"【整理接管】批量删除版本文件失败: {e}", exc_info=True
+                        )
+
+            except Exception as e:
+                logger.error(f"【整理接管】批量删除版本文件异常: {e}", exc_info=True)
 
     def _update_file_ids_after_copy(
         self,
@@ -1389,9 +1466,6 @@ class TransferHandler:
 
         # 收集需要重命名的文件（file_id, new_name, task, is_main）
         rename_items: List[Tuple[int, str, TransferTask, bool]] = []
-        task_rename_status: Dict[str, bool] = {
-            task.fileitem.path: True for task in tasks if task and task.fileitem
-        }
 
         for task in tasks:
             # 检查主视频是否需要重命名
