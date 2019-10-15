@@ -1,5 +1,17 @@
-from typing import List
+from typing import List, Optional
+
 from pydantic import BaseModel, Field
+
+
+class CheckLifeEventStatusPayload(BaseModel):
+    """
+    生活事件故障检查请求体
+    """
+
+    start_time: Optional[int] = Field(
+        default=None,
+        description="拉取指定时间内的全部数据的开始时间（Unix 时间戳，秒）",
+    )
 
 
 class PluginStatusData(BaseModel):

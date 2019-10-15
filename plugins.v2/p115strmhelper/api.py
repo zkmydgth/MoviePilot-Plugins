@@ -13,7 +13,7 @@ from orjson import dumps, loads
 from p115client import P115Client, check_response
 from p115client.exception import P115DataError
 from p115client.tool.fs_files import iter_fs_files
-from fastapi import Request, Response, Depends, status, Query
+from fastapi import Body, Request, Response, Depends, status, Query
 from fastapi.responses import JSONResponse
 
 from .service import servicer
@@ -45,7 +45,12 @@ from .schemas.u115 import (
     UserStorageStatusResponse,
     StorageInfo,
 )
-from .schemas.plugin import PluginStatusData, LifeEventCheckData, LifeEventCheckSummary
+from .schemas.plugin import (
+    CheckLifeEventStatusPayload,
+    LifeEventCheckData,
+    LifeEventCheckSummary,
+    PluginStatusData,
+)
 from .schemas.api import ApiResponse
 from .schemas.share import ShareApiData, ShareResponseData, ShareSaveParent
 from .schemas.strm_api import (
@@ -1103,10 +1108,13 @@ class Api:
             return ApiResponse(code=-1, msg=f"获取捐赠信息失败: {str(e)}")
 
     @staticmethod
-    def check_life_event_status_api() -> ApiResponse:
+    def check_life_event_status_api(
+        payload: Optional[CheckLifeEventStatusPayload] = Body(default=None),
+    ) -> ApiResponse:
         """
         检查生活事件线程状态并测试拉取数据
-        提供详细的debug信息供开发者判断
+
+        :param payload: 可选请求体，含 start_time 时执行“拉取指定时间内的全部数据”检查
         """
         debug_info = []
         success = True
@@ -1233,7 +1241,28 @@ class Api:
             success = False
         debug_info.append("")
 
-        debug_info.append("8. 配置完整性检查")
+        pull_client = (
+            (monitorlife and monitorlife._client) or (monitorlife and client) or client
+        )
+        if payload and payload.start_time is not None:
+            debug_info.append("8. 拉取指定时间内的全部数据")
+            if pull_client:
+                from_ts = int(payload.start_time)
+                pull_ok, from_debug, from_errors = (
+                    MonitorLifeTest.test_life_event_pull_from_time(pull_client, from_ts)
+                )
+                debug_info.extend(from_debug)
+                if not pull_ok:
+                    success = False
+                    error_messages.extend(from_errors)
+            else:
+                debug_info.append("   跳过（客户端不存在）")
+            debug_info.append("")
+            config_step_num = "9"
+        else:
+            config_step_num = "8"
+
+        debug_info.append(f"{config_step_num}. 配置完整性检查")
         should_run = bool(
             (monitor_life_enabled and monitor_life_paths and monitor_life_event_modes)
             or (pan_transfer_enabled and pan_transfer_paths)

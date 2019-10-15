@@ -2575,13 +2575,37 @@
     </v-dialog>
 
     <!-- 生活事件故障检查对话框 -->
-    <v-dialog v-model="lifeEventCheckDialog.show" max-width="1000" scrollable>
+    <v-dialog v-model="lifeEventCheckDialog.show" max-width="1000" scrollable persistent>
       <v-card>
         <v-card-title class="d-flex align-center px-3 py-2 bg-primary-lighten-5">
           <v-icon icon="mdi-bug-check" class="mr-2" color="primary" size="small" />
           <span>115生活事件故障检查</span>
         </v-card-title>
         <v-card-text class="px-3 py-3">
+          <div class="mb-3">
+            <div class="text-caption text-grey mb-1">拉取指定时间内的全部数据（可选）</div>
+            <div class="life-event-check-start-time-wrapper">
+              <input
+                ref="lifeEventStartTimeInputRef"
+                v-model="lifeEventCheckDialog.startTime"
+                type="datetime-local"
+                class="life-event-check-datetime-input"
+                aria-label="开始时间"
+              />
+              <v-btn
+                v-if="lifeEventCheckDialog.startTime"
+                icon
+                size="x-small"
+                variant="text"
+                class="life-event-check-clear-btn"
+                aria-label="清除时间"
+                @click="lifeEventCheckDialog.startTime = ''"
+              >
+                <v-icon icon="mdi-close" size="small" />
+              </v-btn>
+            </div>
+            <div class="text-caption text-grey mt-1">填写后点击检查，将额外拉取从该时间起的全部生活事件并显示数量</div>
+          </div>
           <v-alert v-if="lifeEventCheckDialog.error" type="error" density="compact" class="mb-3" variant="tonal"
             closable>
             {{ lifeEventCheckDialog.error }}
@@ -3055,11 +3079,13 @@ const aliQrDialog = reactive({
 });
 
 // 生活事件故障检查对话框
+const lifeEventStartTimeInputRef = ref(null);
 const lifeEventCheckDialog = reactive({
   show: false,
   loading: false,
   error: null,
   result: null,
+  startTime: '', // 拉取指定时间内的全部数据的开始时间（datetime-local 字符串）
 });
 
 // emby2Alist 配置生成对话框
@@ -4460,8 +4486,20 @@ const checkLifeEventStatus = async () => {
   lifeEventCheckDialog.error = null;
   lifeEventCheckDialog.result = null;
 
+  const body = {};
+  const startTimeStr = (lifeEventCheckDialog.startTime || '').trim();
+  if (startTimeStr) {
+    const startDate = new Date(startTimeStr);
+    if (!Number.isNaN(startDate.getTime())) {
+      body.start_time = Math.floor(startDate.getTime() / 1000);
+    }
+  }
+
   try {
-    const response = await props.api.post(`plugin/${PLUGIN_ID}/check_life_event_status`);
+    const response = await props.api.post(
+      `plugin/${PLUGIN_ID}/check_life_event_status`,
+      Object.keys(body).length ? body : undefined
+    );
     if (response.code === 0) {
       lifeEventCheckDialog.result = response;
     } else {
@@ -4478,6 +4516,7 @@ const closeLifeEventCheckDialog = () => {
   lifeEventCheckDialog.show = false;
   lifeEventCheckDialog.error = null;
   lifeEventCheckDialog.result = null;
+  // 不重置 startTime，方便用户再次打开时沿用
 };
 
 const copyDebugInfo = async () => {
@@ -4659,6 +4698,55 @@ const removeExcludePathEntry = (index, type) => {
   50% {
     box-shadow: 0 0 0 4px rgba(91, 207, 250, 0.1);
   }
+}
+
+/* 生活事件故障检查 - 开始时间原生 input，避免多次点击才弹出选择器 */
+.life-event-check-start-time-wrapper {
+  position: relative;
+  display: block;
+  border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+  border-radius: 4px;
+  background: rgb(var(--v-theme-surface));
+  min-height: 40px;
+}
+.life-event-check-start-time-wrapper:focus-within {
+  border-color: rgb(var(--v-theme-primary));
+  box-shadow: 0 0 0 1px rgb(var(--v-theme-primary));
+}
+.life-event-check-datetime-input {
+  width: 100%;
+  height: 100%;
+  min-height: 38px;
+  padding: 0 36px 0 12px;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: 0.875rem;
+  font-family: inherit;
+  color: rgb(var(--v-theme-on-surface));
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.life-event-check-datetime-input::-webkit-calendar-picker-indicator {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.life-event-check-clear-btn {
+  position: absolute;
+  right: 2px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 1;
 }
 
 /* 优化基础设置折叠面板动画速度 */
