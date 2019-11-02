@@ -347,6 +347,7 @@ class P123Api:
                 file_name=new_name,
                 parent_id=target_dir.fileid,
             )
+            logger.debug(f"【123】秒传文件信息: {resp}")
             check_response(resp)
             data = resp.get("data", {}).get("Info", None)
             if data:
@@ -375,6 +376,7 @@ class P123Api:
                 file_name=new_name,
                 parent_id=target_dir.fileid,
             )
+            logger.debug(f"【123】上传文件信息: {resp}")
             check_response(resp)
             data = resp.get("data", {}).get("file_info", None)
             if data:
