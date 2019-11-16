@@ -178,25 +178,17 @@ def iter_share_files_with_path(
     first_page_api_pool.insert(6, snap_api_info)
     first_page_api_cycler = cycle(repeating_pair)
 
-    def _job(
-        api_info: ApiEndpointInfo,
-        _cid: int,
-        path_prefix: str,
-        offset: int,
-    ) -> Tuple[List[Dict[str, Any]], List[Tuple[int, str, int]]]:
-        limit = 1_000
-        payload = {
-            "share_code": share_code,
-            "receive_code": receive_code,
-            "cid": _cid,
-            "limit": limit,
-            "offset": offset,
-            "asc": asc,
-            "o": order,
-        }
+    def _extract(resp_obj: Dict[str, Any]) -> Tuple[int, List[Dict[str, Any]]]:
+        data_obj = resp_obj.get("data", {})
+        return data_obj.get("count", 0), data_obj.get("list", [])
+
+    def _call_endpoint(
+        api_info: ApiEndpointInfo, payload: Dict[str, Any]
+    ) -> Dict[str, Any]:
         try:
             resp = api_info.endpoint(payload)
             check_response(resp)
+            return resp
         except Exception as e:
             api_info_str = f"API: {api_info.api_name}"
             if api_info.base_url:
@@ -214,9 +206,33 @@ def iter_share_files_with_path(
                 wrapper_e.__cause__ = e
                 raise wrapper_e from e
             raise
-        data = resp.get("data", {})
-        count = data.get("count", 0)
-        items = data.get("list", [])
+
+    def _job(
+        api_info: ApiEndpointInfo,
+        _cid: int,
+        path_prefix: str,
+        offset: int,
+    ) -> Tuple[List[Dict[str, Any]], List[Tuple[int, str, int]]]:
+        limit = 1_000
+        payload = {
+            "share_code": share_code,
+            "receive_code": receive_code,
+            "cid": _cid,
+            "limit": limit,
+            "offset": offset,
+            "asc": asc,
+            "o": order,
+        }
+        resp = _call_endpoint(api_info, payload)
+        count, items = _extract(resp)
+        new_offset = offset + len(items)
+        if (
+            api_info.api_name == "share_snap_app_https"
+            and new_offset < count
+            and len(items) > 0
+        ):
+            resp = _call_endpoint(snap_api_info, payload)
+            count, items = _extract(resp)
         files_found = []
         subdirs_to_scan = []
         for attr in items:
