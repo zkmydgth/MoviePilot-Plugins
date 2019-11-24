@@ -897,9 +897,8 @@ class MonitorLife:
                     client=self._client,
                     from_time=from_time,
                     from_id=from_id,
-                    cooldown=2,
-                    app="web",
-                    **configer.get_ios_ua_app(app=False),
+                    cooldown=4,
+                    **configer.get_ios_ua_app(),
                 )
 
                 try:

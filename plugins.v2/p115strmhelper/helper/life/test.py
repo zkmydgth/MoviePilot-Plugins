@@ -53,9 +53,8 @@ class MonitorLifeTest:
                 client=client,
                 from_time=int(time()),
                 from_id=0,
-                app="web",
-                cooldown=1,
-                **configer.get_ios_ua_app(app=False),
+                cooldown=4,
+                **configer.get_ios_ua_app(),
             )
             try:
                 first_event = next(events_iterator)
