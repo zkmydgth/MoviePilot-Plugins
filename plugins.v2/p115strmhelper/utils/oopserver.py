@@ -2,7 +2,7 @@ import time
 import base64
 from typing import Any, Optional, Dict
 
-import requests
+import httpx
 
 from ..core.config import configer
 
@@ -29,7 +29,7 @@ class OOPServerRequest:
 
         self.max_retries = max_retries
         self.backoff_factor = backoff_factor
-        self.session = requests.Session()
+        self.session = httpx.Client(follow_redirects=True)
 
         self.session.headers.update(
             {
@@ -65,7 +65,7 @@ class OOPServerRequest:
         headers: Optional[Dict[str, str]] = None,
         json_data: Optional[Dict[str, Any]] = None,
         timeout: float = 10.0,
-    ) -> Optional[requests.Response]:
+    ) -> Optional[httpx.Response]:
         """
         执行安全请求
 
@@ -95,17 +95,14 @@ class OOPServerRequest:
             try:
                 response = self.session.request(method, full_url, **kwargs)
 
-                if response.status_code >= 400:
-                    raise requests.exceptions.HTTPError(
-                        f"HTTP error occurred: {response.status_code} - {response.reason}"
-                    )
+                response.raise_for_status()
 
                 return response
 
-            except requests.exceptions.RequestException as e:
+            except httpx.RequestError as e:
                 last_exception = e
                 if attempt < self.max_retries - 1:
-                    sleep_time = self.backoff_factor * (2**attempt)
+                    sleep_time = self.backoff_factor * (2 ** attempt)
                     time.sleep(sleep_time)
 
         if last_exception:

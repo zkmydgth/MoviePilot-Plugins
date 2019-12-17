@@ -7,7 +7,7 @@ from time import sleep, time, perf_counter
 from typing import Optional, Union
 
 import oss2
-import requests
+import httpx
 from sqlalchemy.orm.exc import MultipleResultsFound
 from oss2 import SizedFileAdapter, determine_part_size
 from oss2.models import PartInfo
@@ -51,7 +51,7 @@ class U115OpenHelper:
 
     def __init__(self):
         super().__init__()
-        self.session = requests.Session()
+        self.session = httpx.Client(follow_redirects=True)
         self._init_session()
 
         self.fail_upload_count = 0
@@ -140,7 +140,6 @@ class U115OpenHelper:
         method: str,
         endpoint: str,
         result_key: Optional[str] = None,
-        headers: Optional[dict] = None,
         **kwargs,
     ) -> Optional[Union[dict, list]]:
         """
@@ -156,7 +155,7 @@ class U115OpenHelper:
 
         try:
             resp = self.session.request(method, f"{self.base_url}{endpoint}", **kwargs)
-        except requests.exceptions.RequestException as e:
+        except httpx.RequestError as e:
             logger.error(f"【P115Open】{method} 请求 {endpoint} 网络错误: {str(e)}")
             return None
 

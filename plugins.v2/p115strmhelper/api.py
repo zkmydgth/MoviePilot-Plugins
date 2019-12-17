@@ -8,7 +8,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 import qrcode
-import requests
+import httpx
 from orjson import dumps, loads
 from p115client import P115Client
 from p115client.exception import DataError
@@ -301,34 +301,20 @@ class Api:
 
             logger.info(f"【扫码登入】二维码API - 使用客户端类型: {final_client_type}")
 
-            resp = requests.get(
+            resp = httpx.get(
                 "https://qrcodeapi.115.com/api/1.0/web/1.0/token/", timeout=10
             )
-            if not resp.ok:
-                error_msg = f"获取二维码token失败: {resp.status_code} - {resp.text}"
-                return {
-                    "code": -1,
-                    "error": error_msg,
-                    "message": error_msg,
-                    "success": False,
-                }
+            resp.raise_for_status()
             resp_info = resp.json().get("data", {})
             uid = resp_info.get("uid", "")
             _time = resp_info.get("time", "")
             sign = resp_info.get("sign", "")
 
-            resp = requests.get(
+            resp = httpx.get(
                 f"https://qrcodeapi.115.com/api/1.0/web/1.0/qrcode?uid={uid}",
                 timeout=10,
             )
-            if not resp.ok:
-                error_msg = f"获取二维码图片失败: {resp.status_code} - {resp.text}"
-                return {
-                    "code": -1,
-                    "error": error_msg,
-                    "message": error_msg,
-                    "success": False,
-                }
+            resp.raise_for_status()
 
             qrcode_base64 = base64.b64encode(resp.content).decode("utf-8")
 
@@ -357,6 +343,15 @@ class Api:
                 "success": True,
             }
 
+        except httpx.HTTPStatusError as e:
+            error_msg = f"获取二维码失败: {e.response.status_code} - {e.response.text}"
+            logger.error(f"【扫码登入】获取二维码HTTP错误: {error_msg}", exc_info=True)
+            return {
+                "code": -1,
+                "error": error_msg,
+                "message": error_msg,
+                "success": False,
+            }
         except Exception as e:
             logger.error(f"【扫码登入】获取二维码异常: {e}", exc_info=True)
             return {
@@ -381,10 +376,11 @@ class Api:
                 error_msg = "无效的二维码ID，参数uid不能为空"
                 return {"code": -1, "error": error_msg, "message": error_msg}
 
-            resp = requests.get(
+            resp = httpx.get(
                 f"https://qrcodeapi.115.com/get/status/?uid={uid}&time={_time}&sign={sign}",
                 timeout=120,
             )
+            resp.raise_for_status()
             status_code = resp.json().get("data").get("status")
         except Exception as e:
             error_msg = f"检查二维码状态异常: {str(e)}"
@@ -403,11 +399,12 @@ class Api:
             result = status_map[status_code].copy()
             if status_code == 2:
                 try:
-                    resp = requests.post(
+                    resp = httpx.post(
                         f"https://passportapi.115.com/app/1.0/{client_type}/1.0/login/qrcode/",
                         data={"app": client_type, "account": uid},
                         timeout=10,
                     )
+                    resp.raise_for_status()
                     login_data = resp.json()
                 except Exception as e:
                     return {

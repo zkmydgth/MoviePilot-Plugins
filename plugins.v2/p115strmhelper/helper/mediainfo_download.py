@@ -10,7 +10,6 @@ from urllib.parse import unquote, urlsplit
 import aiofiles
 import aiofiles.os
 import httpx
-import requests
 from orjson import dumps, loads
 from p115rsacipher import encrypt, decrypt
 from p115pickcode import pickcode_to_id
@@ -95,10 +94,11 @@ class MediaInfoDownloader:
         """
         获取下载链接
         """
-        resp = requests.post(
+        resp = httpx.post(
             "http://proapi.115.com/android/2.0/ufile/download",
             data={"data": encrypt(f'{{"pick_code":"{pickcode}"}}').decode("utf-8")},
             headers=self.headers,
+            follow_redirects=True
         )
         if resp.status_code == 403:
             self.stop_all_flag = True
@@ -115,17 +115,18 @@ class MediaInfoDownloader:
         保存媒体信息文件
         """
         file_path.parent.mkdir(parents=True, exist_ok=True)
-        with requests.get(
+        with httpx.stream(
+            "GET",
             download_url,
-            stream=True,
             timeout=30,
             headers=self.headers,
+            follow_redirects=True,
         ) as response:
             if response.status_code == 403:
                 self.stop_all_flag = True
             response.raise_for_status()
             with open(file_path, "wb") as f:
-                for chunk in response.iter_content(chunk_size=8192):
+                for chunk in response.iter_bytes(chunk_size=8192):
                     f.write(chunk)
         logger.info(f"【媒体信息文件下载】保存 {file_name} 文件成功: {file_path}")
 
@@ -229,10 +230,11 @@ class MediaInfoDownloader:
             "receive_code": receive_code,
             "file_id": file_id,
         }
-        resp = requests.post(
+        resp = httpx.post(
             "http://proapi.115.com/app/share/downurl",
             data={"data": encrypt(dumps(payload)).decode("utf-8")},
             headers=self.headers,
+            follow_redirects=True
         )
         if resp.status_code == 403:
             self.stop_all_flag = True
