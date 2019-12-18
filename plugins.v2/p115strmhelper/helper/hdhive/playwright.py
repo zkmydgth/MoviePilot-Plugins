@@ -49,7 +49,7 @@ class HDHivePlaywrightClient:
     DEFAULT_BASE_URL = "https://hdhive.com"
     LOGIN_PAGE = "/login"
     _CHROME_UA_SUFFIX = (
-        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36"
     )
 
     def __init__(self, headless: bool = True) -> None:
@@ -60,24 +60,173 @@ class HDHivePlaywrightClient:
         self._cookie_str: Optional[str] = None
 
     @staticmethod
-    def _build_ua() -> str:
+    def _platform_product_and_hint() -> tuple[str, str]:
         """
-        构造与当前运行平台匹配的 Chrome User-Agent
+        根据当前运行平台返回 UA product 字段和 Sec-Ch-Ua-Platform 值
 
-        :return: 用于 BrowserContext 的 UA 字符串
+        :return: (UA product 字符串, Sec-Ch-Ua-Platform 值)
         """
         m = _machine().lower()
         arm_like = "arm" in m or "aarch" in m
         if platform == "linux":
             arch = "aarch64" if arm_like else "x86_64"
-            product = f"X11; Linux {arch}"
+            return f"X11; Linux {arch}", '"Linux"'
         elif platform == "win32":
             product = (
                 "Windows NT 10.0; ARM64" if arm_like else "Windows NT 10.0; Win64; x64"
             )
+            return product, '"Windows"'
         else:
-            product = "Macintosh; Intel Mac OS X 10_15_7"
+            return "Macintosh; Intel Mac OS X 10_15_7", '"macOS"'
+
+    @staticmethod
+    def _build_ua() -> str:
+        """
+        构造与当前运行平台匹配的 Chrome User-Agent（用于 httpx 请求）
+
+        :return: UA 字符串
+        """
+        product, _ = HDHivePlaywrightClient._platform_product_and_hint()
         return f"Mozilla/5.0 ({product}) {HDHivePlaywrightClient._CHROME_UA_SUFFIX}"
+
+    @staticmethod
+    def _build_browser_ua_and_hints(chrome_major: str) -> tuple[str, Dict[str, str]]:
+        """
+        根据实际 Chromium 版本构建与平台一致的 UA 和 Sec-Ch-Ua 系列请求头
+
+        :param chrome_major: Chromium 主版本号字符串（如 "135"）
+        :return: (UA 字符串, extra_http_headers 字典)
+        """
+        product, platform_hint = HDHivePlaywrightClient._platform_product_and_hint()
+        ua = (
+            f"Mozilla/5.0 ({product}) "
+            f"AppleWebKit/537.36 (KHTML, like Gecko) "
+            f"Chrome/{chrome_major}.0.0.0 Safari/537.36"
+        )
+        hints: Dict[str, str] = {
+            "Sec-Ch-Ua": (
+                f'"Chromium";v="{chrome_major}", '
+                f'"Not.A/Brand";v="8", '
+                f'"Google Chrome";v="{chrome_major}"'
+            ),
+            "Sec-Ch-Ua-Mobile": "?0",
+            "Sec-Ch-Ua-Platform": platform_hint,
+        }
+        return ua, hints
+
+    @staticmethod
+    def _stealth_init_script() -> str:
+        """
+        构造在每个页面启动前注入的反检测脚本
+
+        - 清除 navigator.webdriver
+        - 伪造 plugins / languages
+        - 注入 window.chrome
+        - 从 navigator.userAgentData.brands 移除 HeadlessChrome
+        - 同步 patch getHighEntropyValues 返回值
+
+        :return: JS 字符串
+        """
+        return """
+            try { Object.defineProperty(navigator, 'webdriver', {get: () => undefined}); } catch(e) {}
+            try { Object.defineProperty(navigator, 'plugins', {
+                get: () => [1, 2, 3, 4, 5].map(() => ({}))
+            }); } catch(e) {}
+            try { Object.defineProperty(navigator, 'languages', {
+                get: () => ['zh-CN', 'zh', 'en-US', 'en']
+            }); } catch(e) {}
+            window.chrome = window.chrome || { runtime: {} };
+            (function() {
+                const origUAD = navigator.userAgentData;
+                if (!origUAD) return;
+                const isHeadless = b => /headless/i.test(b.brand);
+                const cleanBrands = origUAD.brands.filter(b => !isHeadless(b));
+                const fake = {
+                    get brands() { return cleanBrands; },
+                    get mobile() { return origUAD.mobile; },
+                    get platform() { return origUAD.platform; },
+                    getHighEntropyValues(hints) {
+                        return origUAD.getHighEntropyValues(hints).then(v => {
+                            if (v && v.brands) v.brands = v.brands.filter(b => !isHeadless(b));
+                            if (v && v.fullVersionList) v.fullVersionList = v.fullVersionList.filter(b => !isHeadless(b));
+                            return v;
+                        });
+                    },
+                    toJSON() {
+                        return { brands: cleanBrands, mobile: origUAD.mobile, platform: origUAD.platform };
+                    }
+                };
+                try {
+                    Object.defineProperty(Navigator.prototype, 'userAgentData', {
+                        get: () => fake, configurable: true
+                    });
+                    return;
+                } catch(e) {}
+                try {
+                    Object.defineProperty(navigator, 'userAgentData', {
+                        get: () => fake, configurable: true
+                    });
+                    return;
+                } catch(e) {}
+                try {
+                    Object.defineProperty(origUAD, 'brands', {
+                        get: () => cleanBrands, configurable: true
+                    });
+                } catch(e) {}
+            })();
+            const origQuery = window.navigator.permissions && window.navigator.permissions.query;
+            if (origQuery) {
+                window.navigator.permissions.query = (parameters) => (
+                    parameters.name === 'notifications'
+                        ? Promise.resolve({ state: Notification.permission })
+                        : origQuery.call(window.navigator.permissions, parameters)
+                );
+            }
+        """
+
+    @staticmethod
+    def _install_request_header_sanitizer(
+        context: BrowserContext, chrome_major: str
+    ) -> None:
+        """
+        在 BrowserContext 上拦截所有出站请求，强制清理 sec-ch-ua 系列头
+
+        - sec-ch-ua / sec-ch-ua-full-version-list 中的 HeadlessChrome 项替换为 Google Chrome
+        - 用作 extra_http_headers 的兜底（部分 Chromium 行为不受 extra_http_headers 覆盖）
+
+        :param context: BrowserContext
+        :param chrome_major: Chromium 主版本号
+        """
+        sec_ch_ua = (
+            f'"Chromium";v="{chrome_major}", '
+            f'"Not.A/Brand";v="8", '
+            f'"Google Chrome";v="{chrome_major}"'
+        )
+
+        def _sanitize(route, request) -> None:
+            try:
+                headers = dict(request.headers)
+                stripped = False
+                for key in list(headers.keys()):
+                    lower = key.lower()
+                    if lower == "sec-ch-ua":
+                        headers[key] = sec_ch_ua
+                        stripped = True
+                    elif lower == "sec-ch-ua-full-version-list":
+                        if "headless" in headers[key].lower():
+                            headers.pop(key)
+                            stripped = True
+                if stripped:
+                    route.continue_(headers=headers)
+                else:
+                    route.continue_()
+            except Exception:
+                try:
+                    route.continue_()
+                except Exception:
+                    pass
+
+        context.route("**/*", _sanitize)
 
     @staticmethod
     def _chromium_launch_args() -> list[str]:
@@ -179,12 +328,16 @@ class HDHivePlaywrightClient:
         """
         组装 chromium.launch 参数（含全局代理）
 
+        - 用 channel="chromium" 强制使用完整 Chromium 二进制（新 headless 模式），
+          避免 chromium-headless-shell 暴露 HeadlessChrome brand
+
         :param headless: 是否无头模式
         :param proxy: 已解析的 Playwright proxy 字典；为 None 时不设置
         :return: 传给 launch 的关键字参数
         """
         kwargs: Dict[str, Any] = {
             "headless": headless,
+            "channel": "chromium",
             "args": HDHivePlaywrightClient._chromium_launch_args(),
         }
         if proxy:
@@ -208,12 +361,17 @@ class HDHivePlaywrightClient:
         browser = pw.chromium.launch(
             **HDHivePlaywrightClient._chromium_launch_kwargs(headless, proxy),
         )
+        major = browser.version.split(".")[0]
+        ua, hints = HDHivePlaywrightClient._build_browser_ua_and_hints(major)
         context = browser.new_context(
-            user_agent=HDHivePlaywrightClient._build_ua(),
+            user_agent=ua,
             locale="zh-CN",
             timezone_id="Asia/Shanghai",
             viewport={"width": 1280, "height": 720},
+            extra_http_headers=hints,
         )
+        context.add_init_script(HDHivePlaywrightClient._stealth_init_script())
+        HDHivePlaywrightClient._install_request_header_sanitizer(context, major)
         return browser, context
 
     @staticmethod
@@ -278,8 +436,19 @@ class HDHivePlaywrightClient:
                     )
                     browser = p.chromium.launch(**kwargs)
                     try:
+                        major = browser.version.split(".")[0]
+                        ua, hints = HDHivePlaywrightClient._build_browser_ua_and_hints(
+                            major
+                        )
                         context = browser.new_context(
-                            user_agent=HDHivePlaywrightClient._build_ua(),
+                            user_agent=ua,
+                            extra_http_headers=hints,
+                        )
+                        context.add_init_script(
+                            HDHivePlaywrightClient._stealth_init_script()
+                        )
+                        HDHivePlaywrightClient._install_request_header_sanitizer(
+                            context, major
                         )
                         for name, value in cookies.items():
                             context.add_cookies(
@@ -357,15 +526,19 @@ class HDHivePlaywrightClient:
         :raises HDHiveLoginError: 等待跳转超时
         """
         root = HDHivePlaywrightClient.DEFAULT_BASE_URL
-        page.add_init_script(
-            "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
-        )
         page.goto(
             f"{root}{HDHivePlaywrightClient.LOGIN_PAGE}",
             wait_until="domcontentloaded",
             timeout=30000,
         )
-        page.wait_for_selector("input", timeout=15000)
+        try:
+            page.wait_for_selector(
+                "input[name='username'], input[name='password']", timeout=15000
+            )
+        except PlaywrightTimeoutError:
+            raise HDHiveLoginError(
+                f"等待登录输入框超时，当前 URL: {page.url}"
+            )
 
         user_selectors = [
             "input[name='username']",
