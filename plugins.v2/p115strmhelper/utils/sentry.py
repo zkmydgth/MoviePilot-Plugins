@@ -84,7 +84,7 @@ def capture_plugin_exceptions(func):
     """
     函数装饰器
     """
-    if not configer.get_config("error_info_upload"):
+    if configer.get_config("error_info_upload") is False:
         return func
 
     if getattr(func, "_sentry_captured", False):
