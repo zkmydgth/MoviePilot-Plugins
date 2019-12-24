@@ -71,17 +71,6 @@ class ShareP115Client(P115Client):
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
 
-@dataclass
-class ApiEndpointInfo:
-    """
-    API 端点信息
-    """
-
-    endpoint: ApiEndpointCooldown
-    api_name: str
-    base_url: Optional[str] = None
-
-
 def iter_share_files_with_path(
     client: str | PathLike | ShareP115Client,
     share_code: str,
@@ -122,6 +111,16 @@ def iter_share_files_with_path(
     :return: 迭代器，返回此分享链接下的（所有文件）文件信息
     """
     from .config import configer
+
+    @dataclass
+    class ApiEndpointInfo:
+        """
+        API 端点信息
+        """
+
+        endpoint: ApiEndpointCooldown
+        api_name: str
+        base_url: Optional[str] = None
 
     if isinstance(client, (str, PathLike)):
         client = ShareP115Client(client, check_for_relogin=True)
