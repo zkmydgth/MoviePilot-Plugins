@@ -84,7 +84,7 @@ class CloudDriveApi:
         client: CloudDriveClient,
         disk_name: str,
         download_base: Optional[str] = None,
-        upload_mode: Literal["remote_upload", "direct_write"] = "remote_upload",
+        upload_mode: Literal["remote_upload", "direct_write"] = "direct_write",
     ) -> None:
         """
         :param client: 已认证的 CloudDrive 客户端
@@ -668,7 +668,7 @@ class CloudDriveApi:
         :param new_name: 云端文件名，None 则用 local_path.name
         :return: 上传成功返回云端文件 FileItem，失败返回 None
         """
-        mode = (self._upload_mode or "remote_upload").strip() or "remote_upload"
+        mode = (self._upload_mode or "direct_write").strip() or "direct_write"
         if mode == "direct_write":
             return self._upload_direct_write(target_dir, local_path, new_name)
         return self._upload_remote_upload(target_dir, local_path, new_name)

@@ -38,7 +38,7 @@ class CloudDriveDisk(_PluginBase):
     _username = ""
     _password = ""
     UploadMode = Literal["remote_upload", "direct_write"]
-    _upload_mode: UploadMode = "remote_upload"
+    _upload_mode: UploadMode = "direct_write"
 
     def __init__(self) -> None:
         super().__init__()
@@ -66,7 +66,7 @@ class CloudDriveDisk(_PluginBase):
         self._password = config.get("password") or ""
         self._upload_mode = cast(
             self.UploadMode,
-            (config.get("upload_mode") or "remote_upload").strip() or "remote_upload",
+            (config.get("upload_mode") or "direct_write").strip() or "direct_write",
         )
 
         self._client = None
@@ -263,7 +263,7 @@ class CloudDriveDisk(_PluginBase):
                                             },
                                             {
                                                 "component": "div",
-                                                "text": "默认使用远程上传；如果远程上传出现不稳定（如超时、失败重试频繁等），可以切换为直写上传尝试。",
+                                                "text": "默认使用直写上传；如果远程上传出现不稳定（如超时、失败重试频繁等），可以切换为直写上传尝试。",
                                             },
                                         ],
                                     }
@@ -279,7 +279,7 @@ class CloudDriveDisk(_PluginBase):
             "port": "19798",
             "username": "",
             "password": "",
-            "upload_mode": "remote_upload",
+            "upload_mode": "direct_write",
         }
 
     def get_page(self) -> List[dict]:
