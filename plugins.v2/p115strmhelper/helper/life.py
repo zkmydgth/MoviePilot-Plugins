@@ -60,7 +60,6 @@ class MonitorLife:
     """
 
     def __init__(self, client: P115Client, mediainfodownloader: MediaInfoDownloader):
-
         self._client = client
         self.mediainfodownloader = mediainfodownloader
 
@@ -152,11 +151,9 @@ class MonitorLife:
                 return
             logger.info(f"【监控生活事件】 {file_name} 开始刷新媒体服务器")
             if configer.get_config("monitor_life_mp_mediaserver_paths"):
-                status, mediaserver_path, moviepilot_path = (
-                    PathUtils.get_media_path(
-                        configer.get_config("monitor_life_mp_mediaserver_paths"),
-                        file_path,
-                    )
+                status, mediaserver_path, moviepilot_path = PathUtils.get_media_path(
+                    configer.get_config("monitor_life_mp_mediaserver_paths"),
+                    file_path,
                 )
                 if status:
                     logger.info(
@@ -342,7 +339,7 @@ class MonitorLife:
                     _process_item = _databasehelper.process_item(item)
                     if _process_item not in processed:
                         processed.extend(_process_item)
-                    if item["is_dir"] or item["is_directory"]:
+                    if item["is_dir"]:
                         continue
                     if "creata" in configer.get_config("monitor_life_event_modes"):
                         file_path = item["path"]

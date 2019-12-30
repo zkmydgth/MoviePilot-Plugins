@@ -215,10 +215,8 @@ class IncrementSyncStrmHelper:
                 return
             logger.info(f"【增量STRM生成】{file_name} 开始刷新媒体服务器")
             if self.mp_mediaserver_paths:
-                status, mediaserver_path, moviepilot_path = (
-                    PathUtils.get_media_path(
-                        self.mp_mediaserver_paths, file_path
-                    )
+                status, mediaserver_path, moviepilot_path = PathUtils.get_media_path(
+                    self.mp_mediaserver_paths, file_path
                 )
                 if status:
                     logger.debug(
@@ -618,7 +616,7 @@ class FullSyncStrmHelper:
                         if _process_item not in processed:
                             processed.extend(_process_item)
                         try:
-                            if item["is_dir"] or item["is_directory"]:
+                            if item["is_dir"]:
                                 continue
                             file_path = item["path"]
                             file_path = Path(target_dir) / Path(file_path).relative_to(
@@ -757,14 +755,19 @@ class FullSyncStrmHelper:
                 while local_tree_task_thread.is_alive():
                     logger.info("【全量STRM生成】扫描本地媒体库运行中...")
                     time.sleep(10)
-                try:
-                    for path in tree.compare_trees(self.local_tree, self.pan_tree):
-                        logger.info(f"【全量STRM生成】清理无效 STRM 文件: {path}")
-                        Path(path).unlink(missing_ok=True)
-                        self.__remove_parent_dir(file_path=Path(path))
-                        self.remove_unless_strm_count += 1
-                except Exception as e:
-                    logger.error(f"【全量STRM生成】清理无效 STRM 文件失败: {e}")
+                if not self.strm_fail_dict:
+                    try:
+                        for path in tree.compare_trees(self.local_tree, self.pan_tree):
+                            logger.info(f"【全量STRM生成】清理无效 STRM 文件: {path}")
+                            Path(path).unlink(missing_ok=True)
+                            self.__remove_parent_dir(file_path=Path(path))
+                            self.remove_unless_strm_count += 1
+                    except Exception as e:
+                        logger.error(f"【全量STRM生成】清理无效 STRM 文件失败: {e}")
+                else:
+                    logger.warn(
+                        "【全量STRM生成】存在生成失败的 STRM 文件，跳过清理无效 STRM 文件"
+                    )
 
         self.mediainfo_count, self.mediainfo_fail_count, self.mediainfo_fail_dict = (
             servicer.mediainfodownloader.auto_downloader(
@@ -943,7 +946,7 @@ class ShareStrmHelper:
                 f"{current_path}/{item['name']}" if current_path else "/" + item["name"]
             )
 
-            if item["is_directory"] or item["is_dir"]:
+            if item["is_dir"]:
                 if self.strm_count != 0 and self.strm_count % 100 == 0:
                     logger.info("【分享STRM生成】休眠 1s 后继续生成")
                     time.sleep(1)
@@ -1045,11 +1048,9 @@ class TransferStrmHelper:
         logger.info(f"【监控整理STRM生成】 {item_dest_name} 开始刷新媒体服务器")
 
         if configer.get_config("transfer_mp_mediaserver_paths"):
-            status, mediaserver_path, moviepilot_path = (
-                PathUtils.get_media_path(
-                    configer.get_config("transfer_mp_mediaserver_paths"),
-                    strm_target_path,
-                )
+            status, mediaserver_path, moviepilot_path = PathUtils.get_media_path(
+                configer.get_config("transfer_mp_mediaserver_paths"),
+                strm_target_path,
             )
             if status:
                 logger.info(
@@ -1148,10 +1149,8 @@ class TransferStrmHelper:
         # 目标音频文件清单
         audio_list = getattr(item_transfer, "audio_list_new", [])
 
-        __itemdir_dest_path, local_media_dir, pan_media_dir = (
-            PathUtils.get_media_path(
-                configer.get_config("transfer_monitor_paths"), itemdir_dest_path
-            )
+        __itemdir_dest_path, local_media_dir, pan_media_dir = PathUtils.get_media_path(
+            configer.get_config("transfer_monitor_paths"), itemdir_dest_path
         )
         if not __itemdir_dest_path:
             logger.debug(
