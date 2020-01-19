@@ -298,7 +298,7 @@ class P115StrmHelper(_PluginBase):
             {
                 "cmd": "/hdhivechin",
                 "event": EventType.PluginAction,
-                "desc": "手动 HDHive 签到",
+                "desc": "手动 RE0 签到",
                 "category": "",
                 "data": {"action": "hdhive_checkin_manual"},
             },
@@ -887,7 +887,7 @@ class P115StrmHelper(_PluginBase):
             cron_service.append(
                 {
                     "id": "P115StrmHelper_hdhive_checkin",
-                    "name": "HDHive 签到调度",
+                    "name": "RE0 签到调度",
                     "trigger": CronTrigger.from_crontab("*/5 * * * *"),
                     "func": servicer.hdhive_checkin_scheduler_tick,
                     "kwargs": {},
@@ -1255,7 +1255,7 @@ class P115StrmHelper(_PluginBase):
     @eventmanager.register(EventType.PluginAction)
     def hdhive_checkin_manual(self, event: Event):
         """
-        远程命令 /hdhivechin 手动 HDHive 签到
+        远程命令 /hdhivechin 手动 RE0 签到
         """
         if not event:
             return
@@ -1268,7 +1268,7 @@ class P115StrmHelper(_PluginBase):
         post_message(
             channel=event.event_data.get("channel"),
             source=event.event_data.get("source"),
-            title="HDHive 手动签到" + ("成功" if ok else "失败"),
+            title="RE0 手动签到" + ("成功" if ok else "失败"),
             text="\n" + text + "\n",
             userid=userid,
         )
@@ -2236,12 +2236,20 @@ class P115StrmHelper(_PluginBase):
             # 持久化存储配置
             configer.update_plugin_config()
 
+            # V3 适配：宿主 _PluginBase.get_config() 读的是宿主实例存储
+            # （plugininstance.config_data），与插件自有的 systemconfig 不是同一份。
+            # 这里必须把新配置写进宿主存储，并用它重新初始化；否则随后的
+            # init_plugin(config=self.get_config()) 会拿宿主里的旧值整份回灌，
+            # 把本次保存静默覆盖（现象：提示「保存成功」但值变回去）。
+            saved_config = configer.model_dump(mode="json")
+            self.update_config(saved_config)
+
             i18n.load_translations()
 
             sentry_manager.reload_config()
 
             # 重新初始化插件
-            self.init_plugin(config=self.get_config())
+            self.init_plugin(config=saved_config)
 
             return {"code": 0, "msg": "保存成功"}
         except Exception as e:
