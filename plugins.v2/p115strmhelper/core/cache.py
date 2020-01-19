@@ -140,7 +140,7 @@ class R302Cache:
         int: 匹配的缓存条目数量
         """
         count = 0
-        for key_str in self._cache.keys():
+        for key_str in self._cache:
             key = key_str.split("○")
             if key[0] == pick_code:
                 count += 1
