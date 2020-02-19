@@ -104,6 +104,7 @@ class ApiSyncStrmHelper:
                     pan_path = file_info.get("path")
                     sha1 = file_info.get("sha1")
                     size = file_info.get("size_byte")
+                    sleep(self.cooldown)
                 except Exception as e:
                     logger.error(f"【API_STRM生成】获取文件信息失败: {e}")
                     fail_data.append(
@@ -256,8 +257,6 @@ class ApiSyncStrmHelper:
                 media_refresh_helper.refresh_mediaserver(
                     file_path=new_file_path.as_posix(), file_name=new_file_path.name
                 )
-
-            sleep(self.cooldown)
 
         return (
             StrmApiStatusCode.Success,
