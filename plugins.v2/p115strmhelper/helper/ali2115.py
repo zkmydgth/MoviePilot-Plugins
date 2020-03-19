@@ -1,7 +1,7 @@
 import concurrent.futures
 from hashlib import sha1
 from time import sleep
-from typing import List
+from typing import List, Optional
 from urllib.parse import urlparse
 from pathlib import Path
 
@@ -11,6 +11,7 @@ from p115client import P115Client
 from app.log import logger
 from app.core.metainfo import MetaInfo
 from app.chain.media import MediaChain
+from app.core.context import MediaInfo
 
 from ..core.aliyunpan import BAligo
 from ..utils.sentry import sentry_manager
@@ -84,7 +85,9 @@ class Ali2115Helper:
         self.folder_id = folder_id
         return folder_id
 
-    def ali_tree_share(self, share_token, rmt_mediaext: List, parent_file_id="root"):
+    def ali_tree_share(
+        self, share_token, rmt_mediaext: Optional[List] = None, parent_file_id="root"
+    ):
         """
         递归分享文件
         """
@@ -95,25 +98,47 @@ class Ali2115Helper:
             if file.type == "folder":
                 yield from self.ali_tree_share(share_token, rmt_mediaext, file.file_id)
             else:
-                if Path(file.name).suffix.lower() in rmt_mediaext:
-                    yield file
+                if rmt_mediaext:
+                    if Path(file.name).suffix.lower() in rmt_mediaext:
+                        yield file
+                    else:
+                        logger.warn(
+                            f"【Ali2115】{file.name} 不符合媒体文件后缀，跳过秒传"
+                        )
                 else:
-                    logger.warn(f"【Ali2115】{file.name} 不符合媒体文件后缀，跳过秒传")
+                    yield file
+
+    def get_share_one_path_name(self, share_token):
+        """
+        返回第一层文件夹名称
+        """
+        file_list = self.ali_client.get_share_file_list(
+            share_token, parent_file_id="root"
+        )
+        for item in file_list:
+            return item.type, item.name
 
     def share_recognize_mediainfo(self, share_token):
         """
         分享转存识别媒体信息
         """
-        file_list = self.ali_client.get_share_file_list(
-            share_token, parent_file_id="root"
-        )
-        for file in file_list:
-            item_name = file.name
-            break
+        _, item_name = self.get_share_one_path_name(share_token)
         mediachain = MediaChain()
         file_meta = MetaInfo(title=item_name)
         file_mediainfo = mediachain.recognize_by_meta(file_meta)
-        return file_mediainfo
+        if file_mediainfo:
+            return file_mediainfo
+
+        all_files = list(self.ali_tree_share(share_token))
+        if all_files:
+            all_files.sort(key=lambda f: f.size, reverse=True)
+            file_name_list = [item.name for item in all_files]
+            file_meta = MetaInfo(title=file_name_list[0])
+            file_mediainfo = mediachain.recognize_by_meta(file_meta)
+            if file_mediainfo:
+                return file_mediainfo
+
+        return None
 
     def get_ali_download_url(self, file_id: str):
         """
@@ -136,7 +161,15 @@ class Ali2115Helper:
         """
         return self.ali_client.get_share_token(share_id)
 
-    def share_upload(self, share_token: str, parent_id: int, rmt_mediaext: List):
+    def share_upload(
+        self,
+        share_token: str,
+        parent_id: int,
+        unrecognized_id: int,
+        unrecognized_path: str,
+        rmt_mediaext: List,
+        file_mediainfo: Optional[MediaInfo],
+    ):
         """
         运行分享秒传
         """
@@ -166,11 +199,41 @@ class Ali2115Helper:
                     item for item in self.file_name_list if item != info.name
                 ]
 
+        def clean_unless_path(path, info):
+            """
+            清理无效文件
+            """
+            if not path and info.file_id not in remove_list:
+                remove_list.append(info.file_id)
+
         self.save_ali_share_to_pan(share_token)
         sleep(2)
         self.file_name_list = [
             item.name for item in self.ali_tree_share(share_token, rmt_mediaext)
         ]
+
+        if not self.file_name_list:
+            self.ali_client.walk_files(
+                callback=clean_unless_path,
+                parent_file_id=self.get_ali_folder_id(),
+            )
+            self.ali_client.batch_delete_files(file_id_list=remove_list)
+            return False, "无可转存文件", 0, 0
+
+        path_type, path_name = self.get_share_one_path_name(share_token)
+        if path_type == "folder":
+            pid = self.u115_client.fs_dir_getid(f"{unrecognized_path}/{path_name}")[
+                "id"
+            ]
+            if pid == 0:
+                payload = {"cname": path_name, "pid": unrecognized_id}
+                pid = self.u115_client.fs_mkdir(payload)["file_id"]
+            pid = int(pid)
+        else:
+            if not file_mediainfo:
+                pid = unrecognized_id
+            else:
+                pid = parent_id
 
         while self.file_name_list:
             self.ali_client.walk_files(
@@ -193,7 +256,7 @@ class Ali2115Helper:
                     self.upload_115,
                     file_name=url[2],
                     file_size=url[1],
-                    m115_dir_id=parent_id,
+                    m115_dir_id=pid,
                     full_sha1=url[3],
                     ali_download_url=url[0],
                 )
@@ -246,7 +309,7 @@ class Ali2115Helper:
                             self.upload_115,
                             file_name=url[2],
                             file_size=url[1],
-                            m115_dir_id=parent_id,
+                            m115_dir_id=pid,
                             full_sha1=url[3],
                             ali_download_url=url[0],
                         )
@@ -257,14 +320,25 @@ class Ali2115Helper:
                         )
                         fail_upload += 1
 
+        if file_mediainfo and pid != parent_id:
+            logger.debug("【Ali2115】移动文件到待整理目录")
+            self.u115_client.fs_move(pid, pid=parent_id)
+
+        if not file_mediainfo:
+            logger.error(
+                f"【Ali2115】无法识别分享媒体信息，请到 {unrecognized_path} 目录手动整理"
+            )
+
         logger.info(
             f"【Ali2115】秒传文件成功 {success_upload} 个，失败 {fail_upload} 个"
         )
 
+        return True, "", success_upload, fail_upload
+
     @staticmethod
     def extract_share_code_from_url(url: str) -> str | None:
         """
-        通过解析URL来稳定地提取阿里云盘分享码。
+        提取阿里云盘分享码
         """
         try:
             parsed_url = urlparse(url)

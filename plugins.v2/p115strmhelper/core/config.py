@@ -195,6 +195,8 @@ class ConfigManager(BaseModel):
     pan_transfer_enabled: bool = False
     # 网盘整理目录
     pan_transfer_paths: Optional[str] = None
+    # 网盘整理未识别目录
+    pan_transfer_unrecognized_path: Optional[str] = None
 
     # 监控目录上传开关
     directory_upload_enabled: bool = False
