@@ -893,7 +893,7 @@ class MonitorLife:
                     from_time=from_time,
                     from_id=from_id,
                     cooldown=2,
-                    **configer.get_ios_ua_app(),
+                    app="web",
                 )
 
                 try:

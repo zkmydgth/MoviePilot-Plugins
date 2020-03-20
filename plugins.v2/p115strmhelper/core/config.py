@@ -155,7 +155,9 @@ class ConfigManager(BaseModel):
         description="插件数据库目录",
     )
     PLUGIN_DATABASE_SCRIPT_LOCATION: Path = Field(
-        default_factory=lambda: ConfigManager._get_default_plugin_database_script_location(),
+        default_factory=lambda: (
+            ConfigManager._get_default_plugin_database_script_location()
+        ),
         description="插件数据库表目录",
     )
     PLUGIN_DATABASE_VERSION_LOCATIONS: List[str] = Field(
@@ -509,9 +511,7 @@ class ConfigManager(BaseModel):
     sync_del_p115_force_delete_files: bool = Field(
         default=False, description="115网盘强制删除文件"
     )
-    sync_del_remove_versions: bool = Field(
-        default=False, description="开启多版本删除"
-    )
+    sync_del_remove_versions: bool = Field(default=False, description="开启多版本删除")
     sync_del_mediaservers: Optional[List[str]] = Field(
         default=None, description="同步删除媒体服务器"
     )
@@ -655,7 +655,7 @@ class ConfigManager(BaseModel):
         根据类型获取指定的User-Agent
         """
         user_agents = {
-            0: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 115wangpan_ios/36.2.20",
+            0: "Mozilla/5.0 (iPhone; CPU iPhone OS 16_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 UDown/37.0.4",
             1: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
             2: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
             3: settings.USER_AGENT,
