@@ -668,6 +668,9 @@ class FullSyncStrmHelper:
             if item["is_dir"]:
                 return _process_item, path_entry
             file_path = item["path"]
+            # 全量拉数据时可能混入无关路径
+            if not PathUtils.has_prefix(file_path, pan_media_dir):
+                return _process_item, path_entry
             file_path = Path(target_dir) / Path(file_path).relative_to(pan_media_dir)
             file_target_dir = file_path.parent
             original_file_name = file_path.name
