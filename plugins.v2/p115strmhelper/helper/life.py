@@ -834,25 +834,52 @@ class MonitorLife:
             time.sleep(20)
 
         events_batch: List = []
-        first_loop: bool = True
-        for event in iter_life_behavior_once(
-            client=self._client,
-            from_time=from_time,
-            from_id=from_id,
-            app="web",
-            cooldown=2,
-        ):
-            if first_loop:
-                if "update_time" in event and "id" in event:
-                    from_id = int(event["id"])
-                    from_time = int(event["update_time"])
+        return_from_time: int = from_time
+        return_from_id: int = from_id
+
+        for attempt in range(3, -1, -1):
+            try:
+                # 每次尝试先清空旧的值
+                events_batch: List = []
+                return_from_time: int = from_time
+                return_from_id: int = from_id
+
+                events_iterator = iter_life_behavior_once(
+                    client=self._client,
+                    from_time=from_time,
+                    from_id=from_id,
+                    app="web",
+                    cooldown=2,
+                )
+
+                try:
+                    first_event = next(events_iterator)
+                except StopIteration:
+                    # 迭代器为空，没有数据，属于正常情况
+                    break
+
+                if "update_time" in first_event and "id" in first_event:
+                    return_from_id = int(first_event["id"])
+                    return_from_time = int(first_event["update_time"])
                 else:
                     break
-                first_loop = False
-            events_batch.append(event)
+
+                events_batch = [first_event]
+                events_batch.extend(list(events_iterator))
+                break
+            except Exception as e:
+                if attempt <= 0:
+                    logger.error("【监控生活事件】拉取数据失败：%s", e)
+                    raise
+                logger.warn(
+                    "【监控生活事件】拉取数据失败，剩余重试次数 {attempt} 次：%s", e
+                )
+                time.sleep(2)
+
         if not events_batch:
             time.sleep(20)
             return from_time, from_id
+
         for event in reversed(events_batch):
             self.rmt_mediaext = [
                 f".{ext.strip()}"
@@ -921,7 +948,7 @@ class MonitorLife:
                         event=event, file_path=file_path
                     )
                 )
-        return from_time, from_id
+        return return_from_time, return_from_id
 
     def check_status(self):
         """
