@@ -8,7 +8,7 @@
       </v-card-title>
 
       <!-- 通知区域 -->
-      <v-card-text class="px-3 py-2" style="flex-grow: 1; overflow-y: auto; padding-bottom: 56px;">
+      <v-card-text class="px-3 py-2" style="flex-grow: 1; min-height: 0; overflow-y: auto; padding-bottom: 56px; -webkit-overflow-scrolling: touch;">
         <v-alert v-if="message.text" :type="message.type" density="compact" class="mb-2 text-caption" variant="tonal"
           closable>{{ message.text }}</v-alert>
 
@@ -5025,7 +5025,12 @@ const removeExcludePathEntry = (index, type) => {
   padding: 12px;
   width: 100%;
   max-width: 100%;
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
   box-sizing: border-box;
+  overflow: hidden;
 }
 
 .plugin-config :deep(.v-card) {
@@ -5046,15 +5051,17 @@ const removeExcludePathEntry = (index, type) => {
   transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1) !important;
 }
 
-/* 主卡片高度设置 */
+/* 主卡片高度设置：桌面用 vh，移动端填满父级由内部滚动 */
 .config-main-card {
   max-height: 85vh;
 }
 
 @media (max-width: 768px) {
   .config-main-card {
-    max-height: 100vh;
-    height: 100vh;
+    flex: 1;
+    min-height: 0;
+    max-height: none;
+    height: 100%;
   }
 }
 

@@ -114,15 +114,17 @@ export default defineComponent({
 /* 全局字体定义 */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
-/* 全局背景渐变 - 蓝粉白配色（增强对比度） */
+/* 全局背景渐变 - 蓝粉白配色（增强对比度）；外层锁定视口高度，避免 iOS 整体滚动 */
 :deep(.v-application) {
   background: linear-gradient(135deg, #D0EFFF 0%, #FFE5EB 50%, #FFFFFF 100%) !important;
   background-attachment: fixed;
-  min-height: 100vh;
+  height: 100% !important;
+  min-height: 0 !important;
+  max-height: 100% !important;
   width: 100%;
   max-width: 100vw;
   box-sizing: border-box;
-  overflow-x: hidden;
+  overflow: hidden !important;
   font-family: 'Inter', 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif !important;
 }
 
@@ -130,13 +132,24 @@ export default defineComponent({
   width: 100%;
   max-width: 100%;
   height: 100%;
-  min-height: 100vh;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   background: transparent;
   position: relative;
   box-sizing: border-box;
-  overflow-x: hidden;
+  overflow: hidden;
+}
+
+/* 子组件根节点填满并传递高度约束，仅内部区域滚动 */
+.plugin-app > * {
+  position: relative;
+  z-index: 1;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 /* 添加动态背景装饰 */
@@ -154,11 +167,6 @@ export default defineComponent({
   pointer-events: none;
   z-index: 0;
   animation: backgroundPulse 8s ease-in-out infinite;
-}
-
-.plugin-app>* {
-  position: relative;
-  z-index: 1;
 }
 
 /* 背景装饰动画 */

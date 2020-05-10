@@ -8,7 +8,7 @@
       </v-card-title>
 
       <!-- 通知区域 -->
-      <v-card-text class="px-3 py-1" style="flex-grow: 1; overflow-y: auto; padding-bottom: 48px;">
+      <v-card-text class="px-3 py-1" style="flex-grow: 1; min-height: 0; overflow-y: auto; padding-bottom: 48px; -webkit-overflow-scrolling: touch;">
         <v-alert v-if="error" type="error" density="compact" class="mb-2" variant="tonal" closable>{{ error }}</v-alert>
         <v-alert v-if="actionMessage" :type="actionMessageType" density="compact" class="mb-2" variant="tonal"
           closable>{{ actionMessage }}</v-alert>
@@ -2735,7 +2735,12 @@ async function fetchUserStorageStatus() {
   padding: 12px;
   width: 100%;
   max-width: 100%;
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
   box-sizing: border-box;
+  overflow: hidden;
 }
 
 .plugin-page :deep(.v-card) {
@@ -2758,15 +2763,17 @@ async function fetchUserStorageStatus() {
   will-change: transform, box-shadow;
 }
 
-/* 主卡片高度设置 */
+/* 主卡片高度设置：桌面用 vh，移动端填满父级由内部滚动 */
 .page-main-card {
   max-height: 85vh;
 }
 
 @media (max-width: 768px) {
   .page-main-card {
-    max-height: 100vh;
-    height: 100vh;
+    flex: 1;
+    min-height: 0;
+    max-height: none;
+    height: 100%;
   }
 }
 
