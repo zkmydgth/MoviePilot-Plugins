@@ -882,6 +882,9 @@ class FullSyncStrmHelper:
                     self.total_db_write_count += len(seen_file_ids) + len(
                         seen_folder_ids
                     )
+
+                    self.write_queue.join()
+                    self.result_queue.join()
                 except Exception as e:
                     sentry_manager.sentry_hub.capture_exception(e)
                     logger.error(
