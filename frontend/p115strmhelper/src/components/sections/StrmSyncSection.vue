@@ -849,60 +849,84 @@
             </v-expansion-panel>
           </v-expansion-panels>
 
-          <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
-            <div class="text-body-2 mb-1"><strong>事件处理逻辑：</strong></div>
-            <div class="text-caption">
-              <div class="d-flex align-start mb-1">
-                <v-icon icon="mdi-upload-outline" size="x-small" class="mr-2 mt-1 flex-shrink-0"
-                  color="success"></v-icon>
-                <span><strong>upload_image_file / upload_file（上传）</strong>：直接生成 STRM 文件</span>
-              </div>
-              <div class="d-flex align-start mb-1">
-                <v-icon icon="mdi-file-move-outline" size="x-small" class="mr-2 mt-1 flex-shrink-0"
-                  color="warning"></v-icon>
-                <span><strong>move_image_file / move_file（移动）</strong>：按照「移动事件处理策略」决定是否生成或删除对应的本地文件</span>
-              </div>
-              <div class="d-flex align-start mb-1">
-                <v-icon icon="mdi-inbox-arrow-down-outline" size="x-small" class="mr-2 mt-1 flex-shrink-0"
-                  color="success"></v-icon>
-                <span><strong>receive_files（接收文件）</strong>：直接生成 STRM 文件</span>
-              </div>
-              <div class="d-flex align-start mb-1">
-                <v-icon icon="mdi-content-copy" size="x-small" class="mr-2 mt-1 flex-shrink-0" color="success"></v-icon>
-                <span><strong>copy_file / copy_folder（复制）</strong>：直接生成 STRM 文件</span>
-              </div>
-              <div class="d-flex align-start mb-1">
-                <v-icon icon="mdi-folder-edit-outline" size="x-small" class="mr-2 mt-1 flex-shrink-0"
-                  color="primary"></v-icon>
-                <span><strong>folder_rename（文件夹重命名）</strong>：判断本地文件夹是否存在，若存在则直接重命名本地文件夹</span>
-              </div>
-              <div class="d-flex align-start mb-1">
-                <v-icon icon="mdi-file-edit-outline" size="x-small" class="mr-2 mt-1 flex-shrink-0"
-                  color="primary"></v-icon>
-                <span><strong>rename_file（文件重命名）</strong>：判断本地文件是否存在——若不存在则走 STRM 创建流程；若存在则对 STRM
-                  文件重命名，并同步重命名其关联的媒体信息文件</span>
-              </div>
-              <div class="d-flex align-start">
-                <v-icon icon="mdi-delete-outline" size="x-small" class="mr-2 mt-1 flex-shrink-0" color="error"></v-icon>
-                <span><strong>delete_file（删除）</strong>：按删除流程正常删除本地对应文件</span>
-              </div>
-            </div>
-          </v-alert>
+          <v-expansion-panels variant="tonal" class="mt-3 life-logic-panels">
+            <v-expansion-panel>
+              <v-expansion-panel-title>
+                <v-icon icon="mdi-table-eye" class="mr-2"></v-icon>
+                事件处理逻辑与当前配置
+              </v-expansion-panel-title>
+              <v-expansion-panel-text>
+                <div class="life-table-scroll">
+                  <v-table density="compact" class="life-logic-table">
+                    <thead>
+                      <tr>
+                        <th>类型</th>
+                        <th>115 事件</th>
+                        <th>所需模式</th>
+                        <th>实际处理</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="item in lifeEventLogicRows" :key="item.types">
+                        <td class="life-type-cell">{{ item.types }}</td>
+                        <td><strong>{{ item.events }}</strong></td>
+                        <td>
+                          <v-chip v-if="item.mode" size="x-small" variant="tonal"
+                            :color="isLifeModeEnabled(item.mode) ? 'success' : 'default'">
+                            {{ item.modeLabel }} · {{ isLifeModeEnabled(item.mode) ? '已启用' : '未启用' }}
+                          </v-chip>
+                          <span v-else class="text-medium-emphasis">{{ item.modeLabel }}</span>
+                        </td>
+                        <td>{{ item.action }}</td>
+                      </tr>
+                    </tbody>
+                  </v-table>
+                </div>
+                <v-alert type="info" variant="text" density="compact" class="mt-2" icon="mdi-database-outline">
+                  <div class="text-caption">
+                    所有拉取到的事件都会先保存到生活事件数据库；未接入的事件只留档，不操作文件数据库或本地文件。
+                  </div>
+                </v-alert>
+              </v-expansion-panel-text>
+            </v-expansion-panel>
+
+            <v-expansion-panel>
+              <v-expansion-panel-title>
+                <v-icon icon="mdi-routes" class="mr-2"></v-icon>
+                路径判断、文件类型与安全边界
+              </v-expansion-panel-title>
+              <v-expansion-panel-text>
+                <div class="life-table-scroll">
+                  <v-table density="compact" class="life-logic-table life-rule-table">
+                    <thead>
+                      <tr>
+                        <th>判断阶段</th>
+                        <th>条件</th>
+                        <th>结果</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="item in lifePathRuleRows" :key="`${item.stage}-${item.condition}`">
+                        <td><strong>{{ item.stage }}</strong></td>
+                        <td>{{ item.condition }}</td>
+                        <td>{{ item.result }}</td>
+                      </tr>
+                    </tbody>
+                  </v-table>
+                </div>
+                <v-alert type="warning" variant="tonal" density="compact" class="mt-3"
+                  icon="mdi-alert-outline">
+                  <div class="text-caption">
+                    文件 type 24 已支持 115 将“移动 + 重命名”合并上报；文件夹 type 20 仍只支持同父目录改名。
+                    文件夹改名或移动不会逐个校验内部 STRM 内容，依赖路径型 URL 时需留意旧 file_path。
+                  </div>
+                </v-alert>
+              </v-expansion-panel-text>
+            </v-expansion-panel>
+          </v-expansion-panels>
 
           <v-alert type="warning" variant="tonal" density="compact" class="mt-3" icon="mdi-alert">
             <div class="text-caption">注意：当 MoviePilot 主程序运行整理任务时 115生活事件 监控会自动暂停，整理运行完成后会继续监控。</div>
-          </v-alert>
-
-          <v-alert type="error" variant="tonal" density="compact" class="mt-3" icon="mdi-alert-circle-outline">
-            <div class="text-body-2 mb-1"><strong>已知限制（无法修复）：</strong></div>
-            <div class="text-caption d-flex align-start mb-1">
-              <v-icon icon="mdi-circle-small" size="small" class="mt-0 mr-1 flex-shrink-0"></v-icon>
-              <span>若在 115 中先移动文件后立即重命名，115 只会上报重命名事件而不会上报移动事件，导致该操作无法触发移动事件处理策略。</span>
-            </div>
-            <div class="text-caption d-flex align-start">
-              <v-icon icon="mdi-circle-small" size="small" class="mt-0 mr-1 flex-shrink-0"></v-icon>
-              <span>对文件夹执行重命名或移动操作时，插件不会校验文件夹内已有 STRM 文件的内容，其中的 <code>file_path</code> 路径可能因此失效。</span>
-            </div>
           </v-alert>
 
           <v-row class="mt-4">
@@ -1058,6 +1082,115 @@ const openExcludeDirSelector = inject('openExcludeDirSelector');
 const removeExcludePathEntry = inject('removeExcludePathEntry');
 const checkLifeEventStatus = inject('checkLifeEventStatus');
 
+const lifeEventLogicRows = [
+  {
+    types: '1, 2',
+    events: 'upload_image_file / upload_file',
+    mode: 'creata',
+    modeLabel: '新增事件',
+    action: '解析新路径；待整理目录优先进入整理。媒体文件生成 STRM，可下载扩展名按下载开关和黑白名单下载；目录会递归处理。',
+  },
+  {
+    types: '5, 6',
+    events: 'move_image_file / move_file',
+    mode: null,
+    modeLabel: '移动策略',
+    action: '根据旧、新路径所属的媒体、待整理或其它目录执行下方实时移动矩阵；没有独立事件模式开关。',
+  },
+  {
+    types: '14',
+    events: 'receive_files',
+    mode: 'creata',
+    modeLabel: '新增事件',
+    action: '作为新路径处理；按文件类型生成 STRM、下载媒体数据文件，或在命中待整理目录时进入整理。',
+  },
+  {
+    types: '17',
+    events: 'new_folder',
+    mode: null,
+    modeLabel: '自动维护',
+    action: '仅写入文件夹路径数据库，供后续事件解析父目录；待整理目录和未识别目录不写入。',
+  },
+  {
+    types: '18, 23',
+    events: 'copy_folder / copy_file',
+    mode: 'creata',
+    modeLabel: '新增事件',
+    action: '作为新路径处理；复制文件夹会递归扫描，复制文件直接按媒体或可下载扩展名处理。',
+  },
+  {
+    types: '20',
+    events: 'folder_rename',
+    mode: 'rename',
+    modeLabel: '重命名事件',
+    action: '先同步数据库和目录缓存；同父目录时重命名本地映射目录，跨父目录时仅同步路径记录。',
+  },
+  {
+    types: '22',
+    events: 'delete_file',
+    mode: 'remove',
+    modeLabel: '删除事件',
+    action: '数据库能确认旧路径且 115 当前路径已不存在时，删除对应 STRM、非媒体文件或本地目录；可同步清理整理历史。',
+  },
+  {
+    types: '24',
+    events: 'rename_file',
+    mode: 'rename',
+    modeLabel: '重命名事件',
+    action: '支持普通改名及“移动 + 改名”；迁移并更新 STRM，同步关联文件。非媒体事件只处理文件自身，缺失时按新路径恢复。',
+  },
+  {
+    types: '其它',
+    events: '浏览、标星、标签及未接入类型',
+    mode: null,
+    modeLabel: '不处理',
+    action: '仅保存生活事件记录，不修改文件数据库，也不操作本地文件。',
+  },
+];
+
+const lifePathRuleRows = [
+  {
+    stage: '路径优先级',
+    condition: '新路径命中未识别目录',
+    result: '跳过文件动作；重命名事件的数据库路径同步已在此前完成。',
+  },
+  {
+    stage: '路径优先级',
+    condition: '新路径命中待整理目录',
+    result: '优先进入 MoviePilot 网盘整理，不直接按媒体库新增处理。',
+  },
+  {
+    stage: '媒体目录',
+    condition: '路径命中“本地 STRM 目录 # 网盘媒体库目录”映射',
+    result: '将网盘相对路径映射到本地目录，再进行生成、迁移、重命名或删除。',
+  },
+  {
+    stage: '媒体文件',
+    condition: '扩展名属于可识别媒体后缀',
+    result: '生成或迁移 STRM；生成前校验黑名单、最小文件大小和 pickcode。',
+  },
+  {
+    stage: '非媒体文件',
+    condition: '扩展名属于可下载媒体数据文件后缀',
+    result: '还需开启“下载媒体数据文件”并通过黑白名单，才会下载；移动和重命名只处理文件自身。',
+  },
+  {
+    stage: '删除保护',
+    condition: '数据库没有旧路径、路径仍存在于 115、或位于待整理/未识别目录',
+    result: '不删除本地文件，避免误删。',
+  },
+  {
+    stage: '整理去重',
+    condition: '事件由插件网盘整理流程触发',
+    result: '通过创建和删除缓存抑制重复生成、重复删除；目标 STRM 由“网盘整理”模式决定是否补建。',
+  },
+];
+
+const isLifeModeEnabled = (mode) => {
+  const c = config?.value ?? config;
+  return Array.isArray(c?.monitor_life_event_modes) && c.monitor_life_event_modes.includes(mode);
+};
+
 const lifeMoveMatrixRows = computed(() => {
   const c = config?.value ?? config;
   const mode = c.monitor_life_move_media_mode;
@@ -1120,5 +1253,59 @@ const lifeMoveMatrixRows = computed(() => {
 
 .life-move-matrix {
   background: transparent;
+}
+
+.life-logic-panels :deep(.v-expansion-panel-text__wrapper) {
+  padding: 12px 16px 16px;
+}
+
+.life-table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.life-logic-table {
+  min-width: 820px;
+  background: transparent;
+}
+
+.life-rule-table {
+  min-width: 720px;
+}
+
+.life-logic-table :deep(th) {
+  white-space: nowrap;
+  color: rgba(var(--v-theme-on-surface), 0.72);
+  font-size: 0.75rem;
+}
+
+.life-logic-table :deep(td) {
+  min-width: 120px;
+  padding-top: 10px !important;
+  padding-bottom: 10px !important;
+  vertical-align: top;
+  line-height: 1.55;
+}
+
+.life-logic-table :deep(td:last-child) {
+  min-width: 300px;
+}
+
+.life-type-cell {
+  min-width: 64px !important;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 600px) {
+  .life-logic-panels :deep(.v-expansion-panel-title) {
+    min-height: 52px;
+    padding: 12px;
+    font-size: 0.875rem;
+  }
+
+  .life-logic-panels :deep(.v-expansion-panel-text__wrapper) {
+    padding: 8px 10px 12px;
+  }
 }
 </style>
