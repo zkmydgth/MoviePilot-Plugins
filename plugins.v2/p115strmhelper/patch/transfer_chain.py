@@ -128,6 +128,7 @@ class TransferChainPatcher:
             transferhis = TransferHistoryOper()
             mediainfo = task.mediainfo
             mediainfo_changed = False
+            need_obtain_images = False
             if not mediainfo:
                 download_history = task.download_history
                 # 下载用户
@@ -142,16 +143,19 @@ class TransferChainPatcher:
                             doubanid=download_history.doubanid,
                             episode_group=download_history.episode_group,
                         )
+                        need_obtain_images = True
                         if mediainfo:
                             # 更新自定义媒体类别
                             if download_history.media_category:
                                 mediainfo.category = download_history.media_category
                 else:
-                    # 识别媒体信息
-                    mediainfo = MediaChain().recognize_by_meta(task.meta)
+                    # 识别媒体信息（obtain_images=True 内部已完成图片获取）
+                    mediainfo = MediaChain().recognize_by_meta(
+                        task.meta, obtain_images=True
+                    )
 
-                # 更新媒体图片
-                if mediainfo:
+                # 按名称识别时已在识别链路补图，这里只补齐显式ID识别的场景
+                if mediainfo and need_obtain_images:
                     chain_self.obtain_images(mediainfo=mediainfo)
 
                 if not mediainfo:
