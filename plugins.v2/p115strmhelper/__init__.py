@@ -358,7 +358,7 @@ class P115StrmHelper(_PluginBase):
                     "trigger": CronTrigger.from_crontab(
                         configer.get_config("cron_clear")
                     ),
-                    "func": self.main_cleaner,
+                    "func": servicer.main_cleaner,
                     "kwargs": {},
                 }
             )
@@ -1156,45 +1156,6 @@ class P115StrmHelper(_PluginBase):
             for _path in audio_list:
                 fileitem = storagechain.get_file_item(storage="u115", path=Path(_path))
                 file_rename(fileitem=fileitem)
-
-    def main_cleaner(self):
-        """
-        主清理模块
-        """
-        if configer.get_config("clear_receive_path_enabled"):
-            self.clear_receive_path()
-
-        if configer.get_config("clear_recyclebin_enabled"):
-            self.clear_recyclebin()
-
-    def clear_recyclebin(self):
-        """
-        清空回收站
-        """
-        try:
-            logger.info("【回收站清理】开始清理回收站")
-            servicer.client.recyclebin_clean(password=configer.get_config("password"))
-            logger.info("【回收站清理】回收站已清空")
-        except Exception as e:
-            logger.error(f"【回收站清理】清理回收站运行失败: {e}")
-            return
-
-    def clear_receive_path(self):
-        """
-        清空我的接收
-        """
-        try:
-            logger.info("【我的接收清理】开始清理我的接收")
-            parent_id = int(servicer.client.fs_dir_getid("/我的接收")["id"])
-            if parent_id == 0:
-                logger.info("【我的接收清理】我的接收目录为空，无需清理")
-                return
-            logger.info(f"【我的接收清理】我的接收目录 ID 获取成功: {parent_id}")
-            servicer.client.fs_delete(parent_id)
-            logger.info("【我的接收清理】我的接收已清空")
-        except Exception as e:
-            logger.error(f"【我的接收清理】清理我的接收运行失败: {e}")
-            return
 
     def stop_service(self):
         """
