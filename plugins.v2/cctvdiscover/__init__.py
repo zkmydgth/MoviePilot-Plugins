@@ -475,7 +475,7 @@ class CCTVDiscover(_PluginBase):
                     {
                         "component": "div",
                         "props": {"class": "mr-5"},
-                        "content": [{"component": "VLabel", "text": "类型"}],
+                        "content": [{"component": "VLabel", "text": "种类"}],
                     },
                     {
                         "component": "VChipGroup",
