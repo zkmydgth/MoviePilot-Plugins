@@ -19,7 +19,6 @@ from .core.config import configer
 from .core.cache import idpathcacher
 from .core.message import post_message
 from .core.i18n import i18n
-from .helper.r302 import Redirect
 
 from app.log import logger
 from app.helper.mediaserver import MediaServerHelper
@@ -458,24 +457,22 @@ class Api:
         """
         115网盘302跳转
         """
-        redirect = Redirect()
-
         if share_code:
             try:
                 if not receive_code:
-                    receive_code = redirect.get_receive_code(share_code)
+                    receive_code = servicer.redirect.get_receive_code(share_code)
                 elif len(receive_code) != 4:
                     return f"Bad receive_code: {receive_code}"
                 if not id:
                     if file_name:
-                        id = redirect.share_get_id_for_name(
+                        id = servicer.redirect.share_get_id_for_name(
                             share_code,
                             receive_code,
                             file_name,
                         )
                 if not id:
                     return f"Please specify id or name: share_code={share_code!r}"
-                url = redirect.get_share_downurl(share_code, receive_code, id)
+                url = servicer.redirect.get_share_downurl(share_code, receive_code, id)
                 logger.info(f"【302跳转服务】获取 115 下载地址成功: {url}")
             except Exception as e:
                 logger.error(f"【302跳转服务】获取 115 下载地址失败: {e}")
@@ -494,9 +491,13 @@ class Api:
 
             try:
                 if configer.get_config("link_redirect_mode") == "cookie":
-                    url = redirect.get_downurl_cookie(pickcode.lower(), user_agent)
+                    url = servicer.redirect.get_downurl_cookie(
+                        pickcode.lower(), user_agent
+                    )
                 else:
-                    url = redirect.get_downurl_open(pickcode.lower(), user_agent)
+                    url = servicer.redirect.get_downurl_open(
+                        pickcode.lower(), user_agent
+                    )
                 logger.info(
                     f"【302跳转服务】获取 115 下载地址成功: {url} {url['file_name']}"  # pylint: disable=E1126
                 )

@@ -175,6 +175,9 @@ class BaseConfig(BaseModel):
     # CloudSaver 密码
     cloudsaver_password: Optional[str] = None
 
+    # 多端播放同一个文件
+    same_playback: bool = False
+
 
 class ConfigManager:
     """

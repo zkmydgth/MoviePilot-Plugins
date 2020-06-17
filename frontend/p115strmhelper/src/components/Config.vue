@@ -126,6 +126,9 @@
               <v-tab value="tab-tg-search" class="text-caption">
                 <v-icon size="small" start>mdi-tab-search</v-icon>频道搜索
               </v-tab>
+              <v-tab value="tab-same-playback" class="text-caption">
+                <v-icon size="small" start>mdi:code-block-parentheses</v-icon>多端播放
+              </v-tab>
             </v-tabs>
             <v-divider></v-divider>
 
@@ -796,6 +799,26 @@
                 </v-card-text>
               </v-window-item>
 
+              <!-- 多端播放 -->
+              <v-window-item value="tab-same-playback">
+                <v-card-text>
+
+                  <v-row>
+                    <v-col cols="12" md="4">
+                      <v-switch v-model="config.same_playback" label="启用" color="info" density="compact"
+                        hide-details></v-switch>
+                    </v-col>
+                  </v-row>
+
+                  <v-alert type="info" variant="tonal" density="compact" class="mt-3 text-caption">
+                    <strong>多设备同步播放</strong><br> •
+                    支持多个设备同时播放同一影片
+                  </v-alert>
+                  <v-alert type="warning" variant="tonal" density="compact" class="mt-2">
+                    <strong>使用限制</strong><br> • 最多支持双IP同时播放<br> • 禁止多IP滥用<br> • 违规操作可能导致账号封禁 </v-alert>
+                </v-card-text>
+              </v-window-item>
+
             </v-window>
           </v-card>
 
@@ -1057,7 +1080,8 @@ const config = reactive({
   directory_upload_path: [],
   cloudsaver_url: '',
   cloudsaver_username: '',
-  cloudsaver_password: ''
+  cloudsaver_password: '',
+  same_playback: false
 });
 
 // 消息提示

@@ -1,10 +1,14 @@
 from collections.abc import Mapping
-from typing import cast, Dict
+from typing import cast, Dict, Optional
 from errno import EIO, ENOENT
 from urllib.parse import parse_qsl, unquote, urlsplit, urlencode
+from threading import Timer
 
 import requests
 from orjson import dumps, loads
+from p115client import P115Client
+from p115client import check_response as p115_check_response
+from p115pickcode import to_id
 from p115rsacipher import encrypt, decrypt
 
 from app.log import logger
@@ -21,8 +25,11 @@ class Redirect:
     302 跳转模块
     """
 
-    def __init__(self):
+    def __init__(self, client: P115Client, pid: Optional[int] = None):
+        self.client = client
         self.u115openhelper = U115OpenHelper()
+
+        self.pid = pid
 
     @staticmethod
     def get_first(m: Mapping, *keys, default=None):
@@ -30,6 +37,27 @@ class Redirect:
             if k in m:
                 return m[k]
         return default
+
+    def get_pickcode_for_copy(self, pickcode: str) -> Optional[str]:
+        """
+        通过复制文件获取二次 PickCode
+        """
+        if not self.pid:
+            return None
+        resp = self.client.fs_copy(to_id(pickcode), pid=self.pid)
+        p115_check_response(resp)
+        payload = {"cid": self.pid, "o": "user_ptime", "asc": 0}
+        resp = self.client.fs_files(payload)
+        p115_check_response(resp)
+        data = resp.get("data")[0]
+        return data.get("pc", None)
+
+    def delayed_remove(self, pickcode: str) -> None:
+        """
+        延迟删除
+        """
+        self.client.fs_delete(to_id(pickcode))
+        logger.debug(f"【302跳转服务】清理 {pickcode} 文件")
 
     def share_get_id_for_name(
         self,
@@ -102,6 +130,7 @@ class Redirect:
             cache_ua = "NoUA"
         else:
             cache_ua = user_agent
+
         if r302cacher.get(pickcode, cache_ua):
             cache_url = r302cacher.get(pickcode, cache_ua)
             logger.debug(f"【302跳转服务】缓存获取 {pickcode} {cache_ua} {cache_url}")
@@ -109,9 +138,20 @@ class Redirect:
                 cache_url,
                 {"file_name": unquote(urlsplit(cache_url).path.rpartition("/")[-1])},
             )
+
+        post_pickcode = pickcode
+        if (
+            configer.get_config("same_playback")
+            and r302cacher.count_by_pick_code(pickcode) > 0
+        ):
+            post_pickcode = self.get_pickcode_for_copy(pickcode)
+            logger.debug(f"【302跳转服务】多端播放开启 {pickcode} -> {post_pickcode}")
+
         resp = requests.post(
             "http://proapi.115.com/android/2.0/ufile/download",
-            data={"data": encrypt(f'{{"pick_code":"{pickcode}"}}').decode("utf-8")},
+            data={
+                "data": encrypt(f'{{"pick_code":"{post_pickcode}"}}').decode("utf-8")
+            },
             headers={
                 "User-Agent": user_agent,
                 "Cookie": configer.get_config("cookies"),
@@ -124,6 +164,7 @@ class Redirect:
         data = json["data"] = loads(decrypt(json["data"]))
         data["file_name"] = unquote(urlsplit(data["url"]).path.rpartition("/")[-1])
         url = Url.of(data["url"], data)
+
         expires_time = (
             int(next(v for k, v in parse_qsl(urlsplit(url).query) if k == "t")) - 60 * 5
         )
@@ -131,6 +172,14 @@ class Redirect:
         logger.debug(
             f"【302跳转服务】添加至缓存 {pickcode} {cache_ua} {url} {expires_time}"
         )
+
+        if post_pickcode != pickcode:
+            Timer(
+                5.0,
+                self.delayed_remove,
+                args=(post_pickcode,),
+            ).start()
+
         return url
 
     def get_downurl_open(
@@ -145,6 +194,7 @@ class Redirect:
             cache_ua = "NoUA"
         else:
             cache_ua = user_agent
+
         if r302cacher.get(pickcode, cache_ua):
             cache_url = r302cacher.get(pickcode, cache_ua)
             logger.debug(f"【302跳转服务】缓存获取 {pickcode} {cache_ua} {cache_url}")
@@ -152,11 +202,21 @@ class Redirect:
                 cache_url,
                 {"file_name": unquote(urlsplit(cache_url).path.rpartition("/")[-1])},
             )
+
+        post_pickcode = pickcode
+        if (
+            configer.get_config("same_playback")
+            and r302cacher.count_by_pick_code(pickcode) > 0
+        ):
+            post_pickcode = self.get_pickcode_for_copy(pickcode)
+            logger.debug(f"【302跳转服务】多端播放开启 {pickcode} -> {post_pickcode}")
+
         resp_url = self.u115openhelper.get_download_url(
-            pickcode=pickcode.lower(), user_agent=user_agent
+            pickcode=post_pickcode, user_agent=user_agent
         )
         data: Dict = {}
         data["file_name"] = unquote(urlsplit(resp_url).path.rpartition("/")[-1])
+
         expires_time = (
             int(next(v for k, v in parse_qsl(urlsplit(resp_url).query) if k == "t"))
             - 60 * 5
@@ -165,6 +225,14 @@ class Redirect:
         logger.debug(
             f"【302跳转服务】添加至缓存 {pickcode} {cache_ua} {resp_url} {expires_time}"
         )
+
+        if post_pickcode != pickcode:
+            Timer(
+                5.0,
+                self.delayed_remove,
+                args=(post_pickcode,),
+            ).start()
+
         return Url.of(resp_url, data)
 
     def get_share_downurl(
