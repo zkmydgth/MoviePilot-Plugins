@@ -993,7 +993,11 @@ class MonitorLife:
             old_is_media, old_target_dir, old_pan_media_dir = PathUtils.get_media_path(
                 configer.monitor_life_paths, old_pan_path
             )
-            if old_is_media:
+            if (
+                old_is_media
+                and old_target_dir is not None
+                and old_pan_media_dir is not None
+            ):
                 old_path = Path(old_target_dir) / Path(old_pan_path).relative_to(
                     old_pan_media_dir
                 )
@@ -1001,7 +1005,7 @@ class MonitorLife:
         new_is_media, new_target_dir, new_pan_media_dir = PathUtils.get_media_path(
             configer.monitor_life_paths, new_pan_path
         )
-        if not new_is_media:
+        if not new_is_media or new_target_dir is None or new_pan_media_dir is None:
             logger.debug(
                 f"【监控生活事件】{new_pan_path} 非媒体库路径，跳过重命名处理: {event}"
             )
@@ -1625,7 +1629,7 @@ class MonitorLife:
 
         if file_category == 0:
             old_item = _databasehelper.get_by_id(file_id)
-            old_prefix = old_item.get("path") if old_item else None
+            old_prefix = str(old_item.get("path", "")) if old_item else None
             if old_prefix:
                 _databasehelper.update_path_prefix_batch(
                     old_prefix, new_file_path, False
