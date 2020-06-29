@@ -36,6 +36,39 @@ export default defineConfig({
     target: 'esnext',   // 必须设置为esnext以支持顶层await
     minify: 'terser',      // 开发阶段建议关闭混淆
     cssCodeSplit: true, // 改为true以便能分离样式文件
+    chunkSizeWarningLimit: 1000, // 提高警告阈值到 1000KB
+    rollupOptions: {
+      output: {
+        // 手动分割代码块，将大型依赖库分离
+        manualChunks: (id) => {
+          // 将 node_modules 中的大型依赖分离
+          if (id.includes('node_modules')) {
+            // Sentry 单独打包
+            if (id.includes('@sentry')) {
+              return 'sentry';
+            }
+            // ECharts 单独打包（通常很大）
+            if (id.includes('echarts') || id.includes('vue-echarts')) {
+              return 'echarts';
+            }
+            // Vuetify 单独打包
+            if (id.includes('vuetify')) {
+              return 'vuetify';
+            }
+            // Vue 相关
+            if (id.includes('vue')) {
+              return 'vue-vendor';
+            }
+            // 其他大型库
+            if (id.includes('cron') || id.includes('cronstrue')) {
+              return 'cron-vendor';
+            }
+            // 其他 node_modules 依赖
+            return 'vendor';
+          }
+        },
+      },
+    },
   },
   css: {
     preprocessorOptions: {

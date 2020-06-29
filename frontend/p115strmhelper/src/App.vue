@@ -8,65 +8,88 @@
 </template>
 
 <script>
-import { defineComponent, ref, shallowRef, onMounted, onBeforeUnmount } from 'vue';
+import { defineComponent, ref, shallowRef, onMounted, onBeforeUnmount, onErrorCaptured } from 'vue';
 import Page from './components/Page.vue';
 import Config from './components/Config.vue';
+import { captureError } from './utils/sentry.js';
 
 export default defineComponent({
   name: 'App',
 
   setup() {
-    // 当前显示的组件
     const currentComponent = shallowRef(Page);
-    // API对象，用于传递给子组件
     const api = ref(null);
 
-    // 处理窗口消息
     const handleMessage = (event) => {
-      // 接收来自父窗口的消息，获取API对象
       if (event.data && event.data.type === 'api') {
         api.value = event.data.data;
-        console.log('收到API:', api.value);
       }
 
-      // 处理显示配置页面的消息
       if (event.data && event.data.type === 'showConfig') {
         currentComponent.value = Config;
       }
     };
 
-    // 切换组件
     const switchComponent = () => {
       currentComponent.value = currentComponent.value === Page ? Config : Page;
     };
 
-    // 关闭模态框
     const closeModal = () => {
       if (window.parent && window.parent.postMessage) {
         window.parent.postMessage({ type: 'close' }, '*');
       }
     };
 
-    // 保存配置
     const saveConfig = (config) => {
       if (window.parent && window.parent.postMessage) {
         window.parent.postMessage({ type: 'save', data: config }, '*');
       }
-      // 保存后切换到Page组件
       currentComponent.value = Page;
     };
 
-    // 挂载时添加消息监听
+    onErrorCaptured((err, instance, info) => {
+      captureError(err, {
+        tags: {
+          error_type: 'vue_component_error',
+          component_name: instance?.$options?.name || 'Unknown',
+        },
+        extra: {
+          error_info: info,
+          component_props: instance?.$props,
+        },
+      });
+      return true;
+    });
+
     onMounted(() => {
       window.addEventListener('message', handleMessage);
 
-      // 通知父窗口已准备好接收API
+      window.addEventListener('error', (event) => {
+        captureError(event.error || new Error(event.message), {
+          tags: {
+            error_type: 'global_error',
+          },
+          extra: {
+            filename: event.filename,
+            lineno: event.lineno,
+            colno: event.colno,
+          },
+        });
+      });
+
+      window.addEventListener('unhandledrejection', (event) => {
+        captureError(event.reason, {
+          tags: {
+            error_type: 'unhandled_promise_rejection',
+          },
+        });
+      });
+
       if (window.parent && window.parent.postMessage) {
         window.parent.postMessage({ type: 'ready' }, '*');
       }
     });
 
-    // 卸载前移除消息监听
     onBeforeUnmount(() => {
       window.removeEventListener('message', handleMessage);
     });
@@ -140,10 +163,13 @@ export default defineComponent({
 
 /* 背景装饰动画 */
 @keyframes backgroundPulse {
-  0%, 100% {
+
+  0%,
+  100% {
     opacity: 1;
     transform: scale(1);
   }
+
   50% {
     opacity: 0.8;
     transform: scale(1.02);
@@ -164,7 +190,12 @@ export default defineComponent({
 }
 
 /* 全局标题字体 */
-:deep(h1), :deep(h2), :deep(h3), :deep(h4), :deep(h5), :deep(h6) {
+:deep(h1),
+:deep(h2),
+:deep(h3),
+:deep(h4),
+:deep(h5),
+:deep(h6) {
   font-family: 'Inter', 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif !important;
   font-weight: 600 !important;
   letter-spacing: -0.02em !important;
@@ -172,7 +203,9 @@ export default defineComponent({
 }
 
 /* 全局正文字体 */
-:deep(p), :deep(span), :deep(div) {
+:deep(p),
+:deep(span),
+:deep(div) {
   font-family: 'Inter', 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif !important;
 }
 
@@ -184,17 +217,20 @@ export default defineComponent({
 }
 
 /* 全局输入框字体 */
-:deep(.v-field__input), :deep(.v-label) {
+:deep(.v-field__input),
+:deep(.v-label) {
   font-family: 'Inter', 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif !important;
 }
 
 /* 全局列表字体 */
-:deep(.v-list-item-title), :deep(.v-list-item-subtitle) {
+:deep(.v-list-item-title),
+:deep(.v-list-item-subtitle) {
   font-family: 'Inter', 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif !important;
 }
 
 /* 全局卡片字体 */
-:deep(.v-card-title), :deep(.v-card-text) {
+:deep(.v-card-title),
+:deep(.v-card-text) {
   font-family: 'Inter', 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif !important;
 }
 
@@ -217,7 +253,8 @@ export default defineComponent({
 }
 
 /* 全局菜单字体 */
-:deep(.v-menu), :deep(.v-list) {
+:deep(.v-menu),
+:deep(.v-list) {
   font-family: 'Inter', 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif !important;
 }
 
@@ -237,12 +274,15 @@ export default defineComponent({
 }
 
 /* 全局展开面板字体 */
-:deep(.v-expansion-panel-title), :deep(.v-expansion-panel-text) {
+:deep(.v-expansion-panel-title),
+:deep(.v-expansion-panel-text) {
   font-family: 'Inter', 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif !important;
 }
 
 /* 全局选择器字体 */
-:deep(.v-select), :deep(.v-autocomplete), :deep(.v-combobox) {
+:deep(.v-select),
+:deep(.v-autocomplete),
+:deep(.v-combobox) {
   font-family: 'Inter', 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif !important;
 }
 
@@ -257,7 +297,8 @@ export default defineComponent({
 }
 
 /* 全局单选框/复选框字体 */
-:deep(.v-radio), :deep(.v-checkbox) {
+:deep(.v-radio),
+:deep(.v-checkbox) {
   font-family: 'Inter', 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif !important;
 }
 

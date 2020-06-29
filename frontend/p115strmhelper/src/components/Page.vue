@@ -1433,7 +1433,8 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, onBeforeUnmount, watch } from 'vue';
+import { ref, reactive, computed, onMounted, onBeforeUnmount, watch, getCurrentInstance } from 'vue';
+import { ensureSentryInitialized } from '../utils/init-sentry.js';
 
 const props = defineProps({
   api: {
@@ -2566,6 +2567,7 @@ const deleteAllSyncDelHistory = async () => {
 };
 
 onMounted(async () => {
+  ensureSentryInitialized();
   await getStatus();
   if (status.has_client && props.initialConfig?.cookies) {
     await fetchUserStorageStatus();
@@ -2662,6 +2664,7 @@ async function fetchUserStorageStatus() {
     opacity: 0;
     transform: translateY(20px) scale(0.95);
   }
+
   100% {
     opacity: 1;
     transform: translateY(0) scale(1);
@@ -2673,6 +2676,7 @@ async function fetchUserStorageStatus() {
     opacity: 0;
     transform: translateX(-15px);
   }
+
   100% {
     opacity: 1;
     transform: translateX(0);
@@ -2680,28 +2684,37 @@ async function fetchUserStorageStatus() {
 }
 
 @keyframes buttonPulse {
-  0%, 100% {
+
+  0%,
+  100% {
     box-shadow: 0 0 0 0 rgba(91, 207, 250, 0.4);
   }
+
   50% {
     box-shadow: 0 0 0 8px rgba(91, 207, 250, 0);
   }
 }
 
 @keyframes iconBounce {
-  0%, 100% {
+
+  0%,
+  100% {
     transform: scale(1);
   }
+
   50% {
     transform: scale(1.2);
   }
 }
 
 @keyframes statusPulse {
-  0%, 100% {
+
+  0%,
+  100% {
     transform: scale(1);
     filter: drop-shadow(0 0 0 rgba(91, 207, 250, 0));
   }
+
   50% {
     transform: scale(1.05);
     filter: drop-shadow(0 0 8px rgba(91, 207, 250, 0.4));
@@ -2712,6 +2725,7 @@ async function fetchUserStorageStatus() {
   from {
     transform: rotate(0deg);
   }
+
   to {
     transform: rotate(360deg);
   }
@@ -2932,14 +2946,37 @@ async function fetchUserStorageStatus() {
   animation: listItemEnter 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
 }
 
-:deep(.v-list-item:nth-child(1)) { animation-delay: 0.1s; }
-:deep(.v-list-item:nth-child(2)) { animation-delay: 0.15s; }
-:deep(.v-list-item:nth-child(3)) { animation-delay: 0.2s; }
-:deep(.v-list-item:nth-child(4)) { animation-delay: 0.25s; }
-:deep(.v-list-item:nth-child(5)) { animation-delay: 0.3s; }
-:deep(.v-list-item:nth-child(6)) { animation-delay: 0.35s; }
-:deep(.v-list-item:nth-child(7)) { animation-delay: 0.4s; }
-:deep(.v-list-item:nth-child(8)) { animation-delay: 0.45s; }
+:deep(.v-list-item:nth-child(1)) {
+  animation-delay: 0.1s;
+}
+
+:deep(.v-list-item:nth-child(2)) {
+  animation-delay: 0.15s;
+}
+
+:deep(.v-list-item:nth-child(3)) {
+  animation-delay: 0.2s;
+}
+
+:deep(.v-list-item:nth-child(4)) {
+  animation-delay: 0.25s;
+}
+
+:deep(.v-list-item:nth-child(5)) {
+  animation-delay: 0.3s;
+}
+
+:deep(.v-list-item:nth-child(6)) {
+  animation-delay: 0.35s;
+}
+
+:deep(.v-list-item:nth-child(7)) {
+  animation-delay: 0.4s;
+}
+
+:deep(.v-list-item:nth-child(8)) {
+  animation-delay: 0.45s;
+}
 
 :deep(.v-list-item:hover) {
   transform: translateX(6px);

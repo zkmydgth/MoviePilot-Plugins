@@ -86,6 +86,7 @@
 
 <script setup>
 import { ref, reactive, onMounted, onUnmounted, computed } from 'vue';
+import { ensureSentryInitialized } from '../utils/init-sentry.js';
 
 // 接收props
 const props = defineProps({
@@ -173,6 +174,7 @@ const lastRefreshedTimeDisplay = computed(() => {
 
 // 组件挂载时获取数据
 onMounted(() => {
+  ensureSentryInitialized();
   fetchData();
 
   // 设置自动刷新
@@ -209,6 +211,7 @@ onUnmounted(() => {
     opacity: 0;
     transform: translateY(20px) scale(0.95);
   }
+
   100% {
     opacity: 1;
     transform: translateY(0) scale(1);
@@ -221,6 +224,7 @@ onUnmounted(() => {
     opacity: 0;
     transform: translateX(-15px);
   }
+
   100% {
     opacity: 1;
     transform: translateX(0);
@@ -229,10 +233,13 @@ onUnmounted(() => {
 
 /* 状态图标脉冲动画 */
 @keyframes statusPulse {
-  0%, 100% {
+
+  0%,
+  100% {
     transform: scale(1);
     filter: drop-shadow(0 0 0 rgba(91, 207, 250, 0));
   }
+
   50% {
     transform: scale(1.05);
     filter: drop-shadow(0 0 8px rgba(91, 207, 250, 0.4));
@@ -244,6 +251,7 @@ onUnmounted(() => {
   from {
     transform: rotate(0deg);
   }
+
   to {
     transform: rotate(360deg);
   }
@@ -308,11 +316,25 @@ onUnmounted(() => {
 }
 
 /* 列表项交错动画延迟 */
-:deep(.v-list-item:nth-child(1)) { animation-delay: 0.1s; }
-:deep(.v-list-item:nth-child(2)) { animation-delay: 0.2s; }
-:deep(.v-list-item:nth-child(3)) { animation-delay: 0.3s; }
-:deep(.v-list-item:nth-child(4)) { animation-delay: 0.4s; }
-:deep(.v-list-item:nth-child(5)) { animation-delay: 0.5s; }
+:deep(.v-list-item:nth-child(1)) {
+  animation-delay: 0.1s;
+}
+
+:deep(.v-list-item:nth-child(2)) {
+  animation-delay: 0.2s;
+}
+
+:deep(.v-list-item:nth-child(3)) {
+  animation-delay: 0.3s;
+}
+
+:deep(.v-list-item:nth-child(4)) {
+  animation-delay: 0.4s;
+}
+
+:deep(.v-list-item:nth-child(5)) {
+  animation-delay: 0.5s;
+}
 
 :deep(.v-list-item:hover) {
   background: linear-gradient(135deg,
@@ -437,9 +459,19 @@ onUnmounted(() => {
 }
 
 @keyframes shake {
-  0%, 100% { transform: translateX(0); }
-  25% { transform: translateX(-3px); }
-  75% { transform: translateX(3px); }
+
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+
+  25% {
+    transform: translateX(-3px);
+  }
+
+  75% {
+    transform: translateX(3px);
+  }
 }
 
 /* 移动端优化 - 保持镜面效果 */

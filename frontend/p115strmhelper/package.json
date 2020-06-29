@@ -9,6 +9,7 @@
         "preview": "vite preview"
     },
     "dependencies": {
+        "@sentry/vue": "^8.0.0",
         "@vueuse/core": "^10.6.0",
         "cron-parser": "^4.9.0",
         "cronstrue": "^2.48.0",

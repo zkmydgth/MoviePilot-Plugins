@@ -5,6 +5,7 @@ import * as directives from 'vuetify/directives'
 import 'vuetify/styles'
 import { aliases, mdi } from 'vuetify/iconsets/mdi'
 import App from './App.vue'
+import { initSentry } from './utils/sentry.js'
 
 // 创建Vuetify实例，配置蓝粉白主题
 const vuetify = createVuetify({
@@ -45,4 +46,13 @@ const vuetify = createVuetify({
 // 创建Vue应用实例
 const app = createApp(App)
 app.use(vuetify)
+
+try {
+  initSentry(app, null, {
+    enabled: true,
+  });
+} catch (error) {
+  console.error('[Sentry] Failed to initialize:', error);
+}
+
 app.mount('#app') 

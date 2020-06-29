@@ -2720,6 +2720,7 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted, onBeforeUnmount, watch } from 'vue';
+import { ensureSentryInitialized } from '../utils/init-sentry.js';
 
 const props = defineProps({
   api: {
@@ -4534,6 +4535,7 @@ const closeQrDialog = () => {
 };
 
 onMounted(async () => {
+  ensureSentryInitialized();
   await loadConfig();
   await checkTransferModuleEnhancement();
 });
@@ -4610,6 +4612,7 @@ const removeExcludePathEntry = (index, type) => {
     opacity: 0;
     transform: translateY(20px) scale(0.95);
   }
+
   100% {
     opacity: 1;
     transform: translateY(0) scale(1);
@@ -4622,6 +4625,7 @@ const removeExcludePathEntry = (index, type) => {
     opacity: 0;
     transform: translateX(-15px);
   }
+
   100% {
     opacity: 1;
     transform: translateX(0);
@@ -4630,9 +4634,12 @@ const removeExcludePathEntry = (index, type) => {
 
 /* 按钮脉冲动画 */
 @keyframes buttonPulse {
-  0%, 100% {
+
+  0%,
+  100% {
     box-shadow: 0 0 0 0 rgba(91, 207, 250, 0.4);
   }
+
   50% {
     box-shadow: 0 0 0 8px rgba(91, 207, 250, 0);
   }
@@ -4640,9 +4647,12 @@ const removeExcludePathEntry = (index, type) => {
 
 /* 图标弹跳动画 */
 @keyframes iconBounce {
-  0%, 100% {
+
+  0%,
+  100% {
     transform: scale(1);
   }
+
   50% {
     transform: scale(1.2);
   }
@@ -4654,6 +4664,7 @@ const removeExcludePathEntry = (index, type) => {
     opacity: 0;
     transform: translateY(10px);
   }
+
   100% {
     opacity: 1;
     transform: translateY(0);
@@ -4662,9 +4673,12 @@ const removeExcludePathEntry = (index, type) => {
 
 /* 输入框聚焦发光动画 */
 @keyframes inputGlow {
-  0%, 100% {
+
+  0%,
+  100% {
     box-shadow: 0 0 0 0 rgba(91, 207, 250, 0.3);
   }
+
   50% {
     box-shadow: 0 0 0 4px rgba(91, 207, 250, 0.1);
   }
