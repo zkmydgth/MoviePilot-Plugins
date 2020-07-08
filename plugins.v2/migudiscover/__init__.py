@@ -20,7 +20,7 @@ class MiGuDiscover(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/DDS-Derek/MoviePilot-Plugins/main/icons/migu_A.png"
     # 插件版本
-    plugin_version = "1.0.4"
+    plugin_version = "1.0.5"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -109,7 +109,7 @@ class MiGuDiscover(_PluginBase):
         if kwargs:
             params.update(kwargs)
         headers = {
-            "User-Agent": settings.USER_AGENT,
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
             "Referer": "https://www.miguvideo.com/",
         }
         res = RequestUtils(headers=headers).get_res(

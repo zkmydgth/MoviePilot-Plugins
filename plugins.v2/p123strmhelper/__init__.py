@@ -39,6 +39,9 @@ class MediaInfoDownloader:
 
     def __init__(self, client: P123AutoClient):
         self.client = client
+        self.headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+        }
 
     @staticmethod
     def is_file_leq_1k(file_path):
@@ -61,7 +64,7 @@ class MediaInfoDownloader:
             item,
             base_url="",
             async_=False,
-            headers={"User-Agent": settings.USER_AGENT},
+            headers=self.headers,
         )
         check_response(resp)
         return resp.get("data", {}).get("DownloadUrl", None)
@@ -75,9 +78,7 @@ class MediaInfoDownloader:
             download_url,
             stream=True,
             timeout=30,
-            headers={
-                "User-Agent": settings.USER_AGENT,
-            },
+            headers=self.headers,
         ) as response:
             response.raise_for_status()
             with open(file_path, "wb") as f:
@@ -432,7 +433,7 @@ class P123StrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/DDS-Derek/MoviePilot-Plugins/main/icons/P123Disk.png"
     # 插件版本
-    plugin_version = "1.0.10"
+    plugin_version = "1.0.11"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页

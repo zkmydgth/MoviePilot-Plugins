@@ -27,7 +27,7 @@ WEEKDAYS = [
 
 BANGUMI_API_URL = "https://api.bgm.tv/calendar"
 BANGUMI_HEADERS = {
-    "User-Agent": settings.USER_AGENT,
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
     "Referer": "https://api.bgm.tv/",
 }
 
@@ -46,7 +46,7 @@ class BangumiDailyDiscover(_PluginBase):
     # 插件图标
     plugin_icon = "Bangumi_A.png"
     # 插件版本
-    plugin_version = "1.0.3"
+    plugin_version = "1.0.4"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
