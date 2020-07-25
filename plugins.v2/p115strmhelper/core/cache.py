@@ -45,12 +45,25 @@ class IdPathCache:
             maxsize=maxsize,
         )
 
-    def add_cache(self, id: int, directory: str):
+    def add_cache(self, id: int, directory: str) -> None:
         """
         添加缓存
+
+        :param id (int): 文件夹 ID
+
+        :param directory (str): 文件夹路径
         """
-        self.id_to_dir.set(key=str(id), value=directory)
-        self.dir_to_id.set(key=directory, value=str(id))
+        id_key = str(id)
+        old_directory = self.id_to_dir.get(id_key)
+        if old_directory and old_directory != directory:
+            self.dir_to_id.delete(key=old_directory)
+
+        old_id = self.dir_to_id.get(directory)
+        if old_id is not None and str(old_id) != id_key:
+            self.id_to_dir.delete(key=str(old_id))
+
+        self.id_to_dir.set(key=id_key, value=directory)
+        self.dir_to_id.set(key=directory, value=id_key)
 
     def get_dir_by_id(self, id: int) -> Optional[str]:
         """
@@ -59,6 +72,30 @@ class IdPathCache:
         return: str | None
         """
         return self.id_to_dir.get(str(id))
+
+    def update_path_prefix(self, old_prefix: str, new_prefix: str) -> None:
+        """
+        批量更新缓存中的目录路径前缀
+
+        :param old_prefix (str): 旧的目录路径前缀
+
+        :param new_prefix (str): 新的目录路径前缀
+        """
+        old_parts = Path(old_prefix).parts
+        new_path = Path(new_prefix)
+        if not old_parts or not new_prefix:
+            return
+
+        cached_items = list(self.id_to_dir.items())
+        for id_key, directory in cached_items:
+            directory_parts = Path(directory).parts
+            if directory_parts[: len(old_parts)] != old_parts:
+                continue
+
+            relative_parts = directory_parts[len(old_parts) :]
+            relative_path = Path(*relative_parts) if relative_parts else Path()
+            updated_directory = (new_path / relative_path).as_posix()
+            self.add_cache(id=int(id_key), directory=updated_directory)
 
     def get_id_by_dir(self, directory: str) -> Optional[int]:
         """

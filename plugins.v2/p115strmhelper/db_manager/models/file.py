@@ -9,6 +9,8 @@ from sqlalchemy import (
     select,
     delete,
     and_,
+    literal,
+    or_,
     update,
     func,
 )
@@ -158,10 +160,22 @@ class File(P115StrmHelperBase):
         :param old_prefix (str): 旧的路径前缀
         :param new_prefix (str): 新的路径前缀
         """
+        old_prefix = old_prefix.rstrip("/") or "/"
+        new_prefix = new_prefix.rstrip("/") or "/"
+        if old_prefix == "/":
+            return True
+
         db.execute(
             update(File)
-            .where(File.path.startswith(old_prefix))
-            .values(path=func.replace(File.path, old_prefix, new_prefix))
+            .where(
+                or_(
+                    File.path == old_prefix,
+                    File.path.startswith(f"{old_prefix}/"),
+                )
+            )
+            .values(
+                path=literal(new_prefix) + func.substr(File.path, len(old_prefix) + 1)
+            )
         )
         return True
 

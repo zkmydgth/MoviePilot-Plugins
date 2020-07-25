@@ -991,6 +991,61 @@ class MonitorLife:
             remove_local=configer.monitor_life_move_out_media_remove_local_strm,
         )
 
+    def _sync_rename_path_records(
+        self,
+        databasehelper: FileDbHelper,
+        file_id: int,
+        file_category: int,
+        old_pan_path: Optional[str],
+        new_pan_path: str,
+    ) -> None:
+        """
+        同步重命名事件的数据库和目录路径缓存
+
+        :param databasehelper (FileDbHelper): 文件数据库操作实例
+
+        :param file_id (int): 重命名项目 ID
+
+        :param file_category (int): 文件类型，0 表示文件夹
+
+        :param old_pan_path (str): 重命名前的网盘路径
+
+        :param new_pan_path (str): 重命名后的网盘路径
+        """
+        if file_category == 0:
+            cached_old_pan_path = idpathcacher.get_dir_by_id(file_id)
+            if old_pan_path and old_pan_path != new_pan_path:
+                databasehelper.update_path_prefix_batch(
+                    old_pan_path, new_pan_path, False
+                )
+                logger.info(
+                    "【监控生活事件】目录重命名路径同步完成: %s -> %s",
+                    old_pan_path,
+                    new_pan_path,
+                )
+            cache_prefixes: List[str] = []
+            for path in (cached_old_pan_path, old_pan_path):
+                if path and path != new_pan_path and path not in cache_prefixes:
+                    cache_prefixes.append(path)
+            for path in cache_prefixes:
+                idpathcacher.update_path_prefix(path, new_pan_path)
+            idpathcacher.add_cache(id=file_id, directory=new_pan_path)
+            return
+
+        if old_pan_path:
+            databasehelper.update_path_prefix_batch(old_pan_path, new_pan_path, True)
+            logger.info(
+                "【监控生活事件】文件重命名数据库路径同步完成: %s -> %s",
+                old_pan_path,
+                new_pan_path,
+            )
+        elif databasehelper.update_path_by_id(file_id, new_pan_path):
+            logger.info(
+                "【监控生活事件】文件重命名数据库按 id 更新路径: %s -> %s",
+                file_id,
+                new_pan_path,
+            )
+
     def rename(self, event: Dict[str, Any]):
         """
         重命名事件处理
@@ -1029,6 +1084,14 @@ class MonitorLife:
             )
             return
 
+        self._sync_rename_path_records(
+            databasehelper=_databasehelper,
+            file_id=int(event["file_id"]),
+            file_category=int(event["file_category"]),
+            old_pan_path=old_pan_path,
+            new_pan_path=new_pan_path,
+        )
+
         # 未识别目录跳过处理
         if configer.pan_transfer_unrecognized_path and PathUtils.has_prefix(
             new_pan_path, configer.pan_transfer_unrecognized_path
@@ -1037,6 +1100,22 @@ class MonitorLife:
                 f"【监控生活事件】{new_pan_path} 为未识别目录下的路径，跳过重命名处理"
             )
             return
+
+        if configer.pan_transfer_enabled and configer.pan_transfer_paths:
+            if PathUtils.get_run_transfer_path(
+                paths=configer.pan_transfer_paths,
+                transfer_path=new_pan_path,
+            ):
+                logger.info(
+                    "【监控生活事件】重命名后路径命中待整理目录，执行网盘整理: %s",
+                    new_pan_path,
+                )
+                self.media_transfer(
+                    event=event,
+                    file_path=Path(new_pan_path),
+                    rmt_mediaext=self.rmt_mediaext,
+                )
+                return
 
         old_path = None
         if old_pan_path:
@@ -1083,16 +1162,6 @@ class MonitorLife:
                     f"【监控生活事件】{old_path} 本地文件夹不存在，跳过重命名处理: {event}",
                 )
                 return
-
-            if old_pan_path and new_pan_path:
-                _databasehelper.update_path_prefix_batch(
-                    old_pan_path, new_pan_path, False
-                )
-                logger.info(
-                    "【监控生活事件】目录重命名数据库路径批量同步完成: %s -> %s",
-                    old_pan_path,
-                    new_pan_path,
-                )
 
             if Path(new_path).exists():
                 logger.warning(
@@ -1156,25 +1225,6 @@ class MonitorLife:
                     f"【监控生活事件】旧文件路径与新文件路径不一致，跳过重命名处理: {event}",
                 )
                 return
-
-            if old_pan_path and new_pan_path:
-                _databasehelper.update_path_prefix_batch(
-                    old_pan_path, new_pan_path, True
-                )
-                logger.info(
-                    "【监控生活事件】文件重命名数据库路径同步完成: %s -> %s",
-                    old_pan_path,
-                    new_pan_path,
-                )
-            elif new_pan_path:
-                if _databasehelper.update_path_by_id(
-                    int(event["file_id"]), new_pan_path
-                ):
-                    logger.info(
-                        "【监控生活事件】文件重命名数据库按 id 更新路径: %s -> %s",
-                        event["file_id"],
-                        new_pan_path,
-                    )
 
             same_strm_path = old_strm_path.resolve() == new_strm_path.resolve()
 
