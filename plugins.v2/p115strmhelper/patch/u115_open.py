@@ -11,12 +11,28 @@ from ..core.config import configer
 
 class U115Patcher:
     """
-    一个用于控制 U115Pan.upload 方法猴子补丁的管理器。
+    一个用于控制 U115Pan 猴子补丁的管理器。
     支持手动启用/禁用，也支持作为上下文管理器使用。
     """
 
-    _original_method: Dict[str, Callable[..., Any]] = {"upload": None}
-    _func_active: Dict[str, bool] = {"upload": False}
+    _original_method: Dict[str, Callable[..., Any]] = {
+        "upload": None,
+        "create_folder": None,
+        "get_item": None,
+        "get_folder": None,
+    }
+    _func_active: Dict[str, bool] = {
+        "upload": False,
+        "create_folder": False,
+        "get_item": False,
+        "get_folder": False,
+    }
+    log_map: Dict[str, str] = {
+        "upload": "上传",
+        "create_folder": "创建目录",
+        "get_item": "获取文件信息",
+        "get_folder": "获取目录信息",
+    }
 
     @staticmethod
     def _patch_upload(
@@ -34,6 +50,39 @@ class U115Patcher:
             target_dir=target_dir, local_path=local_path, new_name=new_name
         )
 
+    @staticmethod
+    def _patch_create_folder(
+        self_instance: U115Pan, parent_item: schemas.FileItem, name: str
+    ) -> Optional[schemas.FileItem]:
+        """
+        自定义 create_folder
+        """
+        helper = U115OpenHelper()
+        logger.debug("【P115Open】调用补丁接口创建目录")
+        return helper.create_folder(parent_item=parent_item, name=name)
+
+    @staticmethod
+    def _patch_get_item(
+        self_instance: U115Pan, path: Path
+    ) -> Optional[schemas.FileItem]:
+        """
+        自定义 get_item
+        """
+        helper = U115OpenHelper()
+        logger.debug("【P115Open】调用补丁接口获取文件信息")
+        return helper.get_item(path=path)
+
+    @staticmethod
+    def _patch_get_folder(
+        self_instance: U115Pan, path: Path
+    ) -> Optional[schemas.FileItem]:
+        """
+        自定义 get_folder
+        """
+        helper = U115OpenHelper()
+        logger.debug("【P115Open】调用补丁接口获取目录信息")
+        return helper.get_folder(path=path)
+
     @classmethod
     def enable(cls):
         """
@@ -50,17 +99,35 @@ class U115Patcher:
             cls._func_active["upload"] = True
             logger.info("【P115Open】上传接口补丁应用成功")
 
+        if configer.transfer_module_enhancement:
+            modules = ["create_folder", "get_item", "get_folder"]
+            for module in modules:
+                if cls._func_active.get(module):
+                    continue
+
+                original_method_name = module
+                patch_method_name = f"_patch_{module}"
+
+                original_method = getattr(U115Pan, original_method_name)
+                patch_method = getattr(cls, patch_method_name)
+
+                if cls._original_method.get(module) is None:
+                    cls._original_method[module] = original_method
+
+                setattr(U115Pan, original_method_name, patch_method)
+
+                cls._func_active[module] = True
+                logger.info(f"【P115Open】{cls.log_map[module]}接口补丁应用成功")
+
     @classmethod
     def disable(cls):
         """
         禁用猴子补丁
         """
-        log_map: Dict[str, str] = {"upload": "上传接口恢复原始状态成功"}
-
         for key, status in cls._func_active.items():
             if status:
                 if cls._original_method[key] is not None:
-                    U115Pan.upload = cls._original_method[key]
+                    setattr(U115Pan, key, cls._original_method[key])
 
             cls._func_active[key] = False
-            logger.info(f"【P115Open】{log_map[key]}")
+            logger.info(f"【P115Open】{cls.log_map[key]}接口恢复原始状态成功")
