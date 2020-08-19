@@ -279,7 +279,7 @@ class ConfigManager(BaseModel):
         """
         return self.get_user_agent()
 
-    def _update_aliyun_token(self) -> str:
+    def _update_aliyun_token(self):
         """
         从文件动态获取最新的阿里云盘Token
         """

@@ -534,6 +534,7 @@ class U115OpenHelper:
 
         try:
             # 初始化分片
+            upload_id = None
             for attempt in range(3):
                 try:
                     upload_id = bucket.init_multipart_upload(

@@ -28,7 +28,7 @@ class OfflineDownloadHelper:
         self.monitorlife = monitorlife
         self.transfer_list: List = []
 
-        self.offline_list_cache = {"data": None, "timestamp": None}
+        self.offline_list_cache = {"data": None, "timestamp": 0}
 
     @staticmethod
     def build_offline_urls_payload(urls, savepath=None, wp_path_id=None):

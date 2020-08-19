@@ -27,7 +27,6 @@ from ..utils.strm import StrmUrlGetter, StrmGenerater
 from ..helper.mediainfo_download import MediaInfoDownloader
 
 from app.log import logger
-from app.core.config import settings
 from app.core.meta import MetaBase
 from app.core.context import MediaInfo
 from app.chain.storage import StorageChain
@@ -78,7 +77,7 @@ class IncrementSyncStrmHelper:
         self.mediainfo_fail_count = 0
         self.api_count = 0
         self.strm_fail_dict: Dict[str, str] = {}
-        self.mediainfo_fail_dict: List = None
+        self.mediainfo_fail_dict: List = []
         self.server_address = configer.get_config("moviepilot_address").rstrip("/")
         self.pan_transfer_enabled = configer.get_config("pan_transfer_enabled")
         self.pan_transfer_paths = configer.get_config("pan_transfer_paths")
@@ -176,7 +175,7 @@ class IncrementSyncStrmHelper:
         """
         data = self.databasehelper.get_by_path(path=path)
         if data:
-            size = data.get("size", None)
+            size = data.get("size", 0)
             if size and size > 0:
                 return size
         return None
@@ -186,7 +185,7 @@ class IncrementSyncStrmHelper:
         通过路径获取 pickcode
         """
         last_path = None
-        processed = None
+        processed = []
         while True:
             # 这里如果有多条重复数据直接删除文件重复信息，然后迭代重新获取
             try:
@@ -208,6 +207,8 @@ class IncrementSyncStrmHelper:
             if last_path and last_path == temp_path:
                 logger.debug(f"文件夹遍历错误：{last_path} {processed}")
                 raise ValueError(f"文件夹遍历错误，无法找到路径 {path} 对应的 cid")
+            if not cid:
+                raise ValueError(f"无法找到路径 {path} 的 cid")
             for batch in batched(
                 self.__iterdir(cid=cid, path=temp_path.as_posix()), 5_000
             ):
@@ -590,7 +591,7 @@ class FullSyncStrmHelper:
         self.mediainfo_fail_count = 0
         self.remove_unless_strm_count = 0
         self.strm_fail_dict: Dict[str, str] = {}
-        self.mediainfo_fail_dict: List = None
+        self.mediainfo_fail_dict: List = []
         self.server_address = configer.get_config("moviepilot_address").rstrip("/")
         self.pan_transfer_enabled = configer.get_config("pan_transfer_enabled")
         self.pan_transfer_paths = configer.get_config("pan_transfer_paths")
@@ -1009,7 +1010,7 @@ class ShareStrmHelper:
         self.mediainfo_count = 0
         self.mediainfo_fail_count = 0
         self.strm_fail_dict: Dict[str, str] = {}
-        self.mediainfo_fail_dict: List = None
+        self.mediainfo_fail_dict: List = []
         self.share_media_path = configer.get_config("user_share_pan_path")
         self.local_media_path = configer.get_config("user_share_local_path")
         self.server_address = configer.get_config("moviepilot_address").rstrip("/")
@@ -1381,7 +1382,7 @@ class TransferStrmHelper:
         status, strm_target_path = self.generate_strm_files(
             target_dir=local_media_dir,
             pan_media_dir=pan_media_dir,
-            item_dest_path=item_dest_path,
+            item_dest_path=Path(item_dest_path),
             basename=item_dest_basename,
             url=strm_url,
         )
