@@ -3,6 +3,7 @@ from pathlib import Path
 from threading import Thread
 from time import monotonic
 from typing import Any, Callable, Dict, List, Optional, Tuple
+from uuid import uuid4
 
 from grpc import RpcError, StatusCode
 from cryptography.hazmat.primitives import hashes
@@ -615,24 +616,21 @@ class CloudDriveApi:
 
         logger.info("【CloudDrive】预计算文件哈希: %s", target_name)
         precomputed_hashes = self._compute_all_hashes_one_pass(local_path)
+        progress_callback = transfer_process(target_path)
+        stream = None
+        upload_id = None
+        upload_finished = False
         try:
+            stream = self.client.remote_upload_channel(
+                device_id=f"moviepilot-{uuid4().hex[:12]}"
+            )
             started = self.client.start_remote_upload(
                 file_path=target_path,
                 file_size=file_size,
                 known_hashes=precomputed_hashes,
                 client_can_calculate_hashes=True,
             )
-        except Exception as e:
-            logger.error("【CloudDrive】StartRemoteUpload 失败 %s: %s", target_path, e)
-            return None
-        upload_id = started.upload_id
-        progress_callback = transfer_process(target_path)
-        stream = None
-        upload_finished = False
-        try:
-            stream = self.client.remote_upload_channel(
-                device_id=f"moviepilot-{upload_id}"
-            )
+            upload_id = started.upload_id
             with open(local_path, "rb") as f:
                 for reply in stream:
                     if global_vars.is_transfer_stopped(target_path):
@@ -767,7 +765,8 @@ class CloudDriveApi:
                             return None
         except Exception as e:
             logger.error("【CloudDrive】上传过程异常: %s", e)
-            self._cancel_upload(upload_id)
+            if upload_id:
+                self._cancel_upload(upload_id)
             return None
         finally:
             if stream is not None:
