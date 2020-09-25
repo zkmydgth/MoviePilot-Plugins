@@ -200,6 +200,7 @@ class IncrementSyncStrmHelper:
                 return file_item.get("pickcode")
             file_path = Path(path)
             temp_path = None
+            cid = None
             for part in file_path.parents:
                 cid = self.__get_cid_by_path(part.as_posix())
                 if cid:
@@ -369,10 +370,10 @@ class IncrementSyncStrmHelper:
         """
         处理新增路径
         """
-        try:
-            pan_path_obj = Path(pan_path)
-            new_file_path = Path(local_path)
+        pan_path_obj = Path(pan_path)
+        new_file_path = Path(local_path)
 
+        try:
             if self.pan_transfer_enabled and self.pan_transfer_paths:
                 if PathUtils.get_run_transfer_path(
                     paths=self.pan_transfer_paths,
@@ -668,7 +669,7 @@ class FullSyncStrmHelper:
         return local_tree_task_thread
 
     def __process_db_item(
-        self, batch: List[Dict], seen_folder_ids: Set[str], seen_file_ids: Set[str]
+        self, batch, seen_folder_ids: Set[str], seen_file_ids: Set[str]
     ) -> Tuple[Set[str], Set[str]]:
         """
         处理写入数据库的内容
