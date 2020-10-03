@@ -6,14 +6,6 @@ from pathlib import Path
 from re import search as re_search
 from typing import Any, List, Dict, Tuple, Optional, Union
 
-# p115client 0.0.9.6.5.1 在 import 期依赖 python-concurrenttools 的旧函数名
-# （threadpool_map / taskgroup_map）；共享 venv 里若已装 0.1.9（改名为
-# thread_conmap / async_conmap），必须先挂兼容别名，否则插件在 import 阶段即失败。
-# 详见 utils/concurrenttools_compat.py。
-from .utils.concurrenttools_compat import ensure_legacy_concurrenttools_aliases
-
-_concurrenttools_aliased = ensure_legacy_concurrenttools_aliases()
-
 from app.sdk.config import settings
 from app.sdk.events import eventmanager, Event
 from app.sdk.logging import logger
@@ -95,14 +87,6 @@ from .utils.sentry import sentry_manager
 from .helper.share.share_links import ShareLinkResolver
 from .utils.rename_dict import RenameDictUtils
 from .utils.url import UrlUtils
-
-if _concurrenttools_aliased:
-    logger.warning(
-        "检测到 python-concurrenttools 0.1.9+（旧函数名已改名），已为 p115client 挂载兼容别名：%s。"
-        "治本方式是把 python-concurrenttools 降回 <0.1.9。",
-        "、".join(_concurrenttools_aliased),
-    )
-
 
 # 实例化一个该插件专用的 SessionManager
 session_manager = BaseSessionManager(session_class=Session)

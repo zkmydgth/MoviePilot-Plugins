@@ -1,26 +1,19 @@
-# ⚠️ p115client 必须与 python-concurrenttools 成对锁定，不要单独升任一方。
+# ⚠️ p115client 与 python-concurrenttools 是成对关系：0.0.9.7.2 起 p115client 要求
+# python-concurrenttools>=0.1.9（0.1.9 把 threadpool_map / taskgroup_map 改名为
+# thread_conmap / async_conmap）。本插件已按新版 API 完成适配，所以不再压 0.1.9 上限，
+# 也不再需要运行时别名兜底（原 utils/concurrenttools_compat.py 已随本版删除）。
 #
-# 【为什么锁 concurrenttools < 0.1.9】
-# p115client 0.0.9.6.5.1 声明 `python-concurrenttools>=0.1.8` 但没有上限，
-# 而 upstream concurrenttools 0.1.9 把 threadpool_map 改名为 thread_conmap，
-# 导致 p115client/tool/upload.py 第 23 行的
-#     from concurrenttools import threadpool_map
-# 抛 ImportError —— 本插件 21 个测试模块集体 import 失败、CI 变红。
-# 因此必须显式压住上限，让解析结果停在 0.1.8。
-# （注：CI 的 --find-links 只是"额外候选来源"，pip 仍会与 index 结果合并后
-#   按版本取高，所以 wheels/ 里放 0.1.8 并不能自动拦住 0.1.9。）
-#
-# 【为什么锁定 0.0.9.6.5.1 而不升到 0.0.9.7.2】
-# 0.0.9.7.x 对 iterdir 模块做了一次大重构（__all__ 砍掉 29 个符号），
-# 改名后又移除了本插件正在使用的下列 API，升级会直接打断插件：
-#     iter_file_list            -> iterdir
+# 【0.0.9.7.x 的 API 改名（已适配，共 14 处调用点）】
+#     iter_file_list            -> iter_nodes（p115client.tool.iter_nodes）
+#     iter_files_with_path      -> iter_files(with_path=True)
 #     iter_files_with_path_skim -> iter_files_skim(with_path=True)
 #     traverse_tree_with_path   -> traverse_tree(with_path=True)
-# 其中 full_sync_iter_function 是用户可见配置项，两个取值在新版里均已失效。
-# 要升级 p115client，需先完成上述 14 处调用点的适配改造。
-p115client==0.0.9.6.5.1
-python-concurrenttools<0.1.9
-sentry-sdk~=2.67.1
+# helper/strm/share/__init__.py 的 share_iterdir 参数 max_workers=0 亦改为 order="user_ptime"。
+# full_sync_iter_function 的两个取值仍用旧名（上游同样保留），只当"选项标识"，
+# 由 helper/strm/full/__init__.py 的 dispatch 映射到新 API。
+# 将来再动这一组依赖，先跑全量测试，重点是 helper/{life,strm,share,webdav,mediainfo_download}。
+p115client==0.0.9.7.2
+sentry-sdk~=2.71.0
 aligo~=6.2.8
 qrcode_terminal~=0.8
 pyahocorasick>=2.3.1

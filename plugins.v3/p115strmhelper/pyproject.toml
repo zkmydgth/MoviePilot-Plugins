@@ -3,11 +3,9 @@ name = "moviepilot-plugin-p115strmhelper"
 dynamic = ["version"]
 requires-python = ">=3.12"
 dependencies = [
-    # 与 python-concurrenttools 成对锁定，原因见 requirements.txt 顶部注释：
-    # 0.0.9.7.x 重构了 iterdir 模块，移除了本插件在用的 iter_file_list 等 API。
-    "p115client==0.0.9.6.5.1",
-    "python-concurrenttools<0.1.9",
-    "sentry-sdk~=2.67.1",
+    # 成对依赖与 API 改名说明见 requirements.txt 顶部注释（已按 0.0.9.7.x 适配）。
+    "p115client==0.0.9.7.2",
+    "sentry-sdk~=2.71.0",
     "aligo~=6.2.8",
     "qrcode_terminal~=0.8",
     "pyahocorasick>=2.3.1",
