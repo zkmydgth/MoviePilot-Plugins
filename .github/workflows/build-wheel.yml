@@ -25,7 +25,7 @@ on:
       platforms:
         description: '编译的目标平台与架构组合，以空格分隔'
         required: true
-        default: 'windows-amd64 linux-x86_64 linux-i686 linux-aarch64 macos-x86_64 macos-arm64 musllinux-x86_64 musllinux-aarch64'
+        default: 'windows-amd64 linux-x86_64 linux-i686 linux-aarch64 macos-x86_64 macos-arm64'
         type: string
       commit_directory:
         description: '可选：自定义提交目录。留空则使用默认值 wheels/包名/版本/'
