@@ -80,7 +80,19 @@ class P115Disk(_PluginBase):
         pass
 
     def get_api(self) -> List[Dict[str, Any]]:
-        pass
+        """
+        获取插件API端点
+        """
+        return [
+            {
+                "path": "/clear_cache",
+                "endpoint": self.clear_cache,
+                "auth": "bear",
+                "methods": ["POST"],
+                "summary": "清理缓存",
+                "description": "清理115网盘文件路径ID缓存和文件详情ID缓存",
+            }
+        ]
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         """
@@ -169,7 +181,45 @@ class P115Disk(_PluginBase):
         }
 
     def get_page(self) -> List[dict]:
-        pass
+        """
+        获取插件数据页面
+        """
+        return [
+            {
+                "component": "VCard",
+                "props": {"variant": "outlined"},
+                "content": [
+                    {
+                        "component": "VCardText",
+                        "props": {"class": "pa-6 d-flex flex-column align-center"},
+                        "content": [
+                            {
+                                "component": "VBtn",
+                                "props": {
+                                    "color": "primary",
+                                    "variant": "elevated",
+                                    "size": "large",
+                                    "prepend-icon": "mdi-delete-sweep",
+                                    "class": "mb-3",
+                                },
+                                "text": "清理缓存",
+                                "events": {
+                                    "click": {
+                                        "api": "plugin/P115Disk/clear_cache",
+                                        "method": "post",
+                                    },
+                                },
+                            },
+                            {
+                                "component": "div",
+                                "props": {"class": "text-caption text-medium-emphasis"},
+                                "text": "清理115网盘文件路径ID缓存和文件详情ID缓存",
+                            },
+                        ],
+                    },
+                ],
+            },
+        ]
 
     def get_module(self) -> Dict[str, Any]:
         """
@@ -427,6 +477,34 @@ class P115Disk(_PluginBase):
             return None
 
         return {"move": "移动", "copy": "复制"}
+
+    def clear_cache(self) -> Dict[str, Any]:
+        """
+        清理缓存
+
+        :return: 清理结果
+        """
+        try:
+            if not self._p115_api:
+                return {
+                    "code": 1,
+                    "msg": "插件未启用或未初始化",
+                }
+
+            self._p115_api._id_cache.clear()
+            self._p115_api._id_item_cache.clear()
+
+            logger.info("【P115Disk】缓存清理成功")
+            return {
+                "code": 0,
+                "msg": "缓存清理成功",
+            }
+        except Exception as e:
+            logger.error(f"【P115Disk】缓存清理失败: {e}", exc_info=True)
+            return {
+                "code": 1,
+                "msg": f"缓存清理失败: {str(e)}",
+            }
 
     def stop_service(self):
         """
