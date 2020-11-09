@@ -113,6 +113,7 @@ class SentryManager:
             {"type": OSError, "message": "Stale file handle"},
             {"type": OSError, "message": "No space left on device"},
             {"type": OSError, "message": "Input/output error"},
+            {"type": OSError, "message": "Host is down"},
             {"type": PermissionError, "message": "Permission denied"},
             {"type": FileNotFoundError, "message": "No such file or directory"},
             {"type": NotADirectoryError},
