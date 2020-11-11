@@ -10,7 +10,7 @@ from urllib.parse import quote
 from qrcode import make as qr_make
 from orjson import dumps, loads
 from p115client import P115Client, check_response
-from p115client.exception import DataError
+from p115client.exception import P115DataError
 from p115client.tool.fs_files import iter_fs_files
 from fastapi import Request, Response, Depends, status
 from fastapi.responses import JSONResponse
@@ -187,7 +187,7 @@ class Api:
             logger.error(f"【用户存储状态】获取信息时发生意外错误: {e}", exc_info=True)
             error_str_lower = str(e).lower()
             if (
-                isinstance(e, DataError)
+                isinstance(e, P115DataError)
                 and ("errno 61" in error_str_lower or "enodata" in error_str_lower)
                 and "<!doctype html>" in error_str_lower
             ):
