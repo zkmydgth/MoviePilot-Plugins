@@ -133,6 +133,21 @@ class PathMatchingHelper:
                 return True, parts[0], parts[1]
         return False, None, None
 
+    def get_p115_strm_path(self, paths, media_path):
+        """
+        匹配全量目录，自动生成新的 paths
+        """
+        media_paths = paths.split("\n")
+        for path in media_paths:
+            if not path:
+                continue
+            parts = path.split("#", 1)
+            if self.has_prefix(media_path, parts[1]):
+                local_path = Path(parts[0]) / Path(media_path).relative_to(parts[1])
+                final_paths = f"{local_path}#{media_path}"
+                return True, final_paths
+        return False, None
+
 
 class IdPathCache:
     """
@@ -850,7 +865,7 @@ class P115StrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png"
     # 插件版本
-    plugin_version = "1.7.8"
+    plugin_version = "1.7.9"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -1211,6 +1226,13 @@ class P115StrmHelper(_PluginBase):
                 "desc": "转存分享到待整理目录",
                 "category": "",
                 "data": {"action": "p115_add_share"},
+            },
+            {
+                "cmd": "/p115_strm",
+                "event": EventType.PluginAction,
+                "desc": "全量生成指定网盘目录STRM",
+                "category": "",
+                "data": {"action": "p115_strm"},
             },
         ]
 
@@ -2248,6 +2270,80 @@ class P115StrmHelper(_PluginBase):
         )
         self.full_sync_strm_files()
 
+    @eventmanager.register(EventType.PluginAction)
+    def p115_strm(self, event: Event):
+        """
+        全量生成指定网盘目录STRM
+        """
+        if not event:
+            return
+        event_data = event.event_data
+        if not event_data or event_data.get("action") != "p115_strm":
+            return
+        args = event_data.get("arg_str")
+        if not args:
+            logger.error(f"【全量STRM生成】缺少参数：{event_data}")
+            self.post_message(
+                channel=event.event_data.get("channel"),
+                title="参数错误！ /p115_strm 网盘路径",
+                userid=event.event_data.get("user"),
+            )
+            return
+        if (
+            not self._full_sync_strm_paths
+            or not self._moviepilot_address
+            or not self._user_download_mediaext
+        ):
+            self.post_message(
+                channel=event.event_data.get("channel"),
+                title="全量同步配置错误，请前往插件配置！",
+                userid=event.event_data.get("user"),
+            )
+            return
+        status, paths = self.pathmatchinghelper.get_p115_strm_path(
+            paths=self._full_sync_strm_paths, media_path=args
+        )
+        if not status:
+            self.post_message(
+                channel=event.event_data.get("channel"),
+                title=f"{args} 匹配目录失败，请检查输入路径和插件配置！",
+                userid=event.event_data.get("user"),
+            )
+            return
+        strm_helper = FullSyncStrmHelper(
+            user_rmt_mediaext=self._user_rmt_mediaext,
+            user_download_mediaext=self._user_download_mediaext,
+            auto_download_mediainfo=self._full_sync_auto_download_mediainfo_enabled,
+            client=self._client,
+            mediainfodownloader=self.mediainfodownloader,
+            server_address=self._moviepilot_address,
+            pan_transfer_enabled=self._pan_transfer_enabled,
+            pan_transfer_paths=self._pan_transfer_paths,
+            strm_url_format=self._strm_url_format,
+            overwrite_mode=self._full_sync_overwrite_mode,
+        )
+        self.post_message(
+            channel=event.event_data.get("channel"),
+            title=f"开始 {args} 全量同步 ...",
+            userid=event.event_data.get("user"),
+        )
+        strm_helper.generate_strm_files(
+            full_sync_strm_paths=paths,
+        )
+        strm_count, mediainfo_count, strm_fail_count, mediainfo_fail_count = (
+            strm_helper.get_generate_total()
+        )
+        self.post_message(
+            channel=event.event_data.get("channel"),
+            userid=event.event_data.get("user"),
+            title="✅【115网盘】全量生成 STRM 文件完成",
+            text=f"📂 网盘路径：{args}\n"
+            + f"📄 生成STRM文件 {strm_count} 个\n"
+            + f"⬇️ 下载媒体文件 {mediainfo_count} 个\n"
+            + f"❌ 生成STRM失败 {strm_fail_count} 个\n"
+            + f"🚫 下载媒体失败 {mediainfo_fail_count} 个",
+        )
+
     def add_share(self, url, channel, userid):
         """
         分享转存
@@ -2396,7 +2492,7 @@ class P115StrmHelper(_PluginBase):
             self.post_message(
                 mtype=NotificationType.Plugin,
                 title="✅【115网盘】全量生成 STRM 文件完成",
-                text=f"📂 生成STRM文件 {strm_count} 个\n"
+                text=f"📄 生成STRM文件 {strm_count} 个\n"
                 + f"⬇️ 下载媒体文件 {mediainfo_count} 个\n"
                 + f"❌ 生成STRM失败 {strm_fail_count} 个\n"
                 + f"🚫 下载媒体失败 {mediainfo_fail_count} 个",
@@ -2450,7 +2546,7 @@ class P115StrmHelper(_PluginBase):
                 self.post_message(
                     mtype=NotificationType.Plugin,
                     title="✅【115网盘】分享生成 STRM 文件完成",
-                    text=f"📂 生成STRM文件 {strm_count} 个\n"
+                    text=f"📄 生成STRM文件 {strm_count} 个\n"
                     + f"⬇️ 下载媒体文件 {mediainfo_count} 个\n"
                     + f"❌ 生成STRM失败 {strm_fail_count} 个\n"
                     + f"🚫 下载媒体失败 {mediainfo_fail_count} 个",
@@ -2642,7 +2738,7 @@ class P115StrmHelper(_PluginBase):
 
             text_parts = []
             if counts["strm_count"] > 0:
-                text_parts.append(f"📂 生成STRM文件 {counts['strm_count']} 个")
+                text_parts.append(f"📄 生成STRM文件 {counts['strm_count']} 个")
             if counts["mediainfo_count"] > 0:
                 text_parts.append(f"⬇️ 下载媒体文件 {counts['mediainfo_count']} 个")
 
