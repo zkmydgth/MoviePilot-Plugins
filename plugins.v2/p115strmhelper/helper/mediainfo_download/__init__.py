@@ -1,16 +1,23 @@
-import asyncio
-import time
+from asyncio import Semaphore, gather, run as asyncio_run, sleep as asyncio_sleep
 from base64 import b64decode
+from errno import EIO
 from itertools import batched
 from pathlib import Path
-from uuid import uuid4
-from typing import List, cast, Dict, Set, Optional, Tuple, Generator
-from errno import EIO
+from time import sleep as time_sleep
+from typing import Dict, Generator, List, Optional, Set, Tuple, cast
 from urllib.parse import unquote, urlsplit
+from uuid import uuid4
 
-import aiofiles
-import aiofiles.os
-import httpx
+from aiofiles import open as aio_open
+from aiofiles.os import stat as aio_stat
+from httpx import (
+    AsyncClient,
+    HTTPStatusError,
+    LocalProtocolError,
+    RequestError,
+    post as httpx_post,
+    stream as httpx_stream,
+)
 from orjson import loads
 from p115rsacipher import encrypt, decrypt
 from p115pickcode import pickcode_to_id
@@ -91,7 +98,7 @@ class MediaInfoDownloader:
         如果文件不存在，返回 True。
         """
         try:
-            stat_result = await aiofiles.os.stat(file_path)
+            stat_result = await aio_stat(file_path)
             return stat_result.st_size <= 100
         except FileNotFoundError:
             return True
@@ -123,7 +130,7 @@ class MediaInfoDownloader:
         """
         获取下载链接
         """
-        resp = httpx.post(
+        resp = httpx_post(
             "http://proapi.115.com/android/2.0/ufile/download",
             data={"data": encrypt(f'{{"pick_code":"{pickcode}"}}').decode("utf-8")},
             headers=self.headers,
@@ -180,7 +187,7 @@ class MediaInfoDownloader:
         保存媒体信息文件
         """
         file_path.parent.mkdir(parents=True, exist_ok=True)
-        with httpx.stream(
+        with httpx_stream(
             "GET",
             download_url,
             timeout=30,
@@ -197,8 +204,8 @@ class MediaInfoDownloader:
 
     async def async_save_mediainfo_file(
         self,
-        client: httpx.AsyncClient,
-        semaphore: asyncio.Semaphore,
+        client: AsyncClient,
+        semaphore: Semaphore,
         file_path: Path,
         file_name: str,
         download_url: str,
@@ -234,7 +241,7 @@ class MediaInfoDownloader:
                             response.raise_for_status()
                         response.raise_for_status()
                         file_path.parent.mkdir(parents=True, exist_ok=True)
-                        async with aiofiles.open(file_path, "wb") as f:
+                        async with aio_open(file_path, "wb") as f:
                             async for chunk in response.aiter_bytes(chunk_size=8192):
                                 await f.write(chunk)
                                 file_content_buffer.extend(chunk)
@@ -259,16 +266,16 @@ class MediaInfoDownloader:
 
                 except DownloadValidationFail as e:
                     error_message = str(e)
-                except httpx.LocalProtocolError as e:
+                except LocalProtocolError as e:
                     error_message = f"协议错误 (LocalProtocolError): {e}"
-                except httpx.HTTPStatusError as e:
+                except HTTPStatusError as e:
                     if e.response.status_code == 403:
                         logger.error(
                             f"【下载失败】获取 {file_name} 时被拒绝 (403 Forbidden)，将不会重试。"
                         )
                         return None
                     error_message = f"HTTP错误 {e.response.status_code}"
-                except httpx.RequestError as e:
+                except RequestError as e:
                     error_message = f"网络请求错误 {type(e).__name__}"
                 except Exception as e:
                     error_message = f"未知错误 {type(e).__name__}: {e}"
@@ -278,7 +285,7 @@ class MediaInfoDownloader:
                 )
 
                 if attempt < max_retries - 1:
-                    await asyncio.sleep(1)
+                    await asyncio_sleep(1)
                 else:
                     self.mediainfo_fail_count += 1
                     self.mediainfo_fail_dict.append(file_path.as_posix())
@@ -296,8 +303,8 @@ class MediaInfoDownloader:
         """
         为单个批次创建并并发执行所有下载任务
         """
-        semaphore = asyncio.Semaphore(256)
-        async with httpx.AsyncClient(follow_redirects=True) as client:
+        semaphore = Semaphore(256)
+        async with AsyncClient(follow_redirects=True) as client:
             tasks = []
             for item in item_list:
                 url = data_map.get(item[value])
@@ -314,7 +321,7 @@ class MediaInfoDownloader:
                     )
                     tasks.append(task)
             if tasks:
-                result = await asyncio.gather(*tasks)
+                result = await gather(*tasks)
                 if oof_upload:
                     return list(filter(bool, result))
         return None
@@ -325,8 +332,8 @@ class MediaInfoDownloader:
         """
         为单个批次分享创建并并发执行所有下载任务
         """
-        semaphore = asyncio.Semaphore(256)
-        async with httpx.AsyncClient(follow_redirects=True) as client:
+        semaphore = Semaphore(256)
+        async with AsyncClient(follow_redirects=True) as client:
             tasks = []
             for item in item_list:
                 path = Path(item["path"])
@@ -340,7 +347,7 @@ class MediaInfoDownloader:
                 )
                 tasks.append(task)
             if tasks:
-                result = await asyncio.gather(*tasks)
+                result = await gather(*tasks)
                 if oof_upload:
                     return list(filter(bool, result))
         return None
@@ -393,7 +400,7 @@ class MediaInfoDownloader:
                     for info in resp["data"]["list"]
                     if info.get("file_id")
                 }
-                asyncio.run(
+                asyncio_run(
                     self.__async_download_batch_subtitle_image(subtitles, item_list)
                 )
             except Exception as e:
@@ -424,7 +431,7 @@ class MediaInfoDownloader:
                 )
                 p115_check_response(resp)
                 # 休眠等待 115 全部转存完成
-                time.sleep(8)
+                time_sleep(8)
                 attr = next(
                     _iter_fs_files(
                         client=self.client,
@@ -443,7 +450,7 @@ class MediaInfoDownloader:
                     for info in resp["data"]["list"]
                     if info.get("file_id")
                 }
-                asyncio.run(
+                asyncio_run(
                     self.__async_download_batch_subtitle_image(subtitles, item_list)
                 )
             except Exception as e:
@@ -497,7 +504,7 @@ class MediaInfoDownloader:
                             )
                     if url:
                         images[attr["sha1"]] = url
-                asyncio.run(
+                asyncio_run(
                     self.__async_download_batch_subtitle_image(images, item_list)
                 )
             except Exception as e:
@@ -573,7 +580,7 @@ class MediaInfoDownloader:
                 )
                 p115_check_response(resp)
                 # 休眠等待 115 全部转存完成
-                time.sleep(8)
+                time_sleep(8)
                 file_info_lst = list(
                     iter_files_with_path_skim(
                         client=self.client,
@@ -587,7 +594,7 @@ class MediaInfoDownloader:
                     ",".join(pcs), user_agent=configer.get_user_agent()
                 )
                 for batch in batched(resp.items(), self.max_workers):
-                    r_lst = asyncio.run(
+                    r_lst = asyncio_run(
                         self.__async_download_batch_share(
                             [
                                 {
@@ -603,7 +610,7 @@ class MediaInfoDownloader:
                     )
                     if oof_upload:
                         upload_lst.extend(r_lst)
-                    time.sleep(1)
+                    time_sleep(1)
             except Exception as e:
                 logger.error(f"【媒体信息文件下载】批处理下载文件失败: {e}")
             finally:
@@ -629,14 +636,14 @@ class MediaInfoDownloader:
                 for batch in batched(item_list, self.max_workers):
                     if self.stop_all_flag:
                         return
-                    r_lst = asyncio.run(
+                    r_lst = asyncio_run(
                         self.__async_download_batch_subtitle_image(
                             data_map, batch, value="file_id", oof_upload=oof_upload
                         )
                     )
                     if oof_upload:
                         upload_lst.extend(r_lst)
-                    time.sleep(1)
+                    time_sleep(1)
         except Exception as e:
             logger.error(f"【媒体信息文件下载】批处理下载文件失败: {e}")
 
@@ -721,7 +728,7 @@ class MediaInfoDownloader:
                 other_list_append(item)
 
         if image_list:
-            asyncio.run(self.__async_download_batch_share(image_list))
+            asyncio_run(self.__async_download_batch_share(image_list))
         if subtitle_list:
             self.batch_share_subtitle_downloader(subtitle_list)
         if oof_fast_mi_list:

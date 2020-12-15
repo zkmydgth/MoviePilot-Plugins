@@ -8,8 +8,9 @@ from app.plugins import _PluginBase
 from app.schemas import FileItem, StorageOperSelectionEventData, StorageUsage
 from app.schemas.types import ChainEventType
 
-from .clouddrive_api import CloudDriveApi
 from clouddrive2_client import CloudDriveClient
+
+from .clouddrive_api import CloudDriveApi
 from .version import VERSION
 
 
