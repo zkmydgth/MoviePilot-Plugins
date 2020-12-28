@@ -454,8 +454,8 @@ class Api:
                 return ApiResponse(
                     data=AliyunDriveQRCodeData(
                         qrcode=f"data:image/png;base64,{base64_string}",
-                        t=data.get("t"),
-                        ck=data.get("ck"),
+                        t=str(data.get("t", "")),
+                        ck=str(data.get("ck", "")),
                     )
                 )
             else:
