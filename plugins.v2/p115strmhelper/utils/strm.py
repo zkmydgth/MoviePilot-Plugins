@@ -422,6 +422,18 @@ class StrmUrlGetter:
             except Exception as e:
                 logger.error(f"【STRM URL 模板】渲染失败，使用默认格式: {e}")
 
+        if configer.fuse_strm_takeover_enabled:
+            try:
+                from ..helper.strm.mount import match_fuse_strm_takeover
+
+                fuse_strm_content = match_fuse_strm_takeover(
+                    file_name=file_name, file_path=file_path
+                )
+                if fuse_strm_content:
+                    return fuse_strm_content
+            except Exception as e:
+                logger.error(f"【FUSE STRM 接管】处理失败: {e}", exc_info=True)
+
         strm_url = (
             f"{self.base_url_cache}?apikey={settings.API_TOKEN}&pickcode={pickcode}"
         )

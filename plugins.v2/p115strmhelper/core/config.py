@@ -356,6 +356,16 @@ class ConfigManager(BaseModel):
     fuse_readdir_ttl: float = Field(
         default=60, ge=0, description="FUSE 目录读取缓存 TTL（秒）"
     )
+    fuse_strm_takeover_enabled: bool = Field(
+        default=False, description="是否接管 STRM 文件生成内容（FUSE 挂载模式）"
+    )
+    fuse_strm_mount_dir: Optional[str] = Field(
+        default=None, description="媒体服务器网盘挂载目录（FUSE 挂载模式）"
+    )
+    fuse_strm_takeover_rules: Optional[List] = Field(
+        default_factory=list,
+        description="STRM 接管规则（FUSE 挂载模式）",
+    )
 
     directory_upload_enabled: bool = Field(
         default=False, description="监控目录上传开关"

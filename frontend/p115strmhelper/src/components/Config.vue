@@ -1476,17 +1476,129 @@
                         min="0"></v-text-field>
                     </v-col>
                   </v-row>
+
+                  <!-- STRM 文件生成内容接管 -->
+                  <v-divider class="my-4"></v-divider>
+                  <v-row>
+                    <v-col cols="12">
+                      <v-switch v-model="config.fuse_strm_takeover_enabled" label="接管 STRM 文件生成内容" color="primary"
+                        density="compact" hint="启用后，匹配规则的文件将生成指向挂载路径的 STRM 内容" persistent-hint></v-switch>
+                    </v-col>
+                  </v-row>
+                  <v-expand-transition>
+                    <div v-if="config.fuse_strm_takeover_enabled">
+                      <v-alert type="info" variant="tonal" density="compact" class="mt-2 mb-3" icon="mdi-information">
+                        <div class="text-body-2 mb-1"><strong>STRM URL 生成优先级：</strong></div>
+                        <div class="text-caption">
+                          <div class="mb-1">1. <strong>URL 自定义模板</strong>（如果启用）：优先使用 Jinja2 模板渲染</div>
+                          <div class="mb-1">2. <strong>FUSE STRM 接管</strong>（如果启用且匹配规则）：生成指向挂载路径的 STRM 内容</div>
+                          <div>3. <strong>默认格式</strong>：使用基础设置中的「STRM文件URL格式」和「STRM URL 文件名称编码」</div>
+                        </div>
+                      </v-alert>
+                      <v-row>
+                        <v-col cols="12" md="6">
+                          <v-text-field v-model="config.fuse_strm_mount_dir" label="媒体服务器网盘挂载目录"
+                            hint="媒体服务器中配置的 115 网盘挂载路径" persistent-hint density="compact" variant="outlined"
+                            hide-details="auto" placeholder="/media/115"></v-text-field>
+                        </v-col>
+                      </v-row>
+                      <v-row>
+                        <v-col cols="12">
+                          <div class="text-body-2 mb-2"><strong>接管规则：</strong></div>
+                          <div class="d-flex flex-column">
+                            <v-card v-for="(rule, index) in fuseStrmTakeoverRules" :key="`fuse-strm-takeover-${index}`"
+                              variant="outlined" class="mb-3">
+                              <v-card-text>
+                                <div class="d-flex align-center mb-2">
+                                  <span class="text-caption text-medium-emphasis">规则 #{{ index + 1 }}</span>
+                                  <v-spacer></v-spacer>
+                                  <v-btn icon size="small" color="error" @click="removePath(index, 'fuseStrmTakeover')">
+                                    <v-icon>mdi-delete</v-icon>
+                                  </v-btn>
+                                </div>
+
+                                <!-- 匹配方式选择 -->
+                                <div class="mb-3">
+                                  <div class="text-caption text-medium-emphasis mb-2">选择匹配方式（可多选）：</div>
+                                  <div class="d-flex flex-wrap gap-3">
+                                    <v-switch v-model="rule._use_extensions" label="文件后缀" density="compact"
+                                      color="primary" hide-details class="ma-0"></v-switch>
+                                    <v-switch v-model="rule._use_names" label="文件名称" density="compact" color="primary"
+                                      hide-details class="ma-0"></v-switch>
+                                    <v-switch v-model="rule._use_paths" label="网盘路径" density="compact" color="primary"
+                                      hide-details class="ma-0"></v-switch>
+                                  </div>
+                                </div>
+
+                                <!-- 文件后缀 -->
+                                <v-expand-transition>
+                                  <div v-if="rule._use_extensions">
+                                    <v-textarea v-model="rule.extensions" label="文件后缀（每行一个，例如：mkv、mp4）"
+                                      hint="匹配的文件后缀，不包含点号，每行一个" persistent-hint density="compact" variant="outlined"
+                                      rows="2" class="mb-2" placeholder="mkv&#10;mp4&#10;avi"></v-textarea>
+                                  </div>
+                                </v-expand-transition>
+
+                                <!-- 文件名称白名单 -->
+                                <v-expand-transition>
+                                  <div v-if="rule._use_names">
+                                    <v-textarea v-model="rule.names" label="文件名称白名单（每行一个，支持部分匹配）"
+                                      hint="文件名包含这些关键词时匹配，每行一个" persistent-hint density="compact" variant="outlined"
+                                      rows="2" class="mb-2" placeholder="蓝光&#10;BluRay"></v-textarea>
+                                  </div>
+                                </v-expand-transition>
+
+                                <!-- 网盘文件夹路径 -->
+                                <v-expand-transition>
+                                  <div v-if="rule._use_paths">
+                                    <v-textarea v-model="rule.paths" label="网盘文件夹路径（每行一个，支持部分匹配）"
+                                      hint="文件路径包含这些路径时匹配，每行一个" persistent-hint density="compact" variant="outlined"
+                                      rows="2" placeholder="/电影/4K&#10;/电视剧"></v-textarea>
+                                  </div>
+                                </v-expand-transition>
+
+                                <v-alert type="info" variant="tonal" density="compact" class="mt-2"
+                                  icon="mdi-information">
+                                  <div class="text-caption">
+                                    <div class="mb-1">• 三种匹配方式可以组合使用，<strong>同时满足</strong>（与关系）才会匹配</div>
+                                    <div class="mb-1">• 如果某个匹配条件为空，则<strong>不检查</strong>该条件</div>
+                                    <div class="mb-1">• <strong>匹配成功后生成的 STRM 内容：</strong></div>
+                                    <div class="mb-1">
+                                      格式：<code>{{ config.fuse_strm_mount_dir || '媒体服务器挂载目录' }}/文件网盘路径</code></div>
+                                    <div> 示例：如果挂载目录为 <code>/media/115</code>，文件网盘路径为 <code>/电影/示例.mkv</code>，则生成的 STRM
+                                      内容为
+                                      <code>/media/115/电影/示例.mkv</code>
+                                    </div>
+                                  </div>
+                                </v-alert>
+                              </v-card-text>
+                            </v-card>
+                            <v-btn size="small" prepend-icon="mdi-plus" variant="outlined" class="align-self-start"
+                              @click="addPath('fuseStrmTakeover')">
+                              添加接管规则
+                            </v-btn>
+                          </div>
+                        </v-col>
+                      </v-row>
+                    </div>
+                  </v-expand-transition>
+
                   <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
                     <div class="text-body-2 mb-1"><strong>功能说明：</strong></div>
-                    <div class="text-caption mb-2">启用后，115网盘将挂载为容器内的文件系统，可通过文件管理器直接访问。</div>
+                    <div class="text-caption mb-2">启用后，115网盘将挂载为容器内的文件系统，可通过文件管理器直接访问。配合上方的"STRM 文件生成内容接管"功能，可以让生成的 STRM
+                      文件直接指向挂载路径，实现本地文件系统访问。</div>
                     <div class="text-body-2 mt-2 mb-1"><strong>配置说明：</strong></div>
                     <div class="text-caption">
                       <div class="mb-1">• <strong>挂载点路径：</strong>容器内的挂载路径，必须是已存在的目录（例如：<code>/media/115</code> 或
                         <code>/data/115</code>）
                       </div>
                       <div class="mb-1">• <strong>目录读取缓存 TTL：</strong>目录列表缓存时间，默认60秒</div>
-                      <div>• <strong>容器权限：</strong>需要容器以 <code>--privileged</code> 或 <code>--cap-add SYS_ADMIN</code>
-                        权限运行</div>
+                      <div class="mb-1">• <strong>容器权限：</strong>需要容器以 <code>--privileged</code> 或
+                        <code>--cap-add SYS_ADMIN</code>
+                        权限运行
+                      </div>
+                      <div>• <strong>STRM 接管：</strong>启用上方的"接管 STRM 文件生成内容"后，匹配规则的文件将生成指向挂载路径的 STRM
+                        内容，媒体服务器可直接通过挂载路径访问文件</div>
                     </div>
                   </v-alert>
                   <v-alert type="warning" variant="tonal" density="compact" class="mt-3" icon="mdi-alert">
@@ -1506,14 +1618,21 @@
                   <v-row>
                     <v-col cols="12">
                       <v-switch v-model="config.strm_url_template_enabled" label="启用 STRM URL 自定义模板 (Jinja2)"
-                        color="primary" density="compact"
-                        hint="启用后可以使用 Jinja2 模板语法自定义 STRM 文件的 URL 格式。启用后，将优先使用自定义模板；当模板渲染失败时，将回退使用基础设置中的「STRM文件URL格式」和「STRM URL 文件名称编码」作为后备方案。"
+                        color="primary" density="compact" hint="启用后可以使用 Jinja2 模板语法自定义 STRM 文件的 URL 格式"
                         persistent-hint></v-switch>
                     </v-col>
                   </v-row>
 
                   <v-expand-transition>
                     <div v-if="config.strm_url_template_enabled">
+                      <v-alert type="info" variant="tonal" density="compact" class="mt-2 mb-3" icon="mdi-information">
+                        <div class="text-body-2 mb-1"><strong>STRM URL 生成优先级：</strong></div>
+                        <div class="text-caption">
+                          <div class="mb-1">1. <strong>URL 自定义模板</strong>（如果启用）：优先使用 Jinja2 模板渲染</div>
+                          <div class="mb-1">2. <strong>FUSE STRM 接管</strong>（如果启用且匹配规则）：生成指向挂载路径的 STRM 内容</div>
+                          <div>3. <strong>默认格式</strong>：使用基础设置中的「STRM文件URL格式」和「STRM URL 文件名称编码」</div>
+                        </div>
+                      </v-alert>
                       <v-row class="mt-2">
                         <v-col cols="12">
                           <v-textarea v-model="config.strm_url_template" label="STRM URL 基础模板 (Jinja2)"
@@ -1608,8 +1727,7 @@
                   <v-row class="mt-4">
                     <v-col cols="12">
                       <v-switch v-model="config.strm_filename_template_enabled" label="启用 STRM 文件名自定义模板 (Jinja2)"
-                        color="primary" density="compact"
-                        hint="启用后可以使用 Jinja2 模板语法自定义 STRM 文件的文件名格式。启用后，将优先使用自定义模板；当模板渲染失败时，将回退使用默认的文件名生成规则（如 movie.strm 或 movie.iso.strm）。"
+                        color="primary" density="compact" hint="启用后可以使用 Jinja2 模板语法自定义 STRM 文件的文件名格式"
                         persistent-hint></v-switch>
                     </v-col>
                   </v-row>
@@ -2517,6 +2635,7 @@ const incrementSyncExcludePaths = ref([{ local: '', remote: '' }]);
 const monitorLifeExcludePaths = ref([{ path: '' }]);
 const directoryUploadPaths = ref([{ src: '', dest_remote: '', dest_local: '', delete: false }]);
 const syncDelLibraryPaths = ref([{ mediaserver: '', moviepilot: '', p115: '' }]);
+const fuseStrmTakeoverRules = ref([{ extensions: '', names: '', paths: '', _use_extensions: false, _use_names: false, _use_paths: false }]);
 const fullSyncConfirmDialog = ref(false);
 const machineId = ref('');
 const tgChannels = ref([{ name: '', id: '' }]);
@@ -3027,6 +3146,24 @@ const loadConfig = async () => {
       if (data.mediaservers) {
         mediaservers.value = data.mediaservers;
       }
+      // 加载 FUSE STRM 接管规则
+      if (config.fuse_strm_takeover_rules && Array.isArray(config.fuse_strm_takeover_rules) && config.fuse_strm_takeover_rules.length > 0) {
+        fuseStrmTakeoverRules.value = config.fuse_strm_takeover_rules.map(rule => {
+          const extensions = Array.isArray(rule.extensions) ? rule.extensions : [];
+          const names = Array.isArray(rule.names) ? rule.names : [];
+          const paths = Array.isArray(rule.paths) ? rule.paths : [];
+          return {
+            extensions: extensions.join('\n'),
+            names: names.join('\n'),
+            paths: paths.join('\n'),
+            _use_extensions: extensions.length > 0,
+            _use_names: names.length > 0,
+            _use_paths: paths.length > 0
+          };
+        });
+      } else {
+        fuseStrmTakeoverRules.value = [{ extensions: '', names: '', paths: '', _use_extensions: false, _use_names: false, _use_paths: false }];
+      }
       // 确保 sync_del_mediaservers 如果是 null，转换为空数组以匹配前端显示
       if (config.sync_del_mediaservers === null || config.sync_del_mediaservers === undefined) {
         config.sync_del_mediaservers = [];
@@ -3088,6 +3225,21 @@ const saveConfig = async () => {
       c => c.name && c.name.trim() !== '' && c.id && c.id.trim() !== ''
     );
     config.tg_search_channels = validChannels;
+    // 保存 FUSE STRM 接管规则
+    config.fuse_strm_takeover_rules = fuseStrmTakeoverRules.value
+      .map(rule => {
+        const extensions = typeof rule.extensions === 'string'
+          ? rule.extensions.split('\n').map(ext => ext.trim()).filter(ext => ext)
+          : (rule.extensions || []);
+        const names = typeof rule.names === 'string'
+          ? rule.names.split('\n').map(name => name.trim()).filter(name => name)
+          : (rule.names || []);
+        const paths = typeof rule.paths === 'string'
+          ? rule.paths.split('\n').map(path => path.trim()).filter(path => path)
+          : (rule.paths || []);
+        return { extensions, names, paths };
+      })
+      .filter(rule => rule.extensions.length > 0 || rule.names.length > 0 || rule.paths.length > 0);
     emit('save', JSON.parse(JSON.stringify(config)));
     message.text = '配置已发送保存请求，请稍候...';
     message.type = 'info';
@@ -3223,6 +3375,7 @@ const addPath = (type) => {
     case 'apiStrm-mp': apiStrmMPPaths.value.push({ local: '', remote: '' }); break;
     case 'syncDelLibrary': syncDelLibraryPaths.value.push({ mediaserver: '', moviepilot: '', p115: '' }); break;
     case 'directoryUpload': directoryUploadPaths.value.push({ src: '', dest_remote: '', dest_local: '', delete: false }); break;
+    case 'fuseStrmTakeover': fuseStrmTakeoverRules.value.push({ extensions: '', names: '', paths: '', _use_extensions: false, _use_names: false, _use_paths: false }); break;
   }
 };
 const removePath = (index, type) => {
@@ -3270,6 +3423,10 @@ const removePath = (index, type) => {
     case 'directoryUpload':
       directoryUploadPaths.value.splice(index, 1);
       if (directoryUploadPaths.value.length === 0) directoryUploadPaths.value = [{ src: '', dest_remote: '', dest_local: '', delete: false }];
+      break;
+    case 'fuseStrmTakeover':
+      fuseStrmTakeoverRules.value.splice(index, 1);
+      if (fuseStrmTakeoverRules.value.length === 0) fuseStrmTakeoverRules.value = [{ extensions: '', names: '', paths: '', _use_extensions: false, _use_names: false, _use_paths: false }];
       break;
   }
 };
