@@ -19,12 +19,13 @@ class RateLimiter:
         """
         获取调用许可，阻塞直到满足速率限制
         """
+        sleep_duration = 0
         with self.lock:
             now = monotonic()
-            wait_time = self.next_call_time - now
-            if wait_time > 0:
-                sleep(wait_time)
+            sleep_duration = self.next_call_time - now
             self.next_call_time = max(now, self.next_call_time) + self.interval
+        if sleep_duration > 0:
+            sleep(sleep_duration)
 
 
 class ApiEndpointCooldown:
@@ -43,10 +44,14 @@ class ApiEndpointCooldown:
         执行 API 调用，处理冷却逻辑
         """
         if self.cooldown > 0:
+            sleep_duration = 0
             with self.lock:
                 now = monotonic()
                 elapsed = now - self.last_call_time
                 if elapsed < self.cooldown:
-                    sleep(self.cooldown - elapsed)
+                    sleep_duration = self.cooldown - elapsed
+            if sleep_duration > 0:
+                sleep(sleep_duration)
+            with self.lock:
                 self.last_call_time = monotonic()
         return self.api_callable(payload)
