@@ -119,21 +119,20 @@ class IncrementSyncStrmHelper:
                 continue
             item_path = Path(pan_path) / Path(item).relative_to(relative_path)
             if item_path.name != item_path.stem:
+                relative_item_path = item_path.relative_to(pan_path)
+                local_item_path = Path(local_path) / relative_item_path
                 if item_path.suffix.lower() in self.rmt_mediaext:
                     yield (
-                        str(
-                            Path(local_path)
-                            / Path(item_path.relative_to(pan_path)).with_suffix(".strm")
-                        ),
-                        str(item_path),
+                        local_item_path.with_suffix(".strm").as_posix(),
+                        item_path.as_posix(),
                     )
                 elif (
                     item_path.suffix.lower() in self.download_mediaext
                     and self.auto_download_mediainfo
                 ):
                     yield (
-                        str(Path(local_path) / Path(item_path.relative_to(pan_path))),
-                        str(item_path),
+                        local_item_path.as_posix(),
+                        item_path.as_posix(),
                     )
 
     def __iterdir(self, cid: int, path: str):
@@ -290,6 +289,7 @@ class IncrementSyncStrmHelper:
                 root_path=target_dir,
                 output_file=local_tree,
                 append=False,
+                use_posix=True,
                 extensions=[".strm"]
                 if not self.auto_download_mediainfo
                 else [".strm"] + self.download_mediaext,
@@ -342,13 +342,13 @@ class IncrementSyncStrmHelper:
         处理新增路径
         """
         try:
-            pan_path = Path(pan_path)
+            pan_path_obj = Path(pan_path)
             new_file_path = Path(local_path)
 
             if self.pan_transfer_enabled and self.pan_transfer_paths:
                 if PathUtils.get_run_transfer_path(
                     paths=self.pan_transfer_paths,
-                    transfer_path=pan_path.as_posix(),
+                    transfer_path=pan_path,
                 ):
                     logger.debug(
                         f"【增量STRM生成】{pan_path} 为待整理目录下的路径，不做处理"
@@ -356,11 +356,11 @@ class IncrementSyncStrmHelper:
                     return
 
             if self.auto_download_mediainfo:
-                if pan_path.suffix.lower() in self.download_mediaext:
-                    pickcode = self.__get_pickcode(pan_path.as_posix())
+                if pan_path_obj.suffix.lower() in self.download_mediaext:
+                    pickcode = self.__get_pickcode(pan_path)
                     if not pickcode:
                         logger.error(
-                            f"【增量STRM生成】{pan_path.name} 不存在 pickcode 值，无法下载该文件"
+                            f"【增量STRM生成】{pan_path_obj.name} 不存在 pickcode 值，无法下载该文件"
                         )
                         return
                     self.download_mediainfo_list.append(
@@ -372,15 +372,15 @@ class IncrementSyncStrmHelper:
                     )
                     return
 
-            if pan_path.suffix.lower() not in self.rmt_mediaext:
+            if pan_path_obj.suffix.lower() not in self.rmt_mediaext:
                 logger.warn(f"【增量STRM生成】跳过网盘路径: {pan_path}")
                 return
 
-            if not (result := StrmGenerater.should_generate_strm(pan_path.name))[1]:
+            if not (result := StrmGenerater.should_generate_strm(pan_path_obj.name))[1]:
                 logger.warn(f"【增量STRM生成】{result[0]}，跳过网盘路径: {pan_path}")
                 return
 
-            pickcode = self.__get_pickcode(pan_path.as_posix())
+            pickcode = self.__get_pickcode(pan_path)
 
             new_file_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -388,7 +388,7 @@ class IncrementSyncStrmHelper:
                 self.strm_fail_count += 1
                 self.strm_fail_dict[str(new_file_path)] = "不存在 pickcode 值"
                 logger.error(
-                    f"【增量STRM生成】{pan_path.name} 不存在 pickcode 值，无法生成 STRM 文件"
+                    f"【增量STRM生成】{pan_path_obj.name} 不存在 pickcode 值，无法生成 STRM 文件"
                 )
                 return
             if not (len(pickcode) == 17 and str(pickcode).isalnum()):
@@ -401,7 +401,7 @@ class IncrementSyncStrmHelper:
                 )
                 return
 
-            strm_url = self.strmurlgetter.get_strm_url(pickcode, pan_path.name)
+            strm_url = self.strmurlgetter.get_strm_url(pickcode, pan_path_obj.name)
 
             with open(new_file_path, "w", encoding="utf-8") as file:
                 file.write(strm_url)
@@ -425,18 +425,17 @@ class IncrementSyncStrmHelper:
             if self.scrape_metadata_exclude_paths:
                 if PathUtils.get_scrape_metadata_exclude_path(
                     self.scrape_metadata_exclude_paths,
-                    str(new_file_path),
+                    local_path,
                 ):
                     logger.debug(
-                        f"【增量STRM生成】匹配到刮削排除目录，不进行刮削: {new_file_path}"
+                        f"【增量STRM生成】匹配到刮削排除目录，不进行刮削: {local_path}"
                     )
                     scrape_metadata = False
             if scrape_metadata:
                 media_scrape_metadata(
-                    path=str(new_file_path),
+                    path=local_path,
                 )
-        # 刷新媒体服务器
-        self.__refresh_mediaserver(str(new_file_path), str(new_file_path.name))
+        self.__refresh_mediaserver(local_path, new_file_path.name)
 
     def generate_strm_files(self, sync_strm_paths):
         """
@@ -476,16 +475,17 @@ class IncrementSyncStrmHelper:
                 for line in DirectoryTree().compare_trees_lines(
                     self.pan_to_local_tree, self.local_tree
                 ):
-                    self.__handle_addition_path(
-                        pan_path=str(
-                            DirectoryTree().get_path_by_line_number(self.pan_tree, line)
-                        ),
-                        local_path=str(
-                            DirectoryTree().get_path_by_line_number(
-                                self.pan_to_local_tree, line
-                            )
-                        ),
+                    pan_path_str = DirectoryTree().get_path_by_line_number(
+                        self.pan_tree, line
                     )
+                    local_path_str = DirectoryTree().get_path_by_line_number(
+                        self.pan_to_local_tree, line
+                    )
+                    if pan_path_str and local_path_str:
+                        self.__handle_addition_path(
+                            pan_path=pan_path_str,
+                            local_path=local_path_str,
+                        )
             except Exception as e:
                 sentry_manager.sentry_hub.capture_exception(e)
                 logger.error(f"【增量STRM生成】增量同步 STRM 文件失败: {e}")

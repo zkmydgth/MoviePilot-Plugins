@@ -7,7 +7,9 @@ class DirectoryTree:
     """
 
     @staticmethod
-    def scan_directory_to_tree(root_path, output_file, append=False, extensions=None):
+    def scan_directory_to_tree(
+        root_path, output_file, append=False, extensions=None, use_posix=False
+    ):
         """
         扫描本地目录生成目录树到文件，可过滤指定后缀名文件
 
@@ -15,6 +17,7 @@ class DirectoryTree:
         :param output_file: 输出文件路径
         :param append: 是否追加模式 (默认覆盖)
         :param extensions: 要包含的文件后缀名列表
+        :param use_posix: 是否强制使用 posix 风格（/）的路径分隔符
         """
         root = Path(root_path).resolve()
         mode = "a" if append else "w"
@@ -29,7 +32,8 @@ class DirectoryTree:
             for path in root.rglob("*"):
                 if path.is_file():
                     if extensions is None or path.suffix.lower() in extensions:
-                        f_out.write(f"{str(path)}\n")
+                        path_str = path.as_posix() if use_posix else str(path)
+                        f_out.write(f"{path_str}\n")
 
     @staticmethod
     def generate_tree_from_list(file_list, output_file, append=False):
