@@ -1,0 +1,7 @@
+[project]
+name = "moviepilot-plugin-configbackup"
+dynamic = ["version"]
+requires-python = ">=3.12"
+# 仅依赖 MoviePilot V3 自带库（psycopg2 / apscheduler），无额外三方依赖
+dependencies = [
+]
