@@ -87,15 +87,21 @@ class IncrementSyncStrmHelper:
         """
         迭代目录树
         """
-        parts = Path(pan_path).parts
+        relative_path = None
         cid = int(self.client.fs_dir_getid(pan_path)["id"])
         self.api_count += 2
+        cnt = 0
         for item in export_dir_parse_iter(
             client=self.client, export_file_ids=cid, delete=True
         ):
-            item_path = Path(pan_path) / Path(item).relative_to(
-                "/" + parts[-2] + "/" + parts[-1]
-            )
+            if cnt < 1:
+                cnt += 1
+                continue
+            elif cnt == 1:
+                relative_path = item
+                cnt += 1
+                continue
+            item_path = Path(pan_path) / Path(item).relative_to(relative_path)
             if item_path.name != item_path.stem:
                 if item_path.suffix in self.rmt_mediaext:
                     yield (
