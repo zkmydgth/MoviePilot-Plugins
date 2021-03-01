@@ -627,7 +627,9 @@ class CloudDriveApi:
         upload_id = started.upload_id
         progress_callback = transfer_process(target_path)
         try:
-            stream = self.client.remote_upload_channel(device_id="moviepilot")
+            stream = self.client.remote_upload_channel(
+                device_id=f"moviepilot-{upload_id}"
+            )
             with open(local_path, "rb") as f:
                 for reply in stream:
                     if global_vars.is_transfer_stopped(target_path):
