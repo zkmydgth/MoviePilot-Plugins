@@ -2000,6 +2000,10 @@ class HDHivePlaywrightClient:
                 except Exception:
                     pass
             if not url:
+                current = page.url
+                if search(r"(115cdn|115)\.com", current):
+                    url = current
+            if not url:
                 raise HDHiveBrowserError(
                     f"解锁后未能获取 115 链接（当前 URL: {page.url}）"
                 )
