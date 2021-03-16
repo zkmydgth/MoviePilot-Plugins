@@ -39,11 +39,12 @@ class DirectoryUploadQueue:
         """
         从队列取任务并调用 process_file_change
         """
-        if self._queue is None:
+        q = self._queue
+        if q is None:
             return
         while True:
             try:
-                task = self._queue.get()
+                task = q.get()
             except Exception as e:
                 logger.error(
                     f"【目录上传】worker 取任务异常: {e}",
@@ -51,8 +52,7 @@ class DirectoryUploadQueue:
                 )
                 continue
             if task is self._SENTINEL:
-                if self._queue is not None:
-                    self._queue.task_done()
+                q.task_done()
                 break
             try:
                 # 延迟导入，避免与 monitor 包初始化循环依赖
@@ -69,8 +69,7 @@ class DirectoryUploadQueue:
                     exc_info=True,
                 )
             finally:
-                if self._queue is not None:
-                    self._queue.task_done()
+                q.task_done()
 
     def start(self) -> None:
         """

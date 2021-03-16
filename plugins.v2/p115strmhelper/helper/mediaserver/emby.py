@@ -550,19 +550,19 @@ class EmbyMediainfoQueue:
         """
         队列 worker
         """
-        if self._queue is None:
+        q = self._queue
+        if q is None:
             return
         while True:
             try:
-                task = self._queue.get()
+                task = q.get()
             except Exception as e:
                 logger.error(
                     f"【Emby 媒体信息队列】worker 取任务异常: {e}", exc_info=True
                 )
                 continue
             if task is self._SENTINEL:
-                if self._queue is not None:
-                    self._queue.task_done()
+                q.task_done()
                 break
             try:
                 path = task.path if isinstance(task.path, Path) else Path(task.path)
@@ -585,8 +585,7 @@ class EmbyMediainfoQueue:
                     exc_info=True,
                 )
             finally:
-                if self._queue is not None:
-                    self._queue.task_done()
+                q.task_done()
                 sleep(self._TASK_SLEEP_AFTER_SEC)
 
     def start(self) -> None:
@@ -644,13 +643,14 @@ class EmbyMediainfoQueue:
         :param mediaservers: 媒体服务器名称列表，可选
         :param size: 文件大小（字节），可选
         """
-        if self._queue is None:
+        q = self._queue
+        if q is None:
             logger.warning(
                 "【Emby 媒体信息队列】队列未初始化，请先启动 worker，跳过入队"
             )
             return
         try:
-            self._queue.put(
+            q.put(
                 EmbyMediainfoTask(
                     func_name=func_name,
                     mp_mediaserver=mp_mediaserver,

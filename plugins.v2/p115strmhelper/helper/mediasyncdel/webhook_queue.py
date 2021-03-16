@@ -44,11 +44,12 @@ class SyncDelWebhookQueue:
         """
         从队列取出任务并调用 MediaSyncDelHelper.sync_del_by_webhook
         """
-        if self._queue is None:
+        q = self._queue
+        if q is None:
             return
         while True:
             try:
-                task = self._queue.get()
+                task = q.get()
             except Exception as e:
                 logger.error(
                     f"【同步删除 Webhook 队列】worker 取任务异常: {e}",
@@ -56,8 +57,7 @@ class SyncDelWebhookQueue:
                 )
                 continue
             if task is self._SENTINEL:
-                if self._queue is not None:
-                    self._queue.task_done()
+                q.task_done()
                 break
             try:
                 # 延迟导入，避免 mediasyncdel 包初始化循环依赖
@@ -77,8 +77,7 @@ class SyncDelWebhookQueue:
                     exc_info=True,
                 )
             finally:
-                if self._queue is not None:
-                    self._queue.task_done()
+                q.task_done()
 
     def _ensure_started(self) -> None:
         """
