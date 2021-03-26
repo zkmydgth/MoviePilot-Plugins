@@ -51,7 +51,7 @@ class TestSanitizePathParts(TestCase):
         """Windows：所有非法字符 <>"|?* → _，: → 全角冒号"""
         rel_path = self._create_relative_path('<>:":|?*')
         result = PathUtils.sanitize_path_parts(rel_path)
-        self.assertEqual(result.as_posix(), "____：____")
+        self.assertEqual(result.as_posix(), "__：_：___")
 
     @patch("utils.path.os_name", "nt")
     def test_windows_nested_path(self):
