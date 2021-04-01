@@ -286,7 +286,7 @@ class MonitorLife:
 
         walk_cd2_dir(root)
 
-    def media_transfer(self, event: Dict, file_path: Path, rmt_mediaext):
+    def media_transfer(self, event: Dict[str, Any], file_path: Path, rmt_mediaext):
         """
         运行媒体文件整理
 
@@ -495,7 +495,7 @@ class MonitorLife:
                 transferchain.do_transfer(fileitem=fileitem)
                 logger.info(f"【网盘整理】{file_path} 加入整理列队")
 
-    def _create(self, event: Dict, file_path: Path):
+    def _create(self, event: Dict[str, Any], file_path: Path):
         """
         创建 STRM 文件
 
@@ -833,7 +833,7 @@ class MonitorLife:
                         life_enqueue_kw["size"] = event["file_size"]
                     emby_mediainfo_queue.enqueue(**life_enqueue_kw)
 
-    def move(self, event: Dict):
+    def move(self, event: Dict[str, Any]):
         """
         移动操作
 
@@ -1151,6 +1151,29 @@ class MonitorLife:
                     old_strm_path,
                     new_strm_path,
                 )
+                pickcode = event["pick_code"]
+                getter = StrmUrlGetter()
+                expected = getter.get_strm_url(
+                    pickcode,
+                    new_path.name,
+                    file_path=new_pan_path,
+                )
+                try:
+                    current = new_strm_path.read_text(encoding="utf-8")
+                    if current.strip() == expected.strip():
+                        logger.debug(
+                            "【监控生活事件】重命名事件 STRM 内容与事件一致，无需更新: %s",
+                            new_strm_path,
+                        )
+                    else:
+                        with open(new_strm_path, "w", encoding="utf-8") as f:
+                            f.write(expected)
+                        logger.info(
+                            "【监控生活事件】重命名事件 STRM 内容已按新事件更新: %s",
+                            new_strm_path,
+                        )
+                except Exception as e:
+                    logger.error("【监控生活事件】重命名事件 STRM 内容操作失败: %s", e)
 
                 if related_entries:
                     old_stem = old_path.stem
@@ -1180,7 +1203,7 @@ class MonitorLife:
                 )
                 return
 
-    def remove(self, event: Dict, remove_local: bool = True):
+    def remove(self, event: Dict[str, Any], remove_local: bool = True):
         """
         删除 STRM 文件
 
@@ -1363,7 +1386,7 @@ class MonitorLife:
         except Exception as e:
             logger.error(f"【监控生活事件】{file_path} 删除失败: {e}")
 
-    def create(self, event: Dict):
+    def create(self, event: Dict[str, Any]):
         """
         处理新出现的路径
 
@@ -1393,7 +1416,7 @@ class MonitorLife:
         if configer.monitor_life_enabled and configer.monitor_life_paths:
             self._create_with_transfer_cache_guard(event=event, file_path=file_path)
 
-    def _create_with_transfer_cache_guard(self, event: Dict, file_path: Path):
+    def _create_with_transfer_cache_guard(self, event: Dict[str, Any], file_path: Path):
         """
         命中整理缓存时按事件模式门控，再调用 STRM 生成
 
@@ -1408,7 +1431,7 @@ class MonitorLife:
         self._create(event=event, file_path=file_path)
 
     def _move_local_media_assets(
-        self, event: Dict, old_file_path: str, new_file_path: str
+        self, event: Dict[str, Any], old_file_path: str, new_file_path: str
     ) -> None:
         """
         媒体目录内移动时，纯本地迁移 STRM 与关联文件
@@ -1523,7 +1546,9 @@ class MonitorLife:
                 func_type="【监控生活事件】",
             )
 
-    def _sync_move_event_db_records(self, event: Dict, new_file_path: str) -> None:
+    def _sync_move_event_db_records(
+        self, event: Dict[str, Any], new_file_path: str
+    ) -> None:
         """
         同步移动事件后的数据库路径记录
 
