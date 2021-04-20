@@ -3,9 +3,6 @@ from typing import Any, Callable, Dict, Optional
 
 from p115client import P115Client
 
-from app.log import logger
-
-
 SLOW_METHODS = {
     "download_url",
     "download_url_app",
@@ -73,13 +70,10 @@ def _make_timeout_wrapper(
                 若调用者已显式指定 extensions["timeout"]，则跳过注入
                 """
                 if "extensions" in kwargs and "timeout" in kwargs.get("extensions", {}):
-                    logger.debug(f"【超时包装】{name} 调用者已指定超时，跳过注入")
                     return attr(*args, **kwargs)
                 if "extensions" not in kwargs:
                     kwargs["extensions"] = {}
                 kwargs["extensions"]["timeout"] = timeout
-                timeout_type = "慢操作" if name in SLOW_METHODS else "普通"
-                logger.debug(f"【超时包装】{name} 注入{timeout_type}超时: {timeout}")
                 return attr(*args, **kwargs)
 
             return wrapper
@@ -188,13 +182,10 @@ class P115ClientWithTimeout(P115Client):
                 若调用者已显式指定 extensions["timeout"]，则跳过注入
                 """
                 if "extensions" in kwargs and "timeout" in kwargs.get("extensions", {}):
-                    logger.debug(f"【超时包装】{name} 调用者已指定超时，跳过注入")
                     return attr(*args, **kwargs)
                 if "extensions" not in kwargs:
                     kwargs["extensions"] = {}
                 kwargs["extensions"]["timeout"] = timeout
-                timeout_type = "慢操作" if name in SLOW_METHODS else "普通"
-                logger.debug(f"【超时包装】{name} 注入{timeout_type}超时: {timeout}")
                 return attr(*args, **kwargs)
 
             return wrapper
@@ -218,7 +209,4 @@ def create_client(
         return P115Client(cookies)
 
     slow_timeout = slow_timeout or default_timeout
-    logger.debug(
-        f"【超时包装】已启用，默认超时: {default_timeout}, 慢操作超时: {slow_timeout}"
-    )
     return P115ClientWithTimeout(cookies, default_timeout, slow_timeout)
