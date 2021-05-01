@@ -16,6 +16,7 @@ from app.core.metainfo import MetaInfo
 from app.core.context import MediaInfo
 from app.chain.media import MediaChain
 from app.schemas import NotificationType
+from app.utils.string import StringUtils
 
 from ..core.config import configer
 from ..core.message import post_message
@@ -307,6 +308,20 @@ class ShareTransferHelper:
             share_code=share_code, receive_code=receive_code
         )
 
+        # 获取文件大小
+        time.sleep(2)
+        payload = {
+            "share_code": share_code,
+            "receive_code": receive_code,
+            "limit": 1,
+            "offset": 0,
+            "cid": 0,
+        }
+        size = "未知"
+        resp = self.client.share_snap(payload)
+        if resp["state"]:
+            size = StringUtils.str_filesize(resp["data"]["shareinfo"]["file_size"])
+
         resp = self.client.share_receive(payload)
         if resp["state"]:
             logger.info(f"【分享转存】转存 {share_code} 到 {parent_path} 成功！")
@@ -318,6 +333,7 @@ class ShareTransferHelper:
                         text=f"""
 分享链接：https://115cdn.com/s/{share_code}?password={receive_code}
 转存目录：{parent_path}
+文件大小: {size}
 """,
                         userid=userid,
                     )
@@ -332,6 +348,7 @@ class ShareTransferHelper:
                         ),
                         text=f"""
 链接：https://115cdn.com/s/{share_code}?password={receive_code}
+大小: {size}
 简介：{file_mediainfo.overview}
 """,
                         image=file_mediainfo.poster_path,
