@@ -6,9 +6,8 @@ from app.core.metainfo import MetaInfoPath
 from app.helper.mediaserver import MediaServerHelper as MpMediaServerHelper
 from app.log import logger
 from app.schemas import ServiceInfo, RefreshMediaItem, MediaInfo
-from app.utils.http import RequestUtils
 
-from ..utils.path import PathUtils
+from ...utils.path import PathUtils
 
 
 class MediaServerRefresh:
@@ -129,46 +128,3 @@ class MediaServerRefresh:
                     else:
                         logger.warning(f"{self.func_name}{file_name} {name} 不支持刷新")
         return True
-
-    def get_series_tmdb_id(self, series_id: str) -> Optional[str]:
-        """
-        获取剧集 TMDB ID
-
-        :param series_id: 剧集ID
-
-        :return: TMDB ID
-        """
-        if not self.media_servers:
-            return None
-
-        mediaserver_helper = MpMediaServerHelper()
-        emby_servers = mediaserver_helper.get_services(
-            name_filters=self.media_servers[:1], type_filter="emby"
-        )
-
-        for _, emby_server in emby_servers.items():
-            emby_user = emby_server.instance.get_user()
-            emby_apikey = emby_server.config.config.get("apikey")
-            emby_host = emby_server.config.config.get("host")
-            if not emby_host:
-                continue
-            if not emby_host.endswith("/"):
-                emby_host += "/"
-            if not emby_host.startswith("http"):
-                emby_host = "http://" + emby_host  # noqa
-
-            req_url = f"{emby_host}emby/Users/{emby_user}/Items/{series_id}?api_key={emby_apikey}"
-            try:
-                with RequestUtils().get_res(req_url) as res:
-                    if res:
-                        return res.json().get("ProviderIds", {}).get("Tmdb")
-                    else:
-                        logger.info(
-                            f"{self.func_name}获取剧集 TMDB ID 失败，无法连接Emby！"
-                        )
-                        return None
-            except Exception as e:
-                logger.error(f"{self.func_name}连接Items出错：{str(e)}")
-                return None
-            break
-        return None

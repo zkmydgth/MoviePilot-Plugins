@@ -19,7 +19,7 @@ from app.schemas.mediaserver import WebhookEventInfo
 from ..core.config import configer
 from ..core.message import post_message
 from ..core.plunins import PluginChian
-from ..helper.mediaserver import MediaServerRefresh
+from ..helper.mediaserver import EmbyOperate
 from ..utils.path import PathUtils, PathRemoveUtils
 from ..utils.webhook import WebhookUtils
 
@@ -65,7 +65,7 @@ class MediaSyncDelHelper:
         self.downloader_helper = DownloaderHelper()
         self.chain = PluginChian()
         self.storagechain = StorageChain()
-        self.mediaserver_refresh: Optional[MediaServerRefresh] = None
+        self.mediaserver_refresh: Optional[EmbyOperate] = None
 
         downloader_services = self.downloader_helper.get_services()
         for downloader_name, downloader_info in downloader_services.items():
@@ -79,10 +79,9 @@ class MediaSyncDelHelper:
         :param mediaservers: 媒体服务器列表
         """
         if mediaservers:
-            self.mediaserver_refresh = MediaServerRefresh(
+            self.mediaserver_refresh = EmbyOperate(
                 func_name="【同步删除】",
-                enabled=True,
-                mediaservers=mediaservers,
+                media_servers=mediaservers,
             )
 
     def remove_by_path(self, path: str, del_source: bool = False):
