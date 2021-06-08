@@ -1,5 +1,5 @@
 import logging
-from time import time, sleep
+from time import time
 from threading import Event, Thread
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -98,7 +98,9 @@ class ServiceHelper:
 
             # 生活事件监控初始化
             self.monitorlife = MonitorLife(
-                client=self.client, mediainfodownloader=self.mediainfodownloader
+                client=self.client,
+                mediainfodownloader=self.mediainfodownloader,
+                stop_event=self.monitor_stop_event,
             )
 
             # 分享转存初始化
@@ -125,7 +127,11 @@ class ServiceHelper:
         """
         监控115生活事件
         """
+        if not self.monitorlife:
+            logger.error("【监控生活事件】MonitorLife 未初始化，无法启动监控")
+            return
         if not self.monitorlife.check_status():
+            logger.error("【监控生活事件】生活事件状态检查失败，无法启动监控")
             return
         logger.info("【监控生活事件】生活事件监控启动中...")
         try:
@@ -157,9 +163,15 @@ class ServiceHelper:
                 )
         except Exception as e:
             logger.error(f"【监控生活事件】生活事件监控运行失败: {e}")
+            if self.monitor_stop_event.is_set():
+                logger.info("【监控生活事件】收到停止信号，退出监控")
+                return
             logger.info("【监控生活事件】30s 后尝试重新启动生活事件监控")
-            sleep(30)
-            self.monitor_life_strm_files()
+            if self.monitor_stop_event.wait(timeout=30):
+                logger.info("【监控生活事件】等待期间收到停止信号，退出监控")
+                return
+            if not self.monitor_stop_event.is_set():
+                self.monitor_life_strm_files()
         logger.info("【监控生活事件】已退出生活事件监控")
         return
 
@@ -175,18 +187,35 @@ class ServiceHelper:
             configer.get_config("pan_transfer_enabled")
             and configer.get_config("pan_transfer_paths")
         ):
+            if self.monitor_life_thread and self.monitor_life_thread.is_alive():
+                logger.info("【监控生活事件】检测到已有线程在运行，停止旧线程中...")
+                self.monitor_stop_event.set()
+                self.monitor_life_thread.join(timeout=2)
+                if self.monitor_life_thread.is_alive():
+                    self.monitor_life_thread.join(timeout=20)
+                    if self.monitor_life_thread.is_alive():
+                        logger.warning(
+                            "【监控生活事件】旧线程未在预期时间内结束，强制创建新线程"
+                        )
+                self.monitor_life_thread = None
+
             self.monitor_stop_event.clear()
-            if self.monitor_life_thread:
-                if not self.monitor_life_thread.is_alive():
-                    self.monitor_life_thread = Thread(
-                        target=self.monitor_life_strm_files, daemon=True
-                    )
-                    self.monitor_life_thread.start()
-            else:
-                self.monitor_life_thread = Thread(
-                    target=self.monitor_life_strm_files, daemon=True
-                )
-                self.monitor_life_thread.start()
+
+            self.monitor_life_thread = Thread(
+                target=self.monitor_life_strm_files, daemon=True
+            )
+            self.monitor_life_thread.start()
+            logger.info("【监控生活事件】生活事件监控线程已启动")
+        else:
+            if self.monitor_life_thread and self.monitor_life_thread.is_alive():
+                logger.info("【监控生活事件】配置已关闭，停止生活事件监控线程")
+                self.monitor_stop_event.set()
+                self.monitor_life_thread.join(timeout=2)
+                if self.monitor_life_thread.is_alive():
+                    self.monitor_life_thread.join(timeout=20)
+                    if self.monitor_life_thread.is_alive():
+                        logger.warning("【监控生活事件】线程未在预期时间内结束")
+                self.monitor_life_thread = None
 
     def full_sync_strm_files(self):
         """
@@ -459,7 +488,23 @@ class ServiceHelper:
                 if self.scheduler.running:
                     self.scheduler.shutdown()
                 self.scheduler = None
-            self.monitor_stop_event.set()
+            if self.monitor_life_thread:
+                self.monitor_stop_event.set()
+                if self.monitor_life_thread.is_alive():
+                    self.monitor_life_thread.join(timeout=2)
+                    if self.monitor_life_thread.is_alive():
+                        self.monitor_life_thread.join(timeout=20)
+                        if self.monitor_life_thread.is_alive():
+                            logger.warning(
+                                "【监控生活事件】线程未在预期时间内结束，强制继续"
+                            )
+                        else:
+                            logger.info("【监控生活事件】线程已停止")
+                    else:
+                        logger.info("【监控生活事件】线程已停止")
+                self.monitor_life_thread = None
+            else:
+                self.monitor_stop_event.set()
         except Exception as e:
             logger.error(f"发生错误: {e}")
 

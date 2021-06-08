@@ -1,6 +1,6 @@
 from shutil import rmtree
 from collections import defaultdict
-from threading import Timer
+from threading import Timer, Event
 from time import sleep, strftime, localtime, time
 from typing import List, Set, Dict, Optional
 from pathlib import Path
@@ -68,9 +68,15 @@ class MonitorLife:
     注意: 目前没有重命名文件，复制文件的操作事件
     """
 
-    def __init__(self, client: P115Client, mediainfodownloader: MediaInfoDownloader):
+    def __init__(
+        self,
+        client: P115Client,
+        mediainfodownloader: MediaInfoDownloader,
+        stop_event: Optional[Event] = None,
+    ):
         self._client = client
         self.mediainfodownloader = mediainfodownloader
+        self.stop_event = stop_event
 
         self.tasks_queue = LifeTasksQueue()
 
@@ -818,9 +824,11 @@ class MonitorLife:
             logger.debug(
                 "【监控生活事件】MoviePilot 整理运行中，等待整理完成后继续监控生活事件..."
             )
-            sleep(20)
+            if self.stop_event and self.stop_event.wait(timeout=20):
+                return from_time, from_id
 
         events_batch: List = []
+        logger.info(1241)
         for attempt in range(3, -1, -1):
             try:
                 # 每次尝试先清空旧的值
@@ -837,7 +845,7 @@ class MonitorLife:
                 try:
                     first_event = next(events_iterator)
                 except P115AuthenticationError:
-                    logger.error(f"【监控生活事件】登入失效，请重新扫码登入")
+                    logger.error("【监控生活事件】登入失效，请重新扫码登入")
                     break
                 except StopIteration:
                     # 迭代器为空，没有数据，属于正常情况
@@ -856,10 +864,14 @@ class MonitorLife:
                 logger.warn(
                     "【监控生活事件】拉取数据失败，剩余重试次数 {attempt} 次：%s", e
                 )
-                sleep(2)
+                if self.stop_event and self.stop_event.wait(timeout=2):
+                    return from_time, from_id
 
         if not events_batch:
-            sleep(20)
+            if self.stop_event and self.stop_event.wait(timeout=20):
+                return from_time, from_id
+            elif not self.stop_event:
+                sleep(20)
             return from_time, from_id
 
         db_helper = LifeEventDbHelper()
@@ -984,7 +996,10 @@ class MonitorLife:
                 )
 
         if not process_item:
-            sleep(20)
+            if self.stop_event and self.stop_event.wait(timeout=20):
+                return return_from_time, return_from_id
+            elif not self.stop_event:
+                sleep(20)
 
         return return_from_time, return_from_id
 
