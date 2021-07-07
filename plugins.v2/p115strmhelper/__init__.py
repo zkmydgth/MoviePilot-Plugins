@@ -209,6 +209,15 @@ class MediaInfoDownloader:
     def __init__(self, cookie: str):
         self.cookie = cookie
 
+    def is_file_leq_1k(self, file_path):
+        """
+        判断文件是否小于 1KB
+        """
+        file = Path(file_path)
+        if not file.exists():
+            return True
+        return file.stat().st_size <= 1024
+
     def get_download_url(self, pickcode: str):
         """
         获取下载链接
@@ -311,23 +320,45 @@ class MediaInfoDownloader:
         根据列表自动下载
         """
         mediainfo_count: int = 0
+        mediainfo_fail_count: int = 0
         for item in downloads_list:
+            download_success = False
             if item["type"] == "local":
-                self.local_downloader(
-                    pickcode=item["pickcode"], path=Path(item["path"])
-                )
-                mediainfo_count += 1
+                for _ in range(3):
+                    self.local_downloader(
+                        pickcode=item["pickcode"], path=Path(item["path"])
+                    )
+                    if not self.is_file_leq_1k(item["path"]):
+                        mediainfo_count += 1
+                        download_success = True
+                        break
+                    logger.waring(
+                        f"【媒体信息文件下载】{item['path']} 下载该文件失败，自动重试"
+                    )
+                    time.sleep(1)
+                if not download_success:
+                    mediainfo_fail_count += 1
             elif item["type"] == "share":
-                self.share_downloader(
-                    share_code=item["share_code"],
-                    receive_code=item["receive_code"],
-                    file_id=item["file_id"],
-                    path=Path(item["path"]),
-                )
-                mediainfo_count += 1
+                for _ in range(3):
+                    self.share_downloader(
+                        share_code=item["share_code"],
+                        receive_code=item["receive_code"],
+                        file_id=item["file_id"],
+                        path=Path(item["path"]),
+                    )
+                    if not self.is_file_leq_1k(item["path"]):
+                        mediainfo_count += 1
+                        download_success = True
+                        break
+                    logger.waring(
+                        f"【媒体信息文件下载】{item['path']} 下载该文件失败，自动重试"
+                    )
+                    time.sleep(1)
+                if not download_success:
+                    mediainfo_fail_count += 1
             else:
                 continue
-        return mediainfo_count
+        return mediainfo_count, mediainfo_fail_count
 
 
 class FullSyncStrmHelper:
@@ -358,6 +389,7 @@ class FullSyncStrmHelper:
         self.strm_count = 0
         self.mediainfo_count = 0
         self.strm_fail_count = 0
+        self.mediainfo_fail_count = 0
         self.strm_fail_dict: Dict[str, str] = {}
         self.server_address = server_address.rstrip("/")
         self.pan_transfer_enabled = pan_transfer_enabled
@@ -389,18 +421,17 @@ class FullSyncStrmHelper:
                 for item in iter_files_with_path(
                     self.client, cid=parent_id, cooldown=2
                 ):
+                    if item["is_dir"] or item["is_directory"]:
+                        continue
+                    file_path = item["path"]
+                    file_path = Path(target_dir) / Path(file_path).relative_to(
+                        pan_media_dir
+                    )
+                    file_target_dir = file_path.parent
+                    original_file_name = file_path.name
+                    file_name = file_path.stem + ".strm"
+                    new_file_path = file_target_dir / file_name
                     try:
-                        if item["is_dir"] or item["is_directory"]:
-                            continue
-                        file_path = item["path"]
-                        file_path = Path(target_dir) / Path(file_path).relative_to(
-                            pan_media_dir
-                        )
-                        file_target_dir = file_path.parent
-                        original_file_name = file_path.name
-                        file_name = file_path.stem + ".strm"
-                        new_file_path = file_target_dir / file_name
-
                         if self.pan_transfer_enabled and self.pan_transfer_paths:
                             if self.pathmatchinghelper.get_run_transfer_path(
                                 paths=self.pan_transfer_paths,
@@ -479,21 +510,33 @@ class FullSyncStrmHelper:
             except Exception as e:
                 logger.error(f"【全量STRM生成】全量生成 STRM 文件失败: {e}")
                 return False
-        self.mediainfo_count = self.mediainfodownloader.auto_downloader(
-            downloads_list=self.download_mediainfo_list
+        self.mediainfo_count, self.mediainfo_fail_count = (
+            self.mediainfodownloader.auto_downloader(
+                downloads_list=self.download_mediainfo_list
+            )
         )
-        for path, error in self.strm_fail_dict.items():
-            logger.warn(f"【全量STRM生成】{path} 生成错误原因: {error}")
+        if self.strm_fail_dict:
+            for path, error in self.strm_fail_dict.items():
+                logger.warn(f"【全量STRM生成】{path} 生成错误原因: {error}")
         logger.info(
-            f"【全量STRM生成】全量生成 STRM 文件完成，总共生成 {self.strm_count} 个 STRM 文件，下载 {self.mediainfo_count} 个媒体数据文件，{self.strm_fail_count} 个 STRM 文件生成失败"
+            f"【全量STRM生成】全量生成 STRM 文件完成，总共生成 {self.strm_count} 个 STRM 文件，下载 {self.mediainfo_count} 个媒体数据文件"
         )
+        if self.strm_fail_count != 0 or self.mediainfo_fail_count != 0:
+            logger.warn(
+                f"【全量STRM生成】{self.strm_fail_count} 个 STRM 文件生成失败，{self.mediainfo_fail_count} 个媒体数据文件下载失败"
+            )
         return True
 
     def get_generate_total(self):
         """
         输出总共生成文件个数
         """
-        return self.strm_count, self.mediainfo_count
+        return (
+            self.strm_count,
+            self.mediainfo_count,
+            self.strm_fail_count,
+            self.mediainfo_fail_count,
+        )
 
 
 class ShareStrmHelper:
@@ -522,7 +565,10 @@ class ShareStrmHelper:
         self.auto_download_mediainfo = auto_download_mediainfo
         self.client = client
         self.strm_count = 0
+        self.strm_fail_count = 0
         self.mediainfo_count = 0
+        self.mediainfo_fail_count = 0
+        self.strm_fail_dict: Dict[str, str] = {}
         self.share_media_path = share_media_path
         self.local_media_path = local_media_path
         self.server_address = server_address.rstrip("/")
@@ -553,50 +599,65 @@ class ShareStrmHelper:
         original_file_name = file_path.name
         file_name = file_path.stem + ".strm"
         new_file_path = file_target_dir / file_name
+        try:
+            if self.auto_download_mediainfo:
+                if file_path.suffix in self.download_mediaext:
+                    self.download_mediainfo_list.append(
+                        {
+                            "type": "share",
+                            "share_code": share_code,
+                            "receive_code": receive_code,
+                            "file_id": file_id,
+                            "path": file_path,
+                        }
+                    )
+                    return
 
-        if self.auto_download_mediainfo:
-            if file_path.suffix in self.download_mediaext:
-                self.download_mediainfo_list.append(
-                    {
-                        "type": "share",
-                        "share_code": share_code,
-                        "receive_code": receive_code,
-                        "file_id": file_id,
-                        "path": file_path,
-                    }
+            if file_path.suffix not in self.rmt_mediaext:
+                logger.warn(
+                    "【分享STRM生成】文件后缀不匹配，跳过网盘路径: %s",
+                    str(file_path).replace(str(self.local_media_path), "", 1),
                 )
                 return
 
-        if file_path.suffix not in self.rmt_mediaext:
-            logger.warn(
-                "【分享STRM生成】文件后缀不匹配，跳过网盘路径: %s",
-                str(file_path).replace(str(self.local_media_path), "", 1),
-            )
-            return
+            new_file_path.parent.mkdir(parents=True, exist_ok=True)
 
-        new_file_path.parent.mkdir(parents=True, exist_ok=True)
+            if not file_id:
+                logger.error(
+                    f"【分享STRM生成】{original_file_name} 不存在 id 值，无法生成 STRM 文件"
+                )
+                self.strm_fail_dict[str(new_file_path)] = "不存在 id 值"
+                self.strm_fail_count += 1
+                return
+            if not share_code:
+                logger.error(
+                    f"【分享STRM生成】{original_file_name} 不存在 share_code 值，无法生成 STRM 文件"
+                )
+                self.strm_fail_dict[str(new_file_path)] = "不存在 share_code 值"
+                self.strm_fail_count += 1
+                return
+            if not receive_code:
+                logger.error(
+                    f"【分享STRM生成】{original_file_name} 不存在 receive_code 值，无法生成 STRM 文件"
+                )
+                self.strm_fail_dict[str(new_file_path)] = "不存在 receive_code 值"
+                self.strm_fail_count += 1
+                return
+            strm_url = f"{self.server_address}/api/v1/plugin/P115StrmHelper/redirect_url?apikey={settings.API_TOKEN}&share_code={share_code}&receive_code={receive_code}&id={file_id}"
 
-        if not file_id:
+            with open(new_file_path, "w", encoding="utf-8") as file:
+                file.write(strm_url)
+            self.strm_count += 1
+            logger.info("【分享STRM生成】生成 STRM 文件成功: %s", str(new_file_path))
+        except Exception as e:
             logger.error(
-                f"【分享STRM生成】{original_file_name} 不存在 id 值，无法生成 STRM 文件"
+                "【分享STRM生成】生成 STRM 文件失败: %s  %s",
+                str(new_file_path),
+                e,
             )
+            self.strm_fail_count += 1
+            self.strm_fail_dict[str(new_file_path)] = str(e)
             return
-        if not share_code:
-            logger.error(
-                f"【分享STRM生成】{original_file_name} 不存在 share_code 值，无法生成 STRM 文件"
-            )
-            return
-        if not receive_code:
-            logger.error(
-                f"【分享STRM生成】{original_file_name} 不存在 receive_code 值，无法生成 STRM 文件"
-            )
-            return
-        strm_url = f"{self.server_address}/api/v1/plugin/P115StrmHelper/redirect_url?apikey={settings.API_TOKEN}&share_code={share_code}&receive_code={receive_code}&id={file_id}"
-
-        with open(new_file_path, "w", encoding="utf-8") as file:
-            file.write(strm_url)
-        self.strm_count += 1
-        logger.info("【分享STRM生成】生成 STRM 文件成功: %s", str(new_file_path))
 
     def get_share_list_creata_strm(
         self,
@@ -639,18 +700,32 @@ class ShareStrmHelper:
         """
         下载媒体信息文件
         """
-        self.mediainfo_count = self.mediainfodownloader.auto_downloader(
-            downloads_list=self.download_mediainfo_list
+        self.mediainfo_count, self.mediainfo_fail_count = (
+            self.mediainfodownloader.auto_downloader(
+                downloads_list=self.download_mediainfo_list
+            )
         )
 
     def get_generate_total(self):
         """
         输出总共生成文件个数
         """
+        if self.strm_fail_dict:
+            for path, error in self.strm_fail_dict.items():
+                logger.warn(f"【分享STRM生成】{path} 生成错误原因: {error}")
         logger.info(
             f"【分享STRM生成】分享生成 STRM 文件完成，总共生成 {self.strm_count} 个 STRM 文件，下载 {self.mediainfo_count} 个媒体数据文件"
         )
-        return self.strm_count, self.mediainfo_count
+        if self.strm_fail_count != 0 or self.mediainfo_fail_count != 0:
+            logger.warn(
+                f"【分享STRM生成】{self.strm_fail_count} 个 STRM 文件生成失败，{self.mediainfo_fail_count} 个媒体数据文件下载失败"
+            )
+        return (
+            self.strm_count,
+            self.mediainfo_count,
+            self.strm_fail_count,
+            self.mediainfo_fail_count,
+        )
 
 
 class P115StrmHelper(_PluginBase):
@@ -661,7 +736,7 @@ class P115StrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png"
     # 插件版本
-    plugin_version = "1.6.4"
+    plugin_version = "1.6.5"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -1762,11 +1837,17 @@ class P115StrmHelper(_PluginBase):
                 title="开始115网盘媒体库全量同步 ...",
                 userid=event.event_data.get("user"),
             )
-        strm_count, mediainfo_count = self.full_sync_strm_files()
+        strm_count, mediainfo_count, strm_fail_count, mediainfo_fail_count = (
+            self.full_sync_strm_files()
+        )
         if event:
             self.post_message(
                 channel=event.event_data.get("channel"),
-                title=f"全量生成 STRM 文件完成，总共生成 {strm_count} 个 STRM 文件，下载 {mediainfo_count} 个媒体数据文件",
+                title="✅ 全量生成 STRM 文件完成",
+                text=f"📂 生成STRM文件 {strm_count} 个\n"
+                + f"⬇️ 下载媒体文件 {mediainfo_count} 个\n"
+                + f"❌ 生成STRM失败 {strm_fail_count} 个\n"
+                + f"🚫 下载媒体失败 {mediainfo_fail_count} 个",
                 userid=event.event_data.get("user"),
             )
 
