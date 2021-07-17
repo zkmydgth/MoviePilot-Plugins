@@ -136,6 +136,10 @@ class FullSyncStrmHelper:
     def __get_remove_unless_strm(self, path_base64: str) -> Dict:
         """
         获取删除信息
+
+        :param path_base64: 路径 base64 信息
+
+        :return: 数据字典
         """
         data: dict = configer.get_plugin_data("full_remove_unless_strm")
         if data:
@@ -145,6 +149,9 @@ class FullSyncStrmHelper:
     def __save_remove_unless_strm(self, path_base64: str, value: Dict):
         """
         保存删除信息
+
+        :param path_base64: 路径 base64 信息
+        :param value: 保存字典
         """
         data: Dict | None = configer.get_plugin_data("full_remove_unless_strm")
         if data:
@@ -156,6 +163,10 @@ class FullSyncStrmHelper:
     def __remove_unless_strm_local(self, target_dir: str) -> Thread:
         """
         清理无效 STRM 本地扫描
+
+        :param target_dir: 扫描路径
+
+        :return: 扫描进程
         """
         self._clean_tree()
 
