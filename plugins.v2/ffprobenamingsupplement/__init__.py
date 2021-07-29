@@ -23,7 +23,7 @@ class FFprobeNamingSupplement(_PluginBase):
     plugin_name = "ffprobe命名补充"
     plugin_desc = "整理重命名时调用 ffprobe，补全命名模板中的 videoFormat、videoCodec、audioCodec、fps、effect，支持 STRM "
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/refs/heads/main/icons/ffmpeg.png"
-    plugin_version = "0.1.2"
+    plugin_version = "0.1.3"
     plugin_author = "DDSRem"
     author_url = "https://github.com/DDSRem"
     plugin_config_prefix = "ffprobenamingsupplement_"
@@ -453,14 +453,19 @@ class FFprobeNamingSupplement(_PluginBase):
     @classmethod
     def _audio_stream_has_dolby_atmos_ffprobe(cls, audio_s: Dict[str, Any]) -> bool:
         """
-        根据 ffprobe 音频流的 profile、codec_tag_string、tags 判断是否含 Dolby Atmos
+        根据 ffprobe 音频流的 profile、codec_tag_string、tags 等判断是否含 Dolby Atmos
 
         Dolby TrueHD / EAC3 等与 Atmos 为不同概念；仅在元数据标明 Atmos 时为 True
+
+        除英文「Atmos」外，识别常见中文轨标题「杜比全景声」等（无 profile 的旧版 ffprobe）
         """
         parts: List[str] = []
         prof = audio_s.get("profile")
         if prof:
             parts.append(str(prof))
+        cln = audio_s.get("codec_long_name")
+        if cln:
+            parts.append(str(cln))
         cts = audio_s.get("codec_tag_string")
         if cts:
             parts.append(str(cts))
@@ -469,8 +474,10 @@ class FFprobeNamingSupplement(_PluginBase):
             for v in tags.values():
                 if v:
                     parts.append(str(v))
-        blob = " ".join(parts).lower()
-        return "atmos" in blob
+        joined = " ".join(parts)
+        if "atmos" in joined.lower():
+            return True
+        return "全景声" in joined
 
     @classmethod
     def _format_audio_codec_label(
@@ -562,18 +569,28 @@ class FFprobeNamingSupplement(_PluginBase):
     def _pick_video_audio_streams(
         cls, streams: List[Dict[str, Any]]
     ) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
+        """
+        选取首路视频；音轨优先 disposition.default，与播放器默认轨一致，避免误用非主音轨
+        """
         video_s: Optional[Dict[str, Any]] = None
         audio_s: Optional[Dict[str, Any]] = None
+        audios: List[Dict[str, Any]] = []
         for s in streams:
             if not isinstance(s, dict):
                 continue
             ct = s.get("codec_type")
             if ct == "video" and video_s is None:
                 video_s = s
-            elif ct == "audio" and audio_s is None:
-                audio_s = s
-            if video_s is not None and audio_s is not None:
-                break
+            elif ct == "audio":
+                audios.append(s)
+        if audios:
+            for s in audios:
+                disp = s.get("disposition")
+                if isinstance(disp, dict) and disp.get("default") == 1:
+                    audio_s = s
+                    break
+            if audio_s is None:
+                audio_s = audios[0]
         return video_s, audio_s
 
     @classmethod
