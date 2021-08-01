@@ -1,0 +1,29 @@
+name: Lint Python
+
+on:
+  push:
+    paths:
+      - '**/*.py'
+      - '.github/workflows/lint.yml'
+      - 'scripts/lint.py'
+  pull_request:
+    paths:
+      - '**/*.py'
+      - '.github/workflows/lint.yml'
+      - 'scripts/lint.py'
+  workflow_dispatch:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Run lint check
+        run: python scripts/lint.py --all

@@ -1,0 +1,59 @@
+#!/bin/bash
+set -euo pipefail
+
+PYTHON_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep '\.py$' || true)
+
+if [ -z "$PYTHON_FILES" ]; then
+    exit 0
+fi
+
+REPO_ROOT=$(git rev-parse --show-toplevel)
+LINT_SCRIPT="$REPO_ROOT/scripts/lint.py"
+
+if [ ! -f "$LINT_SCRIPT" ]; then
+    echo "Error: lint script not found at $LINT_SCRIPT"
+    exit 1
+fi
+
+# 1) 自动 ruff 格式化
+if command -v ruff &>/dev/null; then
+    echo "Running ruff format on staged Python files..."
+    echo
+    FULLPATHS=""
+    for file in $PYTHON_FILES; do
+        fullpath="$REPO_ROOT/$file"
+        if [ -f "$fullpath" ]; then
+            FULLPATHS="$FULLPATHS $fullpath"
+        fi
+    done
+    if [ -n "$FULLPATHS" ]; then
+        ruff format $FULLPATHS
+        echo
+        for file in $PYTHON_FILES; do
+            git add "$REPO_ROOT/$file"
+        done
+    fi
+else
+    echo "Warning: ruff not found, skipping auto-format"
+    echo
+fi
+
+# 2) lint 检查
+echo "Running pre-commit lint check on staged Python files..."
+echo
+
+EXIT_CODE=0
+for file in $PYTHON_FILES; do
+    fullpath="$REPO_ROOT/$file"
+    if [ -f "$fullpath" ]; then
+        python "$LINT_SCRIPT" "$fullpath" || EXIT_CODE=1
+    fi
+done
+
+if [ $EXIT_CODE -ne 0 ]; then
+    echo
+    echo "Pre-commit check failed. Please fix the errors above before committing."
+    exit 1
+fi
+
+echo "Pre-commit check passed."
