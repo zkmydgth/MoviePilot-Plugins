@@ -19,6 +19,37 @@ from app.schemas import FileItem, StorageUsage
 from clouddrive2_client import CloudDriveClient
 
 
+# 115/CD2：移动或「从含撇号的旧名改到其它名」时不稳定；先脱敏的是**源侧末段名/路径**
+# 最终目标名 `new_name` 仍可含 ASCII 撇号（改为带撇号的展示名通常可用），本模块不禁止
+APOSTROPHE_ESCAPE = "[Jw==]"
+
+
+def escape_apostrophe_in_name(name: str) -> str:
+    """
+    将名称中的 ASCII 单引号替换为占位串，便于移动前或两步重命名第一步脱敏（针对**源名**）
+
+    :param name: 原始文件名或目录名
+    :return: 替换后的名称
+    """
+
+    return name.replace("'", APOSTROPHE_ESCAPE)
+
+
+def _posix_join_parent_name(parent: str, name: str) -> str:
+    """
+    将父目录路径与末段名称拼接为 POSIX 路径（根目录无双斜杠）
+
+    :param parent: 父目录绝对路径
+    :param name: 文件或目录名
+    :return: 完整路径
+    """
+
+    base = (parent or "/").rstrip("/") or "/"
+    if base == "/":
+        return f"/{name}"
+    return f"{base}/{name}"
+
+
 class UploadStatus(IntEnum):
     """
     上传状态枚举
@@ -303,26 +334,178 @@ class CloudDriveApi:
             logger.error("【CloudDrive】删除失败 %s: %s", fileitem.path, e)
             return False
 
+    def _disambiguate_safe_name(self, parent_dir: str, candidate: str) -> str:
+        """
+        若同目录已存在 candidate，则追加随机后缀避免覆盖
+
+        :param parent_dir: 父目录路径
+        :param candidate: 撇号脱敏后的候选名
+        :return: 唯一候选名
+        """
+
+        parent_item = self.get_item(Path(parent_dir))
+        if not parent_item:
+            return candidate
+        existing = {it.name for it in self.list(parent_item)}
+        if candidate not in existing:
+            return candidate
+        for _ in range(32):
+            alt = f"{candidate}_cd2_{uuid4().hex[:8]}"
+            if alt not in existing:
+                logger.warning(
+                    "【CloudDrive】撇号脱敏名与同目录冲突，已改用 %s",
+                    alt,
+                )
+                return alt
+        alt = f"{candidate}_cd2_{uuid4().hex[:16]}"
+        logger.warning("【CloudDrive】撇号脱敏名与同目录冲突，已改用 %s", alt)
+        return alt
+
+    def _path_after_rename(self, parent_dir: str, basename: str, is_dir: bool) -> str:
+        """
+        在父目录下拼接重命名后的完整路径（目录保留末尾 /）
+
+        :param parent_dir: 父目录路径
+        :param basename: 新末段名
+        :param is_dir: 是否为目录
+        :return: 完整路径
+        """
+
+        joined = _posix_join_parent_name(parent_dir, basename)
+        if is_dir and not joined.endswith("/"):
+            return joined + "/"
+        return joined
+
+    def _verify_rename_succeeded(
+        self,
+        parent_str: str,
+        new_basename: str,
+        max_attempts: int = 8,
+        delay_s: float = 0.25,
+    ) -> bool:
+        """
+        列举父目录子项，判断是否已存在指定末段名
+
+        :param parent_str: 父目录绝对路径
+        :param new_basename: 重命名后的末段名
+        :param max_attempts: 最大尝试次数（115 偶发延迟或 RPC 报错后实际已成功）
+        :param delay_s: 两次尝试间隔秒数
+        :return: 子项中存在同名则 True
+        """
+
+        parent_norm = (parent_str or "/").rstrip("/") or "/"
+        for attempt in range(max_attempts):
+            try:
+                sub = self.client.get_sub_files(parent_norm, force_refresh=True)
+                for f in sub:
+                    if (f.name or "") == new_basename:
+                        return True
+            except Exception:
+                pass
+            if attempt < max_attempts - 1:
+                sleep(delay_s)
+        return False
+
+    def _rename_with_verify(self, source_path: str, new_basename: str) -> bool:
+        """
+        重命名并在 API 返回失败时校验路径是否已更新（115/CD2 偶发假失败）
+
+        :param source_path: 当前完整路径
+        :param new_basename: 新名称（仅末段）
+        :return: 成功返回 True
+        """
+
+        result: Any = None
+        err: Optional[Exception] = None
+        try:
+            result = self.client.rename_file(source_path, new_basename)
+        except Exception as e:
+            err = e
+            logger.debug("【CloudDrive】重命名调用异常（将尝试校验）: %s", e)
+
+        ok_api = bool(result and result.success)
+        if ok_api:
+            return True
+
+        parent = Path(source_path.rstrip("/")).parent
+        parent_str = parent.as_posix()
+        if parent_str in ("", "."):
+            parent_str = "/"
+
+        if self._verify_rename_succeeded(parent_str, new_basename):
+            logger.warning(
+                "【CloudDrive】重命名 RPC 未返回成功但已校验到目标文件存在，视为成功: %s -> %s",
+                source_path,
+                new_basename,
+            )
+            return True
+
+        if err:
+            logger.error(
+                "【CloudDrive】重命名失败 %s -> %s: %s",
+                source_path,
+                new_basename,
+                err,
+            )
+        else:
+            logger.error(
+                "【CloudDrive】重命名失败 %s -> %s: %s",
+                source_path,
+                new_basename,
+                getattr(result, "errorMessage", "") if result else "",
+            )
+        return False
+
     def rename(self, fileitem: FileItem, name: str) -> bool:
         """
-        重命名文件或目录。
+        重命名文件或目录
+
+        若**旧名（源末段）**含撇号：先改为脱敏名再改为 ``name``，避免一步「含撇号旧名 → 其它名」触发的 API 问题
+        若 ``name`` 本身含撇号，第二步仍会把它交给 CD2；规避的是**源路径上的撇号**，不是禁止目标名含撇号
 
         :param fileitem: 文件项
         :param name: 新名称
         :return: 重命名成功返回 True，失败返回 False
         """
-        try:
-            result = self.client.rename_file(fileitem.path, name)
-            return bool(result and result.success)
-        except Exception as e:
-            logger.error(
-                "【CloudDrive】重命名失败 %s -> %s: %s", fileitem.path, name, e
+        if name == fileitem.name:
+            return True
+
+        raw_path = (fileitem.path or "/").rstrip("/") or "/"
+        p = Path(raw_path)
+        parent_dir = p.parent.as_posix() or "/"
+        if parent_dir == ".":
+            parent_dir = "/"
+        old_name = fileitem.name or p.name
+        is_dir = fileitem.type == "dir"
+        current_path = fileitem.path or _posix_join_parent_name(parent_dir, old_name)
+
+        if "'" not in old_name:
+            return self._rename_with_verify(current_path, name)
+
+        intermediate = self._disambiguate_safe_name(
+            parent_dir, escape_apostrophe_in_name(old_name)
+        )
+        if not self._rename_with_verify(current_path, intermediate):
+            return False
+        if intermediate == name:
+            return True
+        mid_path = self._path_after_rename(parent_dir, intermediate, is_dir)
+        # 第二步：源路径已不含撇号；目标名仍可含撇号（策略只约束源侧末段名）
+        if not self._rename_with_verify(mid_path, name):
+            logger.warning(
+                "【CloudDrive】两步重命名第二步失败，对象已保留脱敏末段名且未自动回滚: %s（期望改为 %s）",
+                intermediate,
+                name,
             )
             return False
+        return True
 
     def move(self, fileitem: FileItem, path: Path, new_name: str) -> bool:
         """
-        移动文件或目录到目标位置。
+        移动文件或目录到目标位置
+
+        若**被移动项当前末段名**含撇号，移动前先脱敏；移动后再 ``rename`` 为 ``new_name``
+        ``new_name`` 可含撇号，规避的是**移动时源路径**中的撇号，与最终展示名是否含撇号无关
 
         :param fileitem: 要移动的文件项
         :param path: 目标目录路径
@@ -332,34 +515,67 @@ class CloudDriveApi:
         dest_path = (
             Path(path).as_posix().rstrip("/") if path is not None else "/"
         ) or "/"
+
+        raw_path = (fileitem.path or "/").rstrip("/") or "/"
+        p = Path(raw_path)
+        parent_dir = p.parent.as_posix() or "/"
+        if parent_dir == ".":
+            parent_dir = "/"
+        current_name = fileitem.name or p.name
+        is_dir = fileitem.type == "dir"
+        current_path = fileitem.path or _posix_join_parent_name(
+            parent_dir, current_name
+        )
+
+        working_name = current_name
+        escaped_applied = False
+        if "'" in current_name:
+            safe = self._disambiguate_safe_name(
+                parent_dir, escape_apostrophe_in_name(current_name)
+            )
+            if not self._rename_with_verify(current_path, safe):
+                return False
+            escaped_applied = True
+            working_name = safe
+            current_path = self._path_after_rename(parent_dir, safe, is_dir)
+
         try:
-            result = self.client.move_file([fileitem.path], dest_path)
+            result = self.client.move_file([current_path], dest_path)
             if not result or not result.success:
+                if escaped_applied:
+                    logger.warning(
+                        "【CloudDrive】移动失败，源侧已脱敏的对象未移动且未回滚，当前末段: %s",
+                        working_name,
+                    )
                 logger.error(
                     "【CloudDrive】移动失败 %s -> %s: %s",
-                    fileitem.path,
+                    current_path,
                     dest_path,
                     getattr(result, "errorMessage", "") if result else "",
                 )
                 return False
-            if fileitem.name != new_name:
-                new_path = f"{dest_path}/{fileitem.name}"
-                rename_result = self.client.rename_file(new_path, new_name)
-                if not rename_result or not rename_result.success:
-                    logger.error(
-                        "【CloudDrive】移动后重命名失败 %s -> %s: %s",
-                        new_path,
-                        new_name,
-                        getattr(rename_result, "errorMessage", "")
-                        if rename_result
-                        else "",
-                    )
+            if working_name != new_name:
+                new_path = _posix_join_parent_name(dest_path, working_name)
+                if is_dir and not new_path.endswith("/"):
+                    new_path = new_path + "/"
+                if not self._rename_with_verify(new_path, new_name):
+                    if escaped_applied:
+                        logger.warning(
+                            "【CloudDrive】移动后重命名失败，目标目录中仍为脱敏末段名且未回滚: %s（期望 %s）",
+                            working_name,
+                            new_name,
+                        )
                     return False
             return True
         except Exception as e:
+            if escaped_applied:
+                logger.warning(
+                    "【CloudDrive】移动异常，源侧已脱敏的对象未移动且未回滚，当前末段: %s",
+                    working_name,
+                )
             logger.error(
                 "【CloudDrive】移动失败 %s -> %s: %s",
-                fileitem.path,
+                current_path,
                 dest_path,
                 e,
             )
