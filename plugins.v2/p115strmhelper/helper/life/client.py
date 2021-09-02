@@ -174,6 +174,7 @@ class MonitorLife:
                 client=self._client,
                 attr=cid,
                 root_id=None,
+                refresh=True,
                 **configer.get_ios_ua_app(app=False),
             )
             if not dir_path:
