@@ -1,4 +1,4 @@
-import re
+from re import escape as re_escape, subn as re_subn
 from copy import deepcopy
 from json import JSONDecodeError, loads
 from pathlib import Path
@@ -874,8 +874,8 @@ class FFprobeNamingSupplement(_PluginBase):
                 if old_token == new_token:
                     continue
                 # 单词边界替换，避免误伤同名子串（例如 audioCodec=AAC 不应替换文件名中的随机 "AAC" 子串）
-                pattern = rf"(?<![A-Za-z0-9]){re.escape(old_token)}(?![A-Za-z0-9])"
-                new_patched, count = re.subn(pattern, new_token, patched)
+                pattern = rf"(?<![A-Za-z0-9]){re_escape(old_token)}(?![A-Za-z0-9])"
+                new_patched, count = re_subn(pattern, new_token, patched)
                 if count:
                     patched = new_patched
                 else:

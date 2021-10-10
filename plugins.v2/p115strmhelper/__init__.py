@@ -1,4 +1,4 @@
-import re
+from re import escape as re_escape, subn as re_subn
 from time import sleep
 from copy import deepcopy
 from dataclasses import asdict
@@ -1970,7 +1970,9 @@ class P115StrmHelper(_PluginBase):
         skipped: List[str] = []
         for key, new_value in applied_fields.items():
             old_value = original_rename_dict.get(key)
-            if old_value is None or (isinstance(old_value, str) and not old_value.strip()):
+            if old_value is None or (
+                isinstance(old_value, str) and not old_value.strip()
+            ):
                 skipped.append(key)
                 continue
             old_token = str(old_value)
@@ -1978,8 +1980,8 @@ class P115StrmHelper(_PluginBase):
             if old_token == new_token:
                 continue
             # 单词边界替换，避免误伤同名子串（例如 audioCodec=AAC 不应替换文件名中的随机 "AAC" 子串）
-            pattern = rf"(?<![A-Za-z0-9]){re.escape(old_token)}(?![A-Za-z0-9])"
-            new_patched, count = re.subn(pattern, new_token, patched)
+            pattern = rf"(?<![A-Za-z0-9]){re_escape(old_token)}(?![A-Za-z0-9])"
+            new_patched, count = re_subn(pattern, new_token, patched)
             if count:
                 patched = new_patched
             else:
