@@ -103,6 +103,8 @@ class U115OpenHelper:
                             storage="u115",
                             conf={"refresh_time": int(time()), **tokens},
                         )
+                    else:
+                        return None
                 access_token = tokens.get("access_token")
                 if access_token:
                     self.session.headers.update(
@@ -147,20 +149,30 @@ class U115OpenHelper:
         # 检查会话
         self._check_session()
 
-        request_headers = self.session.headers.copy()
-        if headers:
-            request_headers.update(headers)
-        kwargs["headers"] = request_headers
+        # 错误日志标志
+        no_error_log = kwargs.pop("no_error_log", False)
+        # 重试次数
+        retry_times = kwargs.pop("retry_limit", 5)
 
-        resp = self.session.request(method, f"{self.base_url}{endpoint}", **kwargs)
+        try:
+            resp = self.session.request(method, f"{self.base_url}{endpoint}", **kwargs)
+        except requests.exceptions.RequestException as e:
+            logger.error(f"【P115Open】{method} 请求 {endpoint} 网络错误: {str(e)}")
+            return None
+
         if resp is None:
             logger.warn(f"【P115Open】{method} 请求 {endpoint} 失败！")
             return None
 
+        kwargs["retry_limit"] = retry_times
+
         # 处理速率限制
         if resp.status_code == 429:
-            reset_time = int(resp.headers.get("X-RateLimit-Reset", 60))
-            sleep(reset_time + 5)
+            reset_time = 5 + int(resp.headers.get("X-RateLimit-Reset", 60))
+            logger.debug(
+                f"【P115Open】{method} 请求 {endpoint} 限流，等待{reset_time}秒后重试"
+            )
+            sleep(reset_time)
             return self._request_api(method, endpoint, result_key, **kwargs)
 
         # 处理请求错误
@@ -170,8 +182,8 @@ class U115OpenHelper:
         ret_data = resp.json()
         if ret_data.get("code") != 0:
             error_msg = ret_data.get("message")
-            logger.warn(f"【P115Open】{method} 请求 {endpoint} 出错：{error_msg}！")
-            retry_times = kwargs.get("retry_limit", 5)
+            if not no_error_log:
+                logger.warn(f"【P115Open】{method} 请求 {endpoint} 出错：{error_msg}")
             if "已达到当前访问上限" in error_msg:
                 if retry_times <= 0:
                     logger.error(
@@ -845,7 +857,11 @@ class U115OpenHelper:
         """
         try:
             resp = self._request_api(
-                "POST", "/open/folder/get_info", "data", data={"path": path.as_posix()}
+                "POST",
+                "/open/folder/get_info",
+                "data",
+                data={"path": path.as_posix()},
+                no_error_log=True,
             )
             if not resp:
                 return None
