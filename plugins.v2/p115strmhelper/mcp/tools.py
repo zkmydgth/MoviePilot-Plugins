@@ -136,10 +136,12 @@ async def _trigger_share_sync(api: Any, _: Dict) -> Any:
 async def _add_share_transfer(api: Any, args: Dict) -> Any:
     """
     :param api: 插件 Api 实例。
-    :param args: 含 share_url。
+    :param args: 含 share_url 和可选 pan_path。
     :return: 添加分享转存结果。
     """
-    return await to_thread(api.add_transfer_share, args.get("share_url", ""))
+    return await to_thread(
+        api.add_transfer_share, args.get("share_url", ""), args.get("pan_path")
+    )
 
 
 async def _manual_pan_transfer(api: Any, args: Dict) -> Any:
@@ -332,7 +334,13 @@ TOOLS.extend(
                 "description": "添加分享转存",
                 "inputSchema": {
                     "type": "object",
-                    "properties": {"share_url": {"type": "string"}},
+                    "properties": {
+                        "share_url": {"type": "string"},
+                        "pan_path": {
+                            "type": "string",
+                            "description": "可选，指定转存目标目录，不传则使用配置的第一个转存目录",
+                        },
+                    },
                 },
             }
         },

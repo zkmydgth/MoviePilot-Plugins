@@ -1341,7 +1341,9 @@ class Api:
         )
 
     @staticmethod
-    def add_transfer_share(share_url: str = "") -> ShareApiData:
+    def add_transfer_share(
+        share_url: str = "", pan_path: Optional[str] = None
+    ) -> ShareApiData:
         """
         添加分享转存整理
         """
@@ -1353,7 +1355,7 @@ class Api:
 
         try:
             result = servicer.sharetransferhelper.add_share_115(
-                share_url, notify=configer.notify
+                share_url, notify=configer.notify, pan_path=pan_path
             )
         except Exception as e:
             return ShareApiData(code=-1, msg=str(e))
