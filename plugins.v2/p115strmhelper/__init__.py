@@ -1545,7 +1545,7 @@ class P115StrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png"
     # 插件版本
-    plugin_version = "1.8.6"
+    plugin_version = "1.8.7"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
