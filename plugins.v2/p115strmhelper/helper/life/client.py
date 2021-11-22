@@ -74,6 +74,9 @@ class MonitorLife:
     }
     """
 
+    WAIT_TIME_OUT: int = 15
+    SLEEP_TIME: int = 10
+
     def __init__(
         self,
         client: P115Client,
@@ -1868,7 +1871,7 @@ class MonitorLife:
                     client=self._client,
                     from_time=from_time,
                     from_id=from_id,
-                    cooldown=4,
+                    cooldown=2,
                     **configer.get_ios_ua_app(),
                 )
 
@@ -1898,10 +1901,10 @@ class MonitorLife:
                     return from_time, from_id
 
         if not events_batch:
-            if self.stop_event and self.stop_event.wait(timeout=20):
+            if self.stop_event and self.stop_event.wait(timeout=self.WAIT_TIME_OUT):
                 return from_time, from_id
             elif not self.stop_event:
-                sleep(20)
+                sleep(self.SLEEP_TIME)
             return from_time, from_id
 
         db_helper = LifeEventDbHelper()
@@ -1997,10 +2000,10 @@ class MonitorLife:
                     )
                 )
 
-        if self.stop_event and self.stop_event.wait(timeout=20):
+        if self.stop_event and self.stop_event.wait(timeout=self.WAIT_TIME_OUT):
             return return_from_time, return_from_id
         elif not self.stop_event:
-            sleep(20)
+            sleep(self.SLEEP_TIME)
 
         return return_from_time, return_from_id
 
