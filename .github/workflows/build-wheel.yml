@@ -166,8 +166,11 @@ jobs:
         id: set_path
         shell: bash
         run: |
-          # 使用 bash 参数扩展：如果 inputs.commit_directory 变量未设置或为空，则使用 :- 后面的默认值
-          FINAL_PATH="${{ inputs.commit_directory:-wheels/${{ inputs.package_name }}/${{ inputs.package_version }} }}"
+          if "${{ inputs.commit_directory }}" == ""; then
+            FINAL_PATH="wheels/${{ inputs.package_name }}/${{ inputs.package_version }} }}"
+          else
+            FINAL_PATH="${{ inputs.commit_directory }}"
+          fi
           echo "最终提交目录: ${FINAL_PATH}"
           # 将最终路径设置为本步骤的输出，供后续步骤使用
           echo "path=${FINAL_PATH}" >> $GITHUB_OUTPUT
