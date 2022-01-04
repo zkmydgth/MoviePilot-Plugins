@@ -17,9 +17,9 @@ class FileDbHelper(DbOper):
     @staticmethod
     def process_item(item: Dict) -> List[Dict]:
         """
-        处理单个项目，分离文件夹和文件数据
+        处理单个规范化项目，分离文件夹和文件数据
 
-        :param item (Dict): 包含文件信息的字典，必须包含 path 键
+        :param item (Dict): 规范化后的文件或文件夹信息，必须包含 path 键
 
         :return List: 处理后的数据列表，每项包含 table 和 data 字段
 
@@ -31,7 +31,6 @@ class FileDbHelper(DbOper):
         results = []
         ancestors = item.get("ancestors", [])
 
-        # 处理祖先文件夹
         for i, ancestor in enumerate(ancestors[1:-1], start=1):
             path = "/" + "/".join(a["name"] for a in ancestors[1 : i + 1])
             results.append(
@@ -46,7 +45,20 @@ class FileDbHelper(DbOper):
                 }
             )
 
-        # 处理文件本身
+        if item["is_dir"]:
+            results.append(
+                {
+                    "table": "folders",
+                    "data": {
+                        "id": item["id"],
+                        "parent_id": item["parent_id"],
+                        "name": item["name"],
+                        "path": item["path"],
+                    },
+                }
+            )
+            return results
+
         results.append(
             {
                 "table": "files",

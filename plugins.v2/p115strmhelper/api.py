@@ -3,7 +3,7 @@ from io import BytesIO
 from datetime import datetime
 from dataclasses import asdict
 from time import time, sleep
-from typing import Any, Dict, Iterator, Optional, cast
+from typing import Any, Dict, Optional
 from pathlib import Path
 from threading import Thread
 from urllib.parse import quote, unquote
@@ -14,6 +14,7 @@ from orjson import dumps, loads
 from p115client import P115Client, check_response
 from p115client.const import APP_TO_SSOENT
 from p115client.exception import P115DataError
+from p115client.tool.attr import normalize_attr
 from p115client.tool.fs_files import fs_files_iter
 from fastapi import Body, Request, Response, Depends, status, Query
 from fastapi.responses import JSONResponse
@@ -493,25 +494,23 @@ class Api:
                     return ApiResponse(code=1, msg=f"获取目录ID失败: {path}")
 
                 items = []
-                fs_batches = cast(
-                    Iterator[Dict[str, Any]],
-                    fs_files_iter(
-                        self._client,
-                        cid,
-                        cooldown=2,
-                        **configer.get_ios_ua_app(app=False),
-                    ),
+                fs_batches = fs_files_iter(
+                    self._client,
+                    cid,
+                    cooldown=2,
+                    **configer.get_ios_ua_app(app=False),
                 )
                 for batch in fs_batches:
-                    for item in batch.get("data", []):
-                        if "fid" not in item:
-                            full_path = f"{path.as_posix().rstrip('/')}/{item.get('n')}"
+                    for raw_item in batch.get("data", []):
+                        item = normalize_attr(raw_item)
+                        if item["is_dir"]:
+                            full_path = f"{path.as_posix().rstrip('/')}/{item['name']}"
                             idpathcacher.add_cache(
-                                id=int(item.get("cid")), directory=full_path
+                                id=int(item["id"]), directory=full_path
                             )
                             items.append(
                                 DirectoryItem(
-                                    name=item.get("n"), path=full_path, is_dir=True
+                                    name=item["name"], path=full_path, is_dir=True
                                 )
                             )
 

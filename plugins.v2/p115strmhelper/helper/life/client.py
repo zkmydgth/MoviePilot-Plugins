@@ -2200,20 +2200,20 @@ class MonitorLife:
                             f"【监控生活事件】第 {batch_count} 批数据为空，跳过"
                         )
                         continue
-                    items = data.get("data", [])
-                    if not items:
+                    raw_items = data.get("data", [])
+                    if not raw_items:
                         logger.debug(
                             f"【监控生活事件】第 {batch_count} 批数据中无文件项，跳过"
                         )
                         continue
                     logger.debug(
-                        f"【监控生活事件】处理第 {batch_count} 批数据，包含 {len(items)} 个项目"
+                        f"【监控生活事件】处理第 {batch_count} 批数据，包含 {len(raw_items)} 个项目"
                     )
-                    for item_index, item in enumerate(items, 1):
+                    for item_index, raw_item in enumerate(raw_items, 1):
                         item_type = "未知"
                         item_name = "未知"
                         try:
-                            item = normalize_attr(item)
+                            item = normalize_attr(raw_item)
                             item_name = item.get("name") or ""
                             item_id = item.get("id")
                             item_type = "文件夹" if item.get("is_dir") else "文件"

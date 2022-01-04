@@ -4,11 +4,13 @@ from functools import partial
 from itertools import batched, cycle
 from os import close, O_CREAT, O_RDWR, open as os_open
 from pathlib import Path
+from posixpath import join as posix_join
 from threading import Thread
 from time import perf_counter, sleep
 from typing import Any, Callable, Dict, Generator, Iterator, List, Optional, Tuple
 
 from p115client import P115Client
+from p115client.tool.attr import normalize_attr
 from p115client.tool.export_dir import (
     export_dir_start,
     export_dir_status,
@@ -341,14 +343,14 @@ class IncrementSyncStrmHelper:
             _flock_un(lock_fd)
             close(lock_fd)
 
-    def __iterdir(self, cid: int, path: str) -> Iterator:
+    def __iterdir(self, cid: int, path: str) -> Iterator[Dict[str, Any]]:
         """
         迭代网盘目录
 
         :param cid (int): 网盘目录 ID
         :param path (str): 网盘路径
 
-        :return Iterator: 网盘文件(夹)信息迭代器
+        :return Iterator: 规范化后的网盘文件或文件夹信息迭代器
         """
         logger.debug(f"【增量STRM生成】迭代网盘目录: {cid} {path}")
         for batch in fs_files_iter(
@@ -358,8 +360,9 @@ class IncrementSyncStrmHelper:
             **configer.get_ios_ua_app(app=next(self._iterdir_app_cycle)),
         ):
             self.api_count += 1
-            for item in batch.get("data", []):
-                item["path"] = path + "/" + item.get("n")
+            for raw_item in batch.get("data", []):
+                item = normalize_attr(raw_item)
+                item["path"] = posix_join(path, item["name"])
                 yield item
 
     def __get_cid_by_path(self, path: str) -> Optional[int]:
@@ -441,7 +444,7 @@ class IncrementSyncStrmHelper:
             ):
                 processed: List = []
                 for item in batch:
-                    processed.extend(self.databasehelper.process_fs_files_item(item))
+                    processed.extend(self.databasehelper.process_item(item))
                 self.databasehelper.upsert_batch(processed)
             last_path = temp_path
             sleep(2)

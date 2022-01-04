@@ -2,6 +2,7 @@ from time import sleep
 from typing import List
 
 from p115client import P115Client, check_response
+from p115client.tool.attr import normalize_attr
 from p115client.tool.fs_files import fs_files_iter
 
 from app.log import logger
@@ -53,13 +54,11 @@ class Cleaner:
             for batch in fs_files_iter(
                 self.client, parent_id, cooldown=2, **configer.get_ios_ua_app(app=False)
             ):
-                for item in batch.get("data", []):
-                    if not item:
+                for raw_item in batch.get("data", []):
+                    if not raw_item:
                         continue
-                    if "fid" not in item:
-                        id_list.append(item.get("cid"))
-                    else:
-                        id_list.append(item.get("fid"))
+                    item = normalize_attr(raw_item)
+                    id_list.append(item["id"])
             if not id_list:
                 logger.info("【最近接收清理】最近接收目录为空，无需清理")
                 return
