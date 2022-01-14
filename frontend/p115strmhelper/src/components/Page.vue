@@ -1521,7 +1521,6 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted, onBeforeUnmount, watch } from 'vue';
-import { ensureSentryInitialized } from '../utils/init-sentry.js';
 import { P115_STRM_HELPER_PLUGIN_ID } from '../utils/pluginId.js';
 import FullSyncConfirmDialog from './dialogs/FullSyncConfirmDialog.vue';
 import DirSelectorDialog from './dialogs/DirSelectorDialog.vue';
@@ -2805,7 +2804,6 @@ const deleteAllSyncDelHistory = async () => {
 };
 
 onMounted(async () => {
-  ensureSentryInitialized();
   await getStatus();
   if (status.has_client && props.initialConfig?.cookies) {
     await fetchUserStorageStatus();

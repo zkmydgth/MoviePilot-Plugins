@@ -18,7 +18,6 @@
 
 <script setup>
 import { computed, onMounted } from "vue";
-import { ensureSentryInitialized } from "../utils/init-sentry.js";
 import DashboardStrmPanel from "./dashboard/DashboardStrmPanel.vue";
 import DashboardStatusPanel from "./dashboard/DashboardStatusPanel.vue";
 import DashboardSyncDelPanel from "./dashboard/DashboardSyncDelPanel.vue";
@@ -55,7 +54,6 @@ const panelKey = computed(() => {
 });
 
 onMounted(() => {
-  ensureSentryInitialized();
 });
 </script>
 

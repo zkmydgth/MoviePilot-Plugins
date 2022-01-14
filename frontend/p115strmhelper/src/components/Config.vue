@@ -234,7 +234,6 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted, watch, provide } from 'vue';
-import { ensureSentryInitialized } from '../utils/init-sentry.js';
 import { P115_STRM_HELPER_PLUGIN_ID } from '../utils/pluginId.js';
 import { usePathManagement } from './composables/usePathManagement.js';
 import { useQrCode } from './composables/useQrCode.js';
@@ -1202,7 +1201,6 @@ const copyDebugInfo = async () => {
 };
 
 onMounted(async () => {
-  ensureSentryInitialized();
   await loadConfig();
   await checkTransferModuleEnhancement();
 });

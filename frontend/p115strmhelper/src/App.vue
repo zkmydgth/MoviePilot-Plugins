@@ -11,7 +11,6 @@
 import { defineComponent, ref, shallowRef, onMounted, onBeforeUnmount, onErrorCaptured } from 'vue';
 import Page from './components/Page.vue';
 import Config from './components/Config.vue';
-import { captureError } from './utils/sentry.js';
 
 export default defineComponent({
   name: 'App',
@@ -48,42 +47,12 @@ export default defineComponent({
     };
 
     onErrorCaptured((err, instance, info) => {
-      captureError(err, {
-        tags: {
-          error_type: 'vue_component_error',
-          component_name: instance?.$options?.name || 'Unknown',
-        },
-        extra: {
-          error_info: info,
-          component_props: instance?.$props,
-        },
-      });
+      console.error('[Error]', err, info);
       return true;
     });
 
     onMounted(() => {
       window.addEventListener('message', handleMessage);
-
-      window.addEventListener('error', (event) => {
-        captureError(event.error || new Error(event.message), {
-          tags: {
-            error_type: 'global_error',
-          },
-          extra: {
-            filename: event.filename,
-            lineno: event.lineno,
-            colno: event.colno,
-          },
-        });
-      });
-
-      window.addEventListener('unhandledrejection', (event) => {
-        captureError(event.reason, {
-          tags: {
-            error_type: 'unhandled_promise_rejection',
-          },
-        });
-      });
 
       if (window.parent && window.parent.postMessage) {
         window.parent.postMessage({ type: 'ready' }, '*');
@@ -142,7 +111,7 @@ export default defineComponent({
 }
 
 /* 子组件根节点填满并传递高度约束，仅内部区域滚动 */
-.plugin-app > * {
+.plugin-app>* {
   position: relative;
   z-index: 1;
   flex: 1;

@@ -44,10 +44,6 @@ export default defineConfig({
         manualChunks: (id) => {
           // 将 node_modules 中的大型依赖分离
           if (id.includes('node_modules')) {
-            // Sentry 单独打包
-            if (id.includes('@sentry')) {
-              return 'sentry';
-            }
             // ECharts 单独打包（通常很大）
             if (id.includes('echarts') || id.includes('vue-echarts')) {
               return 'echarts';
