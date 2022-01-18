@@ -1538,7 +1538,7 @@ class P115StrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png"
     # 插件版本
-    plugin_version = "1.8.20"
+    plugin_version = "1.8.21"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -4111,7 +4111,7 @@ class P115StrmHelper(_PluginBase):
             if file_item:
                 file_path = file_item.get("path", "")
             if not file_path:
-                logger.warn(
+                logger.debug(
                     f"【监控生活事件】{event['file_name']} 无法通过数据库获取路径，防止误删不处理"
                 )
                 return
