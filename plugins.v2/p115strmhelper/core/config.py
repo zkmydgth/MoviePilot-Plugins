@@ -163,6 +163,7 @@ class ConfigManager:
         """
         获取所有配置的副本
         """
+        self._configs = self.fix_bool_config(self._configs)
         return self._configs.copy()
 
     def update_config(self, updates: Dict[str, Any]) -> bool:
