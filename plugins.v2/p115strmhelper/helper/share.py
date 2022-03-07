@@ -144,17 +144,18 @@ class ShareTransferHelper:
         # 尝试识别媒体信息
         file_mediainfo = ali2115.share_recognize_mediainfo(share_token)
 
+        # 媒体文件和媒体信息文件一起秒传
+        rmt_mediaext = configer.get_config("user_rmt_mediaext").replace(
+            "，", ","
+        ).split(",") + configer.get_config("user_download_mediaext").replace(
+            "，", ","
+        ).split(",")
         status, msg, success_upload, fail_upload = ali2115.share_upload(
             share_token=share_token,
             parent_id=int(parent_id),
             unrecognized_id=int(unrecognized_id),
             unrecognized_path=unrecognized_path,
-            rmt_mediaext=[
-                f".{ext.strip()}"
-                for ext in configer.get_config("user_rmt_mediaext")
-                .replace("，", ",")
-                .split(",")
-            ],
+            rmt_mediaext=[f".{ext.strip()}" for ext in rmt_mediaext],
             file_mediainfo=file_mediainfo,
         )
 
