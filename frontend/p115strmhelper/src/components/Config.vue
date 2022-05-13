@@ -1903,7 +1903,6 @@ const removeExcludePathEntry = (index, type) => {
   padding: 8px;
   border: 1px solid rgba(var(--v-border-color), 0.3);
   border-radius: 6px;
-  background-color: rgba(var(--v-theme-surface-variant), 0.3);
 }
 
 .path-input-row {
