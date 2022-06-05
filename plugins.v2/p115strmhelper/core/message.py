@@ -1,4 +1,4 @@
-import random
+from random import choice
 from typing import Optional
 from base64 import b64decode
 
@@ -31,7 +31,7 @@ def post_message(
             f"#/plugins?tab=installed&id={configer.get_config('PLUSIN_NAME')}"
         )
     if configer.get_config("language") == "zh_CN_catgirl":
-        message = b64decode(random.choice(i18n.get("fuck")).encode("utf-8")).decode(
+        message = b64decode(choice(i18n.get("fuck")).encode("utf-8")).decode(
             "utf-8"
         )
         if text:

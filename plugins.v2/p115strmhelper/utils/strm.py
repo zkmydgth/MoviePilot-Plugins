@@ -66,7 +66,8 @@ class StrmUrlModeResolver:
         self.default_mode = default_mode
         self.rules = self._parse_config(config_str)
 
-    def _parse_config(self, config_str: str) -> dict:
+    @staticmethod
+    def _parse_config(config_str: str) -> dict:
         """
         解析配置字符串并将其转换为一个易于查询的字典
 

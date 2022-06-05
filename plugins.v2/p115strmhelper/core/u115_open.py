@@ -1,10 +1,9 @@
 import hashlib
 import threading
-import time
 from random import randint
 from datetime import datetime, timezone
 from pathlib import Path
-from time import sleep
+from time import sleep, time, perf_counter
 from typing import Optional, Union
 
 import oss2
@@ -94,12 +93,12 @@ class U115OpenHelper:
                 return None
             expires_in = tokens.get("expires_in", 0)
             refresh_time = tokens.get("refresh_time", 0)
-            if expires_in and refresh_time + expires_in < int(time.time()):
+            if expires_in and refresh_time + expires_in < int(time()):
                 tokens = self.__refresh_access_token(refresh_token)
                 if tokens:
                     storagehelper.set_storage(
                         storage="u115",
-                        conf={"refresh_time": int(time.time()), **tokens},
+                        conf={"refresh_time": int(time()), **tokens},
                     )
             access_token = tokens.get("access_token")
             if access_token:
@@ -153,7 +152,7 @@ class U115OpenHelper:
         # 处理速率限制
         if resp.status_code == 429:
             reset_time = int(resp.headers.get("X-RateLimit-Reset", 60))
-            time.sleep(reset_time + 5)
+            sleep(reset_time + 5)
             return self._request_api(method, endpoint, result_key, **kwargs)
 
         # 处理请求错误
@@ -176,7 +175,7 @@ class U115OpenHelper:
         """
         storagechain = StorageChain()
         for _ in range(2):
-            time.sleep(2)
+            sleep(2)
             fileitem = storagechain.get_file_item(storage="u115", path=Path(path))
             if fileitem:
                 return fileitem
@@ -333,10 +332,10 @@ class U115OpenHelper:
         target_cid = target_dir.fileid
         target_param = f"U_1_{target_cid}"
 
-        wait_start_time = time.perf_counter()
+        wait_start_time = perf_counter()
         send_wait = False
         while True:
-            start_time = time.perf_counter()
+            start_time = perf_counter()
             # Step 1: 初始化上传
             init_data = {
                 "file_name": target_name,
@@ -404,7 +403,7 @@ class U115OpenHelper:
             # Step 3: 秒传
             if init_result.get("status") == 2:
                 logger.info(f"【P115Open】{target_name} 秒传成功")
-                end_time = time.perf_counter()
+                end_time = perf_counter()
                 elapsed_time = end_time - start_time
                 send_upload_info(
                     file_sha1,
@@ -420,7 +419,7 @@ class U115OpenHelper:
                     logger.debug(
                         f"【P115Open】{target_name} 使用秒传返回ID获取文件信息"
                     )
-                    time.sleep(2)
+                    sleep(2)
                     info_resp = self._request_api(
                         "GET",
                         "/open/folder/get_info",
@@ -460,7 +459,7 @@ class U115OpenHelper:
                 )
                 break
 
-            if wait_start_time - time.perf_counter() > int(
+            if wait_start_time - perf_counter() > int(
                 configer.get_config("upload_module_wait_timeout")
             ):
                 logger.warn(
@@ -478,7 +477,7 @@ class U115OpenHelper:
                 logger.info(
                     f"【P115Open】文件大小 {file_size} 大于最高阈值，强制等待流程: {target_name}"
                 )
-                time.sleep(int(configer.get_config("upload_module_wait_time")))
+                sleep(int(configer.get_config("upload_module_wait_time")))
             else:
                 try:
                     response = self.oopserver_request.make_request(
@@ -499,7 +498,7 @@ class U115OpenHelper:
                         if not send_wait:
                             send_upload_wait(target_name)
                             send_wait = True
-                        time.sleep(int(configer.get_config("upload_module_wait_time")))
+                        sleep(int(configer.get_config("upload_module_wait_time")))
                     else:
                         logger.warn("【P115Open】获取用户上传速度错误，网络问题")
                         break
@@ -565,7 +564,7 @@ class U115OpenHelper:
                     logger.warn(
                         f"【P115Open】初始化分片上传失败: {e}，正在重试... ({attempt + 1}/3)"
                     )
-                    time.sleep(2**attempt)
+                    sleep(2**attempt)
 
             if not upload_id:
                 logger.error(
@@ -637,12 +636,12 @@ class U115OpenHelper:
                             logger.warn(
                                 f"【P115Open】上传分片 {part_number} 失败: {e}，正在重试... ({attempt + 1}/3)"
                             )
-                            time.sleep(2**attempt)
+                            sleep(2**attempt)
                         except Exception as e:
                             logger.warn(
                                 f"【P115Open】上传分片 {part_number} 发生未知错误: {e}，正在重试... ({attempt + 1}/3)"
                             )
-                            time.sleep(2**attempt)
+                            sleep(2**attempt)
                     else:
                         logger.error(
                             f"【P115Open】{target_name} 分片 {part_number} 达到最大重试次数，上传终止。"
@@ -707,7 +706,7 @@ class U115OpenHelper:
             logger.error(f"【P115Open】{target_name} 回调出现未知错误: {e}")
             return None
 
-        end_time = time.perf_counter()
+        end_time = perf_counter()
         elapsed_time = end_time - start_time
         send_upload_info(
             file_sha1,
@@ -753,7 +752,7 @@ class U115OpenHelper:
                 name=name,
                 basename=name,
                 type="dir",
-                modify_time=int(time.time()),
+                modify_time=int(time()),
             )
         else:
             resp = self.cookie_client.fs_mkdir(name, pid=int(parent_item.fileid or "0"))
@@ -770,7 +769,7 @@ class U115OpenHelper:
                 name=name,
                 basename=name,
                 type="dir",
-                modify_time=int(time.time()),
+                modify_time=int(time()),
             )
 
     def open_get_item(self, path: Path) -> Optional[schemas.FileItem]:

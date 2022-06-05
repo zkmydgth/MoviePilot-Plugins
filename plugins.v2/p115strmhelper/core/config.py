@@ -1,4 +1,4 @@
-import platform
+from platform import system, release
 from typing import Dict, Any, Optional, List, Union
 from pathlib import Path
 
@@ -355,7 +355,7 @@ class ConfigManager(BaseModel):
             logger.error(f"【配置管理器】配置更新失败: {e.json()}")
             return False
 
-    def update_plugin_config(self):
+    def update_plugin_config(self) -> Optional[bool]:
         """
         将当前配置状态保存到数据库
         """
@@ -379,7 +379,7 @@ class ConfigManager(BaseModel):
             return user_agents[utype]
         return (
             f"{self.PLUSIN_NAME}/{VERSION} "
-            f"({platform.system()} {platform.release()}; "
+            f"({system()} {release()}; "
             f"{SystemUtils.cpu_arch() if hasattr(SystemUtils, 'cpu_arch') and callable(SystemUtils.cpu_arch) else 'UnknownArch'})"
         )
 

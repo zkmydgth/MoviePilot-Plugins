@@ -831,7 +831,7 @@ class MonitorLife:
         events_batch: List = []
         first_loop: bool = True
         for event in iter_life_behavior_once(
-            self._client,
+            client=self._client,
             from_time=from_time,
             from_id=from_id,
             app="web",

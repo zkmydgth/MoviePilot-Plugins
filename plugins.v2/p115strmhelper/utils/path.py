@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Tuple, Optional
 
 
 class PathUtils:
@@ -7,7 +8,7 @@ class PathUtils:
     """
 
     @staticmethod
-    def has_prefix(full_path, prefix_path):
+    def has_prefix(full_path, prefix_path) -> bool:
         """
         判断路径是否包含
         :param full_path: 完整路径
@@ -22,7 +23,7 @@ class PathUtils:
         return full[: len(prefix)] == prefix
 
     @staticmethod
-    def get_run_transfer_path(paths, transfer_path):
+    def get_run_transfer_path(paths, transfer_path) -> bool:
         """
         判断路径是否为整理路径
         """
@@ -35,7 +36,7 @@ class PathUtils:
         return False
 
     @staticmethod
-    def get_scrape_metadata_exclude_path(paths, scrape_path):
+    def get_scrape_metadata_exclude_path(paths, scrape_path) -> bool:
         """
         检查目录是否在排除目录内
         """
@@ -48,7 +49,7 @@ class PathUtils:
         return False
 
     @staticmethod
-    def get_media_path(paths, media_path):
+    def get_media_path(paths, media_path) -> Tuple[bool, Optional[str], Optional[str]]:
         """
         获取媒体目录路径
         """
@@ -62,7 +63,7 @@ class PathUtils:
         return False, None, None
 
     @staticmethod
-    def get_p115_strm_path(paths, media_path):
+    def get_p115_strm_path(paths, media_path) -> Tuple[bool, Optional[str]]:
         """
         匹配全量目录，自动生成新的 paths
         """
