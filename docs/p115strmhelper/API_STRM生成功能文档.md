@@ -43,6 +43,9 @@ POST {server_url}/api/v1/plugin/P115StrmHelper/api_strm_sync?apikey={APIKEY}
       "pan_media_path": "/我的资源/电影",
       "scrape_metadata": true,
       "media_server_refresh": true
+    },
+    {
+      "pan_path": "/我的资源/电影/另一个电影.mkv"
     }
   ]
 }
@@ -54,13 +57,13 @@ POST {server_url}/api/v1/plugin/P115StrmHelper/api_strm_sync?apikey={APIKEY}
 
 - `id` (integer, 可选): 115 网盘文件 ID
 - `pick_code` (string, 可选): 115 网盘文件 pickcode（17位字符串）
+- `pan_path` (string, 可选): 文件在 115 网盘中的完整路径
 
-> **注意**: `id` 和 `pick_code` 至少需要提供一个，系统会自动转换。
+> **注意**: `id`、`pick_code` 和 `pan_path` 至少需要提供一个。如果提供了 `id` 或 `pick_code`，系统会自动转换；如果只提供了 `pan_path`，系统会通过路径查询文件信息。
 
 #### 可选字段
 
 - `name` (string, 可选): 文件名称。如果不提供，将从 `pan_path` 中提取文件名
-- `pan_path` (string, 可选): 文件在 115 网盘中的完整路径。如果不提供，系统会通过 API 查询
 - `sha1` (string, 可选): 文件的 SHA1 值。如果不提供，系统会通过 API 查询
 - `size` (integer, 可选): 文件大小（字节）。如果不提供，系统会通过 API 查询
 - `local_path` (string, 可选): 本地生成 STRM 文件的目录路径。如果不提供，将根据 `api_strm_config` 配置自动匹配
@@ -176,10 +179,10 @@ POST {server_url}/api/v1/plugin/P115StrmHelper/api_strm_sync?apikey={APIKEY}
 |--------|------|
 | 10200 | 成功 |
 | 10400 | 未传有效参数（请求体为空或 data 为空） |
-| 10422 | 缺失必要参数（pick_code 或 id） |
+| 10422 | 缺失必要参数（pick_code、id 或 pan_path 参数） |
 | 10600 | 文件扩展名不属于可整理媒体文件扩展名 |
 | 10601 | 无法获取本地生成 STRM 路径 |
-| 10602 | 无法获取网盘媒体库路径 |
+| 10602 | 无法获取网盘媒体库路径或文件信息 |
 | 10911 | STRM 文件生成失败 |
 
 ## 使用示例
@@ -209,6 +212,10 @@ payload = {
             "id": 9876543210,
             "name": "剧集名称 S01E01.mkv",
             "pan_path": "/我的资源/剧集/剧集名称/剧集名称 S01E01.mkv"
+        },
+        {
+            "pan_path": "/我的资源/电影/另一个电影.mkv",
+            "name": "另一个电影.mkv"
         }
     ]
 }
@@ -256,6 +263,9 @@ curl -X POST \
         "pan_path": "/我的资源/电影/电影名称.mkv",
         "scrape_metadata": true,
         "media_server_refresh": true
+      },
+      {
+        "pan_path": "/我的资源/电影/另一个电影.mkv"
       }
     ]
   }'
@@ -355,9 +365,9 @@ axios.post(apiEndpoint, payload, {
 
 ## 常见问题
 
-### Q: 如何获取文件的 pick_code 或 id？
+### Q: 如何获取文件的 pick_code、id 或 pan_path？
 
-A: 可以通过 115 网盘的 API 或其他工具获取文件的 pick_code 或 id。pick_code 是 17 位的字符串，id 是数字。
+A: 可以通过 115 网盘的 API 或其他工具获取文件的 pick_code、id 或 pan_path。pick_code 是 17 位的字符串，id 是数字，pan_path 是文件在网盘中的完整路径。至少需要提供其中一个参数即可。
 
 ### Q: 如果文件路径不在配置的映射中怎么办？
 

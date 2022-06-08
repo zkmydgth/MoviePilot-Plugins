@@ -57,19 +57,22 @@ class ApiSyncStrmHelper:
         fail_data: List[StrmApiResponseFail] = []
 
         for item in payload.data:
-            if not item.pick_code and not item.id:
+            if not item.pick_code and not item.id and not item.pan_path:
                 fail_data.append(
                     StrmApiResponseFail(
                         **item.model_dump(),
                         code=StrmApiStatusCode.MissPcOrId,
-                        reason="缺失必要参数，pick_code 或 id",
+                        reason="缺失必要参数，pick_code，id 或 pan_path 参数",
                     )
                 )
                 fail_strm_count += 1
                 continue
 
-            file_id = item.id if item.id else to_id(item.pick_code)
-            pick_code = item.pick_code if item.pick_code else to_pickcode(item.id)
+            file_id = None
+            pick_code = None
+            if item.id or item.pick_code:
+                file_id = item.id if item.id else to_id(item.pick_code)
+                pick_code = item.pick_code if item.pick_code else to_pickcode(item.id)
             name = item.name
             pan_path = item.pan_path
             sha1 = item.sha1
@@ -77,9 +80,12 @@ class ApiSyncStrmHelper:
             local_path = item.local_path
             pan_media_path = item.pan_media_path
 
-            if not pan_path or not sha1 or not size:
+            if not pan_path or not sha1 or not size or not file_id:
                 try:
-                    file_info = self.open_client.get_item_info(file_id)
+                    if file_id:
+                        file_info = self.open_client.get_item_info(file_id)
+                    else:
+                        file_info = self.open_client.get_item_info(pan_path)
                     if not file_info:
                         fail_data.append(
                             StrmApiResponseFail(
@@ -90,6 +96,8 @@ class ApiSyncStrmHelper:
                         )
                         fail_strm_count += 1
                         continue
+                    file_id = file_info.get("file_id")
+                    pick_code = file_info.get("pick_code")
                     pan_path = file_info.get("path")
                     sha1 = file_info.get("sha1")
                     size = file_info.get("size_byte")

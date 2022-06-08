@@ -74,7 +74,7 @@ class StrmApiStatusCode:
     Success: int = 10200
     # 未传有效参数
     MissPayload: int = 10400
-    # 缺失必要参数，pick_code 或 id
+    # 缺失必要参数，pick_code，id 或 pan_path 参数
     MissPcOrId: int = 10422
     # 文件扩展名不属于可整理媒体文件扩展名
     NotRmtMediaExt: int = 10600
