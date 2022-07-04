@@ -10,8 +10,9 @@ from sentry_sdk.client import Client
 sentry_hub = Hub(
     Client(
         dsn=base64.b64decode(
-            "aHR0cHM6Ly8zZjI4MWRkODVlNTY0NjJkOGNkNDRhZTA0ODBkY2NmN0BnbGl0Y2h0aXAuZGRzcmVtLmNvbS8x"
+            "aHR0cHM6Ly8wZTY4OWY3NTM4N2E0NDMyYjZjYTY4NTc2N2I2MTdhMEBnbGl0Y2h0aXAuZGRzcmVtLmNvbS8z"
         ).decode("utf-8"),
+        release="p115strmhelper@v1.9.18",
     )
 )
 
@@ -45,6 +46,10 @@ def capture_plugin_exceptions(func):
             try:
                 return func(*args, **kwargs)
             except Exception as e:
+                with sentry_hub.scope as scope:
+                    scope.set_tag("capture_source", "plugin_decorator")
+                    scope.set_tag("function_name", func.__name__)
+
                 sentry_hub.capture_exception(e)
                 raise  # pylint: disable=W0706
 
