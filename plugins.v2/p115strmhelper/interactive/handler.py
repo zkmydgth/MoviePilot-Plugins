@@ -323,9 +323,8 @@ class ActionHandler(BaseActionHandler):
                     try:
                         with HDHiveOpenClient(api_key) as client:
                             unlocked = client.unlock_resource(str(slug))
-                        share_url = (
-                            unlocked.get("url") or unlocked.get("full_url") or ""
-                        ).strip()
+                        logger.info(f"HDHive 解锁成功: {unlocked}")
+                        share_url = (unlocked.get("full_url") or "").strip()
                     except HDHiveAPIError as e:
                         logger.error(
                             "HDHive 解锁失败: slug=%s, error=%s",
@@ -346,11 +345,17 @@ class ActionHandler(BaseActionHandler):
                         "apikey": settings.API_TOKEN,
                         "share_url": share_url,
                     },
-                    timeout=httpx.Timeout(connect=30.0, read=900.0),
+                    timeout=httpx.Timeout(
+                        connect=30.0,
+                        read=900.0,
+                        write=30.0,
+                        pool=30.0,
+                    ),
                 )
                 if resp.json().get("code") == 0:
                     session.go_to("subscribe_success")
                 else:
+                    logger.error(f"subscribe 请求失败: {resp.json()}")
                     session.go_to("subscribe_fail")
             else:
                 raise IndexError("索引超出范围。")
