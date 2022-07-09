@@ -1122,35 +1122,99 @@ class MonitorLife:
                         new_pan_path,
                     )
 
-            if old_strm_path.resolve() == new_strm_path.resolve():
-                logger.debug(
-                    "【监控生活事件】STRM 已为正确路径，仅已同步数据库: %s",
-                    new_strm_path,
-                )
-                return
+            same_strm_path = old_strm_path.resolve() == new_strm_path.resolve()
 
-            if new_strm_exists:
-                if not new_strm_path.samefile(old_strm_path):
-                    logger.warning(
-                        "【监控生活事件】重命名目标 STRM 已存在，跳过: %s",
-                        new_strm_path,
+            if new_strm_exists and not new_strm_path.samefile(old_strm_path):
+                pickcode = event["pick_code"]
+                getter = StrmUrlGetter()
+                expected = getter.get_strm_url(
+                    pickcode,
+                    new_path.name,
+                    file_path=new_pan_path,
+                )
+                try:
+                    current_new = new_strm_path.read_text(encoding="utf-8")
+                    new_matches = current_new.strip() == expected.strip()
+                except Exception as e:
+                    logger.error(
+                        "【监控生活事件】读取重命名目标 STRM 失败: %s",
+                        e,
+                        exc_info=True,
                     )
                     return
+                related_entries_dup: List[Path] = []
+                if configer.monitor_life_rename_auto_related_files:
+                    for sibling in old_strm_path.parent.glob(f"{old_path.stem}*"):
+                        if sibling.suffix.lower() == ".strm" or not sibling.is_file():
+                            continue
+                        related_entries_dup.append(sibling)
+                try:
+                    if not new_matches:
+                        with open(new_strm_path, "w", encoding="utf-8") as f:
+                            f.write(expected)
+                        logger.info(
+                            "【监控生活事件】重命名目标 STRM 已存在，内容已按事件更新: %s",
+                            new_strm_path,
+                        )
+                    else:
+                        logger.debug(
+                            "【监控生活事件】重命名目标 STRM 已存在且内容与事件一致: %s",
+                            new_strm_path,
+                        )
+                    old_strm_path.unlink(missing_ok=True)
+                    logger.info(
+                        "【监控生活事件】已移除重复的旧 STRM: %s",
+                        old_strm_path,
+                    )
+                except Exception as e:
+                    logger.error(
+                        "【监控生活事件】合并重复 STRM 失败: %s",
+                        e,
+                        exc_info=True,
+                    )
+                    return
+                if related_entries_dup:
+                    old_stem = old_path.stem
+                    new_stem = new_path.stem
+                    for sibling in related_entries_dup:
+                        if not sibling.name.startswith(old_stem):
+                            continue
+                        dest_name = new_stem + sibling.name[len(old_stem) :]
+                        dest = sibling.parent / dest_name
+                        if dest.exists():
+                            logger.info(
+                                "【监控生活事件】关联文件重命名跳过，目标已存在: %s",
+                                dest,
+                            )
+                            continue
+                        sibling.rename(dest)
+                        logger.info(
+                            "【监控生活事件】关联文件重命名完成: %s -> %s",
+                            sibling,
+                            dest,
+                        )
+                return
 
             related_entries: List[Path] = []
-            if configer.monitor_life_rename_auto_related_files:
+            if configer.monitor_life_rename_auto_related_files and not same_strm_path:
                 for sibling in old_strm_path.parent.glob(f"{old_path.stem}*"):
                     if sibling.suffix.lower() == ".strm" or not sibling.is_file():
                         continue
                     related_entries.append(sibling)
 
             try:
-                old_strm_path.rename(new_strm_path)
-                logger.info(
-                    "【监控生活事件】本地 STRM 重命名完成: %s -> %s",
-                    old_strm_path,
-                    new_strm_path,
-                )
+                if not same_strm_path:
+                    old_strm_path.rename(new_strm_path)
+                    logger.info(
+                        "【监控生活事件】本地 STRM 重命名完成: %s -> %s",
+                        old_strm_path,
+                        new_strm_path,
+                    )
+                else:
+                    logger.debug(
+                        "【监控生活事件】STRM 路径未变，跳过文件重命名，校验内容: %s",
+                        new_strm_path,
+                    )
                 pickcode = event["pick_code"]
                 getter = StrmUrlGetter()
                 expected = getter.get_strm_url(
