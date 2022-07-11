@@ -2243,7 +2243,7 @@ class P115StrmHelper(_PluginBase):
                         _process_item = _databasehelper.process_item(item)
                         if _process_item not in processed:
                             processed.extend(_process_item)
-                        if item["is_dir"] or item["is_directory"]:
+                        if item["is_dir"]:
                             continue
                         if "creata" in configer.get_config("monitor_life_event_modes"):
                             file_path = item["path"]

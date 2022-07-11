@@ -619,7 +619,7 @@ class FullSyncStrmHelper:
                         if _process_item not in processed:
                             processed.extend(_process_item)
                         try:
-                            if item["is_dir"] or item["is_directory"]:
+                            if item["is_dir"]:
                                 continue
                             file_path = item["path"]
                             file_path = Path(target_dir) / Path(file_path).relative_to(
@@ -948,7 +948,7 @@ class ShareStrmHelper:
                 f"{current_path}/{item['name']}" if current_path else "/" + item["name"]
             )
 
-            if item["is_directory"] or item["is_dir"]:
+            if item["is_dir"]:
                 if self.strm_count != 0 and self.strm_count % 100 == 0:
                     logger.info("【分享STRM生成】休眠 1s 后继续生成")
                     time.sleep(1)
