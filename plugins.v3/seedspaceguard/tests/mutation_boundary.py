@@ -25,8 +25,10 @@ import shutil
 import subprocess
 import sys
 
-PLUGIN_DIR = "/root/.codebuddy/artifact/user-repo/plugins.v3/seedspaceguard"
-PLUGINS_V2 = "/root/.codebuddy/artifact/user-repo/plugins.v3"
+# 与其余 10 套变异脚本一致：按脚本自身位置定位，容器/沙箱/桌面端均可直接运行
+HERE = os.path.dirname(os.path.abspath(__file__))
+PLUGIN_DIR = os.path.dirname(HERE)
+PLUGINS_V2 = os.path.dirname(PLUGIN_DIR)
 TARGET = os.path.join(PLUGIN_DIR, "__init__.py")
 BACKUP = "/tmp/ssg_boundary_backup.py"
 
@@ -148,10 +150,10 @@ MUTANTS = [
     # ---------------- 保守返回：改成乐观默认 ----------------
     (
         "保守返回失效：无任何依据时乐观认为可删种",
-        """        if records_checked == 0 and not (cand and cand.get("path")):
+        """        if records_checked == 0 and not own_files and not (cand and cand.get("path")):
             # 完全没有任何可复核的依据：无从判定，保守保留种子
             return False""",
-        """        if records_checked == 0 and not (cand and cand.get("path")):
+        """        if records_checked == 0 and not own_files and not (cand and cand.get("path")):
             return True""",
         "应导致 test_blank_record_path_is_inconclusive_and_kept / "
         "test_no_record_at_all_with_real_files_kept 失败",
@@ -168,10 +170,12 @@ MUTANTS = [
     ),
     (
         "物理复核失效：候选路径不被查验（退回只信记录，会误删完好种子）",
-        """        if cand is not None:
+        """        elif cand is not None:
+            # 取不到清单 → 退回旧的「扫内容目录」逻辑（保守垫）
             content_path = str(cand.get("path") or "").strip()
             if content_path and os.path.exists(content_path):""",
-        """        if False:
+        """        elif False:
+            # 取不到清单 → 退回旧的「扫内容目录」逻辑（保守垫）
             content_path = str(cand.get("path") or "").strip()
             if content_path and os.path.exists(content_path):""",
         "应导致 test_real_files_alive_with_stale_record_kept / "

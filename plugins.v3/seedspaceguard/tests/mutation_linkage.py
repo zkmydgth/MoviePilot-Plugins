@@ -18,8 +18,10 @@ import shutil
 import subprocess
 import sys
 
-PLUGIN_DIR = "/root/.codebuddy/artifact/user-repo/plugins.v3/seedspaceguard"
-PLUGINS_V2 = "/root/.codebuddy/artifact/user-repo/plugins.v3"
+# 与其余 10 套变异脚本一致：按脚本自身位置定位，容器/沙箱/桌面端均可直接运行
+HERE = os.path.dirname(os.path.abspath(__file__))
+PLUGIN_DIR = os.path.dirname(HERE)
+PLUGINS_V2 = os.path.dirname(PLUGIN_DIR)
 TARGET = os.path.join(PLUGIN_DIR, "__init__.py")
 BACKUP = "/tmp/ssg_backup.py"
 
@@ -54,20 +56,22 @@ MUTANTS = [
     ),
     (
         "删种判定放宽：第 2 级物理复核被移除（只剩记录复核）",
-        """        if cand is not None:
+        """        elif cand is not None:
+            # 取不到清单 → 退回旧的「扫内容目录」逻辑（保守垫）
             content_path = str(cand.get("path") or "").strip()
             if content_path and os.path.exists(content_path):""",
-        """        if False:
+        """        elif False:
+            # 取不到清单 → 退回旧的「扫内容目录」逻辑（保守垫）
             content_path = str(cand.get("path") or "").strip()
             if content_path and os.path.exists(content_path):""",
         "应导致「记录路径失效但磁盘仍有文件却被误删」的测试失败",
     ),
     (
         "保守原则失效：无任何复核依据时也允许删种（危险的乐观默认）",
-        """        if records_checked == 0 and not (cand and cand.get("path")):
+        """        if records_checked == 0 and not own_files and not (cand and cand.get("path")):
             # 完全没有任何可复核的依据：无从判定，保守保留种子
             return False""",
-        """        if records_checked == 0 and not (cand and cand.get("path")):
+        """        if records_checked == 0 and not own_files and not (cand and cand.get("path")):
             return True""",
         "应导致 empty_records_returns_false 失败",
     ),
@@ -115,8 +119,15 @@ MUTANTS = [
     (
         "下载器范围过滤失效（忽略目标下载器配置）",
         """            if self._downloaders and name not in self._downloaders:
-                continue""",
-        """            pass""",
+                logger.info(
+                    "【保种空间守护】下载器 %s 持有 hash %s，但不在配置的目标下载器范围内，跳过",
+                    name, hash_str,
+                )""",
+        """            if False:
+                logger.info(
+                    "【保种空间守护】下载器 %s 持有 hash %s，但不在配置的目标下载器范围内，跳过",
+                    name, hash_str,
+                )""",
         "应导致 target_downloader_filter 失败",
     ),
     (

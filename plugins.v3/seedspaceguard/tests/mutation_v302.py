@@ -32,25 +32,26 @@ TARGET = os.path.join(PLUGIN_DIR, "__init__.py")
 # ① 索引建立（删种前）
 BUILD_INDEX_OLD = (
     "                ino_index: Dict[Tuple[int, int], List[str]] = {}\n"
+    "                attr_inodes: Set[Tuple[int, int]] = set()\n"
     "                if self._companion_cleanup:\n"
     "                    related = self._seed_related_paths(cand)\n"
-    "                    ino_index = self._build_inode_index(related)\n"
 )
 BUILD_INDEX_NEW_EMPTY = (
     "                ino_index: Dict[Tuple[int, int], List[str]] = {}\n"
+    "                attr_inodes: Set[Tuple[int, int]] = set()\n"
 )
 
 # ② 硬链接清理调用
 CLEAN_LINK_OLD = (
     "                if self._companion_cleanup and ino_index:\n"
     "                    link_removed = self._clean_hardlinks_for(\n"
-    "                        ino_index, cand[\"title\"]\n"
+    "                        ino_index, cand[\"title\"], attr_inodes, related\n"
     "                    )\n"
 )
 CLEAN_LINK_NEW_SKIP = (
     "                if False and ino_index:\n"
     "                    link_removed = self._clean_hardlinks_for(\n"
-    "                        ino_index, cand[\"title\"]\n"
+    "                        ino_index, cand[\"title\"], attr_inodes, related\n"
     "                    )\n"
 )
 

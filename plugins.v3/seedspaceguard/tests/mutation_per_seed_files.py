@@ -127,6 +127,8 @@ SWALLOW_NEW = (
 #    v3.0.5 补漏前就是这个写法；本变异体锁死「不得退回旧写法」。
 LINKAGE_PATH_ONLY_OLD = (
     "            cand_by_hash: Dict[str, Dict[str, Any]] = {}\n"
+    "            # 放宽候选集（不判范围）懒加载：仅当主候选集取不到 probe 时才构建\n"
+    "            cand_by_hash_wide: Optional[Dict[str, Dict[str, Any]]] = None\n"
     "            try:\n"
     "                for cand in self._collect_seed_candidates():\n"
     "                    h = str(cand.get(\"hash\") or \"\")\n"
@@ -136,8 +138,6 @@ LINKAGE_PATH_ONLY_OLD = (
     "                logger.error(\"【保种空间守护】联动删种前获取种子信息失败：%s\", err)\n"
     "\n"
     "            for hash_str, sample_path in pending_hashes.items():\n"
-    "                # 取不到候选（多为范围外/解析失败）→ probe=None，\n"
-    "                # 退化为「仅有第 1 级记录复核」，与改造前行为一致，不误删\n"
     "                probe = cand_by_hash.get(hash_str)\n"
 )
 LINKAGE_PATH_ONLY_NEW = (
@@ -191,6 +191,12 @@ MUTANTS = [
         "仅文件模式联动删种退回只传 path",
         LINKAGE_PATH_ONLY_OLD, LINKAGE_PATH_ONLY_NEW,
         "该链路的精确清单修复半失效（module 丢失 → 退回扫目录）",
+    ),
+    (
+        "归属闸门失效：硬链接清理退回「删索引内所有存在的路径」",
+        "        gate = owned_roots is not None",
+        "        gate = False",
+        "应导致 test_sibling_inode_blocked 失败（最高危：误删同目录其它种子文件）",
     ),
 ]
 

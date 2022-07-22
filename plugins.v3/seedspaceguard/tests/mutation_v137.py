@@ -288,7 +288,18 @@ MUTANTS = [
     ),
     (
         "误删回归：物理复核不检查子目录（嵌套目录种子被误判删空）",
-        """                        if entry.is_dir(follow_symlinks=False) and _depth < 8:
+        """                        if entry.is_dir(follow_symlinks=False):
+                            if _depth >= 8:
+                                # 深度截断：无法确知更深层是否还有文件 →
+                                # 必须保守判「有内容」。此处若静默跳过，深层
+                                # 仍有文件的目录会被当作空壳，进而让种子被
+                                # 误回收（本函数其余分支一律保守返回 True，
+                                # 深度截断不应成为唯一例外）。
+                                logger.debug(
+                                    "【保种空间守护】目录深度超过 8 层，"
+                                    "保守判定为「仍有文件」：%s", entry.path
+                                )
+                                return True
                             # 子目录里有文件同样算「未删空」
                             if SeedSpaceGuard._dir_has_any_file(
                                 entry.path, max_scan, _depth + 1
