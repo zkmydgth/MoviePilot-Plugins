@@ -183,7 +183,9 @@ class ShareStrmHelper:
         local_path_obj = Path(config.local_path)
         item_path_obj = Path(file_path)
 
-        file_path = local_path_obj / item_path_obj.relative_to(share_path_obj)
+        file_path = local_path_obj / PathUtils.sanitize_path_parts(
+            item_path_obj.relative_to(share_path_obj)
+        )
         file_target_dir = file_path.parent
         original_file_name = file_path.name
         file_name = StrmGenerater.get_strm_filename(file_path)

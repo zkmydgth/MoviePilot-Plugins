@@ -265,9 +265,9 @@ class StrmFilenameTemplateResolver:
             """
             if not value:
                 return ""
-            invalid_chars = '<>:"/\\|?*'
-            result = str(value)
-            for char in invalid_chars:
+            result = str(value).replace(":", "：")
+            illegal_chars = '<>"/\\|?*'
+            for char in illegal_chars:
                 result = result.replace(char, "_")
             return result
 

@@ -3,6 +3,7 @@ from pathlib import Path
 from app.log import logger
 from app.schemas import FileItem
 
+from ...utils.path import PathUtils
 from ...utils.sentry import sentry_manager
 from ...utils.strm import StrmGenerater, StrmUrlGetter
 
@@ -55,7 +56,7 @@ class MonitorStrmHelper:
             )
 
             rel = local_file_path.relative_to(mon_path)
-            out_dir = Path(dest_strm) / rel.parent
+            out_dir = Path(dest_strm) / PathUtils.sanitize_path_parts(rel).parent
             out_dir.mkdir(parents=True, exist_ok=True)
             strm_name = StrmGenerater.get_strm_filename(Path(uploaded_file_item.name))
             strm_path = out_dir / strm_name

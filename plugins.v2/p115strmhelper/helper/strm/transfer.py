@@ -1,4 +1,4 @@
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from threading import Thread
 from typing import Dict, Union, Set, Optional
 
@@ -42,7 +42,10 @@ class TransferStrmHelper:
         try:
             pan_path = item_dest_path.parent.as_posix()
             if PathUtils.has_prefix(pan_path, pan_media_dir):
-                pan_path = pan_path[len(pan_media_dir) :].lstrip("/").lstrip("\\")
+                rel_path = PurePosixPath(pan_path).relative_to(
+                    PurePosixPath(pan_media_dir)
+                )
+                pan_path = PathUtils.sanitize_path_parts(rel_path)
             file_path = Path(target_dir) / pan_path
             file_name = StrmGenerater.get_strm_filename(Path(item_dest_path.name))
             new_file_path = file_path / file_name
@@ -94,7 +97,9 @@ class TransferStrmHelper:
         old_strm_name = StrmGenerater.get_strm_filename(Path(source_path))
         old_strm_path = (
             Path(src_local_dir)
-            / Path(source_path).relative_to(src_pan_dir).parent
+            / PathUtils.sanitize_path_parts(
+                Path(source_path).relative_to(src_pan_dir)
+            ).parent
             / old_strm_name
         )
         # 旧 STRM 不存在
