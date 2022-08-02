@@ -94,6 +94,13 @@
               </v-alert>
             </v-col>
           </v-row>
+          <v-row v-if="hasCd2ConfigWhenDisabled">
+            <v-col cols="12">
+              <v-alert type="warning" variant="tonal" density="compact" icon="mdi-alert-circle-outline">
+                <div class="text-caption">CloudDrive2 储存监控已关闭，但「监控MP整理」目录配置中仍存在 CD2 挂载前缀，请检查配置。</div>
+              </v-alert>
+            </v-col>
+          </v-row>
           <v-row>
             <v-col cols="12">
               <div class="d-flex flex-column">
@@ -778,13 +785,23 @@
 </template>
 
 <script setup>
-import { ref, inject } from 'vue';
+import { computed, ref, inject } from 'vue';
 
 const strmSubTab = ref('tab-transfer');
 
 const config = inject('config');
 const mediaservers = inject('mediaservers');
 const transferPaths = inject('transferPaths');
+/** CloudDrive2 已关闭但目录配置中仍有 CD2 前缀时为 true */
+const hasCd2ConfigWhenDisabled = computed(() => {
+  const c = config?.value ?? config;
+  if (c?.transfer_monitor_clouddrive2_enabled) return false;
+  const paths = transferPaths?.value ?? transferPaths ?? [];
+  return (
+    Array.isArray(paths) &&
+    paths.some((p) => String(p?.cd2Prefix ?? '').trim() !== '')
+  );
+});
 const transferMpPaths = inject('transferMpPaths');
 const fullSyncPaths = inject('fullSyncPaths');
 const incrementSyncPaths = inject('incrementSyncPaths');
