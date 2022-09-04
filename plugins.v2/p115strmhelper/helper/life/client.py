@@ -981,14 +981,21 @@ class MonitorLife:
         if file_item:
             old_pan_path = file_item.get("path", "")
 
-        new_parent_path = self._get_path_by_cid(int(event["parent_id"]))
-        if new_parent_path is None:
+        try:
+            new_pan_path = str(
+                get_path(
+                    client=self._client,
+                    attr=event["file_id"],
+                    root_id=None,
+                    refresh=False,
+                    **configer.get_ios_ua_app(app=False),
+                )
+            )
+        except Exception as e:
             logger.warning(
-                f"【监控生活事件】无法获取父目录路径，跳过重命名处理: {event}"
+                f"【监控生活事件】无法获取新事件路径，跳过移动处理: {event} {e}"
             )
             return
-        new_name = event["file_name"]
-        new_pan_path = (Path(new_parent_path) / new_name).as_posix()
 
         old_path = None
         if old_pan_path:
