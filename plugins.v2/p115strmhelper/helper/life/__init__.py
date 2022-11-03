@@ -158,6 +158,8 @@ class MonitorLife:
             if not dir_path:
                 logger.error(f"获取 {cid} 路径失败")
                 return None
+            if dir_path.startswith("根目录"):
+                dir_path = dir_path[3:]
             idpathcacher.add_cache(id=cid, directory=str(dir_path))
             logger.debug(f"获取 {cid} 路径（API）: {dir_path}")
             return Path(dir_path)
