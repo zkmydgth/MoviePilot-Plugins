@@ -210,6 +210,10 @@ class ConfigManager(BaseModel):
     cron_full_sync_strm: Optional[str] = "0 */12 * * *"
     # 全量生成最小文件大小
     full_sync_min_file_size: Optional[int] = None
+    # 全量同步刷新媒体服务器开关
+    full_sync_media_server_refresh_enabled: bool = False
+    # 全量同步刷新媒体服务器列表
+    full_sync_mediaservers: Optional[List[str]] = None
     # 全量同步路径
     full_sync_strm_paths: Optional[str] = None
     # 全量生成输出详细日志

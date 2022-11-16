@@ -36,6 +36,7 @@ from ...utils.tree import DirectoryTree
 from ...utils.http import check_iter_path_data
 from ...utils.base64 import CBase64
 from ...utils.math import MathUtils
+from ...helper.mediaserver import MediaServerRefresh
 
 
 ProcessResult = namedtuple(
@@ -82,6 +83,12 @@ class FullSyncStrmHelper:
         self.remove_unless_strm = configer.full_sync_remove_unless_strm
         self.databasehelper = FileDbHelper()
         self.download_mediainfo_list = []
+
+        self.mediaserver_helper = MediaServerRefresh(
+            func_name="【全量STRM生成】",
+            enabled=configer.full_sync_media_server_refresh_enabled,
+            mediaservers=configer.full_sync_mediaservers,
+        )
 
         self.strmurlgetter = StrmUrlGetter()
         self.sgab = AutomatonUtils.build_automaton(configer.strm_generate_blacklist)
@@ -997,6 +1004,12 @@ class FullSyncStrmHelper:
                 downloads_list=self.download_mediainfo_list
             )
         )
+
+        if self.mediaserver_helper.enabled:
+            logger.info(
+                "【全量STRM生成】开始刷新整个媒体库，此操作会刷新所有媒体服务器"
+            )
+            self.mediaserver_helper.refresh_mediaserver(refresh_all=True)
 
         self.result_print()
 

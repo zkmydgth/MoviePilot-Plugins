@@ -31,6 +31,8 @@ class MediaServerRefresh:
     def service_infos(self) -> Optional[Dict[str, ServiceInfo]]:
         """
         监控生活事件 媒体服务器服务信息
+
+        :return: 媒体服务器服务信息
         """
         if not self.media_servers:
             logger.warning(f"{self.func_name}尚未配置媒体服务器，请检查配置")
@@ -59,51 +61,70 @@ class MediaServerRefresh:
         return active_services
 
     def refresh_mediaserver(
-        self, file_path: str, file_name: str, mediainfo: Optional[MediaInfo] = None
-    ):
+        self,
+        file_path: Optional[str] = None,
+        file_name: Optional[str] = None,
+        mediainfo: Optional[MediaInfo] = None,
+        refresh_all: bool = False,
+    ) -> bool:
         """
         刷新媒体服务器
+
+        :param file_path: 文件路径
+        :param file_name: 文件名
+        :param mediainfo: 媒体信息
+        :param refresh_all: 是否刷新所有媒体服务器
+
+        :return: 是否刷新成功
         """
         if self.enabled:
             if not self.service_infos:
-                return
+                return False
             logger.info(f"{self.func_name}{file_name} 开始刷新媒体服务器")
-            if self.mp_mediaserver:
-                status, mediaserver_path, moviepilot_path = PathUtils.get_media_path(
-                    self.mp_mediaserver,
-                    file_path,
-                )
-                if status:
-                    logger.info(
-                        f"{self.func_name}{file_name} 刷新媒体服务器目录替换中..."
+            if refresh_all:
+                for name, service in self.service_infos.items():
+                    if hasattr(service.instance, "refresh_root_library"):
+                        service.instance.refresh_root_library()
+                    else:
+                        logger.warning(f"{self.func_name}{name} 不支持刷新")
+            else:
+                if self.mp_mediaserver:
+                    status, mediaserver_path, moviepilot_path = (
+                        PathUtils.get_media_path(
+                            self.mp_mediaserver,
+                            file_path,
+                        )
                     )
-                    file_path = file_path.replace(
-                        moviepilot_path, mediaserver_path
-                    ).replace("\\", "/")
-                    logger.info(
-                        f"{self.func_name}刷新媒体服务器目录替换: {moviepilot_path} --> {mediaserver_path}"
-                    )
-                    logger.info(f"{self.func_name}刷新媒体服务器目录: {file_path}")
-            if not mediainfo:
-                media_chain = MediaChain()
-                meta = MetaInfoPath(path=Path(file_path))
-                mediainfo = media_chain.recognize_media(meta=meta)
+                    if status:
+                        logger.info(
+                            f"{self.func_name}{file_name} 刷新媒体服务器目录替换中..."
+                        )
+                        file_path = file_path.replace(
+                            moviepilot_path, mediaserver_path
+                        ).replace("\\", "/")
+                        logger.info(
+                            f"{self.func_name}刷新媒体服务器目录替换: {moviepilot_path} --> {mediaserver_path}"
+                        )
+                        logger.info(f"{self.func_name}刷新媒体服务器目录: {file_path}")
                 if not mediainfo:
-                    logger.warning(f"{self.func_name}{file_name} 无法刷新媒体库")
-                    return
-            items = [
-                RefreshMediaItem(
-                    title=mediainfo.title,
-                    year=mediainfo.year,
-                    type=mediainfo.type,
-                    category=mediainfo.category,
-                    target_path=Path(file_path),
-                )
-            ]
-            for name, service in self.service_infos.items():
-                if hasattr(service.instance, "refresh_library_by_items"):
-                    service.instance.refresh_library_by_items(items)
-                elif hasattr(service.instance, "refresh_root_library"):
-                    service.instance.refresh_root_library()
-                else:
-                    logger.warning(f"{self.func_name}{file_name} {name} 不支持刷新")
+                    media_chain = MediaChain()
+                    meta = MetaInfoPath(path=Path(file_path))
+                    mediainfo = media_chain.recognize_media(meta=meta)
+                    if not mediainfo:
+                        logger.warning(f"{self.func_name}{file_name} 无法刷新媒体库")
+                        return False
+                items = [
+                    RefreshMediaItem(
+                        title=mediainfo.title,
+                        year=mediainfo.year,
+                        type=mediainfo.type,
+                        category=mediainfo.category,
+                        target_path=Path(file_path),
+                    )
+                ]
+                for name, service in self.service_infos.items():
+                    if hasattr(service.instance, "refresh_library_by_items"):
+                        service.instance.refresh_library_by_items(items)
+                    else:
+                        logger.warning(f"{self.func_name}{file_name} {name} 不支持刷新")
+        return True

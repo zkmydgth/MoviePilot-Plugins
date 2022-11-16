@@ -92,7 +92,7 @@
                           </v-avatar>
                         </template>
                         <v-list-item-title class="text-body-1 font-weight-medium">{{ userInfo.name || '未知用户'
-                        }}</v-list-item-title>
+                          }}</v-list-item-title>
                       </v-list-item>
                       <v-divider class="my-0"></v-divider>
                       <!-- VIP 信息 -->
@@ -469,7 +469,7 @@
                                     <span class="text-caption font-weight-medium d-block"
                                       style="line-height:1.2;">本地监控</span>
                                     <span class="text-caption" style="line-height:1.2;">{{ pathGroup.src || '-'
-                                    }}</span>
+                                      }}</span>
                                   </div>
                                 </v-col>
                                 <v-col cols="12" md="2" class="text-center my-1 my-md-0">
@@ -482,7 +482,7 @@
                                     <span class="text-caption font-weight-medium d-block"
                                       style="line-height:1.2;">网盘上传</span>
                                     <span class="text-caption" style="line-height:1.2;">{{ pathGroup.dest_remote || '-'
-                                    }}</span>
+                                      }}</span>
                                   </div>
                                 </v-col>
                               </v-row>
@@ -497,7 +497,7 @@
                                         <span class="text-caption font-weight-medium d-block"
                                           style="line-height:1.2;">本地复制</span>
                                         <span class="text-caption" style="line-height:1.2;">{{ pathGroup.dest_local
-                                        }}</span>
+                                          }}</span>
                                       </div>
                                     </div>
                                   </v-col>
@@ -1025,14 +1025,21 @@
   </v-dialog>
 
   <!-- 全量同步确认对话框 -->
-  <v-dialog v-model="fullSyncConfirmDialog" max-width="450" persistent>
+  <v-dialog v-model="fullSyncConfirmDialog" max-width="500" persistent>
     <v-card>
       <v-card-title class="text-h6 d-flex align-center">
         <v-icon icon="mdi-alert-circle-outline" color="warning" class="mr-2"></v-icon>
         确认操作
       </v-card-title>
       <v-card-text>
-        您确定要立即执行全量同步吗？
+        <div class="mb-2">您确定要立即执行全量同步吗？</div>
+        <v-alert v-if="initialConfig?.full_sync_media_server_refresh_enabled" type="warning" variant="tonal"
+          density="compact" class="mt-2" icon="mdi-alert">
+          <div class="text-body-2 mb-1"><strong>重要警告</strong></div>
+          <div class="text-caption">
+            全量同步完成后将自动刷新整个媒体库，此操作会扫描所有媒体文件，可能导致媒体服务器负载增加。请确保您已了解此风险并自行承担相应责任。
+          </div>
+        </v-alert>
       </v-card-text>
       <v-card-actions>
         <v-spacer></v-spacer>

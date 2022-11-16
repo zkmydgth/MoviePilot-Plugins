@@ -334,6 +334,26 @@
                     </v-row>
 
                     <v-row>
+                      <v-col cols="12" md="4">
+                        <v-switch v-model="config.full_sync_media_server_refresh_enabled" label="全量同步后刷新媒体库"
+                          color="error" density="compact"></v-switch>
+                      </v-col>
+                      <v-col cols="12" md="8">
+                        <v-select v-model="config.full_sync_mediaservers" label="媒体服务器" :items="mediaservers" multiple
+                          chips closable-chips :disabled="!config.full_sync_media_server_refresh_enabled"
+                          hint="全量同步完成后将刷新整个媒体库，请谨慎使用" persistent-hint></v-select>
+                      </v-col>
+                      <v-col v-if="config.full_sync_media_server_refresh_enabled" cols="12">
+                        <v-alert type="warning" variant="tonal" density="compact" class="mt-3" icon="mdi-alert">
+                          <div class="text-body-2 mb-1"><strong>重要警告</strong></div>
+                          <div class="text-caption">
+                            启用此功能后，全量同步完成后将自动刷新整个媒体库。此操作会扫描所有媒体文件，可能导致媒体服务器负载增加，请确保您已了解此风险并自行承担相应责任。
+                          </div>
+                        </v-alert>
+                      </v-col>
+                    </v-row>
+
+                    <v-row>
                       <v-col cols="12">
                         <div class="d-flex flex-column">
                           <div v-for="(pair, index) in fullSyncPaths" :key="`full-${index}`"
@@ -1667,14 +1687,21 @@
     </v-card>
 
     <!-- 全量同步确认对话框 -->
-    <v-dialog v-model="fullSyncConfirmDialog" max-width="450" persistent>
+    <v-dialog v-model="fullSyncConfirmDialog" max-width="500" persistent>
       <v-card>
         <v-card-title class="text-h6 d-flex align-center">
           <v-icon icon="mdi-alert-circle-outline" color="warning" class="mr-2"></v-icon>
           确认操作
         </v-card-title>
         <v-card-text>
-          您确定要立即执行全量同步吗？
+          <div class="mb-2">您确定要立即执行全量同步吗？</div>
+          <v-alert v-if="config.full_sync_media_server_refresh_enabled" type="warning" variant="tonal" density="compact"
+            class="mt-2" icon="mdi-alert">
+            <div class="text-body-2 mb-1"><strong>重要警告</strong></div>
+            <div class="text-caption">
+              全量同步完成后将自动刷新整个媒体库，此操作会扫描所有媒体文件，可能导致媒体服务器负载增加。请确保您已了解此风险并自行承担相应责任。
+            </div>
+          </v-alert>
         </v-card-text>
         <v-card-actions>
           <v-spacer></v-spacer>
@@ -1927,7 +1954,7 @@
                         size="small" class="mr-2"></v-icon>
                       <span class="text-caption">MonitorLife初始化:
                         <strong>{{ lifeEventCheckDialog.result.data?.summary?.monitorlife_initialized ? '是' : '否'
-                          }}</strong>
+                        }}</strong>
                       </span>
                     </div>
                   </v-col>
@@ -2070,6 +2097,8 @@ const config = reactive({
   full_sync_remove_unless_strm: false,
   full_sync_remove_unless_dir: false,
   full_sync_remove_unless_file: false,
+  full_sync_media_server_refresh_enabled: false,
+  full_sync_mediaservers: [],
   full_sync_auto_download_mediainfo_enabled: false,
   full_sync_strm_log: true,
   full_sync_batch_num: 5000,
