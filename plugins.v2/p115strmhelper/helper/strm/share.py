@@ -101,6 +101,8 @@ class ShareFilesDataCollector:
         self.temp_file = temp_file
         self.count = 0
         self._file_handle = None
+        self._write_buffer = bytearray()
+        self._buffer_size = 64 * 1024
 
     def __iter__(self):
         """
@@ -109,13 +111,23 @@ class ShareFilesDataCollector:
         self._file_handle = gzip_open(self.temp_file, "wb")
         try:
             for record in self.data_iter:
-                self._file_handle.write(dumps(record) + b"\n")
+                line_data = dumps(record) + b"\n"
+                self._write_buffer.extend(line_data)
+
+                if len(self._write_buffer) >= self._buffer_size:
+                    self._file_handle.write(self._write_buffer)
+                    self._write_buffer.clear()
+
                 self.count += 1
                 if self.count % 1000 == 0:
                     logger.debug(
                         f"【分享STRM生成】数据上传已收集 {self.count} 条数据..."
                     )
                 yield record
+
+            if self._write_buffer:
+                self._file_handle.write(self._write_buffer)
+                self._write_buffer.clear()
         finally:
             if self._file_handle:
                 self._file_handle.close()
@@ -218,31 +230,42 @@ class ShareOOPServerHelper:
         try:
             oopserver_request = OOPServerRequest(max_retries=3, backoff_factor=1.0)
 
-            with open(temp_file, "rb") as f:
-                file_content = f.read()
-                file_name = f"{batch_id}.json.gz"
-                files_data = [
-                    (
-                        "file",
-                        (file_name, file_content, "application/gzip"),
-                    )
-                ]
-                response = oopserver_request.make_request(
-                    path=f"/share/files/{batch_id}",
-                    method="POST",
-                    headers={"x-machine-id": configer.get_config("MACHINE_ID")},
-                    files_data=files_data,
-                    timeout=6000.0,
+            file_name = f"{batch_id}.json.gz"
+            file_size = path_getsize(temp_file)
+
+            file_content = bytes()
+            if file_size > 100 * 1024 * 1024:
+                file_content = bytearray()
+                with open(temp_file, "rb") as f:
+                    while chunk := f.read(8 * 1024 * 1024):
+                        file_content.extend(chunk)
+                file_content = bytes(file_content)
+            else:
+                with open(temp_file, "rb") as f:
+                    file_content = f.read()
+
+            files_data = [
+                (
+                    "file",
+                    (file_name, file_content, "application/gzip"),
                 )
-                if response is not None and response.status_code in [200, 201]:
-                    result = response.json()
-                    logger.debug(f"【分享STRM生成】上传成功: {result}")
-                    return result
-                else:
-                    logger.warn(
-                        f"【分享STRM生成】上传失败，状态码: {response.status_code if response else 'None'}"
-                    )
-                    return None
+            ]
+            response = oopserver_request.make_request(
+                path=f"/share/files/{batch_id}",
+                method="POST",
+                headers={"x-machine-id": configer.get_config("MACHINE_ID")},
+                files_data=files_data,
+                timeout=6000.0,
+            )
+            if response is not None and response.status_code in [200, 201]:
+                result = response.json()
+                logger.debug(f"【分享STRM生成】上传成功: {result}")
+                return result
+            else:
+                logger.warn(
+                    f"【分享STRM生成】上传失败，状态码: {response.status_code if response else 'None'}"
+                )
+                return None
         except Exception as e:
             logger.warn(f"【分享STRM生成】上传异常: {e}")
             return None
@@ -417,9 +440,11 @@ class ShareStrmHelper:
             )
             return
 
-        file_path = Path(config.local_path) / Path(file_path).relative_to(
-            config.share_path
-        )
+        share_path_obj = Path(config.share_path)
+        local_path_obj = Path(config.local_path)
+        item_path_obj = Path(file_path)
+
+        file_path = local_path_obj / item_path_obj.relative_to(share_path_obj)
         file_target_dir = file_path.parent
         original_file_name = file_path.name
         file_name = StrmGenerater.get_strm_filename(file_path)
@@ -481,8 +506,7 @@ class ShareStrmHelper:
                 item["path"],
             )
 
-            with open(new_file_path, "w", encoding="utf-8") as file:
-                file.write(strm_url)
+            new_file_path.write_text(strm_url, encoding="utf-8")
             self.strm_count += 1
             logger.info("【分享STRM生成】生成 STRM 文件成功: %s", str(new_file_path))
 
@@ -556,9 +580,9 @@ class ShareStrmHelper:
 
             has_exception = False
             try:
-                for batch in batched(data_iter, 1_000):
-                    self.total_count += len(batch)
-                    with ThreadPoolExecutor(max_workers=128) as executor:
+                with ThreadPoolExecutor(max_workers=128) as executor:
+                    for batch in batched(data_iter, 1_000):
+                        self.total_count += len(batch)
                         future_to_item = {
                             executor.submit(
                                 self.__process_single_item,
@@ -587,27 +611,25 @@ class ShareStrmHelper:
             self.elapsed_time += end_time - start_time
 
             # 数据上传服务器
+            def cleanup_temp_file(file_path: str) -> None:
+                if path_exists(file_path):
+                    try:
+                        os_remove(file_path)
+                        logger.debug(f"【分享STRM生成】已清理临时文件: {file_path}")
+                    except (OSError, TypeError, ValueError):
+                        pass
+
             if has_exception:
                 logger.warn(
                     f"【分享STRM生成】处理过程中出现异常，跳过数据上传{comment_info}: share_code={config.share_code}"
                 )
-                if path_exists(temp_file):
-                    try:
-                        os_remove(temp_file)
-                        logger.debug(f"【分享STRM生成】已清理临时文件: {temp_file}")
-                    except (OSError, TypeError, ValueError):
-                        pass
+                cleanup_temp_file(temp_file)
             elif download_success:
                 file_size_mb = path_getsize(temp_file) / 1024 / 1024
                 logger.info(
                     f"【分享STRM生成】使用下载数据完成，文件大小: {file_size_mb:.2f} MB{comment_info}"
                 )
-                if path_exists(temp_file):
-                    try:
-                        os_remove(temp_file)
-                        logger.debug(f"【分享STRM生成】已清理临时文件: {temp_file}")
-                    except (OSError, TypeError, ValueError):
-                        pass
+                cleanup_temp_file(temp_file)
             else:
                 file_path, data_count = data_collector.get_file_info()
                 if data_count > 0:
@@ -632,11 +654,7 @@ class ShareStrmHelper:
                     logger.debug(
                         f"【分享STRM生成】未收集到数据，跳过上传{comment_info}: share_code={config.share_code}"
                     )
-                    if path_exists(file_path):
-                        try:
-                            os_remove(file_path)
-                        except (OSError, TypeError, ValueError):
-                            pass
+                    cleanup_temp_file(file_path)
 
             self.scrape_refresh_media(config)
 
