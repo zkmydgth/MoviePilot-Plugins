@@ -37,9 +37,6 @@ class __DBManager:
     # 多线程全局使用的数据库会话
     ScopedSession: Optional[scoped_session] = None
 
-    # WAL 模式
-    __WAL_ENABLE = configer.get_config("DB_WAL_ENABLE")
-
     def _setup_sqlite_pragmas(self, dbapi_connection, _connection_record):
         """
         事件监听器，在每个新连接上执行
@@ -50,7 +47,7 @@ class __DBManager:
         cursor = dbapi_connection.cursor()
         try:
             # 根据配置决定日志模式，暂时根据 mp 的模式来确定
-            journal_mode = "WAL" if self.__WAL_ENABLE else "DELETE"
+            journal_mode = "WAL" if configer.get_config("DB_WAL_ENABLE") else "DELETE"
             cursor.execute(f"PRAGMA journal_mode={journal_mode};")
 
             # 如果启用 WAL，必须设置一个合理的忙碌超时时间以处理锁竞争
@@ -145,7 +142,7 @@ class __DBManager:
         关闭所有数据库连接并清理资源
         """
         # 检查是否需要并可以执行 checkpoint
-        if self.Engine and self.__WAL_ENABLE:
+        if self.Engine and configer.get_config("DB_WAL_ENABLE"):
             logger.info("正在执行数据库关闭前的最终 checkpoint...")
             # 使用 TRUNCATE 模式以获得最干净的关闭状态
             self.perform_checkpoint(mode="TRUNCATE")
