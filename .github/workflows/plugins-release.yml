@@ -102,6 +102,34 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
 
+      - name: Setup Node.js
+        if: ${{ hashFiles(format('frontend/{0}/package.json', matrix.plugin.id)) != '' }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: ${{ format('frontend/{0}/package-lock.json', matrix.plugin.id) }}
+
+      - name: Build frontend and copy dist
+        if: ${{ hashFiles(format('frontend/{0}/package.json', matrix.plugin.id)) != '' }}
+        env:
+          PLUGIN_ID: ${{ matrix.plugin.id }}
+          PLUGIN_PATH: ${{ matrix.plugin.backend_worker_path }}
+        run: |
+          FRONTEND_DIR="frontend/${PLUGIN_ID}"
+          PLUGIN_DIR="${PLUGIN_PATH}/${PLUGIN_ID,,}"
+
+          echo "Building frontend for ${PLUGIN_ID}..."
+          cd "${FRONTEND_DIR}"
+          npm ci
+          npm run build
+          cd -
+
+          echo "Copying dist to ${PLUGIN_DIR}/dist/..."
+          rm -rf "${PLUGIN_DIR}/dist"
+          cp -r "${FRONTEND_DIR}/dist" "${PLUGIN_DIR}/"
+          echo "Frontend dist built and copied successfully"
+
       - name: Package plugin source code
         run: |
           # {
