@@ -1577,6 +1577,19 @@ class MonitorLife:
                     )
                 )
 
+        # 本批若完全不包含监控类型，循环内不会对游标赋值，需推进游标否则会反复拉取同一批
+        if (
+            return_from_time == from_time
+            and return_from_id == from_id
+            and events_batch
+            and not any(
+                int(e["type"]) in (1, 2, 5, 6, 14, 17, 18, 22) for e in events_batch
+            )
+        ):
+            boundary = events_batch[0]
+            return_from_id = int(boundary["id"])
+            return_from_time = int(boundary["update_time"])
+
         if not process_item:
             if self.stop_event and self.stop_event.wait(timeout=20):
                 return return_from_time, return_from_id
