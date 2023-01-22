@@ -20,11 +20,12 @@ from typing import (
     Iterable,
 )
 
-import oss2
-import httpx
+from httpx import Client, RequestError, HTTPStatusError
 from sqlalchemy.orm.exc import MultipleResultsFound
-from oss2 import SizedFileAdapter, determine_part_size
+from oss2 import StsAuth, Bucket, SizedFileAdapter, determine_part_size
 from oss2.models import PartInfo
+from oss2.utils import b64encode_as_string
+from oss2.exceptions import OssError
 from p115client import P115Client
 from p115client.tool.attr import normalize_attr
 from p115client.type import DirNode
@@ -70,7 +71,7 @@ class U115OpenHelper:
 
     def __init__(self):
         super().__init__()
-        self.session = httpx.Client(follow_redirects=True, timeout=20.0)
+        self.session = Client(follow_redirects=True, timeout=20.0)
         self._init_session()
 
         self.fail_upload_count = 0
@@ -179,7 +180,7 @@ class U115OpenHelper:
 
         try:
             resp = self.session.request(method, f"{self.base_url}{endpoint}", **kwargs)
-        except httpx.RequestError as e:
+        except RequestError as e:
             logger.error(f"【P115Open】{method} 请求 {endpoint} 网络错误: {str(e)}")
             return None
 
@@ -201,7 +202,7 @@ class U115OpenHelper:
         # 处理请求错误
         try:
             resp.raise_for_status()
-        except httpx.HTTPStatusError as e:
+        except HTTPStatusError as e:
             if retry_times <= 0:
                 logger.error(
                     f"【P115Open】{method} 请求 {endpoint} 错误 {e}，重试次数用尽！"
@@ -338,7 +339,7 @@ class U115OpenHelper:
         """
 
         def encode_callback(cb: str) -> str:
-            return oss2.utils.b64encode_as_string(cb)
+            return b64encode_as_string(cb)
 
         def send_upload_info(
             file_sha1: Optional[str],
@@ -667,7 +668,7 @@ class U115OpenHelper:
                 callback = resume_resp["callback"]
 
         # Step 6: 对象存储上传
-        auth = oss2.StsAuth(
+        auth = StsAuth(
             access_key_id=access_key_id,
             access_key_secret=access_key_secret,
             security_token=security_token,
@@ -731,7 +732,7 @@ class U115OpenHelper:
                                 f"【P115Open】{target_name} 分片 {part_number} 上传完成"
                             )
                             break
-                        except oss2.exceptions.OssError as e:
+                        except OssError as e:
                             # 判断是否为STS Token过期错误
                             if e.code == "SecurityTokenExpired":
                                 logger.warn(
@@ -754,12 +755,12 @@ class U115OpenHelper:
                                 access_key_id = token_resp.get("AccessKeyId")
                                 access_key_secret = token_resp.get("AccessKeySecret")
                                 security_token = token_resp.get("SecurityToken")
-                                auth = oss2.StsAuth(
+                                auth = StsAuth(
                                     access_key_id=access_key_id,
                                     access_key_secret=access_key_secret,
                                     security_token=security_token,
                                 )
-                                bucket = oss2.Bucket(
+                                bucket = Bucket(
                                     auth,  # noqa
                                     endpoint,
                                     bucket_name,
@@ -824,7 +825,7 @@ class U115OpenHelper:
                     f"【P115Open】{target_name} 上传失败，错误码: {result.status}"
                 )
                 return None
-        except oss2.exceptions.OssError as e:
+        except OssError as e:
             if e.code == "InvalidAccessKeyId":
                 logger.warn(
                     f"【P115Open】上传凭证失效，将重新获取凭证并继续上传: {target_name}"
