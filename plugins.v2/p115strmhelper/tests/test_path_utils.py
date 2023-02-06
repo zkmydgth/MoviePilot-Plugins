@@ -19,8 +19,9 @@ class TestSanitizePathParts(TestCase):
     """
     测试 PathUtils.sanitize_path_parts 方法
 
-    该方法用于将相对路径各分量中的非法文件名字符替换为下划线
-    仅在 Windows 平台生效，其他平台直接返回原路径
+    该方法用于将相对路径各分量中的非法文件名字符替换
+    - Windows: <>"|?* → 下划线，: → 全角冒号
+    - 其他平台直接返回原路径
     """
 
     def _create_relative_path(self, *parts: str) -> Path:
@@ -33,10 +34,10 @@ class TestSanitizePathParts(TestCase):
 
     @patch("utils.path.os_name", "nt")
     def test_windows_single_illegal_char(self):
-        """Windows：单个非法字符替换"""
+        """Windows：单个非法字符替换，冒号替换为全角冒号"""
         rel_path = self._create_relative_path("movie:name.mp4")
         result = PathUtils.sanitize_path_parts(rel_path)
-        self.assertEqual(result.as_posix(), "movie_name.mp4")
+        self.assertEqual(result.as_posix(), "movie：name.mp4")
 
     @patch("utils.path.os_name", "nt")
     def test_windows_multiple_illegal_chars(self):
@@ -47,17 +48,17 @@ class TestSanitizePathParts(TestCase):
 
     @patch("utils.path.os_name", "nt")
     def test_windows_all_illegal_chars(self):
-        """Windows：所有非法字符 <>:"|?* 都被替换"""
+        """Windows：所有非法字符 <>"|?* → _，: → 全角冒号"""
         rel_path = self._create_relative_path('<>:":|?*')
         result = PathUtils.sanitize_path_parts(rel_path)
-        self.assertEqual(result.as_posix(), "________")
+        self.assertEqual(result.as_posix(), "____：____")
 
     @patch("utils.path.os_name", "nt")
     def test_windows_nested_path(self):
-        """Windows：多级路径中各分量都处理"""
+        """Windows：多级路径中各分量都处理，冒号替换为全角冒号"""
         rel_path = self._create_relative_path("series: 1", "episode<name>.mp4")
         result = PathUtils.sanitize_path_parts(rel_path)
-        self.assertEqual(result.as_posix(), "series_ 1/episode_name_.mp4")
+        self.assertEqual(result.as_posix(), "series： 1/episode_name_.mp4")
 
     @patch("utils.path.os_name", "nt")
     def test_windows_no_illegal_chars(self):
@@ -75,13 +76,13 @@ class TestSanitizePathParts(TestCase):
 
     @patch("utils.path.os_name", "nt")
     def test_windows_real_world_cases(self):
-        """Windows：真实场景测试 - 常见包含非法字符的网盘文件名"""
+        """Windows：真实场景测试 - 常见包含非法字符的网盘文件名，冒号→全角冒号"""
         test_cases = [
             # (input, expected)
-            ("Avengers: Endgame (2019).mp4", "Avengers_ Endgame (2019).mp4"),
+            ("Avengers: Endgame (2019).mp4", "Avengers： Endgame (2019).mp4"),
             (
                 "Star Wars: Episode IV - A New Hope.mp4",
-                "Star Wars_ Episode IV - A New Hope.mp4",
+                "Star Wars： Episode IV - A New Hope.mp4",
             ),
             ("<Animation> Movie.mp4", "_Animation_ Movie.mp4"),
             ('What"s Up.mp4', "What_s Up.mp4"),
@@ -91,7 +92,7 @@ class TestSanitizePathParts(TestCase):
             # 多级路径
             (
                 "TV/Series: Name/Season 1/Episode|1.mp4",
-                "TV/Series_ Name/Season 1/Episode_1.mp4",
+                "TV/Series： Name/Season 1/Episode_1.mp4",
             ),
         ]
         for input_path, expected in test_cases:
@@ -141,6 +142,7 @@ class TestPathUtilsIntegration(TestCase):
         模拟 STRM 文件路径生成的完整流程
 
         从网盘路径计算本地路径时，相对路径中的非法字符应被处理
+        冒号替换为全角冒号，其他字符替换为下划线
         """
         # 模拟网盘路径
         pan_media_dir = Path("/cloud/media")
@@ -153,14 +155,15 @@ class TestPathUtilsIntegration(TestCase):
         rel_path = pan_file_path.relative_to(pan_media_dir)
         self.assertEqual(rel_path.as_posix(), "Movie: Name (2023)/File:Name.mp4")
 
-        # 使用 sanitize_path_parts 处理
+        # 使用 sanitize_path_parts 处理（冒号→全角冒号）
         safe_rel_path = PathUtils.sanitize_path_parts(rel_path)
-        self.assertEqual(safe_rel_path.as_posix(), "Movie_ Name (2023)/File_Name.mp4")
+        self.assertEqual(safe_rel_path.as_posix(), "Movie： Name (2023)/File：Name.mp4")
 
         # 组合成本地路径
         local_file_path = target_dir / safe_rel_path
         self.assertEqual(
-            local_file_path.as_posix(), "/local/media/Movie_ Name (2023)/File_Name.mp4"
+            local_file_path.as_posix(),
+            "/local/media/Movie： Name (2023)/File：Name.mp4",
         )
 
     @patch("utils.path.os_name", "posix")
