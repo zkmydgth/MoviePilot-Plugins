@@ -956,7 +956,8 @@
                   <v-alert type="warning" variant="tonal" density="compact" class="mt-3" icon="mdi-alert">
                     <div class="text-caption">
                       <div class="mb-1">• 不正确配置会导致查询不到转移记录！</div>
-                      <div>• 需要使用神医助手PRO且版本在v3.0.0.3及以上或神医助手社区版且版本在v2.0.0.27及以上！</div>
+                      <div class="mb-1">• 需要使用神医助手PRO且版本在v3.0.0.3及以上或神医助手社区版且版本在v2.0.0.27及以上！</div>
+                      <div>• 同步删除多版本功能需要使用助手Pro v3.0.0.22才支持！</div>
                     </div>
                   </v-alert>
                 </v-card-text>
