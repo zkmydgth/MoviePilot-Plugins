@@ -415,8 +415,9 @@ class TransferChainPatcher:
                 logger.error(f"【整理接管】回退到原方法也失败: {fallback_error}")
                 return False, f"整理异常: {e}"
         finally:
-            # 与原生 __handle_transfer 一致：每次处理完尝试移除已完成作业
+            # 与原生 __handle_transfer 一致：每次处理完尝试移除已完成作业，并清理批次 pending 集合
             chain_self.jobview.try_remove_job(task)
+            chain_self._TransferChain__finish_scrape_batch_task(task)
 
     @classmethod
     def _derive_transfer_flags(cls, task) -> Tuple[bool, bool, bool]:

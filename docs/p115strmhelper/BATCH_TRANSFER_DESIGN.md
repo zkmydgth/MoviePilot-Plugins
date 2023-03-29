@@ -165,6 +165,14 @@ MoviePilot 的原始整理逻辑是**单文件逐个处理**：
    - 使用 MoviePilot 的 `TransferHistoryOper.add_success/add_fail`
    - 保持与 MoviePilot 历史记录格式一致
 
+4. **批次刮削状态清理（`_patched_handle_transfer` finally 块）**：
+   - `_patched_handle_transfer` 的 `finally` 块必须同时调用 `try_remove_job` **和** `__finish_scrape_batch_task`，与原生 `__handle_transfer` 保持一致
+   - **背景**：MP 在 `put_to_queue` 时通过 `__register_scrape_batch_task` 把每个任务路径写入 `_scrape_batches["pending"]`；`__default_callback` 在 `transfer_batch_id` 已设置时**不**直接发送 MetadataScrape，而完全依赖 `__finish_scrape_batch_task` 清空 pending 后由 `__flush_scrape_batch_if_ready` 统一发送
+   - **三类路径的影响**：
+     - **115→115 接管**：插件在 `_record_history` 中已独立发送 MetadataScrape，不依赖 `_scrape_batches`；但缺少 `__finish_scrape_batch_task` 会导致 pending 永不清空，造成 `_scrape_batches` 内存泄漏
+     - **非 115 回退（`_call_original_transfer_part`）**：`__record_scrape_target` 已在 callback 中写入 batch targets；缺少 `__finish_scrape_batch_task` 会导致 MetadataScrape 完全丢失
+     - **关联字幕/音频提前短路返回**：字幕/音频路径卡在 pending，导致整个 batch 永远无法 flush，阻断同批次内所有主视频的 MetadataScrape
+
 ---
 
 ## 核心组件
