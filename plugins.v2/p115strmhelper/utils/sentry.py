@@ -97,7 +97,7 @@ class SentryManager:
                     dsn=base64.b64decode(
                         "aHR0cHM6Ly82YTk0ZjI2N2NjOTY0Y2ZiOTk5ZjQyNDgwNGIyMTE1M0BnbGl0Y2h0aXAuZGRzcmVtLmNvbS80"
                     ).decode("utf-8"),
-                    release="p115strmhelper@v2.0.3",
+                    release="p115strmhelper@v2.0.4",
                     default_integrations=False,
                     integrations=[
                         DedupeIntegration(),

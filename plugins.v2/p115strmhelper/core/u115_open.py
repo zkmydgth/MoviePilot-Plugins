@@ -275,112 +275,149 @@ class U115OpenHelper:
         target_cid = target_dir.fileid
         target_param = f"U_1_{target_cid}"
 
-        start_time = time.perf_counter()
-        # Step 1: 初始化上传
-        init_data = {
-            "file_name": target_name,
-            "file_size": file_size,
-            "target": target_param,
-            "fileid": file_sha1,
-            "preid": file_preid,
-        }
-        init_resp = self._request_api("POST", "/open/upload/init", data=init_data)
-        if not init_resp:
-            return None
-        if not init_resp.get("state"):
-            logger.warn(f"【P115Open】初始化上传失败: {init_resp.get('error')}")
-            return None
-        # 结果
-        init_result = init_resp.get("data")
-        logger.debug(f"【P115Open】上传 Step 1 初始化结果: {init_result}")
-        # 回调信息
-        bucket_name = init_result.get("bucket")
-        object_name = init_result.get("object")
-        callback = init_result.get("callback")
-        # 二次认证信息
-        sign_check = init_result.get("sign_check")
-        pick_code = init_result.get("pick_code")
-        sign_key = init_result.get("sign_key")
-
-        # Step 2: 处理二次认证
-        second_auth = False
-        second_sha1 = ""
-        if init_result.get("code") in [700, 701] and sign_check:
-            second_auth = True
-            sign_checks = sign_check.split("-")
-            start = int(sign_checks[0])
-            end = int(sign_checks[1])
-            # 计算指定区间的SHA1
-            # sign_check （用下划线隔开,截取上传文内容的sha1）(单位是byte): "2392148-2392298"
-            with open(local_path, "rb") as f:
-                # 取2392148-2392298之间的内容(包含2392148、2392298)的sha1
-                f.seek(start)
-                chunk = f.read(end - start + 1)
-                sign_val = hashlib.sha1(chunk).hexdigest().upper()
-            second_sha1 = sign_val
-            # 重新初始化请求
-            # sign_key，sign_val(根据sign_check计算的值大写的sha1值)
-            init_data.update(
-                {"pick_code": pick_code, "sign_key": sign_key, "sign_val": sign_val}
-            )
+        wait_start_time = time.perf_counter()
+        while True:
+            start_time = time.perf_counter()
+            # Step 1: 初始化上传
+            init_data = {
+                "file_name": target_name,
+                "file_size": file_size,
+                "target": target_param,
+                "fileid": file_sha1,
+                "preid": file_preid,
+            }
             init_resp = self._request_api("POST", "/open/upload/init", data=init_data)
             if not init_resp:
                 return None
-            # 二次认证结果
+            if not init_resp.get("state"):
+                logger.warn(f"【P115Open】初始化上传失败: {init_resp.get('error')}")
+                return None
+            # 结果
             init_result = init_resp.get("data")
-            logger.debug(f"【P115Open】上传 Step 2 二次认证结果: {init_result}")
-            if not pick_code:
-                pick_code = init_result.get("pick_code")
-            if not bucket_name:
-                bucket_name = init_result.get("bucket")
-            if not object_name:
-                object_name = init_result.get("object")
-            if not callback:
-                callback = init_result.get("callback")
+            logger.debug(f"【P115Open】上传 Step 1 初始化结果: {init_result}")
+            # 回调信息
+            bucket_name = init_result.get("bucket")
+            object_name = init_result.get("object")
+            callback = init_result.get("callback")
+            # 二次认证信息
+            sign_check = init_result.get("sign_check")
+            pick_code = init_result.get("pick_code")
+            sign_key = init_result.get("sign_key")
 
-        # Step 3: 秒传
-        if init_result.get("status") == 2:
-            logger.info(f"【P115Open】{target_name} 秒传成功")
-            end_time = time.perf_counter()
-            elapsed_time = end_time - start_time
-            send_upload_info(
-                file_sha1,
-                file_preid,
-                second_auth,
-                second_sha1,
-                str(file_size),
-                target_name,
-                int(elapsed_time),
-            )
-            file_id = init_result.get("file_id", None)
-            if file_id:
-                logger.debug(f"【P115Open】{target_name} 使用秒传返回ID获取文件信息")
-                time.sleep(2)
-                info_resp = self._request_api(
-                    "GET",
-                    "/open/folder/get_info",
-                    "data",
-                    params={"file_id": int(file_id)},
+            # Step 2: 处理二次认证
+            second_auth = False
+            second_sha1 = ""
+            if init_result.get("code") in [700, 701] and sign_check:
+                second_auth = True
+                sign_checks = sign_check.split("-")
+                start = int(sign_checks[0])
+                end = int(sign_checks[1])
+                # 计算指定区间的SHA1
+                # sign_check （用下划线隔开,截取上传文内容的sha1）(单位是byte): "2392148-2392298"
+                with open(local_path, "rb") as f:
+                    # 取2392148-2392298之间的内容(包含2392148、2392298)的sha1
+                    f.seek(start)
+                    chunk = f.read(end - start + 1)
+                    sign_val = hashlib.sha1(chunk).hexdigest().upper()
+                second_sha1 = sign_val
+                # 重新初始化请求
+                # sign_key，sign_val(根据sign_check计算的值大写的sha1值)
+                init_data.update(
+                    {"pick_code": pick_code, "sign_key": sign_key, "sign_val": sign_val}
                 )
-                if info_resp:
-                    return schemas.FileItem(
-                        storage="u115",
-                        fileid=str(info_resp["file_id"]),
-                        path=str(target_path)
-                        + ("/" if info_resp["file_category"] == "0" else ""),
-                        type="file" if info_resp["file_category"] == "1" else "dir",
-                        name=info_resp["file_name"],
-                        basename=Path(info_resp["file_name"]).stem,
-                        extension=Path(info_resp["file_name"]).suffix[1:]
-                        if info_resp["file_category"] == "1"
-                        else None,
-                        pickcode=info_resp["pick_code"],
-                        size=StringUtils.num_filesize(info_resp["size"])
-                        if info_resp["file_category"] == "1"
-                        else None,
-                        modify_time=info_resp["utime"],
+                init_resp = self._request_api(
+                    "POST", "/open/upload/init", data=init_data
+                )
+                if not init_resp:
+                    return None
+                # 二次认证结果
+                init_result = init_resp.get("data")
+                logger.debug(f"【P115Open】上传 Step 2 二次认证结果: {init_result}")
+                if not pick_code:
+                    pick_code = init_result.get("pick_code")
+                if not bucket_name:
+                    bucket_name = init_result.get("bucket")
+                if not object_name:
+                    object_name = init_result.get("object")
+                if not callback:
+                    callback = init_result.get("callback")
+
+            # Step 3: 秒传
+            if init_result.get("status") == 2:
+                logger.info(f"【P115Open】{target_name} 秒传成功")
+                end_time = time.perf_counter()
+                elapsed_time = end_time - start_time
+                send_upload_info(
+                    file_sha1,
+                    file_preid,
+                    second_auth,
+                    second_sha1,
+                    str(file_size),
+                    target_name,
+                    int(elapsed_time),
+                )
+                file_id = init_result.get("file_id", None)
+                if file_id:
+                    logger.debug(
+                        f"【P115Open】{target_name} 使用秒传返回ID获取文件信息"
                     )
-            return self._delay_get_item(target_path)
+                    time.sleep(2)
+                    info_resp = self._request_api(
+                        "GET",
+                        "/open/folder/get_info",
+                        "data",
+                        params={"file_id": int(file_id)},
+                    )
+                    if info_resp:
+                        return schemas.FileItem(
+                            storage="u115",
+                            fileid=str(info_resp["file_id"]),
+                            path=str(target_path)
+                            + ("/" if info_resp["file_category"] == "0" else ""),
+                            type="file" if info_resp["file_category"] == "1" else "dir",
+                            name=info_resp["file_name"],
+                            basename=Path(info_resp["file_name"]).stem,
+                            extension=Path(info_resp["file_name"]).suffix[1:]
+                            if info_resp["file_category"] == "1"
+                            else None,
+                            pickcode=info_resp["pick_code"],
+                            size=StringUtils.num_filesize(info_resp["size"])
+                            if info_resp["file_category"] == "1"
+                            else None,
+                            modify_time=info_resp["utime"],
+                        )
+                return self._delay_get_item(target_path)
+
+            # 判断是等待秒传还是直接上传
+            if wait_start_time - time.perf_counter() > 60 * 60:
+                logger.warn(
+                    f"【P115Open】等待秒传超时，自动进行上传流程: {target_name}"
+                )
+                break
+
+            try:
+                response = self.oopserver_request.make_request(
+                    path="/speed/user_status/me",
+                    method="GET",
+                    headers={"x-machine-id": configer.get_config("MACHINE_ID")},
+                    timeout=10.0,
+                )
+
+                if response is not None and response.status_code == 200:
+                    resp = response.json()
+                    if resp.get("status") != "slow":
+                        logger.warn(
+                            f"【P115Open】上传速度状态 {resp.get('status')}，跳过秒传等待: {target_name}"
+                        )
+                        break
+                    logger.info(f"【P115Open】休眠，等待秒传: {target_name}")
+                    time.sleep(60 * 5)
+                else:
+                    logger.warn("【P115Open】获取用户上传速度错误，网络问题")
+                    break
+            except Exception as e:
+                logger.warn(f"【P115Open】获取用户上传速度错误: {e}")
+                break
 
         # Step 4: 获取上传凭证
         token_resp = self._request_api("GET", "/open/upload/get_token", "data")
