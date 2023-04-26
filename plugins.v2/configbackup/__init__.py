@@ -166,14 +166,26 @@ class ConfigBackup(_PluginBase):
                 "component": "VForm",
                 "content": [
                     {
-                        "component": "VAlert",
-                        "props": {
-                            "type": "info",
-                            "text": "使用说明：定时备份 MoviePilot 系统配置、PostgreSQL 数据库与插件配置，"
-                                    "支持保留最近 N 份与一键还原（还原前自动先备份当前状态作安全网）。"
-                                    "注意：数据库备份/还原要求 MoviePilot 使用 PostgreSQL（兼容 10+ 含 18.x），"
-                                    "SQLite/MySQL 等将自动跳过数据库部分。首次使用建议先手动备份一次验证。",
-                        },
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12},
+                                "content": [
+                                    {
+                                        "component": "VAlert",
+                                        "props": {
+                                            "type": "info",
+                                            "variant": "tonal",
+                                            "text": "使用说明：定时备份 MoviePilot 系统配置、PostgreSQL 数据库与插件配置，"
+                                                    "支持保留最近 N 份与一键还原（还原前自动先备份当前状态作安全网）。"
+                                                    "注意：数据库备份/还原要求 MoviePilot 使用 PostgreSQL（兼容 10+ 含 18.x），"
+                                                    "SQLite/MySQL 等将自动跳过数据库部分。首次使用建议先手动备份一次验证。",
+                                        },
+                                    }
+                                ],
+                            }
+                        ],
                     },
                     {
                         "component": "VRow",
