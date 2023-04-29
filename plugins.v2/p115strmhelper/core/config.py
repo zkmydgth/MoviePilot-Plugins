@@ -10,7 +10,7 @@ from app.core.config import settings
 from app.utils.system import SystemUtils
 from app.db.systemconfig_oper import SystemConfigOper
 
-from ..utils.machineid import MachineIDGenerator
+from ..utils.machineid import MachineID
 
 
 class BaseConfig(BaseModel):
@@ -269,8 +269,15 @@ class ConfigManager:
         ]:
             return Path(self._configs.get(key))
         elif key == "MACHINE_ID":
-            generator = MachineIDGenerator()
-            return generator.get_id()
+            if not MachineID.has_machine_id(
+                self.get_config("PLUGIN_CONFIG_PATH") / "machine_id.txt"
+            ):
+                MachineID.generate_machine_id(
+                    self.get_config("PLUGIN_CONFIG_PATH") / "machine_id.txt"
+                )
+            return MachineID.read_machine_id(
+                self.get_config("PLUGIN_CONFIG_PATH") / "machine_id.txt"
+            )
         return self._configs.get(key)
 
     def get_all_configs(self) -> Dict[str, Any]:

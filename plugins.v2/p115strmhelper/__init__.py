@@ -34,6 +34,7 @@ from .interactive.views import ViewRenderer
 from .helper.strm import FullSyncStrmHelper, TransferStrmHelper
 from .utils.path import PathUtils
 from .utils.sentry import capture_all_class_exceptions
+from .utils.machineid import MachineID
 
 
 # 实例化一个该插件专用的 SessionManager
@@ -130,6 +131,13 @@ class P115StrmHelper(_PluginBase):
 
         if configer.get_config("enabled"):
             self.init_database()
+
+            if not MachineID.has_machine_id(
+                configer.get_config("PLUGIN_CONFIG_PATH") / "machine_id.txt"
+            ):
+                MachineID.generate_machine_id(
+                    configer.get_config("PLUGIN_CONFIG_PATH") / "machine_id.txt"
+                )
 
             if servicer.init_service():
                 self.api = Api(client=servicer.client)
