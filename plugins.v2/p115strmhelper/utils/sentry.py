@@ -7,6 +7,9 @@ from sentry_sdk.hub import Hub
 from sentry_sdk.client import Client
 from sentry_sdk.integrations.stdlib import StdlibIntegration
 from sentry_sdk.integrations.excepthook import ExcepthookIntegration
+from sentry_sdk.integrations.requests import RequestsIntegration
+from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
+from sentry_sdk.integrations.dedupe import DedupeIntegration
 
 
 sentry_hub = Hub(
@@ -17,8 +20,14 @@ sentry_hub = Hub(
         release="p115strmhelper@v1.9.20",
         # 禁用所有默认集成
         default_integrations=False,
-        # 启用标准库集成和全局异常钩子集成
-        integrations=[StdlibIntegration(), ExcepthookIntegration(always_run=True)],
+        # 启用集成
+        integrations=[
+            DedupeIntegration(),
+            StdlibIntegration(),
+            ExcepthookIntegration(always_run=True),
+            RequestsIntegration(),
+            SqlalchemyIntegration(),
+        ],
     )
 )
 
