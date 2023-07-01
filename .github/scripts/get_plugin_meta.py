@@ -6,9 +6,9 @@ import ast
 from typing import Dict, Optional, Tuple, List
 
 
-def get_version_from_py_file(file_path) -> Tuple[Optional[str], Optional[str]]:
+def _extract_version_from_file(file_path: str, var_name: str) -> Tuple[Optional[str], Optional[str]]:
     """
-    从 py 文件中，提取plugin_version
+    从指定的 py 文件中，提取特定名称的字符串或数字变量。
     """
     if not os.path.exists(file_path):
         return None, f"文件未找到: {file_path}"
@@ -18,14 +18,36 @@ def get_version_from_py_file(file_path) -> Tuple[Optional[str], Optional[str]]:
         for node in ast.walk(tree):
             if isinstance(node, ast.Assign):
                 for target in node.targets:
-                    if isinstance(target, ast.Name) and target.id == 'plugin_version':
+                    if isinstance(target, ast.Name) and target.id == var_name:
                         if isinstance(node.value, ast.Constant):
                             return str(node.value.value), None
+                        # ast.Str 和 ast.Num 在旧版 Python 中使用
                         elif isinstance(node.value, (ast.Str, ast.Num)):
                             return str(node.value.s), None
-        return None, f"在 {file_path} 中未找到 'plugin_version' 变量"
+        return None, f"在 {file_path} 中未找到 '{var_name}' 变量"
     except Exception as e:
         return None, f"解析文件 {file_path} 时出错: {e}"
+
+
+def get_version_from_source(plugin_dir: str) -> Tuple[Optional[str], Optional[str]]:
+    """
+    从插件源码目录中获取版本号。
+    优先检查 version.py 中的 'VERSION' 变量。
+    如果不存在或未找到，则回退到检查 __init__.py 中的 'plugin_version' 变量。
+    """
+    # 优先尝试从 version.py 获取
+    version_py_path = os.path.join(plugin_dir, 'version.py')
+    if os.path.exists(version_py_path):
+        version, err = _extract_version_from_file(version_py_path, 'VERSION')
+        # 如果成功获取到版本，或者遇到了文件不存在以外的致命错误，则直接返回
+        if version or (err and "文件未找到" not in err):
+            log(f"[Info] 尝试从 {version_py_path} 获取版本...")
+            return version, err
+
+    # 如果 version.py 不存在或其中没有版本，则回退到 __init__.py
+    init_py_path = os.path.join(plugin_dir, '__init__.py')
+    log(f"[Info] 尝试从 {init_py_path} 获取版本...")
+    return _extract_version_from_file(init_py_path, 'plugin_version')
 
 
 def build_plugin_metadata(plugin_id, version, source_dir, package_data, is_prerelease=False) -> Dict:
@@ -74,11 +96,15 @@ def handle_workflow_dispatch() -> List[Dict]:
 
         if not plugin_info:
             raise ValueError(f"插件 {plugin_id} 在 package(.*).json 文件中未找到。请检查插件 ID 是否正确。")
-        py_file_path = f"{source_dir}/{plugin_id.lower()}/__init__.py"
-        py_version, err = get_version_from_py_file(py_file_path)
+        
+        plugin_code_dir = f"{source_dir}/{plugin_id.lower()}"
+        py_version, err = get_version_from_source(plugin_code_dir)
+
         if err:
             raise ValueError(err)
-        log(f"[Info] 从 __init__.py 中获取的版本号为: {py_version}")
+            
+        log(f"[Info] 从源码 (version.py 或 __init__.py) 中获取的版本号为: {py_version}")
+        
         if is_prerelease:
             prerelease_versions = plugin_info.get("prerelease_vers", [])
             if py_version in prerelease_versions:
@@ -94,12 +120,12 @@ def handle_workflow_dispatch() -> List[Dict]:
             if not plugin_info.get("release", False):
                 raise ValueError(f"插件 '{plugin_id}' 未被标记为可发布 (release: true)。")
             if py_version == json_version:
-                log(f"[Info] ✅ 版本校验通过: __init__.py 与 package.json 中的版本一致 ({py_version})。")
+                log(f"[Info] ✅ 版本校验通过: 源码文件与 package.json 中的版本一致 ({py_version})。")
                 plugins_to_release.append(
                     build_plugin_metadata(plugin_id, py_version, source_dir, package_data, is_prerelease=False))
             else:
                 raise ValueError(
-                    f"正式版版本号不匹配: __init__.py 中的版本 {py_version} 与 package.json 中的版本 {json_version} 不一致。"
+                    f"正式版版本号不匹配: 源码中的版本 {py_version} 与 package.json 中的版本 {json_version} 不一致。"
                 )
 
     except Exception as e:
@@ -155,13 +181,14 @@ def handle_push() -> List[Dict]:
 
                 old_prerelease_vers = set(old_info.get("prerelease_vers", []))
                 new_prerelease_vers = set(new_info.get("prerelease_vers", []))
+                
+                plugin_code_dir = f"{source_dir}/{plugin_id.lower()}"
 
                 # 优先处理正式版发布
                 if old_version != new_version and new_version and is_releasable:
                     log(f"[Info] 检测到正式版发布意图: {plugin_id} (版本: {old_version} -> {new_version})")
 
-                    py_file_path = f"{source_dir}/{plugin_id.lower()}/__init__.py"
-                    py_version, err = get_version_from_py_file(py_file_path)
+                    py_version, err = get_version_from_source(plugin_code_dir)
 
                     if err:
                         log(f"[Fatal] {err}")
@@ -175,18 +202,16 @@ def handle_push() -> List[Dict]:
                     else:
                         log(f"[Fatal] 正式版版本号不匹配: {plugin_id}",
                             f"\n- package.json 中的版本: {new_version}",
-                            f"\n- __init__.py 中的版本:  {py_version}")
+                            f"\n- 源码文件中的版本:  {py_version}")
                         continue
 
                 # 处理预发布版发布
                 elif old_prerelease_vers != new_prerelease_vers:
-                    # 找出新增的预发布版本号
                     added_vers = new_prerelease_vers - old_prerelease_vers
                     if not added_vers:
                         log(f"[Debug] ⏩ 跳过插件: {plugin_id} (仅删除了预发布版本，无新增)")
                         continue
 
-                    # 如果有多个新增，只处理第一个，或者可以报错
                     prerelease_version_to_check = list(added_vers)[0]
                     if len(added_vers) > 1:
                         log(
@@ -194,8 +219,7 @@ def handle_push() -> List[Dict]:
 
                     log(f"[Info] 检测到预发布版发布意图: {plugin_id} (新增版本: {prerelease_version_to_check})")
 
-                    py_file_path = f"{source_dir}/{plugin_id.lower()}/__init__.py"
-                    py_version, err = get_version_from_py_file(py_file_path)
+                    py_version, err = get_version_from_source(plugin_code_dir)
 
                     if err:
                         log(f"[Fatal] {err}")
@@ -209,7 +233,7 @@ def handle_push() -> List[Dict]:
                     else:
                         log(f"[Fatal] 预发布版版本号不匹配: {plugin_id}")
                         log(f"- package.json 中新增的版本: {prerelease_version_to_check}")
-                        log(f"- __init__.py 中的版本:  {py_version}")
+                        log(f"- 源码文件中的版本:  {py_version}")
                         continue
 
                 else:
