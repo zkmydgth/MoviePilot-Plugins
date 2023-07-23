@@ -5,11 +5,14 @@ import tempfile
 import shutil
 from typing import Any, List, Dict, Tuple
 from pathlib import Path
+from datetime import datetime, timedelta
 
-from ruamel.yaml import YAML
-from ruamel.yaml.representer import RoundTripRepresenter
+import pytz
 import psutil
 import requests
+from ruamel.yaml import YAML
+from ruamel.yaml.representer import RoundTripRepresenter
+from apscheduler.schedulers.background import BackgroundScheduler
 
 from app.core.config import settings
 from app.helper.mediaserver import MediaServerHelper
@@ -25,7 +28,7 @@ class MediaWarp(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/refs/heads/main/icons/cloud.png"
     # 插件版本
-    plugin_version = "1.0.0"
+    plugin_version = "1.0.1"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -44,6 +47,7 @@ class MediaWarp(_PluginBase):
     _emby_host = None
     _emby_apikey = None
     # 私有属性
+    _scheduler = None
     process = None
     _enabled = False
     _port = None
@@ -72,7 +76,7 @@ class MediaWarp(_PluginBase):
         # 配置文件名
         self.__config_filename = "config.yaml"
         # 二级制文件版本
-        self.__mediawarp_version = "0.1.6"
+        self.__mediawarp_version = "0.1.8"
         self.__mediawarp_version_path = (
             settings.PLUGIN_DATA_PATH / class_name / "version.txt"
         )
@@ -116,62 +120,19 @@ class MediaWarp(_PluginBase):
         self.stop_service()
 
         if self._enabled:
-            if not Path(self.__mediawarp_path).exists():
-                logger.info("尝试自动下载二级制文件中...")
-                self.download_and_extract()
-                if not Path(self.__mediawarp_path).exists():
-                    logger.error("下载失败，MediaWarp 二级制文件不存在，无法启动插件")
-                    logger.info(
-                        f"请将 MediaWarp 二级制文件放入 {settings.PLUGIN_DATA_PATH / self.__class__.__name__.lower()} 文件夹内"
-                    )
-                    self.__update_config()
-                    return
-
-            if os.path.exists(self.__mediawarp_version_path):
-                with open(self.__mediawarp_version_path, "r", encoding="utf-8") as f:
-                    version = f.read().strip()
-                if version != self.__mediawarp_version:
-                    logger.info("尝试自动更新二级制文件中...")
-                    self.download_and_extract()
-
-            if not Path(self.__config_path / self.__config_filename).exists():
-                logger.error("MediaWarp 配置文件不存在，无法启动插件")
-                self.__update_config()
-                return
-
-            changes = {
-                "Port": self._port,
-                "Logger.AccessLogger.File": True,
-                "Logger.AccessLogger.Console": False,
-                "MediaServer.Type": "Jellyfin"
-                if self._emby_server == "jellyfin"
-                else "Emby",
-                "MediaServer.ADDR": self._emby_host,
-                "MediaServer.AUTH": self._emby_apikey,
-                "Web.Index": bool(
-                    Path(self.__config_path / "static" / "index.html").exists()
-                ),
-                "Web.Crx": bool(self._crx),
-                "Web.ActorPlus": bool(self._actor_plus),
-                "Web.FanartShow": bool(self._fanart_show),
-                "Web.Danmaku": bool(self._danmaku),
-                "Web.ExternalPlayerUrl": bool(self._external_player_url),
-                "Web.VideoTogether": bool(self._video_together),
-                "HTTPStrm.Enable": True,
-                "HTTPStrm.PrefixList": self._media_strm_path.split("\n"),
-                "Subtitle.SRT2ASS": bool(self._srt2ass),
-            }
-            self.modify_config(
-                Path(self.__config_path / self.__config_filename), changes
+            self._scheduler = BackgroundScheduler(timezone=settings.TZ)
+            logger.info("MediaWarp 服务启动中...")
+            self._scheduler.add_job(
+                func=self.__run_service,
+                trigger="date",
+                run_date=datetime.now(tz=pytz.timezone(settings.TZ))
+                + timedelta(seconds=2),
+                name="MediaWarp启动服务",
             )
 
-            Path(self.__config_path).mkdir(parents=True, exist_ok=True)
-            Path(self.__logs_dir).mkdir(parents=True, exist_ok=True)
-
-            self.process = psutil.Popen([self.__mediawarp_path])
-
-            if self.process.is_running():
-                logger.info("MediaWarp 服务成功启动！")
+            if self._scheduler.get_jobs():
+                self._scheduler.print_jobs()
+                self._scheduler.start()
 
     def __update_config(self):
         self.update_config(
@@ -452,11 +413,34 @@ class MediaWarp(_PluginBase):
                                 "content": [
                                     {
                                         "component": "div",
-                                        "text": "注意：如果 MoviePilot 容器为 bridge 模式需要手动映射配置的端口",
+                                        "text": "注意：",
+                                    },
+                                    {
+                                        "component": "div",
+                                        "text": "如果 MoviePilot 容器为 bridge 模式需要手动映射配置的端口",
                                     },
                                     {
                                         "component": "div",
                                         "text": "更多配置可以前往 MoviePilot 配置目录找到此插件的配置目录进行详细配置文件配置",
+                                    },
+                                ],
+                            },
+                            {
+                                "component": "VAlert",
+                                "props": {
+                                    "type": "info",
+                                    "variant": "tonal",
+                                    "density": "compact",
+                                    "class": "mt-2",
+                                },
+                                "content": [
+                                    {
+                                        "component": "div",
+                                        "text": "目前支持 115网盘STRM助手，123云盘STRM助手，CloudMediaSync，OneStrm",
+                                    },
+                                    {
+                                        "component": "div",
+                                        "text": "Symedia，q115-strm 等软件生成的STRM文件",
                                     },
                                 ],
                             },
@@ -563,7 +547,66 @@ class MediaWarp(_PluginBase):
     def get_page(self) -> List[dict]:
         pass
 
-    def modify_config(self, config_path, modifications):
+    def __run_service(self):
+        """
+        运行服务
+        """
+        if not Path(self.__mediawarp_path).exists():
+            logger.info("尝试自动下载二级制文件中...")
+            self.__download_and_extract()
+            if not Path(self.__mediawarp_path).exists():
+                logger.error("下载失败，MediaWarp 二级制文件不存在，无法启动插件")
+                logger.info(
+                    f"请将 MediaWarp 二级制文件放入 {settings.PLUGIN_DATA_PATH / self.__class__.__name__.lower()} 文件夹内"
+                )
+                self.__update_config()
+                return
+
+        if os.path.exists(self.__mediawarp_version_path):
+            with open(self.__mediawarp_version_path, "r", encoding="utf-8") as f:
+                version = f.read().strip()
+            if version != self.__mediawarp_version:
+                logger.info("尝试自动更新二级制文件中...")
+                self.__download_and_extract()
+
+        if not Path(self.__config_path / self.__config_filename).exists():
+            logger.error("MediaWarp 配置文件不存在，无法启动插件")
+            self.__update_config()
+            return
+
+        changes = {
+            "Port": self._port,
+            "Logger.AccessLogger.File": True,
+            "Logger.AccessLogger.Console": False,
+            "MediaServer.Type": "Jellyfin"
+            if self._emby_server == "jellyfin"
+            else "Emby",
+            "MediaServer.ADDR": self._emby_host,
+            "MediaServer.AUTH": self._emby_apikey,
+            "Web.Index": bool(
+                Path(self.__config_path / "static" / "index.html").exists()
+            ),
+            "Web.Crx": bool(self._crx),
+            "Web.ActorPlus": bool(self._actor_plus),
+            "Web.FanartShow": bool(self._fanart_show),
+            "Web.Danmaku": bool(self._danmaku),
+            "Web.ExternalPlayerUrl": bool(self._external_player_url),
+            "Web.VideoTogether": bool(self._video_together),
+            "HTTPStrm.Enable": True,
+            "HTTPStrm.PrefixList": self._media_strm_path.split("\n"),
+            "Subtitle.SRT2ASS": bool(self._srt2ass),
+        }
+        self.__modify_config(Path(self.__config_path / self.__config_filename), changes)
+
+        Path(self.__config_path).mkdir(parents=True, exist_ok=True)
+        Path(self.__logs_dir).mkdir(parents=True, exist_ok=True)
+
+        self.process = psutil.Popen([self.__mediawarp_path])
+
+        if self.process.is_running():
+            logger.info("MediaWarp 服务成功启动！")
+
+    def __modify_config(self, config_path, modifications):
         """
         修改配置文件
 
@@ -596,7 +639,7 @@ class MediaWarp(_PluginBase):
         with open(config_path, "w", encoding="utf-8") as file:
             yaml.dump(config, file)
 
-    def get_download_url(self):
+    def __get_download_url(self):
         """
         获取下载链接
         """
@@ -610,11 +653,11 @@ class MediaWarp(_PluginBase):
 
         return base_url.format(arch=arch, version=self.__mediawarp_version)
 
-    def download_and_extract(self):
+    def __download_and_extract(self):
         """
         下载并解压
         """
-        url = self.get_download_url()
+        url = self.__get_download_url()
         temp_dir = tempfile.mkdtemp()
         temp_file = os.path.join(temp_dir, "MediaWarp.tar.gz")
 
@@ -667,6 +710,14 @@ class MediaWarp(_PluginBase):
         """
         退出插件
         """
-        if self.process:
-            if self.process.is_running():
-                self.process.terminate()
+        try:
+            if self._scheduler:
+                self._scheduler.remove_all_jobs()
+                if self._scheduler.running:
+                    self._scheduler.shutdown()
+                self._scheduler = None
+            if self.process:
+                if self.process.is_running():
+                    self.process.terminate()
+        except Exception as e:
+            logger.error(f"退出插件失败：{e}")
