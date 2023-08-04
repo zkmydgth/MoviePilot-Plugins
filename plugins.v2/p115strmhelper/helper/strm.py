@@ -754,7 +754,7 @@ class FullSyncStrmHelper:
                 logger.error(f"【全量STRM生成】全量生成 STRM 文件失败: {e}")
                 return False
 
-            if self.remove_unless_strm:
+            if self.remove_unless_strm and not self.strm_fail_dict:
                 while local_tree_task_thread.is_alive():
                     logger.info("【全量STRM生成】扫描本地媒体库运行中...")
                     time.sleep(10)
