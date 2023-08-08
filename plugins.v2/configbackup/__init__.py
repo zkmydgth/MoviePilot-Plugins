@@ -31,7 +31,7 @@ class ConfigBackup(_PluginBase):
     # 插件描述
     plugin_desc = "定时备份 MoviePilot 系统配置、数据库及插件配置到指定目录，支持保留数量自动清理、手动触发和一键还原。"
     # 插件版本
-    plugin_version = "1.3.3"
+    plugin_version = "1.3.4"
     # 插件作者
     plugin_author = "zkmydgth"
     # 插件配置项ID前缀
@@ -370,28 +370,33 @@ class ConfigBackup(_PluginBase):
                     }
                 },
             },
-            {
-                "component": "VBtn",
-                "props": {
-                    "color": "error",
-                    "variant": "flat",
-                    "size": "small",
-                    "prependIcon": "mdi-restore",
-                },
-                "text": "确认还原",
-                "events": {
-                    "click": {
-                        "api": "plugin/ConfigBackup/restore",
-                        "method": "get",
-                        "params": {
-                            "apikey": settings.API_TOKEN,
-                            "confirm": "1",
-                        },
-                    }
-                },
-            },
         ]
+        # 「确认还原」仅在已选中待还原备份时出现：
+        # 未选中时该按钮点了必然失败（后端返回「没有待还原的备份」），
+        # 因此不再无条件展示，改为由列表中的【还原】按钮先选中、再确认的两阶段交互。
         if pending:
+            actions.append(
+                {
+                    "component": "VBtn",
+                    "props": {
+                        "color": "error",
+                        "variant": "flat",
+                        "size": "small",
+                        "prependIcon": "mdi-restore",
+                    },
+                    "text": "确认还原",
+                    "events": {
+                        "click": {
+                            "api": "plugin/ConfigBackup/restore",
+                            "method": "get",
+                            "params": {
+                                "apikey": settings.API_TOKEN,
+                                "confirm": "1",
+                            },
+                        },
+                    },
+                }
+            )
             actions.append(
                 {
                     "component": "VBtn",
@@ -399,6 +404,7 @@ class ConfigBackup(_PluginBase):
                         "color": "grey",
                         "variant": "tonal",
                         "size": "small",
+                        "class": "ml-2",
                         "prependIcon": "mdi-close",
                     },
                     "text": "取消还原",
@@ -437,9 +443,23 @@ class ConfigBackup(_PluginBase):
                         "type": "warning",
                         "variant": "tonal",
                         "class": "mt-2",
-                        "text": f"待还原：{pending.get('filename', '')}（备份于 {pending.get('time', '')}）"
-                                f"。点击上方【确认还原】执行还原，还原前将自动备份当前状态；"
-                                f"点击【取消还原】放弃本次操作。",
+                        "text": f"已选中待还原备份：{pending.get('filename', '')}"
+                                f"（备份于 {pending.get('time', '')}）。"
+                                f"请点击上方【确认还原】执行（还原前会自动先备份当前状态作为安全网），"
+                                f"或点击【取消还原】放弃本次操作。",
+                    },
+                }
+            )
+        else:
+            header.append(
+                {
+                    "component": "VAlert",
+                    "props": {
+                        "type": "info",
+                        "variant": "tonal",
+                        "class": "mt-2",
+                        "text": "还原操作分两步：先在下表点击目标备份行的【还原】按钮选中它，"
+                                "然后点击上方出现的【确认还原】执行。",
                     },
                 }
             )
@@ -514,9 +534,10 @@ class ConfigBackup(_PluginBase):
                                         "color": "primary",
                                         "variant": "text",
                                         "size": "x-small",
-                                        "icon": "mdi-restore",
-                                        "title": "选择该备份进行还原",
+                                        "prependIcon": "mdi-restore",
+                                        "title": "选择该备份，然后在顶部点【确认还原】执行",
                                     },
+                                    "text": "还原",
                                     "events": {
                                         "click": {
                                             "api": "plugin/ConfigBackup/restore",
@@ -534,9 +555,11 @@ class ConfigBackup(_PluginBase):
                                         "color": "error",
                                         "variant": "text",
                                         "size": "x-small",
-                                        "icon": "mdi-delete",
+                                        "prependIcon": "mdi-delete",
                                         "title": "删除该备份",
+                                        "class": "ml-2",
                                     },
+                                    "text": "删除",
                                     "events": {
                                         "click": {
                                             "api": "plugin/ConfigBackup/delete",
