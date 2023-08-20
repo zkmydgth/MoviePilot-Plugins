@@ -93,3 +93,21 @@ class File(P115StrmHelperBase):
             synchronize_session=False
         )
         return True
+
+    @staticmethod
+    @db_update
+    def update_path(db: Session, file_id: int, new_path: str):
+        """
+        更新指定ID的路径
+        """
+        db.query(File).filter(File.id == file_id).update({"path": new_path})
+        db.commit()
+
+    @staticmethod
+    @db_update
+    def update_name(db: Session, file_id: int, new_name: str):
+        """
+        更新指定ID的名称
+        """
+        db.query(File).filter(File.id == file_id).update({"name": new_name})
+        db.commit()

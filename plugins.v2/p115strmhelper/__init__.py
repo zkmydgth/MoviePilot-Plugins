@@ -8,7 +8,7 @@ from threading import Event as ThreadEvent, Timer
 from collections import defaultdict
 from collections.abc import Mapping
 from datetime import datetime, timedelta
-from typing import Any, List, Dict, Tuple, Self, cast, Optional
+from typing import Any, List, Dict, Tuple, Self, cast, Optional, MutableMapping
 from errno import EIO, ENOENT
 from urllib.parse import quote, unquote, urlsplit, urlencode
 from itertools import chain, batched
@@ -850,7 +850,7 @@ class P115StrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png"
     # 插件版本
-    plugin_version = "1.7.6"
+    plugin_version = "1.7.7"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -877,6 +877,7 @@ class P115StrmHelper(_PluginBase):
     cache_delete_pan_transfer_list = None
     cache_creata_pan_transfer_list = None
     cache_top_delete_pan_transfer_list = None
+    cache_create_strm_file_dict = None
 
     # 生活事件监控通知系统
     _monitor_life_notification_queue = None
@@ -1017,6 +1018,9 @@ class P115StrmHelper(_PluginBase):
         self.cache_delete_pan_transfer_list = []
         self.cache_creata_pan_transfer_list = []
         self.cache_top_delete_pan_transfer_list: Dict[str, List] = {}
+        self.cache_create_strm_file_dict: MutableMapping[str, List] = TTLCache(
+            maxsize=1_000_000, ttl=600
+        )
 
         self._monitor_life_notification_queue = defaultdict(
             lambda: {"strm_count": 0, "mediainfo_count": 0}
@@ -1084,9 +1088,11 @@ class P115StrmHelper(_PluginBase):
                                 f"【目录上传】{mon_path} 启动实时监控失败：{err_msg}"
                             )
 
-            if (self._monitor_life_enabled and self._monitor_life_paths) or (
-                self._pan_transfer_enabled and self._pan_transfer_paths
-            ):
+            if (
+                self._monitor_life_enabled
+                and self._monitor_life_paths
+                and self._monitor_life_event_modes
+            ) or (self._pan_transfer_enabled and self._pan_transfer_paths):
                 self.monitor_stop_event.clear()
                 if self.monitor_life_thread:
                     if not self.monitor_life_thread.is_alive():
@@ -1410,6 +1416,13 @@ class P115StrmHelper(_PluginBase):
                         )
                     )
                     logger.info(f"【网盘整理】{file_path} 加入整理列队")
+                if (
+                    file_path.suffix in settings.RMT_AUDIOEXT
+                    or file_path.suffix in settings.RMT_SUBEXT
+                ):
+                    # 如果是MP可处理的音轨或字幕文件，则缓存文件ID
+                    if str(item["id"]) not in self.cache_creata_pan_transfer_list:
+                        self.cache_creata_pan_transfer_list.append(str(item["id"]))
 
             # 顶层目录MP无法处理时添加到缓存字典中
             if cache_top_path and cache_file_id_list:
@@ -2032,20 +2045,20 @@ class P115StrmHelper(_PluginBase):
         # 元数据信息
         meta: MetaBase = item.get("meta")
 
-        item_dest_storage: FileItem = item_transfer.target_item.storage
+        item_dest_storage = item_transfer.target_item.storage
         if item_dest_storage != "u115":
             return
 
         # 网盘目的地目录
-        itemdir_dest_path: FileItem = item_transfer.target_diritem.path
+        itemdir_dest_path = item_transfer.target_diritem.path
         # 网盘目的地路径（包含文件名称）
-        item_dest_path: FileItem = item_transfer.target_item.path
+        item_dest_path = item_transfer.target_item.path
         # 网盘目的地文件名称
-        item_dest_name: FileItem = item_transfer.target_item.name
+        item_dest_name = item_transfer.target_item.name
         # 网盘目的地文件名称（不包含后缀）
-        item_dest_basename: FileItem = item_transfer.target_item.basename
+        item_dest_basename = item_transfer.target_item.basename
         # 网盘目的地文件 pickcode
-        item_dest_pickcode: FileItem = item_transfer.target_item.pickcode
+        item_dest_pickcode = item_transfer.target_item.pickcode
         # 是否蓝光原盘
         item_bluray = SystemUtils.is_bluray_dir(Path(itemdir_dest_path))
         # 目标字幕文件清单
@@ -2446,6 +2459,92 @@ class P115StrmHelper(_PluginBase):
             logger.error(f"【分享STRM生成】运行失败: {e}")
             return
 
+    @eventmanager.register(EventType.TransferComplete)
+    def fix_monitor_life_strm(self, event: Event):
+        """
+        监控整理事件
+        处理115生活事件生成MP整理STRM文件名称错误
+        """
+
+        def file_rename(fileitem: FileItem):
+            """
+            重命名
+            """
+            target_path = Path(fileitem.path).parent
+            file_item = self.cache_create_strm_file_dict.get(str(fileitem.fileid), None)
+            if not file_item:
+                return
+            if fileitem.name != file_item[0]:
+                # 文件名称不一致，表明网盘文件被重命名，需要将本地文件重命名
+                target_file_path = Path(file_item[1]) / Path(
+                    target_path / dest_fileitem.name
+                ).relative_to(file_item[2]).with_suffix(".strm")
+                life_path = Path(file_item[1]) / Path(
+                    target_path / file_item[0]
+                ).relative_to(file_item[2]).with_suffix(".strm")
+                # 如果重命名后的文件存在，先删除再重命名
+                try:
+                    if target_file_path.exists():
+                        target_file_path.unlink(missing_ok=True)
+                    life_path.rename(target_file_path)
+                    _databasehelper.update_path_by_id(
+                        id=int(fileitem.fileid),
+                        new_path=str(target_path / dest_fileitem.name),
+                    )
+                    _databasehelper.update_name_by_id(
+                        id=int(fileitem.fileid),
+                        new_name=str(dest_fileitem.name),
+                    )
+                    self.cache_create_strm_file_dict.pop(str(fileitem.fileid), None)
+                    logger.info(
+                        f"【监控生活事件】修正文件名称: {life_path} --> {target_file_path}"
+                    )
+                except Exception as e:
+                    logger.error(f"【监控生活事件】修正文件名称失败: {e}")
+
+        # 生活事件已开启
+        if (
+            not self._monitor_life_enabled
+            or not self._monitor_life_paths
+            or not self._monitor_life_event_modes
+        ):
+            return
+
+        # 生活事件在运行
+        if not bool(self.monitor_life_thread and self.monitor_life_thread.is_alive()):
+            return
+
+        item = event.event_data
+        if not item:
+            return
+
+        # 整理信息
+        item_transfer: TransferInfo = item.get("transferinfo")
+        # 目的地文件 fileitem
+        dest_fileitem: FileItem = item_transfer.target_item
+        # 目标字幕文件清单
+        subtitle_list = getattr(item_transfer, "subtitle_list_new", [])
+        # 目标音频文件清单
+        audio_list = getattr(item_transfer, "audio_list_new", [])
+
+        _databasehelper = FileDbHelper()
+
+        file_rename(dest_fileitem)
+
+        if subtitle_list:
+            for _path in subtitle_list:
+                fileitem = self.storagechain.get_file_item(
+                    storage="u115", path=Path(_path)
+                )
+                file_rename(fileitem)
+
+        if audio_list:
+            for _path in audio_list:
+                fileitem = self.storagechain.get_file_item(
+                    storage="u115", path=Path(_path)
+                )
+                file_rename(fileitem)
+
     def monitor_life_strm_files(self):
         """
         监控115生活事件
@@ -2729,6 +2828,12 @@ class P115StrmHelper(_PluginBase):
                                 file_name=original_file_name,
                                 download_url=download_url,
                             )
+                            # 下载的元数据写入缓存，与整理事件对比
+                            self.cache_create_strm_file_dict[str(event["file_id"])] = [
+                                event["file_name"],
+                                target_dir,
+                                pan_media_dir,
+                            ]
                             if self._notify:
                                 self._monitor_life_notification_queue["life"][
                                     "mediainfo_count"
@@ -2764,6 +2869,12 @@ class P115StrmHelper(_PluginBase):
                     logger.info(
                         "【监控生活事件】生成 STRM 文件成功: %s", str(new_file_path)
                     )
+                    # 生成的STRM写入缓存，与整理事件对比
+                    self.cache_create_strm_file_dict[str(event["file_id"])] = [
+                        event["file_name"],
+                        target_dir,
+                        pan_media_dir,
+                    ]
                     if self._notify:
                         self._monitor_life_notification_queue["life"]["strm_count"] += 1
                         _schedule_notification()
@@ -2925,8 +3036,10 @@ class P115StrmHelper(_PluginBase):
             # 3.匹配是否为生成STRM文件路径目录
             if self._monitor_life_enabled and self._monitor_life_paths:
                 if str(event["file_id"]) in self.cache_creata_pan_transfer_list:
-                    # 检查是否命中缓存，命中则不处理
+                    # 检查是否命中缓存
                     self.cache_creata_pan_transfer_list.remove(str(event["file_id"]))
+                    if "transfer" in self._monitor_life_event_modes:
+                        creata_strm(event=event, file_path=file_path)
                 else:
                     creata_strm(event=event, file_path=file_path)
 

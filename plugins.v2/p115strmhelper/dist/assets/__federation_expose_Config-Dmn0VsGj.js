@@ -1750,9 +1750,9 @@ return (_ctx, _cache) => {
                                             class: "mt-2"
                                           }, {
                                             default: _withCtx(() => _cache[66] || (_cache[66] = [
-                                              _createTextVNode(" 监控MoviePilot整理入库事件，自动在此处配置的本地目录生成对应的STRM文件。"),
+                                              _createTextVNode(" 监控MoviePilot整理入库事件，自动在本地对应目录生成STRM文件。"),
                                               _createElementVNode("br", null, null, -1),
-                                              _createTextVNode(" 格式：本地STRM目录#网盘媒体库目录 ")
+                                              _createTextVNode(" 本地STRM目录：本地STRM文件生成路径 网盘媒体库目录：需要生成本地STRM文件的网盘媒体库路径 ")
                                             ])),
                                             _: 1
                                           })
@@ -2000,7 +2000,7 @@ return (_ctx, _cache) => {
                                             default: _withCtx(() => _cache[74] || (_cache[74] = [
                                               _createTextVNode(" 全量扫描配置的网盘目录，并在对应的本地目录生成STRM文件。"),
                                               _createElementVNode("br", null, null, -1),
-                                              _createTextVNode(" 格式：本地STRM目录#网盘媒体库目录 ")
+                                              _createTextVNode(" 本地STRM目录：本地STRM文件生成路径 网盘媒体库目录：需要生成本地STRM文件的网盘媒体库路径 ")
                                             ])),
                                             _: 1
                                           })
@@ -2047,7 +2047,8 @@ return (_ctx, _cache) => {
                                             label: "处理事件类型",
                                             items: [
                         { title: '新增事件', value: 'creata' },
-                        { title: '删除事件', value: 'remove' }
+                        { title: '删除事件', value: 'remove' },
+                        { title: '网盘整理', value: 'transfer' }
                       ],
                                             multiple: "",
                                             chips: "",
@@ -2273,9 +2274,9 @@ return (_ctx, _cache) => {
                                             class: "mt-2"
                                           }, {
                                             default: _withCtx(() => _cache[81] || (_cache[81] = [
-                                              _createTextVNode(" 监控115生活（上传、移动、接收文件、删除、复制）事件，自动在此处配置的本地目录生成对应的STRM文件或删除。"),
+                                              _createTextVNode(" 监控115生活（上传、移动、接收文件、删除、复制）事件，自动在本地对应目录生成STRM文件或者删除STRM文件。"),
                                               _createElementVNode("br", null, null, -1),
-                                              _createTextVNode(" 格式：本地STRM目录#网盘媒体库目录 ")
+                                              _createTextVNode(" 本地STRM目录：本地STRM文件生成路径 网盘媒体库目录：需要生成本地STRM文件的网盘媒体库路径 ")
                                             ])),
                                             _: 1
                                           })
@@ -2579,7 +2580,7 @@ return (_ctx, _cache) => {
                                     class: "mt-2"
                                   }, {
                                     default: _withCtx(() => _cache[91] || (_cache[91] = [
-                                      _createTextVNode(" 注意：115生活事件监控会忽略网盘整理触发的移动事件，所以必须使用MP整理事件监控生成STRM ")
+                                      _createTextVNode(" 注意：115生活事件监控默认会忽略网盘整理触发的移动事件，所以推荐使用MP整理事件监控生成STRM ")
                                     ])),
                                     _: 1
                                   })
@@ -3277,6 +3278,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-0567f0ca"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-822a6d29"]]);
 
 export { Config as default };

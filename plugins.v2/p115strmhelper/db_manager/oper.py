@@ -208,3 +208,33 @@ class FileDbHelper(DbOper):
         File.remove_by_path_batch(self._db, path)
         Folder.remove_by_path_batch(self._db, path)
         return True
+
+    def update_path_by_id(self, id: int, new_path: str) -> bool:
+        """
+        通过ID匹配数据并修改path
+        """
+        item = self.get_by_id(id)
+        if not item:
+            return False
+
+        if item["type"] == "file":
+            File.update_path(self._db, id, new_path)
+        else:
+            return False
+
+        return True
+
+    def update_name_by_id(self, id: int, new_name: str) -> bool:
+        """
+        通过ID匹配数据并修改name
+        """
+        item = self.get_by_id(id)
+        if not item:
+            return False
+
+        if item["type"] == "file":
+            File.update_name(self._db, id, new_name)
+        else:
+            return False
+
+        return True

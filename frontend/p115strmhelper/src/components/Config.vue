@@ -180,8 +180,9 @@
                       </div>
 
                       <v-alert type="info" variant="tonal" density="compact" class="mt-2">
-                        监控MoviePilot整理入库事件，自动在此处配置的本地目录生成对应的STRM文件。<br>
-                        格式：本地STRM目录#网盘媒体库目录
+                        监控MoviePilot整理入库事件，自动在本地对应目录生成STRM文件。<br>
+                        本地STRM目录：本地STRM文件生成路径
+                        网盘媒体库目录：需要生成本地STRM文件的网盘媒体库路径
                       </v-alert>
                     </v-col>
                   </v-row>
@@ -268,7 +269,8 @@
 
                       <v-alert type="info" variant="tonal" density="compact" class="mt-2">
                         全量扫描配置的网盘目录，并在对应的本地目录生成STRM文件。<br>
-                        格式：本地STRM目录#网盘媒体库目录
+                        本地STRM目录：本地STRM文件生成路径
+                        网盘媒体库目录：需要生成本地STRM文件的网盘媒体库路径
                       </v-alert>
                     </v-col>
                   </v-row>
@@ -285,7 +287,8 @@
                     <v-col cols="12" md="3">
                       <v-select v-model="config.monitor_life_event_modes" label="处理事件类型" :items="[
                         { title: '新增事件', value: 'creata' },
-                        { title: '删除事件', value: 'remove' }
+                        { title: '删除事件', value: 'remove' },
+                        { title: '网盘整理', value: 'transfer' }
                       ]" multiple chips closable-chips></v-select>
                     </v-col>
                     <v-col cols="12" md="3">
@@ -362,8 +365,9 @@
                       </div>
 
                       <v-alert type="info" variant="tonal" density="compact" class="mt-2">
-                        监控115生活（上传、移动、接收文件、删除、复制）事件，自动在此处配置的本地目录生成对应的STRM文件或删除。<br>
-                        格式：本地STRM目录#网盘媒体库目录
+                        监控115生活（上传、移动、接收文件、删除、复制）事件，自动在本地对应目录生成STRM文件或者删除STRM文件。<br>
+                        本地STRM目录：本地STRM文件生成路径
+                        网盘媒体库目录：需要生成本地STRM文件的网盘媒体库路径
                       </v-alert>
                     </v-col>
                   </v-row>
