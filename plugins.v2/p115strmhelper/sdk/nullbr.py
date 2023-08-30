@@ -25,28 +25,22 @@ class NullbrHelper:
         """
         搜索资源
         """
-        if media_type == "movie":
-            result = self.client.get_movie(tmdb_id)
-            if result.has_115:
-                result = self.client.get_movie_115(tmdb_id)
+        if media_type not in ["movie", "tv", "collection"]:
+            return []
+
+        try:
+            get_media_func = getattr(self.client, f"get_{media_type}")
+            get_media_115_func = getattr(self.client, f"get_{media_type}_115")
+        except AttributeError:
+            return []
+
+        result = get_media_func(tmdb_id)
+        if result and result.has_115:
+            result_115 = get_media_115_func(tmdb_id)
+            if result_115 and result_115.items:
                 return [
                     {"taskname": "【Nullbr】" + item.title, "shareurl": item.share_link}
-                    for item in result.items
+                    for item in result_115.items
                 ]
-        elif media_type == "tv":
-            result = self.client.get_tv(tmdb_id)
-            if result.has_115:
-                result = self.client.get_tv_115(tmdb_id)
-                return [
-                    {"taskname": "【Nullbr】" + item.title, "shareurl": item.share_link}
-                    for item in result.items
-                ]
-        elif media_type == "collection":
-            result = self.client.get_collection(tmdb_id)
-            if result.has_115:
-                result = self.client.get_collection_115(tmdb_id)
-                return [
-                    {"taskname": "【Nullbr】" + item.title, "shareurl": item.share_link}
-                    for item in result.items
-                ]
+
         return []

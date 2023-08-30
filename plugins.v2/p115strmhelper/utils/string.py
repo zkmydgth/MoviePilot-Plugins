@@ -66,7 +66,7 @@ class StringUtils:
                 text = text.replace(char, " ")
 
         # 整合连续空格
-        normalized_text = re.sub(r"\s+", "", text)
+        normalized_text = re.sub(r"\s+", " ", text)
 
         return normalized_text.strip()
 

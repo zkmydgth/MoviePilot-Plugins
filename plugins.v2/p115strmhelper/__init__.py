@@ -631,38 +631,28 @@ class P115StrmHelper(_PluginBase):
                 event_data, plugin_id=self.__class__.__name__
             )
 
-            if not configer.get_config("nullbr_app_id") or not configer.get_config(
+            search_keyword = args.strip()
+
+            if configer.get_config("nullbr_app_id") and configer.get_config(
                 "nullbr_api_key"
             ):
-                search_keyword = args.strip()
-                action = Action(
-                    command="resource", view="resource_list", value=search_keyword
-                )
-
-                immediate_messages = self.action_handler.process(session, action)
-                # 报错，截断后续运行
-                if immediate_messages:
-                    for msg in immediate_messages:
-                        self.__send_message(session, text=msg.get("text"), title="错误")
-                        return
-
-                # 设置页面
-                session.go_to("resource_list")
+                command = "search"
+                view = "search_list"
             else:
-                search_keyword = args.strip()
-                action = Action(
-                    command="search", view="search_list", value=search_keyword
-                )
+                command = "resource"
+                view = "resource_list"
 
-                immediate_messages = self.action_handler.process(session, action)
-                # 报错，截断后续运行
-                if immediate_messages:
-                    for msg in immediate_messages:
-                        self.__send_message(session, text=msg.get("text"), title="错误")
-                        return
+            action = Action(command=command, view=view, value=search_keyword)
 
-                # 设置页面
-                session.go_to("search_list")
+            immediate_messages = self.action_handler.process(session, action)
+            # 报错，截断后续运行
+            if immediate_messages:
+                for msg in immediate_messages:
+                    self.__send_message(session, text=msg.get("text"), title="错误")
+                return
+
+            # 设置页面
+            session.go_to(view)
             self._render_and_send(session)
         except Exception as e:
             logger.error(f"处理 search 命令失败: {e}", exc_info=True)
