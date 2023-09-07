@@ -1,0 +1,51 @@
+# 字节码与缓存
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+
+# 虚拟环境
+.venv/
+venv/
+env/
+ENV/
+
+# 构建产物
+build/
+dist/
+sdist/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# wheels：默认忽略，仅放行插件随源码分发的离线依赖
+wheels/
+!plugins.v3/p115strmhelper/wheels/
+
+# 数据库与运行时数据
+*.db
+*.db-journal
+*.db-wal
+*.sqlite
+*.sqlite3
+var/
+data/
+
+# 日志
+*.log
+logs/
+
+# 编辑器与系统文件
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# 测试与覆盖率
+.coverage
+htmlcov/
+.tox/
