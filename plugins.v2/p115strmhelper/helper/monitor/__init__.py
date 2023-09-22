@@ -5,6 +5,7 @@ from shutil import rmtree
 from threading import Lock
 from traceback import format_exc
 from typing import Optional
+from time import sleep
 
 from app.chain.storage import StorageChain
 from app.log import logger
@@ -130,8 +131,10 @@ def handle_file(event_path: str, mon_path: str):
                             target_fileitem = dir_file
 
                 # 上传流程
-                uploaded_file_item = storage_chain.upload_file(
-                    target_fileitem, file_path, file_path.name
+                storage_chain.upload_file(target_fileitem, file_path, file_path.name)
+                sleep(5)
+                uploaded_file_item = storage_chain.get_file_item(
+                    storage=configer.storage_module, path=target_file_path
                 )
                 if uploaded_file_item:
                     logger.info(
