@@ -462,7 +462,8 @@ class ServiceHelper:
         """
         监控115网盘离线下载进度
         """
-        self.offlinehelper.pull_status_to_task()
+        if self.offlinehelper:
+            self.offlinehelper.pull_status_to_task()
 
     def stop(self):
         """
