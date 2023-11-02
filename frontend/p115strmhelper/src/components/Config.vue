@@ -1377,6 +1377,92 @@
                     </v-col>
                   </v-row>
 
+                  <!-- STRM 文件名自定义模板 -->
+                  <v-row class="mt-6">
+                    <v-col cols="12">
+                      <v-divider></v-divider>
+                    </v-col>
+                  </v-row>
+
+                  <v-row class="mt-4">
+                    <v-col cols="12">
+                      <v-switch
+                        v-model="config.strm_filename_template_enabled"
+                        label="启用 STRM 文件名自定义模板 (Jinja2)"
+                        color="primary"
+                        density="compact"
+                        hint="启用后可以使用 Jinja2 模板语法自定义 STRM 文件的文件名格式。启用后，将优先使用自定义模板；当模板渲染失败时，将回退使用默认的文件名生成规则（如 movie.strm 或 movie.iso.strm）。"
+                        persistent-hint
+                      ></v-switch>
+                    </v-col>
+                  </v-row>
+
+                  <v-expand-transition>
+                    <div v-if="config.strm_filename_template_enabled">
+                      <v-row class="mt-2">
+                        <v-col cols="12">
+                          <v-textarea
+                            v-model="config.strm_filename_template"
+                            label="STRM 文件名基础模板 (Jinja2)"
+                            hint="支持 Jinja2 语法，可用变量和过滤器见下方说明"
+                            persistent-hint
+                            rows="3"
+                            variant="outlined"
+                            density="compact"
+                            placeholder="{{ file_stem }}.strm"
+                            clearable
+                          ></v-textarea>
+                        </v-col>
+                      </v-row>
+
+                      <v-row class="mt-2">
+                        <v-col cols="12">
+                          <v-textarea
+                            v-model="config.strm_filename_template_custom"
+                            label="STRM 文件名扩展名特定模板 (Jinja2)"
+                            hint="为特定文件扩展名指定文件名模板，优先级高于基础模板。格式：ext1,ext2 => template（每行一个）"
+                            persistent-hint
+                            rows="4"
+                            variant="outlined"
+                            density="compact"
+                            placeholder="例如：&#10;iso => {{ file_stem }}.iso.strm&#10;mkv,mp4 => {{ file_stem | upper }}.strm"
+                            clearable
+                          ></v-textarea>
+                        </v-col>
+                      </v-row>
+
+                      <v-alert type="info" variant="tonal" density="compact" class="mt-2 text-caption" v-pre>
+                        <div>
+                          <strong>可用变量：</strong><br>
+                          <code>file_name</code> - 完整文件名（包含扩展名）<br>
+                          <code>file_stem</code> - 文件名（不含扩展名）<br>
+                          <code>file_suffix</code> - 文件扩展名（包含点号，如 .mkv）<br>
+                          <code>file_path</code> - 文件路径<br>
+                        </div>
+                        <div class="mt-2">
+                          <strong>可用过滤器：</strong><br>
+                          <code>upper</code> - 转大写（如：{{ file_stem | upper }}）<br>
+                          <code>lower</code> - 转小写（如：{{ file_stem | lower }}）<br>
+                          <code>sanitize</code> - 清理文件名中的非法字符（如：{{ file_name | sanitize }}）<br>
+                          <code>default</code> - 默认值（如：{{ file_stem | default('unknown') }}）<br>
+                        </div>
+                        <div class="mt-2">
+                          <strong>模板示例：</strong><br>
+                          默认格式: <code>{{ file_stem }}.strm</code><br>
+                          ISO 格式: <code>{{ file_stem }}.iso.strm</code><br>
+                          大写文件名: <code>{{ file_stem | upper }}.strm</code><br>
+                          带路径信息: <code>{{ file_path | basename }}.strm</code>
+                        </div>
+                        <div class="mt-2">
+                          <strong>注意事项：</strong><br>
+                          • 模板渲染后的文件名会自动清理非法字符（&lt;&gt;:&quot;/\\|?*）<br>
+                          • 建议模板以 .strm 结尾，确保生成的文件具有正确的扩展名<br>
+                          • 如果模板未指定扩展名，系统会自动添加 .strm
+                        </div>
+                      </v-alert>
+                    </div>
+                  </v-expand-transition>
+
                 </v-card-text>
               </v-window-item>
 
@@ -1805,6 +1891,9 @@ const config = reactive({
   strm_url_template_enabled: false,
   strm_url_template: '',
   strm_url_template_custom: '',
+  strm_filename_template_enabled: false,
+  strm_filename_template: '',
+  strm_filename_template_custom: '',
   strm_generate_blacklist: [],
   mediainfo_download_whitelist: [],
   mediainfo_download_blacklist: [],

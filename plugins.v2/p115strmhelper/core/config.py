@@ -377,6 +377,12 @@ class ConfigManager(BaseModel):
     strm_url_template: Optional[str] = None
     # STRM URL 扩展名特定模板，格式：ext1,ext2 => template
     strm_url_template_custom: Optional[str] = None
+    # STRM 文件名自定义模板是否启用
+    strm_filename_template_enabled: bool = False
+    # STRM 文件名基础模板
+    strm_filename_template: Optional[str] = None
+    # STRM 文件名扩展名特定模板，格式：ext1,ext2 => template
+    strm_filename_template_custom: Optional[str] = None
     # STRM 文件生成黑名单
     strm_generate_blacklist: Optional[List] = None
     # 媒体信息文件下载白名单
@@ -480,6 +486,15 @@ class ConfigManager(BaseModel):
         更新一个或多个配置项
         """
         try:
+            filename_template_keys = [
+                "strm_filename_template_enabled",
+                "strm_filename_template",
+                "strm_filename_template_custom",
+            ]
+            need_reset_filename_template = any(
+                key in updates for key in filename_template_keys
+            )
+
             for key, value in updates.items():
                 if hasattr(self, key):
                     setattr(self, key, value)
@@ -489,6 +504,12 @@ class ConfigManager(BaseModel):
                     (self.PLUGIN_ALIGO_PATH / "aligo.json").unlink(missing_ok=True)
             else:
                 self._update_aliyun_token()
+
+            if need_reset_filename_template:
+                from ..utils.strm import StrmGenerater
+
+                StrmGenerater._reset_filename_template_resolver()
+
             return True
         except ValidationError as e:
             logger.error(f"【配置管理器】配置更新失败: {e.json()}")
