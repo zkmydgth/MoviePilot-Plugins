@@ -1,5 +1,4 @@
 import ast
-import sys
 import time
 from datetime import datetime, timedelta
 from typing import Any, List, Dict, Tuple, Optional
