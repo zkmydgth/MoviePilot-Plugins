@@ -714,7 +714,9 @@ class SaMediaSyncDel(_PluginBase):
             p115_media_path: Path
             if self._p115_library_path:
                 _, sub_paths = self.__get_p115_media_path(media_path)
-                mp_media_path = sub_paths[1]
+                mp_media_path = media_path.replace(sub_paths[0], sub_paths[1]).replace(
+                    "\\", "/"
+                )
                 p115_media_path = media_path.replace(
                     sub_paths[0], sub_paths[2]
                 ).replace("\\", "/")
