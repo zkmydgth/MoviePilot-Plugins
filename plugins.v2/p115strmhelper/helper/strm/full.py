@@ -1,10 +1,10 @@
-import threading
 import time
 from collections import namedtuple
 from concurrent.futures import as_completed, ThreadPoolExecutor
 from itertools import batched
 from pathlib import Path
 from queue import Queue
+from threading import Thread
 from typing import List, Dict, Optional, Set, Tuple
 
 from orjson import dumps
@@ -150,7 +150,7 @@ class FullSyncStrmHelper:
             data = {path_base64: value}
         configer.save_plugin_data("full_remove_unless_strm", data)
 
-    def __remove_unless_strm_local(self, target_dir: str) -> threading.Thread:
+    def __remove_unless_strm_local(self, target_dir: str) -> Thread:
         """
         清理无效 STRM 本地扫描
         """
@@ -173,7 +173,7 @@ class FullSyncStrmHelper:
                     f"【全量STRM生成】扫描本地媒体库文件 {_target_dir} 错误: {e}"
                 )
 
-        local_tree_task_thread = threading.Thread(
+        local_tree_task_thread = Thread(
             target=background_task,
             args=(target_dir,),
         )
@@ -605,7 +605,7 @@ class FullSyncStrmHelper:
         num_io_workers = 8
         io_threads = []
         for _ in range(num_io_workers):
-            thread = threading.Thread(target=self.__io_writer_worker)
+            thread = Thread(target=self.__io_writer_worker)
             thread.daemon = True
             thread.start()
             io_threads.append(thread)
@@ -626,7 +626,7 @@ class FullSyncStrmHelper:
                 finally:
                     self.result_queue.task_done()
 
-        collector_thread = threading.Thread(target=result_collector)
+        collector_thread = Thread(target=result_collector)
         collector_thread.daemon = True
         collector_thread.start()
 
