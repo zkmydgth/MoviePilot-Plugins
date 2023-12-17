@@ -521,7 +521,7 @@ class TransferHandler:
                         else:
                             overwrite_mode = task.overwrite_mode or "never"
                             over_flag = False
-                            should_skip = False
+                            skip_reason: Optional[str] = None
 
                             if overwrite_mode == "always":
                                 over_flag = True
@@ -537,7 +537,7 @@ class TransferHandler:
                                         f"【整理接管】目标文件已存在，覆盖模式=size，源文件更大 ({source_size} > {target_size})，将覆盖: {target_dir / target_name}"
                                     )
                                 else:
-                                    should_skip = True
+                                    skip_reason = "媒体库存在同名文件，且质量更好"
                                     logger.info(
                                         f"【整理接管】目标文件已存在，覆盖模式=size，目标文件质量更好 ({target_size} >= {source_size})，跳过: {target_dir / target_name}"
                                     )
@@ -547,20 +547,19 @@ class TransferHandler:
                                     f"【整理接管】目标文件已存在，覆盖模式=latest，将覆盖: {target_dir / target_name}"
                                 )
                             else:
-                                should_skip = True
+                                skip_reason = "媒体库存在同名文件，当前覆盖模式为不覆盖"
                                 logger.info(
                                     f"【整理接管】目标文件已存在，覆盖模式=never，跳过: {target_dir / target_name}"
                                 )
 
-                            if should_skip:
-                                task.fileitem.fileid = existing_item.fileid
+                            if skip_reason:
                                 task_path = (
                                     task.fileitem.path
                                     if task and task.fileitem
                                     else None
                                 )
                                 if task_path:
-                                    task_main_file_status[task_path] = True
+                                    task_failures[task_path] = skip_reason
                                 continue
                             elif over_flag:
                                 files_to_delete.append(existing_item)
