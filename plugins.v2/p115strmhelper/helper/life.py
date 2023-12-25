@@ -1,7 +1,7 @@
-import time
 from shutil import rmtree
 from collections import defaultdict
 from threading import Timer
+from time import sleep, strftime, localtime, time
 from typing import List, Set, Dict, Optional
 from pathlib import Path
 from itertools import batched, chain
@@ -757,7 +757,7 @@ class MonitorLife:
                         text=f"\n删除{'文件夹' if file_category == 0 else '文件'} {pan_file_path}\n"
                         f"删除记录{len(transfer_history) if transfer_history else '0'}个\n"
                         f"{torrent_cnt_msg}"
-                        f"时间 {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}\n",
+                        f"时间 {strftime('%Y-%m-%d %H:%M:%S', localtime(time()))}\n",
                     )
         except Exception as e:
             logger.error(f"【监控生活事件】{file_path} 删除失败: {e}")
@@ -807,7 +807,7 @@ class MonitorLife:
             logger.debug(
                 "【监控生活事件】MoviePilot 整理运行中，等待整理完成后继续监控生活事件..."
             )
-            time.sleep(20)
+            sleep(20)
 
         events_batch: List = []
         return_from_time: int = from_time
@@ -853,10 +853,10 @@ class MonitorLife:
                 logger.warn(
                     "【监控生活事件】拉取数据失败，剩余重试次数 {attempt} 次：%s", e
                 )
-                time.sleep(2)
+                sleep(2)
 
         if not events_batch:
-            time.sleep(20)
+            sleep(20)
             return from_time, from_id
 
         for event in reversed(events_batch):
