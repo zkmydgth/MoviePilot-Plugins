@@ -25,7 +25,12 @@ from ...schemas.transfer import TransferTask
 from . import linked_subtitle_audio
 from .cache_updater import CacheUpdater
 from .handler_linked_batch import TransferHandlerLinkedBatch
-from ...utils.transfer_compat import JobViewAdapter, get_jobview, get_task_lock
+from ...utils.transfer_compat import (
+    JobViewAdapter,
+    get_jobview,
+    get_task_lock,
+    request_durable_transfer_retry,
+)
 
 
 class TransferHandler:
@@ -1910,34 +1915,29 @@ class TransferHandler:
                 download_hash=task.download_hash,
             )
 
-            # AI智能体自动重试整理
+            # AI智能体自动重试整理（V3 走宿主 durable 重试入口）
             if (
                 history
                 and settings.AI_AGENT_ENABLE
                 and settings.AI_AGENT_RETRY_TRANSFER
             ):
-                try:
-                    import asyncio
-
-                    from app.sdk.config import global_vars
-
-                    chain = TransferChain()
-                    group_key = (
-                        task.download_hash or str(task.fileitem.path).rsplit("/", 1)[0]
-                        if task.fileitem
-                        else ""
+                retry_result = request_durable_transfer_retry(
+                    TransferChain(), history, requested_by="p115strmhelper_ai_retry"
+                )
+                if retry_result is None:
+                    logger.warning(
+                        "【整理接管】宿主未受理自动重试，未登记AI智能体重试"
+                        f"（历史 #{history.id}）"
                     )
-                    asyncio.run_coroutine_threadsafe(
-                        chain.retry_scheduler.schedule_retry(
-                            history.id, group_key=group_key
-                        ),
-                        global_vars.loop,
-                    )
+                elif retry_result[0]:
                     logger.info(
-                        f"【整理接管】已触发AI智能体重试整理历史记录 #{history.id}"
+                        f"【整理接管】已登记AI智能体重试整理历史记录 #{history.id}"
                     )
-                except Exception as e:
-                    logger.error(f"【整理接管】触发AI智能体重试整理失败: {e}")
+                else:
+                    logger.warning(
+                        f"【整理接管】AI智能体重试未受理（历史 #{history.id}）："
+                        f"{retry_result[1]}"
+                    )
 
             fi = task.fileitem
             if self._is_media_file(fi):

@@ -7,7 +7,6 @@ Chain 基类替身。
 * 自身方法：``recognize_by_meta`` / ``recognize_media`` / ``async_search`` /
   ``post_message`` / ``send_transfer_message``
 * 惰性属性：``storage`` / ``media`` / ``tmdb`` / ``transfer``，返回共享单例
-* ``jobview``：委托给 ``TransferChain``，供补丁路径使用
 
 所有业务方法默认返回「空结果」而不是抛异常，保证补丁逻辑能在测试里走通。
 """
@@ -64,16 +63,6 @@ class ChainBase:
 
             self._transfer = TransferChain()
         return self._transfer
-
-    @property
-    def jobview(self):
-        """整理任务视图（V3 中由 TransferChain 持有）。"""
-        return self.transfer.jobview
-
-    @property
-    def retry_scheduler(self):
-        """重试调度器替身。"""
-        return None
 
     # ------------------------------------------------------------------
     # 业务方法（替身返回空结果）

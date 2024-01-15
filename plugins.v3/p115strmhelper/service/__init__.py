@@ -231,7 +231,18 @@ class ServiceHelper:
                         handler=self.transfer_handler,
                         storage_module="115网盘Plus",
                     )
-                    logger.info("【整理接管】已启用")
+                    if TransferChainPatcher.is_enabled():
+                        logger.info("【整理接管】已启用")
+                    else:
+                        # 补丁目标校验失败时 enable() 会放弃打补丁，此时不能再打印"已启用"，
+                        # 否则用户看到的是假成功（日志像启用、行为是原生逐个整理）。
+                        logger.error(
+                            "【整理接管】启用失败：补丁未生效，115 → 115 整理任务将继续由 "
+                            "MoviePilot 逐个处理（原因见上方补丁目标校验日志）"
+                        )
+                        self.transfer_task_manager.shutdown()
+                        self.transfer_task_manager = None
+                        self.transfer_handler = None
                 except Exception as e:
                     logger.error(f"【整理接管】初始化失败: {e}", exc_info=True)
                     self.transfer_task_manager = None

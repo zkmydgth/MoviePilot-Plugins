@@ -17,11 +17,19 @@ MoviePilot V3 把作业队列实现从 ``app.chain.transfer`` 收敛到
   诊断日志，绝不影响主流程。
 """
 
-from typing import Any, Callable, List, Optional
+from typing import Any, Callable, List, Optional, Tuple
 
 from app.sdk.logging import logger
 
-__all__ = ["JobViewAdapter", "get_jobview", "get_task_lock"]
+__all__ = [
+    "JobViewAdapter",
+    "get_jobview",
+    "get_task_lock",
+    "resolve_scrape_batch_finish",
+    "scrape_batch_finish_names",
+    "resolve_jobview",
+    "request_durable_transfer_retry",
+]
 
 # 适配器初始化时要求宿主必须提供的方法；缺失说明宿主接口已变更
 _REQUIRED_METHODS = (
@@ -260,6 +268,102 @@ def _build_probe_task(mediainfo, season: Optional[int], fileitem=None):
         return MPTransferTask(fileitem=fileitem, mediainfo=mediainfo, meta=meta)
     except Exception as err:
         logger.debug(f"【整理接管】构造探针任务失败: {err}")
+        return None
+
+
+# 宿主「刮削批次收尾」方法的候选名。
+#
+# MoviePilot V2 该方法是被名字改写的私有成员 ``_TransferChain__finish_scrape_batch_task``；
+# V3 把 TransferChain 拆成多个 owner 后改为单下划线公开名 ``_finish_scrape_batch_task``
+# （见宿主 ``app/chain/transfer/contract.py`` 对插件公开的合同）。
+# 两个名字都认、优先 V3 公开名，避免宿主改名后补丁被"目标缺失"直接放弃。
+_SCRAPE_BATCH_FINISH_NAMES = (
+    "_finish_scrape_batch_task",
+    "_TransferChain__finish_scrape_batch_task",
+)
+
+
+def scrape_batch_finish_names() -> List[str]:
+    """返回刮削批次收尾方法的候选名，供日志与报错提示复用。"""
+    return list(_SCRAPE_BATCH_FINISH_NAMES)
+
+
+def resolve_scrape_batch_finish(owner: Any) -> Optional[Callable]:
+    """
+    解析宿主「刮削批次收尾」方法。
+
+    :param owner: 宿主 TransferChain 类或实例
+    :return: 可调用的收尾方法；候选名都不存在时返回 None
+    """
+    for name in _SCRAPE_BATCH_FINISH_NAMES:
+        func = getattr(owner, name, None)
+        if callable(func):
+            return func
+    return None
+
+
+def resolve_jobview(owner: Any) -> Tuple[Any, bool]:
+    """
+    按实例视角解析宿主作业队列（jobview），**不主动构造宿主链实例**。
+
+    宿主的 ``jobview`` 挂在 ``TransferChain`` **实例**上（``self.jobview = JobManager()``），
+    类上取不到；而宿主单例在"运行上下文未就绪"时构造会抛异常，且失败实例会被
+    metaclass 缓存（``_retain_failed_singleton``）——主动构造会给宿主进程留下半成品
+    单例。因此这里只查**已存在**的实例（宿主 metaclase 的 ``get_existing_instance``），
+    查不到就如实报告"无法探测"，由调用方决定跳过。
+
+    :param owner: 宿主 TransferChain 类或实例
+    :return: ``(jobview, probe_ok)``
+        - ``jobview`` 非 None：探测成功；
+        - ``jobview`` 为 None 且 ``probe_ok`` 为 True：宿主确实没有 jobview（调用方可报错）；
+        - ``jobview`` 为 None 且 ``probe_ok`` 为 False：宿主实例尚未创建或无法探测
+          （调用方应跳过校验而不是判失败，否则会把"探不到"当成"宿主改坏"）。
+    """
+    jobview = getattr(owner, "jobview", None)
+    if jobview is not None:
+        return jobview, True
+    if isinstance(owner, type):
+        getter = getattr(owner, "get_existing_instance", None)
+        if not callable(getter):
+            return None, False
+        try:
+            instance = getter()
+        except Exception as err:  # noqa: BLE001 - 探测失败不改变调用方流程
+            logger.warning(f"【整理接管】查询宿主链已有实例失败: {err}")
+            return None, False
+        if instance is None:
+            return None, False
+        return getattr(instance, "jobview", None), True
+    return None, True
+
+
+def request_durable_transfer_retry(
+    chain: Any,
+    history: Any,
+    *,
+    requested_by: str,
+) -> Optional[Tuple[bool, str]]:
+    """
+    请求宿主登记「durable 整理重试」（V3 的失败重试入口）。
+
+    宿主 V2 用 ``retry_scheduler.schedule_retry(history_id, group_key=...)``；
+    V3 没有 ``retry_scheduler``，入口是 ``TransferChain._request_durable_transfer_retry(
+    history, *, requested_by)``：同步调用，返回 ``(accepted, message)``；
+    非 durable 旧历史返回 ``None``；宿主未提供该入口时同样返回 ``None``，由调用方降级。
+
+    :param chain: 宿主 TransferChain 实例
+    :param history: 整理历史快照（``add_transfer_fail`` 的返回值）
+    :param requested_by: 发起重试的稳定入口身份
+    :return: ``(是否受理, 消息)``；入口不可用或调用失败时返回 None
+    """
+    request = getattr(chain, "_request_durable_transfer_retry", None)
+    if not callable(request):
+        logger.warning("【整理接管】宿主未提供 durable 重试入口，跳过自动重试登记")
+        return None
+    try:
+        return request(history, requested_by=requested_by)
+    except Exception as err:  # noqa: BLE001 - 重试登记失败不影响整理主流程
+        logger.error(f"【整理接管】登记 durable 整理重试失败: {err}")
         return None
 
 

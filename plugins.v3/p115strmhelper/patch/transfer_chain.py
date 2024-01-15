@@ -11,7 +11,13 @@ from ..utils.host_compat import (
     get_notification_type_enum,
 )
 from ..utils.patch_guard import PatchTargetError, check_patch_target
-from ..utils.transfer_compat import JobViewAdapter
+from ..utils.transfer_compat import (
+    JobViewAdapter,
+    request_durable_transfer_retry,
+    resolve_jobview,
+    resolve_scrape_batch_finish,
+    scrape_batch_finish_names,
+)
 
 if TYPE_CHECKING:
     from ..helper.transfer import TransferTaskManager, TransferHandler
@@ -32,6 +38,51 @@ class TransferChainPatcher:
 
     _original_handle_transfer = None
     _enabled = False
+    # 宿主缺少刮削批次收尾方法时只告警一次，避免每个任务刷屏
+    _scrape_finish_warned = False
+    # jobview 接口是否已在真实实例上复核过（只做一次）
+    _jobview_verified = False
+
+    @classmethod
+    def is_enabled(cls) -> bool:
+        """
+        补丁是否真正生效。
+
+        仅当目标校验通过且宿主方法已成功替换时才为 True；校验失败会保持 False，
+        调用方据此判断"接管"是真启用还是已回退原生整理，不再打印假成功日志。
+
+        :return bool: 补丁是否生效
+        """
+        return bool(cls._enabled)
+
+    @classmethod
+    def _warn_scrape_batch_finish_missing(cls) -> None:
+        """刮削批次收尾方法不可用时只告警一次。"""
+        if cls._scrape_finish_warned:
+            return
+        cls._scrape_finish_warned = True
+        logger.warning(
+            "【整理接管】宿主未提供刮削批次收尾方法"
+            f"（候选名：{scrape_batch_finish_names()}），本批次跳过 pending 清理"
+        )
+
+    @classmethod
+    def _verify_jobview_once(cls, chain_self) -> None:
+        """
+        运行期首单复核 jobview 接口（用真实实例，避免补丁前构造宿主单例的副作用）。
+
+        复核只做一次；接口不完整时记一条 error 后继续——作业队列操作由
+        ``JobViewAdapter`` 逐方法降级，不因此中断整理主流程。
+        """
+        if cls._jobview_verified:
+            return
+        cls._jobview_verified = True
+        if not cls._jobview_of(chain_self).verify():
+            logger.error(
+                "【整理接管】宿主 jobview 接口不完整，作业队列状态同步将走降级路径"
+                "（整理主流程继续）"
+            )
+
     _task_manager: Optional["TransferTaskManager"] = None
     _handler: Optional["TransferHandler"] = None
     _storage_module: str = ""
@@ -70,24 +121,43 @@ class TransferChainPatcher:
             expected_params=_HANDLE_TRANSFER_PARAMS,
             module_hint=_TRANSFER_MODULE_HINT,
         )
-        # finally 分支依赖：每次处理完清理批次 pending 集合
-        check_patch_target(
-            transfer_chain,
-            "_TransferChain__finish_scrape_batch_task",
-            module_hint=_TRANSFER_MODULE_HINT,
-        )
-        # jobview 是宿主作业队列，补丁大量读写其状态
-        for name in (
-            "add_task",
-            "migrate_task",
-            "running_task",
-            "finish_task",
-            "remove_task",
-            "remove_job",
-            "try_remove_job",
-            "is_done",
-        ):
-            check_patch_target(transfer_chain.jobview, name)
+        # finally 分支依赖：每次处理完清理批次 pending 集合。
+        # 该方法的宿主名跨版本漂移过（V2 私有名 → V3 单下划线公开名），
+        # 按候选名解析，解析不到才报错，避免补丁被"目标缺失"整体放弃。
+        if resolve_scrape_batch_finish(transfer_chain) is None:
+            raise PatchTargetError(
+                "补丁目标缺失：TransferChain 上找不到刮削批次收尾方法"
+                f"（候选名：{scrape_batch_finish_names()}）。"
+                "宿主可能已重命名或移除该方法，请检查补丁适配。"
+            )
+
+        # jobview 是宿主作业队列，补丁大量读写其状态。
+        # 宿主把它挂在实例上（类上取不到），故按实例视角解析；这里**不主动构造**宿主链
+        # （构造失败会被宿主 metaclass 缓存成半成品单例），查不到已存在实例时跳过校验，
+        # 改由运行期首单用真实实例复核（_verify_jobview_once）。
+        jobview, probe_ok = resolve_jobview(transfer_chain)
+        if jobview is None and probe_ok:
+            raise PatchTargetError(
+                "补丁目标缺失：TransferChain 上取不到 jobview（宿主作业队列）。"
+                "宿主可能已把作业队列移出整理链，请检查补丁适配。"
+            )
+        if jobview is None:
+            logger.info(
+                "【整理接管】宿主链实例尚未创建，补丁前跳过 jobview 接口校验"
+                "（运行期首单会按真实实例复核）"
+            )
+        else:
+            for name in (
+                "add_task",
+                "migrate_task",
+                "running_task",
+                "finish_task",
+                "remove_task",
+                "remove_job",
+                "try_remove_job",
+                "is_done",
+            ):
+                check_patch_target(jobview, name)
 
         # 回退到原方法时需要，缺失会导致"非 115→115"路径整体失效
         for name in ("transfer",):
@@ -143,6 +213,8 @@ class TransferChainPatcher:
 
                 # 应用补丁
                 TransferChain._TransferChain__handle_transfer = patched_handle_transfer
+                cls._scrape_finish_warned = False
+                cls._jobview_verified = False
                 cls._enabled = True
                 logger.info("【整理接管】TransferChain 补丁已启用")
 
@@ -206,6 +278,9 @@ class TransferChainPatcher:
         # 在单测／离线自检场景下取不到符号。
         notification_class = get_notification_class()
         notification_type_enum = get_notification_type_enum()
+
+        # 运行期首单复核作业队列接口（补丁前可能拿不到宿主实例）
+        cls._verify_jobview_once(chain_self)
 
         try:
             ########## 原始方法执行部分 ##########
@@ -293,33 +368,29 @@ class TransferChainPatcher:
                     # 任务失败，直接移除task
                     cls._jobview_of(chain_self).remove_task(task.fileitem)
 
-                    # AI智能体自动重试整理
+                    # AI智能体自动重试整理（V3 走宿主 durable 重试入口）
                     if (
                         his
                         and settings.AI_AGENT_ENABLE
                         and settings.AI_AGENT_RETRY_TRANSFER
                     ):
-                        try:
-                            import asyncio
-                            from app.sdk.config import global_vars
-
-                            group_key = (
-                                task.download_hash
-                                or str(task.fileitem.path).rsplit("/", 1)[0]
-                                if task.fileitem
-                                else ""
+                        retry_result = request_durable_transfer_retry(
+                            chain_self, his, requested_by="p115strmhelper_ai_retry"
+                        )
+                        if retry_result is None:
+                            logger.warning(
+                                f"【整理接管】宿主未受理自动重试，未登记AI智能体重试"
+                                f"（历史 #{his.id}）"
                             )
-                            asyncio.run_coroutine_threadsafe(
-                                chain_self.retry_scheduler.schedule_retry(
-                                    his.id, group_key=group_key
-                                ),
-                                global_vars.loop,
-                            )
+                        elif retry_result[0]:
                             logger.info(
-                                f"【整理接管】已触发AI智能体重试整理历史记录 #{his.id}"
+                                f"【整理接管】已登记AI智能体重试整理历史记录 #{his.id}"
                             )
-                        except Exception as e:
-                            logger.error(f"【整理接管】触发AI智能体重试整理失败: {e}")
+                        else:
+                            logger.warning(
+                                f"【整理接管】AI智能体重试未受理"
+                                f"（历史 #{his.id}）：{retry_result[1]}"
+                            )
 
                     return False, "未识别到媒体信息"
 
@@ -537,7 +608,15 @@ class TransferChainPatcher:
         finally:
             # 与原生 __handle_transfer 一致：每次处理完尝试移除已完成作业，并清理批次 pending 集合
             cls._jobview_of(chain_self).try_remove_job(task)
-            chain_self._TransferChain__finish_scrape_batch_task(task)
+            finish_scrape_batch = resolve_scrape_batch_finish(chain_self)
+            if finish_scrape_batch is None:
+                cls._warn_scrape_batch_finish_missing()
+            else:
+                try:
+                    finish_scrape_batch(task)
+                except Exception as finish_error:  # noqa: BLE001
+                    # finally 内绝不外抛：否则会顶掉返回值，并把异常抛给宿主整理队列
+                    logger.error(f"【整理接管】清理刮削批次 pending 失败: {finish_error}")
 
     @classmethod
     def _derive_transfer_flags(cls, task) -> Tuple[bool, bool, bool]:

@@ -3,12 +3,17 @@
 
 补丁（``patch/transfer_chain.py``）会向该类注入/替换以下成员，替身必须都提供：
 
-* ``_TransferChain__handle_transfer`` / ``_TransferChain__finish_scrape_batch_task``
+* ``_TransferChain__handle_transfer``（V2 起保留名字改写的整理入口）
+* ``_finish_scrape_batch_task``（V3 单下划线公开名，见宿主 ``app/chain/transfer/contract.py``）
 * ``transfer`` / ``do_transfer``
-* ``jobview``（``JobManager`` 实例，类属性以便共享状态）
+* ``jobview``（``JobManager`` 实例，**挂在实例上**——与宿主一致，类上取不到）
+* ``_request_durable_transfer_retry``（V3 失败重试入口，替代 V2 的 ``retry_scheduler``）
 * ``_success_target_files``
 
 同时用 ``Singleton`` 元类复刻宿主的单例语义。
+
+⚠️ 替身必须与**真机宿主**的形状一致：曾因这里把刮削批次方法写成双下划线私有名
+（宿主 V3 已改为单下划线）而让回归测试全绿、真机补丁却整体放弃。
 """
 
 from typing import Any, Dict, Optional, Tuple
@@ -23,8 +28,10 @@ __all__ = ["TransferChain"]
 class TransferChain(ChainBase, metaclass=Singleton):
     """文件整理链替身（稳定类型身份 + 可打桩的方法面）。"""
 
-    #: 与宿主一致：作业视图挂在类上，实例共享
-    jobview = JobManager()
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        """与宿主一致：``jobview`` 是**实例**属性，类上取不到。"""
+        super().__init__(*args, **kwargs)
+        self.jobview = JobManager()
 
     #: 补丁读取该私有属性判断目标文件是否已成功整理
     _success_target_files: Dict[str, Any] = {}
@@ -32,6 +39,12 @@ class TransferChain(ChainBase, metaclass=Singleton):
     #: 记录最近一次 transfer 调用，便于测试断言
     last_transfer_args: Tuple = ()
     last_transfer_kwargs: Dict[str, Any] = {}
+
+    #: 记录最近一次刮削批次收尾调用，便于测试断言
+    last_finished_scrape_task: Any = None
+
+    #: 记录最近一次 durable 重试登记，便于测试断言
+    last_retry_request: Optional[Dict[str, Any]] = None
 
     def transfer(self, *args: Any, **kwargs: Any) -> Tuple[bool, str]:
         """整理入口。替身记录调用后返回失败占位。"""
@@ -54,12 +67,9 @@ class TransferChain(ChainBase, metaclass=Singleton):
         """处理单个整理任务（宿主私有方法替身）。"""
         return False, "stub: handle_transfer"
 
-    def _TransferChain__finish_scrape_batch_task(
-        self,
-        *args: Any,
-        **kwargs: Any,
-    ) -> None:
-        """结束刮削批次任务（宿主单下划线方法替身）。"""
+    def _finish_scrape_batch_task(self, task: Any) -> None:
+        """结束刮削批次任务（宿主 V3 单下划线公开名替身），记录调用便于断言。"""
+        TransferChain.last_finished_scrape_task = task
 
     def _TransferChain__rename_subtitles(
         self,
@@ -69,9 +79,15 @@ class TransferChain(ChainBase, metaclass=Singleton):
         """重命名字幕（宿主私有方法替身）。"""
         return True, "stub"
 
-    #: 供补丁探测的刮削批次方法（宿主为单下划线公开名）
-    _finish_scrape_batch_task = _TransferChain__finish_scrape_batch_task
-
-    def retry_scheduler(self) -> Optional[Any]:
-        """重试调度器替身。"""
-        return None
+    def _request_durable_transfer_retry(
+        self,
+        history: Any,
+        *,
+        requested_by: str,
+    ) -> Tuple[bool, str]:
+        """V3 durable 重试入口替身：记录调用并返回受理。"""
+        TransferChain.last_retry_request = {
+            "history": history,
+            "requested_by": requested_by,
+        }
+        return True, "stub: retry accepted"

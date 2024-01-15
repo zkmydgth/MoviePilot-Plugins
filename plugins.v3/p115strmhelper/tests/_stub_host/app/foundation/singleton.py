@@ -15,6 +15,10 @@ class Singleton(type):
             cls._instances[cls] = super().__call__(*args, **kwargs)
         return cls._instances[cls]
 
+    def get_existing_instance(cls, *args: Any, **kwargs: Any) -> Any:
+        """按相同参数返回已创建实例，**不触发初始化**（与宿主一致）。"""
+        return cls._instances.get(cls)
+
     def reset(cls) -> None:
         """测试辅助：清除已缓存实例。"""
         cls._instances.pop(cls, None)
