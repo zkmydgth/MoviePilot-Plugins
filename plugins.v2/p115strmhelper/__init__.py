@@ -31,6 +31,7 @@ from .version import VERSION
 from .api import Api
 from .service import servicer
 from .service.hdhive_checkin.job import run_hdhive_checkin_once
+from .service.p115_checkin.job import run_p115_checkin_once
 from .core.cache import pantransfercacher, sharestrmcacher
 from .core.config import configer
 from .core.i18n import i18n
@@ -272,6 +273,13 @@ class P115StrmHelper(_PluginBase):
                 "desc": "手动 HDHive 签到",
                 "category": "",
                 "data": {"action": "hdhive_checkin_manual"},
+            },
+            {
+                "cmd": "/p115_checkin",
+                "event": EventType.PluginAction,
+                "desc": "手动 115 签到",
+                "category": "",
+                "data": {"action": "p115_checkin_manual"},
             },
         ]
 
@@ -857,6 +865,16 @@ class P115StrmHelper(_PluginBase):
                     "kwargs": {},
                 }
             )
+        if configer.enabled and configer.p115_checkin_enabled:
+            cron_service.append(
+                {
+                    "id": "P115StrmHelper_p115_checkin",
+                    "name": "115 签到调度",
+                    "trigger": CronTrigger.from_crontab("*/5 * * * *"),
+                    "func": servicer.p115_checkin_scheduler_tick,
+                    "kwargs": {},
+                }
+            )
         if configer.strm_backup_enabled and configer.strm_backup_items:
             for backup_item in configer.strm_backup_items:
                 if (
@@ -1223,6 +1241,29 @@ class P115StrmHelper(_PluginBase):
             channel=event.event_data.get("channel"),
             source=event.event_data.get("source"),
             title="HDHive 手动签到" + ("成功" if ok else "失败"),
+            text="\n" + text + "\n",
+            userid=userid,
+        )
+
+    @eventmanager.register(EventType.PluginAction)
+    def p115_checkin_manual(self, event: Event):
+        """
+        远程命令 /p115_checkin 手动 115 签到
+        """
+        if not event:
+            return
+        event_data = event.event_data
+        if not event_data or event_data.get("action") != "p115_checkin_manual":
+            return
+        userid = self._get_event_userid(event_data)
+
+        ok, text = run_p115_checkin_once(
+            client=servicer.client, manual=True, send_notify=False
+        )
+        post_message(
+            channel=event.event_data.get("channel"),
+            source=event.event_data.get("source"),
+            title="115 手动签到" + ("成功" if ok else "失败"),
             text="\n" + text + "\n",
             userid=userid,
         )

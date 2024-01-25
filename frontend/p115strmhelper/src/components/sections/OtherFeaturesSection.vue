@@ -16,6 +16,9 @@
       <v-tab value="tab-hdhive-checkin" class="sub-tab">
         <v-icon size="small" start>mdi-calendar-check</v-icon>HDHive 签到
       </v-tab>
+      <v-tab value="tab-p115-checkin" class="sub-tab">
+        <v-icon size="small" start>mdi-check-circle-outline</v-icon>115 签到
+      </v-tab>
       <v-tab value="tab-utility" class="sub-tab">
         <v-icon size="small" start>mdi-toolbox</v-icon>实用工具
       </v-tab>
@@ -248,6 +251,28 @@
               <div class="mb-1">• 请填写 HDHive 账户与密码；每日签到与赌狗签到<strong>只能二选一</strong>开启</div>
               <div class="mb-1">• 启用后将在设定时间窗口内<strong>每天随机一刻</strong>执行一次登录并签到</div>
               <div>• 也可在 Telegram 等渠道发送 <code>/hdhivechin</code> 手动触发签到</div>
+            </div>
+          </v-alert>
+        </v-card-text>
+      </v-window-item>
+      <v-window-item value="tab-p115-checkin">
+        <v-card-text>
+          <v-row>
+            <v-col cols="12" md="4">
+              <v-switch v-model="config.p115_checkin_enabled" label="115 每日签到" color="primary" density="compact" />
+            </v-col>
+            <v-col cols="12" md="4">
+              <v-text-field v-model="config.p115_checkin_time_range" label="签到随机时间段"
+                hint="格式 HH:MM-HH:MM，例如 06:30-09:45" persistent-hint density="compact" variant="outlined" />
+            </v-col>
+          </v-row>
+          <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
+            <div class="text-body-2 mb-1"><strong>115 签到</strong></div>
+            <div class="text-caption">
+              <div class="mb-1">• 无需额外账号，使用已配置的 115 Cookie 自动签到</div>
+              <div class="mb-1">• 启用后将在设定时间窗口内<strong>每天随机一刻</strong>执行一次签到</div>
+              <div class="mb-1">• 签到功能不支持 web 类型 Cookie，请使用其他客户端类型扫码登录</div>
+              <div>• 也可在 Telegram 等渠道发送 <code>/p115_checkin</code> 手动触发签到</div>
             </div>
           </v-alert>
         </v-card-text>

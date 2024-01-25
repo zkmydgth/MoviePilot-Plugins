@@ -692,6 +692,14 @@ class ConfigManager(BaseModel):
         default="06:00-09:00",
         description="HDHive 签到随机时间段 HH:MM-HH:MM",
     )
+    p115_checkin_enabled: bool = Field(
+        default=False,
+        description="115 每日签到",
+    )
+    p115_checkin_time_range: Optional[str] = Field(
+        default="06:00-09:00",
+        description="115 签到随机时间段 HH:MM-HH:MM",
+    )
     same_playback: bool = Field(default=False, description="多端播放同一个文件")
 
     error_info_upload: bool = Field(default=True, description="上传错误信息")
