@@ -315,16 +315,21 @@ class IncrementSyncStrmHelper:
             后台运行任务
             """
             logger.info(f"【增量STRM生成】开始扫描本地媒体库文件: {target_dir}")
-            DirectoryTree().scan_directory_to_tree(
-                root_path=target_dir,
-                output_file=local_tree,
-                append=False,
-                use_posix=True,
-                extensions=[".strm"]
-                if not self.auto_download_mediainfo
-                else [".strm"] + self.download_mediaext,
-            )
-            logger.info(f"【增量STRM生成】扫描本地媒体库文件完成: {target_dir}")
+            try:
+                DirectoryTree().scan_directory_to_tree(
+                    root_path=target_dir,
+                    output_file=local_tree,
+                    append=False,
+                    use_posix=True,
+                    extensions=[".strm"]
+                    if not self.auto_download_mediainfo
+                    else [".strm"] + self.download_mediaext,
+                )
+                logger.info(f"【增量STRM生成】扫描本地媒体库文件完成: {target_dir}")
+            except Exception as e:
+                logger.error(
+                    f"【增量STRM生成】扫描本地媒体库文件 {target_dir} 错误: {e}"
+                )
 
         local_tree_task_thread = threading.Thread(
             target=background_task,
@@ -359,13 +364,18 @@ class IncrementSyncStrmHelper:
 
         logger.info(f"【增量STRM生成】开始生成网盘目录树: {pan_media_dir}")
 
-        for path1, path2 in self.__itertree(
-            pan_path=pan_media_dir, local_path=target_dir
-        ):
-            tree.generate_tree_from_list([path1], self.pan_to_local_tree, append=True)
-            tree.generate_tree_from_list([path2], self.pan_tree, append=True)
+        try:
+            for path1, path2 in self.__itertree(
+                pan_path=pan_media_dir, local_path=target_dir
+            ):
+                tree.generate_tree_from_list(
+                    [path1], self.pan_to_local_tree, append=True
+                )
+                tree.generate_tree_from_list([path2], self.pan_tree, append=True)
 
-        logger.info(f"【增量STRM生成】网盘目录树生成完成: {pan_media_dir}")
+            logger.info(f"【增量STRM生成】网盘目录树生成完成: {pan_media_dir}")
+        except Exception as e:
+            logger.error(f"【增量STRM生成】网盘目录树生成 {pan_media_dir} 错误: {e}")
 
     def __handle_addition_path(self, pan_path: str, local_path: str):
         """
@@ -670,13 +680,18 @@ class FullSyncStrmHelper:
             后台运行任务
             """
             logger.info(f"【全量STRM生成】开始扫描本地媒体库文件: {_target_dir}")
-            DirectoryTree().scan_directory_to_tree(
-                root_path=_target_dir,
-                output_file=local_tree,
-                append=False,
-                extensions=[".strm"],
-            )
-            logger.info(f"【全量STRM生成】扫描本地媒体库文件完成: {_target_dir}")
+            try:
+                DirectoryTree().scan_directory_to_tree(
+                    root_path=_target_dir,
+                    output_file=local_tree,
+                    append=False,
+                    extensions=[".strm"],
+                )
+                logger.info(f"【全量STRM生成】扫描本地媒体库文件完成: {_target_dir}")
+            except Exception as e:
+                logger.error(
+                    f"【全量STRM生成】扫描本地媒体库文件 {_target_dir} 错误: {e}"
+                )
 
         local_tree_task_thread = threading.Thread(
             target=background_task,
@@ -1088,7 +1103,7 @@ class FullSyncStrmHelper:
                 while local_tree_task_thread.is_alive():
                     logger.info("【全量STRM生成】扫描本地媒体库运行中...")
                     time.sleep(10)
-                if not self.strm_fail_dict:
+                if not self.strm_fail_dict and Path(self.local_tree).exists():
                     try:
                         count = DirectoryTree().compare_file_lines(
                             self.local_tree, self.pan_tree
@@ -1110,7 +1125,7 @@ class FullSyncStrmHelper:
                         logger.error(f"【全量STRM生成】清理无效 STRM 文件失败: {e}")
                 else:
                     logger.warn(
-                        "【全量STRM生成】存在生成失败的 STRM 文件，跳过清理无效 STRM 文件"
+                        "【全量STRM生成】存在生成失败的 STRM 文件或扫描本地文件出错，跳过清理无效 STRM 文件"
                     )
 
         self.mediainfo_count, self.mediainfo_fail_count, self.mediainfo_fail_dict = (

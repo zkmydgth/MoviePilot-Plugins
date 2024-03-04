@@ -7,6 +7,7 @@ from app.modules.filemanager.storages.u115 import U115Pan
 
 from ..core.u115_open import U115OpenHelper
 from ..core.config import configer
+from ..utils.oopserver import OOPServerHelper
 
 
 class U115Patcher:
@@ -113,7 +114,9 @@ class U115Patcher:
             cls._func_active["upload"] = True
             logger.info("【P115Open】上传接口补丁应用成功")
 
-        if configer.transfer_module_enhancement:
+        if configer.transfer_module_enhancement and OOPServerHelper.check_feature(
+            "transfer_module_enhancement"
+        ).get("enable", False):
             modules = ["create_folder", "get_item", "get_folder", "rename"]
             for module in modules:
                 if cls._func_active.get(module):

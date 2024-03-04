@@ -1,7 +1,8 @@
 {
   "top_level_packages": [
     "p115client",
-    "p115rsacipher"
+    "p115rsacipher",
+    "sqlitetools"
   ],
   "rules": [
     {

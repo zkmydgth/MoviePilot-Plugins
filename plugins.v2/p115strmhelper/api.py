@@ -22,7 +22,7 @@ from .core.message import post_message
 from .core.i18n import i18n
 from .core.aliyunpan import AliyunPanLogin
 from .utils.sentry import sentry_manager
-from .utils.oopserver import OOPServerRequest
+from .utils.oopserver import OOPServerHelper
 
 from app.log import logger
 from app.core.cache import cached, TTLCache
@@ -835,32 +835,4 @@ class Api:
         """
         判断是否有权限使用此增强功能
         """
-        if not name:
-            return {
-                "machine_id": "",
-                "feature_name": "",
-                "enabled": False,
-            }
-
-        try:
-            oopserver = OOPServerRequest()
-            machine_id = configer.get_config("MACHINE_ID")
-            resp = oopserver.make_request(
-                path=f"/machine/feature/{name}",
-                method="GET",
-                headers={"x-machine-id": machine_id},
-                timeout=10.0,
-            )
-            if resp is not None and resp.status_code == 200:
-                return resp.json()
-            return {
-                "machine_id": machine_id,
-                "feature_name": name,
-                "enabled": False,
-            }
-        except Exception:
-            return {
-                "machine_id": "",
-                "feature_name": name,
-                "enabled": False,
-            }
+        return OOPServerHelper.check_feature(name)

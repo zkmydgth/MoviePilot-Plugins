@@ -111,3 +111,44 @@ class OOPServerRequest:
         if last_exception:
             raise last_exception
         return None
+
+
+class OOPServerHelper:
+    """
+    数据增强服务集成模块
+    """
+
+    @staticmethod
+    def check_feature(name: str = "") -> Dict:
+        """
+        判断是否有权限使用此增强功能
+        """
+        if not name:
+            return {
+                "machine_id": "",
+                "feature_name": "",
+                "enabled": False,
+            }
+
+        try:
+            oopserver = OOPServerRequest()
+            machine_id = configer.get_config("MACHINE_ID")
+            resp = oopserver.make_request(
+                path=f"/machine/feature/{name}",
+                method="GET",
+                headers={"x-machine-id": machine_id},
+                timeout=10.0,
+            )
+            if resp is not None and resp.status_code == 200:
+                return resp.json()
+            return {
+                "machine_id": machine_id,
+                "feature_name": name,
+                "enabled": False,
+            }
+        except Exception:
+            return {
+                "machine_id": "",
+                "feature_name": name,
+                "enabled": False,
+            }
