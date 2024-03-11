@@ -129,9 +129,11 @@ class Ali2115Helper:
         if file_mediainfo:
             return file_mediainfo
 
-        self.file_name_list = [item.name for item in self.ali_tree_share(share_token)]
-        if self.file_name_list:
-            file_meta = MetaInfo(title=self.file_name_list[0])
+        all_files = list(self.ali_tree_share(share_token))
+        if all_files:
+            all_files.sort(key=lambda f: f.size, reverse=True)
+            file_name_list = [item.name for item in all_files]
+            file_meta = MetaInfo(title=file_name_list[0])
             file_mediainfo = mediachain.recognize_by_meta(file_meta)
             if file_mediainfo:
                 return file_mediainfo

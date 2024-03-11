@@ -228,6 +228,7 @@ class ShareTransferHelper:
                         title=i18n.translate("add_share_config_error"),
                         userid=userid,
                     )
+                    return
                 if not self.aligo:
                     post_message(
                         channel=channel,
