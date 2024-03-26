@@ -16,7 +16,7 @@ from ..core.config import configer
 from ..utils.tree import DirectoryTree
 from ..core.scrape import media_scrape_metadata
 from ..db_manager.oper import FileDbHelper
-from ..utils.path import PathMatchingHelper
+from ..utils.path import PathUtils
 
 from app.log import logger
 from app.core.config import settings
@@ -77,7 +77,6 @@ class IncrementSyncStrmHelper:
         self.pan_transfer_paths = configer.get_config("pan_transfer_paths")
         self.strm_url_format = configer.get_config("strm_url_format")
         self.databasehelper = FileDbHelper()
-        self.pathmatchinghelper = PathMatchingHelper()
         self.download_mediainfo_list = []
 
         # 临时文件配置
@@ -217,7 +216,7 @@ class IncrementSyncStrmHelper:
             logger.info(f"【增量STRM生成】{file_name} 开始刷新媒体服务器")
             if self.mp_mediaserver_paths:
                 status, mediaserver_path, moviepilot_path = (
-                    self.pathmatchinghelper.get_media_path(
+                    PathUtils.get_media_path(
                         self.mp_mediaserver_paths, file_path
                     )
                 )
@@ -323,7 +322,7 @@ class IncrementSyncStrmHelper:
             new_file_path = Path(local_path)
 
             if self.pan_transfer_enabled and self.pan_transfer_paths:
-                if self.pathmatchinghelper.get_run_transfer_path(
+                if PathUtils.get_run_transfer_path(
                     paths=self.pan_transfer_paths,
                     transfer_path=str(pan_path),
                 ):
@@ -396,7 +395,7 @@ class IncrementSyncStrmHelper:
         if self.scrape_metadata_enabled:
             scrape_metadata = True
             if self.scrape_metadata_exclude_paths:
-                if self.pathmatchinghelper.get_scrape_metadata_exclude_path(
+                if PathUtils.get_scrape_metadata_exclude_path(
                     self.scrape_metadata_exclude_paths,
                     str(new_file_path),
                 ):
@@ -533,7 +532,6 @@ class FullSyncStrmHelper:
         self.overwrite_mode = configer.get_config("full_sync_overwrite_mode")
         self.remove_unless_strm = configer.get_config("full_sync_remove_unless_strm")
         self.databasehelper = FileDbHelper()
-        self.pathmatchinghelper = PathMatchingHelper()
         self.download_mediainfo_list = []
 
         temp_path = settings.PLUGIN_DATA_PATH / "p115strmhelper" / "temp"
@@ -642,7 +640,7 @@ class FullSyncStrmHelper:
 
                         try:
                             if self.pan_transfer_enabled and self.pan_transfer_paths:
-                                if self.pathmatchinghelper.get_run_transfer_path(
+                                if PathUtils.get_run_transfer_path(
                                     paths=self.pan_transfer_paths,
                                     transfer_path=item["path"],
                                 ):
@@ -840,7 +838,6 @@ class ShareStrmHelper:
         self.local_media_path = configer.get_config("user_share_local_path")
         self.server_address = configer.get_config("moviepilot_address").rstrip("/")
         self.strm_url_format = configer.get_config("strm_url_format")
-        self.pathmatchinghelper = PathMatchingHelper()
         self.download_mediainfo_list = []
 
     def generate_strm_files(
@@ -854,7 +851,7 @@ class ShareStrmHelper:
         """
         生成 STRM 文件
         """
-        if not self.pathmatchinghelper.has_prefix(file_path, self.share_media_path):
+        if not PathUtils.has_prefix(file_path, self.share_media_path):
             logger.debug(
                 "【分享STRM生成】此文件不在用户设置分享目录下，跳过网盘路径: %s",
                 str(file_path).replace(str(self.local_media_path), "", 1),
@@ -1007,9 +1004,6 @@ class TransferStrmHelper:
     处理事件事件STRM文件生成
     """
 
-    def __init__(self):
-        self.pathmatchinghelper = PathMatchingHelper()
-
     @property
     def transfer_service_infos(self) -> Optional[Dict[str, ServiceInfo]]:
         """
@@ -1052,7 +1046,7 @@ class TransferStrmHelper:
 
         if configer.get_config("transfer_mp_mediaserver_paths"):
             status, mediaserver_path, moviepilot_path = (
-                self.pathmatchinghelper.get_media_path(
+                PathUtils.get_media_path(
                     configer.get_config("transfer_mp_mediaserver_paths"),
                     strm_target_path,
                 )
@@ -1104,7 +1098,7 @@ class TransferStrmHelper:
             pan_media_dir = str(Path(pan_media_dir))
             pan_path = Path(item_dest_path).parent
             pan_path = str(Path(pan_path))
-            if self.pathmatchinghelper.has_prefix(pan_path, pan_media_dir):
+            if PathUtils.has_prefix(pan_path, pan_media_dir):
                 pan_path = pan_path[len(pan_media_dir) :].lstrip("/").lstrip("\\")
             file_path = Path(target_dir) / pan_path
             file_name = basename + ".strm"
@@ -1155,7 +1149,7 @@ class TransferStrmHelper:
         audio_list = getattr(item_transfer, "audio_list_new", [])
 
         __itemdir_dest_path, local_media_dir, pan_media_dir = (
-            self.pathmatchinghelper.get_media_path(
+            PathUtils.get_media_path(
                 configer.get_config("transfer_monitor_paths"), itemdir_dest_path
             )
         )
@@ -1260,7 +1254,7 @@ class TransferStrmHelper:
         scrape_metadata = True
         if configer.get_config("transfer_monitor_scrape_metadata_enabled"):
             if configer.get_config("transfer_monitor_scrape_metadata_exclude_paths"):
-                if self.pathmatchinghelper.get_scrape_metadata_exclude_path(
+                if PathUtils.get_scrape_metadata_exclude_path(
                     configer.get_config(
                         "transfer_monitor_scrape_metadata_exclude_paths"
                     ),

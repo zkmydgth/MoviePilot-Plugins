@@ -16,7 +16,7 @@ from ..core.cache import (
     cacher_top_delete_pan_transfer_list,
     cacher_create_strm_file_dict,
 )
-from ..utils.path import PathMatchingHelper
+from ..utils.path import PathUtils
 from ..db_manager.oper import FileDbHelper
 from ..helper.mediainfo_download import MediaInfoDownloader
 
@@ -60,7 +60,6 @@ class MonitorLife:
     """
 
     def __init__(self, client: P115Client, mediainfodownloader: MediaInfoDownloader):
-        self.pathmatchinghelper = PathMatchingHelper()
 
         self._client = client
         self.mediainfodownloader = mediainfodownloader
@@ -154,7 +153,7 @@ class MonitorLife:
             logger.info(f"【监控生活事件】 {file_name} 开始刷新媒体服务器")
             if configer.get_config("monitor_life_mp_mediaserver_paths"):
                 status, mediaserver_path, moviepilot_path = (
-                    self.pathmatchinghelper.get_media_path(
+                    PathUtils.get_media_path(
                         configer.get_config("monitor_life_mp_mediaserver_paths"),
                         file_path,
                     )
@@ -320,7 +319,7 @@ class MonitorLife:
         pickcode = event["pick_code"]
         file_category = event["file_category"]
         file_id = event["file_id"]
-        status, target_dir, pan_media_dir = self.pathmatchinghelper.get_media_path(
+        status, target_dir, pan_media_dir = PathUtils.get_media_path(
             configer.get_config("monitor_life_paths"), file_path
         )
         if not status:
@@ -424,7 +423,7 @@ class MonitorLife:
                             if configer.get_config(
                                 "monitor_life_scrape_metadata_exclude_paths"
                             ):
-                                if self.pathmatchinghelper.get_scrape_metadata_exclude_path(
+                                if PathUtils.get_scrape_metadata_exclude_path(
                                     configer.get_config(
                                         "monitor_life_scrape_metadata_exclude_paths"
                                     ),
@@ -543,7 +542,7 @@ class MonitorLife:
                     if configer.get_config(
                         "monitor_life_scrape_metadata_exclude_paths"
                     ):
-                        if self.pathmatchinghelper.get_scrape_metadata_exclude_path(
+                        if PathUtils.get_scrape_metadata_exclude_path(
                             configer.get_config(
                                 "monitor_life_scrape_metadata_exclude_paths"
                             ),
@@ -633,7 +632,7 @@ class MonitorLife:
         if configer.get_config("pan_transfer_enabled") and configer.get_config(
             "pan_transfer_paths"
         ):
-            if self.pathmatchinghelper.get_run_transfer_path(
+            if PathUtils.get_run_transfer_path(
                 paths=configer.get_config("pan_transfer_paths"),
                 transfer_path=file_path,
             ):
@@ -643,7 +642,7 @@ class MonitorLife:
                 return
 
         # 匹配是否是媒体文件夹目录
-        status, target_dir, pan_media_dir = self.pathmatchinghelper.get_media_path(
+        status, target_dir, pan_media_dir = PathUtils.get_media_path(
             configer.get_config("monitor_life_paths"), file_path
         )
         if not status:
@@ -697,7 +696,7 @@ class MonitorLife:
         if configer.get_config("pan_transfer_enabled") and configer.get_config(
             "pan_transfer_paths"
         ):
-            if self.pathmatchinghelper.get_run_transfer_path(
+            if PathUtils.get_run_transfer_path(
                 paths=configer.get_config("pan_transfer_paths"),
                 transfer_path=file_path,
             ):

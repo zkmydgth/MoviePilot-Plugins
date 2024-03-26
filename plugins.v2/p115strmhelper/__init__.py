@@ -41,7 +41,7 @@ from .interactive.handler import ActionHandler
 from .interactive.session import Session
 from .interactive.views import ViewRenderer
 from .helper.strm import FullSyncStrmHelper, TransferStrmHelper
-from .utils.path import PathMatchingHelper
+from .utils.path import PathUtils
 
 
 # 实例化一个该插件专用的 SessionManager
@@ -429,9 +429,7 @@ class P115StrmHelper(_PluginBase):
         if dest_fileitem.storage != "u115" or src_fileitem.storage != "u115":
             return
 
-        pathmatchinghelper = PathMatchingHelper()
-
-        if not pathmatchinghelper.get_run_transfer_path(
+        if not PathUtils.get_run_transfer_path(
             paths=configer.get_config("pan_transfer_paths"),
             transfer_path=src_fileitem.path,
         ):
@@ -546,8 +544,8 @@ class P115StrmHelper(_PluginBase):
                 userid=event.event_data.get("user"),
             )
             return
-        pathmatchinghelper = PathMatchingHelper()
-        status, paths = pathmatchinghelper.get_p115_strm_path(
+
+        status, paths = PathUtils.get_p115_strm_path(
             paths=configer.get_config("full_sync_strm_paths"), media_path=args
         )
         if not status:
@@ -1036,9 +1034,8 @@ class P115StrmHelper(_PluginBase):
                     return
                 logger.info(f"【监控生活事件】 {file_name} 开始刷新媒体服务器")
                 if configer.get_config("monitor_life_mp_mediaserver_paths"):
-                    pathmatchinghelper = PathMatchingHelper()
                     status, mediaserver_path, moviepilot_path = (
-                        pathmatchinghelper.get_media_path(
+                        PathUtils.get_media_path(
                             configer.get_config("monitor_life_mp_mediaserver_paths"),
                             file_path,
                         )
