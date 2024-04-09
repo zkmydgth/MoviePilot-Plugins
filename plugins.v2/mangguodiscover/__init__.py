@@ -1,4 +1,4 @@
-from typing import Any, List, Dict, Tuple
+from typing import Any, List, Dict, Tuple, Optional
 
 from app import schemas
 from app.core.config import settings
@@ -26,7 +26,7 @@ HEADERS = {
     "Referer": "https://www.mgtv.com",
 }
 
-BASE_UI = None
+BASE_UI: Optional[List] = None
 
 
 def init_base_ui():

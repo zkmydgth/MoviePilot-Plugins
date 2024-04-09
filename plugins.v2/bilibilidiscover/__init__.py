@@ -152,7 +152,7 @@ class BilibiliDiscover(_PluginBase):
     @cached(region="bilibili_discover", ttl=1800, skip_none=True)
     def __request_bilibili_api(
         self, mtype: str, page_num: int, page_size: int, **kwargs
-    ) -> List[schemas.MediaInfo]:
+    ) -> List[Dict]:
         """
         请求 哔哩哔哩 API
         """

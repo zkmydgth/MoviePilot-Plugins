@@ -95,7 +95,7 @@ class MiGuDiscover(_PluginBase):
     @cached(region="migu_discover", ttl=1800, skip_none=True)
     def __request(
         self, page_num: int, page_size: int, **kwargs
-    ) -> List[schemas.MediaInfo]:
+    ) -> List[Dict]:
         """
         请求 咪咕视频 API
         """

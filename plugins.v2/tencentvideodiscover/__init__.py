@@ -1,5 +1,5 @@
 import re
-from typing import Any, List, Dict, Tuple
+from typing import Any, List, Dict, Tuple, Optional
 
 import requests
 
@@ -12,7 +12,7 @@ from app.plugins import _PluginBase
 from app.schemas import DiscoverSourceEventData
 from app.schemas.types import ChainEventType
 
-BASE_UI = None
+BASE_UI: Optional[List] = None
 
 CHANNEL_PARAMS = {
     "tv": {"Id": "100113", "Name": "电视剧"},
@@ -233,7 +233,7 @@ class TencentVideoDiscover(_PluginBase):
         pass
 
     @cached(region="tencentvideo_discover", ttl=1800, skip_none=True)
-    def __request(self, page, mtype, **kwargs) -> List[schemas.MediaInfo]:
+    def __request(self, page, mtype, **kwargs) -> List[Dict]:
         """
         请求腾讯视频 API
         """
