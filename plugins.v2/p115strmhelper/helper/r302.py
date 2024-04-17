@@ -86,7 +86,7 @@ class Redirect:
         resp = httpx.get(
             f"{api}?{urlencode(payload)}",
             follow_redirects=True,
-            cookies=configer.cookie_dict,
+            cookies=configer.cookies_dict,
         )
         check_response(resp)
         json = loads(cast(bytes, resp.content))
@@ -95,7 +95,7 @@ class Redirect:
             resp = httpx.get(
                 f"{api}?{urlencode(payload)}",
                 follow_redirects=True,
-                cookies=configer.cookie_dict,
+                cookies=configer.cookies_dict,
             )
             check_response(resp)
             json = loads(cast(bytes, resp.content))
@@ -115,7 +115,7 @@ class Redirect:
         resp = httpx.get(
             f"http://web.api.115.com/share/shareinfo?share_code={share_code}",
             follow_redirects=True,
-            cookies=configer.cookie_dict,
+            cookies=configer.cookies_dict,
         )
         check_response(resp)
         json = loads(cast(bytes, resp.content))
@@ -162,7 +162,7 @@ class Redirect:
                 "User-Agent": user_agent,
             },
             follow_redirects=True,
-            cookies=configer.cookie_dict,
+            cookies=configer.cookies_dict,
         )
         check_response(resp)
         json = loads(cast(bytes, resp.content))
@@ -272,7 +272,7 @@ class Redirect:
             "http://proapi.115.com/app/share/downurl",
             data={"data": encrypt(dumps(payload)).decode("utf-8")},
             follow_redirects=True,
-            cookies=configer.cookie_dict,
+            cookies=configer.cookies_dict,
         )
         check_response(resp)
         json = loads(cast(bytes, resp.content))

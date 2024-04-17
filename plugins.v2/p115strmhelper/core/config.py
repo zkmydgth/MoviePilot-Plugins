@@ -298,7 +298,7 @@ class ConfigManager(BaseModel):
         return self.get_user_agent()
 
     @property
-    def cookie_dict(self) -> Dict[str, str]:
+    def cookies_dict(self) -> Dict[str, str]:
         """
         获取 cookie dict
         """

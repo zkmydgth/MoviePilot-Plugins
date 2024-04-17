@@ -51,7 +51,7 @@ class U115OpenHelper:
 
     def __init__(self):
         super().__init__()
-        self.session = httpx.Client(follow_redirects=True, timeout=120.0)
+        self.session = httpx.Client(follow_redirects=True, timeout=20.0)
         self._init_session()
 
         self.fail_upload_count = 0
@@ -113,6 +113,7 @@ class U115OpenHelper:
                 return access_token
             except Exception as e:
                 logger.error(f"【P115Open】获取访问 Token 出现未知错误: {e}")
+                return None
 
     def __refresh_access_token(self, refresh_token: str) -> Optional[dict]:
         """
@@ -381,7 +382,9 @@ class U115OpenHelper:
                 "fileid": file_sha1,
                 "preid": file_preid,
             }
-            init_resp = self._request_api("POST", "/open/upload/init", data=init_data)
+            init_resp = self._request_api(
+                "POST", "/open/upload/init", data=init_data, timeout=120.0
+            )
             if not init_resp:
                 return None
             if not init_resp.get("state"):
@@ -421,7 +424,7 @@ class U115OpenHelper:
                     {"pick_code": pick_code, "sign_key": sign_key, "sign_val": sign_val}
                 )
                 init_resp = self._request_api(
-                    "POST", "/open/upload/init", data=init_data
+                    "POST", "/open/upload/init", data=init_data, timeout=120.0
                 )
                 if not init_resp:
                     return None
@@ -467,6 +470,7 @@ class U115OpenHelper:
                         "/open/folder/get_info",
                         "data",
                         params={"file_id": int(file_id)},
+                        timeout=120.0,
                     )
                     if info_resp:
                         try:
@@ -494,7 +498,7 @@ class U115OpenHelper:
                         except Exception as e:
                             logger.error(f"【P115Open】处理返回信息失败: {e}")
                             return None
-                return self._delay_get_item(target_path)
+                return U115OpenHelper._delay_get_item(target_path)
 
             # 判断是等待秒传还是直接上传
             upload_module_skip_upload_wait_size = int(
@@ -509,7 +513,7 @@ class U115OpenHelper:
                 )
                 break
 
-            if wait_start_time - perf_counter() > int(
+            if perf_counter() - wait_start_time > int(
                 configer.get_config("upload_module_wait_timeout")
             ):
                 logger.warn(
@@ -578,7 +582,9 @@ class U115OpenHelper:
 
         # Step 4: 获取上传凭证
         second_auth = False
-        token_resp = self._request_api("GET", "/open/upload/get_token", "data")
+        token_resp = self._request_api(
+            "GET", "/open/upload/get_token", "data", timeout=120.0
+        )
         if not token_resp:
             logger.warn("【P115Open】获取上传凭证失败")
             return None
@@ -600,6 +606,7 @@ class U115OpenHelper:
                 "fileid": file_sha1,
                 "pick_code": pick_code,
             },
+            timeout=120.0,
         )
         if resume_resp:
             logger.debug(f"【P115Open】上传 Step 5 断点续传结果: {resume_resp}")
@@ -679,7 +686,10 @@ class U115OpenHelper:
                                 )
                                 # Step 4: 重新获取上传凭证
                                 token_resp = self._request_api(
-                                    "GET", "/open/upload/get_token", "data"
+                                    "GET",
+                                    "/open/upload/get_token",
+                                    "data",
+                                    timeout=120.0,
                                 )
                                 if not token_resp:
                                     logger.error(
@@ -788,7 +798,7 @@ class U115OpenHelper:
             int(elapsed_time),
         )
         # 返回结果
-        return self._delay_get_item(target_path)
+        return U115OpenHelper._delay_get_item(target_path)
 
     def create_folder(
         self, parent_item: schemas.FileItem, name: str
