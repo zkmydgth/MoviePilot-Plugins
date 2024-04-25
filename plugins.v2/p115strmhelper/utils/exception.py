@@ -1,4 +1,4 @@
-class PanPathNotFound(Exception):
+class PanPathNotFound(FileNotFoundError):
     """
     网盘路径不存在
     """
