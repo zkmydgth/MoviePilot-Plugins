@@ -20,7 +20,7 @@ class MiGuDiscover(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/DDS-Derek/MoviePilot-Plugins/main/icons/migu_A.png"
     # 插件版本
-    plugin_version = "1.0.1"
+    plugin_version = "1.0.2"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -39,6 +39,8 @@ class MiGuDiscover(_PluginBase):
     def init_plugin(self, config: dict = None):
         if config:
             self._enabled = config.get("enabled")
+        if "http://wapx.cmvideo.cn:8080" not in settings.SECURITY_IMAGE_DOMAINS:
+            settings.SECURITY_IMAGE_DOMAINS.append("http://wapx.cmvideo.cn:8080")
 
     def get_state(self) -> bool:
         return self._enabled
