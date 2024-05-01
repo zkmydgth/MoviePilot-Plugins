@@ -51,16 +51,17 @@
 - 数据上传仅在成功处理所有文件且无异常时执行
 """
 
-__all__ = ["ShareStrmHelper"]
+__all__ = ["ShareInteractiveGenStrmQueue", "ShareStrmHelper"]
 
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from gzip import open as gzip_open
 from itertools import batched
 from pathlib import Path
-from threading import Lock
-from time import perf_counter
-from typing import List, Dict, Set, Deque, Tuple, Optional, Iterable
+from queue import Empty, Queue
+from threading import Lock, Thread
+from time import perf_counter, sleep
+from typing import Any, Dict, Deque, Iterable, List, Optional, Set, Tuple
 from os import remove as os_remove
 from os.path import exists as path_exists, getsize as path_getsize, join as path_join
 from tempfile import gettempdir
@@ -73,9 +74,11 @@ from p115client.util import share_extract_payload
 
 from app.chain.transfer import TransferChain
 from app.log import logger
-from app.schemas import FileItem
+from app.schemas import FileItem, NotificationType
 
 from ...core.config import configer
+from ...core.i18n import i18n
+from ...core.message import post_message
 from ...core.p115 import ShareP115Client, iter_share_files_with_path
 from ...core.scrape import media_scrape_metadata
 from ...helper.mediainfo_download import MediaInfoDownloader
@@ -497,14 +500,14 @@ class ShareStrmHelper:
                 self.strm_fail_dict[str(new_file_path)] = str(e)
             return
 
-    def generate_strm_files(self) -> None:
+    def generate_strm_files_for_configs(self, configs: List[ShareStrmConfig]) -> None:
         """
-        获取分享文件，生成 STRM
+        按给定分享配置列表生成 STRM
         """
-        if not configer.share_strm_config:
+        if not configs:
             return
 
-        for config in configer.share_strm_config:
+        for config in configs:
             comment_info = f" ({config.comment})" if config.comment else ""
 
             if not config.enabled:
@@ -640,6 +643,14 @@ class ShareStrmHelper:
             )
         )
 
+    def generate_strm_files(self) -> None:
+        """
+        获取分享文件，生成 STRM（
+        """
+        if not configer.share_strm_config:
+            return
+        self.generate_strm_files_for_configs(list(configer.share_strm_config))
+
     def get_generate_total(self) -> Tuple[int, int, int, int]:
         """
         输出总共生成文件个数
@@ -671,3 +682,232 @@ class ShareStrmHelper:
             self.strm_fail_count,
             self.mediainfo_fail_count,
         )
+
+
+class ShareInteractiveGenStrmQueue:
+    """
+    分享交互生成 STRM 的 FIFO 队列与后台工作线程
+    """
+
+    def __init__(self) -> None:
+        self.mediainfodownloader: Optional[MediaInfoDownloader] = None
+        self._task_queue: Queue = Queue()
+        self._worker_thread: Optional[Thread] = None
+        self._worker_lock = Lock()
+
+    def bind_mediainfodownloader(
+        self, mediainfodownloader: Optional[MediaInfoDownloader]
+    ) -> None:
+        """
+        绑定媒体信息下载器
+
+        :param mediainfodownloader: MediaInfoDownloader 实例，可为 None
+        """
+        self.mediainfodownloader = mediainfodownloader
+
+    @staticmethod
+    def validate_prerequisites() -> Optional[str]:
+        """
+        校验分享交互生成 STRM 是否可入队
+
+        :return: 失败时返回 i18n 键名，成功返回 None
+        """
+        if not configer.enabled:
+            return "p115_share_strm_plugin_disabled"
+        if not configer.get_config("cookies"):
+            return "p115_share_strm_config_error"
+        if not configer.get_config("moviepilot_address"):
+            return "p115_share_strm_config_error"
+        g = configer.share_interactive_gen_strm_config
+        if not (g.local_path or "").strip():
+            return "p115_share_strm_config_error"
+        return None
+
+    def _ensure_worker_running(self) -> None:
+        """
+        确保工作线程已启动
+        """
+        with self._worker_lock:
+            if self._worker_thread is None or not self._worker_thread.is_alive():
+                self._worker_thread = Thread(
+                    target=self._process_queue,
+                    name="P115ShareInteractiveGenStrm",
+                    daemon=True,
+                )
+                self._worker_thread.start()
+
+    def _process_queue(self) -> None:
+        """
+        串行消费队列中的任务
+        """
+        while True:
+            try:
+                task = self._task_queue.get(timeout=60)
+            except Empty:
+                logger.debug("【分享交互生成STRM】队列空闲，工作线程退出")
+                break
+            share_url, channel, source, userid = task
+            try:
+                self._run_job(
+                    share_url=share_url,
+                    channel=channel,
+                    source=source,
+                    userid=userid,
+                )
+            except Exception as e:
+                logger.error(f"【分享交互生成STRM】任务异常: {e}", exc_info=True)
+                self._post_user_message(
+                    channel=channel,
+                    source=source,
+                    userid=userid,
+                    title=i18n.translate("p115_share_strm_fail_title"),
+                    text=i18n.translate("p115_share_strm_fail_text", err=str(e)),
+                )
+            finally:
+                self._task_queue.task_done()
+                sleep(2)
+
+    def _post_user_message(
+        self,
+        channel: Any,
+        source: Optional[str],
+        userid: Optional[str],
+        title: str,
+        text: Optional[str] = None,
+    ) -> None:
+        """
+        向触发命令的用户发送消息
+        """
+        if channel is not None and userid:
+            post_message(
+                channel=channel,
+                source=source,
+                title=title,
+                text=text,
+                userid=userid,
+            )
+
+    def _run_job(
+        self,
+        share_url: str,
+        channel: Any,
+        source: Optional[str],
+        userid: Optional[str],
+    ) -> None:
+        """
+        执行单条分享交互生成 STRM
+        """
+        err_key = self.validate_prerequisites()
+        if err_key:
+            self._post_user_message(
+                channel=channel,
+                source=source,
+                userid=userid,
+                title=i18n.translate(err_key),
+            )
+            return
+
+        if not self.mediainfodownloader:
+            logger.error("【分享交互生成STRM】MediaInfoDownloader 未初始化")
+            self._post_user_message(
+                channel=channel,
+                source=source,
+                userid=userid,
+                title=i18n.translate("p115_share_strm_fail_title"),
+                text=i18n.translate(
+                    "p115_share_strm_fail_text",
+                    err="MediaInfoDownloader 未初始化",
+                ),
+            )
+            return
+
+        g = configer.share_interactive_gen_strm_config
+        virtual = ShareStrmConfig(
+            enabled=True,
+            comment="分享交互生成STRM",
+            share_link=share_url,
+            share_path="/",
+            local_path=(g.local_path or "").strip(),
+            min_file_size=g.min_file_size,
+            auto_download_mediainfo=g.auto_download_mediainfo,
+            moviepilot_transfer=g.moviepilot_transfer,
+            speed_mode=g.speed_mode,
+            scrape_metadata=False,
+            media_server_refresh=False,
+        )
+
+        strm_helper = ShareStrmHelper(mediainfodownloader=self.mediainfodownloader)
+        strm_helper.generate_strm_files_for_configs([virtual])
+        strm_count, mediainfo_count, strm_fail_count, mediainfo_fail_count = (
+            strm_helper.get_generate_total()
+        )
+
+        detail = (
+            f"\n📄 生成STRM文件 {strm_count} 个\n"
+            f"⬇️ 下载媒体文件 {mediainfo_count} 个\n"
+            f"❌ 生成STRM失败 {strm_fail_count} 个\n"
+            f"🚫 下载媒体失败 {mediainfo_fail_count} 个"
+        )
+        self._post_user_message(
+            channel=channel,
+            source=source,
+            userid=userid,
+            title=i18n.translate("p115_share_strm_done_title"),
+            text=detail,
+        )
+        if configer.get_config("notify"):
+            post_message(
+                mtype=NotificationType.Plugin,
+                title=i18n.translate("p115_share_strm_done_title"),
+                text=detail,
+            )
+
+    def enqueue(
+        self,
+        share_url: str,
+        channel: Any = None,
+        source: Optional[str] = None,
+        userid: Optional[str] = None,
+    ) -> int:
+        """
+        将任务入队
+
+        :param share_url: 115 分享链接
+        :param channel: 消息渠道
+        :param source: 消息来源
+        :param userid: 用户 ID
+        :return: 入队后队列中等待执行的任务数量
+        """
+        self._task_queue.put((share_url, channel, source, userid))
+        self._ensure_worker_running()
+        return self._task_queue.qsize()
+
+    def enqueue_and_notify_user(
+        self,
+        share_url: str,
+        channel: Any = None,
+        source: Optional[str] = None,
+        userid: Optional[str] = None,
+    ) -> int:
+        """
+        入队并向用户发送排队提示
+
+        :param share_url: 115 分享链接
+        :param channel: 消息渠道
+        :param source: 消息来源
+        :param userid: 用户 ID
+        :return: 入队后队列中等待执行的任务数量
+        """
+        pending = self.enqueue(
+            share_url=share_url,
+            channel=channel,
+            source=source,
+            userid=userid,
+        )
+        post_message(
+            channel=channel,
+            source=source,
+            title=i18n.translate("p115_share_strm_queued", pending=pending),
+            userid=userid,
+        )
+        return pending

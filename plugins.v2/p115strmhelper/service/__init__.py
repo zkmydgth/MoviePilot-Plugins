@@ -3,7 +3,7 @@ from time import time
 from threading import Lock, Thread, Event as ThreadEvent
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Optional, List
+from typing import List, Optional
 
 from aligo.core import set_config_folder
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -24,7 +24,12 @@ from ..helper.monitor import process_file_change
 from ..helper.offline import OfflineDownloadHelper
 from ..helper.r302 import Redirect
 from ..helper.share import ShareTransferHelper
-from ..helper.strm import FullSyncStrmHelper, ShareStrmHelper, IncrementSyncStrmHelper
+from ..helper.strm import (
+    FullSyncStrmHelper,
+    IncrementSyncStrmHelper,
+    ShareInteractiveGenStrmQueue,
+    ShareStrmHelper,
+)
 from ..helper.transfer import TransferTaskManager, TransferHandler
 from ..helper.webdav import WebdavCore
 from ..helper.mediaserver import emby_mediainfo_queue
@@ -75,6 +80,8 @@ class ServiceHelper:
 
         self.webdav_core: Optional[WebdavCore] = None
 
+        self.share_interactive_gen_strm_queue = ShareInteractiveGenStrmQueue()
+
     def init_service(self):
         """
         初始化服务
@@ -112,6 +119,9 @@ class ServiceHelper:
             # 媒体信息下载工具初始化
             self.mediainfodownloader = MediaInfoDownloader(
                 cookie=configer.get_config("cookies")
+            )
+            self.share_interactive_gen_strm_queue.bind_mediainfodownloader(
+                self.mediainfodownloader
             )
 
             # 生活事件监控初始化

@@ -69,6 +69,20 @@ def extract_cloud_links_from_text(text: str) -> Tuple[List[str], str]:
         return [], ""
 
 
+def _pick_first_u115_url(links: List[str]) -> Optional[str]:
+    """
+    在已提取的链接中只取第一条 115 分享 URL
+
+    :param links: 原始链接列表
+    :return: 规范化后的第一条 115 URL，否则 None
+    """
+    normalized = [normalize_share_url_candidate(x) for x in links if x]
+    for cand in normalized:
+        if re_match(U115_SHARE_URL_MATCH, cand):
+            return cand
+    return None
+
+
 def _pick_preferred_share_url(links: List[str]) -> Optional[str]:
     """
     在已提取的链接中优先 115，其次阿里云
@@ -112,6 +126,34 @@ def _fetch_share_url_from_telegra(telegra_url: str) -> Optional[str]:
         return None
 
 
+def _fetch_u115_share_url_from_telegra(telegra_url: str) -> Optional[str]:
+    """
+    拉取 telegra.ph 页面并解析其中的 115 分享链接（忽略阿里云等）
+
+    :param telegra_url: Telegraph 页面 URL
+    :return: 第一条 115 分享 URL，失败为 None
+    """
+    try:
+        client = build_share_page_client()
+        response = client.get(telegra_url, timeout=30)
+        response.raise_for_status()
+        links, _ = extract_cloud_link_urls_from_text(response.text)
+        picked = _pick_first_u115_url(links)
+        if picked:
+            logger.debug(
+                f"【ShareLinks】从 telegra.ph 解析到 115 分享链接: {telegra_url}"
+            )
+        return picked
+    except RequestError as e:
+        logger.warning(f"【ShareLinks】访问 telegra.ph 失败: {telegra_url}, 错误: {e}")
+        return None
+    except Exception as e:
+        logger.warning(
+            f"【ShareLinks】解析 telegra.ph 页面出错: {telegra_url}, 错误: {e}"
+        )
+        return None
+
+
 class ShareLinkResolver:
     """
     从用户消息中解析 115 / 阿里云分享链接
@@ -138,6 +180,32 @@ class ShareLinkResolver:
                 return cand
             if is_telegra_ph_url(cand):
                 resolved = _fetch_share_url_from_telegra(cand)
+                if resolved:
+                    return resolved
+                continue
+        return None
+
+    @staticmethod
+    def extract_u115_share_url_from_text(text: str) -> Optional[str]:
+        """
+        从整段消息文本中提取第一条 115 分享链接（不接受阿里云盘）
+
+        :param text: 用户消息全文或命令参数
+        :return: 合法 115 分享 URL，否则 None
+        """
+        if not text or not isinstance(text, str):
+            return None
+
+        for m in HTTPS_URL_TOKEN_PATTERN.finditer(text):
+            cand = normalize_share_url_candidate(m.group(0))
+            if not cand:
+                continue
+            if re_match(U115_SHARE_URL_MATCH, cand):
+                return cand
+            if re_match(ALIYUN_SHARE_URL_MATCH, cand):
+                continue
+            if is_telegra_ph_url(cand):
+                resolved = _fetch_u115_share_url_from_telegra(cand)
                 if resolved:
                     return resolved
                 continue

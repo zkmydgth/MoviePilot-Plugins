@@ -209,6 +209,45 @@ class ViewRenderer(BaseViewRenderer):
 
         return {"title": title, "text": text, "buttons": buttons}
 
+    @view_registry.view(name="share_link_intent", code="sli")
+    def render_share_link_intent(self, session: Session) -> Dict:
+        """
+        渲染分享链接意图选择（转存 / 分享交互生成 STRM）
+        """
+        title = i18n.translate("p115_share_link_intent_title")
+        link_preview = (session.business.share_recieve_url or "").strip()
+        text_lines = [
+            "",
+            i18n.translate("p115_share_link_intent_text"),
+            "",
+            link_preview,
+        ]
+        buttons: List = []
+        supports_buttons = ChannelCapabilityManager.supports_buttons(
+            session.message.channel
+        )
+        if supports_buttons:
+            buttons.append(
+                [
+                    self._build_button(
+                        session,
+                        text=i18n.translate("p115_share_link_intent_btn_transfer"),
+                        action=Action(command="share_intent_transfer"),
+                    ),
+                    self._build_button(
+                        session,
+                        text=i18n.translate("p115_share_link_intent_btn_strm"),
+                        action=Action(command="share_intent_strm"),
+                    ),
+                ]
+            )
+        else:
+            text_lines.append("")
+            text_lines.append(i18n.translate("p115_share_link_intent_no_buttons_hint"))
+        buttons.append(self.get_navigation_buttons(session, close=True))
+        text = "\n".join(text_lines)
+        return {"title": title, "text": text, "buttons": buttons}
+
     @view_registry.view(name="offline_download_paths", code="odps")
     def render_offline_download_paths(self, session: Session) -> Dict:
         """

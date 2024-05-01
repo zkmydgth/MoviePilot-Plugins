@@ -22,7 +22,7 @@ from app.db.plugindata_oper import PluginDataOper
 from ..version import VERSION
 from ..core.aliyunpan import AliyunPanLogin
 from ..schemas.cookie import U115Cookie
-from ..schemas.share import ShareStrmConfig
+from ..schemas.share import ShareInteractiveGenStrmConfig, ShareStrmConfig
 from ..schemas.strm_api import StrmApiConfig
 from ..utils.cron import CronUtils
 from ..utils.machineid import MachineID
@@ -107,6 +107,20 @@ class ConfigManager(BaseModel):
             f"无法修复无效的 cron: '{v}'，恢复默认值 '{CronUtils.get_default_cron()}'"
         )
         return CronUtils.get_default_cron()
+
+    @field_validator("share_interactive_gen_strm_config", mode="before")
+    @classmethod
+    def _validate_share_interactive_gen_strm_config(
+        cls, v: Any
+    ) -> ShareInteractiveGenStrmConfig:
+        """
+        验证并转换 share_interactive_gen_strm_config
+        """
+        if v is None:
+            return ShareInteractiveGenStrmConfig()
+        if isinstance(v, dict):
+            return ShareInteractiveGenStrmConfig.model_validate(v)
+        return v
 
     @field_validator("share_strm_config", mode="before")
     @classmethod
@@ -407,6 +421,10 @@ class ConfigManager(BaseModel):
     )
     share_strm_mp_mediaserver_paths: Optional[str] = Field(
         default=None, description="MP-媒体库 目录转换"
+    )
+    share_interactive_gen_strm_config: ShareInteractiveGenStrmConfig = Field(
+        default_factory=ShareInteractiveGenStrmConfig,
+        description="分享交互生成 STRM 专用配置",
     )
 
     api_strm_config: List[StrmApiConfig] = Field(

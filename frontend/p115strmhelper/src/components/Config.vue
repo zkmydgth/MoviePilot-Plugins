@@ -374,6 +374,13 @@ const config = reactive({
   share_strm_config: [],
   share_strm_mediaservers: [],
   share_strm_mp_mediaserver_paths: '',
+  share_interactive_gen_strm_config: {
+    min_file_size: null,
+    auto_download_mediainfo: false,
+    local_path: '',
+    moviepilot_transfer: false,
+    speed_mode: 3,
+  },
   api_strm_config: [],
   api_strm_mediaservers: [],
   api_strm_mp_mediaserver_paths: '',

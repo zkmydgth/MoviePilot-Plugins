@@ -823,6 +823,69 @@
           </v-card-text>
         </v-card>
 
+        <!-- 分享交互生成 STRM（二级折叠） -->
+        <v-expansion-panels v-model="shareDialog.shareInteractiveGenStrmExpanded" variant="tonal" class="mb-4"
+          multiple>
+          <v-expansion-panel value="share-interactive-gen-strm" class="rounded border" eager>
+            <v-expansion-panel-title class="text-subtitle-2 d-flex align-center px-3 py-2 bg-grey-lighten-4">
+              <v-icon icon="mdi-chat-processing" size="small" class="mr-2"></v-icon>
+              <span>分享交互生成 STRM</span>
+              <v-chip size="x-small" class="ml-2" variant="tonal" color="primary">/p115_share_strm</v-chip>
+            </v-expansion-panel-title>
+            <v-expansion-panel-text class="pa-3" eager>
+              <v-alert type="info" density="compact" variant="tonal" class="mb-3">
+                <div class="text-body-2 font-weight-medium mb-1">远程命令 <code>/p115_share_strm</code> + 115 分享链接</div>
+                <div class="text-caption">仅识别 115 链接，任务进入队列串行执行；与下方「分享配置列表」批量同步相互独立</div>
+              </v-alert>
+              <v-row>
+                <v-col cols="12" md="6">
+                  <v-text-field v-model="shareDialog.interactiveGenStrm.minFileSizeFormatted" label="最小生成文件大小"
+                    hint="小于此值不生成 STRM，留空不限制；如 500M、1G" persistent-hint variant="outlined"
+                    density="compact" />
+                </v-col>
+                <v-col cols="12" md="6">
+                  <v-select v-model="shareDialog.interactiveGenStrm.speedMode" label="运行速度模式"
+                    :items="speedModeItems" item-title="title" item-value="value" variant="outlined"
+                    density="compact" />
+                </v-col>
+              </v-row>
+              <v-row>
+                <v-col cols="12">
+                  <div class="d-flex align-center flex-wrap ga-2">
+                    <v-text-field v-model="shareDialog.interactiveGenStrm.localPath" label="本地生成目录"
+                      class="flex-grow-1" density="compact" variant="outlined" clearable hide-details
+                      style="min-width: 200px;" />
+                    <v-btn size="small" color="primary" variant="tonal" prepend-icon="mdi-folder"
+                      @click="openInteractiveGenStrmDirSelector">选择目录</v-btn>
+                  </div>
+                </v-col>
+              </v-row>
+              <v-row class="mt-2">
+                <v-col cols="12" md="6">
+                  <v-switch v-model="shareDialog.interactiveGenStrm.autoDownloadMediainfo" label="自动下载网盘元数据"
+                    color="primary" density="compact" hide-details
+                    :disabled="shareDialog.interactiveGenStrm.moviepilotTransfer" />
+                </v-col>
+                <v-col cols="12" md="6">
+                  <v-switch v-model="shareDialog.interactiveGenStrm.moviepilotTransfer" label="交由 MoviePilot 整理"
+                    color="info" density="compact" hide-details />
+                </v-col>
+              </v-row>
+              <v-expand-transition>
+                <div v-if="shareDialog.interactiveGenStrm.moviepilotTransfer">
+                  <v-alert type="warning" density="compact" variant="tonal" class="mt-3">
+                    <div class="text-subtitle-2 mb-2">开启 MP 整理时，「本地生成目录」为临时待整理目录，请在 MoviePilot 设定 → 目录 中配置：</div>
+                    <ol class="text-caption pl-4 mb-0">
+                      <li class="mb-1">添加目录配置卡：按需选择媒体类型与媒体类别；资源存储选<strong>本地</strong>；资源目录填写与本插件一致的<strong>本地生成目录</strong>路径</li>
+                      <li>自动整理模式选<strong>手动整理</strong>；媒体库存储选<strong>本地</strong>并配置媒体库路径；整理方式选<strong>移动</strong>；分类、重命名、通知、刮削按需配置</li>
+                    </ol>
+                  </v-alert>
+                </div>
+              </v-expand-transition>
+            </v-expansion-panel-text>
+          </v-expansion-panel>
+        </v-expansion-panels>
+
         <!-- 分享配置列表 -->
         <v-card variant="outlined">
           <v-card-title class="text-subtitle-2 px-3 py-2 bg-grey-lighten-4 d-flex align-center">
@@ -1805,12 +1868,23 @@ const triggerFullSyncDb = async () => {
   }
 };
 
+const defaultInteractiveGenStrm = () => ({
+  minFileSizeFormatted: '',
+  autoDownloadMediainfo: false,
+  localPath: '',
+  moviepilotTransfer: false,
+  speedMode: 3,
+});
+
 const shareDialog = reactive({
   show: false,
   error: null,
   configs: [],
   globalMediaservers: [],
   globalMpMediaserverPaths: '',
+  interactiveGenStrm: defaultInteractiveGenStrm(),
+  /** 分享同步对话框内「分享交互生成 STRM」折叠面板展开项 */
+  shareInteractiveGenStrmExpanded: [],
 });
 
 const shareConfigDialog = reactive({
@@ -1882,13 +1956,47 @@ const openShareDialog = () => {
       ? [...props.initialConfig.share_strm_mediaservers]
       : [];
     shareDialog.globalMpMediaserverPaths = props.initialConfig.share_strm_mp_mediaserver_paths || '';
+
+    const ig = props.initialConfig.share_interactive_gen_strm_config || {};
+    shareDialog.interactiveGenStrm.minFileSizeFormatted = formatBytes(ig.min_file_size || 0);
+    shareDialog.interactiveGenStrm.autoDownloadMediainfo = ig.auto_download_mediainfo || false;
+    shareDialog.interactiveGenStrm.localPath = ig.local_path || '';
+    shareDialog.interactiveGenStrm.moviepilotTransfer = ig.moviepilot_transfer || false;
+    shareDialog.interactiveGenStrm.speedMode = ig.speed_mode !== undefined ? ig.speed_mode : 3;
   }
+};
+
+const flushShareInteractiveGenStrmToInitialConfig = () => {
+  if (!props.initialConfig) return;
+  const m = shareDialog.interactiveGenStrm;
+  props.initialConfig.share_interactive_gen_strm_config = {
+    min_file_size: parseSize(m.minFileSizeFormatted) || null,
+    auto_download_mediainfo: m.moviepilotTransfer ? false : m.autoDownloadMediainfo,
+    local_path: m.localPath || null,
+    moviepilot_transfer: m.moviepilotTransfer,
+    speed_mode: m.speedMode,
+  };
+};
+
+const openInteractiveGenStrmDirSelector = () => {
+  dirDialog.show = true;
+  dirDialog.isLocal = true;
+  dirDialog.loading = false;
+  dirDialog.error = null;
+  dirDialog.items = [];
+  dirDialog.currentPath = shareDialog.interactiveGenStrm.localPath || '/';
+  dirDialog.callback = (path) => {
+    shareDialog.interactiveGenStrm.localPath = path;
+  };
+  loadDirContent();
 };
 
 const closeShareDialog = () => {
   shareDialog.show = false;
   shareDialog.configs = [];
   shareDialog.error = null;
+  shareDialog.interactiveGenStrm = defaultInteractiveGenStrm();
+  shareDialog.shareInteractiveGenStrmExpanded = [];
 };
 
 const addShareConfig = () => {
@@ -1956,6 +2064,7 @@ const saveShareConfigs = async () => {
         ? [...shareDialog.globalMediaservers]
         : null;
       props.initialConfig.share_strm_mp_mediaserver_paths = shareDialog.globalMpMediaserverPaths || null;
+      flushShareInteractiveGenStrmToInitialConfig();
 
       const result = await props.api.post(`plugin/${pluginId}/save_config`, props.initialConfig);
       if (result && result.code === 0) {
@@ -2141,6 +2250,7 @@ const executeShareSync = async () => {
         ? [...shareDialog.globalMediaservers]
         : null;
       props.initialConfig.share_strm_mp_mediaserver_paths = shareDialog.globalMpMediaserverPaths || null;
+      flushShareInteractiveGenStrmToInitialConfig();
 
       await props.api.post(`plugin/${pluginId}/save_config`, props.initialConfig);
     }

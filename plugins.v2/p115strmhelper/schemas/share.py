@@ -33,6 +33,31 @@ class ShareApiData(BaseModel):
     timestamp: Optional[datetime] = Field(default=None, description="时间戳")
 
 
+class ShareInteractiveGenStrmConfig(BaseModel):
+    """
+    分享交互生成 STRM 专用配置
+    """
+
+    min_file_size: Optional[int] = Field(
+        default=None, ge=0, description="分享生成最小文件大小"
+    )
+    auto_download_mediainfo: bool = Field(
+        default=False, description="自动下载网盘元数据"
+    )
+    local_path: Optional[str] = Field(default=None, description="本地生成目录")
+    moviepilot_transfer: bool = Field(default=False, description="交由 MoviePilot 整理")
+    speed_mode: Literal[0, 1, 2, 3] = Field(default=3, description="运行速度模式")
+
+    @model_validator(mode="after")
+    def enforce_moviepilot_constraints(self):
+        """
+        当 moviepilot_transfer 为 True 时，强制关闭自动下载网盘元数据
+        """
+        if self.moviepilot_transfer:
+            self.auto_download_mediainfo = False
+        return self
+
+
 class ShareStrmConfig(BaseModel):
     """
     分享 STRM 生成配置

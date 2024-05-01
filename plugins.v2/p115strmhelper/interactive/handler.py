@@ -12,6 +12,7 @@ from .session import Session
 from ..core.config import configer
 from ..core.message import post_message
 from ..core.i18n import i18n
+from ..helper.strm import ShareInteractiveGenStrmQueue
 from ..service import servicer
 
 command_registry.clear()
@@ -87,6 +88,92 @@ class ActionHandler(BaseActionHandler):
         """
         session.business.share_recieve_path = None
         session.business.share_recieve_url = action.value
+
+    @command_registry.command(name="share_intent_transfer", code="sit")
+    def handle_share_intent_transfer(self, session: Session, action: Action):
+        """
+        分享链接意图：走分享转存
+        """
+        url = session.business.share_recieve_url
+        if not url:
+            return [
+                {
+                    "type": "error_message",
+                    "text": i18n.translate("p115_share_link_intent_missing_url"),
+                }
+            ]
+        paths = configer.share_recieve_paths or []
+        try:
+            if len(paths) <= 1:
+                pan_path = paths[0] if paths else None
+                servicer.sharetransferhelper.add_share(
+                    url=url,
+                    channel=session.message.channel,
+                    source=session.message.source,
+                    userid=session.message.userid,
+                    pan_path=pan_path,
+                )
+                session.view.name = "close"
+            else:
+                session.business.share_recieve_path = None
+                session.business.share_recieve_url = url
+                session.go_to("share_recieve_paths")
+        except Exception as e:
+            logger.error(
+                f"处理 share_intent_transfer 失败: url={url}, error={e}",
+                exc_info=True,
+            )
+            session.go_to("start")
+            return [
+                {
+                    "type": "error_message",
+                    "text": i18n.translate("p115_share_link_intent_transfer_error"),
+                }
+            ]
+        return None
+
+    @command_registry.command(name="share_intent_strm", code="sis")
+    def handle_share_intent_strm(self, session: Session, action: Action):
+        """
+        分享链接意图：走分享交互生成 STRM
+        """
+        u115 = session.business.share_strm_u115_url
+        if not u115:
+            return [
+                {
+                    "type": "error_message",
+                    "text": i18n.translate("p115_share_link_intent_strm_unavailable"),
+                }
+            ]
+        err_key = ShareInteractiveGenStrmQueue.validate_prerequisites()
+        if err_key:
+            return [
+                {
+                    "type": "error_message",
+                    "text": i18n.translate(err_key),
+                }
+            ]
+        try:
+            servicer.share_interactive_gen_strm_queue.enqueue_and_notify_user(
+                share_url=u115,
+                channel=session.message.channel,
+                source=session.message.source,
+                userid=session.message.userid,
+            )
+            session.view.name = "close"
+        except Exception as e:
+            logger.error(
+                f"处理 share_intent_strm 失败: url={u115}, error={e}",
+                exc_info=True,
+            )
+            session.go_to("start")
+            return [
+                {
+                    "type": "error_message",
+                    "text": i18n.translate("p115_share_link_intent_strm_error"),
+                }
+            ]
+        return None
 
     @command_registry.command(name="share_recieve", code="dsr")
     def handle_share_recieve(self, session: Session, action: Action):

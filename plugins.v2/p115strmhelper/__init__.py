@@ -32,7 +32,11 @@ from .interactive.framework.schemas import TSession
 from .interactive.handler import ActionHandler
 from .interactive.session import Session
 from .interactive.views import ViewRenderer
-from .helper.strm import FullSyncStrmHelper, TransferStrmHelper
+from .helper.strm import (
+    FullSyncStrmHelper,
+    ShareInteractiveGenStrmQueue,
+    TransferStrmHelper,
+)
 from .helper.mediasyncdel import MediaSyncDelHelper
 from .helper.mediasyncdel.webhook_queue import (
     SyncDelWebhookTask,
@@ -215,6 +219,13 @@ class P115StrmHelper(_PluginBase):
                 "desc": "转存分享到待整理目录",
                 "category": "",
                 "data": {"action": "p115_add_share"},
+            },
+            {
+                "cmd": "/p115_share_strm",
+                "event": EventType.PluginAction,
+                "desc": "115分享链接交互生成STRM",
+                "category": "",
+                "data": {"action": "p115_share_strm"},
             },
             {
                 "cmd": "/ol",
@@ -1083,53 +1094,105 @@ class P115StrmHelper(_PluginBase):
             )
         return False
 
+    @staticmethod
+    def _share_link_capabilities(text: str) -> Tuple[bool, bool, Optional[str]]:
+        """
+        判断分享消息分流：是否可走转存、是否可走 STRM（当前消息含 115 链接）
+
+        :param text: 用户消息全文或命令参数
+        :return: (can_transfer, can_strm, u115_url)；仅当 can_strm 为真时 u115_url 非空
+        """
+        can_transfer = bool(configer.share_recieve_paths)
+        gen_cfg = configer.share_interactive_gen_strm_config
+        local_path_ok = bool((gen_cfg.local_path or "").strip())
+        u115 = ShareLinkResolver.extract_u115_share_url_from_text(text)
+        can_strm = (
+            local_path_ok
+            and u115 is not None
+            and ShareInteractiveGenStrmQueue.validate_prerequisites() is None
+        )
+        return can_transfer, can_strm, u115 if can_strm else None
+
     @eventmanager.register(EventType.UserMessage)
     def user_add_share(self, event: Event):
         """
-        远程分享转存
+        用户消息中的分享链接：按配置分流转存、STRM 或双选菜单
         """
         if not configer.enabled:
             return
         text = event.event_data.get("text")
-        channel = event.event_data.get("channel")
         if not text:
             return
         share_url = ShareLinkResolver.extract_share_url_from_text(text)
         if not share_url:
             return
 
-        if len(configer.share_recieve_paths) <= 1:
-            servicer.sharetransferhelper.add_share(
-                url=share_url,
+        can_transfer, can_strm, u115 = self._share_link_capabilities(text)
+        event_data = event.event_data
+        channel = event_data.get("channel")
+        source = event_data.get("source")
+        userid = self._get_event_userid(event_data)
+
+        if can_transfer and can_strm:
+            try:
+                session = session_manager.get_or_create(
+                    event_data, plugin_id=self.__class__.__name__
+                )
+                session.business.share_recieve_url = share_url
+                session.business.share_strm_u115_url = u115
+                session.go_to("share_link_intent")
+                self._render_and_send(session)
+            except Exception as e:
+                logger.error(f"处理分享链接意图菜单失败: {e}", exc_info=True)
+            return
+
+        if can_strm and not can_transfer:
+            servicer.share_interactive_gen_strm_queue.enqueue_and_notify_user(
+                share_url=u115,
                 channel=channel,
-                source=event.event_data.get("source"),
-                userid=self._get_event_userid(event.event_data),
+                source=source,
+                userid=userid,
             )
             return
 
-        try:
-            session = session_manager.get_or_create(
-                event.event_data, plugin_id=self.__class__.__name__
-            )
-
-            action = Action(
-                command="share_recieve_path",
-                view="share_recieve_paths",
-                value=share_url,
-            )
-
-            immediate_messages = self.action_handler.process(session, action)
-            # 报错，截断后续运行
-            if immediate_messages:
-                for msg in immediate_messages:
-                    self.__send_message(session, text=msg.get("text"), title="错误")
+        if can_transfer:
+            if len(configer.share_recieve_paths) <= 1:
+                servicer.sharetransferhelper.add_share(
+                    url=share_url,
+                    channel=channel,
+                    source=source,
+                    userid=userid,
+                )
                 return
+            try:
+                session = session_manager.get_or_create(
+                    event_data, plugin_id=self.__class__.__name__
+                )
 
-            # 设置页面
-            session.go_to("share_recieve_paths")
-            self._render_and_send(session)
-        except Exception as e:
-            logger.error(f"处理分享转存命令失败: {e}")
+                action = Action(
+                    command="share_recieve_path",
+                    view="share_recieve_paths",
+                    value=share_url,
+                )
+
+                immediate_messages = self.action_handler.process(session, action)
+                if immediate_messages:
+                    for msg in immediate_messages:
+                        self.__send_message(session, text=msg.get("text"), title="错误")
+                    return
+
+                session.go_to("share_recieve_paths")
+                self._render_and_send(session)
+            except Exception as e:
+                logger.error(f"处理分享转存命令失败: {e}")
+            return
+
+        servicer.sharetransferhelper.add_share(
+            url=share_url,
+            channel=channel,
+            source=source,
+            userid=userid,
+        )
 
     @eventmanager.register(EventType.PluginAction)
     def p115_add_share(self, event: Event):
@@ -1199,6 +1262,63 @@ class P115StrmHelper(_PluginBase):
             self._render_and_send(session)
         except Exception as e:
             logger.error(f"处理分享转存命令失败: {e}")
+
+    @eventmanager.register(EventType.PluginAction)
+    def p115_share_strm(self, event: Event):
+        """
+        分享交互生成 STRM（仅 115 链接，队列执行）
+        """
+        event_data = event.event_data if event else {}
+        if not event_data or event_data.get("action") != "p115_share_strm":
+            return
+        args = event_data.get("arg_str")
+        userid = self._get_event_userid(event_data)
+        channel = event_data.get("channel")
+        source = event_data.get("source")
+        if not args:
+            logger.error(f"【分享交互生成STRM】缺少参数：{event_data}")
+            post_message(
+                channel=channel,
+                source=source,
+                title=i18n.translate("p115_share_strm_parameter_error"),
+                userid=userid,
+            )
+            return
+
+        share_u115 = ShareLinkResolver.extract_u115_share_url_from_text(args)
+        if not share_u115:
+            if ShareLinkResolver.extract_share_url_from_text(args):
+                post_message(
+                    channel=channel,
+                    source=source,
+                    title=i18n.translate("p115_share_strm_not_u115_error"),
+                    userid=userid,
+                )
+            else:
+                post_message(
+                    channel=channel,
+                    source=source,
+                    title=i18n.translate("p115_share_strm_parameter_error"),
+                    userid=userid,
+                )
+            return
+
+        err_key = ShareInteractiveGenStrmQueue.validate_prerequisites()
+        if err_key:
+            post_message(
+                channel=channel,
+                source=source,
+                title=i18n.translate(err_key),
+                userid=userid,
+            )
+            return
+
+        servicer.share_interactive_gen_strm_queue.enqueue_and_notify_user(
+            share_url=share_u115,
+            channel=channel,
+            source=source,
+            userid=userid,
+        )
 
     @eventmanager.register(EventType.PluginAction)
     def p115_add_offline(self, event: Event):
