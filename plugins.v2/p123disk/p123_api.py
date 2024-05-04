@@ -6,11 +6,13 @@ from datetime import datetime
 
 import pytz
 import requests
-from p123client import P123Client, check_response
+from p123 import P123Client, check_response
 
 import schemas
 from app.core.config import settings
 from app.log import logger
+
+from .upload import upload_file
 
 
 class P123Api:
@@ -372,7 +374,8 @@ class P123Api:
                             ),
                         )
 
-                    resp = self.client.upload_file(
+                    resp = upload_file(
+                        self.client,
                         file=local_path,
                         duplicate=2,
                         file_name=new_name,
