@@ -23,7 +23,7 @@ class FFprobeNamingSupplement(_PluginBase):
     plugin_name = "ffprobe命名补充"
     plugin_desc = "整理重命名时调用 ffprobe，补全命名模板中的 videoFormat、videoCodec、audioCodec、fps、effect，支持 STRM "
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/refs/heads/main/icons/ffmpeg.png"
-    plugin_version = "0.1.1"
+    plugin_version = "0.1.2"
     plugin_author = "DDSRem"
     author_url = "https://github.com/DDSRem"
     plugin_config_prefix = "ffprobenamingsupplement_"
@@ -53,7 +53,7 @@ class FFprobeNamingSupplement(_PluginBase):
         "eac3": "EAC3",
         "ac3": "AC3",
         "dts": "DTS",
-        "truehd": "TrueHD",
+        "truehd": "Dolby TrueHD",
         "flac": "FLAC",
         "opus": "OPUS",
         "mp3": "MP3",
@@ -276,7 +276,7 @@ class FFprobeNamingSupplement(_PluginBase):
                                                 "props": {
                                                     "class": "text-body-2 mt-1",
                                                 },
-                                                "text": "{{audioCodec}} — 音频编码与声道（如 EAC35.1、TrueHD7.1、AAC2.0）",
+                                                "text": "{{audioCodec}} — 音频编码与声道（如 EAC3 5.1、Dolby TrueHD Dolby Atmos 7.1、AAC 2.0）",
                                             },
                                             {
                                                 "component": "div",
@@ -414,7 +414,7 @@ class FFprobeNamingSupplement(_PluginBase):
         """
         从 ffprobe 的声道布局或声道数生成短标签（如 7.1、5.1、2.0）
 
-        拼在编码名后形成 TrueHD7.1、EAC35.1 等形式
+        与编码名以空格连接，如 Dolby TrueHD 7.1、EAC3 5.1（避免 EAC3 与 5.1 连成 EAC35.1）
         """
         layout_raw = (channel_layout or "").strip()
         if layout_raw:
@@ -451,20 +451,51 @@ class FFprobeNamingSupplement(_PluginBase):
         return count_map.get(n)
 
     @classmethod
+    def _audio_stream_has_dolby_atmos_ffprobe(cls, audio_s: Dict[str, Any]) -> bool:
+        """
+        根据 ffprobe 音频流的 profile、codec_tag_string、tags 判断是否含 Dolby Atmos
+
+        Dolby TrueHD / EAC3 等与 Atmos 为不同概念；仅在元数据标明 Atmos 时为 True
+        """
+        parts: List[str] = []
+        prof = audio_s.get("profile")
+        if prof:
+            parts.append(str(prof))
+        cts = audio_s.get("codec_tag_string")
+        if cts:
+            parts.append(str(cts))
+        tags = audio_s.get("tags")
+        if isinstance(tags, dict):
+            for v in tags.values():
+                if v:
+                    parts.append(str(v))
+        blob = " ".join(parts).lower()
+        return "atmos" in blob
+
+    @classmethod
     def _format_audio_codec_label(
         cls,
         codec_name: Optional[str],
         channel_layout: Optional[str],
         channels: Optional[Any],
+        *,
+        dolby_atmos: bool = False,
     ) -> Optional[str]:
         """
-        编码名 + 声道标签（有则附加），用于 rename_dict audioCodec
+        编码名、可选 Dolby Atmos、声道标签（均空格分隔），用于 rename_dict audioCodec
+
+        含 Atmos 时顺序为「基带编码 Dolby Atmos 声道」，如 Dolby TrueHD Dolby Atmos 7.1
         """
         ac = cls._map_audio_codec(codec_name)
         if not ac:
             return None
         tag = cls._normalize_audio_channel_tag(channel_layout, channels)
-        return f"{ac}{tag}" if tag else ac
+        parts: List[str] = [ac]
+        if dolby_atmos:
+            parts.append("Dolby Atmos")
+        if tag:
+            parts.append(tag)
+        return " ".join(parts)
 
     @classmethod
     def _video_stream_hdr_flags(cls, video_s: Dict[str, Any]) -> Tuple[bool, bool]:
@@ -576,10 +607,12 @@ class FFprobeNamingSupplement(_PluginBase):
             if eff:
                 out["effect"] = eff
         if audio_s:
+            atmos = cls._audio_stream_has_dolby_atmos_ffprobe(audio_s)
             ac = cls._format_audio_codec_label(
                 audio_s.get("codec_name"),
                 audio_s.get("channel_layout"),
                 audio_s.get("channels"),
+                dolby_atmos=atmos,
             )
             if ac:
                 out["audioCodec"] = ac

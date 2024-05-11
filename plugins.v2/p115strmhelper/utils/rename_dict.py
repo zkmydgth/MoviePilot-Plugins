@@ -33,7 +33,7 @@ class RenameDictUtils:
         "eac3": "EAC3",
         "ac3": "AC3",
         "dts": "DTS",
-        "truehd": "TrueHD",
+        "truehd": "Dolby TrueHD",
         "flac": "FLAC",
         "opus": "OPUS",
         "mp3": "MP3",
@@ -178,7 +178,7 @@ class RenameDictUtils:
         """
         从 ffprobe / Emby 的声道布局或声道数生成短标签（如 7.1、5.1、2.0）
 
-        与常见资源命名一致，拼在编码名后形成 TrueHD7.1、EAC35.1 等形式
+        与编码名以空格连接，如 Dolby TrueHD 7.1、EAC3 5.1（避免 EAC3 与 5.1 连成 EAC35.1）
 
         :param channel_layout: channel_layout 或 ChannelLayout 字符串
         :param channels: 声道数量
@@ -219,19 +219,63 @@ class RenameDictUtils:
         return count_map.get(n)
 
     @staticmethod
+    def _audio_stream_has_dolby_atmos_ffprobe(audio_s: Dict[str, Any]) -> bool:
+        """
+        根据 ffprobe 音频流的 profile、codec_tag_string、tags 判断是否含 Dolby Atmos
+
+        Dolby TrueHD / EAC3 等与 Atmos 为不同概念；仅在元数据标明 Atmos 时为 True
+        """
+        parts: List[str] = []
+        prof = audio_s.get("profile")
+        if prof:
+            parts.append(str(prof))
+        cts = audio_s.get("codec_tag_string")
+        if cts:
+            parts.append(str(cts))
+        tags = audio_s.get("tags")
+        if isinstance(tags, dict):
+            for v in tags.values():
+                if v:
+                    parts.append(str(v))
+        blob = " ".join(parts).lower()
+        return "atmos" in blob
+
+    @staticmethod
+    def _audio_stream_has_dolby_atmos_emby(audio_s: Dict[str, Any]) -> bool:
+        """
+        根据 Emby MediaStream 判断是否含 Dolby Atmos（与基带编码分列展示）
+        """
+        parts: List[str] = []
+        for key in ("Profile", "DisplayTitle", "Codec", "CodecTag"):
+            v = audio_s.get(key)
+            if v:
+                parts.append(str(v))
+        blob = " ".join(parts).lower()
+        return "atmos" in blob
+
+    @staticmethod
     def _format_audio_codec_label(
         codec_name: Optional[str],
         channel_layout: Optional[str],
         channels: Optional[Any],
+        *,
+        dolby_atmos: bool = False,
     ) -> Optional[str]:
         """
-        编码名 + 声道标签（有则附加），用于 rename_dict audioCodec
+        编码名、可选 Dolby Atmos、声道标签（均空格分隔），用于 rename_dict audioCodec
+
+        含 Atmos 时顺序为「基带编码 Dolby Atmos 声道」，如 Dolby TrueHD Dolby Atmos 7.1
         """
         ac = RenameDictUtils._map_audio_codec(codec_name)
         if not ac:
             return None
         tag = RenameDictUtils._normalize_audio_channel_tag(channel_layout, channels)
-        return f"{ac}{tag}" if tag else ac
+        parts: List[str] = [ac]
+        if dolby_atmos:
+            parts.append("Dolby Atmos")
+        if tag:
+            parts.append(tag)
+        return " ".join(parts)
 
     @staticmethod
     def _video_stream_hdr_flags(video_s: Dict[str, Any]) -> Tuple[bool, bool]:
@@ -343,10 +387,12 @@ class RenameDictUtils:
             if eff:
                 out["effect"] = eff
         if audio_s:
+            atmos = RenameDictUtils._audio_stream_has_dolby_atmos_ffprobe(audio_s)
             ac = RenameDictUtils._format_audio_codec_label(
                 audio_s.get("codec_name"),
                 audio_s.get("channel_layout"),
                 audio_s.get("channels"),
+                dolby_atmos=atmos,
             )
             if ac:
                 out["audioCodec"] = ac
@@ -609,10 +655,12 @@ class RenameDictUtils:
             if eff:
                 out["effect"] = eff
         if audio_s:
+            atmos = RenameDictUtils._audio_stream_has_dolby_atmos_emby(audio_s)
             ac = RenameDictUtils._format_audio_codec_label(
                 audio_s.get("Codec"),
                 audio_s.get("ChannelLayout"),
                 audio_s.get("Channels"),
+                dolby_atmos=atmos,
             )
             if ac:
                 out["audioCodec"] = ac
