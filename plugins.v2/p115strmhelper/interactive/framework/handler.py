@@ -3,9 +3,9 @@
 from typing import Dict, List
 
 from app.log import logger
+
 from .callbacks import Action
 from .registry import command_registry
-
 from .schemas import TSession
 
 

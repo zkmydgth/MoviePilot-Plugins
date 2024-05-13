@@ -11,7 +11,7 @@ from p115client.tool.fs_files import iter_fs_files
 from p115client.tool.iterdir import iter_files_with_path, share_iterdir
 
 from ..core.cache import IdPathCache
-from ..core.tree import DirectoryTree
+from ..utils.tree import DirectoryTree
 from ..core.scrape_metadata import media_scrape_metadata
 from ..helper.mediainfo_download import MediaInfoDownloader
 from ..db_manager.oper import FileDbHelper

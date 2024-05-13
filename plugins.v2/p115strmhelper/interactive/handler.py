@@ -4,11 +4,12 @@ import requests
 
 from app.log import logger
 from app.core.config import settings
+
 from .framework.registry import command_registry, view_registry
 from .framework.callbacks import Action
 from .framework.handler import BaseActionHandler
-from .schemas import Session
-from .core.config import configer
+from .session import Session
+from ..core.config import configer
 
 command_registry.clear()
 

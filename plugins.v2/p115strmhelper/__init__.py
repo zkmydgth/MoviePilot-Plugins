@@ -63,17 +63,17 @@ from .core.u115_open import U115OpenHelper
 from .db_manager import ct_db_manager
 from .db_manager.init import init_db, update_db
 from .db_manager.oper import FileDbHelper
-from .framework.callbacks import decode_action, Action
-from .framework.manager import BaseSessionManager
-from .framework.schemas import TSession
-from .handler import ActionHandler
+from .interactive.framework.callbacks import decode_action, Action
+from .interactive.framework.manager import BaseSessionManager
+from .interactive.framework.schemas import TSession
+from .interactive.handler import ActionHandler
+from .interactive.session import Session
+from .interactive.views import ViewRenderer
 from .helper.mediainfo_download import MediaInfoDownloader
 from .helper.strm import FullSyncStrmHelper, ShareStrmHelper, IncrementSyncStrmHelper
-from .schemas.session import Session
 from .utils.http import check_response
 from .utils.path import PathMatchingHelper
 from .utils.url import Url
-from .views import ViewRenderer
 
 # 实例化一个该插件专用的 SessionManager
 session_manager = BaseSessionManager(session_class=Session)

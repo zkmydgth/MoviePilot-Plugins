@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 from typing import Dict, Callable
+
 from app.log import logger
 
 

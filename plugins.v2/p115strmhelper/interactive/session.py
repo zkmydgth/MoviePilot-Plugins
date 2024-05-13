@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Optional, Dict
 
-from ..framework.schemas import BaseSession, BaseBusiness
+from .framework.schemas import BaseSession, BaseBusiness
 
 
 @dataclass
