@@ -20,35 +20,38 @@ const _hoisted_10 = { class: "d-flex flex-column" };
 const _hoisted_11 = { class: "path-selector flex-grow-1 mr-2" };
 const _hoisted_12 = { class: "path-selector flex-grow-1 ml-2" };
 const _hoisted_13 = { class: "d-flex flex-column" };
-const _hoisted_14 = { class: "d-flex flex-column" };
-const _hoisted_15 = { class: "path-selector flex-grow-1 mr-2" };
-const _hoisted_16 = { class: "path-selector flex-grow-1 ml-2" };
+const _hoisted_14 = { class: "path-selector flex-grow-1 mr-2" };
+const _hoisted_15 = { class: "path-selector flex-grow-1 ml-2" };
+const _hoisted_16 = { class: "d-flex flex-column" };
 const _hoisted_17 = { class: "d-flex flex-column" };
 const _hoisted_18 = { class: "path-selector flex-grow-1 mr-2" };
 const _hoisted_19 = { class: "path-selector flex-grow-1 ml-2" };
 const _hoisted_20 = { class: "d-flex flex-column" };
-const _hoisted_21 = {
+const _hoisted_21 = { class: "path-selector flex-grow-1 mr-2" };
+const _hoisted_22 = { class: "path-selector flex-grow-1 ml-2" };
+const _hoisted_23 = { class: "d-flex flex-column" };
+const _hoisted_24 = {
   key: 0,
   class: "d-flex justify-center my-3"
 };
-const _hoisted_22 = { key: 1 };
-const _hoisted_23 = {
+const _hoisted_25 = { key: 1 };
+const _hoisted_26 = {
   key: 1,
   class: "d-flex flex-column align-center py-3"
 };
-const _hoisted_24 = {
+const _hoisted_27 = {
   key: 2,
   class: "d-flex flex-column align-center"
 };
-const _hoisted_25 = { class: "d-flex flex-column align-center mb-3" };
-const _hoisted_26 = ["src"];
-const _hoisted_27 = { class: "text-body-2 text-grey mb-1" };
-const _hoisted_28 = { class: "text-subtitle-2 font-weight-medium text-primary" };
-const _hoisted_29 = {
+const _hoisted_28 = { class: "d-flex flex-column align-center mb-3" };
+const _hoisted_29 = ["src"];
+const _hoisted_30 = { class: "text-body-2 text-grey mb-1" };
+const _hoisted_31 = { class: "text-subtitle-2 font-weight-medium text-primary" };
+const _hoisted_32 = {
   key: 3,
   class: "d-flex flex-column align-center py-3"
 };
-const _hoisted_30 = { class: "text-caption mt-2 text-grey" };
+const _hoisted_33 = { class: "text-caption mt-2 text-grey" };
 
 const {ref,reactive,computed,onMounted,watch} = await importShared('vue');
 
@@ -106,6 +109,10 @@ const config = reactive({
   full_sync_auto_download_mediainfo_enabled: false,
   cron_full_sync_strm: '0 */7 * * *',
   full_sync_strm_paths: '',
+  increment_sync_strm_enabled: false,
+  increment_sync_auto_download_mediainfo_enabled: false,
+  increment_sync_cron: "0 * * * *",
+  increment_sync_strm_paths: '',
   monitor_life_enabled: false,
   monitor_life_auto_download_mediainfo_enabled: false,
   monitor_life_paths: '',
@@ -143,6 +150,7 @@ const message = reactive({
 const transferPaths = ref([{ local: '', remote: '' }]);
 const transferMpPaths = ref([{ local: '', remote: '' }]);
 const fullSyncPaths = ref([{ local: '', remote: '' }]);
+const incrementSyncPaths = ref([{ local: '', remote: '' }]);
 const monitorLifePaths = ref([{ local: '', remote: '' }]);
 const monitorLifeMpPaths = ref([{ local: '', remote: '' }]);
 const panTransferPaths = ref([{ path: '' }]);
@@ -258,6 +266,28 @@ watch(() => config.full_sync_strm_paths, (newVal) => {
   } catch (e) {
     console.error('解析full_sync_strm_paths出错:', e);
     fullSyncPaths.value = [{ local: '', remote: '' }];
+  }
+}, { immediate: true });
+
+watch(() => config.increment_sync_strm_paths, (newVal) => {
+  if (!newVal) {
+    incrementSyncPaths.value = [{ local: '', remote: '' }];
+    return;
+  }
+
+  try {
+    const paths = newVal.split('\n').filter(line => line.trim());
+    incrementSyncPaths.value = paths.map(path => {
+      const parts = path.split('#');
+      return { local: parts[0] || '', remote: parts[1] || '' };
+    });
+
+    if (incrementSyncPaths.value.length === 0) {
+      incrementSyncPaths.value = [{ local: '', remote: '' }];
+    }
+  } catch (e) {
+    console.error('解析increment_sync_strm_paths出错:', e);
+    incrementSyncPaths.value = [{ local: '', remote: '' }];
   }
 }, { immediate: true });
 
@@ -456,6 +486,7 @@ const saveConfig = async () => {
     config.transfer_monitor_paths = generatePathsConfig(transferPaths.value, 'transfer');
     config.transfer_mp_mediaserver_paths = generatePathsConfig(transferMpPaths.value, 'mp');
     config.full_sync_strm_paths = generatePathsConfig(fullSyncPaths.value, 'fullSync');
+    config.increment_sync_strm_paths = generatePathsConfig(incrementSyncPaths.value, 'incrementSync');
     config.monitor_life_paths = generatePathsConfig(monitorLifePaths.value, 'monitorLife');
     config.monitor_life_mp_mediaserver_paths = generatePathsConfig(monitorLifeMpPaths.value, 'monitorLifeMp');
     config.pan_transfer_paths = generatePathsConfig(panTransferPaths.value, 'panTransfer');
@@ -545,6 +576,9 @@ const addPath = (type) => {
     case 'fullSync':
       fullSyncPaths.value.push({ local: '', remote: '' });
       break;
+    case 'incrementSync':
+      incrementSyncPaths.value.push({ local: '', remote: '' });
+      break;
     case 'monitorLife':
       monitorLifePaths.value.push({ local: '', remote: '' });
       break;
@@ -575,6 +609,12 @@ const removePath = (index, type) => {
       fullSyncPaths.value.splice(index, 1);
       if (fullSyncPaths.value.length === 0) {
         fullSyncPaths.value = [{ local: '', remote: '' }];
+      }
+      break;
+    case 'incrementSync':
+      incrementSyncPaths.value.splice(index, 1);
+      if (incrementSyncPaths.value.length === 0) {
+        incrementSyncPaths.value = [{ local: '', remote: '' }];
       }
       break;
     case 'monitorLife':
@@ -796,6 +836,13 @@ const confirmDirSelection = () => {
           fullSyncPaths.value[dirDialog.index].local = processedPath;
         } else {
           fullSyncPaths.value[dirDialog.index].remote = processedPath;
+        }
+        break;
+      case 'incrementSync':
+        if (dirDialog.isLocal) {
+          incrementSyncPaths.value[dirDialog.index].local = processedPath;
+        } else {
+          incrementSyncPaths.value[dirDialog.index].remote = processedPath;
         }
         break;
       case 'monitorLife':
@@ -1169,7 +1216,7 @@ return (_ctx, _cache) => {
               color: "primary",
               size: "small"
             }),
-            _cache[47] || (_cache[47] = _createElementVNode("span", null, "115网盘STRM助手配置", -1))
+            _cache[51] || (_cache[51] = _createElementVNode("span", null, "115网盘STRM助手配置", -1))
           ]),
           _: 1
         }),
@@ -1212,7 +1259,7 @@ return (_ctx, _cache) => {
                             color: "primary",
                             size: "small"
                           }),
-                          _cache[48] || (_cache[48] = _createElementVNode("span", null, "基础设置", -1))
+                          _cache[52] || (_cache[52] = _createElementVNode("span", null, "基础设置", -1))
                         ]),
                         _: 1
                       }),
@@ -1425,12 +1472,12 @@ return (_ctx, _cache) => {
                                 size: "small",
                                 start: ""
                               }, {
-                                default: _withCtx(() => _cache[49] || (_cache[49] = [
+                                default: _withCtx(() => _cache[53] || (_cache[53] = [
                                   _createTextVNode("mdi-file-move-outline")
                                 ])),
                                 _: 1
                               }),
-                              _cache[50] || (_cache[50] = _createTextVNode("监控MP整理 "))
+                              _cache[54] || (_cache[54] = _createTextVNode("监控MP整理 "))
                             ]),
                             _: 1
                           }),
@@ -1443,12 +1490,30 @@ return (_ctx, _cache) => {
                                 size: "small",
                                 start: ""
                               }, {
-                                default: _withCtx(() => _cache[51] || (_cache[51] = [
+                                default: _withCtx(() => _cache[55] || (_cache[55] = [
                                   _createTextVNode("mdi-sync")
                                 ])),
                                 _: 1
                               }),
-                              _cache[52] || (_cache[52] = _createTextVNode("全量同步 "))
+                              _cache[56] || (_cache[56] = _createTextVNode("全量同步 "))
+                            ]),
+                            _: 1
+                          }),
+                          _createVNode(_component_v_tab, {
+                            value: "tab-increment-sync",
+                            class: "text-caption"
+                          }, {
+                            default: _withCtx(() => [
+                              _createVNode(_component_v_icon, {
+                                size: "small",
+                                start: ""
+                              }, {
+                                default: _withCtx(() => _cache[57] || (_cache[57] = [
+                                  _createTextVNode("book-sync")
+                                ])),
+                                _: 1
+                              }),
+                              _cache[58] || (_cache[58] = _createTextVNode("增量同步 "))
                             ]),
                             _: 1
                           }),
@@ -1461,12 +1526,12 @@ return (_ctx, _cache) => {
                                 size: "small",
                                 start: ""
                               }, {
-                                default: _withCtx(() => _cache[53] || (_cache[53] = [
+                                default: _withCtx(() => _cache[59] || (_cache[59] = [
                                   _createTextVNode("mdi-calendar-heart")
                                 ])),
                                 _: 1
                               }),
-                              _cache[54] || (_cache[54] = _createTextVNode("监控115生活事件 "))
+                              _cache[60] || (_cache[60] = _createTextVNode("监控115生活事件 "))
                             ]),
                             _: 1
                           }),
@@ -1479,12 +1544,12 @@ return (_ctx, _cache) => {
                                 size: "small",
                                 start: ""
                               }, {
-                                default: _withCtx(() => _cache[55] || (_cache[55] = [
+                                default: _withCtx(() => _cache[61] || (_cache[61] = [
                                   _createTextVNode("mdi-broom")
                                 ])),
                                 _: 1
                               }),
-                              _cache[56] || (_cache[56] = _createTextVNode("定期清理 "))
+                              _cache[62] || (_cache[62] = _createTextVNode("定期清理 "))
                             ]),
                             _: 1
                           }),
@@ -1497,12 +1562,12 @@ return (_ctx, _cache) => {
                                 size: "small",
                                 start: ""
                               }, {
-                                default: _withCtx(() => _cache[57] || (_cache[57] = [
+                                default: _withCtx(() => _cache[63] || (_cache[63] = [
                                   _createTextVNode("mdi-transfer")
                                 ])),
                                 _: 1
                               }),
-                              _cache[58] || (_cache[58] = _createTextVNode("网盘整理 "))
+                              _cache[64] || (_cache[64] = _createTextVNode("网盘整理 "))
                             ]),
                             _: 1
                           }),
@@ -1515,12 +1580,12 @@ return (_ctx, _cache) => {
                                 size: "small",
                                 start: ""
                               }, {
-                                default: _withCtx(() => _cache[59] || (_cache[59] = [
+                                default: _withCtx(() => _cache[65] || (_cache[65] = [
                                   _createTextVNode("mdi-upload")
                                 ])),
                                 _: 1
                               }),
-                              _cache[60] || (_cache[60] = _createTextVNode("目录上传 "))
+                              _cache[66] || (_cache[66] = _createTextVNode("目录上传 "))
                             ]),
                             _: 1
                           })
@@ -1530,7 +1595,7 @@ return (_ctx, _cache) => {
                       _createVNode(_component_v_divider),
                       _createVNode(_component_v_window, {
                         modelValue: activeTab.value,
-                        "onUpdate:modelValue": _cache[41] || (_cache[41] = $event => ((activeTab).value = $event))
+                        "onUpdate:modelValue": _cache[45] || (_cache[45] = $event => ((activeTab).value = $event))
                       }, {
                         default: _withCtx(() => [
                           _createVNode(_component_v_window_item, { value: "tab-transfer" }, {
@@ -1635,7 +1700,7 @@ return (_ctx, _cache) => {
                                                     }, {
                                                       default: _withCtx(() => [
                                                         _createVNode(_component_v_icon, null, {
-                                                          default: _withCtx(() => _cache[61] || (_cache[61] = [
+                                                          default: _withCtx(() => _cache[67] || (_cache[67] = [
                                                             _createTextVNode("mdi-delete")
                                                           ])),
                                                           _: 1
@@ -1652,7 +1717,7 @@ return (_ctx, _cache) => {
                                                   class: "mt-1 align-self-start",
                                                   onClick: _cache[13] || (_cache[13] = $event => (openExcludeDirSelector('transfer_monitor_scrape_metadata_exclude_paths')))
                                                 }, {
-                                                  default: _withCtx(() => _cache[62] || (_cache[62] = [
+                                                  default: _withCtx(() => _cache[68] || (_cache[68] = [
                                                     _createTextVNode(" 添加刮削排除目录 ")
                                                   ])),
                                                   _: 1
@@ -1664,7 +1729,7 @@ return (_ctx, _cache) => {
                                                 color: "info",
                                                 class: "text-caption pa-0 mt-1"
                                               }, {
-                                                default: _withCtx(() => _cache[63] || (_cache[63] = [
+                                                default: _withCtx(() => _cache[69] || (_cache[69] = [
                                                   _createTextVNode(" 此处添加的本地目录，在STRM文件生成后将不会自动触发刮削。 ")
                                                 ])),
                                                 _: 1
@@ -1697,7 +1762,7 @@ return (_ctx, _cache) => {
                                                   }, null, 8, ["modelValue", "onUpdate:modelValue", "onClick:append"])
                                                 ]),
                                                 _createVNode(_component_v_icon, null, {
-                                                  default: _withCtx(() => _cache[64] || (_cache[64] = [
+                                                  default: _withCtx(() => _cache[70] || (_cache[70] = [
                                                     _createTextVNode("mdi-pound")
                                                   ])),
                                                   _: 1
@@ -1721,7 +1786,7 @@ return (_ctx, _cache) => {
                                                 }, {
                                                   default: _withCtx(() => [
                                                     _createVNode(_component_v_icon, null, {
-                                                      default: _withCtx(() => _cache[65] || (_cache[65] = [
+                                                      default: _withCtx(() => _cache[71] || (_cache[71] = [
                                                         _createTextVNode("mdi-delete")
                                                       ])),
                                                       _: 1
@@ -1738,7 +1803,7 @@ return (_ctx, _cache) => {
                                               class: "mt-2 align-self-start",
                                               onClick: _cache[14] || (_cache[14] = $event => (addPath('transfer')))
                                             }, {
-                                              default: _withCtx(() => _cache[66] || (_cache[66] = [
+                                              default: _withCtx(() => _cache[72] || (_cache[72] = [
                                                 _createTextVNode(" 添加路径 ")
                                               ])),
                                               _: 1
@@ -1750,7 +1815,7 @@ return (_ctx, _cache) => {
                                             density: "compact",
                                             class: "mt-2"
                                           }, {
-                                            default: _withCtx(() => _cache[67] || (_cache[67] = [
+                                            default: _withCtx(() => _cache[73] || (_cache[73] = [
                                               _createTextVNode(" 监控MoviePilot整理入库事件，自动在本地对应目录生成STRM文件。"),
                                               _createElementVNode("br", null, null, -1),
                                               _createTextVNode(" 本地STRM目录：本地STRM文件生成路径 网盘媒体库目录：需要生成本地STRM文件的网盘媒体库路径 ")
@@ -1782,7 +1847,7 @@ return (_ctx, _cache) => {
                                                   }, null, 8, ["modelValue", "onUpdate:modelValue"])
                                                 ]),
                                                 _createVNode(_component_v_icon, null, {
-                                                  default: _withCtx(() => _cache[68] || (_cache[68] = [
+                                                  default: _withCtx(() => _cache[74] || (_cache[74] = [
                                                     _createTextVNode("mdi-pound")
                                                   ])),
                                                   _: 1
@@ -1804,7 +1869,7 @@ return (_ctx, _cache) => {
                                                 }, {
                                                   default: _withCtx(() => [
                                                     _createVNode(_component_v_icon, null, {
-                                                      default: _withCtx(() => _cache[69] || (_cache[69] = [
+                                                      default: _withCtx(() => _cache[75] || (_cache[75] = [
                                                         _createTextVNode("mdi-delete")
                                                       ])),
                                                       _: 1
@@ -1821,7 +1886,7 @@ return (_ctx, _cache) => {
                                               class: "mt-2 align-self-start",
                                               onClick: _cache[15] || (_cache[15] = $event => (addPath('mp')))
                                             }, {
-                                              default: _withCtx(() => _cache[70] || (_cache[70] = [
+                                              default: _withCtx(() => _cache[76] || (_cache[76] = [
                                                 _createTextVNode(" 添加路径 ")
                                               ])),
                                               _: 1
@@ -1833,7 +1898,7 @@ return (_ctx, _cache) => {
                                             density: "compact",
                                             class: "mt-2"
                                           }, {
-                                            default: _withCtx(() => _cache[71] || (_cache[71] = [
+                                            default: _withCtx(() => _cache[77] || (_cache[77] = [
                                               _createTextVNode(" 媒体服务器映射路径和MP映射路径不一样时请配置此项，如果不配置则无法正常刷新。"),
                                               _createElementVNode("br", null, null, -1),
                                               _createTextVNode(" 当映射路径一样时可省略此配置。 ")
@@ -1964,7 +2029,7 @@ return (_ctx, _cache) => {
                                                   }, null, 8, ["modelValue", "onUpdate:modelValue", "onClick:append"])
                                                 ]),
                                                 _createVNode(_component_v_icon, null, {
-                                                  default: _withCtx(() => _cache[72] || (_cache[72] = [
+                                                  default: _withCtx(() => _cache[78] || (_cache[78] = [
                                                     _createTextVNode("mdi-pound")
                                                   ])),
                                                   _: 1
@@ -1988,7 +2053,7 @@ return (_ctx, _cache) => {
                                                 }, {
                                                   default: _withCtx(() => [
                                                     _createVNode(_component_v_icon, null, {
-                                                      default: _withCtx(() => _cache[73] || (_cache[73] = [
+                                                      default: _withCtx(() => _cache[79] || (_cache[79] = [
                                                         _createTextVNode("mdi-delete")
                                                       ])),
                                                       _: 1
@@ -2005,7 +2070,7 @@ return (_ctx, _cache) => {
                                               class: "mt-2 align-self-start",
                                               onClick: _cache[21] || (_cache[21] = $event => (addPath('fullSync')))
                                             }, {
-                                              default: _withCtx(() => _cache[74] || (_cache[74] = [
+                                              default: _withCtx(() => _cache[80] || (_cache[80] = [
                                                 _createTextVNode(" 添加路径 ")
                                               ])),
                                               _: 1
@@ -2017,8 +2082,154 @@ return (_ctx, _cache) => {
                                             density: "compact",
                                             class: "mt-2"
                                           }, {
-                                            default: _withCtx(() => _cache[75] || (_cache[75] = [
+                                            default: _withCtx(() => _cache[81] || (_cache[81] = [
                                               _createTextVNode(" 全量扫描配置的网盘目录，并在对应的本地目录生成STRM文件。"),
+                                              _createElementVNode("br", null, null, -1),
+                                              _createTextVNode(" 本地STRM目录：本地STRM文件生成路径 网盘媒体库目录：需要生成本地STRM文件的网盘媒体库路径 ")
+                                            ])),
+                                            _: 1
+                                          })
+                                        ]),
+                                        _: 1
+                                      })
+                                    ]),
+                                    _: 1
+                                  })
+                                ]),
+                                _: 1
+                              })
+                            ]),
+                            _: 1
+                          }),
+                          _createVNode(_component_v_window_item, { value: "tab-increment-sync" }, {
+                            default: _withCtx(() => [
+                              _createVNode(_component_v_card_text, null, {
+                                default: _withCtx(() => [
+                                  _createVNode(_component_v_row, null, {
+                                    default: _withCtx(() => [
+                                      _createVNode(_component_v_col, {
+                                        cols: "12",
+                                        md: "2"
+                                      }, {
+                                        default: _withCtx(() => [
+                                          _createVNode(_component_v_switch, {
+                                            modelValue: config.increment_sync_strm_enabled,
+                                            "onUpdate:modelValue": _cache[22] || (_cache[22] = $event => ((config.increment_sync_strm_enabled) = $event)),
+                                            label: "启用",
+                                            color: "warning"
+                                          }, null, 8, ["modelValue"])
+                                        ]),
+                                        _: 1
+                                      }),
+                                      _createVNode(_component_v_col, {
+                                        cols: "12",
+                                        md: "5"
+                                      }, {
+                                        default: _withCtx(() => [
+                                          _createVNode(_component_VCronField, {
+                                            modelValue: config.increment_sync_cron,
+                                            "onUpdate:modelValue": _cache[23] || (_cache[23] = $event => ((config.increment_sync_cron) = $event)),
+                                            label: "运行增量同步周期",
+                                            hint: "设置增量同步的执行周期",
+                                            "persistent-hint": "",
+                                            density: "compact"
+                                          }, null, 8, ["modelValue"])
+                                        ]),
+                                        _: 1
+                                      }),
+                                      _createVNode(_component_v_col, {
+                                        cols: "12",
+                                        md: "5"
+                                      }, {
+                                        default: _withCtx(() => [
+                                          _createVNode(_component_v_switch, {
+                                            modelValue: config.increment_sync_auto_download_mediainfo_enabled,
+                                            "onUpdate:modelValue": _cache[24] || (_cache[24] = $event => ((config.increment_sync_auto_download_mediainfo_enabled) = $event)),
+                                            label: "下载媒体数据文件",
+                                            color: "warning"
+                                          }, null, 8, ["modelValue"])
+                                        ]),
+                                        _: 1
+                                      })
+                                    ]),
+                                    _: 1
+                                  }),
+                                  _createVNode(_component_v_row, null, {
+                                    default: _withCtx(() => [
+                                      _createVNode(_component_v_col, { cols: "12" }, {
+                                        default: _withCtx(() => [
+                                          _createElementVNode("div", _hoisted_13, [
+                                            (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(incrementSyncPaths.value, (pair, index) => {
+                                              return (_openBlock(), _createElementBlock("div", {
+                                                key: `increment-${index}`,
+                                                class: "mb-2 d-flex align-center"
+                                              }, [
+                                                _createElementVNode("div", _hoisted_14, [
+                                                  _createVNode(_component_v_text_field, {
+                                                    modelValue: pair.local,
+                                                    "onUpdate:modelValue": $event => ((pair.local) = $event),
+                                                    label: "本地STRM目录",
+                                                    density: "compact",
+                                                    "append-icon": "mdi-folder",
+                                                    "onClick:append": $event => (openDirSelector(index, 'local', 'incrementSync'))
+                                                  }, null, 8, ["modelValue", "onUpdate:modelValue", "onClick:append"])
+                                                ]),
+                                                _createVNode(_component_v_icon, null, {
+                                                  default: _withCtx(() => _cache[82] || (_cache[82] = [
+                                                    _createTextVNode("mdi-pound")
+                                                  ])),
+                                                  _: 1
+                                                }),
+                                                _createElementVNode("div", _hoisted_15, [
+                                                  _createVNode(_component_v_text_field, {
+                                                    modelValue: pair.remote,
+                                                    "onUpdate:modelValue": $event => ((pair.remote) = $event),
+                                                    label: "网盘媒体库目录",
+                                                    density: "compact",
+                                                    "append-icon": "mdi-folder-network",
+                                                    "onClick:append": $event => (openDirSelector(index, 'remote', 'incrementSync'))
+                                                  }, null, 8, ["modelValue", "onUpdate:modelValue", "onClick:append"])
+                                                ]),
+                                                _createVNode(_component_v_btn, {
+                                                  icon: "",
+                                                  size: "small",
+                                                  color: "error",
+                                                  class: "ml-2",
+                                                  onClick: $event => (removePath(index, 'incrementSync'))
+                                                }, {
+                                                  default: _withCtx(() => [
+                                                    _createVNode(_component_v_icon, null, {
+                                                      default: _withCtx(() => _cache[83] || (_cache[83] = [
+                                                        _createTextVNode("mdi-delete")
+                                                      ])),
+                                                      _: 1
+                                                    })
+                                                  ]),
+                                                  _: 2
+                                                }, 1032, ["onClick"])
+                                              ]))
+                                            }), 128)),
+                                            _createVNode(_component_v_btn, {
+                                              size: "small",
+                                              "prepend-icon": "mdi-plus",
+                                              variant: "outlined",
+                                              class: "mt-2 align-self-start",
+                                              onClick: _cache[25] || (_cache[25] = $event => (addPath('incrementSync')))
+                                            }, {
+                                              default: _withCtx(() => _cache[84] || (_cache[84] = [
+                                                _createTextVNode(" 添加路径 ")
+                                              ])),
+                                              _: 1
+                                            })
+                                          ]),
+                                          _createVNode(_component_v_alert, {
+                                            type: "info",
+                                            variant: "tonal",
+                                            density: "compact",
+                                            class: "mt-2"
+                                          }, {
+                                            default: _withCtx(() => _cache[85] || (_cache[85] = [
+                                              _createTextVNode(" 增量扫描配置的网盘目录，并在对应的本地目录生成STRM文件。"),
                                               _createElementVNode("br", null, null, -1),
                                               _createTextVNode(" 本地STRM目录：本地STRM文件生成路径 网盘媒体库目录：需要生成本地STRM文件的网盘媒体库路径 ")
                                             ])),
@@ -2049,7 +2260,7 @@ return (_ctx, _cache) => {
                                         default: _withCtx(() => [
                                           _createVNode(_component_v_switch, {
                                             modelValue: config.monitor_life_enabled,
-                                            "onUpdate:modelValue": _cache[22] || (_cache[22] = $event => ((config.monitor_life_enabled) = $event)),
+                                            "onUpdate:modelValue": _cache[26] || (_cache[26] = $event => ((config.monitor_life_enabled) = $event)),
                                             label: "监控115生活事件",
                                             color: "info"
                                           }, null, 8, ["modelValue"])
@@ -2063,7 +2274,7 @@ return (_ctx, _cache) => {
                                         default: _withCtx(() => [
                                           _createVNode(_component_v_select, {
                                             modelValue: config.monitor_life_event_modes,
-                                            "onUpdate:modelValue": _cache[23] || (_cache[23] = $event => ((config.monitor_life_event_modes) = $event)),
+                                            "onUpdate:modelValue": _cache[27] || (_cache[27] = $event => ((config.monitor_life_event_modes) = $event)),
                                             label: "处理事件类型",
                                             items: [
                         { title: '新增事件', value: 'creata' },
@@ -2084,7 +2295,7 @@ return (_ctx, _cache) => {
                                         default: _withCtx(() => [
                                           _createVNode(_component_v_switch, {
                                             modelValue: config.monitor_life_auto_download_mediainfo_enabled,
-                                            "onUpdate:modelValue": _cache[24] || (_cache[24] = $event => ((config.monitor_life_auto_download_mediainfo_enabled) = $event)),
+                                            "onUpdate:modelValue": _cache[28] || (_cache[28] = $event => ((config.monitor_life_auto_download_mediainfo_enabled) = $event)),
                                             label: "下载媒体数据文件",
                                             color: "warning"
                                           }, null, 8, ["modelValue"])
@@ -2098,7 +2309,7 @@ return (_ctx, _cache) => {
                                         default: _withCtx(() => [
                                           _createVNode(_component_v_switch, {
                                             modelValue: config.monitor_life_scrape_metadata_enabled,
-                                            "onUpdate:modelValue": _cache[25] || (_cache[25] = $event => ((config.monitor_life_scrape_metadata_enabled) = $event)),
+                                            "onUpdate:modelValue": _cache[29] || (_cache[29] = $event => ((config.monitor_life_scrape_metadata_enabled) = $event)),
                                             label: "STRM自动刮削",
                                             color: "primary"
                                           }, null, 8, ["modelValue"])
@@ -2117,7 +2328,7 @@ return (_ctx, _cache) => {
                                         default: _withCtx(() => [
                                           _createVNode(_component_v_switch, {
                                             modelValue: config.monitor_life_media_server_refresh_enabled,
-                                            "onUpdate:modelValue": _cache[26] || (_cache[26] = $event => ((config.monitor_life_media_server_refresh_enabled) = $event)),
+                                            "onUpdate:modelValue": _cache[30] || (_cache[30] = $event => ((config.monitor_life_media_server_refresh_enabled) = $event)),
                                             label: "媒体服务器刷新",
                                             color: "warning"
                                           }, null, 8, ["modelValue"])
@@ -2131,7 +2342,7 @@ return (_ctx, _cache) => {
                                         default: _withCtx(() => [
                                           _createVNode(_component_v_select, {
                                             modelValue: config.monitor_life_mediaservers,
-                                            "onUpdate:modelValue": _cache[27] || (_cache[27] = $event => ((config.monitor_life_mediaservers) = $event)),
+                                            "onUpdate:modelValue": _cache[31] || (_cache[31] = $event => ((config.monitor_life_mediaservers) = $event)),
                                             label: "媒体服务器",
                                             items: mediaservers.value,
                                             multiple: "",
@@ -2152,7 +2363,7 @@ return (_ctx, _cache) => {
                                         default: _withCtx(() => [
                                           _createVNode(_component_v_col, { cols: "12" }, {
                                             default: _withCtx(() => [
-                                              _createElementVNode("div", _hoisted_13, [
+                                              _createElementVNode("div", _hoisted_16, [
                                                 (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(monitorLifeExcludePaths.value, (item, index) => {
                                                   return (_openBlock(), _createElementBlock("div", {
                                                     key: `life-exclude-${index}`,
@@ -2178,7 +2389,7 @@ return (_ctx, _cache) => {
                                                     }, {
                                                       default: _withCtx(() => [
                                                         _createVNode(_component_v_icon, null, {
-                                                          default: _withCtx(() => _cache[76] || (_cache[76] = [
+                                                          default: _withCtx(() => _cache[86] || (_cache[86] = [
                                                             _createTextVNode("mdi-delete")
                                                           ])),
                                                           _: 1
@@ -2193,9 +2404,9 @@ return (_ctx, _cache) => {
                                                   "prepend-icon": "mdi-folder-plus-outline",
                                                   variant: "tonal",
                                                   class: "mt-1 align-self-start",
-                                                  onClick: _cache[28] || (_cache[28] = $event => (openExcludeDirSelector('monitor_life_scrape_metadata_exclude_paths')))
+                                                  onClick: _cache[32] || (_cache[32] = $event => (openExcludeDirSelector('monitor_life_scrape_metadata_exclude_paths')))
                                                 }, {
-                                                  default: _withCtx(() => _cache[77] || (_cache[77] = [
+                                                  default: _withCtx(() => _cache[87] || (_cache[87] = [
                                                     _createTextVNode(" 添加刮削排除目录 ")
                                                   ])),
                                                   _: 1
@@ -2207,7 +2418,7 @@ return (_ctx, _cache) => {
                                                 color: "info",
                                                 class: "text-caption pa-0 mt-1"
                                               }, {
-                                                default: _withCtx(() => _cache[78] || (_cache[78] = [
+                                                default: _withCtx(() => _cache[88] || (_cache[88] = [
                                                   _createTextVNode(" 此处添加的本地目录，在115生活事件监控生成STRM后将不会自动触发刮削。 ")
                                                 ])),
                                                 _: 1
@@ -2223,13 +2434,13 @@ return (_ctx, _cache) => {
                                     default: _withCtx(() => [
                                       _createVNode(_component_v_col, { cols: "12" }, {
                                         default: _withCtx(() => [
-                                          _createElementVNode("div", _hoisted_14, [
+                                          _createElementVNode("div", _hoisted_17, [
                                             (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(monitorLifePaths.value, (pair, index) => {
                                               return (_openBlock(), _createElementBlock("div", {
                                                 key: `life-${index}`,
                                                 class: "mb-2 d-flex align-center"
                                               }, [
-                                                _createElementVNode("div", _hoisted_15, [
+                                                _createElementVNode("div", _hoisted_18, [
                                                   _createVNode(_component_v_text_field, {
                                                     modelValue: pair.local,
                                                     "onUpdate:modelValue": $event => ((pair.local) = $event),
@@ -2240,12 +2451,12 @@ return (_ctx, _cache) => {
                                                   }, null, 8, ["modelValue", "onUpdate:modelValue", "onClick:append"])
                                                 ]),
                                                 _createVNode(_component_v_icon, null, {
-                                                  default: _withCtx(() => _cache[79] || (_cache[79] = [
+                                                  default: _withCtx(() => _cache[89] || (_cache[89] = [
                                                     _createTextVNode("mdi-pound")
                                                   ])),
                                                   _: 1
                                                 }),
-                                                _createElementVNode("div", _hoisted_16, [
+                                                _createElementVNode("div", _hoisted_19, [
                                                   _createVNode(_component_v_text_field, {
                                                     modelValue: pair.remote,
                                                     "onUpdate:modelValue": $event => ((pair.remote) = $event),
@@ -2264,7 +2475,7 @@ return (_ctx, _cache) => {
                                                 }, {
                                                   default: _withCtx(() => [
                                                     _createVNode(_component_v_icon, null, {
-                                                      default: _withCtx(() => _cache[80] || (_cache[80] = [
+                                                      default: _withCtx(() => _cache[90] || (_cache[90] = [
                                                         _createTextVNode("mdi-delete")
                                                       ])),
                                                       _: 1
@@ -2279,9 +2490,9 @@ return (_ctx, _cache) => {
                                               "prepend-icon": "mdi-plus",
                                               variant: "outlined",
                                               class: "mt-2 align-self-start",
-                                              onClick: _cache[29] || (_cache[29] = $event => (addPath('monitorLife')))
+                                              onClick: _cache[33] || (_cache[33] = $event => (addPath('monitorLife')))
                                             }, {
-                                              default: _withCtx(() => _cache[81] || (_cache[81] = [
+                                              default: _withCtx(() => _cache[91] || (_cache[91] = [
                                                 _createTextVNode(" 添加路径 ")
                                               ])),
                                               _: 1
@@ -2293,7 +2504,7 @@ return (_ctx, _cache) => {
                                             density: "compact",
                                             class: "mt-2"
                                           }, {
-                                            default: _withCtx(() => _cache[82] || (_cache[82] = [
+                                            default: _withCtx(() => _cache[92] || (_cache[92] = [
                                               _createTextVNode(" 监控115生活（上传、移动、接收文件、删除、复制）事件，自动在本地对应目录生成STRM文件或者删除STRM文件。"),
                                               _createElementVNode("br", null, null, -1),
                                               _createTextVNode(" 本地STRM目录：本地STRM文件生成路径 网盘媒体库目录：需要生成本地STRM文件的网盘媒体库路径 ")
@@ -2310,13 +2521,13 @@ return (_ctx, _cache) => {
                                     default: _withCtx(() => [
                                       _createVNode(_component_v_col, { cols: "12" }, {
                                         default: _withCtx(() => [
-                                          _createElementVNode("div", _hoisted_17, [
+                                          _createElementVNode("div", _hoisted_20, [
                                             (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(monitorLifeMpPaths.value, (pair, index) => {
                                               return (_openBlock(), _createElementBlock("div", {
                                                 key: `life-mp-${index}`,
                                                 class: "mb-2 d-flex align-center"
                                               }, [
-                                                _createElementVNode("div", _hoisted_18, [
+                                                _createElementVNode("div", _hoisted_21, [
                                                   _createVNode(_component_v_text_field, {
                                                     modelValue: pair.local,
                                                     "onUpdate:modelValue": $event => ((pair.local) = $event),
@@ -2325,12 +2536,12 @@ return (_ctx, _cache) => {
                                                   }, null, 8, ["modelValue", "onUpdate:modelValue"])
                                                 ]),
                                                 _createVNode(_component_v_icon, null, {
-                                                  default: _withCtx(() => _cache[83] || (_cache[83] = [
+                                                  default: _withCtx(() => _cache[93] || (_cache[93] = [
                                                     _createTextVNode("mdi-pound")
                                                   ])),
                                                   _: 1
                                                 }),
-                                                _createElementVNode("div", _hoisted_19, [
+                                                _createElementVNode("div", _hoisted_22, [
                                                   _createVNode(_component_v_text_field, {
                                                     modelValue: pair.remote,
                                                     "onUpdate:modelValue": $event => ((pair.remote) = $event),
@@ -2347,7 +2558,7 @@ return (_ctx, _cache) => {
                                                 }, {
                                                   default: _withCtx(() => [
                                                     _createVNode(_component_v_icon, null, {
-                                                      default: _withCtx(() => _cache[84] || (_cache[84] = [
+                                                      default: _withCtx(() => _cache[94] || (_cache[94] = [
                                                         _createTextVNode("mdi-delete")
                                                       ])),
                                                       _: 1
@@ -2362,9 +2573,9 @@ return (_ctx, _cache) => {
                                               "prepend-icon": "mdi-plus",
                                               variant: "outlined",
                                               class: "mt-2 align-self-start",
-                                              onClick: _cache[30] || (_cache[30] = $event => (addPath('monitorLifeMp')))
+                                              onClick: _cache[34] || (_cache[34] = $event => (addPath('monitorLifeMp')))
                                             }, {
-                                              default: _withCtx(() => _cache[85] || (_cache[85] = [
+                                              default: _withCtx(() => _cache[95] || (_cache[95] = [
                                                 _createTextVNode(" 添加路径 ")
                                               ])),
                                               _: 1
@@ -2376,7 +2587,7 @@ return (_ctx, _cache) => {
                                             density: "compact",
                                             class: "mt-2"
                                           }, {
-                                            default: _withCtx(() => _cache[86] || (_cache[86] = [
+                                            default: _withCtx(() => _cache[96] || (_cache[96] = [
                                               _createTextVNode(" 媒体服务器映射路径和MP映射路径不一样时请配置此项，如果不配置则无法正常刷新。"),
                                               _createElementVNode("br", null, null, -1),
                                               _createTextVNode(" 当映射路径一样时可省略此配置。 ")
@@ -2395,7 +2606,7 @@ return (_ctx, _cache) => {
                                     density: "compact",
                                     class: "mt-2"
                                   }, {
-                                    default: _withCtx(() => _cache[87] || (_cache[87] = [
+                                    default: _withCtx(() => _cache[97] || (_cache[97] = [
                                       _createTextVNode(" 注意：当 MoviePilot 主程序运行整理任务时 115生活事件 监控会自动暂停，整理运行完成后会继续监控。 ")
                                     ])),
                                     _: 1
@@ -2416,7 +2627,7 @@ return (_ctx, _cache) => {
                                     density: "compact",
                                     class: "mb-4"
                                   }, {
-                                    default: _withCtx(() => _cache[88] || (_cache[88] = [
+                                    default: _withCtx(() => _cache[98] || (_cache[98] = [
                                       _createTextVNode(" 注意，清空 回收站/我的接收 后文件不可恢复，如果产生重要数据丢失本程序不负责！ ")
                                     ])),
                                     _: 1
@@ -2430,7 +2641,7 @@ return (_ctx, _cache) => {
                                         default: _withCtx(() => [
                                           _createVNode(_component_v_switch, {
                                             modelValue: config.clear_recyclebin_enabled,
-                                            "onUpdate:modelValue": _cache[31] || (_cache[31] = $event => ((config.clear_recyclebin_enabled) = $event)),
+                                            "onUpdate:modelValue": _cache[35] || (_cache[35] = $event => ((config.clear_recyclebin_enabled) = $event)),
                                             label: "清空回收站",
                                             color: "error"
                                           }, null, 8, ["modelValue"])
@@ -2444,7 +2655,7 @@ return (_ctx, _cache) => {
                                         default: _withCtx(() => [
                                           _createVNode(_component_v_switch, {
                                             modelValue: config.clear_receive_path_enabled,
-                                            "onUpdate:modelValue": _cache[32] || (_cache[32] = $event => ((config.clear_receive_path_enabled) = $event)),
+                                            "onUpdate:modelValue": _cache[36] || (_cache[36] = $event => ((config.clear_receive_path_enabled) = $event)),
                                             label: "清空我的接收目录",
                                             color: "error"
                                           }, null, 8, ["modelValue"])
@@ -2458,7 +2669,7 @@ return (_ctx, _cache) => {
                                         default: _withCtx(() => [
                                           _createVNode(_component_v_text_field, {
                                             modelValue: config.password,
-                                            "onUpdate:modelValue": _cache[33] || (_cache[33] = $event => ((config.password) = $event)),
+                                            "onUpdate:modelValue": _cache[37] || (_cache[37] = $event => ((config.password) = $event)),
                                             label: "115访问密码",
                                             hint: "115网盘登录密码",
                                             "persistent-hint": "",
@@ -2477,7 +2688,7 @@ return (_ctx, _cache) => {
                                         default: _withCtx(() => [
                                           _createVNode(_component_VCronField, {
                                             modelValue: config.cron_clear,
-                                            "onUpdate:modelValue": _cache[34] || (_cache[34] = $event => ((config.cron_clear) = $event)),
+                                            "onUpdate:modelValue": _cache[38] || (_cache[38] = $event => ((config.cron_clear) = $event)),
                                             label: "清理周期",
                                             hint: "设置清理任务的执行周期",
                                             "persistent-hint": "",
@@ -2508,7 +2719,7 @@ return (_ctx, _cache) => {
                                         default: _withCtx(() => [
                                           _createVNode(_component_v_switch, {
                                             modelValue: config.pan_transfer_enabled,
-                                            "onUpdate:modelValue": _cache[35] || (_cache[35] = $event => ((config.pan_transfer_enabled) = $event)),
+                                            "onUpdate:modelValue": _cache[39] || (_cache[39] = $event => ((config.pan_transfer_enabled) = $event)),
                                             label: "网盘整理",
                                             color: "info"
                                           }, null, 8, ["modelValue"])
@@ -2522,7 +2733,7 @@ return (_ctx, _cache) => {
                                     default: _withCtx(() => [
                                       _createVNode(_component_v_col, { cols: "12" }, {
                                         default: _withCtx(() => [
-                                          _createElementVNode("div", _hoisted_20, [
+                                          _createElementVNode("div", _hoisted_23, [
                                             (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(panTransferPaths.value, (path, index) => {
                                               return (_openBlock(), _createElementBlock("div", {
                                                 key: `pan-${index}`,
@@ -2546,7 +2757,7 @@ return (_ctx, _cache) => {
                                                 }, {
                                                   default: _withCtx(() => [
                                                     _createVNode(_component_v_icon, null, {
-                                                      default: _withCtx(() => _cache[89] || (_cache[89] = [
+                                                      default: _withCtx(() => _cache[99] || (_cache[99] = [
                                                         _createTextVNode("mdi-delete")
                                                       ])),
                                                       _: 1
@@ -2563,7 +2774,7 @@ return (_ctx, _cache) => {
                                               class: "mt-2 align-self-start",
                                               onClick: addPanTransferPath
                                             }, {
-                                              default: _withCtx(() => _cache[90] || (_cache[90] = [
+                                              default: _withCtx(() => _cache[100] || (_cache[100] = [
                                                 _createTextVNode(" 添加路径 ")
                                               ])),
                                               _: 1
@@ -2581,7 +2792,7 @@ return (_ctx, _cache) => {
                                     density: "compact",
                                     class: "mt-2"
                                   }, {
-                                    default: _withCtx(() => _cache[91] || (_cache[91] = [
+                                    default: _withCtx(() => _cache[101] || (_cache[101] = [
                                       _createTextVNode(" 使用本功能需要先进入 设定-目录 进行配置："),
                                       _createElementVNode("br", null, null, -1),
                                       _createTextVNode(" 1. 添加目录配置卡，按需配置媒体类型和媒体类别，资源存储选择115网盘，资源目录输入网盘待整理文件夹"),
@@ -2599,7 +2810,7 @@ return (_ctx, _cache) => {
                                     density: "compact",
                                     class: "mt-2"
                                   }, {
-                                    default: _withCtx(() => _cache[92] || (_cache[92] = [
+                                    default: _withCtx(() => _cache[102] || (_cache[102] = [
                                       _createTextVNode(" 注意：配置目录时不能选择刮削元数据，否则可能导致风控！ ")
                                     ])),
                                     _: 1
@@ -2610,7 +2821,7 @@ return (_ctx, _cache) => {
                                     density: "compact",
                                     class: "mt-2"
                                   }, {
-                                    default: _withCtx(() => _cache[93] || (_cache[93] = [
+                                    default: _withCtx(() => _cache[103] || (_cache[103] = [
                                       _createTextVNode(" 注意：115生活事件监控默认会忽略网盘整理触发的移动事件，所以推荐使用MP整理事件监控生成STRM ")
                                     ])),
                                     _: 1
@@ -2634,7 +2845,7 @@ return (_ctx, _cache) => {
                                         default: _withCtx(() => [
                                           _createVNode(_component_v_switch, {
                                             modelValue: config.directory_upload_enabled,
-                                            "onUpdate:modelValue": _cache[36] || (_cache[36] = $event => ((config.directory_upload_enabled) = $event)),
+                                            "onUpdate:modelValue": _cache[40] || (_cache[40] = $event => ((config.directory_upload_enabled) = $event)),
                                             label: "启用目录上传",
                                             color: "info",
                                             density: "compact",
@@ -2650,7 +2861,7 @@ return (_ctx, _cache) => {
                                         default: _withCtx(() => [
                                           _createVNode(_component_v_select, {
                                             modelValue: config.directory_upload_mode,
-                                            "onUpdate:modelValue": _cache[37] || (_cache[37] = $event => ((config.directory_upload_mode) = $event)),
+                                            "onUpdate:modelValue": _cache[41] || (_cache[41] = $event => ((config.directory_upload_mode) = $event)),
                                             label: "监控模式",
                                             items: [
                         { title: '兼容模式', value: 'compatibility' },
@@ -2676,7 +2887,7 @@ return (_ctx, _cache) => {
                                         default: _withCtx(() => [
                                           _createVNode(_component_v_text_field, {
                                             modelValue: config.directory_upload_uploadext,
-                                            "onUpdate:modelValue": _cache[38] || (_cache[38] = $event => ((config.directory_upload_uploadext) = $event)),
+                                            "onUpdate:modelValue": _cache[42] || (_cache[42] = $event => ((config.directory_upload_uploadext) = $event)),
                                             label: "上传文件扩展名",
                                             hint: "指定哪些扩展名的文件会被上传到115网盘，多个用逗号分隔",
                                             "persistent-hint": "",
@@ -2694,7 +2905,7 @@ return (_ctx, _cache) => {
                                         default: _withCtx(() => [
                                           _createVNode(_component_v_text_field, {
                                             modelValue: config.directory_upload_copyext,
-                                            "onUpdate:modelValue": _cache[39] || (_cache[39] = $event => ((config.directory_upload_copyext) = $event)),
+                                            "onUpdate:modelValue": _cache[43] || (_cache[43] = $event => ((config.directory_upload_copyext) = $event)),
                                             label: "复制文件扩展名",
                                             hint: "指定哪些扩展名的文件会被复制到本地目标目录，多个用逗号分隔",
                                             "persistent-hint": "",
@@ -2709,7 +2920,7 @@ return (_ctx, _cache) => {
                                     _: 1
                                   }),
                                   _createVNode(_component_v_divider, { class: "my-3" }),
-                                  _cache[99] || (_cache[99] = _createElementVNode("div", { class: "text-subtitle-2 mb-2" }, "路径配置:", -1)),
+                                  _cache[109] || (_cache[109] = _createElementVNode("div", { class: "text-subtitle-2 mb-2" }, "路径配置:", -1)),
                                   (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(directoryUploadPaths.value, (pair, index) => {
                                     return (_openBlock(), _createElementBlock("div", {
                                       key: `upload-${index}`,
@@ -2734,7 +2945,7 @@ return (_ctx, _cache) => {
                                               }, {
                                                 "prepend-inner": _withCtx(() => [
                                                   _createVNode(_component_v_icon, { color: "blue" }, {
-                                                    default: _withCtx(() => _cache[94] || (_cache[94] = [
+                                                    default: _withCtx(() => _cache[104] || (_cache[104] = [
                                                       _createTextVNode("mdi-folder-table")
                                                     ])),
                                                     _: 1
@@ -2762,7 +2973,7 @@ return (_ctx, _cache) => {
                                               }, {
                                                 "prepend-inner": _withCtx(() => [
                                                   _createVNode(_component_v_icon, { color: "green" }, {
-                                                    default: _withCtx(() => _cache[95] || (_cache[95] = [
+                                                    default: _withCtx(() => _cache[105] || (_cache[105] = [
                                                       _createTextVNode("mdi-cloud-upload")
                                                     ])),
                                                     _: 1
@@ -2798,7 +3009,7 @@ return (_ctx, _cache) => {
                                               }, {
                                                 "prepend-inner": _withCtx(() => [
                                                   _createVNode(_component_v_icon, { color: "orange" }, {
-                                                    default: _withCtx(() => _cache[96] || (_cache[96] = [
+                                                    default: _withCtx(() => _cache[106] || (_cache[106] = [
                                                       _createTextVNode("mdi-content-copy")
                                                     ])),
                                                     _: 1
@@ -2854,9 +3065,9 @@ return (_ctx, _cache) => {
                                     variant: "tonal",
                                     class: "mt-2",
                                     color: "primary",
-                                    onClick: _cache[40] || (_cache[40] = $event => (addPath('directoryUpload')))
+                                    onClick: _cache[44] || (_cache[44] = $event => (addPath('directoryUpload')))
                                   }, {
-                                    default: _withCtx(() => _cache[97] || (_cache[97] = [
+                                    default: _withCtx(() => _cache[107] || (_cache[107] = [
                                       _createTextVNode(" 添加监控路径组 ")
                                     ])),
                                     _: 1
@@ -2867,7 +3078,7 @@ return (_ctx, _cache) => {
                                     density: "compact",
                                     class: "mt-3 text-caption"
                                   }, {
-                                    default: _withCtx(() => _cache[98] || (_cache[98] = [
+                                    default: _withCtx(() => _cache[108] || (_cache[108] = [
                                       _createElementVNode("strong", null, "功能说明:", -1),
                                       _createElementVNode("br", null, null, -1),
                                       _createTextVNode(" - 监控指定的\"本地监控目录\"。"),
@@ -2916,11 +3127,11 @@ return (_ctx, _cache) => {
             _createVNode(_component_v_btn, {
               color: "warning",
               variant: "text",
-              onClick: _cache[42] || (_cache[42] = $event => (emit('switch'))),
+              onClick: _cache[46] || (_cache[46] = $event => (emit('switch'))),
               size: "small",
               "prepend-icon": "mdi-arrow-left"
             }, {
-              default: _withCtx(() => _cache[100] || (_cache[100] = [
+              default: _withCtx(() => _cache[110] || (_cache[110] = [
                 _createTextVNode(" 返回 ")
               ])),
               _: 1
@@ -2934,7 +3145,7 @@ return (_ctx, _cache) => {
               size: "small",
               "prepend-icon": "mdi-sync"
             }, {
-              default: _withCtx(() => _cache[101] || (_cache[101] = [
+              default: _withCtx(() => _cache[111] || (_cache[111] = [
                 _createTextVNode(" 全量同步 ")
               ])),
               _: 1
@@ -2947,7 +3158,7 @@ return (_ctx, _cache) => {
               size: "small",
               "prepend-icon": "mdi-content-save"
             }, {
-              default: _withCtx(() => _cache[102] || (_cache[102] = [
+              default: _withCtx(() => _cache[112] || (_cache[112] = [
                 _createTextVNode(" 保存配置 ")
               ])),
               _: 1
@@ -2960,7 +3171,7 @@ return (_ctx, _cache) => {
     }),
     _createVNode(_component_v_dialog, {
       modelValue: dirDialog.show,
-      "onUpdate:modelValue": _cache[44] || (_cache[44] = $event => ((dirDialog.show) = $event)),
+      "onUpdate:modelValue": _cache[48] || (_cache[48] = $event => ((dirDialog.show) = $event)),
       "max-width": "800"
     }, {
       default: _withCtx(() => [
@@ -2980,16 +3191,16 @@ return (_ctx, _cache) => {
             _createVNode(_component_v_card_text, { class: "px-3 py-2" }, {
               default: _withCtx(() => [
                 (dirDialog.loading)
-                  ? (_openBlock(), _createElementBlock("div", _hoisted_21, [
+                  ? (_openBlock(), _createElementBlock("div", _hoisted_24, [
                       _createVNode(_component_v_progress_circular, {
                         indeterminate: "",
                         color: "primary"
                       })
                     ]))
-                  : (_openBlock(), _createElementBlock("div", _hoisted_22, [
+                  : (_openBlock(), _createElementBlock("div", _hoisted_25, [
                       _createVNode(_component_v_text_field, {
                         modelValue: dirDialog.currentPath,
-                        "onUpdate:modelValue": _cache[43] || (_cache[43] = $event => ((dirDialog.currentPath) = $event)),
+                        "onUpdate:modelValue": _cache[47] || (_cache[47] = $event => ((dirDialog.currentPath) = $event)),
                         label: "当前路径",
                         variant: "outlined",
                         density: "compact",
@@ -3018,13 +3229,13 @@ return (_ctx, _cache) => {
                                 ]),
                                 default: _withCtx(() => [
                                   _createVNode(_component_v_list_item_title, { class: "text-body-2" }, {
-                                    default: _withCtx(() => _cache[103] || (_cache[103] = [
+                                    default: _withCtx(() => _cache[113] || (_cache[113] = [
                                       _createTextVNode("上级目录")
                                     ])),
                                     _: 1
                                   }),
                                   _createVNode(_component_v_list_item_subtitle, null, {
-                                    default: _withCtx(() => _cache[104] || (_cache[104] = [
+                                    default: _withCtx(() => _cache[114] || (_cache[114] = [
                                       _createTextVNode("..")
                                     ])),
                                     _: 1
@@ -3066,7 +3277,7 @@ return (_ctx, _cache) => {
                               }, {
                                 default: _withCtx(() => [
                                   _createVNode(_component_v_list_item_title, { class: "text-body-2 text-grey" }, {
-                                    default: _withCtx(() => _cache[105] || (_cache[105] = [
+                                    default: _withCtx(() => _cache[115] || (_cache[115] = [
                                       _createTextVNode("该目录为空或访问受限")
                                     ])),
                                     _: 1
@@ -3106,7 +3317,7 @@ return (_ctx, _cache) => {
                   variant: "text",
                   size: "small"
                 }, {
-                  default: _withCtx(() => _cache[106] || (_cache[106] = [
+                  default: _withCtx(() => _cache[116] || (_cache[116] = [
                     _createTextVNode(" 选择当前目录 ")
                   ])),
                   _: 1
@@ -3117,7 +3328,7 @@ return (_ctx, _cache) => {
                   variant: "text",
                   size: "small"
                 }, {
-                  default: _withCtx(() => _cache[107] || (_cache[107] = [
+                  default: _withCtx(() => _cache[117] || (_cache[117] = [
                     _createTextVNode(" 取消 ")
                   ])),
                   _: 1
@@ -3133,7 +3344,7 @@ return (_ctx, _cache) => {
     }, 8, ["modelValue"]),
     _createVNode(_component_v_dialog, {
       modelValue: qrDialog.show,
-      "onUpdate:modelValue": _cache[46] || (_cache[46] = $event => ((qrDialog.show) = $event)),
+      "onUpdate:modelValue": _cache[50] || (_cache[50] = $event => ((qrDialog.show) = $event)),
       "max-width": "450"
     }, {
       default: _withCtx(() => [
@@ -3147,7 +3358,7 @@ return (_ctx, _cache) => {
                   color: "primary",
                   size: "small"
                 }),
-                _cache[108] || (_cache[108] = _createElementVNode("span", null, "115网盘扫码登录", -1))
+                _cache[118] || (_cache[118] = _createElementVNode("span", null, "115网盘扫码登录", -1))
               ]),
               _: 1
             }),
@@ -3169,20 +3380,20 @@ return (_ctx, _cache) => {
                     }))
                   : _createCommentVNode("", true),
                 (qrDialog.loading)
-                  ? (_openBlock(), _createElementBlock("div", _hoisted_23, [
+                  ? (_openBlock(), _createElementBlock("div", _hoisted_26, [
                       _createVNode(_component_v_progress_circular, {
                         indeterminate: "",
                         color: "primary",
                         class: "mb-3"
                       }),
-                      _cache[109] || (_cache[109] = _createElementVNode("div", null, "正在获取二维码...", -1))
+                      _cache[119] || (_cache[119] = _createElementVNode("div", null, "正在获取二维码...", -1))
                     ]))
                   : (qrDialog.qrcode)
-                    ? (_openBlock(), _createElementBlock("div", _hoisted_24, [
-                        _cache[112] || (_cache[112] = _createElementVNode("div", { class: "mb-2 font-weight-medium" }, "请选择扫码方式", -1)),
+                    ? (_openBlock(), _createElementBlock("div", _hoisted_27, [
+                        _cache[122] || (_cache[122] = _createElementVNode("div", { class: "mb-2 font-weight-medium" }, "请选择扫码方式", -1)),
                         _createVNode(_component_v_chip_group, {
                           modelValue: qrDialog.clientType,
-                          "onUpdate:modelValue": _cache[45] || (_cache[45] = $event => ((qrDialog.clientType) = $event)),
+                          "onUpdate:modelValue": _cache[49] || (_cache[49] = $event => ((qrDialog.clientType) = $event)),
                           class: "mb-3",
                           mandatory: "",
                           "selected-class": "primary"
@@ -3205,7 +3416,7 @@ return (_ctx, _cache) => {
                           ]),
                           _: 1
                         }, 8, ["modelValue"]),
-                        _createElementVNode("div", _hoisted_25, [
+                        _createElementVNode("div", _hoisted_28, [
                           _createVNode(_component_v_card, {
                             flat: "",
                             class: "border pa-2 mb-2"
@@ -3215,12 +3426,12 @@ return (_ctx, _cache) => {
                                 src: qrDialog.qrcode,
                                 width: "220",
                                 height: "220"
-                              }, null, 8, _hoisted_26)
+                              }, null, 8, _hoisted_29)
                             ]),
                             _: 1
                           }),
-                          _createElementVNode("div", _hoisted_27, _toDisplayString(qrDialog.tips), 1),
-                          _createElementVNode("div", _hoisted_28, _toDisplayString(qrDialog.status), 1)
+                          _createElementVNode("div", _hoisted_30, _toDisplayString(qrDialog.tips), 1),
+                          _createElementVNode("div", _hoisted_31, _toDisplayString(qrDialog.status), 1)
                         ]),
                         _createVNode(_component_v_btn, {
                           color: "primary",
@@ -3235,32 +3446,32 @@ return (_ctx, _cache) => {
                               size: "small",
                               class: "mr-1"
                             }, {
-                              default: _withCtx(() => _cache[110] || (_cache[110] = [
+                              default: _withCtx(() => _cache[120] || (_cache[120] = [
                                 _createTextVNode("mdi-refresh")
                               ])),
                               _: 1
                             }),
-                            _cache[111] || (_cache[111] = _createTextVNode("刷新二维码 "))
+                            _cache[121] || (_cache[121] = _createTextVNode("刷新二维码 "))
                           ]),
                           _: 1
                         })
                       ]))
-                    : (_openBlock(), _createElementBlock("div", _hoisted_29, [
+                    : (_openBlock(), _createElementBlock("div", _hoisted_32, [
                         _createVNode(_component_v_icon, {
                           icon: "mdi-qrcode-off",
                           size: "64",
                           color: "grey",
                           class: "mb-3"
                         }),
-                        _cache[114] || (_cache[114] = _createElementVNode("div", { class: "text-subtitle-1" }, "二维码获取失败", -1)),
-                        _cache[115] || (_cache[115] = _createElementVNode("div", { class: "text-body-2 text-grey" }, "请点击刷新按钮重试", -1)),
-                        _createElementVNode("div", _hoisted_30, [
+                        _cache[124] || (_cache[124] = _createElementVNode("div", { class: "text-subtitle-1" }, "二维码获取失败", -1)),
+                        _cache[125] || (_cache[125] = _createElementVNode("div", { class: "text-body-2 text-grey" }, "请点击刷新按钮重试", -1)),
+                        _createElementVNode("div", _hoisted_33, [
                           _createVNode(_component_v_icon, {
                             icon: "mdi-alert-circle",
                             size: "small",
                             class: "mr-1 text-warning"
                           }),
-                          _cache[113] || (_cache[113] = _createTextVNode(" 如果多次获取失败，请检查网络连接 "))
+                          _cache[123] || (_cache[123] = _createTextVNode(" 如果多次获取失败，请检查网络连接 "))
                         ])
                       ]))
               ]),
@@ -3276,7 +3487,7 @@ return (_ctx, _cache) => {
                   size: "small",
                   "prepend-icon": "mdi-close"
                 }, {
-                  default: _withCtx(() => _cache[116] || (_cache[116] = [
+                  default: _withCtx(() => _cache[126] || (_cache[126] = [
                     _createTextVNode("关闭")
                   ])),
                   _: 1
@@ -3290,7 +3501,7 @@ return (_ctx, _cache) => {
                   size: "small",
                   "prepend-icon": "mdi-refresh"
                 }, {
-                  default: _withCtx(() => _cache[117] || (_cache[117] = [
+                  default: _withCtx(() => _cache[127] || (_cache[127] = [
                     _createTextVNode(" 刷新二维码 ")
                   ])),
                   _: 1
@@ -3309,6 +3520,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-343deb93"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-51dce0c9"]]);
 
 export { Config as default };

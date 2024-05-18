@@ -90,6 +90,9 @@
               <v-tab value="tab-sync" class="text-caption">
                 <v-icon size="small" start>mdi-sync</v-icon>全量同步
               </v-tab>
+              <v-tab value="tab-increment-sync" class="text-caption">
+                <v-icon size="small" start>book-sync</v-icon>增量同步
+              </v-tab>
               <v-tab value="tab-life" class="text-caption">
                 <v-icon size="small" start>mdi-calendar-heart</v-icon>监控115生活事件
               </v-tab>
@@ -276,6 +279,61 @@
 
                       <v-alert type="info" variant="tonal" density="compact" class="mt-2">
                         全量扫描配置的网盘目录，并在对应的本地目录生成STRM文件。<br>
+                        本地STRM目录：本地STRM文件生成路径
+                        网盘媒体库目录：需要生成本地STRM文件的网盘媒体库路径
+                      </v-alert>
+                    </v-col>
+                  </v-row>
+                </v-card-text>
+              </v-window-item>
+
+              <!-- 增量 -->
+              <v-window-item value="tab-increment-sync">
+                <v-card-text>
+
+                  <v-row>
+                    <v-col cols="12" md="2">
+                      <v-switch v-model="config.increment_sync_strm_enabled" label="启用" color="warning"></v-switch>
+                    </v-col>
+                    <v-col cols="12" md="5">
+                      <VCronField v-model="config.increment_sync_cron" label="运行增量同步周期" hint="设置增量同步的执行周期"
+                        persistent-hint density="compact"></VCronField>
+                    </v-col>
+                    <v-col cols="12" md="5">
+                      <v-switch v-model="config.increment_sync_auto_download_mediainfo_enabled" label="下载媒体数据文件"
+                        color="warning"></v-switch>
+                    </v-col>
+                  </v-row>
+
+                  <v-row>
+                    <v-col cols="12">
+                      <div class="d-flex flex-column">
+                        <div v-for="(pair, index) in incrementSyncPaths" :key="`increment-${index}`"
+                          class="mb-2 d-flex align-center">
+                          <div class="path-selector flex-grow-1 mr-2">
+                            <v-text-field v-model="pair.local" label="本地STRM目录" density="compact"
+                              append-icon="mdi-folder"
+                              @click:append="openDirSelector(index, 'local', 'incrementSync')"></v-text-field>
+                          </div>
+                          <v-icon>mdi-pound</v-icon>
+                          <div class="path-selector flex-grow-1 ml-2">
+                            <v-text-field v-model="pair.remote" label="网盘媒体库目录" density="compact"
+                              append-icon="mdi-folder-network"
+                              @click:append="openDirSelector(index, 'remote', 'incrementSync')"></v-text-field>
+                          </div>
+                          <v-btn icon size="small" color="error" class="ml-2"
+                            @click="removePath(index, 'incrementSync')">
+                            <v-icon>mdi-delete</v-icon>
+                          </v-btn>
+                        </div>
+                        <v-btn size="small" prepend-icon="mdi-plus" variant="outlined" class="mt-2 align-self-start"
+                          @click="addPath('incrementSync')">
+                          添加路径
+                        </v-btn>
+                      </div>
+
+                      <v-alert type="info" variant="tonal" density="compact" class="mt-2">
+                        增量扫描配置的网盘目录，并在对应的本地目录生成STRM文件。<br>
                         本地STRM目录：本地STRM文件生成路径
                         网盘媒体库目录：需要生成本地STRM文件的网盘媒体库路径
                       </v-alert>
@@ -787,6 +845,10 @@ const config = reactive({
   full_sync_auto_download_mediainfo_enabled: false,
   cron_full_sync_strm: '0 */7 * * *',
   full_sync_strm_paths: '',
+  increment_sync_strm_enabled: false,
+  increment_sync_auto_download_mediainfo_enabled: false,
+  increment_sync_cron: "0 * * * *",
+  increment_sync_strm_paths: '',
   monitor_life_enabled: false,
   monitor_life_auto_download_mediainfo_enabled: false,
   monitor_life_paths: '',
@@ -824,6 +886,7 @@ const message = reactive({
 const transferPaths = ref([{ local: '', remote: '' }]);
 const transferMpPaths = ref([{ local: '', remote: '' }]);
 const fullSyncPaths = ref([{ local: '', remote: '' }]);
+const incrementSyncPaths = ref([{ local: '', remote: '' }]);
 const monitorLifePaths = ref([{ local: '', remote: '' }]);
 const monitorLifeMpPaths = ref([{ local: '', remote: '' }]);
 const panTransferPaths = ref([{ path: '' }]);
@@ -939,6 +1002,28 @@ watch(() => config.full_sync_strm_paths, (newVal) => {
   } catch (e) {
     console.error('解析full_sync_strm_paths出错:', e);
     fullSyncPaths.value = [{ local: '', remote: '' }];
+  }
+}, { immediate: true });
+
+watch(() => config.increment_sync_strm_paths, (newVal) => {
+  if (!newVal) {
+    incrementSyncPaths.value = [{ local: '', remote: '' }];
+    return;
+  }
+
+  try {
+    const paths = newVal.split('\n').filter(line => line.trim());
+    incrementSyncPaths.value = paths.map(path => {
+      const parts = path.split('#');
+      return { local: parts[0] || '', remote: parts[1] || '' };
+    });
+
+    if (incrementSyncPaths.value.length === 0) {
+      incrementSyncPaths.value = [{ local: '', remote: '' }];
+    }
+  } catch (e) {
+    console.error('解析increment_sync_strm_paths出错:', e);
+    incrementSyncPaths.value = [{ local: '', remote: '' }];
   }
 }, { immediate: true });
 
@@ -1137,6 +1222,7 @@ const saveConfig = async () => {
     config.transfer_monitor_paths = generatePathsConfig(transferPaths.value, 'transfer');
     config.transfer_mp_mediaserver_paths = generatePathsConfig(transferMpPaths.value, 'mp');
     config.full_sync_strm_paths = generatePathsConfig(fullSyncPaths.value, 'fullSync');
+    config.increment_sync_strm_paths = generatePathsConfig(incrementSyncPaths.value, 'incrementSync');
     config.monitor_life_paths = generatePathsConfig(monitorLifePaths.value, 'monitorLife');
     config.monitor_life_mp_mediaserver_paths = generatePathsConfig(monitorLifeMpPaths.value, 'monitorLifeMp');
     config.pan_transfer_paths = generatePathsConfig(panTransferPaths.value, 'panTransfer');
@@ -1272,6 +1358,9 @@ const addPath = (type) => {
     case 'fullSync':
       fullSyncPaths.value.push({ local: '', remote: '' });
       break;
+    case 'incrementSync':
+      incrementSyncPaths.value.push({ local: '', remote: '' });
+      break;
     case 'monitorLife':
       monitorLifePaths.value.push({ local: '', remote: '' });
       break;
@@ -1302,6 +1391,12 @@ const removePath = (index, type) => {
       fullSyncPaths.value.splice(index, 1);
       if (fullSyncPaths.value.length === 0) {
         fullSyncPaths.value = [{ local: '', remote: '' }];
+      }
+      break;
+    case 'incrementSync':
+      incrementSyncPaths.value.splice(index, 1);
+      if (incrementSyncPaths.value.length === 0) {
+        incrementSyncPaths.value = [{ local: '', remote: '' }];
       }
       break;
     case 'monitorLife':
@@ -1523,6 +1618,13 @@ const confirmDirSelection = () => {
           fullSyncPaths.value[dirDialog.index].local = processedPath;
         } else {
           fullSyncPaths.value[dirDialog.index].remote = processedPath;
+        }
+        break;
+      case 'incrementSync':
+        if (dirDialog.isLocal) {
+          incrementSyncPaths.value[dirDialog.index].local = processedPath;
+        } else {
+          incrementSyncPaths.value[dirDialog.index].remote = processedPath;
         }
         break;
       case 'monitorLife':
