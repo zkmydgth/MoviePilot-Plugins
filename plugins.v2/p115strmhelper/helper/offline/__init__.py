@@ -3,6 +3,7 @@ from typing import List
 from pathlib import Path
 from datetime import datetime, timezone
 
+from p115center import P115Center, OfflineInfo
 from p115client import P115Client
 from p115client.tool.offline import offline_iter
 from p115client.tool.attr import get_attr
@@ -15,7 +16,6 @@ from ...helper.life import MonitorLife
 from ...schemas.offline import OfflineTaskItem
 from ...utils.string import StringUtils
 from ...utils.sentry import sentry_manager
-from ...utils.oopserver import OOPServerRequest
 
 
 @sentry_manager.capture_all_class_exceptions
@@ -275,28 +275,14 @@ class OfflineDownloadHelper:
         if not configer.get_config("upload_offline_info"):
             return
 
-        oopserver_request = OOPServerRequest(max_retries=3, backoff_factor=1.0)
-        json_data = {
-            "url": url,
-            "postime": datetime.now(timezone.utc)
-            .isoformat(timespec="milliseconds")
-            .replace("+00:00", "Z"),
-        }
-
         try:
-            response = oopserver_request.make_request(
-                path="/offline/info",
-                method="POST",
-                headers={"x-machine-id": configer.get_config("MACHINE_ID")},
-                json_data=json_data,
-                timeout=10.0,
-            )
-
-            if response is not None and response.status_code == 201:
-                logger.info(
-                    f"【离线下载】离线下载信息报告服务器成功: {response.json()}"
+            client = P115Center(configer.get_config("MACHINE_ID"))
+            resp = client.upload_offline_info(
+                OfflineInfo(
+                    url=url,
+                    postime=datetime.now(timezone.utc),
                 )
-            else:
-                logger.debug("【离线下载】离线下载报告服务器失败，网络问题")
+            )
+            logger.info(f"【离线下载】离线下载信息报告服务器成功: {resp.model_dump()}")
         except Exception as e:
             logger.debug(f"【离线下载】离线下载报告服务器失败: {e}")

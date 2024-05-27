@@ -65,7 +65,9 @@ from os import remove as os_remove
 from os.path import exists as path_exists, getsize as path_getsize, join as path_join
 from tempfile import gettempdir
 
+from httpx import HTTPStatusError
 from orjson import dumps, loads
+from p115center import P115Center
 
 from p115client.util import share_extract_payload
 
@@ -80,7 +82,6 @@ from ...helper.mediainfo_download import MediaInfoDownloader
 from ...helper.mediaserver import MediaServerRefresh
 from ...schemas.share import ShareStrmConfig
 from ...schemas.size import CompareMinSize
-from ...utils.oopserver import OOPServerRequest
 from ...utils.path import PathUtils
 from ...utils.sentry import sentry_manager
 from ...utils.strm import StrmUrlGetter, StrmGenerater
@@ -163,29 +164,21 @@ class ShareOOPServerHelper:
         logger.info(f"【分享STRM生成】尝试下载数据，batch_id: {batch_id}")
 
         try:
-            oopserver_request = OOPServerRequest(max_retries=1, backoff_factor=0.5)
-
-            response = oopserver_request.make_request(
-                path=f"/share/files/{batch_id}",
-                method="GET",
-                headers={"x-machine-id": configer.get_config("MACHINE_ID")},
-                timeout=6000.0,
+            client = P115Center()
+            client.download_share_file_iter(batch_id, temp_file)
+            logger.info(
+                f"【分享STRM生成】数据下载成功，batch_id: {batch_id}, 文件大小: {path_getsize(temp_file) / 1024 / 1024:.2f} MB"
             )
-
-            if response is not None and response.status_code == 200:
-                with open(temp_file, "wb") as f:
-                    for chunk in response.iter_bytes():
-                        f.write(chunk)
-                logger.info(
-                    f"【分享STRM生成】数据下载成功，batch_id: {batch_id}, 文件大小: {path_getsize(temp_file) / 1024 / 1024:.2f} MB"
-                )
-                return True
+            return True
+        except HTTPStatusError as e:
+            code = e.response.status_code if e.response else 500
+            if code == 404:
+                logger.debug(f"【分享STRM生成】数据不存在，batch_id: {batch_id}")
             else:
                 logger.debug(
-                    f"【分享STRM生成】数据不存在，batch_id: {batch_id}, 状态码: {response.status_code if response else 'None'}"
+                    f"【分享STRM生成】下载数据失败，batch_id: {batch_id}, 状态码: {code}"
                 )
-                return False
-
+            return False
         except Exception as e:
             logger.debug(f"【分享STRM生成】下载数据失败，batch_id: {batch_id}: {e}")
             return False
@@ -227,44 +220,9 @@ class ShareOOPServerHelper:
         logger.info(f"【分享STRM生成】开始上传，batch_id: {batch_id}")
 
         try:
-            oopserver_request = OOPServerRequest(max_retries=3, backoff_factor=1.0)
-
-            file_name = f"{batch_id}.json.gz"
-            file_size = path_getsize(temp_file)
-
-            file_content = bytes()
-            if file_size > 100 * 1024 * 1024:
-                file_content = bytearray()
-                with open(temp_file, "rb") as f:
-                    while chunk := f.read(8 * 1024 * 1024):
-                        file_content.extend(chunk)
-                file_content = bytes(file_content)
-            else:
-                with open(temp_file, "rb") as f:
-                    file_content = f.read()
-
-            files_data = [
-                (
-                    "file",
-                    (file_name, file_content, "application/gzip"),
-                )
-            ]
-            response = oopserver_request.make_request(
-                path=f"/share/files/{batch_id}",
-                method="POST",
-                headers={"x-machine-id": configer.get_config("MACHINE_ID")},
-                files_data=files_data,
-                timeout=6000.0,
-            )
-            if response is not None and response.status_code in [200, 201]:
-                result = response.json()
-                logger.debug(f"【分享STRM生成】上传成功: {result}")
-                return result
-            else:
-                logger.warn(
-                    f"【分享STRM生成】上传失败，状态码: {response.status_code if response else 'None'}"
-                )
-                return None
+            client = P115Center()
+            resp = client.upload_share_file_iter(batch_id, temp_file)
+            logger.debug(f"【分享STRM生成】上传成功: {resp.model_dump()}")
         except Exception as e:
             logger.warn(f"【分享STRM生成】上传异常: {e}")
             return None

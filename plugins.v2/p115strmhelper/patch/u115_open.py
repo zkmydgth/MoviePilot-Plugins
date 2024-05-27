@@ -1,13 +1,14 @@
 from pathlib import Path
 from typing import Optional, Callable, Any, Dict
 
+from p115center import P115Center
+
 from app import schemas
 from app.log import logger
 from app.modules.filemanager.storages.u115 import U115Pan
 
 from ..core.u115_open import U115OpenHelper
 from ..core.config import configer
-from ..utils.oopserver import OOPServerHelper
 
 
 class U115Patcher:
@@ -114,9 +115,14 @@ class U115Patcher:
             cls._func_active["upload"] = True
             logger.info("【P115Open】上传接口补丁应用成功")
 
-        if configer.transfer_module_enhancement and OOPServerHelper.check_feature(
-            "transfer_module_enhancement"
-        ).enabled:
+        try:
+            client = P115Center(configer.get_config("MACHINE_ID"))
+            resp = client.check_feature("transfer_module_enhancement")
+            status = resp.get("enabled")
+        except Exception:
+            status = False
+
+        if configer.transfer_module_enhancement and status:
             modules = ["create_folder", "get_item", "get_folder", "rename"]
             for module in modules:
                 if cls._func_active.get(module):

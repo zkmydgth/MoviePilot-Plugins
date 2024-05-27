@@ -5,11 +5,13 @@ from threading import Lock, Thread
 from time import sleep
 from enum import Enum
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Optional, Literal
 
 from p115client import P115Client
 from p115client.tool.iterdir import share_iterdir
 from p115client.util import share_extract_payload
+from p115center import P115Center
+from p115center.schemas import ShareInfo
 
 from app.log import logger
 from app.core.metainfo import MetaInfo
@@ -25,7 +27,6 @@ from ...core.aliyunpan import BAligo
 from ...core.p115 import get_pid_by_path
 from ...helper.ali2115 import Ali2115Helper
 from ...utils.sentry import sentry_manager
-from ...utils.oopserver import OOPServerRequest
 
 
 U115_SHARE_URL_MATCH = r"^https?://(.*\.)?115[^/]*\.[a-zA-Z]{2,}(?:/|$)"
@@ -433,8 +434,6 @@ class ShareTransferHelper:
         if not configer.get_config("upload_share_info"):
             return
 
-        oopserver_request = OOPServerRequest(max_retries=3, backoff_factor=1.0)
-
         desired_keys = [
             "source",
             "type",
@@ -452,42 +451,31 @@ class ShareTransferHelper:
             "bangumi_id",
             "collection_id",
         ]
-        json_data = {}
+        payload: dict = {}
         if file_mediainfo:
             for key in desired_keys:
                 value = getattr(file_mediainfo, key)
                 if isinstance(value, Enum):
-                    json_data[key] = value.value
+                    payload[key] = value.value
                 else:
-                    json_data[key] = value
+                    payload[key] = value
 
         if type == "115":
-            json_data["url"] = (
-                f"https://115cdn.com/s/{share_code}?password={receive_code}"
-            )
-            path = "/share/info"
+            url = f"https://115cdn.com/s/{share_code}?password={receive_code}"
+            mtype: Literal["115", "ali"] = "115"
         else:
-            json_data["url"] = f"https://www.alipan.com/s/{share_code}"
-            path = "/ali_share/info"
-        json_data["postime"] = (
-            datetime.now(timezone.utc)
-            .isoformat(timespec="milliseconds")
-            .replace("+00:00", "Z")
-        )
-        try:
-            response = oopserver_request.make_request(
-                path=path,
-                method="POST",
-                headers={"x-machine-id": configer.get_config("MACHINE_ID")},
-                json_data=json_data,
-                timeout=10.0,
-            )
+            url = f"https://www.alipan.com/s/{share_code}"
+            mtype: Literal["115", "ali"] = "ali"
 
-            if response is not None and response.status_code == 201:
-                logger.info(
-                    f"【分享转存】分享转存信息报告服务器成功: {response.json()}"
-                )
-            else:
-                logger.debug("【分享转存】分享转存报告服务器失败，网络问题")
+        payload["url"] = url
+        payload["postime"] = datetime.now(timezone.utc)
+
+        try:
+            client = P115Center(configer.get_config("MACHINE_ID"))
+            resp = client.upload_share_info(
+                mtype=mtype,
+                payload=ShareInfo(**payload),
+            )
+            logger.info(f"【分享转存】分享转存信息报告服务器成功: {resp.model_dump()}")
         except Exception as e:
             logger.debug(f"【分享转存】分享转存报告服务器失败: {e}")

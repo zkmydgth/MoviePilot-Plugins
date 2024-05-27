@@ -26,6 +26,8 @@ from oss2 import StsAuth, Bucket, SizedFileAdapter, determine_part_size
 from oss2.models import PartInfo
 from oss2.utils import b64encode_as_string
 from oss2.exceptions import OssError
+from p115center import P115Center
+from p115center.schemas import UploadInfo
 from p115client import P115Client
 from p115client.tool.attr import normalize_attr
 from p115client.type import DirNode
@@ -46,7 +48,6 @@ from ..core.i18n import i18n
 from ..core.message import post_message
 from ..core.cache import idpathcacher
 from ..db_manager.oper import FileDbHelper, OpenFileOper
-from ..utils.oopserver import OOPServerRequest
 from ..utils.sentry import sentry_manager
 from ..utils.exception import U115NoCheckInException, CanNotFindPathToCid
 from ..utils.path import PathUtils
@@ -79,7 +80,7 @@ class U115OpenHelper:
 
         self.fail_upload_count = 0
 
-        self.oopserver_request = OOPServerRequest(max_retries=3, backoff_factor=1.0)
+        self.p115_center = P115Center(configer.get_config("MACHINE_ID"))
         self.databasehelper = FileDbHelper()
         self.cookie_client = P115Client(configer.cookies)
 
@@ -357,35 +358,20 @@ class U115OpenHelper:
             """
             发送上传信息
             """
-            path = "/upload/info"
-            headers = {"x-machine-id": configer.get_config("MACHINE_ID")}
-            json_data = {
-                "file_sha1": file_sha1,
-                "first_sha1": first_sha1,
-                "second_auth": second_auth,
-                "second_sha1": second_sha1,
-                "file_size": file_size,
-                "file_name": file_name,
-                "time": upload_time,
-                "postime": datetime.now(timezone.utc)
-                .isoformat(timespec="milliseconds")
-                .replace("+00:00", "Z"),
-            }
             try:
-                response = self.oopserver_request.make_request(
-                    path=path,
-                    method="POST",
-                    headers=headers,
-                    json_data=json_data,
-                    timeout=10.0,
-                )
-
-                if response is not None and response.status_code == 201:
-                    logger.info(
-                        f"【P115Open】上传信息报告服务器成功: {response.json()}"
+                resp = self.p115_center.upload_info(
+                    UploadInfo(
+                        file_sha1=file_sha1,
+                        first_sha1=first_sha1,
+                        second_auth=second_auth,
+                        second_sha1=second_sha1,
+                        file_size=file_size,
+                        file_name=file_name,
+                        time=upload_time,
+                        postime=datetime.now(timezone.utc),
                     )
-                else:
-                    logger.warn("【P115Open】上传信息报告服务器失败，网络问题")
+                )
+                logger.info(f"【P115Open】上传信息报告服务器成功: {resp.model_dump()}")
             except Exception as e:
                 logger.warn(f"【P115Open】上传信息报告服务器失败: {e}")
 
@@ -401,12 +387,7 @@ class U115OpenHelper:
                 )
 
             try:
-                self.oopserver_request.make_request(
-                    path="/upload/wait",
-                    method="POST",
-                    headers={"x-machine-id": configer.get_config("MACHINE_ID")},
-                    timeout=10.0,
-                )
+                self.p115_center.upload_wait()
             except Exception:
                 pass
 
@@ -633,47 +614,37 @@ class U115OpenHelper:
                 sleep(int(configer.get_config("upload_module_wait_time")))
             else:
                 try:
-                    response = self.oopserver_request.make_request(
-                        path="/speed/user_status/me",
-                        method="GET",
-                        headers={"x-machine-id": configer.get_config("MACHINE_ID")},
-                        timeout=10.0,
-                    )
+                    resp = self.p115_center.user_speed_status()
 
-                    if response is not None and response.status_code == 200:
-                        resp = response.json()
-                        if resp.get("status") != "slow":
-                            logger.warn(
-                                f"【P115Open】上传速度状态 {resp.get('status')}，跳过秒传等待: {target_name}"
-                            )
-                            break
-
-                        # 计算等待时间
-                        default_wait_time = int(
-                            configer.get_config("upload_module_wait_time")
+                    if resp.status != "slow":
+                        logger.warn(
+                            f"【P115Open】上传速度状态 {resp.status}，跳过秒传等待: {target_name}"
                         )
-                        sleep_time = default_wait_time
-                        fastest_speed = resp.get("fastest_user_speed_mbps", None)
-                        user_speed = resp.get("user_average_speed_mbps", None)
-                        if fastest_speed and user_speed:
-                            bs = user_speed * 0.2 + fastest_speed * 0.8
-                            wt = file_size / (1024 * 1024) / bs
-                            if wt > 10 * 60:
-                                wt = wt / (wt // (10 * 60) + 1)
-                            if wt <= default_wait_time // 2:
-                                wt += default_wait_time // 2
-                            sleep_time = int(wt)
-
-                        logger.info(
-                            f"【P115Open】休眠 {sleep_time} 秒，等待秒传: {target_name}"
-                        )
-                        if not send_wait:
-                            send_upload_wait(target_name)
-                            send_wait = True
-                        sleep(sleep_time)
-                    else:
-                        logger.warn("【P115Open】获取用户上传速度错误，网络问题")
                         break
+
+                    # 计算等待时间
+                    default_wait_time = int(
+                        configer.get_config("upload_module_wait_time")
+                    )
+                    sleep_time = default_wait_time
+                    fastest_speed = resp.fastest_user_speed_mbps
+                    user_speed = resp.user_average_speed_mbps
+                    if fastest_speed and user_speed:
+                        bs = user_speed * 0.2 + fastest_speed * 0.8
+                        wt = file_size / (1024 * 1024) / bs
+                        if wt > 10 * 60:
+                            wt = wt / (wt // (10 * 60) + 1)
+                        if wt <= default_wait_time // 2:
+                            wt += default_wait_time // 2
+                        sleep_time = int(wt)
+
+                    logger.info(
+                        f"【P115Open】休眠 {sleep_time} 秒，等待秒传: {target_name}"
+                    )
+                    if not send_wait:
+                        send_upload_wait(target_name)
+                        send_wait = True
+                    sleep(sleep_time)
                 except Exception as e:
                     logger.warn(f"【P115Open】获取用户上传速度错误: {e}")
                     break

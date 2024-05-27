@@ -7,6 +7,7 @@ from typing import Dict, Optional
 from pathlib import Path
 from urllib.parse import quote, unquote
 
+from p115center import P115Center
 from qrcode import make as qr_make
 from orjson import dumps, loads
 from p115client import P115Client, check_response
@@ -56,7 +57,6 @@ from .schemas.strm_api import (
 from .schemas.sync_del_history import DeleteSyncDelHistoryPayload
 from .schemas.fuse import FuseMountPayload, FuseStatusData
 from .utils.sentry import sentry_manager
-from .utils.oopserver import OOPServerHelper
 
 from app.log import logger
 from app.core.cache import cached, TTLCache
@@ -1067,7 +1067,16 @@ class Api:
         """
         判断是否有权限使用此增强功能
         """
-        return OOPServerHelper.check_feature(name)
+        try:
+            client = P115Center(configer.get_config("MACHINE_ID"))
+            resp = client.check_feature(name)
+            return MachineIDFeature(**resp)
+        except Exception:
+            return MachineIDFeature(
+                machine_id=None,
+                feature_name=name,
+                enabled=False,
+            )
 
     @staticmethod
     def get_authorization_status_api() -> ApiResponse:
@@ -1075,9 +1084,10 @@ class Api:
         获取机器授权状态
         """
         try:
-            status = OOPServerHelper.get_authorization_status()
-            if status:
-                return ApiResponse(code=0, msg="获取授权状态成功", data=status)
+            client = P115Center(configer.get_config("MACHINE_ID"))
+            resp = client.get_authorization_status()
+            if resp:
+                return ApiResponse(code=0, msg="获取授权状态成功", data=resp)
             return ApiResponse(code=1, msg="获取授权状态失败")
         except Exception as e:
             return ApiResponse(code=-1, msg=f"获取授权状态失败: {str(e)}")

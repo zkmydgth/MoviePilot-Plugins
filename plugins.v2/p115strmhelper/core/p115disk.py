@@ -10,6 +10,7 @@ from oss2 import StsAuth, Bucket, determine_part_size
 from oss2.exceptions import ServerError
 from oss2.models import PartInfo
 from oss2.utils import b64encode_as_string, SizedFileAdapter
+from p115center import P115Center, UploadInfo
 from p115client import P115Client, check_response
 
 from app.core.config import global_vars
@@ -21,7 +22,6 @@ from app.utils.string import StringUtils
 from ..core.config import configer
 from ..core.i18n import i18n
 from ..core.message import post_message
-from ..utils.oopserver import OOPServerRequest
 
 
 class P115DiskCore:
@@ -41,7 +41,7 @@ class P115DiskCore:
         if P115_API_AVAILABLE:
             self._p115_api = P115Api(client=client, disk_name="115网盘Plus")
 
-        self.oopserver_request = OOPServerRequest(max_retries=3, backoff_factor=1.0)
+        self.p115_center = P115Center(configer.get_config("MACHINE_ID"))
 
     def upload(
         self,
@@ -83,35 +83,20 @@ class P115DiskCore:
             """
             发送上传信息
             """
-            path = "/upload/info"
-            headers = {"x-machine-id": configer.get_config("MACHINE_ID")}
-            json_data = {
-                "file_sha1": file_sha1,
-                "first_sha1": first_sha1,
-                "second_auth": second_auth,
-                "second_sha1": second_sha1,
-                "file_size": file_size,
-                "file_name": file_name,
-                "time": upload_time,
-                "postime": datetime.now(timezone.utc)
-                .isoformat(timespec="milliseconds")
-                .replace("+00:00", "Z"),
-            }
             try:
-                response = self.oopserver_request.make_request(
-                    path=path,
-                    method="POST",
-                    headers=headers,
-                    json_data=json_data,
-                    timeout=10.0,
-                )
-
-                if response is not None and response.status_code == 201:
-                    logger.info(
-                        f"【P115Disk】上传信息报告服务器成功: {response.json()}"
+                resp = self.p115_center.upload_info(
+                    UploadInfo(
+                        file_sha1=file_sha1,
+                        first_sha1=first_sha1,
+                        second_auth=second_auth,
+                        second_sha1=second_sha1,
+                        file_size=file_size,
+                        file_name=file_name,
+                        time=upload_time,
+                        postime=datetime.now(timezone.utc),
                     )
-                else:
-                    logger.warn("【P115Disk】上传信息报告服务器失败，网络问题")
+                )
+                logger.info(f"【P115Disk】上传信息报告服务器成功: {resp.model_dump()}")
             except Exception as e:
                 logger.warn(f"【P115Disk】上传信息报告服务器失败: {e}")
 
@@ -127,12 +112,7 @@ class P115DiskCore:
                 )
 
             try:
-                self.oopserver_request.make_request(
-                    path="/upload/wait",
-                    method="POST",
-                    headers={"x-machine-id": configer.get_config("MACHINE_ID")},
-                    timeout=10.0,
-                )
+                self.p115_center.upload_wait()
             except Exception:
                 pass
 
@@ -299,47 +279,37 @@ class P115DiskCore:
                     sleep(int(configer.get_config("upload_module_wait_time")))
                 else:
                     try:
-                        response = self.oopserver_request.make_request(
-                            path="/speed/user_status/me",
-                            method="GET",
-                            headers={"x-machine-id": configer.get_config("MACHINE_ID")},
-                            timeout=10.0,
-                        )
+                        resp = self.p115_center.user_speed_status()
 
-                        if response is not None and response.status_code == 200:
-                            resp = response.json()
-                            if resp.get("status") != "slow":
-                                logger.warn(
-                                    f"【P115Disk】上传速度状态 {resp.get('status')}，跳过秒传等待: {target_name}"
-                                )
-                                break
-
-                            # 计算等待时间
-                            default_wait_time = int(
-                                configer.get_config("upload_module_wait_time")
+                        if resp.status != "slow":
+                            logger.warn(
+                                f"【P115Disk】上传速度状态 {resp.status}，跳过秒传等待: {target_name}"
                             )
-                            sleep_time = default_wait_time
-                            fastest_speed = resp.get("fastest_user_speed_mbps", None)
-                            user_speed = resp.get("user_average_speed_mbps", None)
-                            if fastest_speed and user_speed:
-                                bs = user_speed * 0.2 + fastest_speed * 0.8
-                                wt = file_size / (1024 * 1024) / bs
-                                if wt > 10 * 60:
-                                    wt = wt / (wt // (10 * 60) + 1)
-                                if wt <= default_wait_time // 2:
-                                    wt += default_wait_time // 2
-                                sleep_time = int(wt)
-
-                            logger.info(
-                                f"【P115Disk】休眠 {sleep_time} 秒，等待秒传: {target_name}"
-                            )
-                            if not send_wait:
-                                send_upload_wait(target_name)
-                                send_wait = True
-                            sleep(sleep_time)
-                        else:
-                            logger.warn("【P115Disk】获取用户上传速度错误，网络问题")
                             break
+
+                        # 计算等待时间
+                        default_wait_time = int(
+                            configer.get_config("upload_module_wait_time")
+                        )
+                        sleep_time = default_wait_time
+                        fastest_speed = resp.fastest_user_speed_mbps
+                        user_speed = resp.user_average_speed_mbps
+                        if fastest_speed and user_speed:
+                            bs = user_speed * 0.2 + fastest_speed * 0.8
+                            wt = file_size / (1024 * 1024) / bs
+                            if wt > 10 * 60:
+                                wt = wt / (wt // (10 * 60) + 1)
+                            if wt <= default_wait_time // 2:
+                                wt += default_wait_time // 2
+                            sleep_time = int(wt)
+
+                        logger.info(
+                            f"【P115Disk】休眠 {sleep_time} 秒，等待秒传: {target_name}"
+                        )
+                        if not send_wait:
+                            send_upload_wait(target_name)
+                            send_wait = True
+                        sleep(sleep_time)
                     except Exception as e:
                         logger.warn(f"【P115Disk】获取用户上传速度错误: {e}")
                         break

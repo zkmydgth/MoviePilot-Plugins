@@ -17,6 +17,7 @@ from httpx import (
     stream as httpx_stream,
 )
 from orjson import loads
+from p115center import P115Center
 from p115pickcode import pickcode_to_id
 from p115client import P115Client, check_response
 from p115client.const import TYPE_TO_SUFFIXES
@@ -32,7 +33,6 @@ from app.log import logger
 
 from ...core.config import configer
 from ...core.cache import OofFastMiCache
-from ...utils.oopserver import OOPServerRequest
 from ...utils.url import Url
 from ...utils.sentry import sentry_manager
 from ...utils.exception import DownloadValidationFail
@@ -56,7 +56,7 @@ class MediaInfoDownloader:
         self.oof_fast_mi_cacher = OofFastMiCache(
             configer.PLUGIN_TEMP_PATH / "oof_fast_mi"
         )
-        self.oof_r = OOPServerRequest()
+        self.p115_center = P115Center()
         self.zstd_compressor = ZstdCompressor()
         self.zstd_decompressor = ZstdDecompressor()
 
@@ -108,15 +108,10 @@ class MediaInfoDownloader:
         :param upload_lst: 上传列表
         """
         try:
-            resp = self.oof_r.make_request(
-                method="POST",
-                path="/mediainfo_data/bulk",
-                files_data=upload_lst,
+            resp = self.p115_center.upload_mediainfo_data(upload_lst)
+            logger.debug(
+                f"【媒体信息文件下载】数据上传 OOF 服务器成功: {resp.model_dump()}"
             )
-            if resp is not None and resp.status_code == 200:
-                logger.debug(
-                    f"【媒体信息文件下载】数据上传 OOF 服务器成功: {resp.json()}"
-                )
             self.oof_fast_mi_cacher.batch_set(upload_lst)
             logger.debug(f"【媒体信息文件下载】OOF 数据缓存本地成功: {len(upload_lst)}")
         except Exception as e:
@@ -528,20 +523,15 @@ class MediaInfoDownloader:
             if not api_item_lst:
                 continue
             try:
-                resp = self.oof_r.make_request(
-                    method="POST",
-                    path="/mediainfo_data/get",
-                    json_data={"sha1s": [item["sha1"] for item in api_item_lst]},
+                resp = self.p115_center.download_mediainfo_data(
+                    [item["sha1"] for item in api_item_lst]
                 )
-                if resp is not None and resp.status_code == 200:
-                    json = {i["sha1"]: i["data"] for i in resp.json() if i["data"]}
-                    dl_lst = list(
-                        self.save_oof_mediainfo_file(api_item_lst, json, "Api")
-                    )
-                    self.oof_fast_mi_cacher.batch_set(resp.json())
-                    logger.debug(
-                        f"【媒体信息文件下载】OOF 数据本地缓存成功: {len(json.keys())}"
-                    )
+                json = {i["sha1"]: i["data"] for i in resp if i["data"]}
+                dl_lst = list(self.save_oof_mediainfo_file(api_item_lst, json, "Api"))
+                self.oof_fast_mi_cacher.batch_set(resp)
+                logger.debug(
+                    f"【媒体信息文件下载】OOF 数据本地缓存成功: {len(json.keys())}"
+                )
             except Exception as e:
                 logger.warn(f"【媒体信息文件下载】获取 OOF 服务器数据失败: {e}")
             if not dl_lst:
