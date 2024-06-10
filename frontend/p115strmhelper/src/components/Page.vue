@@ -575,29 +575,46 @@
       <v-divider></v-divider>
 
       <v-card-actions class="px-2 py-1 sticky-actions d-flex justify-space-between align-center"
-        style="flex-shrink: 0;">
+        style="flex-shrink: 0; gap: 8px;">
         <v-btn color="info" @click="refreshStatus" prepend-icon="mdi-refresh" :disabled="refreshing"
           :loading="refreshing" variant="text" size="small">刷新状态</v-btn>
 
-        <div class="d-flex align-center">
-          <v-btn color="warning" prepend-icon="mdi-sync"
-            :disabled="!status.enabled || !status.has_client || actionLoading" :loading="syncLoading"
-            @click="triggerFullSync" variant="text" size="small" class="ml-1">
-            全量同步
-          </v-btn>
-          <v-btn color="info" prepend-icon="mdi-share-variant"
-            :disabled="!status.enabled || !status.has_client || actionLoading" :loading="shareSyncLoading"
-            @click="openShareDialog" variant="text" size="small" class="ml-1">
-            分享同步
-          </v-btn>
-          <v-btn color="secondary" prepend-icon="mdi-cloud-download-outline"
-            :disabled="!status.enabled || !status.has_client || actionLoading" @click="openOfflineDownloadDialog"
-            variant="text" size="small" class="ml-1">
-            离线下载
-          </v-btn>
-          <v-btn color="primary" @click="emit('switch')" prepend-icon="mdi-cog" variant="text" size="small"
-            class="ml-1">配置</v-btn>
-          <v-btn color="error" @click="emit('close')" variant="flat" size="small" class="ml-1 custom-close-btn"
+        <div class="d-flex align-center" style="gap: 4px;">
+          <!-- “更多操作” 菜单 -->
+          <v-menu offset-y>
+            <template v-slot:activator="{ props }">
+              <v-btn v-bind="props" variant="text" size="small" append-icon="mdi-dots-vertical">
+                更多
+              </v-btn>
+            </template>
+            <v-list density="compact">
+              <v-list-item @click="fullSyncConfirmDialog = true"
+                :disabled="!status.enabled || !status.has_client || actionLoading">
+                <template v-slot:prepend>
+                  <v-icon color="warning">mdi-sync</v-icon>
+                </template>
+                <v-list-item-title>全量同步</v-list-item-title>
+              </v-list-item>
+              <v-list-item @click="openShareDialog" :disabled="!status.enabled || !status.has_client || actionLoading"
+                :loading="shareSyncLoading">
+                <template v-slot:prepend>
+                  <v-icon color="info">mdi-share-variant</v-icon>
+                </template>
+                <v-list-item-title>分享同步</v-list-item-title>
+              </v-list-item>
+              <v-list-item @click="openOfflineDownloadDialog"
+                :disabled="!status.enabled || !status.has_client || actionLoading">
+                <template v-slot:prepend>
+                  <v-icon color="secondary">mdi-cloud-download-outline</v-icon>
+                </template>
+                <v-list-item-title>离线下载</v-list-item-title>
+              </v-list-item>
+            </v-list>
+          </v-menu>
+
+          <!-- 始终可见的核心按钮 -->
+          <v-btn color="primary" @click="emit('switch')" prepend-icon="mdi-cog" variant="text" size="small">配置</v-btn>
+          <v-btn color="error" @click="emit('close')" variant="flat" size="small" class="custom-close-btn"
             aria-label="关闭"
             style="min-width: auto !important; padding: 0 10px !important; height: 28px !important; line-height: 28px !important;">
             <v-icon size="small">mdi-close</v-icon>
@@ -692,32 +709,36 @@
           <v-tab value="add">添加任务</v-tab>
         </v-tabs>
 
-        <v-window v-model="offlineDownloadDialog.activeTab">
+        <v-window v-model="offlineDownloadDialog.activeTab" touchless>
           <!-- 任务列表 -->
           <v-window-item value="tasks">
-            <v-alert v-if="offlineDownloadDialog.error" type="error" density="compact" class="ma-3" variant="tonal">
-              {{ offlineDownloadDialog.error }}
-            </v-alert>
-            <v-data-table-server :headers="offlineDownloadDialog.headers" :items="offlineDownloadDialog.tasks"
-              :items-length="offlineDownloadDialog.totalTasks" :loading="offlineDownloadDialog.loading"
-              :items-per-page="offlineDownloadDialog.itemsPerPage" @update:options="fetchOfflineTasks" density="compact"
-              class="ma-2" no-data-text="没有离线下载任务" loading-text="正在加载任务..." items-per-page-text="每页条目数">
-              <template v-slot:item.progress="{ item }">
-                <div class="d-flex align-center">
-                  <v-progress-linear :model-value="item.percent" :color="getTaskStatusColor(item.status)"
-                    :stream="item.status === 0 || item.status === 3" :striped="item.status === 0 || item.status === 3"
-                    height="8" rounded class="flex-grow-1 mr-3"></v-progress-linear>
-                  <div class="text-no-wrap text-caption font-weight-medium" style="min-width: 40px; text-align: right;">
-                    {{ item.percent }}%
+            <div style="overflow-x: auto;">
+              <v-alert v-if="offlineDownloadDialog.error" type="error" density="compact" class="ma-3" variant="tonal">
+                {{ offlineDownloadDialog.error }}
+              </v-alert>
+              <v-data-table-server :headers="offlineDownloadDialog.headers" :items="offlineDownloadDialog.tasks"
+                :items-length="offlineDownloadDialog.totalTasks" :loading="offlineDownloadDialog.loading"
+                :items-per-page="offlineDownloadDialog.itemsPerPage" @update:options="fetchOfflineTasks"
+                density="compact" class="ma-2" no-data-text="没有离线下载任务" loading-text="正在加载任务..."
+                items-per-page-text="每页条目数" style="min-width: 700px;">
+                <template v-slot:item.progress="{ item }">
+                  <div class="d-flex align-center">
+                    <v-progress-linear :model-value="item.percent" :color="getTaskStatusColor(item.status)"
+                      :stream="item.status === 0 || item.status === 3" :striped="item.status === 0 || item.status === 3"
+                      height="8" rounded class="flex-grow-1 mr-3"></v-progress-linear>
+                    <div class="text-no-wrap text-caption font-weight-medium"
+                      style="min-width: 40px; text-align: right;">
+                      {{ item.percent }}%
+                    </div>
                   </div>
-                </div>
-              </template>
-              <template v-slot:item.status_text="{ item }">
-                <v-chip :color="getTaskStatusColor(item.status)" size="x-small" variant="tonal">
-                  {{ item.status_text }}
-                </v-chip>
-              </template>
-            </v-data-table-server>
+                </template>
+                <template v-slot:item.status_text="{ item }">
+                  <v-chip :color="getTaskStatusColor(item.status)" size="x-small" variant="tonal">
+                    {{ item.status_text }}
+                  </v-chip>
+                </template>
+              </v-data-table-server>
+            </div>
           </v-window-item>
 
           <!-- 添加任务 -->
@@ -817,6 +838,28 @@
       </v-card-actions>
     </v-card>
   </v-dialog>
+
+  <!-- 全量同步确认对话框 -->
+  <v-dialog v-model="fullSyncConfirmDialog" max-width="450" persistent>
+    <v-card>
+      <v-card-title class="text-h6 d-flex align-center">
+        <v-icon icon="mdi-alert-circle-outline" color="warning" class="mr-2"></v-icon>
+        确认操作
+      </v-card-title>
+      <v-card-text>
+        您确定要立即执行全量同步吗？
+      </v-card-text>
+      <v-card-actions>
+        <v-spacer></v-spacer>
+        <v-btn color="grey" variant="text" @click="fullSyncConfirmDialog = false" :disabled="syncLoading">
+          取消
+        </v-btn>
+        <v-btn color="warning" variant="text" @click="handleConfirmFullSync" :loading="syncLoading">
+          确认执行
+        </v-btn>
+      </v-card-actions>
+    </v-card>
+  </v-dialog>
 </template>
 
 <script setup>
@@ -846,6 +889,7 @@ const error = ref(null);
 const actionMessage = ref(null);
 const actionMessageType = ref('info');
 const actionLoading = ref(false);
+const fullSyncConfirmDialog = ref(false);
 
 const status = reactive({
   enabled: false,
@@ -1050,6 +1094,11 @@ const refreshStatus = async () => {
   setTimeout(() => {
     actionMessage.value = null;
   }, 3000);
+};
+
+const handleConfirmFullSync = async () => {
+  fullSyncConfirmDialog.value = false; // 先关闭对话框
+  await triggerFullSync(); // 然后执行原始的同步函数
 };
 
 // 触发全量同步
