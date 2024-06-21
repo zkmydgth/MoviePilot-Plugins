@@ -18,7 +18,7 @@ from requests.exceptions import HTTPError
 from orjson import dumps, loads
 from cachetools import cached, TTLCache
 from p115client import P115Client
-from p115client.tool.iterdir import iter_files_with_path, get_path_to_cid
+from p115client.tool.iterdir import iter_files_with_path, get_path_to_cid, share_iterdir
 from p115client.tool.life import iter_life_behavior_list
 from p115rsacipher import encrypt, decrypt
 
@@ -93,19 +93,20 @@ class FullSyncStrmHelper:
     def __init__(
         self,
         cookies: str,
-        user_rmt_mediaext: str = "mp4,mkv,ts,iso,rmvb,avi,mov,mpeg,mpg,wmv,3gp,asf,m4v,flv,m2ts,tp,f4v",
+        user_rmt_mediaext: str,
+        server_address: str,
     ):
         self.rmt_mediaext = [
             f".{ext.strip()}" for ext in user_rmt_mediaext.replace("，", ",").split(",")
         ]
         self.client = P115Client(cookies)
         self.count = 0
+        self.server_address = server_address.rstrip("/")
 
-    def generate_strm_files_db(self, full_sync_strm_paths, server_address):
+    def generate_strm_files(self, full_sync_strm_paths):
         """
         生成 STRM 文件
         """
-        server_address = server_address.rstrip("/")
         media_paths = full_sync_strm_paths.split("\n")
         for path in media_paths:
             if not path:
@@ -159,7 +160,7 @@ class FullSyncStrmHelper:
                             f"【全量STRM生成】错误的 pickcode 值 {pickcode}，无法生成 STRM 文件"
                         )
                         continue
-                    strm_url = f"{server_address}/api/v1/plugin/P115StrmHelper/redirect_url?apikey={settings.API_TOKEN}&pickcode={pickcode}"
+                    strm_url = f"{self.server_address}/api/v1/plugin/P115StrmHelper/redirect_url?apikey={settings.API_TOKEN}&pickcode={pickcode}"
 
                     with open(new_file_path, "w", encoding="utf-8") as file:
                         file.write(strm_url)
@@ -176,6 +177,138 @@ class FullSyncStrmHelper:
         return True
 
 
+class ShareStrmHelper:
+    """
+    根据分享生成STRM
+    """
+
+    def __init__(
+        self,
+        cookies: str,
+        user_rmt_mediaext: str,
+        share_media_path: str,
+        local_media_path: str,
+        server_address: str,
+    ):
+        self.rmt_mediaext = [
+            f".{ext.strip()}" for ext in user_rmt_mediaext.replace("，", ",").split(",")
+        ]
+        self.client = P115Client(cookies)
+        self.count = 0
+        self.share_media_path = share_media_path
+        self.local_media_path = local_media_path
+        self.server_address = server_address.rstrip("/")
+
+    def has_prefix(self, full_path, prefix_path):
+        """
+        判断路径是否包含
+        """
+        full = Path(full_path).parts
+        prefix = Path(prefix_path).parts
+
+        if len(prefix) > len(full):
+            return False
+
+        return full[: len(prefix)] == prefix
+
+    def generate_strm_files(
+        self,
+        share_code: str,
+        receive_code: str,
+        file_id: str,
+        file_path: str,
+    ):
+        """
+        生成 STRM 文件
+        """
+        if not self.has_prefix(file_path, self.share_media_path):
+            logger.debug(
+                "【分享STRM生成】此文件不在用户设置分享目录下，跳过网盘路径: %s",
+                str(file_path).replace(str(self.local_media_path), "", 1),
+            )
+            return
+        file_path = Path(self.local_media_path) / Path(file_path).relative_to(
+            self.share_media_path
+        )
+        file_target_dir = file_path.parent
+        original_file_name = file_path.name
+        file_name = file_path.stem + ".strm"
+        new_file_path = file_target_dir / file_name
+
+        if file_path.suffix not in self.rmt_mediaext:
+            logger.warn(
+                "【分享STRM生成】文件后缀不匹配，跳过网盘路径: %s",
+                str(file_path).replace(str(self.local_media_path), "", 1),
+            )
+            return
+
+        new_file_path.parent.mkdir(parents=True, exist_ok=True)
+
+        if not file_id:
+            logger.error(
+                f"【分享STRM生成】{original_file_name} 不存在 id 值，无法生成 STRM 文件"
+            )
+            return
+        if not share_code:
+            logger.error(
+                f"【分享STRM生成】{original_file_name} 不存在 share_code 值，无法生成 STRM 文件"
+            )
+            return
+        if not receive_code:
+            logger.error(
+                f"【分享STRM生成】{original_file_name} 不存在 receive_code 值，无法生成 STRM 文件"
+            )
+            return
+        strm_url = f"{self.server_address}/api/v1/plugin/P115StrmHelper/redirect_url?apikey={settings.API_TOKEN}&share_code={share_code}&receive_code={receive_code}&id={file_id}"
+
+        with open(new_file_path, "w", encoding="utf-8") as file:
+            file.write(strm_url)
+        self.count += 1
+        logger.info("【分享STRM生成】生成 STRM 文件成功: %s", str(new_file_path))
+
+    def get_share_list_creata_strm(
+        self,
+        cid: int = 0,
+        current_path: str = "",
+        share_code: str = "",
+        receive_code: str = "",
+    ):
+        """
+        获取分享文件，生成 STRM
+        """
+        for item in share_iterdir(
+            self.client, receive_code=receive_code, share_code=share_code, cid=int(cid)
+        ):
+            item_path = (
+                f"{current_path}/{item['name']}" if current_path else "/" + item["name"]
+            )
+
+            if item["is_directory"] or item["is_dir"]:
+                self.get_share_list_creata_strm(
+                    cid=int(item["id"]),
+                    current_path=item_path,
+                    share_code=share_code,
+                    receive_code=receive_code,
+                )
+            else:
+                item_with_path = dict(item)
+                item_with_path["path"] = item_path
+                self.generate_strm_files(
+                    share_code=share_code,
+                    receive_code=receive_code,
+                    file_id=item_with_path["id"],
+                    file_path=item_with_path["path"],
+                )
+
+    def get_generate_total(self):
+        """
+        输出总共生成文件个数
+        """
+        logger.info(
+            f"【分享STRM生成】分享生成 STRM 文件完成，总共生成 {self.count} 个文件"
+        )
+
+
 class P115StrmHelper(_PluginBase):
     # 插件名称
     plugin_name = "115网盘STRM助手"
@@ -184,7 +317,7 @@ class P115StrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png"
     # 插件版本
-    plugin_version = "1.1.0"
+    plugin_version = "1.2.0"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -214,6 +347,11 @@ class P115StrmHelper(_PluginBase):
     _mediaservers = None
     _monitor_life_enabled = False
     _monitor_life_paths = None
+    _share_strm_enabled = False
+    _user_share_code = None
+    _user_receive_code = None
+    _user_share_pan_path = None
+    _user_share_local_path = None
     # 退出事件
     _event = ThreadEvent()
     monitor_stop_event = None
@@ -245,10 +383,17 @@ class P115StrmHelper(_PluginBase):
             self._full_sync_strm_paths = config.get("full_sync_strm_paths")
             self._monitor_life_enabled = config.get("monitor_life_enabled")
             self._monitor_life_paths = config.get("monitor_life_paths")
+            self._share_strm_enabled = config.get("share_strm_enabled")
+            self._user_share_code = config.get("user_share_code")
+            self._user_receive_code = config.get("user_receive_code")
+            self._user_share_pan_path = config.get("user_share_pan_path")
+            self._user_share_local_path = config.get("user_share_local_path")
             if not self._user_rmt_mediaext:
                 self._user_rmt_mediaext = "mp4,mkv,ts,iso,rmvb,avi,mov,mpeg,mpg,wmv,3gp,asf,m4v,flv,m2ts,tp,f4v"
             if not self._cron_full_sync_strm:
                 self._cron_full_sync_strm = "0 */7 * * *"
+            if not self._user_share_pan_path:
+                self._user_share_pan_path = "/"
             self.__update_config()
 
         if self.__check_python_version() is False:
@@ -269,6 +414,21 @@ class P115StrmHelper(_PluginBase):
                 name="115网盘助手立刻全量同步",
             )
             self._once_full_sync_strm = False
+            self.__update_config()
+            if self._scheduler.get_jobs():
+                self._scheduler.print_jobs()
+                self._scheduler.start()
+
+        if self._enabled and self._share_strm_enabled:
+            self._scheduler = BackgroundScheduler(timezone=settings.TZ)
+            self._scheduler.add_job(
+                func=self.share_strm_files,
+                trigger="date",
+                run_date=datetime.now(tz=pytz.timezone(settings.TZ))
+                + timedelta(seconds=3),
+                name="115网盘助手分享生成STRM",
+            )
+            self._share_strm_enabled = False
             self.__update_config()
             if self._scheduler.get_jobs():
                 self._scheduler.print_jobs()
@@ -451,7 +611,7 @@ class P115StrmHelper(_PluginBase):
                                         "props": {
                                             "type": "info",
                                             "variant": "tonal",
-                                            "text": "监控MP整理自动生成STRM配置",
+                                            "text": "监控MP整理生成STRM配置",
                                         },
                                     }
                                 ],
@@ -482,7 +642,7 @@ class P115StrmHelper(_PluginBase):
                                         "component": "VSwitch",
                                         "props": {
                                             "model": "transfer_monitor_media_server_refresh_enabled",
-                                            "label": "媒体库服务器刷新",
+                                            "label": "媒体服务器刷新",
                                         },
                                     }
                                 ],
@@ -676,6 +836,102 @@ class P115StrmHelper(_PluginBase):
                             }
                         ],
                     },
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {
+                                    "cols": 12,
+                                },
+                                "content": [
+                                    {
+                                        "component": "VAlert",
+                                        "props": {
+                                            "type": "info",
+                                            "variant": "tonal",
+                                            "text": "分享生成STRM配置",
+                                        },
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 4},
+                                "content": [
+                                    {
+                                        "component": "VSwitch",
+                                        "props": {
+                                            "model": "share_strm_enabled",
+                                            "label": "运行分享生成STRM",
+                                        },
+                                    }
+                                ],
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 4},
+                                "content": [
+                                    {
+                                        "component": "VTextField",
+                                        "props": {
+                                            "model": "user_share_code",
+                                            "label": "分享码",
+                                        },
+                                    }
+                                ],
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 4},
+                                "content": [
+                                    {
+                                        "component": "VTextField",
+                                        "props": {
+                                            "model": "user_receive_code",
+                                            "label": "分享密码",
+                                        },
+                                    }
+                                ],
+                            },
+                        ],
+                    },
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 6},
+                                "content": [
+                                    {
+                                        "component": "VTextField",
+                                        "props": {
+                                            "model": "user_share_pan_path",
+                                            "label": "分享文件夹路径",
+                                        },
+                                    }
+                                ],
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 6},
+                                "content": [
+                                    {
+                                        "component": "VTextField",
+                                        "props": {
+                                            "model": "user_share_local_path",
+                                            "label": "本地生成STRM路径",
+                                        },
+                                    }
+                                ],
+                            },
+                        ],
+                    },
                 ],
             },
         ], {
@@ -692,6 +948,11 @@ class P115StrmHelper(_PluginBase):
             "full_sync_strm_paths": "",
             "monitor_life_enabled": False,
             "monitor_life_paths": "",
+            "share_strm_enabled": False,
+            "user_share_code": "",
+            "user_receive_code": "",
+            "user_share_pan_path": "/",
+            "user_share_local_path": "",
         }
 
     def get_page(self) -> List[dict]:
@@ -714,6 +975,11 @@ class P115StrmHelper(_PluginBase):
                 "full_sync_strm_paths": self._full_sync_strm_paths,
                 "monitor_life_enabled": self._monitor_life_enabled,
                 "monitor_life_paths": self._monitor_life_paths,
+                "share_strm_enabled": self._share_strm_enabled,
+                "user_share_code": self._user_share_code,
+                "user_receive_code": self._user_receive_code,
+                "user_share_pan_path": self._user_share_pan_path,
+                "user_share_local_path": self._user_share_local_path,
             }
         )
 
@@ -1045,7 +1311,7 @@ class P115StrmHelper(_PluginBase):
                 f"【监控整理STRM生成】{item_dest_name} 路径匹配不符合，跳过整理"
             )
             return
-        logger.info("【监控整理STRM生成】匹配到网盘文件夹路径: %s", str(pan_media_dir))
+        logger.debug("【监控整理STRM生成】匹配到网盘文件夹路径: %s", str(pan_media_dir))
 
         if item_bluray:
             logger.warning(
@@ -1066,11 +1332,11 @@ class P115StrmHelper(_PluginBase):
         strm_url = f"{self.moviepilot_address.rstrip('/')}/api/v1/plugin/P115StrmHelper/redirect_url?apikey={settings.API_TOKEN}&pickcode={item_dest_pickcode}"
 
         status, strm_target_path = generate_strm_files(
-            local_media_dir,
-            pan_media_dir,
-            item_dest_path,
-            item_dest_basename,
-            strm_url,
+            target_dir=local_media_dir,
+            pan_media_dir=pan_media_dir,
+            item_dest_path=item_dest_path,
+            basename=item_dest_basename,
+            url=strm_url,
         )
         if not status:
             return
@@ -1103,16 +1369,48 @@ class P115StrmHelper(_PluginBase):
         """
         全量同步
         """
-        if not self._full_sync_strm_paths:
+        if not self._full_sync_strm_paths or not self.moviepilot_address:
             return
 
         strm_helper = FullSyncStrmHelper(
             user_rmt_mediaext=self._user_rmt_mediaext,
             cookies=self._cookies,
+            server_address=self.moviepilot_address,
         )
-        strm_helper.generate_strm_files_db(
-            self._full_sync_strm_paths, self.moviepilot_address
+        strm_helper.generate_strm_files(
+            full_sync_strm_paths=self._full_sync_strm_paths,
         )
+
+    def share_strm_files(self):
+        """
+        分享生成STRM
+        """
+        if (
+            not self._user_share_code
+            or not self._user_receive_code
+            or not self._user_share_pan_path
+            or not self._user_share_local_path
+            or not self.moviepilot_address
+        ):
+            return
+
+        try:
+            strm_helper = ShareStrmHelper(
+                user_rmt_mediaext=self._user_rmt_mediaext,
+                cookies=self._cookies,
+                server_address=self.moviepilot_address,
+                share_media_path=self._user_share_pan_path,
+                local_media_path=self._user_share_local_path,
+            )
+            strm_helper.get_share_list_creata_strm(
+                cid=0,
+                share_code=self._user_share_code,
+                receive_code=self._user_receive_code,
+            )
+            strm_helper.get_generate_total()
+        except Exception as e:
+            logger.error(f"【分享STRM生成】运行失败: {e}")
+            return
 
     def monitor_life_strm_files(self):
         """
@@ -1150,7 +1448,7 @@ class P115StrmHelper(_PluginBase):
                     )
                     if not status:
                         continue
-                    logger.info(
+                    logger.debug(
                         "【监控生活事件】匹配到网盘文件夹路径: %s", str(pan_media_dir)
                     )
                     file_path = Path(target_dir) / Path(file_path).relative_to(
