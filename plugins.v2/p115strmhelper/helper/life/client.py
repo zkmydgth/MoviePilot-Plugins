@@ -34,7 +34,7 @@ from urllib.error import HTTPError
 from p115client import P115Client, check_response
 from p115client.exception import P115AuthenticationError, P115OSError
 from p115client.tool.attr import get_path, normalize_attr
-from p115client.tool.fs_files import iter_fs_files
+from p115client.tool.fs_files import fs_files_iter
 from p115client.tool.iterdir import iter_files_with_path
 from p115client.tool.life import (
     life_show,
@@ -2187,7 +2187,7 @@ class MonitorLife:
             logger.info(f"【监控生活事件】开始遍历目录: {path}")
             try:
                 for batch_count, data in enumerate(
-                    iter_fs_files(
+                    fs_files_iter(
                         self._client,
                         parent_id,
                         cooldown=2,

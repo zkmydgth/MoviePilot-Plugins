@@ -2,7 +2,7 @@ from time import sleep
 from typing import List
 
 from p115client import P115Client, check_response
-from p115client.tool.fs_files import iter_fs_files
+from p115client.tool.fs_files import fs_files_iter
 
 from app.log import logger
 
@@ -50,7 +50,7 @@ class Cleaner:
             logger.info(f"【最近接收清理】最近接收目录 ID 获取成功: {parent_id}")
             sleep(2)
             id_list: List = []
-            for batch in iter_fs_files(
+            for batch in fs_files_iter(
                 self.client, parent_id, cooldown=2, **configer.get_ios_ua_app(app=False)
             ):
                 for item in batch.get("data", []):

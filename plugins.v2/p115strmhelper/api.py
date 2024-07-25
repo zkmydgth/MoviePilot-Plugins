@@ -14,7 +14,7 @@ from orjson import dumps, loads
 from p115client import P115Client, check_response
 from p115client.const import APP_TO_SSOENT
 from p115client.exception import P115DataError
-from p115client.tool.fs_files import iter_fs_files
+from p115client.tool.fs_files import fs_files_iter
 from fastapi import Body, Request, Response, Depends, status, Query
 from fastapi.responses import JSONResponse
 
@@ -495,7 +495,7 @@ class Api:
                 items = []
                 fs_batches = cast(
                     Iterator[Dict[str, Any]],
-                    iter_fs_files(
+                    fs_files_iter(
                         self._client,
                         cid,
                         cooldown=2,

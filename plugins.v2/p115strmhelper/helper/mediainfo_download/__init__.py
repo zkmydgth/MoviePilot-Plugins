@@ -19,15 +19,11 @@ from httpx import (
 )
 from orjson import loads
 from p115center import P115Center
-from p115pickcode import pickcode_to_id
 from p115client import check_response
 from p115client.const import TYPE_TO_SUFFIXES
+from p115client.tool.iterdir import iter_files, iter_files_with_path_skim, iter_items
 from p115client.util import reduce_image_url_layers
-from p115client.tool.iterdir import (
-    _iter_fs_files,
-    iter_files,
-    iter_files_with_path_skim,
-)
+from p115pickcode import pickcode_to_id
 from zstandard import ZstdCompressor, ZstdDecompressor
 
 from app.log import logger
@@ -489,11 +485,12 @@ class MediaInfoDownloader:
                 )
                 check_response(resp)
                 attr = next(
-                    _iter_fs_files(
+                    iter_items(
                         client=self.client,
                         payload=scid,
                         page_size=1,
                         app="web",
+                        max_workers=0,
                         **configer.get_ios_ua_app(app=False),
                     )
                 )
@@ -546,11 +543,12 @@ class MediaInfoDownloader:
                 # 休眠等待 115 全部转存完成
                 time_sleep(8)
                 attr = next(
-                    _iter_fs_files(
+                    iter_items(
                         client=self.client,
                         payload=scid,
                         page_size=1,
                         app="web",
+                        max_workers=0,
                         **configer.get_ios_ua_app(app=False),
                     )
                 )

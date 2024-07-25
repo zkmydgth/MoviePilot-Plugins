@@ -13,7 +13,7 @@ from p115client import P115Client, check_response
 from p115client.const import _CACHE_DIR
 from p115client.exception import P115NotADirectoryError
 from p115client.tool.attr import normalize_attr, get_id_to_path, get_attr
-from p115client.tool.fs_files import iter_fs_files
+from p115client.tool.fs_files import fs_files_iter
 from p115client.tool.iterdir import iter_files_with_path_skim
 
 from app.chain.storage import StorageChain
@@ -202,7 +202,7 @@ class P115Api:
 
         items = []
         try:
-            for data in iter_fs_files(
+            for data in fs_files_iter(
                 self.client, file_id, cooldown=1.5, **get_ios_ua_app(app=False)
             ):
                 logger.debug(f"【P115Disk】浏览目录 {data}")

@@ -145,6 +145,7 @@ class WebdavCore:
                 escape=None,
                 normalize_attr=normalize_attr_simple,
                 async_=True,
+                max_workers=0,
                 **configer.get_ios_ua_app(app=False),
             ):
                 self.cache_attr.pop(attr["id"], None)

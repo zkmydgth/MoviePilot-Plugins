@@ -15,7 +15,7 @@ from p115client.tool.export_dir import (
     export_dir_parse_iter,
     export_dir_parse_iter_path,
 )
-from p115client.tool.fs_files import iter_fs_files
+from p115client.tool.fs_files import fs_files_iter
 from p115client.tool.iterdir import iterdir
 from sqlalchemy.orm.exc import MultipleResultsFound
 
@@ -351,7 +351,7 @@ class IncrementSyncStrmHelper:
         :return Iterator: 网盘文件(夹)信息迭代器
         """
         logger.debug(f"【增量STRM生成】迭代网盘目录: {cid} {path}")
-        for batch in iter_fs_files(
+        for batch in fs_files_iter(
             self.client,
             cid,
             cooldown=2,
@@ -805,7 +805,11 @@ class IncrementSyncStrmHelper:
         if cid == -1:
             raise PanPathNotFound(f"网盘路径不存在: {path}")
         for item in iterdir(
-            client=self.client, cid=cid, cooldown=2, **configer.get_ios_ua_app()
+            client=self.client,
+            cid=cid,
+            cooldown=2,
+            max_workers=0,
+            **configer.get_ios_ua_app(),
         ):
             if not item["is_dir"]:
                 raise OSError("二级目录不能存在文件")
