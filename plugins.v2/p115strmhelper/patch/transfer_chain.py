@@ -424,6 +424,7 @@ class TransferChainPatcher:
                 template_string=rename_format,
                 rename_dict=naming_dict,
                 path=target_dir,
+                source_path=task.fileitem.path,
             )
 
             # 确保返回 Path 对象
