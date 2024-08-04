@@ -355,8 +355,14 @@ def _run():
         print("逃逸清单（对应边界测试存在盲区，必须补强）：")
         for name in escaped_names:
             print(f"  - {name}")
+    if skipped:
+        print(f"⚠️ {skipped} 个变异体定位失败（防护未生效！）——按规约等同于失败，必须同步锚点")
     print("已还原原始源码。")
-    return 0 if not escaped_names else 2
+    # 跳过必须等同于失败（2026-10-02 定案）：否则源码重构后变异体悄悄失配，
+    # 脚本却退出码 0、报表全绿，等于留一条永不生效的假防护。
+    if escaped_names or skipped:
+        return 1
+    return 0
 
 
 if __name__ == "__main__":
