@@ -634,7 +634,7 @@ class U115OpenHelper:
             access_key_secret=access_key_secret,
             security_token=security_token,
         )
-        bucket = oss2.Bucket(auth, endpoint, bucket_name, connect_timeout=120)
+        bucket = oss2.Bucket(auth, endpoint, bucket_name, connect_timeout=120)  # noqa
         part_size = determine_part_size(file_size, preferred_size=self.chunk_size)
 
         # 初始化进度条
@@ -722,7 +722,10 @@ class U115OpenHelper:
                                     security_token=security_token,
                                 )
                                 bucket = oss2.Bucket(
-                                    auth, endpoint, bucket_name, connect_timeout=120
+                                    auth,
+                                    endpoint,
+                                    bucket_name,
+                                    connect_timeout=120,  # noqa
                                 )
                                 logger.info(
                                     "【P115Open】上传凭证已刷新，将重试当前分片。"
@@ -1172,8 +1175,8 @@ class U115OpenHelper:
                 raise CanNotFindPathToCid("无法获取目录信息")
             path = file_item.fileid
         initial_cid = int(path)
-        if page_size <= 0 or page_size > 10000:
-            page_size = 7,000
+        if page_size <= 0 or page_size > 10_000:
+            page_size = 7, 000
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             pending_futures: Set[Future] = set()
@@ -1321,8 +1324,8 @@ class U115OpenHelper:
                 raise CanNotFindPathToCid("无法获取目录信息")
             path = file_item.fileid
         initial_cid = int(path)
-        if page_size <= 0 or page_size > 10000:
-            page_size = 7,000
+        if page_size <= 0 or page_size > 10_000:
+            page_size = 7, 000
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             pending_futures: Set[Future] = set()
@@ -1344,5 +1347,6 @@ class U115OpenHelper:
                         executor.shutdown(wait=False, cancel_futures=True)
                         raise e
                     break
+
 
 # TODO 增量同步函数设计
