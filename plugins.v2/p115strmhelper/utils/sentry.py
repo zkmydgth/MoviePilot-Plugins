@@ -5,6 +5,7 @@ import base64
 import sentry_sdk
 from sentry_sdk.hub import Hub
 from sentry_sdk.client import Client
+from sentry_sdk.transport import HttpTransport
 from sentry_sdk.integrations.stdlib import StdlibIntegration
 from sentry_sdk.integrations.excepthook import ExcepthookIntegration
 from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
@@ -21,6 +22,22 @@ from ..utils.exception import (
     CanNotFindPathToCid,
     PanDataNotInDb,
 )
+
+
+class CustomHttpTransport(HttpTransport):
+    """
+    Sentry Transport
+    """
+
+    def __init__(self, options):
+        super().__init__(options)
+        original_ua = str(self._auth.client)
+        addon_ua = f"P115StrmHelper/{VERSION}"
+        if original_ua:
+            new_ua = f"{original_ua} {addon_ua}"
+        else:
+            new_ua = addon_ua
+        self._auth.client = new_ua
 
 
 class NoopSentryHub(Hub):
@@ -116,14 +133,6 @@ class SentryManager:
                 else:
                     return None
 
-        if "request" in event:
-            headers = event["request"].get("headers", {})
-
-            if "User-Agent" in headers:
-                headers["User-Agent"] += f" P115StrmHelper/{VERSION}"
-
-            event["request"]["headers"] = headers
-
         return event
 
     def reload_config(self):
@@ -155,6 +164,7 @@ class SentryManager:
                         SqlalchemyIntegration(),
                     ],
                     before_send=self._before_send,
+                    transport=CustomHttpTransport,
                 )
             )
 
