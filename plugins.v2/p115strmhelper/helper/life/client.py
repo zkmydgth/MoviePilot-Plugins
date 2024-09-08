@@ -1668,6 +1668,7 @@ class MonitorLife:
                                 "pick_code": item.get("pickcode", ""),
                                 "update_time": item.get("ctime", 0),
                                 "file_name": item_name,
+                                "sha1": item["sha1"],
                             }
 
                             logger.debug(
