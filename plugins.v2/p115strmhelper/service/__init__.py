@@ -5,32 +5,32 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional, List
 
-import pytz
+from aligo.core import set_config_folder
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from p115client import P115Client
-from watchdog.observers import Observer
-from watchdog.observers.polling import PollingObserver
-from aligo.core import set_config_folder
+from pytz import timezone
+from watchfiles import watch, Change
 
+from ..core.aliyunpan import BAligo
+from ..core.config import configer
 from ..core.i18n import i18n
+from ..core.message import post_message
 from ..core.p115 import get_pid_by_path
-from ..helper.mediainfo_download import MediaInfoDownloader
-from ..helper.life import MonitorLife
-from ..service.life import monitor_life_thread_worker
-from ..service.fuse import FuseManager
-from ..helper.strm import FullSyncStrmHelper, ShareStrmHelper, IncrementSyncStrmHelper
-from ..helper.monitor import handle_file, FileMonitorHandler
-from ..helper.offline import OfflineDownloadHelper
-from ..helper.share import ShareTransferHelper
 from ..helper.clean import Cleaner
+from ..helper.life import MonitorLife
+from ..helper.mediainfo_download import MediaInfoDownloader
+from ..helper.monitor import process_file_change
+from ..helper.offline import OfflineDownloadHelper
 from ..helper.r302 import Redirect
+from ..helper.share import ShareTransferHelper
+from ..helper.strm import FullSyncStrmHelper, ShareStrmHelper, IncrementSyncStrmHelper
 from ..helper.transfer import TransferTaskManager, TransferHandler
 from ..helper.webdav import WebdavCore
 from ..patch import TransferChainPatcher
-from ..core.config import configer
-from ..core.message import post_message
-from ..core.aliyunpan import BAligo
+from ..schemas.monitor import ObserverInfo
+from ..service.fuse import FuseManager
+from ..service.life import monitor_life_thread_worker
 from ..utils.sentry import sentry_manager
 
 from app.log import logger
@@ -64,7 +64,7 @@ class ServiceHelper:
 
         self.scheduler: Optional[BackgroundScheduler] = None
 
-        self.service_observer: List = []
+        self.service_observer: List[ObserverInfo] = []
 
         self.fuse_manager: Optional[FuseManager] = None
 
@@ -422,7 +422,7 @@ class ServiceHelper:
         self.scheduler.add_job(
             func=self.full_sync_strm_files,
             trigger="date",
-            run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=3),
+            run_date=datetime.now(tz=timezone(settings.TZ)) + timedelta(seconds=3),
             name="115网盘助手全量生成STRM",
         )
         if self.scheduler.get_jobs():
@@ -456,7 +456,7 @@ class ServiceHelper:
         self.scheduler.add_job(
             func=self.full_sync_database,
             trigger="date",
-            run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=3),
+            run_date=datetime.now(tz=timezone(settings.TZ)) + timedelta(seconds=3),
             name="115网盘助手全量同步数据库",
         )
         if self.scheduler.get_jobs():
@@ -499,7 +499,7 @@ class ServiceHelper:
         self.scheduler.add_job(
             func=self.share_strm_files,
             trigger="date",
-            run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=3),
+            run_date=datetime.now(tz=timezone(settings.TZ)) + timedelta(seconds=3),
             name="115网盘助手分享生成STRM",
         )
         if self.scheduler.get_jobs():
@@ -550,62 +550,58 @@ class ServiceHelper:
                 text=text,
             )
 
-    @staticmethod
-    def event_handler(event, mon_path: str, text: str, event_path: str):
-        """
-        处理文件变化
-        :param event: 事件
-        :param mon_path: 监控目录
-        :param text: 事件描述
-        :param event_path: 事件文件路径
-        """
-        if not event.is_directory:
-            # 文件发生变化
-            logger.debug(f"【目录上传】文件 {text}: {event_path}")
-            handle_file(event_path=event_path, mon_path=mon_path)
-
     def start_directory_upload(self):
         """
         启动目录上传监控
         """
-        if configer.get_config("directory_upload_enabled"):
-            for item in configer.get_config("directory_upload_path"):  # pylint: disable=E1133
+        if configer.directory_upload_enabled:
+            for item in configer.directory_upload_path:
                 if not item:
                     continue
                 mon_path = item.get("src", "")
                 if not mon_path:
                     continue
                 try:
-                    if configer.get_config("directory_upload_mode") == "compatibility":
-                        # 兼容模式，目录同步性能降低且NAS不能休眠，但可以兼容挂载的远程共享目录如SMB
-                        observer = PollingObserver(timeout=10)
-                    else:
-                        # 内部处理系统操作类型选择最优解
-                        observer = Observer(timeout=10)
-                    self.service_observer.append(observer)
-                    observer.schedule(
-                        FileMonitorHandler(mon_path, self),
-                        path=mon_path,
-                        recursive=True,
+                    stop_event = ThreadEvent()
+                    force_polling = configer.directory_upload_mode == "compatibility"
+
+                    def watch_worker():
+                        try:
+                            for changes in watch(
+                                mon_path,
+                                recursive=True,
+                                force_polling=force_polling,
+                                stop_event=stop_event,
+                                debounce=1600,
+                                step=50,
+                            ):
+                                for change in changes:
+                                    change_type, path_str = change
+                                    if change_type == Change.added:
+                                        process_file_change(path_str, mon_path)
+                        except Exception as e:
+                            logger.error(
+                                f"【目录上传】{mon_path} 监控线程异常: {e}",
+                                exc_info=True,
+                            )
+
+                    watch_thread = Thread(
+                        target=watch_worker,
+                        name=f"P115StrmHelper-DirectoryUpload-{mon_path}",
+                        daemon=True,
                     )
-                    observer.daemon = True
-                    observer.start()
+                    watch_thread.start()
+
+                    self.service_observer.append(
+                        ObserverInfo(
+                            thread=watch_thread,
+                            stop_event=stop_event,
+                            mon_path=mon_path,
+                        )
+                    )
                     logger.info(f"【目录上传】{mon_path} 实时监控服务启动")
                 except Exception as e:
-                    err_msg = str(e)
-                    if "inotify" in err_msg and "reached" in err_msg:
-                        logger.warn(
-                            f"【目录上传】监控服务启动出现异常：{err_msg}，请在宿主机上（不是docker容器内）执行以下命令并重启："
-                            + """
-                                echo fs.inotify.max_user_watches=524288 | sudo tee -a /etc/sysctl.conf
-                                echo fs.inotify.max_user_instances=524288 | sudo tee -a /etc/sysctl.conf
-                                sudo sysctl -p
-                                """
-                        )
-                    else:
-                        logger.error(
-                            f"【目录上传】{mon_path} 启动实时监控失败：{err_msg}"
-                        )
+                    logger.error(f"【目录上传】{mon_path} 启动实时监控失败：{e}")
 
     def main_cleaner(self):
         """
@@ -652,11 +648,12 @@ class ServiceHelper:
         """
         try:
             if self.service_observer:
-                for observer in self.service_observer:
+                for ob in self.service_observer:
                     try:
-                        observer.stop()
-                        observer.join()
-                        logger.debug(f"【目录上传】{observer} 关闭")
+                        ob.stop_event.set()
+                        if ob.thread.is_alive():
+                            ob.thread.join(timeout=5)
+                            logger.debug(f"【目录上传】{ob.mon_path} 监控线程已关闭")
                     except Exception as e:
                         logger.error(f"【目录上传】关闭失败: {e}")
                 logger.info("【目录上传】目录监控已关闭")
