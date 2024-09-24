@@ -15,6 +15,7 @@ https://github.com/zkmydgth/MoviePilot-Plugins
 | [**115网盘STRM助手**](#115网盘strm助手p115strmhelper) | 115 网盘 STRM 生成、302 跳转、转移整理一条龙 | MoviePilot >= 3.0.0 |
 | [**配置备份**](#配置备份configbackup) | 定时备份系统配置、数据库与插件数据，备份内容可勾选，支持 WebDAV 远端上传与取回 | MoviePilot >= 3.0.0 |
 | [**保种空间守护**](#保种空间守护seedspaceguard) | 空间不足时自动清理保种最久的资源，避免 H&R | MoviePilot >= 3.0.0 |
+| [**Telegram 自动签到**](#telegram-自动签到tgsignin) | 多账号定时到各自订阅的 Telegram bot 签到（按钮式/命令式） | MoviePilot >= 3.0.0 |
 
 > 以上为 **V3 插件线**（源码在 `plugins.v3/`），仅支持 MoviePilot >= 3.0.0。
 > V2 插件线已停止更新，相关说明见文末[附录](#附录v2-插件线已停更)，仅供存档查阅。
@@ -198,6 +199,36 @@ https://github.com/zkmydgth/MoviePilot-Plugins
 ```
 
 如果本文档信息与插件实际表现不符，以插件仓库代码为准。
+
+---
+
+## Telegram 自动签到（TgSignin）
+
+多个 Telegram 账号按 cron 定时到各自订阅的 bot 签到（各类 Emby bot、签到 bot 等），适合"每天手动点一遍很烦"的场景。
+
+| 项目 | 说明 |
+| --- | --- |
+| 标签 | 工具 |
+| 适用版本 | MoviePilot >= 3.0.0 |
+| 源码目录 | `plugins.v3/tgsignin` |
+
+### 功能特性
+
+- **多账号多 bot**：账号列表与签到目标列表都可自由增删；每个 bot 单独配置签到方式与等待秒数
+- **两种签到方式**：按钮式（先发 `/start` 拉菜单，再点文字含「签到」的按钮）、命令式（直接发命令，如 `/checkin`）
+- **两阶段登录**：详情页「① 发送验证码」→「② 确认登录」，兼容两步验证；session 存在 `/config/plugins/TgSignin/sessions/`，不随容器重建丢失
+- **定时签到**：cron 可配（默认每天 09:00），失败时走 MoviePilot 通知
+- **结果可见**：详情页表格展示每个 bot 最近一次结果（时间 / 账号 / bot / 成功失败 / 回复摘要）
+- **命令**：`/tgsignin`（立即签到，可带账号与 bot 参数）、`/tglogin`（聊天内完成登录）、`/tgstatus`（查看状态）
+
+### 配置要点
+
+| 项 | 格式 |
+| --- | --- |
+| 账号列表 | `标识 | 显示名 | 手机号`（一行一个；标识只允许小写字母/数字/_/-，用作 session 文件名） |
+| 签到目标 | `账号标识 | bot用户名 | 按钮或命令 | 按钮文字或命令 [| 等待秒数]` |
+| 代理 | 默认 `socks5 192.0.2.94:7893`；代理主机留空即直连 |
+| 依赖 | `telethon`、`python-socks[asyncio]`（随插件安装） |
 
 ---
 

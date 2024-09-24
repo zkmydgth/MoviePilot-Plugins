@@ -1,0 +1,5 @@
+# Telegram MTProto 用户客户端：登录、发消息、点按钮
+telethon>=1.36,<2
+
+# telethon 走 socks5 代理必需（缺它 proxy=("socks5", ...) 直接报错）
+python-socks[asyncio]>=2.6
