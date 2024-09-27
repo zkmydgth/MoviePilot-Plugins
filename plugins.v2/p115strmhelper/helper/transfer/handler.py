@@ -48,6 +48,28 @@ class TransferHandler:
 
         logger.info(f"【整理接管】初始化整理执行器，存储: {storage_name}")
 
+    def _is_subtitle_file(self, fileitem: FileItem) -> bool:
+        """
+        判断是否为字幕文件
+
+        :param fileitem: 文件项
+        :return: 是否为字幕文件
+        """
+        if not fileitem.extension:
+            return False
+        return f".{fileitem.extension.lower()}" in settings.RMT_SUBEXT
+
+    def _is_audio_file(self, fileitem: FileItem) -> bool:
+        """
+        判断是否为音频文件
+
+        :param fileitem: 文件项
+        :return: 是否为音频文件
+        """
+        if not fileitem.extension:
+            return False
+        return f".{fileitem.extension.lower()}" in settings.RMT_AUDIOEXT
+
     def _create_mp_task(self, task: TransferTask) -> MPTransferTask:
         """
         创建 MoviePilot TransferTask 对象
@@ -1418,18 +1440,21 @@ class TransferHandler:
         # 所有重命名都成功
         return [], tasks
 
-    def _record_related_files_success_history(self, task: TransferTask) -> int:
+    def _record_related_files_success_history(
+        self, task: TransferTask
+    ) -> tuple[int, dict]:
         """
         为关联文件（字幕、音轨）补充独立的成功历史记录。
 
         :param task: 整理任务
 
-        :return int: 写入数量
+        :return tuple[int, dict]: (写入数量, 历史记录字典 {文件路径: history对象})
         """
         if not task.related_files:
-            return 0
+            return 0, {}
 
         recorded = 0
+        related_file_histories = {}
         for related_file in task.related_files:
             try:
                 if (
@@ -1475,15 +1500,8 @@ class TransferHandler:
                     need_notify=False,
                 )
 
-                if related_file.file_type == "subtitle":
-                    transferinfo.subtitle_list.append(related_file.fileitem.path)
-                    transferinfo.subtitle_list_new.append(target_fileitem.path)
-                elif related_file.file_type == "audio_track":
-                    transferinfo.audio_list.append(related_file.fileitem.path)
-                    transferinfo.audio_list_new.append(target_fileitem.path)
-
                 # 写入独立历史记录（每个关联文件一条）
-                self.history_oper.add_success(
+                related_history = self.history_oper.add_success(
                     fileitem=related_file.fileitem,
                     mode=task.transfer_type,
                     meta=task.meta,
@@ -1492,6 +1510,9 @@ class TransferHandler:
                     downloader=task.downloader,
                     download_hash=task.download_hash,
                 )
+                # 保存历史记录，用于后续事件发送
+                if related_history:
+                    related_file_histories[related_file.fileitem.path] = related_history
                 recorded += 1
             except Exception as e:
                 name = "unknown"
@@ -1505,7 +1526,7 @@ class TransferHandler:
                     exc_info=True,
                 )
 
-        return recorded
+        return recorded, related_file_histories
 
     def _record_history(self, tasks: List[TransferTask]) -> None:
         """
@@ -1559,19 +1580,9 @@ class TransferHandler:
                 for related_file in task.related_files:
                     transferinfo.file_list.append(related_file.fileitem.path)
                     transferinfo.file_list_new.append(str(related_file.target_path))
-                    if related_file.file_type == "subtitle":
-                        transferinfo.subtitle_list.append(related_file.fileitem.path)
-                        transferinfo.subtitle_list_new.append(
-                            str(related_file.target_path)
-                        )
-                    elif related_file.file_type == "audio_track":
-                        transferinfo.audio_list.append(related_file.fileitem.path)
-                        transferinfo.audio_list_new.append(
-                            str(related_file.target_path)
-                        )
 
                 # 记录成功历史
-                self.history_oper.add_success(
+                history = self.history_oper.add_success(
                     fileitem=task.fileitem,
                     mode=task.transfer_type,
                     meta=task.meta,
@@ -1581,9 +1592,12 @@ class TransferHandler:
                     download_hash=task.download_hash,
                 )
 
-                # 关联文件（字幕/音轨）也写入历史（每个关联文件独立一条）
+                # 关联文件（字幕/音轨）写入历史（每个关联文件独立一条）
+                related_file_histories = {}
                 try:
-                    related_count = self._record_related_files_success_history(task)
+                    related_count, related_file_histories = (
+                        self._record_related_files_success_history(task)
+                    )
                     if related_count:
                         logger.debug(
                             f"【整理接管】已写入 {related_count} 个关联文件历史记录: {task.fileitem.name}"
@@ -1613,8 +1627,85 @@ class TransferHandler:
                         "transferinfo": transferinfo,
                         "downloader": task.downloader,
                         "download_hash": task.download_hash,
+                        "transfer_history_id": history.id if history else None,
                     },
                 )
+
+                # 关联文件（字幕/音轨）发送对应的事件
+                for related_file in task.related_files:
+                    related_history = (
+                        related_file_histories.get(related_file.fileitem.path)
+                        if related_file_histories
+                        else None
+                    )
+                    if related_file.file_type == "subtitle":
+                        eventmanager.send_event(
+                            EventType.SubtitleTransferComplete,
+                            {
+                                "fileitem": related_file.fileitem,
+                                "meta": task.meta,
+                                "mediainfo": task.mediainfo,
+                                "transferinfo": TransferInfo(
+                                    success=True,
+                                    fileitem=related_file.fileitem,
+                                    target_item=FileItem(
+                                        storage=self.storage_name,
+                                        path=str(related_file.target_path),
+                                        name=related_file.target_path.name,
+                                        fileid=related_file.fileitem.fileid,
+                                        type="file",
+                                        size=related_file.fileitem.size,
+                                        modify_time=related_file.fileitem.modify_time,
+                                        pickcode=related_file.fileitem.pickcode,
+                                    ),
+                                    target_diritem=transferinfo.target_diritem,
+                                    transfer_type=task.transfer_type,
+                                    file_list=[related_file.fileitem.path],
+                                    file_list_new=[str(related_file.target_path)],
+                                    need_scrape=False,
+                                    need_notify=False,
+                                ),
+                                "downloader": task.downloader,
+                                "download_hash": task.download_hash,
+                                "transfer_history_id": related_history.id
+                                if related_history
+                                else None,
+                            },
+                        )
+                    elif related_file.file_type == "audio_track":
+                        eventmanager.send_event(
+                            EventType.AudioTransferComplete,
+                            {
+                                "fileitem": related_file.fileitem,
+                                "meta": task.meta,
+                                "mediainfo": task.mediainfo,
+                                "transferinfo": TransferInfo(
+                                    success=True,
+                                    fileitem=related_file.fileitem,
+                                    target_item=FileItem(
+                                        storage=self.storage_name,
+                                        path=str(related_file.target_path),
+                                        name=related_file.target_path.name,
+                                        fileid=related_file.fileitem.fileid,
+                                        type="file",
+                                        size=related_file.fileitem.size,
+                                        modify_time=related_file.fileitem.modify_time,
+                                        pickcode=related_file.fileitem.pickcode,
+                                    ),
+                                    target_diritem=transferinfo.target_diritem,
+                                    transfer_type=task.transfer_type,
+                                    file_list=[related_file.fileitem.path],
+                                    file_list_new=[str(related_file.target_path)],
+                                    need_scrape=False,
+                                    need_notify=False,
+                                ),
+                                "downloader": task.downloader,
+                                "download_hash": task.download_hash,
+                                "transfer_history_id": related_history.id
+                                if related_history
+                                else None,
+                            },
+                        )
 
                 # 登记转移成功文件清单到 _success_target_files
                 try:
@@ -2176,13 +2267,75 @@ class TransferHandler:
             )
 
             # 记录失败历史
-            self.history_oper.add_fail(
+            history = self.history_oper.add_fail(
                 fileitem=task.fileitem,
                 mode=task.transfer_type,
                 meta=task.meta,
                 mediainfo=task.mediainfo,
                 transferinfo=transferinfo,
             )
+
+            # 发送整理失败事件
+            eventmanager.send_event(
+                EventType.TransferFailed,
+                {
+                    "fileitem": task.fileitem,
+                    "meta": task.meta,
+                    "mediainfo": task.mediainfo,
+                    "transferinfo": transferinfo,
+                    "downloader": task.downloader,
+                    "download_hash": task.download_hash,
+                    "transfer_history_id": history.id if history else None,
+                },
+            )
+
+            # 关联文件（字幕/音轨）记录历史并发送对应的失败事件
+            for related_file in task.related_files:
+                related_transferinfo = TransferInfo(
+                    success=False,
+                    fileitem=related_file.fileitem,
+                    transfer_type=task.transfer_type,
+                    message=message,
+                )
+                related_history = self.history_oper.add_fail(
+                    fileitem=related_file.fileitem,
+                    mode=task.transfer_type,
+                    meta=task.meta,
+                    mediainfo=task.mediainfo,
+                    transferinfo=related_transferinfo,
+                    downloader=task.downloader,
+                    download_hash=task.download_hash,
+                )
+                if related_file.file_type == "subtitle":
+                    eventmanager.send_event(
+                        EventType.SubtitleTransferFailed,
+                        {
+                            "fileitem": related_file.fileitem,
+                            "meta": task.meta,
+                            "mediainfo": task.mediainfo,
+                            "transferinfo": related_transferinfo,
+                            "downloader": task.downloader,
+                            "download_hash": task.download_hash,
+                            "transfer_history_id": related_history.id
+                            if related_history
+                            else None,
+                        },
+                    )
+                elif related_file.file_type == "audio_track":
+                    eventmanager.send_event(
+                        EventType.AudioTransferFailed,
+                        {
+                            "fileitem": related_file.fileitem,
+                            "meta": task.meta,
+                            "mediainfo": task.mediainfo,
+                            "transferinfo": related_transferinfo,
+                            "downloader": task.downloader,
+                            "download_hash": task.download_hash,
+                            "transfer_history_id": related_history.id
+                            if related_history
+                            else None,
+                        },
+                    )
 
             # 发送失败通知
             try:

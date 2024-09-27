@@ -238,6 +238,17 @@ class TransferChainPatcher:
                     f"【整理接管】检测到 115 → 115 整理任务: {task.fileitem.name}"
                 )
 
+                # 如果是字幕或音频文件，直接忽略
+                if cls._is_subtitle_or_audio_file(task.fileitem):
+                    logger.debug(
+                        f"【整理接管】忽略字幕/音频文件（将跟随主文件一起处理）: {task.fileitem.name}"
+                    )
+                    chain_self.jobview.running_task(task)
+                    chain_self.jobview.finish_task(task)
+                    if chain_self.jobview.is_done(task):
+                        chain_self.jobview.remove_job(task)
+                    return True, "已由插件接管（字幕/音频文件，跟随主文件处理）"
+
                 # 注意：这个验证在 transfer_media 中进行，但由于我们拦截了，需要在这里进行
                 if task.mediainfo.type == MediaType.TV and task.fileitem.type == "file":
                     if task.meta.begin_episode is None:
@@ -322,6 +333,27 @@ class TransferChainPatcher:
             except Exception as fallback_error:
                 logger.error(f"【整理接管】回退到原方法也失败: {fallback_error}")
                 return False, f"整理异常: {e}"
+
+    @classmethod
+    def _is_subtitle_or_audio_file(cls, fileitem) -> bool:
+        """
+        判断是否为字幕或音频文件
+
+        :param fileitem: 文件项
+        :return: 是否为字幕或音频文件
+        """
+        try:
+            from app.core.config import settings
+
+            if not fileitem.extension:
+                return False
+            ext = f".{fileitem.extension.lower()}"
+            if ext in settings.RMT_SUBEXT or ext in settings.RMT_AUDIOEXT:
+                return True
+            return False
+        except Exception as e:
+            logger.debug(f"【整理接管】判断字幕/音频文件失败: {e}")
+            return False
 
     @classmethod
     def _should_intercept(cls, source_storage: str, target_storage: str) -> bool:
