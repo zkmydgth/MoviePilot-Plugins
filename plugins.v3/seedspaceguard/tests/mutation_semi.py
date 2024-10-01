@@ -126,6 +126,42 @@ STATS_ACC_NEW = (
     "        return deleted, round(released_gb, 1), detail_lines\n"
 )
 
+# ⑨ 文件级索引：不登记「路径映射」（孤儿文件将无法被双侧识别）
+INDEX_REGISTER_OLD = (
+    "                    key = (st.st_dev, st.st_ino)\n"
+    "                    # 先登记路径映射（不受保护期影响），确保双侧都能被识别到\n"
+    "                    paths = ino_paths.setdefault(key, [])\n"
+    "                    if fpath not in paths:\n"
+    "                        paths.append(fpath)\n"
+)
+INDEX_REGISTER_NEW = (
+    "                    key = (st.st_dev, st.st_ino)\n"
+)
+
+# ⑩ 文件级索引：把「只在单侧的孤儿文件」也按保护期过滤（应仍纳入）
+INDEX_ORPHAN_FILTER_OLD = (
+    "                    if key in seen_ino:\n"
+    "                        continue\n"
+    "                    if now - st.st_mtime < recent_secs:\n"
+    "                        continue\n"
+    "                    seen_ino.add(key)\n"
+    "                    files.append((st.st_mtime, fpath, st.st_size, key))\n"
+)
+INDEX_ORPHAN_FILTER_NEW = (
+    "                    if key in seen_ino:\n"
+    "                        continue\n"
+    "                    seen_ino.add(key)\n"
+    "                    files.append((st.st_mtime, fpath, st.st_size, key))\n"
+)
+
+# ⑪ 文件级索引不跳过 DSM 系统目录（会把 @eaDir 等纳入清理）
+INDEX_SKIP_SYS_OLD = (
+    "                dirs[:] = [d for d in dirs if not d.startswith(\"@\") and d != \"#recycle\"]\n"
+)
+INDEX_SKIP_SYS_NEW = (
+    "                pass\n"
+)
+
 
 MUTANTS = [
     ("索引不捕获 lstat 异常（缺失路径直接崩）", INDEX_TOLERANT_OLD,
@@ -144,6 +180,12 @@ MUTANTS = [
      FULLY_REMOVED_NEW, "仅靠失效的记录会误判「已删空」而误删完好种子"),
     ("清理统计用赋值而非累加", STATS_ACC_OLD,
      STATS_ACC_NEW, "多轮/空壳回收场景会少报删除数"),
+    ("文件级索引不登记路径映射", INDEX_REGISTER_OLD,
+     INDEX_REGISTER_NEW, "孤儿文件的路径映射缺失，双侧识别与清理会失效"),
+    ("文件级索引把孤儿文件按保护期过滤", INDEX_ORPHAN_FILTER_OLD,
+     INDEX_ORPHAN_FILTER_NEW, "保护期过滤不得把合法候选整体丢掉"),
+    ("文件级索引不跳过 DSM 系统目录", INDEX_SKIP_SYS_OLD,
+     INDEX_SKIP_SYS_NEW, "会把 @eaDir/#recycle 等系统目录纳入清理"),
 ]
 
 
