@@ -21,7 +21,11 @@ from ..helper.mediasyncdel import MediaSyncDelHelper
 from p115client import P115Client
 from p115client.tool.attr import get_path
 from p115client.tool.iterdir import iter_files_with_path
-from p115client.tool.life import iter_life_behavior_once, life_show
+from p115client.tool.life import (
+    iter_life_behavior_once,
+    life_show,
+    BEHAVIOR_TYPE_TO_NAME,
+)
 
 from app.schemas import NotificationType, ServiceInfo, RefreshMediaItem, FileItem
 from app.log import logger
@@ -861,6 +865,11 @@ class MonitorLife:
                 .replace("，", ",")
                 .split(",")
             ]
+
+            logger.debug(
+                f"【监控生活事件】{BEHAVIOR_TYPE_TO_NAME[event['type']]}: {event}"
+            )
+
             if (
                 int(event["type"]) != 1
                 and int(event["type"]) != 2
