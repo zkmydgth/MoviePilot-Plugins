@@ -1,6 +1,6 @@
 <template>
   <div class="plugin-config">
-    <v-card flat class="rounded border" style="display: flex; flex-direction: column; max-height: 85vh;">
+    <v-card flat class="rounded border config-main-card" style="display: flex; flex-direction: column;">
       <!-- 标题区域 -->
       <v-card-title class="text-subtitle-1 d-flex align-center px-3 py-1 bg-primary-lighten-5">
         <v-icon icon="mdi-cog" class="mr-2" color="primary" size="small" />
@@ -145,7 +145,7 @@
             <v-divider></v-divider>
 
             <!-- 主分类内容区域 -->
-            <v-window v-model="mainCategory">
+            <v-window v-model="mainCategory" :touch="false">
               <!-- STRM同步分类 -->
               <v-window-item value="category-strm">
                 <v-card-text class="pa-0">
@@ -168,7 +168,7 @@
                     </v-tab>
                   </v-tabs>
                   <v-divider></v-divider>
-                  <v-window v-model="strmSubTab">
+                  <v-window v-model="strmSubTab" :touch="false">
                     <v-window-item value="tab-transfer">
                       <v-card-text>
                         <v-row>
@@ -838,7 +838,7 @@
                     </v-tab>
                   </v-tabs>
                   <v-divider></v-divider>
-                  <v-window v-model="panSubTab">
+                  <v-window v-model="panSubTab" :touch="false">
                     <v-window-item value="tab-pan-transfer">
                       <v-card-text>
                         <v-row>
@@ -1347,7 +1347,7 @@
                     </v-tab>
                   </v-tabs>
                   <v-divider></v-divider>
-                  <v-window v-model="otherSubTab">
+                  <v-window v-model="otherSubTab" :touch="false">
                     <v-window-item value="tab-sync-del">
                       <v-card-text>
                         <v-row>
@@ -1575,7 +1575,7 @@
                     </v-tab>
                   </v-tabs>
                   <v-divider></v-divider>
-                  <v-window v-model="systemSubTab">
+                  <v-window v-model="systemSubTab" :touch="false">
                     <v-window-item value="tab-cache-config">
                       <v-card-text>
                         <v-row>
@@ -2416,7 +2416,7 @@
               </v-tab>
             </v-tabs>
 
-            <v-window v-model="donateDialog.activeTab">
+            <v-window v-model="donateDialog.activeTab" :touch="false">
               <!-- 微信捐赠 -->
               <v-window-item v-if="donateDialog.donateInfo.wechat?.enabled" value="wechat">
                 <div class="d-flex flex-column align-center">
@@ -5032,11 +5032,17 @@ const removeExcludePathEntry = (index, type) => {
 /* 主容器 */
 .plugin-config {
   padding: 12px;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .plugin-config :deep(.v-card) {
   border-radius: 20px !important;
   overflow: hidden;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
   /* 镜面效果 - 动态适配主题 */
   background: rgba(var(--v-theme-surface), 0.7) !important;
   backdrop-filter: blur(20px) saturate(180%) !important;
@@ -5047,6 +5053,18 @@ const removeExcludePathEntry = (index, type) => {
     inset 0 1px 0 rgba(var(--v-theme-on-surface), 0.05) !important;
   border: 1px solid rgba(var(--v-theme-on-surface), 0.12) !important;
   transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+/* 主卡片高度设置 */
+.config-main-card {
+  max-height: 85vh;
+}
+
+@media (max-width: 768px) {
+  .config-main-card {
+    max-height: 100vh;
+    height: 100vh;
+  }
 }
 
 /* 暗色模式下的主卡片 */
@@ -5873,6 +5891,9 @@ const removeExcludePathEntry = (index, type) => {
 @media (max-width: 959px) {
   .plugin-config {
     padding: 8px;
+    width: 100%;
+    max-width: 100vw;
+    box-sizing: border-box;
   }
 
   /* 移动端减小圆角但保持镜面效果 */
@@ -5960,6 +5981,28 @@ const removeExcludePathEntry = (index, type) => {
     padding: 6px 8px 0 8px !important;
   }
 
+  /* 禁用 v-window 的触摸滑动 */
+  :deep(.v-window) {
+    touch-action: pan-y !important;
+  }
+
+  :deep(.v-window__container) {
+    touch-action: pan-y !important;
+  }
+
+  /* 配置项区域禁用触摸滑动 */
+  :deep(.v-card-text),
+  :deep(.v-row),
+  :deep(.v-col),
+  :deep(.v-field),
+  :deep(.v-switch),
+  :deep(.v-btn),
+  :deep(.v-select),
+  :deep(.v-text-field),
+  :deep(.v-textarea) {
+    touch-action: manipulation !important;
+  }
+
   /* 优化对话框在移动端 - 镜面效果 */
   :deep(.v-dialog > .v-card) {
     margin: 16px !important;
@@ -6032,6 +6075,9 @@ const removeExcludePathEntry = (index, type) => {
 @media (max-width: 600px) {
   .plugin-config {
     padding: 6px;
+    width: 100%;
+    max-width: 100vw;
+    box-sizing: border-box;
   }
 
   .plugin-config :deep(.v-card) {

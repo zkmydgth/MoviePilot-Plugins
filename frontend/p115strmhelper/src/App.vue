@@ -96,16 +96,24 @@ export default defineComponent({
   background: linear-gradient(135deg, #D0EFFF 0%, #FFE5EB 50%, #FFFFFF 100%) !important;
   background-attachment: fixed;
   min-height: 100vh;
+  width: 100%;
+  max-width: 100vw;
+  box-sizing: border-box;
+  overflow-x: hidden;
   font-family: 'Inter', 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif !important;
 }
 
 .plugin-app {
   width: 100%;
+  max-width: 100%;
   height: 100%;
+  min-height: 100vh;
   display: flex;
   flex-direction: column;
   background: transparent;
   position: relative;
+  box-sizing: border-box;
+  overflow-x: hidden;
 }
 
 /* 添加动态背景装饰 */

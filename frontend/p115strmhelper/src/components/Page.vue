@@ -1,6 +1,6 @@
 <template>
   <div class="plugin-page">
-    <v-card flat class="rounded border" style="display: flex; flex-direction: column; max-height: 85vh;">
+    <v-card flat class="rounded border page-main-card" style="display: flex; flex-direction: column;">
       <!-- 标题区域 -->
       <v-card-title class="text-subtitle-1 d-flex align-center px-3 py-1 bg-primary-gradient">
         <v-icon icon="mdi-file-link" class="mr-2" color="primary" size="small" />
@@ -1107,7 +1107,7 @@
           <v-tab value="tasks">任务列表</v-tab>
         </v-tabs>
 
-        <v-window v-model="offlineDownloadDialog.activeTab" touchless>
+        <v-window v-model="offlineDownloadDialog.activeTab" :touch="false">
           <!-- 添加任务 -->
           <v-window-item value="add">
             <div class="pa-3">
@@ -2719,11 +2719,17 @@ async function fetchUserStorageStatus() {
 
 .plugin-page {
   padding: 12px;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .plugin-page :deep(.v-card) {
   border-radius: 20px !important;
   overflow: hidden;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
   /* 镜面效果 - 动态适配主题 */
   background: rgba(var(--v-theme-surface), 0.75) !important;
   backdrop-filter: blur(20px) saturate(180%) !important;
@@ -2736,6 +2742,18 @@ async function fetchUserStorageStatus() {
   transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
   animation: cardEnter 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
   will-change: transform, box-shadow;
+}
+
+/* 主卡片高度设置 */
+.page-main-card {
+  max-height: 85vh;
+}
+
+@media (max-width: 768px) {
+  .page-main-card {
+    max-height: 100vh;
+    height: 100vh;
+  }
 }
 
 /* 暗色模式下的主卡片 */
@@ -3272,6 +3290,9 @@ async function fetchUserStorageStatus() {
 @media (max-width: 768px) {
   .plugin-page {
     padding: 8px;
+    width: 100%;
+    max-width: 100vw;
+    box-sizing: border-box;
   }
 
   /* 移动端减小圆角但保持镜面效果 */
@@ -3357,6 +3378,15 @@ async function fetchUserStorageStatus() {
   /* 防止表格在手机上的触摸滑动触发标签页切换 */
   :deep(.v-data-table) {
     touch-action: pan-x;
+  }
+
+  /* 禁用 v-window 的触摸滑动 */
+  :deep(.v-window) {
+    touch-action: pan-y !important;
+  }
+
+  :deep(.v-window__container) {
+    touch-action: pan-y !important;
   }
 
   /* 优化进度条在手机上的显示 */
