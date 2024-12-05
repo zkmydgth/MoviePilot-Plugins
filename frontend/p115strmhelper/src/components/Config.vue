@@ -23,15 +23,22 @@
             </v-card-title>
             <v-card-text class="pa-3">
               <v-row>
-                <v-col cols="12" md="4">
+                <v-col cols="12" md="2">
                   <v-switch v-model="config.enabled" label="启用插件" color="success" density="compact"></v-switch>
                 </v-col>
-                <v-col cols="12" md="7">
-                  <v-text-field v-model="config.cookies" label="115 Cookie" hint="点击复制图标复制Cookie，点击扫码图标获取或更新Cookie"
-                    persistent-hint density="compact" variant="outlined" hide-details="auto" type="password">
-                    <template v-slot:append>
+                <v-col cols="12" md="5">
+                  <v-text-field v-model="config.cookies" label="115 Cookie" hint="点击图标切换显隐、复制或扫码" persistent-hint
+                    density="compact" variant="outlined" hide-details="auto"
+                    :type="isCookieVisible ? 'text' : 'password'">
+                    <template v-slot:append-inner>
+                      <v-icon :icon="isCookieVisible ? 'mdi-eye-off' : 'mdi-eye'"
+                        @click="isCookieVisible = !isCookieVisible"
+                        :aria-label="isCookieVisible ? '隐藏Cookie' : '显示Cookie'"
+                        :title="isCookieVisible ? '隐藏Cookie' : '显示Cookie'" class="mr-1" size="small"></v-icon>
                       <v-icon icon="mdi-content-copy" @click="copyCookieToClipboard" :disabled="!config.cookies"
-                        aria-label="复制Cookie" title="复制Cookie到剪贴板" class="mr-1"></v-icon>
+                        aria-label="复制Cookie" title="复制Cookie到剪贴板" size="small" class="mr-1"></v-icon>
+                    </template>
+                    <template v-slot:append>
                       <v-icon icon="mdi-qrcode-scan" @click="openQrCodeDialog"
                         :color="config.cookies ? 'success' : 'default'"
                         :aria-label="config.cookies ? '更新/更换Cookie (重新扫码)' : '扫码获取Cookie'"
@@ -39,13 +46,14 @@
                     </template>
                   </v-text-field>
                 </v-col>
-              </v-row>
-              <!-- Cookie 失效通知相关配置已移至 "通知与图床" 标签页 -->
-              <v-row>
-                <v-col cols="12" md="12">
-                  <v-text-field v-model="config.moviepilot_address" label="MoviePilot 内网访问地址"
-                    hint="用于生成STRM文件中的内网地址，如 http://192.168.1.100:3000" persistent-hint density="compact"
-                    variant="outlined" hide-details="auto"></v-text-field>
+                <v-col cols="12" md="5">
+                  <v-text-field v-model="config.moviepilot_address" label="MoviePilot 内网访问地址" hint="点右侧图标自动填充当前站点地址。"
+                    persistent-hint density="compact" variant="outlined" hide-details="auto">
+                    <template v-slot:append>
+                      <v-icon icon="mdi-web" @click="setMoviePilotAddressToCurrentOrigin" aria-label="使用当前站点地址"
+                        title="使用当前站点地址" color="info"></v-icon>
+                    </template>
+                  </v-text-field>
                 </v-col>
               </v-row>
               <v-row>
@@ -399,7 +407,7 @@
         </div>
       </v-card-text>
       <v-card-actions class="px-3 py-2 d-flex" style="flex-shrink: 0;">
-        <v-btn color="info" variant="text" @click="emit('switch')" size="small" prepend-icon="mdi-close">
+        <v-btn color="warning" variant="text" @click="emit('switch')" size="small" prepend-icon="mdi-arrow-left">
           返回
         </v-btn>
         <v-spacer></v-spacer>
@@ -566,6 +574,7 @@ const syncLoading = ref(false);
 const shareSyncLoading = ref(false);
 const activeTab = ref('tab-transfer');
 const mediaservers = ref([]);
+const isCookieVisible = ref(false); // <-- 新增状态变量
 const config = reactive({
   enabled: false,
   cookies: '',
@@ -1245,7 +1254,7 @@ const copyCookieToClipboard = async () => {
     message.type = 'success';
   } catch (err) {
     console.error('复制Cookie失败:', err);
-    message.text = '复制Cookie失败，请检查浏览器权限或手动复制。';
+    message.text = '复制Cookie失败。请检查浏览器权限或确保通过HTTPS访问，或尝试手动复制。';
     message.type = 'error';
   }
   setTimeout(() => {
@@ -1471,6 +1480,23 @@ watch(() => qrDialog.clientType, (newVal, oldVal) => {
     refreshQrCode();
   }
 });
+
+// 新增：设置MoviePilot地址为当前源
+const setMoviePilotAddressToCurrentOrigin = () => {
+  if (window && window.location && window.location.origin) {
+    config.moviepilot_address = window.location.origin;
+    message.text = 'MoviePilot地址已设置为当前站点地址！';
+    message.type = 'success';
+  } else {
+    message.text = '无法获取当前站点地址。';
+    message.type = 'error';
+  }
+  setTimeout(() => {
+    if (message.type === 'success' || message.type === 'error') {
+      message.text = '';
+    }
+  }, 3000);
+};
 </script>
 
 <style scoped>
