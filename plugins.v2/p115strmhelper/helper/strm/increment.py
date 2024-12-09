@@ -286,6 +286,7 @@ class IncrementSyncStrmHelper:
                 )
                 logger.info(f"【增量STRM生成】扫描本地媒体库文件完成: {_target_dir}")
             except Exception as e:
+                sentry_manager.sentry_hub.capture_exception(e)
                 logger.error(
                     f"【增量STRM生成】扫描本地媒体库文件 {_target_dir} 错误: {e}"
                 )
@@ -327,6 +328,7 @@ class IncrementSyncStrmHelper:
                 logger.info(f"【增量STRM生成】网盘目录树生成完成: {pan_media_dir}")
                 break
             except Exception as e:
+                sentry_manager.sentry_hub.capture_exception(e)
                 if "Broken pipe" in str(e):
                     logger.warning(
                         f"【增量STRM生成】网盘目录树生成 {pan_media_dir} 错误: {e}，第 {i} 次自动重试..."
