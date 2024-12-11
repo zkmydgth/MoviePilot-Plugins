@@ -29,40 +29,6 @@
 #### **独家实验性功能**
 - 单资源多设备同时播放
 
-## 配置说明
-
-### 1.1 基础配置
-
-- **115 Cookie(必选)**: 扫码登入获取。
-- **阿里云盘 Token(可选)**: 扫码登入获取，用于阿里云盘资源秒传 115 网盘。
-- **MoviePilot 内网访问地址(必选)**: 用于STRM文件302地址获取。
-- **可整理媒体文件扩展名**: 按需配置，用于判断文件是否能够生成 STRM。
-- **可下载媒体数据文件扩展名**: 按需配置，用于判断文件是否需要下载到本地。
-- **STRM文件URL格式**: 按需选择
-  - pickcode 模式下仅有文件pickcode 值。
-  - pickcode + name 模式下包含文件完整原始名称和 pickcode 值。
-- **直链获取模式**: OpenAPI 为通过 open 接口获取 302链接；Cookie 为通过 115 cookie 获取 302链接。
-- **通知语言**: 发送通知时的语言风格。
-
-### 2.0 STRM生成方式说明
-
-> [!NOTE]
-> 目前提供多种方式生成本地STRM文件，只有合理选择与配置才能达到最完美的效果
-
-#### 2.1 监控MP整理
-
-#### 2.2 全量同步
-
-#### 2.3 增量同步
-
-#### 2.4 监控115生活事件
-
-## TG 搜索频道源 
-
-```json
-[{"name":"Lsp115","id":"Lsp115"},{"name":"Shares_115_Channel","id":"Channel_Shares_115"}]
-```
-
 ## 许可证
 
 此项目根据 GNU General Public License v3.0 许可证进行许可，详见[`LICENSE`](https://github.com/DDS-Derek/MoviePilot-Plugins/blob/main/LICENSE) 文件。
