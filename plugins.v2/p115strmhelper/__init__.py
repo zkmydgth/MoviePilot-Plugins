@@ -14,6 +14,7 @@ from app.schemas import (
     NotificationType,
     TransferRenameEventData,
     TransferOverwriteCheckEventData,
+    TransferInterceptEventData,
 )
 from app.schemas.types import EventType, MessageChannel, ChainEventType
 from app.chain.storage import StorageChain
@@ -1814,6 +1815,42 @@ class P115StrmHelper(_PluginBase):
         data.updated = True
         data.updated_str = new_render
         data.source = "媒体数据补充"
+
+    @eventmanager.register(ChainEventType.TransferIntercept)
+    def intercept_if_exists_in_library(self, event: Event) -> None:
+        """
+        媒体库已存在时拦截整理
+        """
+        if not configer.enabled or not configer.transfer_intercept_exists_enabled:
+            return
+
+        data = event.event_data
+        if not isinstance(data, TransferInterceptEventData):
+            return
+
+        if data.cancel:
+            return
+
+        mediainfo = data.mediainfo
+        if not mediainfo:
+            return
+
+        try:
+            exist_info = self.chain.media_exists(mediainfo=mediainfo)
+        except Exception as e:
+            logger.error(f"【媒体库存在拦截】查询媒体库失败: {e}", exc_info=True)
+            return
+
+        if not exist_info:
+            return
+
+        data.cancel = True
+        data.source = "P115StrmHelper"
+        media_title = getattr(mediainfo, "title", "") or ""
+        data.reason = f"媒体库已存在：{media_title}（{exist_info.server}）"
+        logger.info(
+            f"【媒体库存在拦截】拦截整理 {data.fileitem.path}，{data.reason}"
+        )
 
     @eventmanager.register(ChainEventType.TransferOverwriteCheck)
     def share_strm_overwrite_check(self, event: Event) -> None:

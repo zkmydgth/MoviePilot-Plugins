@@ -767,6 +767,9 @@ class ConfigManager(BaseModel):
     auto_delete_inferior_source_enabled: bool = Field(
         default=False, description="自动删除低质量源文件（按大小整理失败时）"
     )
+    transfer_intercept_exists_enabled: bool = Field(
+        default=False, description="媒体库已存在时拦截整理"
+    )
 
     @field_serializer(
         "PLUGIN_CONFIG_PATH",

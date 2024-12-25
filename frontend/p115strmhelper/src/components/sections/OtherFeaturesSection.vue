@@ -296,6 +296,31 @@
               </v-row>
             </v-card-text>
           </v-card>
+
+          <!-- 功能 3: 媒体库已存在时拦截整理 -->
+          <v-card variant="outlined" class="mb-4" density="compact">
+            <v-card-title class="d-flex align-center py-2 px-4 bg-error-lighten-5">
+              <v-icon size="small" color="error" class="mr-2">mdi-cancel</v-icon>
+              <span class="text-subtitle-2 font-weight-medium">媒体库已存在时拦截整理</span>
+            </v-card-title>
+            <v-divider></v-divider>
+            <v-card-text class="py-3 px-4">
+              <v-row align="center">
+                <v-col cols="12" md="4">
+                  <v-switch v-model="config.transfer_intercept_exists_enabled" label="启用功能" color="error"
+                    density="compact" hide-details></v-switch>
+                </v-col>
+                <v-col cols="12" md="8">
+                  <v-alert type="error" variant="tonal" density="compact" class="text-caption">
+                    整理前查询所有媒体服务器，若已存在则立即终止并记录失败<br>
+                    <strong>生效条件：</strong>目标路径尚无同名文件时触发（首次入库场景）<br>
+                    若目标文件已存在，覆盖检查会优先介入，本功能不会触发<br>
+                    <strong>注意：</strong>每次整理均会请求媒体服务器，需确保媒体已完成刮削入库
+                  </v-alert>
+                </v-col>
+              </v-row>
+            </v-card-text>
+          </v-card>
         </v-card-text>
       </v-window-item>
     </v-window>
