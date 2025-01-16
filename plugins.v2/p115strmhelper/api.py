@@ -687,6 +687,7 @@ class Api:
     @staticmethod
     def redirect_url_get(
         request: Request,
+        args: str = "",
         pickcode: str = "",
         file_name: str = "",
         id: int = 0,
@@ -696,6 +697,8 @@ class Api:
         """
         115 网盘 302 跳转 (GET)
         """
+        if args and len(args) == 17 and args.isalnum() and not pickcode:
+            pickcode = args
         return Api._redirect_url_impl(
             request, pickcode, file_name, id, share_code, receive_code
         )
@@ -703,6 +706,7 @@ class Api:
     @staticmethod
     def redirect_url_post(
         request: Request,
+        args: str = "",
         pickcode: str = "",
         file_name: str = "",
         id: int = 0,
@@ -712,6 +716,8 @@ class Api:
         """
         115 网盘 302 跳转 (POST)
         """
+        if args and len(args) == 17 and args.isalnum() and not pickcode:
+            pickcode = args
         return Api._redirect_url_impl(
             request, pickcode, file_name, id, share_code, receive_code
         )
@@ -719,6 +725,7 @@ class Api:
     @staticmethod
     def redirect_url_head(
         request: Request,
+        args: str = "",
         pickcode: str = "",
         file_name: str = "",
         id: int = 0,
@@ -728,6 +735,8 @@ class Api:
         """
         115 网盘 302 跳转 (HEAD)
         """
+        if args and len(args) == 17 and args.isalnum() and not pickcode:
+            pickcode = args
         return Api._redirect_url_impl(
             request, pickcode, file_name, id, share_code, receive_code
         )
