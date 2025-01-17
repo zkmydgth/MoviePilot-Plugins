@@ -1,4 +1,5 @@
 from pathlib import Path
+from threading import Timer
 from typing import Optional, Dict, List
 
 from app.chain.media import MediaChain
@@ -21,11 +22,13 @@ class MediaServerRefresh:
         enabled: bool = False,
         mediaservers: Optional[List[str]] = None,
         mp_mediaserver: Optional[str] = None,
+        delay_seconds: int = 0,
     ):
         self.func_name = func_name
         self.media_servers = mediaservers
         self.mp_mediaserver = mp_mediaserver
         self.enabled = enabled
+        self.delay_seconds = max(0, delay_seconds)
 
     @property
     def service_infos(self) -> Optional[Dict[str, ServiceInfo]]:
@@ -120,6 +123,35 @@ class MediaServerRefresh:
             return True
         if not self.service_infos:
             return False
+        if self.delay_seconds > 0:
+            logger.info(
+                f"{self.func_name}{file_name} 延迟 {self.delay_seconds} 秒后刷新媒体服务器"
+            )
+            Timer(
+                self.delay_seconds,
+                self._do_refresh,
+                args=(file_path, file_name, mediainfo, refresh_all),
+            ).start()
+            return True
+        return self._do_refresh(file_path, file_name, mediainfo, refresh_all)
+
+    def _do_refresh(
+        self,
+        file_path: Optional[str] = None,
+        file_name: Optional[str] = None,
+        mediainfo: Optional[MediaInfo] = None,
+        refresh_all: bool = False,
+    ) -> bool:
+        """
+        执行媒体服务器刷新
+
+        :param file_path: 文件路径
+        :param file_name: 文件名
+        :param mediainfo: 媒体信息
+        :param refresh_all: 是否刷新所有媒体服务器
+
+        :return: 是否刷新成功
+        """
         logger.info(f"{self.func_name}{file_name} 开始刷新媒体服务器")
         if refresh_all:
             for name, service in self.service_infos.items():

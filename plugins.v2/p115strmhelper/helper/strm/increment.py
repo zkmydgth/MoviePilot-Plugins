@@ -127,6 +127,7 @@ class IncrementSyncStrmHelper:
             enabled=self.media_server_refresh_enabled,
             mp_mediaserver=self.mp_mediaserver_paths,
             mediaservers=self.mediaservers,
+            delay_seconds=configer.increment_sync_media_server_refresh_delay,
         )
 
         self.local_tree_path = (

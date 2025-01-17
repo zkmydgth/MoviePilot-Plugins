@@ -110,6 +110,7 @@ class ShareStrmHelper:
             enabled=config.media_server_refresh,
             mp_mediaserver=configer.share_strm_mp_mediaserver_paths,
             mediaservers=configer.share_strm_mediaservers,
+            delay_seconds=configer.share_strm_media_server_refresh_delay,
         )
 
         def _refresh_media_server(file_path: Path) -> None:

@@ -351,6 +351,9 @@ class ConfigManager(BaseModel):
     transfer_monitor_media_server_refresh_enabled: bool = Field(
         default=False, description="刷新媒体服务器开关"
     )
+    transfer_monitor_media_server_refresh_delay: int = Field(
+        default=0, ge=0, description="延迟刷新媒体服务器（秒），0 表示不延迟"
+    )
     transfer_monitor_emby_mediainfo_enabled: bool = Field(
         default=False, description="EMBY 媒体信息提取开关"
     )
@@ -402,6 +405,9 @@ class ConfigManager(BaseModel):
     full_sync_media_server_refresh_enabled: bool = Field(
         default=False, description="全量同步刷新媒体服务器开关"
     )
+    full_sync_media_server_refresh_delay: int = Field(
+        default=0, ge=0, description="全量同步延迟刷新媒体服务器（秒），0 表示不延迟"
+    )
     full_sync_mediaservers: Optional[List[str]] = Field(
         default=None, description="全量同步刷新媒体服务器列表"
     )
@@ -446,6 +452,9 @@ class ConfigManager(BaseModel):
     )
     increment_sync_media_server_refresh_enabled: bool = Field(
         default=False, description="刷新媒体服务器开关"
+    )
+    increment_sync_media_server_refresh_delay: int = Field(
+        default=0, ge=0, description="增量同步延迟刷新媒体服务器（秒），0 表示不延迟"
     )
     increment_sync_mediaservers: Optional[List[str]] = Field(
         default=None, description="刷新媒体服务器"
@@ -492,6 +501,9 @@ class ConfigManager(BaseModel):
     )
     monitor_life_media_server_refresh_enabled: bool = Field(
         default=False, description="刷新媒体服务器开关"
+    )
+    monitor_life_media_server_refresh_delay: int = Field(
+        default=0, ge=0, description="生活事件延迟刷新媒体服务器（秒），0 表示不延迟"
     )
     monitor_life_mediaservers: Optional[List[str]] = Field(
         default=None, description="刷新媒体服务器"
@@ -552,6 +564,9 @@ class ConfigManager(BaseModel):
     share_strm_mediaservers: Optional[List[str]] = Field(
         default=None, description="刷新媒体服务器"
     )
+    share_strm_media_server_refresh_delay: int = Field(
+        default=0, ge=0, description="分享 STRM 延迟刷新媒体服务器（秒），0 表示不延迟"
+    )
     share_strm_mp_mediaserver_paths: Optional[str] = Field(
         default=None, description="MP-媒体库 目录转换"
     )
@@ -578,6 +593,9 @@ class ConfigManager(BaseModel):
     )
     api_strm_media_server_refresh_enabled: bool = Field(
         default=False, description="刷新媒体服务器开关"
+    )
+    api_strm_media_server_refresh_delay: int = Field(
+        default=0, ge=0, description="API STRM 延迟刷新媒体服务器（秒），0 表示不延迟"
     )
 
     clear_recyclebin_enabled: bool = Field(default=False, description="清理回收站开关")

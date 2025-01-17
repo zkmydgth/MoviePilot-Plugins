@@ -102,6 +102,7 @@ class FullSyncStrmHelper:
             func_name="【全量STRM生成】",
             enabled=configer.full_sync_media_server_refresh_enabled,
             mediaservers=configer.full_sync_mediaservers,
+            delay_seconds=configer.full_sync_media_server_refresh_delay,
         )
 
         self.strmurlgetter = StrmUrlGetter()

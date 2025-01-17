@@ -814,6 +814,12 @@
               </v-col>
             </v-row>
             <v-row class="mt-2">
+              <v-col cols="12" md="6">
+                <v-text-field v-model.number="shareDialog.globalMediaServerRefreshDelay" label="媒体库延迟刷新(秒)" type="number"
+                  min="0" density="compact" hint="0 表示不延迟，立即刷新" persistent-hint variant="outlined"></v-text-field>
+              </v-col>
+            </v-row>
+            <v-row class="mt-2">
               <v-col cols="12">
                 <v-textarea v-model="shareDialog.globalMpMediaserverPaths" label="MP-媒体库 目录转换"
                   hint="格式：媒体库路径#MP路径，多个用换行分隔。应用于所有分享配置" persistent-hint variant="outlined" density="compact" rows="3"
@@ -1976,6 +1982,7 @@ const shareDialog = reactive({
   error: null,
   configs: [],
   globalMediaservers: [],
+  globalMediaServerRefreshDelay: 0,
   globalMpMediaserverPaths: '',
   interactiveGenStrm: defaultInteractiveGenStrm(),
   /** 分享同步对话框内「分享交互生成 STRM」折叠面板展开项 */
@@ -2063,6 +2070,7 @@ const openShareDialog = () => {
       ? [...props.initialConfig.share_strm_mediaservers]
       : [];
     shareDialog.globalMpMediaserverPaths = props.initialConfig.share_strm_mp_mediaserver_paths || '';
+    shareDialog.globalMediaServerRefreshDelay = props.initialConfig.share_strm_media_server_refresh_delay || 0;
 
     const ig = props.initialConfig.share_interactive_gen_strm_config || {};
     shareDialog.interactiveGenStrm.minFileSizeFormatted = formatBytes(ig.min_file_size || 0);
@@ -2240,6 +2248,7 @@ const saveShareConfigs = async () => {
         ? [...shareDialog.globalMediaservers]
         : null;
       props.initialConfig.share_strm_mp_mediaserver_paths = shareDialog.globalMpMediaserverPaths || null;
+      props.initialConfig.share_strm_media_server_refresh_delay = shareDialog.globalMediaServerRefreshDelay || 0;
       flushShareInteractiveGenStrmToInitialConfig();
       flushShareStrmCleanupToInitialConfig();
 
@@ -2460,6 +2469,7 @@ const executeShareSync = async () => {
         ? [...shareDialog.globalMediaservers]
         : null;
       props.initialConfig.share_strm_mp_mediaserver_paths = shareDialog.globalMpMediaserverPaths || null;
+      props.initialConfig.share_strm_media_server_refresh_delay = shareDialog.globalMediaServerRefreshDelay || 0;
       flushShareInteractiveGenStrmToInitialConfig();
       flushShareStrmCleanupToInitialConfig();
 

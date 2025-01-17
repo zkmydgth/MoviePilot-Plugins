@@ -291,6 +291,7 @@ class ApiSyncStrmHelper:
                     enabled=media_server_refresh,
                     mp_mediaserver=configer.api_strm_mp_mediaserver_paths,
                     mediaservers=configer.api_strm_mediaservers,
+                    delay_seconds=configer.api_strm_media_server_refresh_delay,
                 )
                 media_refresh_helper.refresh_mediaserver(
                     file_path=new_file_path.as_posix(), file_name=new_file_path.name
@@ -428,7 +429,9 @@ class ApiSyncStrmHelper:
                 lst: List[str] = []
                 for item in result[2].success:
                     try:
-                        file_path = Path(item.local_path) / PathUtils.sanitize_path_parts(
+                        file_path = Path(
+                            item.local_path
+                        ) / PathUtils.sanitize_path_parts(
                             Path(item.pan_path).relative_to(item.pan_media_path)
                         )
                         new_file_path = (
@@ -509,7 +512,9 @@ class ApiSyncStrmHelper:
                     try:
                         path = Path(i["path"])
                         if path.suffix.lower() in self.rmt_mediaext:
-                            file_path = Path(item.local_path) / PathUtils.sanitize_path_parts(
+                            file_path = Path(
+                                item.local_path
+                            ) / PathUtils.sanitize_path_parts(
                                 path.relative_to(item.pan_media_path)
                             )
                             new_file_path = (

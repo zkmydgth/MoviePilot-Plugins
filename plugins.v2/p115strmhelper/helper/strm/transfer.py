@@ -382,6 +382,7 @@ class TransferStrmHelper:
                 enabled=configer.transfer_monitor_media_server_refresh_enabled,
                 mp_mediaserver=configer.transfer_mp_mediaserver_paths,
                 mediaservers=configer.transfer_monitor_mediaservers,
+                delay_seconds=configer.transfer_monitor_media_server_refresh_delay,
             )
             mediaserver_helper.refresh_mediaserver(
                 file_name=item_dest_name,

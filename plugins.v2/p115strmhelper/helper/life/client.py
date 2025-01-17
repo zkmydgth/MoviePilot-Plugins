@@ -108,6 +108,7 @@ class MonitorLife:
             enabled=configer.monitor_life_media_server_refresh_enabled,
             mp_mediaserver=configer.monitor_life_mp_mediaserver_paths,
             mediaservers=configer.monitor_life_mediaservers,
+            delay_seconds=configer.monitor_life_media_server_refresh_delay,
         )
 
         self.storagechain = StorageChain()

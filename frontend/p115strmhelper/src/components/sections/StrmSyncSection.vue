@@ -41,15 +41,19 @@
           </v-row>
 
           <v-row>
-            <v-col cols="12" md="4">
+            <v-col cols="12" md="3">
               <v-switch v-model="config.transfer_monitor_media_server_refresh_enabled" label="媒体服务器刷新"
                 color="warning"></v-switch>
             </v-col>
-            <v-col cols="12" md="4">
+            <v-col cols="12" md="3">
+              <v-text-field v-model.number="config.transfer_monitor_media_server_refresh_delay" label="媒体库延迟刷新(秒)"
+                type="number" min="0" density="compact" hint="0 表示不延迟，立即刷新" persistent-hint></v-text-field>
+            </v-col>
+            <v-col cols="12" md="3">
               <v-switch v-model="config.transfer_monitor_emby_mediainfo_enabled" label="Emby 媒体信息提取"
                 color="warning"></v-switch>
             </v-col>
-            <v-col cols="12" md="4">
+            <v-col cols="12" md="3">
               <v-select v-model="config.transfer_monitor_mediaservers" label="媒体服务器" :items="mediaservers" multiple
                 chips closable-chips></v-select>
             </v-col>
@@ -259,11 +263,15 @@
             </v-row>
 
             <v-row>
-              <v-col cols="12" md="4">
+              <v-col cols="12" md="3">
                 <v-switch v-model="config.full_sync_media_server_refresh_enabled" label="全量同步后刷新媒体库" color="error"
                   density="compact"></v-switch>
               </v-col>
-              <v-col cols="12" md="8">
+              <v-col cols="12" md="3">
+                <v-text-field v-model.number="config.full_sync_media_server_refresh_delay" label="媒体库延迟刷新(秒)" type="number"
+                  min="0" density="compact" hint="0 表示不延迟" persistent-hint></v-text-field>
+              </v-col>
+              <v-col cols="12" md="6">
                 <v-select v-model="config.full_sync_mediaservers" label="媒体服务器" :items="mediaservers" multiple chips
                   closable-chips :disabled="!config.full_sync_media_server_refresh_enabled" hint="全量同步完成后将刷新整个媒体库，请谨慎使用"
                   persistent-hint></v-select>
@@ -399,12 +407,12 @@
           </v-row>
           <v-row>
             <v-col cols="12" md="3">
-              <v-switch v-model="config.increment_sync_scrape_metadata_enabled" label="STRM自动刮削"
-                color="primary"></v-switch>
-            </v-col>
-            <v-col cols="12" md="3">
               <v-switch v-model="config.increment_sync_media_server_refresh_enabled" label="媒体服务器刷新"
                 color="warning"></v-switch>
+            </v-col>
+            <v-col cols="12" md="3">
+              <v-text-field v-model.number="config.increment_sync_media_server_refresh_delay" label="媒体库延迟刷新(秒)"
+                type="number" min="0" density="compact" hint="0 表示不延迟" persistent-hint></v-text-field>
             </v-col>
             <v-col cols="12" md="3">
               <v-switch v-model="config.increment_sync_emby_mediainfo_enabled" label="Emby 媒体信息提取"
@@ -423,6 +431,25 @@
                   此功能需配合<strong>神医助手PRO</strong>使用，请确保神医助手PRO版本为 <strong>v3.0.0.40</strong> 及以上。
                 </div>
               </v-alert>
+            </v-col>
+          </v-row>
+
+          <v-row>
+            <v-col cols="12" md="3">
+              <v-switch v-model="config.increment_sync_scrape_metadata_enabled" label="STRM自动刮削"
+                color="primary"></v-switch>
+            </v-col>
+            <v-col cols="12" md="3">
+              <v-switch v-model="config.increment_sync_remove_unless_strm" label="清理失效STRM文件"
+                color="warning"></v-switch>
+            </v-col>
+            <v-col cols="12" md="3">
+              <v-switch v-model="config.increment_sync_remove_unless_dir" label="清理无效STRM目录" color="warning"
+                :disabled="!config.increment_sync_remove_unless_strm"></v-switch>
+            </v-col>
+            <v-col cols="12" md="3">
+              <v-switch v-model="config.increment_sync_remove_unless_file" label="清理无效STRM文件关联的媒体信息文件" color="warning"
+                :disabled="!config.increment_sync_remove_unless_strm"></v-switch>
             </v-col>
           </v-row>
 
@@ -447,21 +474,6 @@
               <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
                 <div class="text-caption">此处添加的本地目录，在STRM文件生成后将不会自动触发刮削。</div>
               </v-alert>
-            </v-col>
-          </v-row>
-
-          <v-row>
-            <v-col cols="12" md="4">
-              <v-switch v-model="config.increment_sync_remove_unless_strm" label="清理失效STRM文件"
-                color="warning"></v-switch>
-            </v-col>
-            <v-col cols="12" md="4">
-              <v-switch v-model="config.increment_sync_remove_unless_dir" label="清理无效STRM目录" color="warning"
-                :disabled="!config.increment_sync_remove_unless_strm"></v-switch>
-            </v-col>
-            <v-col cols="12" md="4">
-              <v-switch v-model="config.increment_sync_remove_unless_file" label="清理无效STRM文件关联的媒体信息文件" color="warning"
-                :disabled="!config.increment_sync_remove_unless_strm"></v-switch>
             </v-col>
           </v-row>
 
@@ -685,15 +697,19 @@
           </v-row>
 
           <v-row>
-            <v-col cols="12" md="4">
+            <v-col cols="12" md="3">
               <v-switch v-model="config.monitor_life_media_server_refresh_enabled" label="媒体服务器刷新"
                 color="warning"></v-switch>
             </v-col>
-            <v-col cols="12" md="4">
+            <v-col cols="12" md="3">
+              <v-text-field v-model.number="config.monitor_life_media_server_refresh_delay" label="媒体库延迟刷新(秒)"
+                type="number" min="0" density="compact" hint="0 表示不延迟" persistent-hint></v-text-field>
+            </v-col>
+            <v-col cols="12" md="3">
               <v-switch v-model="config.monitor_life_emby_mediainfo_enabled" label="Emby 媒体信息提取"
                 color="warning"></v-switch>
             </v-col>
-            <v-col cols="12" md="4">
+            <v-col cols="12" md="3">
               <v-select v-model="config.monitor_life_mediaservers" label="媒体服务器" :items="mediaservers" multiple chips
                 closable-chips></v-select>
             </v-col>
@@ -907,7 +923,11 @@
               <v-switch v-model="config.api_strm_media_server_refresh_enabled" label="媒体服务器刷新" color="warning"
                 density="compact"></v-switch>
             </v-col>
-            <v-col cols="12" md="6">
+            <v-col cols="12" md="3">
+              <v-text-field v-model.number="config.api_strm_media_server_refresh_delay" label="媒体库延迟刷新(秒)" type="number"
+                min="0" density="compact" hint="0 表示不延迟" persistent-hint></v-text-field>
+            </v-col>
+            <v-col cols="12" md="3">
               <v-select v-model="config.api_strm_mediaservers" label="媒体服务器" :items="mediaservers" multiple chips
                 closable-chips density="compact"></v-select>
             </v-col>
@@ -956,7 +976,8 @@
           <v-row>
             <v-col cols="12">
               <div class="d-flex flex-column">
-                <div v-for="(pair, index) in apiStrmMPPaths" :key="`api-strm-mp-${index}`" class="mb-2 d-flex align-center">
+                <div v-for="(pair, index) in apiStrmMPPaths" :key="`api-strm-mp-${index}`"
+                  class="mb-2 d-flex align-center">
                   <div class="path-selector flex-grow-1 mr-2">
                     <v-text-field v-model="pair.local" label="媒体库服务器映射目录" density="compact"></v-text-field>
                   </div>
