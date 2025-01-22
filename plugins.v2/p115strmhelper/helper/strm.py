@@ -133,7 +133,7 @@ class IncrementSyncStrmHelper:
         迭代网盘目录
         """
         logger.debug(f"【增量STRM生成】迭代网盘目录: {cid} {path}")
-        for batch in iter_fs_files(self.client, cid):
+        for batch in iter_fs_files(self.client, cid, cooldown=2):
             self.api_count += 1
             for item in batch.get("data", []):
                 item["path"] = path + "/" + item.get("n")
