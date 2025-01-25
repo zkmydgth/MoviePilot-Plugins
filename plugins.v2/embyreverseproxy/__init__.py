@@ -57,7 +57,7 @@ class EmbyReverseProxy(_PluginBase):
         "Emby 302 反向代理，自动代理 HTTP 链接，跳转最终地址，简单易用无需过多配置。"
     )
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/refs/heads/main/icons/Emby_A.png"
-    plugin_version = "0.0.8"
+    plugin_version = "0.0.9"
     plugin_author = "DDSRem"
     author_url = "https://github.com/DDSRem"
     plugin_config_prefix = "embyreverseproxy_"
@@ -257,7 +257,7 @@ class EmbyReverseProxy(_PluginBase):
                                     "label": "顶置路径规则",
                                     "rows": 4,
                                     "placeholder": "每行一条：路径前缀 => 目标URL",
-                                    "hint": '高级配置：不理解规则含义请勿配置（建议留空）。每行一条，格式：路径前缀 => 目标 URL；匹配到前缀后将路径替换为目标 URL 并返回 302。示例：/strm/cd2 => http://192.168.31.99:4567/d',
+                                    "hint": "高级配置：不理解规则含义请勿配置（建议留空）。每行一条，格式：路径前缀 => 目标 URL；匹配到前缀后将路径替换为目标 URL 并返回 302。示例：/strm/cd2 => http://192.168.31.99:4567/d",
                                     "persistent-hint": True,
                                 },
                             }
