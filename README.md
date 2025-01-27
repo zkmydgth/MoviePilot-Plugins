@@ -1,5 +1,7 @@
 # MoviePilot-Plugins
 
+插件交流群：https://t.me/+1lcscM_EbqhkN2Rl
+
 ## 插件列表
 
 ### 探索类插件
