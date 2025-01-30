@@ -1030,7 +1030,8 @@ class P115StrmHelper(_PluginBase):
         """
         try:
             data = await request.json()
-            configer.update_config(data)
+            if not configer.update_config(data):
+                return {"code": 1, "msg": "保存失败，请查看详细日志"}
 
             # 持久化存储配置
             configer.update_plugin_config()
