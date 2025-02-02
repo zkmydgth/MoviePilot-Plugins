@@ -1419,11 +1419,17 @@ class U115OpenHelper:
         path: str | int | Path | PathLike,
         /,
         db: Optional[OpenFileOper] = None,
-        cache_path: Optional[Path] = None,
+        cache_path: Optional[Path | str | PathLike] = None,
         mode: Literal["add", "remove"] = "add",
         qps: int = 5,
         page_size: int = 1150,
         max_workers: int = 10,
+        type: Optional[int] = None,
+        suffix: Optional[str] = None,
+        asc: int = 1,
+        order: Literal[
+            "file_name", "file_size", "user_utime", "file_type"
+        ] = "file_name",
     ) -> Iterator[Dict]:
         """
         依据本地媒体文件数据增量迭代文件信息对象
@@ -1435,6 +1441,15 @@ class U115OpenHelper:
         :param qps: 每秒请求数
         :param page_size: 分页大小
         :param max_workers: 最大工作线程数
+        :param type: 文件类型；1.文档；2.图片；3.音乐；4.视频；5.压缩；6.应用；7.书籍
+        :param suffix: 匹配文件后缀名
+        :param asc: 升序排列。0: 否，1: 是
+        :param order: 排序
+
+            - "file_name": 文件名
+            - "file_size": 文件大小
+            - "file_type": 文件种类
+            - "user_utime": 修改时间
 
         :return: 迭代器，文件或文件夹信息
         """
@@ -1495,6 +1510,10 @@ class U115OpenHelper:
                     "cid": cid,
                     "limit": page_size,
                     "offset": offset,
+                    "o": order,
+                    "asc": asc,
+                    "type": type,
+                    "suffix": suffix,
                 }
                 for i in range(1, 4):
                     try:
