@@ -796,8 +796,9 @@ class FullSyncStrmHelper:
                                     )
                                 )
 
-                            # for skip_info in results.skip_results:
-                            #     self.__base_logger("debug", f"Skipped {skip_info.path_in_pan}: {skip_info.reason}")
+                            if configer.full_sync_strm_log:
+                                for skip_info in results.skip_results:
+                                    self.__base_logger("warn", skip_info.reason)
                         else:
                             target_dir_path = Path(target_dir)
 

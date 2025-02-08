@@ -61,13 +61,13 @@ impl Processor {
         if item.is_dir {
             return ProcessingResult::Skip(SkipInfo {
                 path_in_pan: item.path.clone(),
-                reason: "路径为文件夹".into(),
+                reason: format!("{} 路径为文件夹，跳过处理", item.path).into(),
             });
         }
         if !item.path.starts_with(&self.config.pan_media_dir) {
             return ProcessingResult::Skip(SkipInfo {
                 path_in_pan: item.path.clone(),
-                reason: "路径在网盘媒体库目录外".into(),
+                reason: format!("{} 路径在网盘媒体库目录外，跳过处理", item.path).into(),
             });
         }
 
@@ -89,7 +89,7 @@ impl Processor {
         {
             return ProcessingResult::Skip(SkipInfo {
                 path_in_pan: item.path.clone(),
-                reason: "路径在待整理目录下，跳过处理".into(),
+                reason: format!("{} 路径在待整理目录下，跳过处理", item.path).into(),
             });
         }
 
@@ -109,22 +109,18 @@ impl Processor {
             {
                 return ProcessingResult::Skip(SkipInfo {
                     path_in_pan: item.path.clone(),
-                    reason: format!("{} 文件名称未在白名单规则内", item.name).into(),
+                    reason: format!("{} 文件名未匹配到媒体信息文件白名单关键词，跳过处理", item.name).into(),
                 });
             }
             // 判断是否在黑名单内
-            if !self.config.mediainfo_download_blacklist.is_empty()
-                && self
-                    .mediainfo_blacklist_automaton
-                    .find(&item.name)
-                    .is_some()
-            {
-                let found = self.mediainfo_blacklist_automaton.find(&item.name).unwrap();
-                let keyword = &self.config.mediainfo_download_blacklist[found.pattern()];
-                return ProcessingResult::Skip(SkipInfo {
-                    path_in_pan: item.path.clone(),
-                    reason: format!("匹配到媒体信息文件黑名单关键词: {}", keyword).into(),
-                });
+            if !self.config.mediainfo_download_blacklist.is_empty() {
+                if let Some(found) = self.mediainfo_blacklist_automaton.find(&item.name) {
+                    let keyword = &self.config.mediainfo_download_blacklist[found.pattern()];
+                    return ProcessingResult::Skip(SkipInfo {
+                        path_in_pan: item.path.clone(),
+                        reason: format!("{} 匹配到媒体信息文件黑名单关键词: {}", item.name, keyword).into(),
+                    });
+                }
             }
 
             return match (&item.pickcode, &item.sha1) {
@@ -135,11 +131,11 @@ impl Processor {
                 }),
                 (None, _) => ProcessingResult::Fail(FailInfo {
                     path_in_pan: item.path.clone(),
-                    reason: "丢失 pick_code 数据".into(),
+                    reason: format!("{} 缺失 pick_code 数据", item.path).into(),
                 }),
                 (_, None) => ProcessingResult::Fail(FailInfo {
                     path_in_pan: item.path.clone(),
-                    reason: "丢失 sha1 数据".into(),
+                    reason: format!("{} 缺失 sha1 数据", item.path).into(),
                 }),
             };
         }
@@ -148,7 +144,7 @@ impl Processor {
         if !self.config.rmt_mediaext_set.contains(&file_suffix_with_dot) {
             return ProcessingResult::Skip(SkipInfo {
                 path_in_pan: item.path.clone(),
-                reason: "未匹配到媒体文件后缀".into(),
+                reason: format!("{} 未匹配到媒体文件后缀和媒体信息文件后缀，跳过处理", item.path).into(),
             });
         }
 
@@ -158,7 +154,7 @@ impl Processor {
                 let keyword = &self.config.strm_generate_blacklist[found.pattern()];
                 return ProcessingResult::Skip(SkipInfo {
                     path_in_pan: item.path.clone(),
-                    reason: format!("匹配到 STRM 生成黑名单关键词: {}", keyword).into(),
+                    reason: format!("{} 匹配到 STRM 生成黑名单关键词: {}", item.name, keyword).into(),
                 });
             }
         }
@@ -169,7 +165,7 @@ impl Processor {
             {
                 return ProcessingResult::Skip(SkipInfo {
                     path_in_pan: item.path.clone(),
-                    reason: "文件小于最低限度".into(),
+                    reason: format!("文件小于最低限度: {}", item.path).into(),
                 });
             }
         }
@@ -185,11 +181,11 @@ impl Processor {
             }
             Some(pc) => ProcessingResult::Fail(FailInfo {
                 path_in_pan: item.path.clone(),
-                reason: format!("错误的 pick_code 格式: {}", pc),
+                reason: format!("{} 错误的 pick_code 格式: {}", item.path, pc).into(),
             }),
             None => ProcessingResult::Fail(FailInfo {
                 path_in_pan: item.path.clone(),
-                reason: "丢失 pick_code 值".into(),
+                reason: format!("{} 缺失 pick_code 值", item.path).into(),
             }),
         }
     }
