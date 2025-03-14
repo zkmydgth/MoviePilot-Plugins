@@ -95,3 +95,58 @@ class DirectoryTree:
             for line_num, line in enumerate(f, start=1):
                 if line_num == line_number:
                     return line.strip()
+
+    @staticmethod
+    def compare_file_lines(
+        file1_path, file2_path, comment_symbols=None, buffer_size=65536
+    ):
+        """
+        对比两个大文件的有效行数
+
+        :param file1_path (str): 第一个文件路径
+        :param file2_path (str): 第二个文件路径
+        :param comment_symbols (list, optional): 注释符号列表，默认为['#', '//', '--']
+        :param buffer_size (int): 读取缓冲区大小(字节)，默认为64KB
+        :return: int 差值
+        """
+        if comment_symbols is None:
+            comment_symbols = ["#", "//", "--"]
+
+        def count_lines(file_path):
+            """
+            高效统计文件有效行数
+            """
+            count = 0
+            try:
+                with open(file_path, "r", encoding="utf-8") as f:
+                    buffer = ""
+                    while True:
+                        chunk = f.read(buffer_size)
+                        if not chunk:
+                            if buffer:
+                                line = buffer.strip()
+                                if line and not any(
+                                    line.startswith(s) for s in comment_symbols
+                                ):
+                                    count += 1
+                            break
+                        buffer += chunk
+                        lines = buffer.split("\n")
+                        buffer = lines.pop() if lines else ""
+                        for line in lines:
+                            stripped = line.strip()
+                            if stripped and not any(
+                                stripped.startswith(s) for s in comment_symbols
+                            ):
+                                count += 1
+            except Exception:
+                return None
+            return count
+
+        count_1 = count_lines(file1_path)
+        count_2 = count_lines(file2_path)
+
+        if not count_1 or not count_2:
+            return 0
+
+        return abs(count_1 - count_2)

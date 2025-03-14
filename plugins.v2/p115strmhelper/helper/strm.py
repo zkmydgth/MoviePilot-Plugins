@@ -868,6 +868,13 @@ class FullSyncStrmHelper:
                     time.sleep(10)
                 if not self.strm_fail_dict:
                     try:
+                        count = DirectoryTree().compare_file_lines(
+                            self.local_tree, self.pan_tree
+                        )
+                        if count > 500:
+                            logger.warn(
+                                f"【全量STRM生成】本次将删除文件个数为 {count}，超过安全阈值不进行删除操作"
+                            )
                         for path in DirectoryTree().compare_trees(
                             self.local_tree, self.pan_tree
                         ):
