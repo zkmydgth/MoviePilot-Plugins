@@ -231,6 +231,7 @@ class ShareOOPServerHelper:
                 batch_id, temp_file, headers={"user-agent": configer.get_user_agent()}
             )
             logger.debug(f"【分享STRM生成】上传成功: {resp.model_dump()}")
+            return resp.model_dump()
         except Exception as e:
             logger.warn(f"【分享STRM生成】上传异常: {e}")
             return None
