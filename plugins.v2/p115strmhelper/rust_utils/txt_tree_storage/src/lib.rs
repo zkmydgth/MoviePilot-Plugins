@@ -1,8 +1,8 @@
-use std::collections::HashSet;
 use std::fs::{self, OpenOptions};
-use std::io::{BufRead, BufReader, BufWriter, Write};
+use std::io::{BufRead, BufReader, BufWriter, Read, Write};
 use std::path::PathBuf;
 
+use ahash::AHashSet;
 use pyo3::prelude::*;
 use pyo3::types::{PyIterator, PyModuleMethods};
 
@@ -22,24 +22,31 @@ fn io_err(e: std::io::Error) -> PyErr {
     PyErr::new::<pyo3::exceptions::PyOSError, _>(e.to_string())
 }
 
-fn load_other_lines_set(path: &PathBuf) -> PyResult<HashSet<String>> {
-    let file = match fs::File::open(path) {
+/// 一次性读取整个文件为字符串。NotFound 时返回 None。
+fn read_file_to_string(path: &PathBuf) -> PyResult<Option<String>> {
+    let mut file = match fs::File::open(path) {
         Ok(f) => f,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(HashSet::new()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(e) => return Err(io_err(e)),
     };
-    let reader = BufReader::with_capacity(BUF_SIZE, file);
-    let mut set = HashSet::new();
-    for line in reader.lines() {
-        let line = line.map_err(io_err)?;
+    // 预分配 buffer 以减少重新分配
+    let cap = file.metadata().map(|m| m.len() as usize).unwrap_or(0);
+    let mut s = String::with_capacity(cap);
+    file.read_to_string(&mut s).map_err(io_err)?;
+    Ok(Some(s))
+}
+
+/// 一次性读 other 文件并构建 trim 后的 set；文件不存在返回空集。
+fn load_other_lines_set(path: &PathBuf) -> PyResult<AHashSet<String>> {
+    let content = match read_file_to_string(path)? {
+        Some(s) => s,
+        None => return Ok(AHashSet::new()),
+    };
+    let mut set: AHashSet<String> = AHashSet::with_capacity(content.len() / 32);
+    for line in content.lines() {
         set.insert(line.trim().to_string());
     }
     Ok(set)
-}
-
-fn open_self_reader(path: &PathBuf) -> PyResult<BufReader<fs::File>> {
-    let file = fs::File::open(path).map_err(io_err)?;
-    Ok(BufReader::with_capacity(BUF_SIZE, file))
 }
 
 #[pyfunction]
@@ -72,9 +79,9 @@ fn add_paths(
 /// 惰性迭代器：返回 self 中存在但 other 中不存在的路径字符串。
 #[pyclass]
 struct CompareTreesIter {
-    reader: BufReader<fs::File>,
-    set: HashSet<String>,
-    buf: String,
+    content: String,
+    set: AHashSet<String>,
+    pos: usize,
 }
 
 #[pymethods]
@@ -84,26 +91,29 @@ impl CompareTreesIter {
     }
 
     fn __next__(&mut self) -> PyResult<Option<String>> {
-        loop {
-            self.buf.clear();
-            let n = self.reader.read_line(&mut self.buf).map_err(io_err)?;
-            if n == 0 {
-                return Ok(None);
-            }
-            let trimmed = self.buf.trim();
+        while self.pos < self.content.len() {
+            let rest = &self.content[self.pos..];
+            let nl = rest.find('\n');
+            let (line, advance) = match nl {
+                Some(i) => (&rest[..i], i + 1),
+                None => (rest, rest.len()),
+            };
+            self.pos += advance;
+            let trimmed = line.trim();
             if !self.set.contains(trimmed) {
                 return Ok(Some(trimmed.to_string()));
             }
         }
+        Ok(None)
     }
 }
 
 /// 惰性迭代器：返回差异路径在 self 中的 1-based 行号。
 #[pyclass]
 struct CompareTreesLinesIter {
-    reader: BufReader<fs::File>,
-    set: HashSet<String>,
-    buf: String,
+    content: String,
+    set: AHashSet<String>,
+    pos: usize,
     line_num: u64,
 }
 
@@ -114,18 +124,21 @@ impl CompareTreesLinesIter {
     }
 
     fn __next__(&mut self) -> PyResult<Option<u64>> {
-        loop {
-            self.buf.clear();
-            let n = self.reader.read_line(&mut self.buf).map_err(io_err)?;
-            if n == 0 {
-                return Ok(None);
-            }
+        while self.pos < self.content.len() {
+            let rest = &self.content[self.pos..];
+            let nl = rest.find('\n');
+            let (line, advance) = match nl {
+                Some(i) => (&rest[..i], i + 1),
+                None => (rest, rest.len()),
+            };
+            self.pos += advance;
             self.line_num += 1;
-            let trimmed = self.buf.trim();
+            let trimmed = line.trim();
             if !self.set.contains(trimmed) {
                 return Ok(Some(self.line_num));
             }
         }
+        Ok(None)
     }
 }
 
@@ -136,11 +149,13 @@ fn compare_trees(
     other_path: PathBuf,
 ) -> PyResult<CompareTreesIter> {
     let set = load_other_lines_set(&other_path)?;
-    let reader = open_self_reader(&self_path)?;
+    let content = read_file_to_string(&self_path)?.ok_or_else(|| {
+        PyErr::new::<pyo3::exceptions::PyFileNotFoundError, _>(self_path.display().to_string())
+    })?;
     Ok(CompareTreesIter {
-        reader,
+        content,
         set,
-        buf: String::new(),
+        pos: 0,
     })
 }
 
@@ -151,11 +166,13 @@ fn compare_trees_lines(
     other_path: PathBuf,
 ) -> PyResult<CompareTreesLinesIter> {
     let set = load_other_lines_set(&other_path)?;
-    let reader = open_self_reader(&self_path)?;
+    let content = read_file_to_string(&self_path)?.ok_or_else(|| {
+        PyErr::new::<pyo3::exceptions::PyFileNotFoundError, _>(self_path.display().to_string())
+    })?;
     Ok(CompareTreesLinesIter {
-        reader,
+        content,
         set,
-        buf: String::new(),
+        pos: 0,
         line_num: 0,
     })
 }

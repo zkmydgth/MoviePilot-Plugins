@@ -294,7 +294,7 @@ class TestCompareTrees:
         assert list(py.compare_trees_lines(py_o)) == list(rs.compare_trees_lines(rs_o))
 
     def test_iterator_protocol(self, pair, pair_other):
-        """Rust 返回的对象应可迭代多次构造但只能消费一次（与 generator 一致）。"""
+        """Rust 返回的对象是 self-iterator，单次消费（与 Python generator 一致）。"""
         py, rs = pair
         py_o, rs_o = pair_other
         _seed(py, rs, ["a", "b"])
@@ -304,6 +304,11 @@ class TestCompareTrees:
         assert list(it) == ["a", "b"]
         # 二次消费应为空
         assert list(it) == []
+
+        it2 = rs.compare_trees_lines(rs_o)
+        assert iter(it2) is it2
+        assert list(it2) == [1, 2]
+        assert list(it2) == []
 
 
 # ---------------------------------------------------------------------------
