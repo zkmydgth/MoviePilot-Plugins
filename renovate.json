@@ -5,7 +5,18 @@
   ],
   "packageRules": [
     {
-      "matchDatasources": ["npm"],
+      "matchDatasources": [
+        "npm"
+      ],
+      "enabled": false
+    },
+    {
+      "matchPaths": [
+        "plugins.v2/p115strmhelper/requirements.txt"
+      ],
+      "matchPackageNames": [
+        "full-strm-sync"
+      ],
       "enabled": false
     }
   ]
