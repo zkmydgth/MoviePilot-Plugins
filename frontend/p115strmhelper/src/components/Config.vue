@@ -3588,11 +3588,8 @@ const generatePathsConfig = (paths, key) => {
       const local = p.local?.trim() ?? '';
       const remote = p.remote?.trim() ?? '';
       const cd2 = (p.cd2Prefix || '').trim();
-      if (cd2) {
-        const effectiveRemote = normalizePathJoin(cd2, remote);
-        return `${local}#${effectiveRemote}#${cd2}`;
-      }
-      return `${local}#${remote}`;
+      const effectiveRemote = cd2 ? normalizePathJoin(cd2, remote) : remote;
+      return `${local}#${effectiveRemote}#${cd2}`;
     }
     return `${p.local?.trim()}#${p.remote?.trim()}`;
   }).filter(p => {
