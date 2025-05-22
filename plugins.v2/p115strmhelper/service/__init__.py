@@ -18,7 +18,7 @@ from aligo.core import set_config_folder
 from ..core.i18n import i18n
 from ..core.p115 import get_pid_by_path
 from ..helper.mediainfo_download import MediaInfoDownloader
-from ..helper.life import MonitorLife
+from ..helper.life import MonitorLife, MonitorLifeTool
 from ..service.life import monitor_life_process_worker
 from ..helper.strm import FullSyncStrmHelper, ShareStrmHelper, IncrementSyncStrmHelper
 from ..helper.monitor import handle_file, FileMonitorHandler
@@ -237,92 +237,11 @@ class ServiceHelper:
                 task_data: Dict[str, Any] = self.life_queue.get(timeout=1)
                 if task_data is None:
                     continue
-
-                if isinstance(task_data, dict):
-                    request_type = task_data.get("type")
-
-                    if request_type == "query_queue_status":
-                        if self.monitorlife and self.life_response_queue:
-                            try:
-                                self.monitorlife.process_queue_status_query(
-                                    self.life_response_queue
-                                )
-                            except Exception as e:
-                                logger.error(
-                                    f"【监控生活事件】处理队列状态查询失败: {e}"
-                                )
-                                try:
-                                    self.life_response_queue.put({"has_tasks": False})
-                                except Exception:
-                                    pass
-                        continue
-
-                    elif request_type == "check_file_exists":
-                        if self.monitorlife and self.life_response_queue:
-                            try:
-                                self.monitorlife.process_check_file_exists(
-                                    task_data, self.life_response_queue
-                                )
-                            except Exception as e:
-                                logger.error(
-                                    f"【监控生活事件】处理文件存在性查询失败: {e}"
-                                )
-                                try:
-                                    self.life_response_queue.put({"exists": False})
-                                except Exception:
-                                    pass
-                        continue
-
-                    elif request_type == "remove_mp_history":
-                        if self.monitorlife:
-                            try:
-                                self.monitorlife.process_remove_mp_history(task_data)
-                            except Exception as e:
-                                logger.error(
-                                    f"【监控生活事件】处理删除历史记录失败: {e}"
-                                )
-                        continue
-
-                    elif request_type == "scrape_metadata":
-                        if self.monitorlife:
-                            try:
-                                self.monitorlife.process_scrape_metadata(task_data)
-                            except Exception as e:
-                                logger.error(f"【监控生活事件】处理媒体刮削失败: {e}")
-                        continue
-
-                    elif request_type == "refresh_mediaserver":
-                        if self.monitorlife:
-                            try:
-                                mediaserver_helper = getattr(
-                                    self.monitorlife, "mediaserver_helper", None
-                                )
-                                self.monitorlife.process_refresh_mediaserver(
-                                    task_data, mediaserver_helper
-                                )
-                            except Exception as e:
-                                logger.error(
-                                    f"【监控生活事件】处理媒体服务器刷新失败: {e}"
-                                )
-                        continue
-
-                    elif request_type == "post_message":
-                        if self.monitorlife:
-                            try:
-                                self.monitorlife.process_post_message(task_data)
-                            except Exception as e:
-                                logger.error(f"【监控生活事件】处理发送通知失败: {e}")
-                        continue
-
-                if self.monitorlife:
-                    try:
-                        self.monitorlife.process_transfer_task(task_data)
-                    except Exception as e:
-                        logger.error(f"【监控生活事件】处理队列任务失败: {e}")
-                else:
-                    logger.warning(
-                        "【监控生活事件】MonitorLife实例未初始化，无法处理队列任务"
-                    )
+                if not self.monitorlife:
+                    continue
+                MonitorLifeTool.process_life_queue(
+                    task_data, self.life_response_queue, self.monitorlife
+                )
             except Empty:
                 continue
             except Exception as e:

@@ -20,6 +20,7 @@ from .core.config import configer
 from .core.cache import idpathcacher, DirectoryCache
 from .core.aliyunpan import AliyunPanLogin
 from .core.p115 import get_pid_by_path
+from .helper.life.test import MonitorLifeTest
 from .helper.strm import ApiSyncStrmHelper
 from .schemas.offline import (
     OfflineTasksPayload,
@@ -939,8 +940,6 @@ class Api:
             error_messages.append("115客户端未初始化")
         debug_info.append("")
 
-        from .helper.life import MonitorLife  # 避免循环导入
-
         debug_info.append("6. MonitorLife实例状态")
         monitorlife = servicer.monitorlife
         if monitorlife:
@@ -951,7 +950,7 @@ class Api:
             test_client = monitorlife._client if monitorlife._client else client
             if test_client:
                 test_success, test_debug_info, test_error = (
-                    MonitorLife.test_life_event_status(test_client)
+                    MonitorLifeTest.test_life_event_status(test_client)
                 )
                 debug_info.extend(test_debug_info)
                 if not test_success:
@@ -970,7 +969,7 @@ class Api:
         debug_info.append("7. 测试拉取生活事件数据")
         if monitorlife and monitorlife._client:
             pull_success, pull_debug_info, pull_errors = (
-                MonitorLife.test_life_event_pull(monitorlife._client)
+                MonitorLifeTest.test_life_event_pull(monitorlife._client)
             )
             debug_info.extend(pull_debug_info)
             if not pull_success:
@@ -978,7 +977,7 @@ class Api:
                 error_messages.extend(pull_errors)
         elif monitorlife and client:
             pull_success, pull_debug_info, pull_errors = (
-                MonitorLife.test_life_event_pull(client)
+                MonitorLifeTest.test_life_event_pull(client)
             )
             debug_info.extend(pull_debug_info)
             if not pull_success:

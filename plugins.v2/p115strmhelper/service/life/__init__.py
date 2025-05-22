@@ -28,19 +28,22 @@ def monitor_life_process_worker(
     :param life_response_queue: 响应队列，用于接收主进程返回的查询结果
     """
     try:
+        logger.info("【监控生活事件】初始化生活事件客户端中...")
         client = P115Client(cookies)
 
-        mediainfodownloader = MediaInfoDownloader(cookie=cookies)
+        mediainfo_downloader = MediaInfoDownloader(cookie=cookies)
 
-        monitorlife = MonitorLife(
+        monitor_life = MonitorLife(
             client=client,
-            mediainfodownloader=mediainfodownloader,
+            mediainfodownloader=mediainfo_downloader,
             stop_event=stop_event,
             life_queue=life_queue,
             life_response_queue=life_response_queue,
         )
+        logger.info("【监控生活事件】生活事件客户端初始化完成")
 
-        if not monitorlife.check_status():
+        logger.info("【监控生活事件】生活事件状态检查中...")
+        if not monitor_life.check_status():
             logger.error("【监控生活事件】生活事件状态检查失败，无法启动监控")
             return
 
@@ -72,7 +75,7 @@ def monitor_life_process_worker(
                 break
 
             try:
-                from_time, from_id = monitorlife.once_pull(
+                from_time, from_id = monitor_life.once_pull(
                     from_time=from_time, from_id=from_id
                 )
             except Exception as e:
