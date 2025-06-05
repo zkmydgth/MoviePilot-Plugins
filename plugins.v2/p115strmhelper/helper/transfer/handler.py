@@ -169,9 +169,7 @@ class TransferHandler:
 
         :return: 目录文件项，如果创建失败则返回None
         """
-        folder_item = self.storage_chain.get_file_item(
-            storage=self.storage_name, path=path
-        )
+        folder_item = self.cache_updater._p115_api.get_item(path)
         if folder_item and folder_item.type == "dir":
             return folder_item
 
@@ -328,9 +326,7 @@ class TransferHandler:
                     path=str(source_dir) + "/",
                     type="dir",
                 )
-                files = self.storage_chain.list_files(
-                    fileitem=source_fileitem, recursion=False
-                )
+                files = self.cache_updater._p115_api.list(source_fileitem)
 
                 if not files:
                     logger.debug(
@@ -742,9 +738,7 @@ class TransferHandler:
                 # 批量检查目标文件是否已存在
                 existing_files_map: Dict[str, FileItem] = {}
                 try:
-                    existing_files = self.storage_chain.list_files(
-                        fileitem=folder_item,
-                    )
+                    existing_files = self.cache_updater._p115_api.list(folder_item)
                     if existing_files:
                         # 创建文件名到 FileItem 的映射
                         for existing_file in existing_files:
@@ -1156,9 +1150,7 @@ class TransferHandler:
                     # 批量列出目标目录的文件
                     folder_item = self._get_folder(target_dir)
                     if folder_item:
-                        existing_files = self.storage_chain.list_files(
-                            fileitem=folder_item,
-                        )
+                        existing_files = self.cache_updater._p115_api.list(folder_item)
                         if existing_files:
                             # 创建文件名到 FileItem 的映射
                             existing_files_map = {
@@ -1211,7 +1203,7 @@ class TransferHandler:
                     continue
 
                 # 列出目录下所有文件
-                files = self.storage_chain.list_files(fileitem=folder_item)
+                files = self.cache_updater._p115_api.list(folder_item)
                 if not files:
                     logger.debug(f"【整理接管】目录 {target_dir} 中没有文件")
                     continue
@@ -1324,9 +1316,7 @@ class TransferHandler:
                 path=str(target_dir) + "/",
                 type="dir",
             )
-            files = self.storage_chain.list_files(
-                fileitem=target_dir_fileitem, recursion=False
-            )
+            files = self.cache_updater._p115_api.list(target_dir_fileitem)
 
             if not files:
                 logger.warn(f"【整理接管】目标目录 {target_dir} 为空，无法更新文件ID")
@@ -1386,9 +1376,7 @@ class TransferHandler:
         :param related_file: 关联文件（如果不是主视频）
         """
         try:
-            file_item = self.storage_chain.get_file_item(
-                storage=self.storage_name, path=target_path
-            )
+            file_item = self.cache_updater._p115_api.get_item(target_path)
             if file_item and file_item.fileid:
                 if is_main:
                     task.fileitem.fileid = file_item.fileid
@@ -1933,7 +1921,7 @@ class TransferHandler:
                                     parent_dir_item = (
                                         t.fileitem
                                         if t.fileitem.type == "dir"
-                                        else self.storage_chain.get_parent_item(
+                                        else self.cache_updater._p115_api.get_parent(
                                             t.fileitem
                                         )
                                     )
@@ -1979,7 +1967,7 @@ class TransferHandler:
                         parent_dir_item = (
                             t.fileitem
                             if t.fileitem.type == "dir"
-                            else self.storage_chain.get_parent_item(t.fileitem)
+                            else self.cache_updater._p115_api.get_parent(t.fileitem)
                         )
                         if parent_dir_item and parent_dir_item.path:
                             parent_dir_path = parent_dir_item.path
@@ -2089,9 +2077,8 @@ class TransferHandler:
                     tree_exists = True
                     for dir_id, dir_item in min_depth_dirs_in_tree:
                         try:
-                            current_dir = self.storage_chain.get_file_item(
-                                storage=self.storage_name,
-                                path=Path(dir_item.path),
+                            current_dir = self.cache_updater._p115_api.get_item(
+                                Path(dir_item.path)
                             )
                             if not current_dir:
                                 # 该目录树的最小深度目录已被删除，说明整个目录树都被删除了
@@ -2171,7 +2158,7 @@ class TransferHandler:
         dir_item = (
             fileitem
             if fileitem.type == "dir"
-            else self.storage_chain.get_parent_item(fileitem)
+            else self.cache_updater._p115_api.get_parent(fileitem)
         )
         if not dir_item:
             logger.debug(f"【整理接管】{fileitem.path} 上级目录不存在")
@@ -2202,7 +2189,7 @@ class TransferHandler:
             # 如果不在资源/媒体库目录结构中，检查是否有任何文件（包括子目录、nfo、jpg等）
             elif not associated_dir:
                 try:
-                    dir_files = self.storage_chain.list_files(dir_item, recursion=False)
+                    dir_files = self.cache_updater._p115_api.list(dir_item)
                     if dir_files:
                         logger.debug(
                             f"【整理接管】{dir_item.path} 不是空目录（有 {len(dir_files)} 个文件），不删除"
@@ -2217,9 +2204,17 @@ class TransferHandler:
 
             # 检查：目录存在媒体文件，则不删除
             try:
-                has_media = self.storage_chain.any_files(
-                    dir_item, extensions=media_exts
-                )
+                files = self.cache_updater._p115_api.list(dir_item)
+                if files:
+                    has_media = False
+                    for f in files:
+                        if f.type == "file" and f.extension:
+                            ext = f".{f.extension.lower()}"
+                            if ext in media_exts:
+                                has_media = True
+                                break
+                else:
+                    has_media = False
                 if has_media is not False:
                     logger.debug(f"【整理接管】{dir_item.path} 存在媒体文件，不删除")
                     break
@@ -2235,7 +2230,7 @@ class TransferHandler:
             dirs_to_delete.append(dir_item)
 
             # 继续检查父目录
-            dir_item = self.storage_chain.get_parent_item(dir_item)
+            dir_item = self.cache_updater._p115_api.get_parent(dir_item)
 
         return dirs_to_delete
 
