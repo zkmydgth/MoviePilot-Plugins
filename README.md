@@ -59,6 +59,7 @@ https://github.com/zkmydgth/MoviePilot-Plugins
 - 本插件为主版本 3.x，与上游 V2 版本（2.x）**数据不互通**，不建议在 V2 环境安装
 - 在 **MoviePilot V2** 上因 `system_version` 要求 `>=3.0.0`，该插件不会出现在插件市场列表中——这是版本约束的正常表现，**不是发布故障**
 - 插件数据库迁移锚点、事件队列名沿用上游命名，便于从上游 V2 迁移时保留既有数据
+- **增量同步报 `'P115ClientWithTimeout' object is not iterable`**：这是 p115client 在 115 会话异常时抛出的**库内异常**，不是插件逻辑错误，重试也不会成功；插件会把这类异常转成带处置指向的提示，并跳过无意义的重试。**处理办法**：在插件配置里更新 115 Cookie（必要时在 MoviePilot 存储设置里**重新登录 115**），然后**重启 MoviePilot**；同类现象是 `115网盘储存（P115Disk）` 报 `'NoneType' object has no attribute 'model_dump'`——同为 115 调用失败
 
 ---
 

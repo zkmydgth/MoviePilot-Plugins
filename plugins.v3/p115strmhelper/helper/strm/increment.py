@@ -36,6 +36,7 @@ from ...utils.automaton import AutomatonUtils
 from ...utils.base64 import CBase64
 from ...utils.exception import (
     CanNotFindPathToCid,
+    ItertreeClientStateError,
     ItertreeInternalError,
     PanDataNotInDb,
     PanPathNotFound,
@@ -64,6 +65,49 @@ else:
 
     def _flock_un(fd: int) -> None:
         flock(fd, LOCK_UN)
+
+
+_EXPORT_CLIENT_STATE_HINT = (
+    "疑似 115 会话/客户端状态异常（导出目录树返回了不可解析的对象）。"
+    "请先在插件配置里更新 115 Cookie（必要时在 MoviePilot 存储设置里重新登录 115），"
+    "重启 MoviePilot 后再试。"
+)
+
+
+def _iter_export_dir_lines(
+    items_iterator: Iterator, pan_path: str
+) -> Generator[str, Any, None]:
+    """
+    包装导出目录树的解析迭代器，把库内类型异常转成可读的领域错误
+
+    p115client 的 gen-step 机制在 115 会话异常时会 ``yield from`` 到非可迭代对象
+    （典型报错 ``'P115ClientWithTimeout' object is not iterable``），该异常在惰性求值阶段抛出，
+    原始信息对用户没有指向性，故在此统一转换。
+
+    :param items_iterator (Iterator): export_dir_parse_iter 返回的迭代器
+    :param pan_path (str): 网盘路径，仅用于错误信息
+    :raises ItertreeClientStateError: 迭代过程中出现库内类型/属性/键异常
+
+    :return Generator[str, Any, None]: 逐行产出目录树记录
+    """
+    try:
+        iterator = iter(items_iterator)
+    except TypeError as e:
+        raise ItertreeClientStateError(
+            f"{pan_path} 导出目录树返回不可迭代对象（{type(e).__name__}: {e}）；"
+            f"{_EXPORT_CLIENT_STATE_HINT}"
+        ) from e
+    while True:
+        try:
+            item = next(iterator)
+        except StopIteration:
+            break
+        except (TypeError, AttributeError, KeyError) as e:
+            raise ItertreeClientStateError(
+                f"{pan_path} 导出目录树解析异常（{type(e).__name__}: {e}）；"
+                f"{_EXPORT_CLIENT_STATE_HINT}"
+            ) from e
+        yield item
 
 
 class IncrementSyncStrmHelper:
@@ -288,14 +332,23 @@ class IncrementSyncStrmHelper:
             )
             self.api_count += 1
 
+            if not isinstance(export_id, (int, str)):
+                raise ItertreeClientStateError(
+                    f"{pan_path} 导出目录树任务提交异常，返回 {type(export_id).__name__}；"
+                    f"{_EXPORT_CLIENT_STATE_HINT}"
+                )
+
             self.__wait_export_dir(export_id)
 
-            items_iterator = export_dir_parse_iter(
-                self.client,
-                export_id,
-                parse_iter=partial(export_dir_parse_iter_path, escape=custom_escape),
-                delete=True,
-                **configer.get_ios_ua_app(app=False),
+            items_iterator = _iter_export_dir_lines(
+                export_dir_parse_iter(
+                    self.client,
+                    export_id,
+                    parse_iter=partial(export_dir_parse_iter_path, escape=custom_escape),
+                    delete=True,
+                    **configer.get_ios_ua_app(app=False),
+                ),
+                pan_path,
             )
             try:
                 next(items_iterator)
@@ -1003,6 +1056,11 @@ class IncrementSyncStrmHelper:
                                     "【增量STRM生成】存在生成失败的 STRM 文件或扫描本地文件出错，"
                                     "跳过清理无效 STRM 文件"
                                 )
+                except ItertreeClientStateError as e:
+                    logger.error(
+                        "【增量STRM生成】目录同步中止（115 会话/客户端状态异常，重试无意义）: "
+                        f"{path}，错误: {e}"
+                    )
                 except ItertreeInternalError as e:
                     if retry_count < 2:
                         queue.append((path, retry_count + 1))

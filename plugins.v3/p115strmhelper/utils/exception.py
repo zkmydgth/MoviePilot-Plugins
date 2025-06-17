@@ -148,3 +148,14 @@ class ItertreeInternalError(Exception):
     """
 
     pass
+
+
+class ItertreeClientStateError(ItertreeInternalError):
+    """
+    网盘目录树迭代时 115 客户端/会话状态异常（重试无意义，需用户处理凭证）
+
+    典型来源：p115client 的 gen-step 机制在 115 会话异常时会 ``yield from`` 到
+    非可迭代对象，抛出 ``'P115ClientWithTimeout' object is not iterable`` 之类的库内异常。
+    """
+
+    pass
