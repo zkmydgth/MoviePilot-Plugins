@@ -29,8 +29,10 @@ from ...helper.mediainfo_download import MediaInfoDownloader
 from ...helper.mediasyncdel import MediaSyncDelHelper
 from ...helper.mediaserver import MediaServerRefresh, emby_mediainfo_queue
 
+from urllib.error import HTTPError
+
 from p115client import P115Client, check_response
-from p115client.exception import P115AuthenticationError
+from p115client.exception import P115AuthenticationError, P115OSError
 from p115client.tool.attr import get_path, normalize_attr
 from p115client.tool.fs_files import iter_fs_files
 from p115client.tool.iterdir import iter_files_with_path
@@ -1863,30 +1865,47 @@ class MonitorLife:
 
         return False
 
-    def once_pull(self, from_time, from_id):
+    @staticmethod
+    def _is_405_error(e: Exception) -> bool:
         """
-        单次拉取
+        判断异常是否由 HTTP 405 导致
 
-        :param from_time (int): 起始时间
+        :param e (Exception): 异常对象
+
+        :return bool: 是否为 405 错误
+        """
+        if isinstance(e, HTTPError):
+            return e.code == 405
+        if isinstance(e, P115OSError):
+            message = str(e)
+            return "405" in message or "Method Not Allowed" in message
+        return False
+
+    def _pull_life_events(self, from_time: float, from_id: int, app: str) -> List:
+        """
+        单次拉取生活事件
+
+        :param from_time (float): 起始时间
         :param from_id (int): 起始 ID
+        :param app (str): app 类型
 
-        :return Tuple: (from_time, from_id)
+        :return List: 事件列表
         """
-        if self._wait_for_transfer_complete():
-            return from_time, from_id
-
         events_batch: List = []
         for attempt in range(3, -1, -1):
             try:
                 # 每次尝试先清空旧的值
                 events_batch: List = []
 
+                request_kwargs = configer.get_ios_ua_app(app=False)
+                request_kwargs["app"] = app
+
                 events_iterator = iter_life_behavior_once(
                     client=self._client,
                     from_time=from_time,
                     from_id=from_id,
                     cooldown=2,
-                    **configer.get_ios_ua_app(),
+                    **request_kwargs,
                 )
 
                 try:
@@ -1905,6 +1924,8 @@ class MonitorLife:
                 events_batch.extend(list(events_iterator))
                 break
             except Exception as e:
+                if self._is_405_error(e) and app == "ios":
+                    raise
                 if attempt <= 0:
                     logger.error(f"【监控生活事件】拉取数据失败：{e}")
                     raise
@@ -1912,7 +1933,36 @@ class MonitorLife:
                     f"【监控生活事件】拉取数据失败，剩余重试次数 {attempt} 次：{e}"
                 )
                 if self.stop_event and self.stop_event.wait(timeout=2):
-                    return from_time, from_id
+                    return []
+
+        return events_batch
+
+    def once_pull(self, from_time, from_id):
+        """
+        单次拉取
+
+        :param from_time (int): 起始时间
+        :param from_id (int): 起始 ID
+
+        :return Tuple: (from_time, from_id)
+        """
+        if self._wait_for_transfer_complete():
+            return from_time, from_id
+
+        try:
+            events_batch: List = self._pull_life_events(
+                from_time=from_time, from_id=from_id, app="ios"
+            )
+        except (HTTPError, P115OSError) as e:
+            if self._is_405_error(e):
+                logger.warning(
+                    "【监控生活事件】proapi 拉取返回 405，尝试切换到 webapi 重试"
+                )
+                events_batch: List = self._pull_life_events(
+                    from_time=from_time, from_id=from_id, app="web"
+                )
+            else:
+                raise
 
         if not events_batch:
             if self.stop_event and self.stop_event.wait(timeout=self.WAIT_TIME_OUT):
