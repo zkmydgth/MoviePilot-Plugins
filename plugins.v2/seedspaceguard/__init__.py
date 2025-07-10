@@ -12,6 +12,10 @@
   无需依赖其它插件联动。
 - 安全兜底：每轮删除后实测空间释放量，若空间几乎未释放（如硬链接仍有残留引用、
   快照占用），立即停止并告警，宁可空间不足也不过量删除。
+- 联动清理：可选的「删除种子 / 删除转移记录 / 清理刮削文件」三项联动，等价于
+  「源文件联动清理」插件的对应能力，但由本插件主动执行，无需依赖其它插件。
+  其中仅文件模式删除种子有严格前置条件：**必须该种子下的所有文件都已删除**，
+  任一文件仍在磁盘上（含被保护后缀跳过的）即保留种子。
 """
 
 import os
@@ -28,6 +32,8 @@ from fastapi import Request
 
 from app.core.event import Event, eventmanager
 from app.core.module import ModuleManager
+from app.db.downloadhistory_oper import DownloadHistoryOper
+from app.db.transferhistory_oper import TransferHistoryOper
 from app.log import logger
 from app.plugins import _PluginBase
 from app.schemas.types import DownloaderType, EventType, NotificationType
@@ -48,6 +54,23 @@ RELEASE_HARD_STOP_MIN_BYTES: int = 1024 ** 3
 GIB: int = 1024 ** 3
 
 
+# ======================== 联动清理（刮削文件）常量 ========================
+
+# 媒体刮削产物后缀：仅当与被删的媒体文件同名（同名词干）时才会一并清理，
+# 避免误删同目录下其它媒体的刮削文件
+SCRAP_EXTENSIONS: Tuple[str, ...] = (
+    # 元数据
+    ".nfo", ".xml",
+    # 图片
+    ".jpg", ".jpeg", ".png", ".webp", ".tbn", ".fanart", ".gif", ".bmp",
+    # 字幕
+    ".srt", ".ass", ".ssa", ".sub", ".idx", ".vtt", ".sup", ".pgs",
+    ".smi", ".rt", ".sbv", ".csf-bk", ".csf-tmp",
+)
+# 刮削产物目录后缀（如 Jellyfin/Emby 的 .trickplay 缩略图目录）
+SCRAP_DIR_SUFFIXES: Tuple[str, ...] = (".trickplay",)
+
+
 class SeedSpaceGuard(_PluginBase):
     """
     保种空间守护插件。
@@ -56,8 +79,9 @@ class SeedSpaceGuard(_PluginBase):
     # 插件元数据
     plugin_name = "保种空间守护"
     plugin_desc = ("存储空间不足时自动清理保种目录中「保种最久」的资源（种子+文件），"
-                   "避免 H&R。支持种子级删除与仅文件两种模式，可限定目标下载器。")
-    plugin_version = "1.1.0"
+                   "避免 H&R。支持种子级删除与仅文件两种模式，可限定目标下载器；"
+                   "可选联动删除种子、删除转移记录、清理刮削文件。")
+    plugin_version = "1.2.0"
     plugin_author = "zkmydgth"
     plugin_config_prefix = "seedspaceguard_"
     plugin_order = 100
@@ -88,6 +112,16 @@ class SeedSpaceGuard(_PluginBase):
     _downloaders: List[str] = []
     # 真实删除后等待「源文件联动清理」等插件释放媒体库侧硬链接的秒数
     _sync_wait_seconds: int = 90
+    # === 联动清理开关（对齐「源文件联动清理」插件，默认全关，保守） ===
+    # 删除文件后联动删除对应下载器种子
+    _delete_torrents: bool = False
+    # 删除文件后清理对应的转移历史记录
+    _delete_history: bool = False
+    # 删除文件后清理同名刮削文件（nfo/图片/字幕等）
+    _delete_scrap_infos: bool = False
+    # 数据层操作器（懒加载，导入失败时置 None 并降级跳过联动）
+    _downloadhis: Optional[DownloadHistoryOper] = None
+    _transferhis: Optional[TransferHistoryOper] = None
     _running: bool = False
     _last_result: str = ""
     _lock: threading.Lock = threading.Lock()
@@ -109,6 +143,9 @@ class SeedSpaceGuard(_PluginBase):
         self._notify = True
         self._downloaders = []
         self._sync_wait_seconds = 90
+        self._delete_torrents = False
+        self._delete_history = False
+        self._delete_scrap_infos = False
         if not config:
             return
         self._enabled = bool(config.get("enabled"))
@@ -141,6 +178,11 @@ class SeedSpaceGuard(_PluginBase):
         ).strip()
         self._dry_run = bool(config.get("dry_run"))
         self._notify = bool(config.get("notify"))
+        # 联动清理开关：默认关闭，仅显式为真时开启
+        self._delete_torrents = bool(config.get("delete_torrents"))
+        self._delete_history = bool(config.get("delete_history"))
+        self._delete_scrap_infos = bool(config.get("delete_scrap_infos"))
+        self._init_linkage_opers()
         # 联动释放等待秒数：0~1800，默认 90
         raw_wait = config.get("sync_wait_seconds")
         try:
@@ -275,7 +317,10 @@ class SeedSpaceGuard(_PluginBase):
                                                     "可用下方「目标下载器」限定范围，留空=全部）；"
                                                     "仅文件=只删文件。建议先试运行预览将删内容，确认后再正式启用；"
                                                     "清理目录本身不会被删除。删除后还会顺带清理 Synology 在 @eaDir 下遗留的"
-                                                    "媒体索引残片，避免出现「仅剩 @eaDir」的空壳目录。",
+                                                    "媒体索引残片，避免出现「仅剩 @eaDir」的空壳目录。"
+                                                    "底部三项「联动清理」可选开启，分别联动删除种子、删除转移记录、"
+                                                    "清理刮削文件；其中仅文件模式的删种有严格前置条件："
+                                                    "该种子的所有文件都已删除才会删种。",
                                         },
                                     }
                                 ],
@@ -310,7 +355,8 @@ class SeedSpaceGuard(_PluginBase):
                             "model": "mode",
                             "label": "清理模式",
                             "hint": "种子级：直接删除下载器中最老的已完成种子（连带文件），一步到位不留红种；"
-                                   "仅文件：删除文件，种子由「源文件联动清理」插件联动处理",
+                                   "仅文件：只删文件，种子是否联动删除由下方「联动删除种子」开关决定"
+                                   "（需该种子文件全部删除后才删种）",
                             "items": [
                                 {"title": "种子级（推荐）", "value": "seed"},
                                 {"title": "仅文件", "value": "file"},
@@ -395,6 +441,36 @@ class SeedSpaceGuard(_PluginBase):
                             "label": "保护文件后缀（仅文件模式）",
                             "placeholder": "*.part|*.!qb|*.download|*.aria2|*.tmp|*.crdownload",
                             "hint": "以 | 分隔的通配符，命中的文件不删除",
+                        },
+                    },
+                    {
+                        "component": "VSwitch",
+                        "props": {
+                            "model": "delete_torrents",
+                            "label": "联动删除种子",
+                            "hint": "删除文件后，联动删除对应的下载器种子。"
+                                    "仅文件模式下**必须该种子的所有文件都已删除**才会删种，"
+                                    "任一文件仍在（含被保护后缀跳过的）则保留种子；"
+                                    "种子级模式下种子本身即为清理对象，不受此约束",
+                        },
+                    },
+                    {
+                        "component": "VSwitch",
+                        "props": {
+                            "model": "delete_history",
+                            "label": "删除转移记录",
+                            "hint": "删除文件后，顺带删除 MoviePilot 中对应的转移历史记录"
+                                    "（先按目标路径匹配，未命中再按源路径匹配）",
+                        },
+                    },
+                    {
+                        "component": "VSwitch",
+                        "props": {
+                            "model": "delete_scrap_infos",
+                            "label": "清理刮削文件",
+                            "hint": "删除文件后，清理同目录下同名的刮削产物"
+                                    "（nfo、图片、字幕、.trickplay 缩略图等）。"
+                                    "仅清理词干严格一致的刮削件，不会误删同名系列续集或其他媒体",
                         },
                     },
                     {
@@ -784,6 +860,11 @@ class SeedSpaceGuard(_PluginBase):
                         f"添加于 {added_text}）"
                     )
                     logger.info("【保种空间守护】%s", detail_lines[-1])
+                    # 种子级模式下种子已被下载器删除，无需再按「文件全删才删种」
+                    # 判定；这里只需顺带清理文件侧残留（刮削产物、转移记录）
+                    self._run_linkage_on_seed_deleted(
+                        cand, detail_lines, dry_run
+                    )
                     # 删除种子连带文件后，清理可能遗留的空目录（保护配置目录本身）
                     self._prune_empty_dirs(cand["path"])
             # 轮询等待空间释放（达标提前退出），再复核
@@ -824,6 +905,398 @@ class SeedSpaceGuard(_PluginBase):
         if nominal <= RELEASE_HARD_STOP_MIN_BYTES:
             return True
         return released >= int(nominal * RELEASE_TOLERANCE)
+
+    # ======================= 联动清理（种子/记录/刮削） =======================
+
+    def _init_linkage_opers(self) -> None:
+        """
+        懒加载数据层操作器。
+
+        导入或实例化失败（如 MoviePilot 版本差异导致接口变更）时降级为 None，
+        并在下一行日志说明原因——联动功能失效不应影响主清理流程。
+        """
+        self._downloadhis = None
+        self._transferhis = None
+        if not (self._delete_torrents or self._delete_history):
+            return
+        try:
+            self._downloadhis = DownloadHistoryOper()
+            self._transferhis = TransferHistoryOper()
+        except Exception as err:
+            logger.error("【保种空间守护】联动清理初始化失败，联动功能本次不可用：%s", err)
+
+    def _linkage_enabled(self) -> bool:
+        """是否存在任一已开启的联动清理项。"""
+        return bool(
+            self._delete_torrents or self._delete_history or self._delete_scrap_infos
+        )
+
+    def _clean_scrap_infos(self, media_path: str) -> List[str]:
+        """
+        清理与给定媒体文件同名的刮削产物。
+
+        匹配规则：仅处理「同目录 + 同名词干」的文件，且后缀在白名单内。
+        例如删除 ``/movies/阿凡达.mkv`` 时，会一并清理同目录下的
+        ``阿凡达.nfo`` / ``阿凡达-poster.jpg`` / ``阿凡达.zh.srt``；
+        而 ``阿凡达2.nfo`` 因词干不一致（含额外字符）被保留，不会误删其它媒体。
+
+        为避免误删其它媒体刮削文件，采用「紧邻前缀 + 分隔符」判定：
+        文件名词干必须严格等于媒体名词干，或以 ``媒体名词干 + 分隔符`` 开头，
+        分隔符限定为 ``-``、``.``、``_``、空格。
+
+        :param media_path: 已删除的媒体文件路径
+        :return: 实际清理的刮削文件/目录路径列表
+        """
+        parent = os.path.dirname(media_path)
+        stem = os.path.splitext(os.path.basename(media_path))[0]
+        if not stem or not os.path.isdir(parent):
+            return []
+        # 防止词干本身被解析成上级目录（如 ".."）
+        if stem in (".", ".."):
+            return []
+
+        cleaned: List[str] = []
+        try:
+            entries = list(os.scandir(parent))
+        except OSError as err:
+            logger.warning("【保种空间守护】读取目录 %s 失败：%s", parent, err)
+            return []
+
+        for entry in entries:
+            name = entry.name
+            # 刮削目录（如 xxx.trickplay）：要求目录名词干与媒体词干一致
+            if entry.is_dir(follow_symlinks=False):
+                if not any(name.endswith(sfx) for sfx in SCRAP_DIR_SUFFIXES):
+                    continue
+                if name[: -len(next(s for s in SCRAP_DIR_SUFFIXES if name.endswith(s)))] != stem:
+                    continue
+                self._remove_scrap_path(entry.path, cleaned)
+                continue
+            if not entry.is_file(follow_symlinks=False):
+                continue
+            ext = os.path.splitext(name)[1].lower()
+            if ext not in SCRAP_EXTENSIONS:
+                continue
+            name_stem = os.path.splitext(name)[0]
+            if not self._same_media_stem(name_stem, stem):
+                continue
+            self._remove_scrap_path(entry.path, cleaned)
+        return cleaned
+
+    @staticmethod
+    def _same_media_stem(name_stem: str, media_stem: str) -> bool:
+        """
+        判定刮削文件词干是否属于同一媒体。
+
+        命中条件（严格，宁少删不错删）：
+        - 完全相等：``阿凡达`` == ``阿凡达``
+        - 紧邻前缀 + 分隔符：``阿凡达-poster`` 以 ``阿凡达-`` 开头
+
+        注意：``阿凡达2`` 不匹配 ``阿凡达``（无分隔符），避免误删同名系列续集。
+        """
+        if name_stem == media_stem:
+            return True
+        for sep in ("-", ".", "_", " "):
+            if name_stem.startswith(media_stem + sep):
+                return True
+        return False
+
+    def _remove_scrap_path(self, path: str, cleaned: List[str]) -> None:
+        """
+        删除单个刮削产物（文件或目录），并施加上下文的安全边界。
+
+        边界：路径必须落在配置目录内，且不得指向配置目录本身，
+        防止极端情况下越界删除媒体库以外的文件。
+        """
+        if not self._path_under_any(path):
+            return
+        if any(os.path.normpath(path) == os.path.normpath(d) for d in self._target_dirs):
+            return
+        try:
+            if os.path.isdir(path) and not os.path.islink(path):
+                shutil.rmtree(path)
+            else:
+                os.unlink(path)
+            cleaned.append(path)
+        except OSError as err:
+            logger.warning("【保种空间守护】清理刮削产物 %s 失败：%s", path, err)
+
+    def _delete_transfer_history(self, path: str) -> bool:
+        """
+        删除与给定路径关联的转移历史记录。
+
+        与「源文件联动清理」一致，先按目标路径（dest）匹配，未命中再按源路径
+        （src）匹配；两者都未命中说明该文件未经 MoviePilot 整理，直接跳过。
+
+        :param path: 已删除的文件路径
+        :return: 是否确实删除了一条记录
+        """
+        if not self._delete_history or not self._transferhis:
+            return False
+        record = None
+        for query in (self._transferhis.get_by_dest,
+                      self._transferhis.get_by_src):
+            try:
+                record = query(path)
+            except Exception as err:
+                logger.error("【保种空间守护】查询转移记录失败（%s）：%s", path, err)
+                continue
+            if record:
+                break
+        if not record:
+            return False
+        try:
+            self._transferhis.delete(record.id)
+            return True
+        except Exception as err:
+            logger.error("【保种空间守护】删除转移记录失败（%s）：%s", path, err)
+            return False
+
+    def _resolve_hash_by_path(self, path: str) -> str:
+        """按文件路径反查下载 hash，查不到返回空串。"""
+        if not self._downloadhis:
+            return ""
+        try:
+            return str(self._downloadhis.get_hash_by_fullpath(path) or "")
+        except Exception as err:
+            logger.error("【保种空间守护】反查下载 hash 失败（%s）：%s", path, err)
+            return ""
+
+    def _seed_fully_removed(self, hash_str: str) -> bool:
+        """
+        判定某 hash 对应的种子文件是否**已全部删除**。
+
+        以「物理存在性」为准而非信任 ``DownloadFiles.state``：state 由
+        MoviePilot 自身维护，我们用 ``os.unlink`` 删除文件后它不会被同步置 0，
+        若直接查 ``state=1`` 会得到「仍有文件」的错误结论，导致种子永远删不掉。
+
+        因此这里列出该 hash 下所有文件记录，逐个 ``os.path.exists`` 复核；
+        只要有任意一个文件在磁盘上仍然存在，就认为该种子尚未删完，**保留种子**。
+
+        注意：被保护模式跳过的文件（如 ``*.part`` 未完成任务）同样计入存在，
+        从而自然阻止删种——这正是期望行为，避免删掉仍在下载的种子。
+
+        :param hash_str: 下载 hash
+        :return: 是否已全部删除（记录为空也视为「无残留」，可删种）
+        """
+        if not self._downloadhis or not hash_str:
+            return False
+        try:
+            records = self._downloadhis.get_files_by_hash(hash_str)
+        except Exception as err:
+            logger.error("【保种空间守护】查询种子文件记录失败（%s）：%s", hash_str, err)
+            return False
+        if not records:
+            # 无文件记录：无从判定，保守起见不删种
+            return False
+        for record in records:
+            fullpath = str(getattr(record, "fullpath", "") or "")
+            if not fullpath:
+                continue
+            if os.path.exists(fullpath):
+                return False
+        return True
+
+    def _delete_torrent_by_hash(self, hash_str: str, title: str = "") -> bool:
+        """
+        调用下载器删除指定 hash 的种子（不连带删文件，文件已由插件删除）。
+
+        与「源文件联动清理」不同，这里不复用 ``DownloadFileDeleted`` 事件：
+        该事件在 MoviePilot 内置处理器中要求 ``hash`` 字段，而删除动作本身
+        也可能被其它插件拦截或异步化；直接调用下载器更可靠、结果可判定。
+
+        删除前会尝试匹配配置的「目标下载器」范围；未配置则遍历全部已启用下载器。
+        """
+        if not hash_str:
+            return False
+        try:
+            module = self._get_downloader_for(hash_str)
+        except Exception as err:
+            logger.error("【保种空间守护】获取下载器失败（%s）：%s", hash_str, err)
+            return False
+        if not module:
+            logger.warning(
+                "【保种空间守护】未找到 hash %s 对应的下载器，跳过删种%s",
+                hash_str, f"（{title}）" if title else "",
+            )
+            return False
+        try:
+            ok = module.remove_torrents(
+                hashs=[hash_str] if isinstance(hash_str, str) else hash_str,
+                delete_file=False,
+            )
+            if ok:
+                logger.info(
+                    "【保种空间守护】已联动删除种子%s（hash：%s）",
+                    f"：{title}" if title else "", hash_str,
+                )
+            return bool(ok)
+        except Exception as err:
+            logger.error("【保种空间守护】联动删除种子失败（%s）：%s", hash_str, err)
+            return False
+
+    def _get_downloader_for(self, hash_str: str):
+        """
+        找出该 hash 所属的下载器实例。
+
+        先在实际持有该种子的下载器中定位（避免下发给不相关的下载器），
+        再按配置的「目标下载器」范围过滤；未配置范围时返回命中实例。
+        """
+        try:
+            modules = ModuleManager().get_modules()
+        except Exception as err:
+            logger.error("【保种空间守护】读取下载器模块失败：%s", err)
+            return None
+        for module in modules:
+            if not hasattr(module, "get_torrents"):
+                continue
+            try:
+                torrents = module.get_torrents(hashs=[hash_str])
+            except Exception:
+                continue
+            if not torrents:
+                continue
+            name = str(getattr(module, "name", "") or "")
+            if self._downloaders and name not in self._downloaders:
+                continue
+            return module
+        return None
+
+    def _run_linkage_after_delete(
+        self, deleted_paths: List[str], detail_lines: List[str], dry_run: bool
+    ) -> Dict[str, int]:
+        """
+        在文件删除完成后执行联动清理（刮削 → 记录 → 种子）。
+
+        顺序有意为之：先清理刮削产物、再删转移记录，最后才判定删种。
+        因为删种需要「该种子所有文件均已删除」，而刮削文件虽不在种子文件
+        清单内，但先清理可保证目录状态干净；记录删除不影响存在性判定。
+
+        仅文件模式的删种约束（用户明确要求）：
+        **必须该种子下的所有文件都已删除，才删除该种子**——用
+        ``_seed_fully_removed`` 对磁盘做物理复核，任一文件仍在即保留种子。
+
+        :param deleted_paths: 本轮实际删除的文件路径
+        :param detail_lines: 明细行（就地追加）
+        :param dry_run: 试运行时不产生任何联动副作用
+        :return: 各项联动计数统计
+        """
+        stats = {"scrap": 0, "history": 0, "torrent": 0, "torrent_kept": 0}
+        if dry_run or not deleted_paths or not self._linkage_enabled():
+            return stats
+
+        # 待判定的 hash 集合：多个文件可能同属一个种子，去重后统一判定
+        pending_hashes: Dict[str, str] = {}
+
+        for path in deleted_paths:
+            if self._delete_scrap_infos:
+                cleaned = self._clean_scrap_infos(path)
+                if cleaned:
+                    stats["scrap"] += len(cleaned)
+                    detail_lines.append(
+                        f"已清理刮削产物：{'、'.join(os.path.basename(c) for c in cleaned)}"
+                    )
+                    logger.info("【保种空间守护】%s", detail_lines[-1])
+            if self._delete_history and self._delete_transfer_history(path):
+                stats["history"] += 1
+                detail_lines.append(f"已删除转移记录：{os.path.basename(path)}")
+                logger.info("【保种空间守护】%s", detail_lines[-1])
+            if self._delete_torrents:
+                hash_str = self._resolve_hash_by_path(path)
+                if hash_str:
+                    pending_hashes.setdefault(hash_str, os.path.basename(path))
+
+        # 种子级判定：仅文件模式下「所有文件都删完」才删种
+        if self._delete_torrents and self._mode == "file":
+            for hash_str, sample in pending_hashes.items():
+                if self._seed_fully_removed(hash_str):
+                    if self._delete_torrent_by_hash(hash_str, sample):
+                        stats["torrent"] += 1
+                        detail_lines.append(f"已联动删除种子（该种子文件已全部删除）：{hash_str}")
+                        logger.info("【保种空间守护】%s", detail_lines[-1])
+                else:
+                    stats["torrent_kept"] += 1
+                    logger.info(
+                        "【保种空间守护】种子 %s 仍有文件未删除，保留种子不删", hash_str
+                    )
+        return stats
+
+    def _run_linkage_on_seed_deleted(
+        self, cand: Dict[str, Any], detail_lines: List[str], dry_run: bool
+    ) -> None:
+        """
+        种子级模式下，种子（连带文件）已被下载器删除后的联动收尾。
+
+        此模式下种子本身就是清理对象，不存在「文件未删完」的顾虑，因此
+        **不执行删种判定**，只处理文件侧的遗留：
+
+        - 清理该种子下已删除文件的转移历史记录
+        - 清理与这些文件同名的刮削产物
+
+        文件路径来源：优先用种子自带的文件清单，缺失则按配置目录内
+        与种子同名的文件兜底；两者都拿不到时跳过（不做全盘扫描）。
+        """
+        if dry_run or not self._linkage_enabled():
+            return
+        paths = self._seed_file_paths(cand)
+        if not paths:
+            return
+        scrap = history = 0
+        for path in paths:
+            if self._delete_scrap_infos:
+                scrap += len(self._clean_scrap_infos(path))
+            if self._delete_history and self._delete_transfer_history(path):
+                history += 1
+        if scrap:
+            detail_lines.append(f"已清理刮削产物 {scrap} 项（种子：{cand['title']}）")
+            logger.info("【保种空间守护】%s", detail_lines[-1])
+        if history:
+            detail_lines.append(f"已删除转移记录 {history} 条（种子：{cand['title']}）")
+            logger.info("【保种空间守护】%s", detail_lines[-1])
+
+    def _seed_file_paths(self, cand: Dict[str, Any]) -> List[str]:
+        """
+        取种子对应的本地文件路径清单。
+
+        优先级：
+        1. 种子自带的文件清单（``cand["files"]``，若上游提供）
+        2. 按 hash 查 MoviePilot 下载文件记录（最可靠，与「仅文件」模式同源）
+        3. 按「配置目录 + 种子名」推断，仅返回磁盘上确实存在过的路径
+
+        均不做全盘遍历，避免在大媒体库上产生额外开销。
+        """
+        paths = [str(p) for p in (cand.get("files") or []) if str(p).strip()]
+        if paths:
+            return paths
+        hash_str = str(cand.get("hash") or "").strip()
+        if hash_str and self._downloadhis is None:
+            # 种子级模式下若未开启「删除转移记录」，oper 可能未初始化，
+            # 这里按需补建，使刮削/记录清理可用
+            try:
+                self._downloadhis = DownloadHistoryOper()
+            except Exception as err:
+                logger.error("【保种空间守护】初始化下载历史操作器失败：%s", err)
+        if hash_str and self._downloadhis:
+            try:
+                records = self._downloadhis.get_files_by_hash(hash_str) or []
+                paths = [
+                    str(getattr(r, "fullpath", "") or "").strip()
+                    for r in records
+                    if str(getattr(r, "fullpath", "") or "").strip()
+                ]
+            except Exception as err:
+                logger.error("【保种空间守护】按 hash 查询文件记录失败：%s", err)
+        if paths:
+            return paths
+        title = str(cand.get("title") or "").strip()
+        if not title:
+            return []
+        guess: List[str] = []
+        for base in self._active_dirs or self._target_dirs:
+            candidate = os.path.join(base, title)
+            if os.path.exists(candidate):
+                guess.append(candidate)
+        return guess
 
 
     def _collect_seed_candidates(self) -> List[Dict[str, Any]]:
@@ -936,6 +1409,9 @@ class SeedSpaceGuard(_PluginBase):
           预计释放量虚高约 100%
         - inode 去重判定在保护期过滤**之前**：同一 inode 两侧 mtime 必然相同，
           但若先过滤 mtime，一旦某侧被保护期拦截会出现去重失效
+        - 刮削产物（SCRAP_EXTENSIONS）直接排除在候选之外：体积小、清理无助于
+          释放空间，且属于媒体库元数据；仅在「清理刮削文件」开启时随媒体文件
+          一并清理
 
         :param patterns: 保护文件后缀通配符列表
         :param recent_secs: 保护期秒数，最近修改的文件不纳入候选
@@ -953,6 +1429,11 @@ class SeedSpaceGuard(_PluginBase):
                 dirs[:] = [d for d in dirs if not d.startswith("@") and d != "#recycle"]
                 for fname in fnames:
                     if any(self._match_pattern(fname, pat) for pat in patterns):
+                        continue
+                    # 刮削产物（nfo/图片/字幕/缩略图）不入清理候选：
+                    # 它们体积小、删了几乎不释放空间，却会破坏媒体库元数据。
+                    # 只有开启「清理刮削文件」时，才随其所属媒体文件一并清理。
+                    if os.path.splitext(fname)[1].lower() in SCRAP_EXTENSIONS:
                         continue
                     fpath = os.path.join(root, fname)
                     try:
@@ -1076,6 +1557,8 @@ class SeedSpaceGuard(_PluginBase):
         # 达标或候选耗尽即止；出现「删了也不释放」的硬信号则立即停止
         idx = 0
         stall = 0
+        # 本轮实际删除的文件路径，供删除结束后执行联动清理
+        deleted_paths: List[str] = []
         while True:
             free_now = self._disk_free_bytes()
             free_now = free_bytes if free_now is None else free_now
@@ -1101,6 +1584,9 @@ class SeedSpaceGuard(_PluginBase):
                     continue
                 deleted += 1
                 released_gb += size / GIB
+                # 记录代表路径（仅一次），供联动清理反查 hash / 转移记录 / 刮削
+                if fpath not in deleted_paths:
+                    deleted_paths.append(fpath)
                 mtime_text = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d")
                 linked = self._ino_paths.get(key, [fpath])
                 side_note = f"，连同 {len(linked) - 1} 处硬链接一并删除" if len(linked) > 1 else ""
@@ -1128,6 +1614,14 @@ class SeedSpaceGuard(_PluginBase):
                     logger.warning("【保种空间守护】%s", warn)
                     detail_lines.append(warn)
                     break
+        # 删除流程结束后统一执行联动清理（种子/转移记录/刮削产物）
+        if deleted_paths and self._linkage_enabled():
+            stats = self._run_linkage_after_delete(deleted_paths, detail_lines, dry_run)
+            logger.info(
+                "【保种空间守护】联动清理完成：刮削 %d 项，转移记录 %d 条，"
+                "删除种子 %d 个，保留种子 %d 个",
+                stats["scrap"], stats["history"], stats["torrent"], stats["torrent_kept"],
+            )
         return deleted, round(released_gb, 1), detail_lines
 
     # ============================ 工具方法 ============================
@@ -1347,6 +1841,9 @@ class SeedSpaceGuard(_PluginBase):
             "protect_pattern": "*.part|*.!qb|*.download|*.aria2|*.tmp|*.crdownload",
             "dry_run": False,
             "notify": True,
+            "delete_torrents": False,
+            "delete_history": False,
+            "delete_scrap_infos": False,
             "downloaders": [],
             "manual_action": "",
         }
