@@ -32,6 +32,7 @@ from .external_players import (
 )
 
 PLAYBACK_URL_CACHE_TTL_SECONDS = 90
+PLAYBACK_USER_CACHE_TTL_SECONDS = 300
 PLAYBACK_URL_CACHE_MAX_SIZE = 500
 PLAYBACK_STRM_CACHE_TTL_SECONDS = 300
 
@@ -335,7 +336,8 @@ def create_app(
         app.state.playback_cache_lock = Lock()
         app.state.strm_source_cache = {}
         app.state.strm_source_lock = Lock()
-        app.state.token_userid_cache: dict[str, str] = {}
+        app.state.playback_user_cache = {}
+        app.state.playback_user_lock = Lock()
         yield
         await app.state.http_client_follow.aclose()
         await app.state.http_client_no_follow.aclose()
@@ -384,6 +386,42 @@ def create_app(
             for k, v in request.headers.items()
             if k.lower() not in HOP_BY_HOP_HEADERS and k.lower() != "host"
         }
+
+    def _real_client_ip(request: Request) -> str:
+        """
+        获取真实客户端 IP。
+
+        若 MoviePilot 前置有反向代理（nginx/Cloudflare 等），
+        `request.client.host` 会是上游代理的 IP，导致局域网内所有用户看起来
+        都来自同一 IP。优先读取 `X-Forwarded-For` / `X-Real-IP` 恢复真实 IP。
+
+        :param request: 当前请求
+        :return: 客户端 IP 字符串，取不到时返回空串
+        """
+        xff = request.headers.get("x-forwarded-for")
+        if xff:
+            return xff.split(",", 1)[0].strip()
+        xri = request.headers.get("x-real-ip")
+        if xri:
+            return xri.strip()
+        return request.client.host if request.client else ""
+
+    def _playback_user_key(request: Request, item_id: str) -> tuple[str, str, str]:
+        """
+        构造用于关联 PlaybackInfo → Stream 的复合 key。
+
+        Stream 请求通常不携带任何 Emby 认证字段，但与其前置的 PlaybackInfo
+        来自同一浏览器/设备，因此可以用 (client_ip, user_agent, item_id)
+        三元组作为稳定关联键。同一设备下多用户互不影响：不同用户的
+        PlaybackInfo 分属不同 item_id 的播放动作，不会相互覆盖。
+
+        :param request: 当前请求
+        :param item_id: 媒体项 ID
+        :return: 复合 key
+        """
+        ip = _real_client_ip(request)
+        ua = request.headers.get("user-agent", "")
+        return ip, ua, item_id
 
     def _header_hash(request: Request) -> str:
         """
@@ -488,7 +526,25 @@ def create_app(
         :return: 302 重定向响应，或 None 表示回退到反向代理
         """
         media_source_id = request.query_params.get("MediaSourceId") or ""
-        cache_key = (item_id, media_source_id, _header_hash(request))
+
+        user_key = _playback_user_key(request, item_id)
+        user_cache = request.app.state.playback_user_cache
+        user_id: str | None = None
+        async with request.app.state.playback_user_lock:
+            user_entry = user_cache.get(user_key)
+            if user_entry:
+                uid, user_expiry = user_entry
+                if monotonic() < user_expiry:
+                    user_id = uid
+                else:
+                    user_cache.pop(user_key, None)
+
+        cache_key = (
+            item_id,
+            media_source_id,
+            user_id or "",
+            _header_hash(request),
+        )
         cache = request.app.state.playback_url_cache
         order = request.app.state.playback_cache_order
         lock = request.app.state.playback_cache_lock
@@ -553,7 +609,6 @@ def create_app(
 
         client_follow = request.app.state.http_client_follow
         fwd_headers = _build_forward_headers(request)
-        user_id = request.app.state.token_userid_cache.get(item_id)
         final_url = await _resolve_redirect(
             client_follow, http_path, fwd_headers, user_id
         )
@@ -861,11 +916,15 @@ def create_app(
                     monotonic() + PLAYBACK_STRM_CACHE_TTL_SECONDS,
                 )
 
-        userid_cache = request.app.state.token_userid_cache
-        if item_id not in userid_cache:
-            uid = request.query_params.get("UserId")
-            if uid:
-                userid_cache[item_id] = uid
+        uid = request.query_params.get("UserId")
+        if uid:
+            user_key = _playback_user_key(request, item_id)
+            user_cache = request.app.state.playback_user_cache
+            async with request.app.state.playback_user_lock:
+                user_cache[user_key] = (
+                    uid,
+                    monotonic() + PLAYBACK_USER_CACHE_TTL_SECONDS,
+                )
 
         reason = "STRM" if is_strm else "路径替换"
         logger.info(
