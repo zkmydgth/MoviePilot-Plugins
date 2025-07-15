@@ -323,6 +323,13 @@ class P115StrmHelper(_PluginBase):
                 "summary": "获取 Machine ID",
             },
             {
+                "path": "/generate_emby2alist_config",
+                "endpoint": self.api.generate_emby2alist_config_api,
+                "methods": ["GET"],
+                "auth": "bear",
+                "summary": "生成 emby2Alist 配置",
+            },
+            {
                 "path": "/save_config",
                 "endpoint": self._save_config_api,
                 "methods": ["POST"],

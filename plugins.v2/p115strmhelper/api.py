@@ -59,6 +59,7 @@ from .utils.oopserver import OOPServerHelper
 
 from app.log import logger
 from app.core.cache import cached, TTLCache
+from app.core.config import settings
 from app.helper.mediaserver import MediaServerHelper
 
 
@@ -97,6 +98,55 @@ class Api:
         获取 Machine ID
         """
         return MachineID(machine_id=configer.MACHINE_ID)
+
+    @staticmethod
+    def generate_emby2alist_config_api(
+        mount_dir: str = Query(
+            default="/emby/115", description="媒体服务器网盘挂载目录"
+        ),
+        moviepilot_address: str = Query(default="", description="MoviePilot 地址"),
+    ) -> ApiResponse:
+        """
+        生成 emby2Alist 配置
+
+        :param mount_dir: 媒体服务器网盘挂载目录
+        :param moviepilot_address: MoviePilot 地址
+
+        :return: 生成的配置
+        """
+        try:
+            if not moviepilot_address:
+                moviepilot_address = configer.get_config("moviepilot_address") or ""
+
+            if not moviepilot_address:
+                moviepilot_address = "http://localhost:3000"
+
+            base_url = moviepilot_address.rstrip("/")
+            redirect_url = f"{base_url}/api/v1/plugin/P115StrmHelper/redirect_url"
+            apikey = settings.API_TOKEN
+
+            config_rules = [
+                f"  // 匹配 {mount_dir} 开头的路径，替换为新的 URL（保留后续路径）",
+                f'  [0, 1, "{mount_dir}", "{redirect_url}"],',
+                "  // 在末尾添加 apikey 参数（尾插方式）",
+                f'  [2, 1, "{redirect_url}", "?apikey={apikey}"],',
+            ]
+
+            generated_config = "\n".join(config_rules)
+
+            return ApiResponse(
+                code=0,
+                msg="配置生成成功",
+                data={
+                    "generated_config": generated_config,
+                    "mount_dir": mount_dir,
+                    "moviepilot_address": moviepilot_address,
+                    "redirect_url": redirect_url,
+                },
+            )
+        except Exception as e:
+            logger.error(f"生成 emby2Alist 配置失败: {e}", exc_info=True)
+            return ApiResponse(code=-1, msg=f"生成配置失败: {str(e)}")
 
     @staticmethod
     def get_sync_del_history(

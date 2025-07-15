@@ -1487,7 +1487,8 @@
                   </v-row>
                   <v-expand-transition>
                     <div v-if="config.fuse_strm_takeover_enabled">
-                      <v-alert type="info" variant="tonal" density="compact" class="mt-2 mb-3" icon="mdi-information">
+                      <v-divider class="my-4"></v-divider>
+                      <v-alert type="info" variant="tonal" density="compact" class="mb-4" icon="mdi-information">
                         <div class="text-body-2 mb-1"><strong>STRM URL 生成优先级：</strong></div>
                         <div class="text-caption">
                           <div class="mb-1">1. <strong>URL 自定义模板</strong>（如果启用）：优先使用 Jinja2 模板渲染</div>
@@ -1495,11 +1496,20 @@
                           <div>3. <strong>默认格式</strong>：使用基础设置中的「STRM文件URL格式」和「STRM URL 文件名称编码」</div>
                         </div>
                       </v-alert>
+                      <v-divider class="mb-4"></v-divider>
                       <v-row>
                         <v-col cols="12" md="6">
                           <v-text-field v-model="config.fuse_strm_mount_dir" label="媒体服务器网盘挂载目录"
                             hint="媒体服务器中配置的 115 网盘挂载路径" persistent-hint density="compact" variant="outlined"
                             hide-details="auto" placeholder="/media/115"></v-text-field>
+                        </v-col>
+                      </v-row>
+                      <v-row>
+                        <v-col cols="12">
+                          <v-btn color="primary" variant="outlined" prepend-icon="mdi-code-tags" size="small"
+                            @click="openConfigGeneratorDialog">
+                            生成 emby2Alist 配置
+                          </v-btn>
                         </v-col>
                       </v-row>
                       <v-row>
@@ -1556,21 +1566,6 @@
                                       rows="2" placeholder="/电影/4K&#10;/电视剧"></v-textarea>
                                   </div>
                                 </v-expand-transition>
-
-                                <v-alert type="info" variant="tonal" density="compact" class="mt-2"
-                                  icon="mdi-information">
-                                  <div class="text-caption">
-                                    <div class="mb-1">• 三种匹配方式可以组合使用，<strong>同时满足</strong>（与关系）才会匹配</div>
-                                    <div class="mb-1">• 如果某个匹配条件为空，则<strong>不检查</strong>该条件</div>
-                                    <div class="mb-1">• <strong>匹配成功后生成的 STRM 内容：</strong></div>
-                                    <div class="mb-1">
-                                      格式：<code>{{ config.fuse_strm_mount_dir || '媒体服务器挂载目录' }}/文件网盘路径</code></div>
-                                    <div> 示例：如果挂载目录为 <code>/media/115</code>，文件网盘路径为 <code>/电影/示例.mkv</code>，则生成的 STRM
-                                      内容为
-                                      <code>/media/115/电影/示例.mkv</code>
-                                    </div>
-                                  </div>
-                                </v-alert>
                               </v-card-text>
                             </v-card>
                             <v-btn size="small" prepend-icon="mdi-plus" variant="outlined" class="align-self-start"
@@ -1578,6 +1573,19 @@
                               添加接管规则
                             </v-btn>
                           </div>
+                          <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
+                            <div class="text-caption">
+                              <div class="mb-1">• 三种匹配方式可以组合使用，<strong>同时满足</strong>（与关系）才会匹配</div>
+                              <div class="mb-1">• 如果某个匹配条件为空，则<strong>不检查</strong>该条件</div>
+                              <div class="mb-1">• <strong>匹配成功后生成的 STRM 内容：</strong></div>
+                              <div class="mb-1">
+                                格式：<code>{{ config.fuse_strm_mount_dir || '媒体服务器挂载目录' }}/文件网盘路径</code></div>
+                              <div> 示例：如果挂载目录为 <code>/media/115</code>，文件网盘路径为 <code>/电影/示例.mkv</code>，则生成的 STRM
+                                内容为
+                                <code>/media/115/电影/示例.mkv</code>
+                              </div>
+                            </div>
+                          </v-alert>
                         </v-col>
                       </v-row>
                     </div>
@@ -2200,6 +2208,80 @@
       </v-card>
     </v-dialog>
 
+    <!-- emby2Alist 配置生成对话框 -->
+    <v-dialog v-model="configGeneratorDialog.show" max-width="900" scrollable>
+      <v-card>
+        <v-card-title class="d-flex align-center px-3 py-2 bg-primary-lighten-5">
+          <v-icon icon="mdi-code-tags" class="mr-2" color="primary" size="small" />
+          <span>生成 emby2Alist 配置</span>
+        </v-card-title>
+        <v-card-text class="pa-4">
+          <v-alert type="info" variant="tonal" density="compact" class="mb-4" icon="mdi-information">
+            <div class="text-body-2 mb-1"><strong>使用说明：</strong></div>
+            <div class="text-caption">
+              <div class="mb-1">1. 此配置用于 emby2Alist 插件的 <code>mediaPathMapping</code> 规则</div>
+              <div class="mb-1">2. 将生成的配置复制到 emby2Alist 的配置文件中</div>
+              <div>3. 配置会自动匹配 strm 文件中的 <code>/emby/115</code> 路径并替换为插件重定向地址</div>
+            </div>
+          </v-alert>
+
+          <v-row>
+            <v-col cols="12">
+              <v-text-field v-model="configGeneratorDialog.mountDir" label="媒体服务器网盘挂载目录"
+                hint="对应配置中的 fuse_strm_mount_dir，例如：/emby/115" persistent-hint density="compact" variant="outlined"
+                placeholder="/emby/115"></v-text-field>
+            </v-col>
+          </v-row>
+
+          <v-row>
+            <v-col cols="12">
+              <v-text-field v-model="configGeneratorDialog.moviepilotAddress" label="MoviePilot 地址"
+                hint="对应配置中的 moviepilot_address" persistent-hint density="compact" variant="outlined"
+                placeholder="http://localhost:3000"></v-text-field>
+            </v-col>
+          </v-row>
+
+
+          <v-divider class="my-4"></v-divider>
+
+          <div class="mb-2">
+            <div class="text-body-2 mb-2"><strong>生成的配置：</strong></div>
+            <div v-if="configGeneratorDialog.loading" class="d-flex flex-column align-center py-4">
+              <v-progress-circular indeterminate color="primary" class="mb-3"></v-progress-circular>
+              <div class="text-body-2 text-grey">正在生成配置...</div>
+            </div>
+            <v-textarea v-else v-model="configGeneratorDialog.generatedConfig" label="配置代码"
+              hint="复制此配置到 emby2Alist 的 mediaPathMapping 数组中" persistent-hint rows="8" variant="outlined"
+              density="compact" readonly class="font-monospace"
+              style="font-family: 'Courier New', monospace;"></v-textarea>
+          </div>
+
+          <v-alert type="warning" variant="tonal" density="compact" class="mt-3" icon="mdi-alert">
+            <div class="text-body-2 mb-1"><strong>配置说明：</strong></div>
+            <div class="text-caption">
+              <div class="mb-1">• 第一条规则：将 <code>/emby/115</code> 替换为插件重定向地址（保留后续路径）</div>
+              <div>• 第二条规则：在 URL 末尾添加 <code>?apikey=...</code> 参数</div>
+            </div>
+          </v-alert>
+        </v-card-text>
+        <v-divider></v-divider>
+        <v-card-actions class="px-3 py-2">
+          <v-btn color="grey" variant="text" @click="closeConfigGeneratorDialog" size="small"
+            prepend-icon="mdi-close">关闭</v-btn>
+          <v-spacer></v-spacer>
+          <v-btn color="primary" variant="text" @click="copyGeneratedConfig" size="small"
+            prepend-icon="mdi-content-copy"
+            :disabled="configGeneratorDialog.loading || !configGeneratorDialog.generatedConfig">
+            复制配置
+          </v-btn>
+          <v-btn color="primary" variant="text" @click="generateConfig" size="small" prepend-icon="mdi-refresh"
+            :disabled="configGeneratorDialog.loading" :loading="configGeneratorDialog.loading">
+            重新生成
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <!-- 生活事件故障检查对话框 -->
     <v-dialog v-model="lifeEventCheckDialog.show" max-width="1000" scrollable>
       <v-card>
@@ -2719,6 +2801,15 @@ const lifeEventCheckDialog = reactive({
   loading: false,
   error: null,
   result: null,
+});
+
+// emby2Alist 配置生成对话框
+const configGeneratorDialog = reactive({
+  show: false,
+  loading: false,
+  mountDir: '',
+  moviepilotAddress: '',
+  generatedConfig: ''
 });
 
 // 手动整理对话框
@@ -3909,6 +4000,92 @@ const refreshAliQrCode = () => {
 const closeAliQrCodeDialog = () => {
   clearAliQrCodeCheckInterval();
   aliQrDialog.show = false;
+};
+
+// emby2Alist 配置生成相关函数
+const openConfigGeneratorDialog = async () => {
+  configGeneratorDialog.show = true;
+  configGeneratorDialog.mountDir = config.fuse_strm_mount_dir || '/emby/115';
+  configGeneratorDialog.moviepilotAddress = config.moviepilot_address || window.location.origin || 'http://localhost:3000';
+  configGeneratorDialog.generatedConfig = ''; // 清空之前的配置
+
+  // 从后端 API 获取生成的配置
+  await generateConfig();
+};
+
+const closeConfigGeneratorDialog = () => {
+  configGeneratorDialog.show = false;
+};
+
+const generateConfig = async () => {
+  try {
+    configGeneratorDialog.loading = true;
+    const mountDir = configGeneratorDialog.mountDir || '/emby/115';
+    const moviepilotAddress = configGeneratorDialog.moviepilotAddress || window.location.origin || 'http://localhost:3000';
+
+    // 从后端 API 获取生成的配置
+    const response = await props.api.get(
+      `plugin/${PLUGIN_ID}/generate_emby2alist_config?mount_dir=${encodeURIComponent(mountDir)}&moviepilot_address=${encodeURIComponent(moviepilotAddress)}`
+    );
+
+    if (response && response.code === 0 && response.data) {
+      configGeneratorDialog.generatedConfig = response.data.generated_config || '';
+      // 更新显示的值（如果后端返回了不同的值）
+      if (response.data.mount_dir) {
+        configGeneratorDialog.mountDir = response.data.mount_dir;
+      }
+      if (response.data.moviepilot_address) {
+        configGeneratorDialog.moviepilotAddress = response.data.moviepilot_address;
+      }
+      message.text = '配置生成成功！';
+      message.type = 'success';
+      setTimeout(() => {
+        if (message.type === 'success') {
+          message.text = '';
+        }
+      }, 3000);
+    } else {
+      message.text = response?.msg || '生成配置失败';
+      message.type = 'error';
+      setTimeout(() => {
+        if (message.type === 'error') {
+          message.text = '';
+        }
+      }, 3000);
+    }
+  } catch (err) {
+    console.error('生成配置失败:', err);
+    message.text = `生成配置失败: ${err.message || '未知错误'}`;
+    message.type = 'error';
+    setTimeout(() => {
+      if (message.type === 'error') {
+        message.text = '';
+      }
+    }, 3000);
+  } finally {
+    configGeneratorDialog.loading = false;
+  }
+};
+
+const copyGeneratedConfig = async () => {
+  try {
+    await navigator.clipboard.writeText(configGeneratorDialog.generatedConfig);
+    message.text = '配置已复制到剪贴板！';
+    message.type = 'success';
+    setTimeout(() => {
+      if (message.type === 'success') {
+        message.text = '';
+      }
+    }, 3000);
+  } catch (err) {
+    message.text = '复制失败，请手动复制';
+    message.type = 'error';
+    setTimeout(() => {
+      if (message.type === 'error') {
+        message.text = '';
+      }
+    }, 3000);
+  }
 };
 
 // 生活事件故障检查
