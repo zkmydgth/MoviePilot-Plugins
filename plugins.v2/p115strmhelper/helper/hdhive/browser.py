@@ -25,6 +25,8 @@ from sys import platform
 from time import sleep, time
 from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple, TypeVar
 from urllib.parse import unquote, urlparse
+from urllib.request import Request as _UrlRequest
+from urllib.request import urlopen as _urlopen
 
 from orjson import dumps, loads
 
@@ -1237,6 +1239,148 @@ class HDHivePlaywrightClient:
             debug.log(f"  字体解码兜底异常: {e}")
             return None
 
+    @staticmethod
+    def _solve_space_captcha_via_server(
+        image_data_url: str,
+        click_prompt: str,
+        image_width: int,
+        image_height: int,
+        server_base_url: str,
+        machine_id: str,
+        debug: "_CheckinDebugSession",
+    ) -> Optional[Tuple[float, float]]:
+        """
+        调用 115_server 验证码求解接口，返回归一化坐标 (x, y)，失败时返回 None
+
+        :param image_data_url: 验证码图片数据 URL
+        :param click_prompt: 验证码提示文本
+        :param image_width: 验证码图片宽度
+        :param image_height: 验证码图片高度
+        :param server_base_url: 验证码求解服务 base URL
+        :param machine_id: 机器 ID
+        :param debug: Debug 会话
+
+        :return: 归一化坐标 (x, y)，失败时返回 None
+        """
+        try:
+            api_url = server_base_url.rstrip("/") + "/captcha/space/solve"
+            payload = {
+                "image": image_data_url,
+                "prompt": click_prompt,
+                "width": image_width,
+                "height": image_height,
+            }
+            req = _UrlRequest(
+                api_url,
+                data=dumps(payload),
+                headers={
+                    "Content-Type": "application/json",
+                    "X-Machine-ID": machine_id,
+                    "User-Agent": configer.user_agent,
+                },
+                method="POST",
+            )
+            debug.log(f"  验证码求解请求: {api_url}")
+            with _urlopen(req, timeout=150) as resp:
+                resp_body = loads(resp.read())
+
+            nx = float(resp_body["x"])
+            ny = float(resp_body["y"])
+            debug.log(f"  服务端返回归一化坐标: x={nx}, y={ny}")
+            return nx, ny
+        except Exception as e:
+            debug.log(f"  验证码求解服务请求异常: {e}")
+            return None
+
+    @staticmethod
+    def _handle_space_captcha(
+        page: Any,
+        captcha_data: dict,
+        debug: "_CheckinDebugSession",
+    ) -> bool:
+        """
+        处理空间验证码
+
+        :param page: Playwright 页面对象
+        :param captcha_data: /captcha-api/slider 响应的 data 字段
+        :param debug: Debug 会话
+        :return: 是否成功完成点击（不代表验证码答案正确，结果由后续轮询判断）
+        """
+        image_data_url: str = captcha_data.get("background_image", "")
+        click_prompt: str = captcha_data.get("click_prompt", "")
+        img_w: int = int(captcha_data.get("image_width", 344))
+        img_h: int = int(captcha_data.get("image_height", 344))
+
+        server_url = "https://115server.ddsrem.com"
+
+        debug.log(f"  prompt={click_prompt!r}  图片={img_w}×{img_h}")
+        debug.log(f"  captcha_server={server_url!r}")
+
+        if not image_data_url:
+            debug.log("  验证码图片数据为空，无法求解")
+            return False
+
+        coords = HDHivePlaywrightClient._solve_space_captcha_via_server(
+            image_data_url,
+            click_prompt,
+            img_w,
+            img_h,
+            server_url,
+            configer.machine_id,
+            debug,
+        )
+        if coords is None:
+            debug.log("  验证码求解失败，未获得有效坐标")
+            debug.screenshot(page, "captcha_solve_failed", "验证码求解失败")
+            return False
+
+        lx, ly = coords
+        if 0.0 <= lx <= 1.0 and 0.0 <= ly <= 1.0:
+            lx, ly = lx * img_w, ly * img_h
+            debug.log(f"  归一化坐标 → 图片像素坐标: x={lx:.1f}, y={ly:.1f}")
+        else:
+            debug.log(f"  返回图片像素坐标: x={lx:.1f}, y={ly:.1f}")
+
+        captcha_img_elem = None
+        for img_sel in (
+            "img[src^='data:image/jpeg']",
+            "img[src^='data:image']",
+        ):
+            try:
+                page.wait_for_selector(img_sel, timeout=5000)
+                captcha_img_elem = page.query_selector(img_sel)
+                if captcha_img_elem:
+                    debug.log(f"  找到验证码图片元素: {img_sel}")
+                    break
+            except Exception:
+                pass
+
+        if captcha_img_elem is None:
+            debug.log("  未找到验证码图片 DOM 元素，无法点击")
+            debug.screenshot(page, "captcha_img_not_found", "验证码图片元素未找到")
+            debug.save_html(page, "captcha_img_not_found")
+            return False
+
+        box = captcha_img_elem.bounding_box()
+        if not box:
+            debug.log("  验证码图片 bounding_box 为空")
+            return False
+
+        scale_x = box["width"] / img_w
+        scale_y = box["height"] / img_h
+        click_x = box["x"] + lx * scale_x
+        click_y = box["y"] + ly * scale_y
+        debug.log(
+            f"  图片元素 box={box}  缩放后点击坐标=({click_x:.1f}, {click_y:.1f})"
+        )
+        page.mouse.click(click_x, click_y)
+        debug.screenshot(
+            page, "captcha_clicked", f"验证码已点击 ({click_x:.0f},{click_y:.0f})"
+        )
+        page.wait_for_timeout(2000)
+        debug.screenshot(page, "after_captcha_submit", "验证码提交后")
+        return True
+
     def _checkin_via_browser(self, gamble: bool) -> Tuple[bool, str]:
         """
         模拟签到
@@ -1326,8 +1470,8 @@ class HDHivePlaywrightClient:
 
             # SVG 图标识别
             _CHECKIN_SVG_ANCHOR = {
-                False: "M6.96 2c.418",  # 每日签到 — 日历+号图标
-                True: "M216 64v128",  # 赌狗签到 — 方块图标
+                False: "M11.5 21h-5.5",  # 每日签到 — 日历+勾图标
+                True: "M3 3m0 2a2 2 0 0 1 2 -2h14",  # 赌狗签到 — 格子图标
             }
             anchor = _CHECKIN_SVG_ANCHOR[gamble]
             debug.log(f"等待签到按钮出现 (SVG图标识别, 锚点={anchor!r})")
@@ -1338,22 +1482,37 @@ class HDHivePlaywrightClient:
                 debug.log("签到按钮已出现（SVG图标匹配）")
                 debug.screenshot(page, "checkin_btn_visible", f"签到按钮可见: {label}")
             except PlaywrightTimeoutError:
-                debug.log("SVG图标超时，启动字体解码兜底...")
+                debug.log("SVG图标超时，尝试明文文字兜底...")
                 debug.screenshot(
-                    page, "checkin_btn_svg_timeout", "SVG匹配超时，尝试字体解码"
+                    page, "checkin_btn_svg_timeout", "SVG匹配超时，尝试明文文字兜底"
                 )
-                btn_elem = HDHivePlaywrightClient._find_checkin_btn_by_font_decode(
-                    page, label, debug
-                )
-                if btn_elem is None:
-                    debug.log("字体解码兜底失败，签到流程终止")
-                    debug.screenshot(page, "checkin_btn_timeout", "签到按钮等待超时")
-                    debug.save_html(page, "checkin_btn_timeout")
-                    return False, f"等待{label}按钮超时，用户菜单未出现"
-                btn_loc = None
-                debug.screenshot(
-                    page, "checkin_btn_found_by_font", "字体解码找到签到按钮"
-                )
+                text_loc = page.locator(f"button:has-text('{label}')")
+                try:
+                    text_loc.first.wait_for(state="visible", timeout=5000)
+                    debug.log(f"签到按钮已出现（明文文字匹配: {label!r}）")
+                    debug.screenshot(
+                        page, "checkin_btn_visible", f"签到按钮可见(文字): {label}"
+                    )
+                    btn_loc = text_loc
+                except PlaywrightTimeoutError:
+                    debug.log("明文文字兜底超时，启动字体解码兜底...")
+                    debug.screenshot(
+                        page, "checkin_btn_text_timeout", "文字匹配超时，尝试字体解码"
+                    )
+                    btn_elem = HDHivePlaywrightClient._find_checkin_btn_by_font_decode(
+                        page, label, debug
+                    )
+                    if btn_elem is None:
+                        debug.log("字体解码兜底失败，签到流程终止")
+                        debug.screenshot(
+                            page, "checkin_btn_timeout", "签到按钮等待超时"
+                        )
+                        debug.save_html(page, "checkin_btn_timeout")
+                        return False, f"等待{label}按钮超时，用户菜单未出现"
+                    btn_loc = None
+                    debug.screenshot(
+                        page, "checkin_btn_found_by_font", "字体解码找到签到按钮"
+                    )
 
             debug.log("等待签到按钮位置稳定（bounding box）")
             _prev_box: dict = {}
@@ -1371,6 +1530,23 @@ class HDHivePlaywrightClient:
                     break
                 _prev_box = _box
                 sleep(0.1)
+
+            _space_captcha: dict = {}
+
+            def _on_captcha_response(resp: Any) -> None:
+                if "captcha-api/slider" in resp.url and resp.status == 200:
+                    try:
+                        body = resp.json()
+                        if body.get("success") and body.get("data"):
+                            _space_captcha.update(body["data"])
+                            debug.log(
+                                "捕获空间验证码 API"
+                                f" token={body['data'].get('token', '')[:8]}..."
+                            )
+                    except Exception as _e:
+                        debug.log(f"解析验证码响应异常: {_e}")
+
+            page.on("response", _on_captcha_response)
 
             debug.log("安装 MutationObserver 监听签到结果弹窗")
             page.evaluate("""
@@ -1414,17 +1590,40 @@ class HDHivePlaywrightClient:
             cf_container_sel = "div#cf-turnstile"
             cf_iframe_sel = "iframe[src*='challenges.cloudflare.com']"
 
-            debug.log("第一阶段：等待 CF 挑战容器 div#cf-turnstile (15s)")
+            debug.log("等待挑战出现（空间验证码 / CF Turnstile），超时 15s")
             cf_container_found = False
-            try:
-                page.wait_for_selector(cf_container_sel, timeout=15000)
-                cf_container_found = True
+            _d_step_ms = 300
+            _d_waited_ms = 0
+            while _d_waited_ms < 15000:
+                if _space_captcha:
+                    break
+                try:
+                    if page.query_selector(cf_container_sel):
+                        cf_container_found = True
+                        break
+                except Exception:
+                    pass
+                page.wait_for_timeout(_d_step_ms)
+                _d_waited_ms += _d_step_ms
+
+            if _space_captcha:
+                debug.log(
+                    f"检测到空间验证码 mode={_space_captcha.get('mode')!r}"
+                    f"  prompt={_space_captcha.get('click_prompt', '')!r}"
+                )
+                debug.screenshot(page, "space_captcha_detected", "空间验证码已出现")
+                debug.save_html(page, "space_captcha_detected")
+                if not HDHivePlaywrightClient._handle_space_captcha(
+                    page, _space_captcha, debug
+                ):
+                    return False, f"{label}：空间验证码求解失败"
+            elif cf_container_found:
                 debug.log("【CF挑战】检测到 CF 容器，等待 iframe 异步加载 (15s)")
                 debug.screenshot(page, "cf_container_detected", "CF容器已出现")
                 debug.log_page_state(page, "CF容器")
                 debug.save_html(page, "cf_container_detected")
-            except PlaywrightTimeoutError:
-                debug.log("未检测到 CF 容器（正常情况）")
+            else:
+                debug.log("未检测到任何挑战（正常情况）")
 
             if cf_container_found:
                 cf_retry_sel = "button:has-text('重新验证')"
