@@ -2,6 +2,7 @@ __all__ = ["PathUtils", "PathRemoveUtils"]
 
 
 from os import name as os_name
+from os.path import normpath as os_normpath
 from pathlib import Path, PurePosixPath
 from shutil import rmtree
 from typing import List, Optional, Tuple
@@ -44,7 +45,7 @@ class PathUtils:
     @staticmethod
     def has_prefix(full_path, prefix_path) -> bool:
         """
-        判断路径是否包含
+        判断路径是否包含（按路径分量比较，非字符串前缀）
 
         :param full_path (str): 完整路径
         :param prefix_path (str): 匹配路径
@@ -53,8 +54,16 @@ class PathUtils:
         """
         if not full_path or not prefix_path:
             return False
-        full = Path(full_path).parts
-        prefix = Path(prefix_path).parts
+
+        # 本方法在多处充当"删除前"的安全闸门，判定前必须先做两步规范化，
+        # 否则会被绕过：
+        #   1. 反斜杠统一成正斜杠 —— 配置里可能直接粘贴 Windows 路径，
+        #      而 POSIX 下 Path("\\a\\b").parts 会把整串当**一个**分量，
+        #      导致前缀判断失效（get_media_file_paths_with_suffix 已这么做）
+        #   2. normpath 归一化 ".." 与多余分隔符 —— Path.parts 不解析 ".."，
+        #      "/a/b/../c" 的前缀会被误判成 "/a/b"
+        full = Path(os_normpath(str(full_path).replace("\\", "/"))).parts
+        prefix = Path(os_normpath(str(prefix_path).replace("\\", "/"))).parts
 
         if len(prefix) > len(full):
             return False
