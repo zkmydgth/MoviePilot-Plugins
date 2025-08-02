@@ -1307,6 +1307,21 @@ class MonitorLife:
         file_item = _databasehelper.get_by_id(int(event["file_id"]))
         if file_item:
             file_path = file_item.get("path", "")
+        if not file_path and int(file_category) != 0:
+            sha1 = event.get("sha1", "")
+            if sha1:
+                candidates = _databasehelper.get_files_by_sha1(sha1)
+                if len(candidates) == 1:
+                    file_item = candidates[0]
+                    file_path = file_item.get("path", "")
+                    logger.debug(
+                        f"【监控生活事件】{event['file_name']} file_id 未命中，"
+                        f"通过 sha1 回退匹配到数据库记录: {file_path}"
+                    )
+                elif len(candidates) > 1:
+                    logger.warning(
+                        f"【监控生活事件】{event['file_name']} sha1 回退匹配到多条数据库记录，防止误删不处理"
+                    )
         if not file_path:
             logger.debug(
                 f"【监控生活事件】{event['file_name']} 无法通过数据库获取路径，防止误删不处理"

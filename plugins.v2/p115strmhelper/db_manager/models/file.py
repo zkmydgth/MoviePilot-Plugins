@@ -1,4 +1,4 @@
-from typing import Dict, List
+from typing import Dict, List, Set
 
 from sqlalchemy import (
     Column,
@@ -131,6 +131,37 @@ class File(P115StrmHelperBase):
             .values(path=func.replace(File.path, old_prefix, new_prefix))
         )
         return True
+
+    @staticmethod
+    @db_query
+    def get_by_sha1(db: Session, sha1: str):
+        """
+        通过 sha1 获取所有匹配记录
+        """
+        return db.execute(select(File).where(File.sha1 == sha1)).scalars().all()
+
+    @staticmethod
+    @db_update
+    def remove_by_path_prefix_not_in_ids(
+        db: Session, path_prefix: str, ids: Set[int]
+    ) -> int:
+        """
+        删除路径前缀匹配但 ID 不在给定集合中的记录，返回实际删除行数
+        """
+        all_ids = set(
+            db.execute(select(File.id).where(File.path.startswith(path_prefix)))
+            .scalars()
+            .all()
+        )
+        ghost_ids = list(all_ids - ids)
+        if not ghost_ids:
+            return 0
+        deleted = 0
+        for i in range(0, len(ghost_ids), 900):
+            chunk = ghost_ids[i : i + 900]
+            result = db.execute(delete(File).where(File.id.in_(chunk)))
+            deleted += result.rowcount
+        return deleted
 
     @staticmethod
     @db_query

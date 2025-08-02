@@ -752,6 +752,19 @@ class FullSyncStrmHelper:
                 )
                 return False
 
+            try:
+                path_prefix = pan_media_dir.rstrip("/") + "/"
+                ghost_count = self.databasehelper.remove_ghost_records(
+                    path_prefix=path_prefix,
+                    seen_file_ids={int(i) for i in seen_file_ids},
+                    seen_folder_ids={int(i) for i in seen_folder_ids},
+                )
+                logger.info(
+                    f"【全量STRM生成】已清除 {pan_media_dir} 的幽灵数据库记录: {ghost_count} 条"
+                )
+            except Exception as e:
+                logger.warning(f"【全量STRM生成】清除幽灵记录失败: {pan_media_dir} {e}")
+
         logger.info(
             f"【全量STRM生成】全量更新数据库完成，时间 {self.elapsed_time:.6f} 秒，数据库写入量 {self.total_db_write_count} 条"
         )

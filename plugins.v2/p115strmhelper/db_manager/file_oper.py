@@ -1,4 +1,4 @@
-from typing import Dict, Optional, List
+from typing import Dict, Optional, List, Set
 from pathlib import Path
 
 from . import DbOper
@@ -358,6 +358,40 @@ class FileDbHelper(DbOper):
         if not only_file:
             Folder.update_path_prefix(self._db, old_prefix, new_prefix)
         return True
+
+    def get_files_by_sha1(self, sha1: str) -> List[Dict]:
+        """
+        通过 sha1 获取所有匹配的文件记录
+
+        :param sha1: 文件 sha1
+        :return: 文件信息列表
+        """
+        files = File.get_by_sha1(self._db, sha1)
+        return [
+            {
+                **{k: v for k, v in f.__dict__.items() if k != "_sa_instance_state"},
+                "type": "file",
+            }
+            for f in (files or [])
+        ]
+
+    def remove_ghost_records(
+        self, path_prefix: str, seen_file_ids: Set[int], seen_folder_ids: Set[int]
+    ) -> int:
+        """
+        清除指定路径前缀下、未出现在本次扫描中的幽灵数据库记录，返回实际删除总行数
+
+        :param path_prefix: 网盘路径前缀（末尾带 /）
+        :param seen_file_ids: 本次扫描到的文件 ID 集合
+        :param seen_folder_ids: 本次扫描到的目录 ID 集合
+        """
+        file_count = File.remove_by_path_prefix_not_in_ids(
+            self._db, path_prefix, seen_file_ids
+        )
+        folder_count = Folder.remove_by_path_prefix_not_in_ids(
+            self._db, path_prefix, seen_folder_ids
+        )
+        return (file_count or 0) + (folder_count or 0)
 
     def get_any_pickcode(self) -> Optional[str]:
         """
