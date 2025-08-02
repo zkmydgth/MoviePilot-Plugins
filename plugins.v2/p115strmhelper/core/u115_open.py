@@ -22,7 +22,6 @@ from typing import (
 
 import oss2
 import httpx
-from httpx import HTTPStatusError
 from sqlalchemy.orm.exc import MultipleResultsFound
 from oss2 import SizedFileAdapter, determine_part_size
 from oss2.models import PartInfo
@@ -196,7 +195,21 @@ class U115OpenHelper:
             return self._request_api(method, endpoint, result_key, **kwargs)
 
         # 处理请求错误
-        resp.raise_for_status()
+        try:
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as e:
+            if retry_times <= 0:
+                logger.error(
+                    f"【P115Open】{method} 请求 {endpoint} 错误 {e}，重试次数用尽！"
+                )
+                return None
+            kwargs["retry_limit"] = retry_times - 1
+            sleep_duration = 2 ** (5 - retry_times + 1)
+            logger.info(
+                f"【P115Open】{method} 请求 {endpoint} 错误 {e}，等待 {sleep_duration} 秒后重试..."
+            )
+            sleep(sleep_duration)
+            return self._request_api(method, endpoint, result_key, **kwargs)
 
         # 返回数据
         ret_data = resp.json()
@@ -227,12 +240,12 @@ class U115OpenHelper:
         """
         自动延迟重试 get_item 模块
         """
-        storagechain = StorageChain()
+        storage_chain = StorageChain()
         for i in range(1, 4):
             sleep(2**i)
-            fileitem = storagechain.get_file_item(storage="u115", path=Path(path))
-            if fileitem:
-                return fileitem
+            file_item = storage_chain.get_file_item(storage="u115", path=Path(path))
+            if file_item:
+                return file_item
         return None
 
     def get_download_url(
@@ -859,7 +872,7 @@ class U115OpenHelper:
                 return schemas.FileItem(
                     storage="u115",
                     fileid=str(resp["data"]["file_id"]),
-                    path=str(new_path) + "/",
+                    path=new_path.as_posix() + "/",
                     name=name,
                     basename=name,
                     type="dir",
@@ -880,7 +893,7 @@ class U115OpenHelper:
                 return schemas.FileItem(
                     storage="u115",
                     fileid=str(resp["cid"]),
-                    path=str(new_path) + "/",
+                    path=new_path.as_posix() + "/",
                     name=name,
                     basename=name,
                     type="dir",
@@ -1153,19 +1166,12 @@ class U115OpenHelper:
             }
             if show_dir is not None:
                 payload["show_dir"] = 1 if show_dir else 0
-            for i in range(1, 4):
-                try:
-                    resp = self._request_api(
-                        "GET",
-                        "/open/ufile/files",
-                        params=payload,
-                    )
-                    break
-                except HTTPStatusError as e:
-                    sleep(2**i)
-                    if i == 3:
-                        raise e
-            items = resp.get("data", [])  # noqa
+            resp = self._request_api(
+                "GET",
+                "/open/ufile/files",
+                params=payload,
+            )
+            items = resp.get("data", [])
             count = resp.get("count", 0)
             sub_dirs_to_scan = []
             pre_sub_dirs_to_scan = []
@@ -1335,19 +1341,12 @@ class U115OpenHelper:
                 "offset": offset,
                 "show_dir": 1,
             }
-            for i in range(1, 4):
-                try:
-                    resp = self._request_api(
-                        "GET",
-                        "/open/ufile/files",
-                        params=payload,
-                    )
-                    break
-                except HTTPStatusError as e:
-                    sleep(2**i)
-                    if i == 3:
-                        raise e
-            items = resp.get("data", [])  # noqa
+            resp = self._request_api(
+                "GET",
+                "/open/ufile/files",
+                params=payload,
+            )
+            items = resp.get("data", [])
             count = resp.get("count", 0)
             files_found = []
             sub_dirs_to_scan = []
@@ -1515,19 +1514,12 @@ class U115OpenHelper:
                     "type": type,
                     "suffix": suffix,
                 }
-                for i in range(1, 4):
-                    try:
-                        resp = self._request_api(
-                            "GET",
-                            "/open/ufile/files",
-                            params=payload,
-                        )
-                        break
-                    except HTTPStatusError as e:
-                        sleep(2**i)
-                        if i == 3:
-                            raise e
-                items = resp.get("data", [])  # noqa
+                resp = self._request_api(
+                    "GET",
+                    "/open/ufile/files",
+                    params=payload,
+                )
+                items = resp.get("data", [])
                 count = resp.get("count", 0)
                 sub_dirs_to_scan = []
                 for attr in items:
@@ -1547,21 +1539,14 @@ class U115OpenHelper:
                     return []
                 rate_limiter.acquire()
                 return_paths = []
-                for i in range(1, 4):
-                    try:
-                        resp = self._request_api(
-                            "GET",
-                            "/open/folder/get_info",
-                            params={
-                                "file_id": file_id,
-                            },
-                        )
-                        break
-                    except HTTPStatusError as e:
-                        sleep(2**i)
-                        if i == 3:
-                            raise e
-                data = resp.get("data")  # noqa
+                resp = self._request_api(
+                    "GET",
+                    "/open/folder/get_info",
+                    params={
+                        "file_id": file_id,
+                    },
+                )
+                data = resp.get("data")
                 path = ""
                 paths: List[Dict] = data.get("paths")
                 if len(paths) > 1:
