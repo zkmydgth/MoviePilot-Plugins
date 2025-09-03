@@ -3,17 +3,21 @@ from os import PathLike
 from random import randint
 from datetime import datetime, timezone
 from pathlib import Path
+from shutil import rmtree
 from threading import Lock
-from time import sleep, time, perf_counter, monotonic
-from typing import Optional, Union, Literal, List, Tuple, Any, Dict, Set
+from time import sleep, time, perf_counter
+from typing import Optional, Union, Literal, List, Tuple, Dict, Set
 
 import oss2
 import httpx
+from httpx import HTTPStatusError
 from sqlalchemy.orm.exc import MultipleResultsFound
 from oss2 import SizedFileAdapter, determine_part_size
 from oss2.models import PartInfo
 from p115client import P115Client, normalize_attr
+from p115client.type import DirNode
 from cryptography.hazmat.primitives import hashes
+from diskcache import Deque
 
 from app import schemas
 from app.log import logger
@@ -32,6 +36,7 @@ from ..utils.oopserver import OOPServerRequest
 from ..utils.sentry import sentry_manager
 from ..utils.exception import U115NoCheckInException, CanNotFindPathToCid
 from ..utils.path import PathUtils
+from ..utils.limiter import RateLimiter
 
 
 p115_open_lock = Lock()
@@ -1051,11 +1056,11 @@ class U115OpenHelper:
             return True
         return False
 
-    def iter_files_with_path(
+    def iter_files_with_path_simple(
         self,
         path: str | int | Path | PathLike,
         /,
-        cooldown: float | int = 0.25,
+        qps: int = 5,
         page_size: int = 1150,
         max_workers: int = 10,
         type: Optional[int] = None,
@@ -1068,8 +1073,13 @@ class U115OpenHelper:
         """
         遍历目录树迭代文件信息对象
 
+        .. attention::
+            此方法具有局限性
+            网盘目录格式必须是文件层级前都是文件夹，且文件层级内不包含文件夹
+            适用于标准电影库，音乐库等
+
         :param path: 迭代目录（可选目录路径，cid）
-        :param cooldown: 请求冷却时间
+        :param qps: 每秒请求数
         :param page_size: 分页大小
         :param max_workers: 最大工作线程数
         :param type: 文件类型；1.文档；2.图片；3.音乐；4.视频；5.压缩；6.应用；7.书籍
@@ -1082,10 +1092,18 @@ class U115OpenHelper:
             - "file_type": 文件种类
             - "user_utime": 修改时间
         """
+        rate_limiter = RateLimiter(qps)
+        dir_nodes: Dict[int, DirNode] = {}
+        need_parent_id_set: Set[int] = set()
+        files_info_path = configer.PLUGIN_TEMP_PATH / "u115_iter_files_simple"
+        if files_info_path.exists():
+            rmtree(files_info_path)
+        files_info: Deque = Deque(directory=files_info_path)
 
         def _job(
-            cid: int, path_prefix: str, offset: int
-        ) -> Tuple[List[Dict[str, Any]], List[Tuple[int, str, int]]]:
+            cid: int, offset: int, show_dir: bool | None
+        ) -> List[Tuple[int, str, int]]:
+            rate_limiter.acquire()
             payload = {
                 "cid": cid,
                 "limit": page_size,
@@ -1094,40 +1112,55 @@ class U115OpenHelper:
                 "type": type,
                 "suffix": suffix,
                 "offset": offset,
-                "show_dir": 1,
             }
-            if cooldown > 0:
-                with api_lock:
-                    now = monotonic()
-                    elapsed = now - last_api_call_time[0]
-                    if elapsed < cooldown:
-                        sleep(cooldown - elapsed)
-                    last_api_call_time[0] = monotonic()
-            resp = self._request_api(
-                "GET",
-                "/open/ufile/files",
-                params=payload,
-            )
-            items = resp.get("data", [])
+            if show_dir is not None:
+                payload["show_dir"] = 1 if show_dir else 0
+            for i in range(1, 4):
+                try:
+                    resp = self._request_api(
+                        "GET",
+                        "/open/ufile/files",
+                        params=payload,
+                    )
+                    break
+                except HTTPStatusError as e:
+                    sleep(2**i)
+                    if i == 3:
+                        raise e
+            items = resp.get("data", [])  # noqa
             count = resp.get("count", 0)
-            files_found = []
-            subdirs_to_scan = []
+            sub_dirs_to_scan = []
+            pre_sub_dirs_to_scan = []
             for attr in items:
                 attr = normalize_attr(attr)
-                path = (
-                    f"{path_prefix}/{attr['name']}"
-                    if path_prefix
-                    else f"/{attr['name']}"
-                )
                 if attr.get("is_dir"):
-                    subdirs_to_scan.append((int(attr["id"]), path, 0))
+                    dir_nodes[attr["id"]] = DirNode(
+                        name=attr["name"], parent_id=attr["parent_id"]
+                    )
+                    if attr["id"] not in need_parent_id_set:
+                        pre_sub_dirs_to_scan.append(attr["id"])
+                    else:
+                        try:
+                            need_parent_id_set.remove(attr["id"])
+                        except KeyError:
+                            pass
                 else:
-                    attr["path"] = path
-                    files_found.append(attr)
-            new_offset = offset + len(items)
-            if new_offset < count and len(items) > 0:
-                subdirs_to_scan.append((cid, path_prefix, new_offset))
-            return files_found, subdirs_to_scan
+                    if show_dir is None:
+                        files_info.append(attr)
+                        need_parent_id_set.add(attr["parent_id"])
+            if need_parent_id_set and pre_sub_dirs_to_scan:
+                for _id in pre_sub_dirs_to_scan:
+                    sub_dirs_to_scan.append((_id, 0, True))
+            if show_dir is None:
+                if (offset // page_size) % 5 == 0:
+                    for i in range(1, 6):
+                        if offset + page_size * i < count:
+                            sub_dirs_to_scan.append((cid, offset + page_size * i, show_dir))
+            else:
+                new_offset = offset + len(items)
+                if new_offset < count and len(items) > 0:
+                    sub_dirs_to_scan.append((cid, new_offset, show_dir))
+            return sub_dirs_to_scan
 
         if isinstance(path, (Path, PathLike)):
             storage_chain = StorageChain()
@@ -1136,23 +1169,20 @@ class U115OpenHelper:
                 raise CanNotFindPathToCid("无法获取目录信息")
             path = file_item.fileid
         initial_cid = int(path)
-        if page_size <= 0:
+        if page_size <= 0 or page_size > 1150:
             page_size = 1150
-        last_api_call_time = [monotonic() - cooldown]
-        api_lock = Lock()
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             pending_futures: Set[Future] = set()
-            initial_future = executor.submit(_job, initial_cid, "", 0)
+            # 文件列表拉取
+            initial_future = executor.submit(_job, initial_cid, 0, None)
             pending_futures.add(initial_future)
             while pending_futures:
                 for future in as_completed(pending_futures):
                     pending_futures.remove(future)
                     try:
-                        files, subdirs = future.result()
-                        for file_info in files:
-                            yield file_info
-                        for task_args in subdirs:
+                        sub_dirs = future.result()
+                        for task_args in sub_dirs:
                             new_future = executor.submit(_job, *task_args)
                             pending_futures.add(new_future)
                     except Exception as e:
@@ -1161,3 +1191,38 @@ class U115OpenHelper:
                         executor.shutdown(wait=False, cancel_futures=True)
                         raise e
                     break
+            # 文件夹列表拉取
+            try:
+                need_parent_id_set.remove(initial_cid)
+            except KeyError:
+                pass
+            initial_future = executor.submit(_job, initial_cid, 0, True)
+            pending_futures.add(initial_future)
+            while pending_futures:
+                for future in as_completed(pending_futures):
+                    pending_futures.remove(future)
+                    try:
+                        sub_dirs = future.result()
+                        for task_args in sub_dirs:
+                            new_future = executor.submit(_job, *task_args)
+                            pending_futures.add(new_future)
+                    except Exception as e:
+                        for f in pending_futures:
+                            f.cancel()
+                        executor.shutdown(wait=False, cancel_futures=True)
+                        raise e
+                    break
+        if need_parent_id_set:
+            raise OSError("拉取信息不完整，此目录结构无法使用该函数")
+        for file in files_info:
+            pid = file["parent_id"]
+            path = f"/{file['name']}"
+            while pid != initial_cid:
+                path = f"/{dir_nodes[pid].name}" + path
+                pid = dir_nodes[pid].parent_id
+            file["path"] = path
+            yield file
+        if files_info_path.exists():
+            rmtree(files_info_path)
+
+# TODO 实现通用递归拉取方法
