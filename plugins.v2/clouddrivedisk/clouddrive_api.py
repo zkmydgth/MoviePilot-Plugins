@@ -107,7 +107,7 @@ class CloudDriveApi:
             return [item] if item else []
         path = (fileitem.path or "/").rstrip("/") or "/"
         try:
-            sub = self.client.get_sub_files(path)
+            sub = self.client.get_sub_files(path, force_refresh=True)
             return [
                 _cloudfile_to_fileitem(
                     f, self._disk_name, parent_fileid=fileitem.fileid
