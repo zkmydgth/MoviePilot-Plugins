@@ -463,6 +463,9 @@ class Api:
         """
         115网盘302跳转
         """
+        user_agent = request.headers.get("User-Agent") or b""
+        logger.debug(f"【302跳转服务】获取到客户端UA: {user_agent}")
+
         if share_code:
             try:
                 if not receive_code:
@@ -478,7 +481,9 @@ class Api:
                         )
                 if not id:
                     return f"Please specify id or name: share_code={share_code!r}"
-                url = servicer.redirect.get_share_downurl(share_code, receive_code, id)
+                url = servicer.redirect.get_share_downurl(
+                    share_code, receive_code, id, user_agent
+                )
                 logger.info(f"【302跳转服务】获取 115 下载地址成功: {url}")
             except Exception as e:
                 logger.error(f"【302跳转服务】获取 115 下载地址失败: {e}")
@@ -491,9 +496,6 @@ class Api:
             if not (len(pickcode) == 17 and pickcode.isalnum()):
                 logger.debug(f"【302跳转服务】Bad pickcode: {pickcode} {file_name}")
                 return f"Bad pickcode: {pickcode} {file_name}"
-
-            user_agent = request.headers.get("User-Agent") or b""
-            logger.debug(f"【302跳转服务】获取到客户端UA: {user_agent}")
 
             try:
                 if configer.get_config("link_redirect_mode") == "cookie":

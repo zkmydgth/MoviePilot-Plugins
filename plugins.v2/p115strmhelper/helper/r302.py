@@ -238,25 +238,26 @@ class Redirect:
         return Url.of(resp_url, data)
 
     def get_share_downurl(
-        self,
-        share_code: str,
-        receive_code: str,
-        file_id: int,
+        self, share_code: str, receive_code: str, file_id: int, user_agent: str = ""
     ) -> Url:
         """
         获取分享下载链接
         """
-        if r302cacher.get(f"{share_code}{receive_code}{file_id}", "ShareUA"):
-            cache_url = r302cacher.get(
-                f"{share_code}{receive_code}{file_id}", "ShareUA"
-            )
+        if not user_agent:
+            cache_ua = "NoUA"
+        else:
+            cache_ua = user_agent
+
+        if r302cacher.get(f"{share_code}{receive_code}{file_id}", cache_ua):
+            cache_url = r302cacher.get(f"{share_code}{receive_code}{file_id}", cache_ua)
             logger.debug(
-                f"【302跳转服务】分享缓存获取 {share_code} {receive_code} {file_id} {cache_url}"
+                f"【302跳转服务】分享缓存获取 {share_code} {receive_code} {file_id} {cache_ua} {cache_url}"
             )
             return Url.of(
                 cache_url,
                 {"file_name": unquote(urlsplit(cache_url).path.rpartition("/")[-1])},
             )
+
         payload = {
             "share_code": share_code,
             "receive_code": receive_code,
@@ -281,13 +282,15 @@ class Redirect:
         data["file_name"] = data.pop("fn")
         data["file_size"] = int(data.pop("fs"))
         url = Url.of(url_info["url"], data)
+
         expires_time = (
             int(next(v for k, v in parse_qsl(urlsplit(url).query) if k == "t")) - 60 * 5
         )
         r302cacher.set(
-            f"{share_code}{receive_code}{file_id}", "ShareUA", str(url), expires_time
+            f"{share_code}{receive_code}{file_id}", cache_ua, str(url), expires_time
         )
         logger.debug(
-            f"【302跳转服务】分享添加至缓存 {share_code} {receive_code} {file_id} {url} {expires_time}"
+            f"【302跳转服务】分享添加至缓存 {share_code} {receive_code} {file_id} {cache_ua} {url} {expires_time}"
         )
+
         return url
