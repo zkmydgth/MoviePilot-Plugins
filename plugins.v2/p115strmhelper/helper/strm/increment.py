@@ -11,7 +11,7 @@ from sqlalchemy.orm.exc import MultipleResultsFound
 
 from app.log import logger
 
-from ...core.cache import idpathcacher
+from ...core.cache import idpathcacher, DirectoryCache
 from ...core.config import configer
 from ...core.scrape import media_scrape_metadata
 from ...db_manager.oper import FileDbHelper
@@ -78,6 +78,10 @@ class IncrementSyncStrmHelper:
         self.pan_transfer_paths = configer.pan_transfer_paths
         self.strm_url_format = configer.strm_url_format
         self.databasehelper = FileDbHelper()
+        self.directory_cache = DirectoryCache(
+            configer.PLUGIN_TEMP_PATH / "increment_skip"
+        )
+        self.directory_cache_group_name = "increment_skip"
         self.download_mediainfo_list = []
 
         self.mdaw = AutomatonUtils.build_automaton(
@@ -105,6 +109,15 @@ class IncrementSyncStrmHelper:
         self.pan_to_local_tree = (
             configer.get_config("PLUGIN_TEMP_PATH") / "increment_pan_to_local_tree.txt"
         )
+
+    def __del__(self):
+        self.directory_cache.close()
+        if Path(self.local_tree).exists():
+            Path(self.local_tree).unlink(missing_ok=True)
+        if Path(self.pan_tree).exists():
+            Path(self.pan_tree).unlink(missing_ok=True)
+        if Path(self.pan_to_local_tree).exists():
+            Path(self.pan_to_local_tree).unlink(missing_ok=True)
 
     def __itertree(self, pan_path: str, local_path: str):
         """
@@ -168,7 +181,7 @@ class IncrementSyncStrmHelper:
             # 这里如果有多条重复数据就不进行删除文件夹操作了，说明数据库重复过多，直接放弃
             data = self.databasehelper.get_by_path(path=path)
             if data:
-                cid = data.get("id", None)
+                cid = data.get("id", "")
                 if cid:
                     logger.debug(f"【增量STRM生成】获取 {path} cid（数据库）: {cid}")
                     idpathcacher.add_cache(id=int(cid), directory=path)
@@ -312,6 +325,9 @@ class IncrementSyncStrmHelper:
         new_file_path = Path(local_path)
 
         try:
+            if self.directory_cache.is_in_cache(self.directory_cache_group_name, pan_path):
+                return
+
             if self.pan_transfer_enabled and self.pan_transfer_paths:
                 if PathUtils.get_run_transfer_path(
                     paths=self.pan_transfer_paths,
@@ -336,6 +352,9 @@ class IncrementSyncStrmHelper:
                             result[0],
                             pan_path,
                         )
+                        self.directory_cache.add_to_group(
+                            self.directory_cache_group_name, pan_path
+                        )
                         return
 
                     pickcode = self.__get_pickcode(pan_path)
@@ -355,6 +374,9 @@ class IncrementSyncStrmHelper:
 
             if pan_path_obj.suffix.lower() not in self.rmt_mediaext:
                 logger.warn(f"【增量STRM生成】跳过网盘路径: {pan_path}")
+                self.directory_cache.add_to_group(
+                    self.directory_cache_group_name, pan_path
+                )
                 return
 
             if not (
@@ -363,6 +385,9 @@ class IncrementSyncStrmHelper:
                 )
             )[1]:
                 logger.warn(f"【增量STRM生成】{result[0]}，跳过网盘路径: {pan_path}")
+                self.directory_cache.add_to_group(
+                    self.directory_cache_group_name, pan_path
+                )
                 return
 
             pickcode = self.__get_pickcode(pan_path)
@@ -373,6 +398,9 @@ class IncrementSyncStrmHelper:
                 )
             )[1]:
                 logger.warn(f"【增量STRM生成】{result[0]}，跳过网盘路径: {pan_path}")
+                self.directory_cache.add_to_group(
+                    self.directory_cache_group_name, pan_path
+                )
                 return
 
             new_file_path.parent.mkdir(parents=True, exist_ok=True)

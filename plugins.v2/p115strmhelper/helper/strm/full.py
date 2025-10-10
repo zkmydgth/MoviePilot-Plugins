@@ -89,6 +89,12 @@ class FullSyncStrmHelper:
         else:
             self.__base_logger = self.__base_no_logger
 
+    def __del__(self):
+        if Path(self.local_tree).exists():
+            Path(self.local_tree).unlink(missing_ok=True)
+        if Path(self.pan_tree).exists():
+            Path(self.pan_tree).unlink(missing_ok=True)
+
     @staticmethod
     def __base_no_logger(level, msg, *args):
         """
