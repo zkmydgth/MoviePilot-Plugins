@@ -1,6 +1,6 @@
 <template>
   <div class="dashboard-widget dashboard-widget--transfer-mini">
-    <v-card :flat="!config?.attrs?.border" class="strm-dash-card transfer-mini-card fill-height d-flex flex-column">
+    <v-card :flat="!config?.attrs?.border" class="strm-dash-card transfer-mini-card h-100 d-flex flex-column">
       <v-card-item v-if="config?.attrs?.title || config?.attrs?.subtitle" class="pb-2">
         <v-card-title class="d-flex flex-wrap align-center gap-2 ps-0 text-subtitle-1">
           <v-icon icon="mdi-folder-cog" color="primary" size="small" />
@@ -14,7 +14,7 @@
         </template>
       </v-card-item>
 
-      <v-card-text class="pa-3 pt-0 transfer-mini-card__body">
+      <v-card-text class="pa-3 pt-0 transfer-mini-card__body flex-grow-1 d-flex flex-column">
         <div v-if="transferConfigLoading && !transferConfigLoaded" class="text-center py-6">
           <v-progress-circular indeterminate color="primary" size="36" />
         </div>
@@ -22,35 +22,15 @@
           <v-alert v-if="!panTransferEnabled" type="warning" variant="tonal" density="compact" class="mb-3">
             请先在插件设置中开启「网盘整理」
           </v-alert>
-          <v-alert
-            v-else-if="panTransferSelectItems.length === 0"
-            type="info"
-            variant="tonal"
-            density="compact"
-            class="mb-3"
-          >
+          <v-alert v-else-if="panTransferSelectItems.length === 0" type="info" variant="tonal" density="compact"
+            class="mb-3">
             请先在插件设置中配置「网盘整理目录」
           </v-alert>
           <template v-else>
-            <v-select
-              v-model="selectedManualPath"
-              :items="panTransferSelectItems"
-              item-title="title"
-              item-value="value"
-              label="整理目录"
-              density="compact"
-              hide-details
-              variant="outlined"
-              class="mb-3"
-            />
-            <v-btn
-              block
-              color="primary"
-              variant="tonal"
-              prepend-icon="mdi-play-circle"
-              :disabled="!selectedManualPath"
-              @click="openManualTransferDialog"
-            >
+            <v-select v-model="selectedManualPath" :items="panTransferSelectItems" item-title="title" item-value="value"
+              label="整理目录" density="compact" hide-details variant="outlined" class="mb-3" />
+            <v-btn block color="primary" variant="tonal" prepend-icon="mdi-play-circle" :disabled="!selectedManualPath"
+              @click="openManualTransferDialog">
               执行整理
             </v-btn>
           </template>
@@ -85,12 +65,8 @@
             <div class="text-body-2 text-medium-emphasis">正在启动整理任务...</div>
           </div>
           <div v-else-if="manualTransferDialog.result">
-            <v-alert
-              :type="manualTransferDialog.result.type"
-              variant="tonal"
-              density="compact"
-              :icon="manualTransferDialog.result.type === 'success' ? 'mdi-check-circle' : 'mdi-alert-circle'"
-            >
+            <v-alert :type="manualTransferDialog.result.type" variant="tonal" density="compact"
+              :icon="manualTransferDialog.result.type === 'success' ? 'mdi-check-circle' : 'mdi-alert-circle'">
               <div class="text-subtitle-2 mb-1">{{ manualTransferDialog.result.title }}</div>
               <div class="text-body-2">{{ manualTransferDialog.result.message }}</div>
             </v-alert>

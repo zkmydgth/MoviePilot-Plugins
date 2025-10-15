@@ -33,14 +33,31 @@
   line-height: 1.45;
 }
 
-.dashboard-widget--transfer-mini {
-  height: 100%;
+/* 小卡片（网盘整理 / 全量同步）：占满栅格列高度，正文区伸展，底栏贴底对齐 */
+.dashboard-widget--transfer-mini,
+.dashboard-widget--full-sync-mini {
+  display: flex;
+  flex-direction: column;
+  align-self: stretch;
+  box-sizing: border-box;
   width: 100%;
   min-height: 200px;
+  height: 100%;
 }
 
-.transfer-mini-card__body {
-  min-height: 100px;
+.dashboard-widget--transfer-mini>.v-card,
+.dashboard-widget--full-sync-mini>.v-card {
+  flex: 1 1 auto;
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 与 Vuetify v-card-text 配合：中间区域吃满剩余高度，两卡 min-height 一致 */
+.transfer-mini-card__body,
+.full-sync-mini-card__body {
+  flex: 1 1 auto;
+  min-height: 7.5rem;
 }
 
 .strm-dash-card,
@@ -135,24 +152,18 @@
 }
 
 .refresh-actions {
-  background: linear-gradient(
-      135deg,
+  background: linear-gradient(135deg,
       rgba(var(--v-theme-primary), 0.08) 0%,
-      rgba(245, 171, 185, 0.07) 100%
-    )
-    !important;
+      rgba(245, 171, 185, 0.07) 100%) !important;
   border-top: 1px solid rgba(var(--v-theme-on-surface), 0.12) !important;
   box-shadow: inset 0 1px 0 rgba(var(--v-theme-on-surface), 0.04);
 }
 
 .v-theme--dark .refresh-actions,
 [data-theme="dark"] .refresh-actions {
-  background: linear-gradient(
-      to top,
+  background: linear-gradient(to top,
       rgba(var(--v-theme-surface), 0.92) 0%,
-      rgba(var(--v-theme-surface), 0.88) 100%
-    )
-    !important;
+      rgba(var(--v-theme-surface), 0.88) 100%) !important;
   border-top: 1px solid rgba(var(--v-theme-on-surface), 0.2) !important;
   box-shadow:
     0 -2px 12px rgba(91, 207, 250, 0.12),

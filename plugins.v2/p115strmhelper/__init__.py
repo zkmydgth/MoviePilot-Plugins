@@ -735,13 +735,14 @@ class P115StrmHelper(_PluginBase):
 
     def get_dashboard_meta(self) -> Optional[List[Dict[str, str]]]:
         """
-        多仪表盘：STRM 执行记录、运行状态与账户、同步删除历史
+        多仪表盘
         """
         return [
             {"key": "strm", "name": "STRM 同步执行记录"},
             {"key": "status", "name": "运行状态与账户"},
             {"key": "sync_del", "name": "同步删除历史"},
             {"key": "manual_transfer", "name": "网盘整理"},
+            {"key": "full_sync_actions", "name": "全量同步"},
         ]
 
     def get_dashboard(
@@ -779,6 +780,16 @@ class P115StrmHelper(_PluginBase):
                 {"cols": 12, "sm": 6, "md": 4, "lg": 3},
                 {
                     "title": "手动网盘整理",
+                    "subtitle": self.plugin_name,
+                    "border": True,
+                },
+                None,
+            )
+        if k == "full_sync_actions":
+            return (
+                {"cols": 12, "sm": 6, "md": 4, "lg": 3},
+                {
+                    "title": "全量同步",
                     "subtitle": self.plugin_name,
                     "border": True,
                 },
