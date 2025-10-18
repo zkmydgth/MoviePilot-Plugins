@@ -16,6 +16,7 @@ from concurrent.futures import ThreadPoolExecutor, Future, as_completed
 
 from p115client import P115Client, check_response
 from p115client.tool.attr import normalize_attr, get_id, get_attr
+from p115pickcode import get_stable_point, to_pickcode as p115_to_pickcode
 
 from ..core.cache import idpathcacher
 from ..db_manager.oper import FileDbHelper
@@ -207,6 +208,11 @@ def to_pickcode(client: P115Client, id: int) -> str:
     """
     将 id 转成 pick_code
     """
+    db_helper = FileDbHelper()
+    pc = db_helper.get_any_pickcode()
+    if pc:
+        stable_point = get_stable_point(pc)
+        return p115_to_pickcode(id, stable_point=stable_point)
     return get_attr(client=client, id=id, skim=True)["pickcode"]
 
 

@@ -8,6 +8,7 @@ from sqlalchemy import (
     BigInteger,
     select,
     delete,
+    and_,
 )
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
@@ -115,3 +116,17 @@ class File(P115StrmHelperBase):
         更新指定ID的名称
         """
         db.query(File).filter(File.id == file_id).update({"name": new_name})
+
+    @staticmethod
+    @db_query
+    def get_any_pickcode(db: Session):
+        """
+        获取任意一条 pickcode 不为空的记录的 pickcode
+        """
+        stmt = (
+            select(File.pickcode)
+            .where(and_(File.pickcode != "", File.pickcode.isnot(None)))
+            .limit(1)
+        )
+        result = db.scalar(stmt)
+        return result

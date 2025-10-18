@@ -347,3 +347,15 @@ class FileDbHelper(DbOper):
             return False
 
         return True
+
+    def get_any_pickcode(self) -> Optional[str]:
+        """
+        从文件表中任意获取一条 pickcode 不为空的数据的 pickcode
+
+        :return: pickcode
+        """
+        pickcode = File.get_any_pickcode(self._db)
+        if pickcode:
+            return pickcode
+
+        return None
