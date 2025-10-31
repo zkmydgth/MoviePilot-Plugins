@@ -1,4 +1,5 @@
-from inspect import signature as inspect_signature
+from functools import partial
+from inspect import getsource as inspect_getsource, signature as inspect_signature
 from typing import Any, Callable, Dict, Optional
 
 from p115client import P115Client
@@ -30,6 +31,8 @@ NO_TIMEOUT_METHODS = {
     "login_qrcode_scan_result",
 }
 
+_DEFAULT_TIMEOUT_STYLE: Optional[str] = None
+
 
 def _accepts_extra_kwargs(func: Callable) -> bool:
     try:
@@ -37,6 +40,99 @@ def _accepts_extra_kwargs(func: Callable) -> bool:
         return any(p.kind == p.VAR_KEYWORD for p in sig.parameters.values())
     except (ValueError, TypeError):
         return False
+
+
+def _detect_timeout_style(request: Optional[Callable] = None) -> str:
+    global _DEFAULT_TIMEOUT_STYLE
+
+    if request is None and _DEFAULT_TIMEOUT_STYLE:
+        return _DEFAULT_TIMEOUT_STYLE
+
+    if isinstance(request, partial):
+        request = request.func
+
+    backend_module = getattr(request, "__module__", "").lower()
+    if not backend_module:
+        try:
+            get_request = P115Client.request.__globals__.get("get_request")
+            backend_module = inspect_getsource(get_request).lower()
+        except (AttributeError, OSError, TypeError):
+            backend_module = ""
+
+    if "urllib3_future" in backend_module:
+        timeout_style = "urllib3_future"
+    elif "urllib3" in backend_module:
+        timeout_style = "urllib3"
+    elif "httpcore" in backend_module or "httpx" in backend_module:
+        timeout_style = "extensions"
+    elif "requests_request" in backend_module:
+        timeout_style = "requests"
+    else:
+        timeout_style = "scalar"
+
+    if request is None:
+        _DEFAULT_TIMEOUT_STYLE = timeout_style
+    return timeout_style
+
+
+def _build_request_timeout(
+    timeout: Dict[str, Any], timeout_style: str
+) -> Dict[str, Any]:
+    connect_timeout = timeout.get("connect") or None
+    read_timeout = timeout.get("read") or None
+    write_timeout = timeout.get("write") or None
+    pool_timeout = timeout.get("pool") or None
+    total_timeout = sum(
+        value for value in (connect_timeout, read_timeout) if value is not None
+    ) or max((value for value in timeout.values() if value), default=None)
+
+    if timeout_style in ("urllib3_future", "urllib3"):
+        try:
+            if timeout_style == "urllib3_future":
+                from urllib3_future.util import Timeout
+            else:
+                from urllib3.util import Timeout
+
+            timeout_kwargs = {
+                "connect": connect_timeout,
+                "read": read_timeout,
+                "total": total_timeout,
+            }
+            timeout_parameters = inspect_signature(Timeout).parameters
+            if write_timeout and "write" in timeout_parameters:
+                timeout_kwargs["write"] = write_timeout
+
+            request_timeout = {
+                "timeout": Timeout(**timeout_kwargs),
+            }
+            if pool_timeout:
+                request_timeout["pool_timeout"] = pool_timeout
+            return request_timeout
+        except ImportError:
+            return {"timeout": total_timeout}
+    if timeout_style == "requests":
+        if connect_timeout and read_timeout:
+            return {"timeout": (connect_timeout, read_timeout)}
+        return {"timeout": total_timeout}
+
+    return {"timeout": total_timeout}
+
+
+def _inject_timeout(kwargs: Dict[str, Any], timeout: Dict[str, Any]) -> None:
+    timeout_style = _detect_timeout_style(kwargs.get("request"))
+    if timeout_style == "extensions":
+        if "timeout" in kwargs or (
+            "extensions" in kwargs and "timeout" in kwargs.get("extensions", {})
+        ):
+            return
+        extensions = dict(kwargs.get("extensions") or {})
+        extensions["timeout"] = timeout.copy()
+        kwargs["extensions"] = extensions
+        return
+
+    request_timeout = _build_request_timeout(timeout, timeout_style)
+    for name, value in request_timeout.items():
+        kwargs.setdefault(name, value)
 
 
 def _make_timeout_wrapper(
@@ -65,15 +161,11 @@ def _make_timeout_wrapper(
 
             def wrapper(*args, **kwargs):
                 """
-                拦截 API 方法调用，自动注入超时配置到 extensions 参数中
+                拦截 API 方法调用，按请求后端自动注入超时配置
 
-                若调用者已显式指定 extensions["timeout"]，则跳过注入
+                若调用者已显式指定 timeout 或 extensions["timeout"]，则跳过注入
                 """
-                if "extensions" in kwargs and "timeout" in kwargs.get("extensions", {}):
-                    return attr(*args, **kwargs)
-                if "extensions" not in kwargs:
-                    kwargs["extensions"] = {}
-                kwargs["extensions"]["timeout"] = timeout
+                _inject_timeout(kwargs, timeout)
                 return attr(*args, **kwargs)
 
             return wrapper
@@ -121,13 +213,13 @@ def create_client_with_timeout(
 
 class P115ClientWithTimeout(P115Client):
     """
-    P115Client 子类，自动注入超时配置到所有 API 调用
+    P115Client 子类，按请求后端自动注入超时配置到所有 API 调用
 
     支持两种超时级别：
     - default_timeout: 普通操作（list/detail/rename 等）
     - slow_timeout: 慢操作（upload/download/iter 等）
 
-    如果调用者显式指定 extensions["timeout"]，则优先使用调用者的配置
+    如果调用者显式指定 timeout 或 extensions["timeout"]，则优先使用调用者的配置
     """
 
     def __init__(
@@ -177,15 +269,11 @@ class P115ClientWithTimeout(P115Client):
 
             def wrapper(*args, **kwargs):
                 """
-                拦截 API 方法调用，自动注入超时配置到 extensions 参数中
+                拦截 API 方法调用，按请求后端自动注入超时配置
 
-                若调用者已显式指定 extensions["timeout"]，则跳过注入
+                若调用者已显式指定 timeout 或 extensions["timeout"]，则跳过注入
                 """
-                if "extensions" in kwargs and "timeout" in kwargs.get("extensions", {}):
-                    return attr(*args, **kwargs)
-                if "extensions" not in kwargs:
-                    kwargs["extensions"] = {}
-                kwargs["extensions"]["timeout"] = timeout
+                _inject_timeout(kwargs, timeout)
                 return attr(*args, **kwargs)
 
             return wrapper
