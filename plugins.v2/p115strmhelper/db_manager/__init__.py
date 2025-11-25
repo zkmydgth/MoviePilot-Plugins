@@ -1,4 +1,5 @@
 from pathlib import Path
+from time import sleep
 from typing import Any, Generator, List, Optional, Self, Tuple
 
 from sqlalchemy import (
@@ -16,8 +17,9 @@ from sqlalchemy.orm import (
     sessionmaker,
     scoped_session,
     DeclarativeBase,
-    Session
+    Session,
 )
+from sqlalchemy.exc import OperationalError
 
 from ..core.config import configer
 from app.core.config import settings
@@ -55,6 +57,13 @@ class __DBManager:
                 # 将超时时间（秒）转换为毫秒
                 busy_timeout_ms = int(settings.DB_TIMEOUT * 1000)
                 cursor.execute(f"PRAGMA busy_timeout = {busy_timeout_ms};")
+
+            # 设置其他性能优化参数
+            cursor.execute("PRAGMA synchronous = NORMAL;")
+            cursor.execute("PRAGMA cache_size = -100000;")
+            cursor.execute("PRAGMA temp_store = MEMORY;")
+            # 设置合理的锁定模式，避免独占锁定
+            cursor.execute("PRAGMA locking_mode = NORMAL;")
         finally:
             cursor.close()
 
@@ -220,29 +229,51 @@ def db_update(func):
     def wrapper(*args, **kwargs):
         # 是否关闭数据库会话
         _close_db = False
-        # 从参数中获取数据库会话
-        db = get_args_db(args, kwargs)
-        if not db:
-            # 如果没有获取到数据库会话，创建一个
-            db = ct_db_manager.ScopedSession()
-            # 标记需要关闭数据库会话
-            _close_db = True
-            # 更新参数中的数据库会话
-            args, kwargs = update_args_db(args, kwargs, db)
-        try:
-            # 执行函数
-            result = func(*args, **kwargs)
-            # 提交事务
-            db.commit()
-        except Exception as err:
-            # 回滚事务
-            db.rollback()
-            raise err
-        finally:
-            # 关闭数据库会话
-            if _close_db:
-                db.close()
-        return result
+        max_retries = 3
+        retry_delay = 0.1
+
+        for attempt in range(max_retries):
+            # 从参数中获取数据库会话
+            db = get_args_db(args, kwargs)
+            if not db:
+                # 如果没有获取到数据库会话，创建一个
+                db = ct_db_manager.ScopedSession()
+                # 标记需要关闭数据库会话
+                _close_db = True
+                # 更新参数中的数据库会话
+                args, kwargs = update_args_db(args, kwargs, db)
+
+            try:
+                # 执行函数
+                result = func(*args, **kwargs)
+                # 提交事务
+                db.commit()
+                return result
+            except OperationalError as err:
+                # 回滚事务
+                db.rollback()
+
+                if (
+                    "database is locked" in str(err).lower()
+                    and attempt < max_retries - 1
+                ):
+                    logger.warning(
+                        f"数据库锁定，第 {attempt + 1} 次重试，等待 {retry_delay}s..."
+                    )
+                    sleep(retry_delay)
+                    retry_delay *= 2
+                    continue
+                else:
+                    raise err
+            except Exception as err:
+                # 回滚事务
+                db.rollback()
+                raise err
+            finally:
+                # 关闭数据库会话
+                if _close_db:
+                    db.close()
+                    _close_db = False  # 重置标志，避免重复关闭
 
     return wrapper
 
