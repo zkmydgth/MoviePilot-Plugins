@@ -394,9 +394,14 @@ class TestReapOrphanSeeds(_Base):
         self.assertEqual(stats["checked"], 1)
 
     def test_orphan_outside_target_dirs_ignored(self):
-        """不在配置目录内的种子不参与回收。"""
+        """不在配置目录内的种子不参与回收（默认开关下）。
+
+        v3.0.4 起「是否覆盖范围外」由 orphan_seed_scope 开关控制，默认关闭；
+        此处显式置为关闭，避免依赖类属性默认值而变得脆弱。
+        """
         other = tempfile.mkdtemp(prefix="ssg-other-")
         try:
+            self.plugin._orphan_seed_scope = False
             seed_dir = os.path.join(other, "Outside")
             os.makedirs(seed_dir, exist_ok=True)
             outside = os.path.join(seed_dir, "a.mkv")

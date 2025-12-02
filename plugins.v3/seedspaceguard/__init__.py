@@ -118,6 +118,10 @@ class SeedSpaceGuard(_PluginBase):
     # 种子级模式：清理「无主文件」——不被任何种子引用的孤儿硬链接（默认关）。
     # 仅种子级生效。默认关是因为它主动删除用户文件、判定逻辑复杂，需显式开启。
     _orphan_cleanup: bool = False
+    # 空壳回收的扫描范围：是否覆盖「内容路径不在监控目录内」的种子（默认关）。
+    # 默认关是因为它会把手伸到配置目录之外，属行为边界扩大，须显式授权。
+    # ⚠️ 依赖 delete_torrents（联动删除种子）——总闸不开则本开关无任何效果。
+    _orphan_seed_scope: bool = False
     # 数据层操作器（懒加载，导入失败时置 None 并降级跳过联动）
     _downloadhis: Optional[DownloadHistoryOper] = None
     _transferhis: Optional[TransferHistoryOper] = None
@@ -157,6 +161,7 @@ class SeedSpaceGuard(_PluginBase):
         self._delete_history = False
         self._companion_cleanup = True
         self._orphan_cleanup = False
+        self._orphan_seed_scope = False
         if not config:
             return
         self._enabled = bool(config.get("enabled"))
@@ -200,6 +205,10 @@ class SeedSpaceGuard(_PluginBase):
         # 与上一项相反，这里刻意用 bool()——它主动删除用户文件且判定逻辑
         # 复杂，必须由用户显式勾选，绝不能因「未配置」而默认打开。
         self._orphan_cleanup = bool(config.get("orphan_cleanup"))
+        # 空壳回收范围：默认**关闭**，仅显式为真时覆盖监控目录外的种子。
+        # 同样用 bool()——它把手伸到配置目录之外，属行为边界扩大，
+        # 必须显式授权，绝不可因「未配置」而默认打开。
+        self._orphan_seed_scope = bool(config.get("orphan_seed_scope"))
         self._init_linkage_opers()
         # 联动释放等待秒数：0~1800，默认 90
         raw_wait = config.get("sync_wait_seconds")
@@ -517,6 +526,24 @@ class SeedSpaceGuard(_PluginBase):
                                     "同一 inode 只要有任一路径被种子引用就整组保留；"
                                     "保护期内的文件与保护后缀不动。"
                                     "因涉及主动删除用户文件，请务必先开「试运行」核对清单",
+                        },
+                    },
+                    {
+                        "component": "VSwitch",
+                        "props": {
+                            "model": "orphan_seed_scope",
+                            "label": "种子级：空壳回收覆盖监控目录外的种子",
+                            "class": "mt-4",
+                            "hint": "**默认关闭，需先开启「联动删除种子」才生效**。"
+                                    "空壳回收原本只扫「内容路径在监控目录内」的种子，"
+                                    "而空壳越彻底（目录已消失）越容易被这道范围过滤挡掉——"
+                                    "最常见的情况是种子做过保存目录变更或做种转移，"
+                                    "其内容路径已不在监控范围内，于是永远扫不到。"
+                                    "开启后会把范围外的已完成种子一并纳入判定："
+                                    "**只回收已无任何文件的空壳，只摘种子、不删除任何文件**；"
+                                    "只要磁盘上仍有文件就绝不回收。"
+                                    "注意这会让插件的行为边界扩展到配置目录之外，"
+                                    "请确认理解后再开启",
                         },
                     },
                     {
@@ -1553,7 +1580,14 @@ class SeedSpaceGuard(_PluginBase):
             return stats
 
         try:
-            candidates = self._collect_seed_candidates()
+            # 候选范围由开关决定：默认只扫监控目录内（原行为）；
+            # 开启 orphan_seed_scope 后连监控目录外的种子一并纳入——
+            # 空壳的典型形态就是「目录已消失」，此时范围前缀匹配必然失败，
+            # 最该回收的那批反而被挡在门外（详见 _collect_all_seed_candidates）。
+            if self._orphan_seed_scope:
+                candidates = self._collect_all_seed_candidates()
+            else:
+                candidates = self._collect_seed_candidates()
         except Exception as err:
             logger.error("【保种空间守护】空壳种子扫描失败：%s", err)
             return stats
@@ -2051,6 +2085,41 @@ class SeedSpaceGuard(_PluginBase):
 
         :return: 候选列表，每项含 module/downloader/hash/title/added/size_gb
         """
+        return self._collect_candidates(scope_only=True)
+
+    def _collect_all_seed_candidates(self) -> List[Dict[str, Any]]:
+        """
+        收集**全部**已完成种子候选（**不判内容路径范围**），供空壳回收使用。
+
+        与 ``_collect_seed_candidates`` 的**唯一差异**是取消范围过滤：
+
+        - ``_collect_seed_candidates`` 会把 ``content_path`` 不在监控目录内的
+          种子标为 ``out_of_scope`` 并丢弃；
+        - 本方法**保留**它们。理由：**空壳越彻底越容易被范围过滤挡掉** ——
+          空壳的典型形态就是「文件全没了、目录也没了」，此时 ``content_path``
+          指向已不存在的路径，``_path_under_any`` 的前缀匹配必然失败。于是
+          「一个种子越是变成空壳，越进不了空壳回收的候选」，最该回收的那批
+          反而被拦在门外（实测：3 个空壳只回收 1 个）。
+
+        其余行为与 ``_collect_seed_candidates`` **完全一致**：仍过滤未完成种子、
+        仍复用 ``_parse_torrent`` 解析、仍受「目标下载器」配置约束。
+
+        > 未完成种子（``progress < 0.999``）的文件被删光同样会形成空壳，但
+        > 处理它涉及「暂停态可能被用户主动保留待续传」的语义分歧，**本版
+        > 暂不覆盖**，留待后续评估。
+
+        :return: 候选列表（结构同 ``_collect_seed_candidates``）
+        """
+        return self._collect_candidates(scope_only=False)
+
+    def _collect_candidates(self, scope_only: bool) -> List[Dict[str, Any]]:
+        """
+        候选收集核心实现，由上面两个入口按 ``scope_only`` 择路调用。
+
+        :param scope_only: True=只收监控目录内的种子（主链路）；
+                           False=不过滤范围（空壳回收用）
+        :return: 候选列表，每项含 module/downloader/hash/title/added/size_gb
+        """
         candidates: List[Dict[str, Any]] = []
         counted = {"total": 0, "unfinished": 0, "out_of_scope": 0}
         try:
@@ -2085,24 +2154,37 @@ class SeedSpaceGuard(_PluginBase):
                 counted["total"] += 1
                 cand = self._parse_torrent(dl_type, item)
                 if not cand:
-                    # 未完成（下载中/暂停/校验）的种子一律排除
+                    # 未完成（下载中/暂停/校验）的种子一律排除。
+                    # 两个入口在此**行为一致**——空壳回收暂不覆盖未完成种子。
                     counted["unfinished"] += 1
                     continue
-                # 种子路径落在任一配置目录下即纳入候选
-                if not cand["path"] or not self._path_under_any(cand["path"]):
+                in_scope = bool(cand["path"]) and self._path_under_any(cand["path"])
+                if not in_scope:
                     counted["out_of_scope"] += 1
-                    continue
+                    # 主链路：范围外直接丢弃；空壳回收：保留（见上方方法说明）
+                    if scope_only:
+                        continue
                 cand["module"] = module
                 cand["downloader"] = name
                 candidates.append(cand)
         # 汇总日志：说明「下载器里有多少 / 为何只剩这些候选」，
         # 避免用户看到「tr 有一千多个种子却只扫了几百个」时无从判断
-        logger.info(
-            "【保种空间守护】种子候选收集：下载器共 %d 个，"
-            "未完成 %d 个，不在监控目录 %d 个，纳入候选 %d 个",
-            counted["total"], counted["unfinished"],
-            counted["out_of_scope"], len(candidates),
-        )
+        if scope_only:
+            logger.info(
+                "【保种空间守护】种子候选收集：下载器共 %d 个，"
+                "未完成 %d 个，不在监控目录 %d 个，纳入候选 %d 个",
+                counted["total"], counted["unfinished"],
+                counted["out_of_scope"], len(candidates),
+            )
+        else:
+            # 空壳回收口径：范围外种子被保留，日志要如实说明，避免用户
+            # 误以为「不在监控目录的种子也被排除」而放弃排查
+            logger.info(
+                "【保种空间守护】种子候选收集（含监控目录外）：下载器共 %d 个，"
+                "未完成 %d 个（仍排除），范围外 %d 个（本次保留），纳入候选 %d 个",
+                counted["total"], counted["unfinished"],
+                counted["out_of_scope"], len(candidates),
+            )
         return candidates
 
     @staticmethod
@@ -2825,6 +2907,7 @@ class SeedSpaceGuard(_PluginBase):
             "delete_history": False,
             "companion_cleanup": True,
             "orphan_cleanup": False,
+            "orphan_seed_scope": False,
             "downloaders": [],
             "manual_action": "",
         }
