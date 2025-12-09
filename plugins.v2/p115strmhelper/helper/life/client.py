@@ -551,7 +551,7 @@ class MonitorLife:
                         processed.extend(_process_item)
                     if item["is_dir"]:
                         continue
-                    if "creata" in configer.get_config("monitor_life_event_modes"):  # pylint: disable=E1135
+                    if "creata" in configer.monitor_life_event_modes:
                         file_path = item["path"]
                         if not PathUtils.has_prefix(file_path, org_file_path):
                             continue
@@ -705,7 +705,7 @@ class MonitorLife:
                     event=event, file_path=file_path_string
                 )
             )
-            if "creata" in configer.get_config("monitor_life_event_modes"):  # pylint: disable=E1135
+            if "creata" in configer.monitor_life_event_modes:
                 # 文件情况，直接生成
                 file_path = Path(target_dir) / Path(file_path).relative_to(
                     pan_media_dir
