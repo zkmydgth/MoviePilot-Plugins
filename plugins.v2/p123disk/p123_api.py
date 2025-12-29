@@ -6,7 +6,7 @@ from hashlib import md5
 from datetime import datetime
 
 import requests
-from p123client import P123Client, check_response
+from p123client import check_response
 
 from app import schemas
 from app.log import logger
@@ -14,22 +14,35 @@ from app.core.config import settings, global_vars
 from app.modules.filemanager.storages import transfer_process
 from app.utils.string import StringUtils
 
+from .tool import P123AutoClient
+
 
 class P123Api:
     """
-    123云盘基础操作
+    123云盘基础操作类
     """
 
     # FileId和路径缓存
     _id_cache: Dict[str, str] = {}
 
-    def __init__(self, client: P123Client, disk_name: str):
+    def __init__(self, client: P123AutoClient, disk_name: str):
+        """
+        初始化123云盘API
+
+        :param client: 123云盘客户端实例
+        :param disk_name: 云盘名称
+        """
         self.client = client
         self._disk_name = disk_name
+        self.transtype = {"move": "移动", "copy": "复制"}
 
-    def _path_to_id(self, path: str):
+    def _path_to_id(self, path: str) -> str:
         """
-        通过路径获取ID
+        通过路径获取文件ID
+
+        :param path: 文件或目录路径
+        :return: 文件ID字符串
+        :raises FileNotFoundError: 当路径不存在时抛出异常
         """
         # 根目录
         if path == "/":
@@ -93,7 +106,10 @@ class P123Api:
 
     def list(self, fileitem: schemas.FileItem) -> List[schemas.FileItem]:
         """
-        浏览文件
+        浏览文件或目录
+
+        :param fileitem: 文件项，可以是文件或目录
+        :return: 文件项列表，如果是文件则返回包含该文件的列表，如果是目录则返回目录下的所有文件和子目录
         """
         if fileitem.type == "file":
             item = self.detail(fileitem)
@@ -168,8 +184,10 @@ class P123Api:
     ) -> Optional[schemas.FileItem]:
         """
         创建目录
-        :param fileitem: 父目录
-        :param name: 目录名
+
+        :param fileitem: 父目录文件项
+        :param name: 要创建的目录名称
+        :return: 创建成功返回目录文件项，失败返回None
         """
         try:
             new_path = Path(fileitem.path) / name
@@ -196,6 +214,9 @@ class P123Api:
     def get_folder(self, path: Path) -> Optional[schemas.FileItem]:
         """
         获取目录，如目录不存在则创建
+
+        :param path: 目录路径
+        :return: 目录文件项，如果创建失败则返回None
         """
 
         def __find_dir(
@@ -203,6 +224,10 @@ class P123Api:
         ) -> Optional[schemas.FileItem]:
             """
             查找下级目录中匹配名称的目录
+
+            :param _fileitem: 父目录文件项
+            :param _name: 要查找的目录名称
+            :return: 找到的目录文件项，未找到返回None
             """
             for sub_folder in self.list(_fileitem):
                 if sub_folder.type != "dir":
@@ -232,6 +257,9 @@ class P123Api:
     def get_item(self, path: Path) -> Optional[schemas.FileItem]:
         """
         获取文件或目录，不存在返回None
+
+        :param path: 文件或目录路径
+        :return: 文件项，如果不存在则返回None
         """
         try:
             file_id = self._path_to_id(str(path))
@@ -262,13 +290,19 @@ class P123Api:
     def get_parent(self, fileitem: schemas.FileItem) -> Optional[schemas.FileItem]:
         """
         获取父目录
+
+        :param fileitem: 文件项
+        :return: 父目录文件项，如果不存在则返回None
         """
         return self.get_item(Path(fileitem.path).parent)
 
     def delete(self, fileitem: schemas.FileItem) -> bool:
         """
-        删除文件
-        此操作将保留回收站文件
+        删除文件或目录
+        此操作将文件移动到回收站，不会永久删除
+
+        :param fileitem: 要删除的文件项
+        :return: 删除成功返回True，失败返回False
         """
         try:
             resp = self.client.fs_trash(int(fileitem.fileid), event="intoRecycle")
@@ -280,7 +314,11 @@ class P123Api:
 
     def rename(self, fileitem: schemas.FileItem, name: str) -> bool:
         """
-        重命名文件
+        重命名文件或目录
+
+        :param fileitem: 要重命名的文件项
+        :param name: 新名称
+        :return: 重命名成功返回True，失败返回False
         """
         try:
             payload = {
@@ -298,8 +336,10 @@ class P123Api:
     def download(self, fileitem: schemas.FileItem, path: Path = None) -> Optional[Path]:
         """
         下载文件，保存到本地，返回本地临时文件地址
-        :param fileitem: 文件项
-        :param path: 文件保存路径
+
+        :param fileitem: 要下载的文件项
+        :param path: 文件保存路径，如果为None则保存到临时目录
+        :return: 下载成功返回本地文件路径，失败返回None
         """
         json_obj = ast.literal_eval(fileitem.pickcode)
         s3keyflag = json_obj["S3KeyFlag"]
@@ -372,10 +412,13 @@ class P123Api:
         new_name: Optional[str] = None,
     ) -> Optional[schemas.FileItem]:
         """
-        上传文件
-        :param target_dir: 上传目录项
+        上传文件到云盘
+        支持秒传、分块上传和普通上传，自动根据文件大小选择上传方式
+
+        :param target_dir: 上传目标目录项
         :param local_path: 本地文件路径
-        :param new_name: 上传后文件名
+        :param new_name: 上传后的文件名，如果为None则使用本地文件名
+        :return: 上传成功返回文件项，失败返回None
         """
         target_name = new_name or local_path.name
         target_path = Path(target_dir.path) / target_name
@@ -479,11 +522,13 @@ class P123Api:
                         retry_count = 0
                         upload_success = False
                         current_upload_url_resp = upload_url_resp
-                        
+
                         while retry_count < max_retries and not upload_success:
                             try:
                                 self.client.request(
-                                    current_upload_url_resp["data"]["presignedUrls"][str(slice_no)],
+                                    current_upload_url_resp["data"]["presignedUrls"][
+                                        str(slice_no)
+                                    ],
                                     data=chunk,
                                     **upload_request_kwargs,
                                 )
@@ -495,16 +540,22 @@ class P123Api:
                                         f"【123】{target_name} 分片 {slice_no} 上传失败，正在重试 ({retry_count}/{max_retries}): {upload_err}"
                                     )
                                     time.sleep(10)  # 等待10秒后重试
-                                    
+
                                     # 重新获取上传URL
                                     try:
-                                        logger.info(f"【123】重新获取分片 {slice_no} 的上传URL")
-                                        current_upload_url_resp = self.client.upload_prepare(
-                                            upload_data,
+                                        logger.info(
+                                            f"【123】重新获取分片 {slice_no} 的上传URL"
+                                        )
+                                        current_upload_url_resp = (
+                                            self.client.upload_prepare(
+                                                upload_data,
+                                            )
                                         )
                                         check_response(current_upload_url_resp)
                                     except Exception as url_err:
-                                        logger.error(f"【123】重新获取上传URL失败: {url_err}")
+                                        logger.error(
+                                            f"【123】重新获取上传URL失败: {url_err}"
+                                        )
                                         raise
                                 else:
                                     logger.error(
@@ -528,16 +579,16 @@ class P123Api:
                     upload_data,
                 )
                 check_response(resp)
-                
+
                 # 上传文件，失败时重试6次，每次重新获取上传URL
                 max_retries = 6
                 retry_count = 0
                 upload_success = False
                 current_resp = resp
-                
+
                 with open(local_path, "rb") as f:
                     file_data = f.read()
-                    
+
                 while retry_count < max_retries and not upload_success:
                     try:
                         self.client.request(
@@ -553,10 +604,10 @@ class P123Api:
                                 f"【123】{target_name} 上传失败，正在重试 ({retry_count}/{max_retries}): {upload_err}"
                             )
                             time.sleep(10)  # 等待10秒后重试
-                            
+
                             # 重新获取上传URL
                             try:
-                                logger.info(f"【123】重新获取上传URL")
+                                logger.info("【123】重新获取上传URL")
                                 current_resp = self.client.upload_auth(
                                     upload_data,
                                 )
@@ -598,15 +649,20 @@ class P123Api:
     def detail(self, fileitem: schemas.FileItem) -> Optional[schemas.FileItem]:
         """
         获取文件详情
+
+        :param fileitem: 文件项
+        :return: 包含详细信息的文件项，如果获取失败则返回None
         """
         return self.get_item(Path(fileitem.path))
 
     def copy(self, fileitem: schemas.FileItem, path: Path, new_name: str) -> bool:
         """
-        复制文件
-        :param fileitem: 文件项
-        :param path: 目标目录
-        :param new_name: 新文件名
+        复制文件或目录到目标位置
+
+        :param fileitem: 要复制的文件项
+        :param path: 目标目录路径
+        :param new_name: 复制后的新文件名
+        :return: 复制成功返回True，失败返回False
         """
         try:
             resp = self.client.fs_copy(
@@ -627,10 +683,12 @@ class P123Api:
 
     def move(self, fileitem: schemas.FileItem, path: Path, new_name: str) -> bool:
         """
-        移动文件
-        :param fileitem: 文件项
-        :param path: 目标目录
-        :param new_name: 新文件名
+        移动文件或目录到目标位置
+
+        :param fileitem: 要移动的文件项
+        :param path: 目标目录路径
+        :param new_name: 移动后的新文件名
+        :return: 移动成功返回True，失败返回False
         """
         try:
             resp = self.client.fs_move(
@@ -652,18 +710,30 @@ class P123Api:
     def link(self, fileitem: schemas.FileItem, target_file: Path) -> bool:
         """
         硬链接文件
+        云盘存储不支持硬链接操作
+
+        :param fileitem: 文件项
+        :param target_file: 目标文件路径
+        :return: 始终返回False，表示不支持此操作
         """
-        pass
+        return False
 
     def softlink(self, fileitem: schemas.FileItem, target_file: Path) -> bool:
         """
         软链接文件
+        云盘存储不支持软链接操作
+
+        :param fileitem: 文件项
+        :param target_file: 目标文件路径
+        :return: 始终返回False，表示不支持此操作
         """
-        pass
+        return False
 
     def usage(self) -> Optional[schemas.StorageUsage]:
         """
-        存储使用情况
+        获取存储使用情况
+
+        :return: 存储使用情况对象，包含总容量和可用容量，获取失败返回None
         """
         try:
             resp = self.client.user_info()
@@ -675,3 +745,21 @@ class P123Api:
             )
         except Exception:
             return None
+
+    def support_transtype(self) -> dict:
+        """
+        支持的整理方式
+
+        :return: 支持的整理方式字典
+        """
+        return self.transtype
+
+    def is_support_transtype(self, transtype: str) -> bool:
+        """
+        是否支持整理方式
+
+        :param transtype: 整理方式 (move/copy)
+
+        :return: 是否支持
+        """
+        return transtype in self.transtype

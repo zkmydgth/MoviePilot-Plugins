@@ -463,7 +463,7 @@ class P123StrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/DDSRem-Dev/MoviePilot-Plugins/main/icons/P123Disk.png"
     # 插件版本
-    plugin_version = "1.1.1"
+    plugin_version = "1.1.2"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -539,7 +539,9 @@ class P123StrmHelper(_PluginBase):
             )
             self._cron_full_sync_strm = config.get("cron_full_sync_strm")
             self._full_sync_strm_paths = config.get("full_sync_strm_paths")
-            self._full_sync_overwrite_mode = config.get("full_sync_overwrite_mode", "never")
+            self._full_sync_overwrite_mode = config.get(
+                "full_sync_overwrite_mode", "never"
+            )
             self._share_strm_enabled = config.get("share_strm_enabled")
             self._share_strm_auto_download_mediainfo_enabled = config.get(
                 "share_strm_auto_download_mediainfo_enabled"
@@ -1686,7 +1688,9 @@ class P123StrmHelper(_PluginBase):
                 return True, new_file_path
             except Exception as e:  # noqa: F841
                 logger.error(
-                    "【监控整理STRM生成】生成 %s 文件失败: %s", str(new_file_path), e  # noqa
+                    "【监控整理STRM生成】生成 %s 文件失败: %s",
+                    str(new_file_path),  # noqa
+                    e,
                 )
                 return False, None
 
@@ -1709,20 +1713,20 @@ class P123StrmHelper(_PluginBase):
         # 元数据信息
         meta: MetaBase = item.get("meta")
 
-        item_dest_storage: FileItem = item_transfer.target_item.storage
+        item_dest_storage: str = item_transfer.target_item.storage
         if item_dest_storage != "123云盘":
             return
 
         # 网盘目的地目录
-        itemdir_dest_path: FileItem = item_transfer.target_diritem.path
+        itemdir_dest_path: str = item_transfer.target_diritem.path
         # 网盘目的地路径（包含文件名称）
-        item_dest_path: FileItem = item_transfer.target_item.path
+        item_dest_path: str = item_transfer.target_item.path
         # 网盘目的地文件名称
-        item_dest_name: FileItem = item_transfer.target_item.name
+        item_dest_name: str = item_transfer.target_item.name
         # 网盘目的地文件名称（不包含后缀）
-        item_dest_basename: FileItem = item_transfer.target_item.basename
+        item_dest_basename: str = item_transfer.target_item.basename
         # 网盘目的地文件网盘详细信息
-        item_dest_pickcode: FileItem = item_transfer.target_item.pickcode
+        item_dest_pickcode: str = item_transfer.target_item.pickcode
         if not item_dest_pickcode:
             logger.error(
                 f"【监控整理STRM生成】{item_dest_name} 不存在网盘详细信息，无法生成 STRM 文件"
@@ -1768,7 +1772,7 @@ class P123StrmHelper(_PluginBase):
         status, strm_target_path = generate_strm_files(
             target_dir=local_media_dir,
             pan_media_dir=pan_media_dir,
-            item_dest_path=item_dest_path,
+            item_dest_path=Path(item_dest_path),
             basename=item_dest_basename,
             url=strm_url,
         )

@@ -13,7 +13,7 @@ class P123AutoClient:
 
     def __getattr__(self, name):
         if self._client is None:
-            self._client = P123Client(passport=self._passport, password=self._password)
+            self._client = P123Client(self._passport, self._password)
 
         def wrapped(*args, **kwargs):
             attr = getattr(self._client, name)
