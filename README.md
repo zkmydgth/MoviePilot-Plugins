@@ -25,5 +25,5 @@
 ## 感谢名单
 
 - [p115client](https://github.com/ChenyangGao/p115client)
-- [python-123-client](https://github.com/ChenyangGao/web-mount-packs/tree/main/python-123-client)
+- [p123client](https://github.com/ChenyangGao/p123client)
 - [MediaWarp](https://github.com/Akimio521/MediaWarp)
