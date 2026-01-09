@@ -28,7 +28,7 @@ class MediaWarp(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/refs/heads/main/icons/cloud.png"
     # 插件版本
-    plugin_version = "1.0.6"
+    plugin_version = "1.0.7"
     # 插件作者
     plugin_author = "DDSRem"
     # 作者主页
@@ -644,7 +644,7 @@ class MediaWarp(_PluginBase):
         """
         获取下载链接
         """
-        base_url = "https://github.com/DDS-Derek/MediaWarp/releases/download/v{version}/MediaWarp_{version}_linux_{arch}.tar.gz"
+        base_url = "https://github.com/DDS-Derek/MediaWarp/releases/download/v{version}/MediaWarp_{version}_{os}_{arch}.tar.gz"
 
         machine = platform.machine().lower()
         if machine == "arm64" or machine == "aarch64":
@@ -652,7 +652,13 @@ class MediaWarp(_PluginBase):
         else:
             arch = "amd64"
 
-        return base_url.format(arch=arch, version=self.__mediawarp_version)
+        system = platform.system().lower()
+        if system == "darwin":
+            os_name = "darwin"
+        else:
+            os_name = "linux"
+
+        return base_url.format(arch=arch, version=self.__mediawarp_version, os=os_name)
 
     def __download_and_extract(self):
         """
