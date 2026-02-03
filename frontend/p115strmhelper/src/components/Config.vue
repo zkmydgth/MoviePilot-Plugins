@@ -130,7 +130,7 @@
                       <div class="d-flex flex-column">
                         <div v-for="(item, index) in transferExcludePaths" :key="`transfer-exclude-${index}`"
                           class="mb-2 d-flex align-center">
-                          <v-text-field v-model="item.path" label="排除的本地目录" density="compact" variant="outlined"
+                          <v-text-field v-model="item.path" label="刮削排除目录" density="compact" variant="outlined"
                             readonly hide-details class="flex-grow-1 mr-2">
                           </v-text-field>
                           <v-btn icon size="small" color="error" class="ml-2"
@@ -141,7 +141,7 @@
                         <v-btn size="small" prepend-icon="mdi-folder-plus-outline" variant="tonal"
                           class="mt-1 align-self-start"
                           @click="openExcludeDirSelector('transfer_monitor_scrape_metadata_exclude_paths')">
-                          添加本地排除目录
+                          添加刮削排除目录
                         </v-btn>
                       </div>
                       <v-alert density="compact" variant="text" color="info" class="text-caption pa-0 mt-1">
@@ -304,7 +304,7 @@
                       <div class="d-flex flex-column">
                         <div v-for="(item, index) in monitorLifeExcludePaths" :key="`life-exclude-${index}`"
                           class="mb-2 d-flex align-center">
-                          <v-text-field v-model="item.path" label="排除的本地目录" density="compact" variant="outlined"
+                          <v-text-field v-model="item.path" label="刮削排除目录" density="compact" variant="outlined"
                             readonly hide-details class="flex-grow-1 mr-2">
                           </v-text-field>
                           <v-btn icon size="small" color="error" class="ml-2"
@@ -315,7 +315,7 @@
                         <v-btn size="small" prepend-icon="mdi-folder-plus-outline" variant="tonal"
                           class="mt-1 align-self-start"
                           @click="openExcludeDirSelector('monitor_life_scrape_metadata_exclude_paths')">
-                          添加本地排除目录
+                          添加刮削排除目录
                         </v-btn>
                       </div>
                       <v-alert density="compact" variant="text" color="info" class="text-caption pa-0 mt-1">
