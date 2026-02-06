@@ -8,7 +8,8 @@ from asyncio import (
 from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
 from errno import EIO, ENOENT
-from typing import cast, Dict, Optional
+from typing import Awaitable, Callable, cast, Dict, Optional
+from urllib.error import HTTPError
 from urllib.parse import parse_qsl, unquote, urlsplit, urlencode
 
 from httpx import AsyncClient, Limits, Timeout
@@ -16,6 +17,7 @@ from orjson import loads
 from p115cipher import rsa_decrypt, rsa_encrypt
 from p115client import P115Client
 from p115client import check_response as p115_check_response
+from p115client.exception import P115OSError
 from p115pickcode import to_id
 
 from app.log import logger
@@ -110,24 +112,87 @@ class Redirect:
                 return m[k]
         return default
 
+    @staticmethod
+    def _is_405_error(error: Exception) -> bool:
+        """
+        判断异常是否为 HTTP 405
+
+        :param error (Exception): 请求异常
+
+        :return bool: 是否为 HTTP 405
+        """
+        if isinstance(error, HTTPError):
+            return error.code == 405
+        if isinstance(error, P115OSError):
+            message = str(error)
+            return "405" in message or "Method Not Allowed" in message
+        return getattr(error, "status_code", None) == 405
+
+    async def _call_with_405_fallback(
+        self,
+        primary_call: Callable[[], Awaitable[Dict]],
+        fallback_call: Callable[[], Awaitable[Dict]],
+        operation: str,
+    ) -> Dict:
+        """
+        Web API 返回 405 时切换到 App API
+
+        :param primary_call (Callable): Web API 调用
+        :param fallback_call (Callable): App API 调用
+        :param operation (str): 操作名称
+
+        :return Dict: API 响应
+        """
+        try:
+            response = await primary_call()
+            p115_check_response(response)
+            return response
+        except Exception as error:
+            if not self._is_405_error(error):
+                raise
+            logger.warning(
+                f"【302跳转服务】{operation} Web API 返回 405，切换 IOS App API"
+            )
+            response = await fallback_call()
+            p115_check_response(response)
+            return response
+
     async def get_pickcode_for_copy(self, pickcode: str) -> Optional[str]:
         """
         通过复制文件获取二次 PickCode
         """
         if not self.pid:
             return None
-        resp = await self.client.fs_copy(
-            to_id(pickcode),
-            pid=self.pid,
-            async_=True,
-            **configer.get_ios_ua_app(app=False),
+        file_id = to_id(pickcode)
+        resp = await self._call_with_405_fallback(
+            primary_call=lambda: self.client.fs_copy(
+                file_id,
+                pid=self.pid,
+                async_=True,
+                **configer.get_ios_ua_app(app=False),
+            ),
+            fallback_call=lambda: self.client.fs_copy_app(
+                file_id,
+                pid=self.pid,
+                async_=True,
+                **configer.get_ios_ua_app(),
+            ),
+            operation="复制多端播放文件",
         )
-        p115_check_response(resp)
         payload = {"cid": self.pid, "o": "user_ptime", "asc": 0}
-        resp = await self.client.fs_files(
-            payload, async_=True, **configer.get_ios_ua_app(app=False)
+        resp = await self._call_with_405_fallback(
+            primary_call=lambda: self.client.fs_files(
+                payload,
+                async_=True,
+                **configer.get_ios_ua_app(app=False),
+            ),
+            fallback_call=lambda: self.client.fs_files_app(
+                payload,
+                async_=True,
+                **configer.get_ios_ua_app(),
+            ),
+            operation="查询多端播放副本",
         )
-        p115_check_response(resp)
         data = resp.get("data")[0]
         return data.get("pc", None)
 
@@ -135,8 +200,19 @@ class Redirect:
         """
         延迟删除
         """
-        await self.client.fs_delete(
-            to_id(pickcode), async_=True, **configer.get_ios_ua_app(app=False)
+        file_id = to_id(pickcode)
+        await self._call_with_405_fallback(
+            primary_call=lambda: self.client.fs_delete(
+                file_id,
+                async_=True,
+                **configer.get_ios_ua_app(app=False),
+            ),
+            fallback_call=lambda: self.client.fs_delete_app(
+                file_id,
+                async_=True,
+                **configer.get_ios_ua_app(),
+            ),
+            operation="清理多端播放副本",
         )
         logger.debug(f"【302跳转服务】清理 {pickcode} 文件")
 
