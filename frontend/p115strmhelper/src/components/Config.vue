@@ -621,6 +621,35 @@
                             </v-alert>
                           </v-col>
                         </v-row>
+
+                        <!-- 高级配置 -->
+                        <v-expansion-panels variant="tonal" class="mt-6">
+                          <v-expansion-panel>
+                            <v-expansion-panel-title>
+                              <v-icon icon="mdi-tune-variant" class="mr-2"></v-icon>
+                              高级配置
+                            </v-expansion-panel-title>
+                            <v-expansion-panel-text class="pa-4">
+                              <v-row>
+                                <v-col cols="12" md="6">
+                                  <v-switch v-model="config.increment_sync_second_level_dir_scan" label="扫描二级目录生成目录树"
+                                    color="primary"></v-switch>
+                                </v-col>
+                              </v-row>
+                              <v-row>
+                                <v-col cols="12">
+                                  <v-alert type="info" variant="tonal" density="compact" icon="mdi-information">
+                                    <div class="text-caption">
+                                      开启后，将扫描「增量同步目录」中配置的网盘路径下的二级子目录，并以这些二级目录为单位生成目录树。每个配置路径下仅允许包含子文件夹、不得包含文件，且二级目录数量不超过
+                                      100 个。
+                                    </div>
+                                  </v-alert>
+                                </v-col>
+                              </v-row>
+                            </v-expansion-panel-text>
+                          </v-expansion-panel>
+                        </v-expansion-panels>
+
                       </v-card-text>
                     </v-window-item>
                     <v-window-item value="tab-life">
@@ -2888,6 +2917,7 @@ const config = reactive({
   increment_sync_mediaservers: [],
   increment_sync_emby_mediainfo_enabled: false,
   increment_sync_min_file_size: 0,
+  increment_sync_second_level_dir_scan: false,
   monitor_life_enabled: false,
   monitor_life_auto_download_mediainfo_enabled: false,
   monitor_life_paths: '',

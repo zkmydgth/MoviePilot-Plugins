@@ -7,6 +7,7 @@ from typing import List, Dict, Optional, Tuple, Iterator, Any, Generator
 
 from p115client import P115Client
 from p115client.tool.export_dir import export_dir_parse_iter
+from p115client.tool.iterdir import iterdir
 from p115client.tool.fs_files import iter_fs_files
 from sqlalchemy.orm.exc import MultipleResultsFound
 
@@ -542,6 +543,29 @@ class IncrementSyncStrmHelper:
 
             Thread(target=_fetch_emby_mediainfo, daemon=True).start()
 
+    def __scan_second_level_directory(self, path: str) -> List[str]:
+        """
+        扫描二级目录
+
+        :param path: 路径
+
+        :return: 目录名称列表
+        """
+        self.api_count += 2
+        name_list: List[str] = []
+        cid = get_pid_by_path(self.client, path, True, False, False)
+        if cid == -1:
+            raise PanPathNotFound(f"网盘路径不存在: {path}")
+        for item in iterdir(
+            client=self.client, cid=cid, cooldown=2, **configer.get_ios_ua_app()
+        ):
+            if not item["is_dir"]:
+                raise OSError("二级目录不能存在文件")
+            name_list.append(item["name"])
+            if len(name_list) > 100:
+                raise OSError("超出二级目录扫描上限")
+        return name_list
+
     def generate_strm_files(self, sync_strm_paths):
         """
         生成 STRM 文件
@@ -549,9 +573,27 @@ class IncrementSyncStrmHelper:
         :param sync_strm_paths: 同步 STRM 路径
         """
         media_paths = sync_strm_paths.split("\n")
-        queue: deque[Tuple[str, int]] = deque(
-            (path.strip(), 0) for path in media_paths if path and path.strip()
-        )
+        if configer.increment_sync_second_level_dir_scan:
+            try:
+                lst: List[str] = []
+                for path in media_paths:
+                    if not path or not path.strip():
+                        continue
+                    parts = path.strip().split("#", 1)
+                    target_dir = Path(parts[0].strip()).as_posix()
+                    pan_media_dir = Path(parts[1].strip()).as_posix()
+                    for n in self.__scan_second_level_directory(pan_media_dir):
+                        pt_str = f"{target_dir}/{n}#{pan_media_dir}/{n}"
+                        lst.append(pt_str)
+                        logger.info(f"【增量STRM生成】扫描到目录: {pt_str}")
+                queue: deque[Tuple[str, int]] = deque((path.strip(), 0) for path in lst)
+            except Exception as e:
+                logger.error(f"【增量STRM生成】构建目录列表出错: {e}")
+                return
+        else:
+            queue: deque[Tuple[str, int]] = deque(
+                (path.strip(), 0) for path in media_paths if path and path.strip()
+            )
         while queue:
             path, retry_count = queue.popleft()
             if retry_count > 2:
