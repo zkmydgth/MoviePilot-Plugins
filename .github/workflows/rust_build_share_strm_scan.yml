@@ -1,0 +1,133 @@
+name: Rust Build share_strm_scan
+
+on:
+  workflow_dispatch:
+
+jobs:
+  extension_tests:
+    name: share_strm_scan unittest on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Build and install share_strm_scan
+        working-directory: plugins.v2/p115strmhelper/rust_utils/share_strm_scan/
+        run: pip install .
+
+      - name: Run tests
+        working-directory: plugins.v2/p115strmhelper/rust_utils/share_strm_scan/
+        run: python -m unittest discover -s tests -v
+
+  build_wheels:
+    name: Build wheels for ${{ matrix.target }} on ${{ matrix.os }}
+    needs: [extension_tests]
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+          - os: windows-latest
+          - os: macos-latest
+            target: universal2-apple-darwin
+          - os: macos-15
+            target: x86_64-apple-darwin
+          - os: ubuntu-latest
+            target: aarch64
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up QEMU
+        if: matrix.target == 'aarch64'
+        uses: docker/setup-qemu-action@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Build wheels
+        uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.target }}
+          command: build
+          args: --release --out dist -i python3.12
+          manylinux: auto
+          working-directory: plugins.v2/p115strmhelper/rust_utils/share_strm_scan/
+
+      - name: Build x86_64 musl wheels
+        if: matrix.os == 'ubuntu-latest' && !matrix.target
+        uses: PyO3/maturin-action@v1
+        with:
+          target: x86_64-unknown-linux-musl
+          command: build
+          args: --release --out dist -i python3.12
+          manylinux: auto
+          working-directory: plugins.v2/p115strmhelper/rust_utils/share_strm_scan/
+
+      - name: Build aarch64 musl wheels
+        if: matrix.os == 'ubuntu-latest' && matrix.target == 'aarch64'
+        uses: PyO3/maturin-action@v1
+        with:
+          target: aarch64-unknown-linux-musl
+          command: build
+          args: --release --out dist -i python3.12
+          manylinux: auto
+          working-directory: plugins.v2/p115strmhelper/rust_utils/share_strm_scan/
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: wheels-share-strm-scan-${{ matrix.os }}-${{ matrix.target }}
+          path: plugins.v2/p115strmhelper/rust_utils/share_strm_scan/dist
+
+  commit_wheels:
+    name: Commit Wheels to Repository
+    needs: [build_wheels]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Remove old files
+        run: |
+          rm -rf plugins.v2/p115strmhelper/wheels/share_strm_scan*
+
+      - name: Download all wheels
+        uses: actions/download-artifact@v8
+        with:
+          pattern: wheels-share-strm-scan-*
+          merge-multiple: true
+          path: plugins.v2/p115strmhelper/wheels/
+
+      - name: Commit File
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add plugins.v2/p115strmhelper/wheels/
+          if git diff --staged --quiet; then
+            echo "没有新的 wheel 文件需要提交。"
+          else
+            git commit -m "build: 为 share_strm_scan 添加 wheels"
+            git push
+            echo "新的 wheel 文件已成功提交并推送。"
+          fi

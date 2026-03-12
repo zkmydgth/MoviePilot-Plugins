@@ -12,5 +12,6 @@ mfusepy~=3.1.0
 p115center-sdk==0.0.16
 full_strm_sync==0.1.4
 txt_tree_storage==0.2.0
+share_strm_scan==0.1.0
 numpy
 httpx[http2]
