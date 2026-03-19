@@ -1,4 +1,4 @@
-import concurrent.futures
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from hashlib import sha1
 from time import sleep
 from typing import List, Optional
@@ -41,7 +41,9 @@ class Ali2115Helper:
         """
         end = start + length - 1
         headers = {"Range": f"bytes={start}-{end}"}
-        with stream("GET", url, headers=headers, follow_redirects=True) as r:
+        with stream(
+            "GET", url, headers=headers, follow_redirects=True, timeout=60.0
+        ) as r:
             r.raise_for_status()
             _sha1 = sha1()
             for chunk in r.iter_bytes(chunk_size=8192):
@@ -302,7 +304,7 @@ class Ali2115Helper:
         futures_map = {}
         fail_upload = 0
         success_upload = 0
-        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+        with ThreadPoolExecutor(max_workers=2) as executor:
             for url in download_url_list:
                 target_dir_id = get_or_create_115_subdir(url[4])
                 future = executor.submit(
@@ -316,9 +318,7 @@ class Ali2115Helper:
                 futures_map[future] = {"url": url, "retries": 0}
 
             while futures_map:
-                done_futures, _ = concurrent.futures.wait(
-                    futures_map.keys(), return_when=concurrent.futures.FIRST_COMPLETED
-                )
+                done_futures, _ = wait(futures_map.keys(), return_when=FIRST_COMPLETED)
 
                 for future in done_futures:
                     task_info = futures_map.pop(future)
