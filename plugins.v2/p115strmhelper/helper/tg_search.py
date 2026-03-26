@@ -164,7 +164,12 @@ class TgSearcher:
             if not item.get("cloud_links"):
                 continue
 
-            main_link = item["cloud_links"][0]
+            main_link = None
+            for link in item["cloud_links"]:
+                if "115" in link:
+                    main_link = link
+            if not main_link:
+                continue
             if main_link in seen_links:
                 continue
 
