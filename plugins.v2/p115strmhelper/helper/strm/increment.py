@@ -311,21 +311,32 @@ class IncrementSyncStrmHelper:
         """
         生成网盘目录树
         """
-        self.pan_tree.clear()
-        self.pan_to_local_tree.clear()
+        for i in range(1, 4):
+            self.pan_tree.clear()
+            self.pan_to_local_tree.clear()
 
-        logger.info(f"【增量STRM生成】开始生成网盘目录树: {pan_media_dir}")
+            logger.info(f"【增量STRM生成】开始生成网盘目录树: {pan_media_dir}")
 
-        try:
-            for path1, path2 in self.__itertree(
-                pan_path=pan_media_dir, local_path=target_dir
-            ):
-                self.pan_to_local_tree.generate_tree_from_list([path1], append=True)
-                self.pan_tree.generate_tree_from_list([path2], append=True)
+            try:
+                for path1, path2 in self.__itertree(
+                    pan_path=pan_media_dir, local_path=target_dir
+                ):
+                    self.pan_to_local_tree.generate_tree_from_list([path1], append=True)
+                    self.pan_tree.generate_tree_from_list([path2], append=True)
 
-            logger.info(f"【增量STRM生成】网盘目录树生成完成: {pan_media_dir}")
-        except Exception as e:
-            logger.error(f"【增量STRM生成】网盘目录树生成 {pan_media_dir} 错误: {e}")
+                logger.info(f"【增量STRM生成】网盘目录树生成完成: {pan_media_dir}")
+                break
+            except Exception as e:
+                if "Broken pipe" in str(e):
+                    logger.warning(
+                        f"【增量STRM生成】网盘目录树生成 {pan_media_dir} 错误: {e}，第 {i} 次自动重试..."
+                    )
+                    sleep(10 + 2**i)
+                else:
+                    logger.error(
+                        f"【增量STRM生成】网盘目录树生成 {pan_media_dir} 错误: {e}"
+                    )
+                    break
 
     def __handle_addition_path(self, pan_path: str, local_path: str):
         """
