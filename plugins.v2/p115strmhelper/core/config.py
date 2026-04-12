@@ -138,6 +138,18 @@ class ConfigManager(BaseModel):
             ]
         return []
 
+    @field_validator("nullbr_app_id", "nullbr_api_key", mode="before")
+    @classmethod
+    def _empty_to_none_nullbr(cls, v: Any) -> Optional[str]:
+        """
+        将空字符串转为 None，允许用户清空/删除 nullbr 配置。
+        """
+        if v is None:
+            return None
+        if isinstance(v, str) and not v.strip():
+            return None
+        return v
+
     @model_validator(mode="before")
     @classmethod
     def _validate_cron_fields_before(cls, data: Dict[str, Any]) -> Dict[str, Any]:
