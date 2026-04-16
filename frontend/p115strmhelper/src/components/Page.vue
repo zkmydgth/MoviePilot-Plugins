@@ -1158,26 +1158,6 @@ const selectDir = (item) => {
 const navigateToParentDir = () => {
   const path = dirDialog.currentPath;
 
-  // If it's a remote path (115 Pan), use simple, explicit POSIX path logic.
-  // This prevents any Windows-style path contamination.
-  if (!dirDialog.isLocal) {
-    if (path === '/') return; // Already at root
-
-    // Normalize and remove any trailing slash (unless it's the root)
-    let current = path.replace(/\\/g, '/');
-    if (current.length > 1 && current.endsWith('/')) {
-      current = current.slice(0, -1);
-    }
-
-    const parent = current.substring(0, current.lastIndexOf('/'));
-
-    // If the parent is empty, it means we were in a top-level directory (e.g., '/movies'), so the parent is the root.
-    dirDialog.currentPath = parent === '' ? '/' : parent;
-
-    loadDirContent();
-    return; // IMPORTANT: Stop execution to not use the local path logic below.
-  }
-
   if (path === '/' || path === 'C:\\' || path === 'C:/') return;
 
   // 统一使用正斜杠处理路径
