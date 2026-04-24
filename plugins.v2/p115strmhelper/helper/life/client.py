@@ -1080,12 +1080,6 @@ class MonitorLife:
                     )
                 return
 
-            if Path(old_path).parent != Path(new_path).parent:
-                logger.warning(
-                    f"【监控生活事件】旧文件路径与新文件路径不一致，跳过重命名处理: {event}",
-                )
-                return
-
             old_strm_path = old_path.parent / StrmGenerater.get_strm_filename(old_path)
             old_strm_exists = old_strm_path.is_file()
 
@@ -1103,12 +1097,18 @@ class MonitorLife:
                     )
                 return
 
+            if Path(old_path).parent != Path(new_path).parent:
+                logger.warning(
+                    f"【监控生活事件】旧文件路径与新文件路径不一致，跳过重命名处理: {event}",
+                )
+                return
+
             if old_pan_path and new_pan_path:
                 _databasehelper.update_path_prefix_batch(
                     old_pan_path, new_pan_path, True
                 )
                 logger.info(
-                    "【监控生活事件】文件重命名数据库路径批量同步完成: %s -> %s",
+                    "【监控生活事件】文件重命名数据库路径同步完成: %s -> %s",
                     old_pan_path,
                     new_pan_path,
                 )
