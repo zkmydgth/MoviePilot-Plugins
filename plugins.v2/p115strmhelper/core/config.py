@@ -116,10 +116,20 @@ class ConfigManager:
 
     def load_from_dict(self, config_dict: Dict[str, Any]) -> bool:
         """
-        从字典加载配置
+        从字典加载配置，自动修复非法的布尔值
         """
         try:
-            validated = BaseConfig(**config_dict)
+            fixed_dict = config_dict.copy()
+            for field_name, field in BaseConfig.__fields__.items():
+                if field.type_ is bool and field_name in fixed_dict:
+                    value = fixed_dict[field_name]
+                    if not isinstance(value, bool):
+                        default_value = field.default
+                        logger.warning(
+                            f"【配置管理器】配置项 {field_name} 的值 {value} 不是布尔类型，已替换为默认值 {default_value}"
+                        )
+                        fixed_dict[field_name] = default_value
+            validated = BaseConfig(**fixed_dict)
             self._configs = validated.dict()
             return True
         except ValidationError as e:
