@@ -1103,6 +1103,13 @@
                     </v-col>
                   </v-row>
 
+                  <v-row class="mt-4">
+                    <v-col cols="12" md="4">
+                      <v-switch v-model="config.strm_url_encode" label="STRM URL 文件名称编码" color="info" density="compact"
+                        hint="启用后，STRM文件中的URL会对文件名进行编码处理"></v-switch>
+                    </v-col>
+                  </v-row>
+
                 </v-card-text>
               </v-window-item>
 
@@ -1538,7 +1545,8 @@ const config = reactive({
   strm_url_mode_custom: '',
   strm_generate_blacklist: [],
   mediainfo_download_whitelist: [],
-  mediainfo_download_blacklist: []
+  mediainfo_download_blacklist: [],
+  strm_url_encode: false
 });
 
 // 消息提示
