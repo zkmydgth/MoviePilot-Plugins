@@ -394,16 +394,16 @@ class VarietyGuardTestCase(unittest.TestCase):
         self.assertEqual(checkpoint.items, ())
 
     def test_default_keyword_list_integrity(self):
-        """默认词表：47 项、无重复、全部合法正则；ASCII 项带词边界、中文项不带。"""
+        """默认词表：51 项、无重复、全部合法正则；ASCII 项带词边界（E00/EP00 例外）、中文项不带。"""
         from varietyguard import DEFAULT_EXCLUDE_KEYWORDS
 
-        self.assertEqual(len(DEFAULT_EXCLUDE_KEYWORDS), 47)
-        self.assertEqual(len(set(DEFAULT_EXCLUDE_KEYWORDS)), 47)
+        self.assertEqual(len(DEFAULT_EXCLUDE_KEYWORDS), 51)
+        self.assertEqual(len(set(DEFAULT_EXCLUDE_KEYWORDS)), 51)
         for pattern in DEFAULT_EXCLUDE_KEYWORDS:
             re.compile(pattern)  # 非法正则会直接抛错
         chinese_items = [w for w in DEFAULT_EXCLUDE_KEYWORDS if not w.isascii()]
         ascii_items = [w for w in DEFAULT_EXCLUDE_KEYWORDS if w.isascii()]
-        self.assertEqual(len(chinese_items) + len(ascii_items), 47)
+        self.assertEqual(len(chinese_items) + len(ascii_items), 51)
         for item in ascii_items:
             if item in {"E00", "EP00"}:
                 continue  # 这两条按设计不加词边界（见 test_bare_episode_zero_keywords）
@@ -421,6 +421,39 @@ class VarietyGuardTestCase(unittest.TestCase):
         for name in ("Show.S01E00.mkv", "Show.S01E0012.mkv", "Show.EP00.mkv"):
             self.assertIsNotNone(
                 plugin._match_first(DEFAULT_EXCLUDE_KEYWORDS, name), f"{name} 应命中"
+            )
+
+    def test_added_markers_hit_real_non_main(self):
+        """v1.0.4 新增词：Extra / EX / 尝鲜篇 / 森林体验篇 必须命中对应命名。"""
+        from varietyguard import DEFAULT_EXCLUDE_KEYWORDS
+
+        plugin = VarietyGuard()
+        for name in (
+            "[现在就出发].Natural.High.2023.S01E05.Extra.2160p.WEB-DL.HEVC.DDP2Audios-QHstudio.mp4",
+            "Natural.High.S01E05.EX1.20230816.2160p.WEB-DL.H265.AAC-CHDWEB.mp4",
+            "[20230806][现在就出发 第一季 尝鲜篇].Natural.High.Appetizer.2023.S01E01.2160p.WEB-DL.H265.AAC-UBWEB.mp4",
+            "[20230730][现在就出发 第一季 森林体验篇].Natural.High.Forest.Experience.2023.S01E01.2160p.WEB-DL.H265.AAC-UBWEB.mp4",
+        ):
+            self.assertIsNotNone(
+                plugin._match_first(DEFAULT_EXCLUDE_KEYWORDS, name), f"{name} 应命中"
+            )
+
+    def test_added_markers_do_not_hit_main_episodes(self):
+        """v1.0.4 新增词不得误伤正片：Part1/Part2/VIP1/VIP2/第X期 上/下，及含词串（Extraction/Extension）。"""
+        from varietyguard import DEFAULT_EXCLUDE_KEYWORDS
+
+        plugin = VarietyGuard()
+        for name in (
+            "现在就出发.Natural.High.S01E01.Part1.2023.2160p.WEB-DL.H265.AAC-ADWeb.mp4",
+            "[现在就出发].Natural.High.2023.S01E01.Part1.2160p.WEB-DL.HEVC.DDP2Audios-QHstudio.mp4",
+            "Natural.High.S01E01.VIP1.20230813.2160p.WEB-DL.H265.AAC-CHDWEB.mp4",
+            "[20230813][现在就出发 第一季 第01期 上].Natural.High.2023.S01E01.Part01.2160p.WEB-DL.H265.AAC-UBWEB.mp4",
+            "Xian Zai Jiu Chu Fa 2023 S01E01.Part1 2160p WEB-DL H265 AAC-PTerWEB.mp4",
+            "Extraction.2020.1080p.WEB-DL.mkv",
+            "Extension.2024.S01E01.1080p.mkv",
+        ):
+            self.assertIsNone(
+                plugin._match_first(DEFAULT_EXCLUDE_KEYWORDS, name), f"{name} 不应命中"
             )
 
     def test_default_boundary_does_not_hit_word_containing_strings(self):
