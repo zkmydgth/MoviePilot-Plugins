@@ -80,6 +80,8 @@ class MediaInfoDownloader:
 
         self.stop_all_flag = None
 
+        self._pending_delete_scids: List[int] = []
+
         self.mediainfo_count: int = 0
         self.mediainfo_fail_count: int = 0
         self.mediainfo_fail_dict: List = []
@@ -161,6 +163,41 @@ class MediaInfoDownloader:
             logger.error(f"【媒体信息文件下载】{pickcode} 获取下载链接异常: {e}")
             return None
         return Url.of(data["url"], data)
+
+    def _batch_fs_delete(self, scids: List) -> None:
+        """
+        对一批 scid 执行 fs_delete，使用 check_response 校验结果，最多重试 3 次
+
+        :param scids: 待删除的文件夹 id 列表（≤ 50 个）
+        """
+        for attempt in range(3):
+            try:
+                resp = self.client.fs_delete(
+                    scids, **configer.get_ios_ua_app(app=False)
+                )
+                check_response(resp)
+                return
+            except Exception as e:
+                logger.warning(
+                    f"【媒体信息文件下载】批量删除临时目录失败 "
+                    f"(尝试 {attempt + 1}/3)，scids={scids}，原因: {e}"
+                )
+                if attempt < 2:
+                    time_sleep(2 + 2**attempt)
+        logger.error(
+            f"【媒体信息文件下载】批量删除临时目录在 3 次尝试后仍失败，scids={scids}"
+        )
+
+    def _flush_pending_deletes(self, *, force: bool = False) -> None:
+        """
+        将 _pending_delete_scids 中积累的 scid 批量删除
+
+        :param force: 为 True 时清空所有剩余；为 False 时仅在 >= 50 时触发
+        """
+        while len(self._pending_delete_scids) >= (1 if force else 50):
+            batch = self._pending_delete_scids[:50]
+            self._pending_delete_scids = self._pending_delete_scids[50:]
+            self._batch_fs_delete(batch)
 
     def save_oof_mediainfo_file(
         self, item_list: List | Tuple, json_data: Dict, key: str
@@ -473,7 +510,8 @@ class MediaInfoDownloader:
                     logger.error(f"【媒体信息文件下载】批处理字幕异步下载失败: {e}")
                     self._record_failures_for_items(item_list)
             finally:
-                self.client.fs_delete(scid, **configer.get_ios_ua_app(app=False))
+                self._pending_delete_scids.append(scid)
+                self._flush_pending_deletes()
 
     def batch_share_subtitle_downloader(self, downloads_list: List):
         """
@@ -529,7 +567,8 @@ class MediaInfoDownloader:
                     logger.error(f"【媒体信息文件下载】批处理字幕异步下载失败: {e}")
                     self._record_failures_for_items(item_list)
             finally:
-                self.client.fs_delete(scid, **configer.get_ios_ua_app(app=False))
+                self._pending_delete_scids.append(scid)
+                self._flush_pending_deletes()
 
     def batch_image_downloader(self, downloads_list: List):
         """
@@ -589,7 +628,8 @@ class MediaInfoDownloader:
                     logger.error(f"【媒体信息文件下载】批处理图片异步下载失败: {e}")
                     self._record_failures_for_items(item_list)
             finally:
-                self.client.fs_delete(scid, **configer.get_ios_ua_app(app=False))
+                self._pending_delete_scids.append(scid)
+                self._flush_pending_deletes()
 
     def batch_oof_fast_mi_downloader(
         self, downloads_list: List, u115_share: bool = False
@@ -705,7 +745,8 @@ class MediaInfoDownloader:
                             upload_lst.extend(r_lst)
                     time_sleep(1)
             finally:
-                self.client.fs_delete(scid, **configer.get_ios_ua_app(app=False))
+                self._pending_delete_scids.append(scid)
+                self._flush_pending_deletes()
 
         if oof_upload and upload_lst:
             self._oof_data_upload(upload_lst)
@@ -761,6 +802,7 @@ class MediaInfoDownloader:
         self.mediainfo_count: int = 0
         self.mediainfo_fail_count: int = 0
         self.mediainfo_fail_dict: List = []
+        self._pending_delete_scids = []
 
         image_list: List = []
         subtitle_list: List = []
@@ -792,6 +834,7 @@ class MediaInfoDownloader:
         if other_list and not self.stop_all_flag:
             self.batch_downloader(other_list)
 
+        self._flush_pending_deletes(force=True)
         return self.mediainfo_count, self.mediainfo_fail_count, self.mediainfo_fail_dict
 
     def batch_auto_share_downloader(self, downloads_list: List):
@@ -804,6 +847,7 @@ class MediaInfoDownloader:
         self.mediainfo_count: int = 0
         self.mediainfo_fail_count: int = 0
         self.mediainfo_fail_dict: List = []
+        self._pending_delete_scids = []
 
         image_list: List = []
         subtitle_list: List = []
@@ -835,4 +879,5 @@ class MediaInfoDownloader:
         if other_list:
             self.batch_share_downloader(other_list)
 
+        self._flush_pending_deletes(force=True)
         return self.mediainfo_count, self.mediainfo_fail_count, self.mediainfo_fail_dict
