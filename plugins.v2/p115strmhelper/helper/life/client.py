@@ -28,6 +28,7 @@ from ...db_manager.oper import FileDbHelper, LifeEventDbHelper
 from ...helper.mediainfo_download import MediaInfoDownloader
 from ...helper.mediasyncdel import MediaSyncDelHelper
 from ...helper.mediaserver import MediaServerRefresh, emby_mediainfo_queue
+from .transfer_wait import wait_for_transfer_complete
 
 from urllib.error import HTTPError
 
@@ -1886,41 +1887,18 @@ class MonitorLife:
             "【监控生活事件】local_move 文件移动后数据库记录已同步: %s", new_file_path
         )
 
-    def _wait_for_transfer_complete(self):
+    def _wait_for_transfer_complete(self) -> bool:
         """
         等待 MoviePilot 整理任务完成
+
+        :return bool: 是否收到停止信号
         """
-        wait_start_time = None
-        last_info_time = None
-
-        while True:
-            if not TransferChain().get_queue_tasks():
-                break
-
-            if wait_start_time is None:
-                wait_start_time = time()
-                last_info_time = wait_start_time
-
-            wait_duration = time() - wait_start_time
-            wait_duration_minutes = int(wait_duration // 60)
-
-            if wait_duration >= 15 * 60:
-                time_since_last_info = time() - last_info_time
-                if time_since_last_info >= 60:
-                    logger.info(
-                        f"【监控生活事件】MoviePilot 整理运行中，已等待 {wait_duration_minutes} 分钟，"
-                        "等待整理完成后继续监控生活事件..."
-                    )
-                    last_info_time = time()
-            else:
-                logger.debug(
-                    "【监控生活事件】MoviePilot 整理运行中，等待整理完成后继续监控生活事件..."
-                )
-
-            if self.stop_event and self.stop_event.wait(timeout=20):
-                return True
-
-        return False
+        return wait_for_transfer_complete(
+            get_queue_tasks=TransferChain().get_queue_tasks,
+            stall_timeout_minutes=configer.monitor_life_transfer_stall_timeout_minutes,
+            stop_event=self.stop_event,
+            log=logger,
+        )
 
     @staticmethod
     def _is_405_error(e: Exception) -> bool:

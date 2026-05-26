@@ -618,7 +618,6 @@
                 @change="value => { if (value) config.monitor_life_remove_mp_history = true }"></v-switch>
             </v-col>
           </v-row>
-
           <v-row>
             <v-col cols="12" md="6">
               <v-switch v-model="config.monitor_life_rename_auto_related_files" label="重命名事件时同步重命名 STRM 关联文件"
@@ -831,6 +830,24 @@
               </v-alert>
             </v-col>
           </v-row>
+
+          <v-expansion-panels variant="tonal" class="mt-6">
+            <v-expansion-panel>
+              <v-expansion-panel-title>
+                <v-icon icon="mdi-tune-variant" class="mr-2"></v-icon>
+                高级配置
+              </v-expansion-panel-title>
+              <v-expansion-panel-text class="pa-4">
+                <v-row>
+                  <v-col cols="12" md="3">
+                    <v-text-field v-model.number="config.monitor_life_transfer_stall_timeout_minutes"
+                      label="整理无进展超时(分钟)" type="number" min="1" density="compact" hint="队列持续无变化达到时限后记录残留任务并恢复监控"
+                      persistent-hint></v-text-field>
+                  </v-col>
+                </v-row>
+              </v-expansion-panel-text>
+            </v-expansion-panel>
+          </v-expansion-panels>
 
           <v-alert type="info" variant="tonal" density="compact" class="mt-3" icon="mdi-information">
             <div class="text-body-2 mb-1"><strong>事件处理逻辑：</strong></div>

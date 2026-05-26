@@ -379,6 +379,7 @@ const config = reactive({
   monitor_life_move_media_local_move_related_files: true,
   monitor_life_rename_auto_related_files: true,
   monitor_life_min_file_size: 0,
+  monitor_life_transfer_stall_timeout_minutes: 60,
   share_strm_config: [],
   share_strm_mediaservers: [],
   share_strm_media_server_refresh_delay: 0,
