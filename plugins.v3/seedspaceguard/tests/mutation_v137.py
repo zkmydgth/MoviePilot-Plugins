@@ -237,8 +237,26 @@ MUTANTS = [
     # ==================== v1.3.7 新增：误删事故防护 ====================
     (
         "误删回归：记录失效即判「已删空」（回归 v1.3.6 原始缺陷，会误删完好种子）",
-        """        # ---- 第 2 级：按下载器报告的真实路径做物理复核 ----
+        """        # ---- 第 2 级：按「本种子自身文件清单」做物理复核 ----
+        #
+        # v3.0.5 改造：此前这里扫的是 cand["path"] 指向的**整个目录**，
+        # 语义是「这个种子**所在目录**里还有文件吗」。一个目录下常同时存放
+        # 多个不同种子的文件（实测某剧集目录下有 19 个种子各管一集），
+        # 于是「自己的文件已删光、但同目录还有兄弟种子的文件」会被误判为
+        # 「未删空」→ 该种子永远回收不掉（功能静默失效）。
+        #
+        # 现在改为先问下载器「这个种子自己有哪些文件」，只复核这些路径。
+        # 取不到清单时**退回旧的扫目录逻辑**——宁可漏回收也不误删。
+        own_files: List[str] = []
         if cand is not None:
+            own_files = self._get_seed_files(hash_str, cand)
+        if own_files:
+            if any(os.path.exists(p) for p in own_files):
+                # 自己的文件还在 → 保留（与旧逻辑一致）
+                return False
+            # 自己的文件全没了 → 落到下方「确凿无文件」判定
+        elif cand is not None:
+            # 取不到清单 → 退回旧的「扫内容目录」逻辑（保守垫）
             content_path = str(cand.get("path") or "").strip()
             if content_path and os.path.exists(content_path):
                 # 路径存在：目录要确认其中确无文件，文件则直接算「存在」
@@ -246,8 +264,10 @@ MUTANTS = [
                     if self._dir_has_any_file(content_path):
                         return False
                 else:
-                    return False""",
-        """        pass""",
+                    return False
+""",
+        """        own_files: List[str] = []
+""",
         "应导致 test_real_files_alive_with_stale_record_kept / "
         "test_blank_record_with_real_files_kept 失败",
     ),
@@ -280,7 +300,7 @@ MUTANTS = [
     (
         "误删回归：无任何依据时仍允许删种（回归原始缺陷）",
         """        # ---- 只有两级都拿到确凿的「无文件」证据，才允许判定为已删空 ----
-        if records_checked == 0 and not (cand and cand.get("path")):
+        if records_checked == 0 and not own_files and not (cand and cand.get("path")):
             # 完全没有任何可复核的依据：无从判定，保守保留种子
             return False
         return True""",
