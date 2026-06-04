@@ -870,15 +870,13 @@
               </v-row>
               <v-expand-transition>
                 <div v-if="shareDialog.interactiveGenStrm.moviepilotTransfer">
-                  <v-alert type="warning" density="compact" variant="tonal" class="mt-3">
-                    <div class="text-subtitle-2 mb-2">开启 MP 整理时，「本地生成目录」为临时待整理目录，请在 MoviePilot 设定 → 目录 中配置：</div>
-                    <ol class="text-caption pl-4 mb-0">
-                      <li class="mb-1">
-                        添加目录配置卡：按需选择媒体类型与媒体类别；资源存储选<strong>本地</strong>；资源目录填写与本插件一致的<strong>本地生成目录</strong>路径</li>
-                      <li>
-                        自动整理模式选<strong>手动整理</strong>；媒体库存储选<strong>本地</strong>并配置媒体库路径；整理方式选<strong>移动</strong>；分类、重命名、通知、刮削按需配置
-                      </li>
-                    </ol>
+                  <v-alert type="warning" variant="tonal" density="compact" class="mt-3" icon="mdi-alert-circle">
+                    <div class="text-body-2 mb-2"><strong>交由 MoviePilot 整理配置说明：</strong></div>
+                    <div class="text-caption mb-2">开启 MP 整理时，「本地生成目录」为临时待整理目录，请在 MoviePilot <strong>设定 → 目录</strong> 中配置：</div>
+                    <div class="text-caption" style="padding-left: 4px; border-left: 2px solid rgba(var(--v-theme-warning), 0.3);">
+                      <div class="mb-1">1. 添加目录配置卡，按需选择媒体类型与媒体类别，资源存储选择<strong>本地</strong>，资源目录填写与本插件一致的<strong>本地生成目录</strong>路径</div>
+                      <div>2. 自动整理模式选择<strong>手动整理</strong>，媒体库存储选择<strong>本地</strong>并配置媒体库路径，整理方式选择<strong>移动</strong>，分类、重命名、通知、刮削按需配置</div>
+                    </div>
                   </v-alert>
                 </div>
               </v-expand-transition>
