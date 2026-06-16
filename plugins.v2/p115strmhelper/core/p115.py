@@ -163,7 +163,7 @@ def iter_share_files_with_path(
             attr["share_code"] = share_code
             attr["receive_code"] = receive_code
             attr = normalize_attr(attr)
-            name = posix_escape_name(attr["name"], repl=":")
+            name = posix_escape_name(attr["name"], repl="|")
             attr["name"] = name
             path = f"{path_prefix}/{name}" if path_prefix else f"/{name}"
             if attr["is_dir"]:
