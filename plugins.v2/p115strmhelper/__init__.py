@@ -326,11 +326,12 @@ class P115StrmHelper(_PluginBase):
         监控目录整理生成 STRM 文件
         """
 
-        def generate_strm_files(target_dir, pan_media_dir, pan_path, basename, url):
+        def generate_strm_files(target_dir, pan_media_dir, item_dest_path, basename, url):
             """
             依据网盘路径生成 STRM 文件
             """
             pan_media_dir = str(Path(pan_media_dir))
+            pan_path = Path(item_dest_path).parent
             pan_path = str(Path(pan_path))
             if pan_path.startswith(pan_media_dir):
                 pan_path = pan_path[len(pan_media_dir) :].lstrip("/").lstrip("\\")
@@ -397,7 +398,7 @@ class P115StrmHelper(_PluginBase):
         if not generate_strm_files(
             self.local_media_dir,
             self.pan_media_dir,
-            itemdir_dest_path,
+            item_dest_path,
             item_dest_basename,
             strm_url,
         ):
