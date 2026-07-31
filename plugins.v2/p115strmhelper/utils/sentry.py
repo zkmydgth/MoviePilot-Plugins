@@ -9,6 +9,8 @@ from sentry_sdk.integrations.stdlib import StdlibIntegration
 from sentry_sdk.integrations.excepthook import ExcepthookIntegration
 from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
 from sentry_sdk.integrations.dedupe import DedupeIntegration
+from sentry_sdk.integrations.httpx import HttpxIntegration
+from sentry_sdk.integrations.threading import ThreadingIntegration
 
 
 sentry_hub = Hub(
@@ -25,6 +27,8 @@ sentry_hub = Hub(
             StdlibIntegration(),
             ExcepthookIntegration(always_run=True),
             SqlalchemyIntegration(),
+            HttpxIntegration(),
+            ThreadingIntegration(),
         ],
     )
 )
