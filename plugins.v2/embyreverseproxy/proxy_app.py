@@ -1,12 +1,18 @@
 from asyncio import Lock, gather
 from contextlib import asynccontextmanager
 from hashlib import sha256
+from re import sub as re_sub
 from time import monotonic
 from urllib.parse import urlparse
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import (
+    JSONResponse,
+    RedirectResponse,
+    Response,
+    StreamingResponse,
+)
 from httpx import AsyncClient, Limits
 from websockets import connect
 
@@ -54,6 +60,8 @@ MEDIA_ROUTES = [
     "/sync/jobitems/{item_id}/file",
     "/emby/sync/jobitems/{item_id}/file",
 ]
+
+CROSS_ORIGIN_PATTERN = r"&&\s*\(elem\.crossOrigin\s*=\s*initialSubtitleStream\)"
 
 
 def create_app(emby_host: str) -> FastAPI:
@@ -168,16 +176,6 @@ def create_app(emby_host: str) -> FastAPI:
                 return resp
         return await _reverse_proxy(request)
 
-    def _is_browser(request: Request) -> bool:
-        """
-        判断请求是否来自浏览器（根据 User-Agent）。
-
-        :param request: 当前请求。
-        :return: 若 UA 包含常见浏览器标识则 True。
-        """
-        ua = (request.headers.get("user-agent") or "").lower()
-        return any(k in ua for k in ("mozilla", "chrome", "safari"))
-
     async def _resolve_redirect(
         client: AsyncClient, url: str, headers: dict[str, str]
     ) -> str:
@@ -195,44 +193,6 @@ def create_app(emby_host: str) -> FastAPI:
         except Exception:
             logger.warning("解析重定向失败，使用原始 URL: %s", url, exc_info=True)
             return url
-
-    async def _stream_remote(
-        url: str, request: Request
-    ) -> StreamingResponse | JSONResponse:
-        """
-        流式代理远程 URL 内容（用于浏览器客户端避免 CORS）。
-
-        :param url: 远程媒体 URL。
-        :param request: 当前请求。
-        :return: 流式响应或 502 JSON 错误。
-        """
-        headers = _build_forward_headers(request)
-        client = request.app.state.http_client_follow
-        try:
-            req = client.build_request(method=request.method, url=url, headers=headers)
-            resp = await client.send(req, stream=True)
-        except Exception:
-            logger.warning("流式代理远程 URL 失败: %s", url, exc_info=True)
-            return JSONResponse(
-                status_code=502,
-                content={"error": "Bad Gateway", "detail": f"无法连接: {url}"},
-            )
-
-        excluded = HOP_BY_HOP_HEADERS | {"content-encoding", "content-length"}
-        resp_headers = {
-            k: v for k, v in resp.headers.multi_items() if k.lower() not in excluded
-        }
-
-        async def stream():
-            try:
-                async for chunk in resp.aiter_bytes(chunk_size=65536):
-                    yield chunk
-            finally:
-                await resp.aclose()
-
-        return StreamingResponse(
-            stream(), status_code=resp.status_code, headers=resp_headers
-        )
 
     async def _try_media_response(
         item_id: str, api_key: str, request: Request
@@ -265,8 +225,6 @@ def create_app(emby_host: str) -> FastAPI:
                     except ValueError:
                         pass
         if cached_final_url is not None:
-            if _is_browser(request):
-                return await _stream_remote(cached_final_url, request)
             return RedirectResponse(url=cached_final_url, status_code=302)
 
         url = f"{emby_host}/Items/{item_id}/PlaybackInfo?X-Emby-Token={api_key}"
@@ -301,9 +259,6 @@ def create_app(emby_host: str) -> FastAPI:
                     cache[cache_key] = (final_url, expiry)
                     order.append(cache_key)
 
-                if _is_browser(request):
-                    logger.info("流式代理: item_id=%s -> %s", item_id, final_url)
-                    return await _stream_remote(final_url, request)
                 logger.info("302 重定向: item_id=%s -> %s", item_id, final_url)
                 return RedirectResponse(url=final_url, status_code=302)
         return None
@@ -523,6 +478,52 @@ def create_app(emby_host: str) -> FastAPI:
             stream(),
             status_code=resp.status_code,
             headers=resp_headers,
+        )
+
+    async def _patch_plugin_js(request: Request) -> JSONResponse | Response:
+        """
+        拦截 htmlvideoplayer/plugin.js，去除 crossOrigin 赋值，
+        使浏览器播放器在 302 重定向时不触发 CORS 预检。
+
+        :param request: 当前请求。
+        :return: 修补后的 JS 响应或 502 错误 JSON。
+        """
+        path = request.scope.get("path", "/")
+        qs = str(request.url.query)
+        target_url = f"{emby_host}{path}"
+        if qs:
+            target_url += f"?{qs}"
+        headers = _build_forward_headers(request)
+        client = request.app.state.http_client_follow
+        try:
+            resp = await client.get(target_url, headers=headers, timeout=15)
+        except Exception:
+            logger.warning("获取 plugin.js 失败: %s", target_url, exc_info=True)
+            return JSONResponse(status_code=502, content={"error": "Bad Gateway"})
+
+        content = resp.text
+        patched = re_sub(CROSS_ORIGIN_PATTERN, "", content)
+        if patched != content:
+            logger.info("已修补 plugin.js: 移除 crossOrigin 赋值")
+
+        excluded = HOP_BY_HOP_HEADERS | {"content-encoding", "content-length"}
+        resp_headers = {
+            k: v for k, v in resp.headers.multi_items() if k.lower() not in excluded
+        }
+        resp_headers["content-type"] = "application/javascript; charset=utf-8"
+
+        return Response(
+            content=patched.encode("utf-8"),
+            status_code=resp.status_code,
+            headers=resp_headers,
+        )
+
+    for _js_path in (
+        "/emby/web/modules/htmlvideoplayer/plugin.js",
+        "/web/modules/htmlvideoplayer/plugin.js",
+    ):
+        app.api_route(_js_path, methods=["GET", "HEAD"], response_model=None)(
+            _patch_plugin_js
         )
 
     @app.api_route(
