@@ -12,6 +12,7 @@ from oss2.models import PartInfo
 from oss2.utils import b64encode_as_string, SizedFileAdapter
 from p115center import P115Center, UploadInfo
 from p115client import P115Client, check_response
+from p115client.const import _CACHE_DIR
 
 from app.core.config import global_vars
 from app.log import logger
@@ -189,7 +190,9 @@ class P115DiskCore:
                 init_resp = None
                 init_max_retries = 3
                 init_retry_delay = 2
+                sig_invalid_handled = False
                 for init_attempt in range(init_max_retries):
+                    init_resp = None
                     try:
                         init_resp = self._p115_api.client.upload_file_init(
                             filename=target_name,
@@ -201,6 +204,19 @@ class P115DiskCore:
                         check_response(init_resp)
                         break
                     except Exception as e:
+                        if (
+                            not sig_invalid_handled
+                            and init_resp
+                            and isinstance(init_resp, dict)
+                            and init_resp.get("statusmsg") == "sig invalid"
+                        ):
+                            userkey_points_json = (
+                                _CACHE_DIR / "userkey_stable_points.json"
+                            )
+                            if userkey_points_json.exists():
+                                userkey_points_json.unlink(missing_ok=True)
+                            sig_invalid_handled = True
+                            continue
                         if init_attempt < init_max_retries - 1:
                             logger.warn(
                                 f"【P115Disk】初始化上传失败，"
