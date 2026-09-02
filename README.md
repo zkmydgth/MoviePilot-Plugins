@@ -54,15 +54,20 @@ https://github.com/zkmydgth/MoviePilot-Plugins
 | 版本 | v1.3.1 |
 | 标签 | 系统工具, 备份 |
 | 适用版本 | MoviePilot >= 2.0.0 |
+| 数据库要求 | MoviePilot 需使用 **PostgreSQL**（10+，含最新 18.x） |
 
 ### 功能特性
 
 - **定时自动备份**：按 cron 规则定期备份
 - **备份内容**：
-  - PostgreSQL 数据库（完整逻辑导出）
+  - PostgreSQL 数据库（完整逻辑导出，含表结构、数据、索引与序列）
   - 系统配置文件（app.env、category.yaml、user.db、cookies 等）
   - 插件配置与数据
   - 自定义附加路径（按清单回原路径还原）
+- **数据库要求说明**：
+  - 数据库备份/还原依赖 MoviePilot 以 PostgreSQL 运行（`DB_TYPE=postgresql`），插件直连主库导出，无需外部 `pg_dump` 工具
+  - 兼容 PostgreSQL 10 及以上版本（含 18.x），数据库大版本升级不影响备份与还原
+  - 若 MoviePilot 使用非 PostgreSQL（如 SQLite/MySQL），将自动跳过数据库备份与还原，仅备份配置与插件数据（还原时不回写数据库）
 - **保留清理**：仅保留最近 N 份备份，旧备份自动清理，避免磁盘膨胀
 - **两阶段确认还原**：选中备份 → 页面确认后执行还原，还原前自动先备份当前状态作为安全网，支持中途取消
 - **备份目录灵活配置**：支持下拉候选 + 自由输入
