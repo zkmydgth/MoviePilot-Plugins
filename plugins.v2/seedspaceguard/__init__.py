@@ -37,7 +37,7 @@ class SeedSpaceGuard(_PluginBase):
     plugin_name = "保种空间守护"
     plugin_desc = ("存储空间不足时自动清理保种目录中「保种最久」的资源（种子+文件），"
                    "避免 H&R。支持种子级删除与仅文件两种模式。")
-    plugin_version = "1.0.3"
+    plugin_version = "1.0.4"
     plugin_author = "zkmydgth"
     plugin_config_prefix = "seedspaceguard_"
     plugin_order = 100
@@ -156,6 +156,16 @@ class SeedSpaceGuard(_PluginBase):
             {
                 "component": "VForm",
                 "content": [
+                    {
+                        "component": "VAlert",
+                        "props": {
+                            "type": "info",
+                            "text": "使用说明：卷剩余空间低于阈值时，按「保种最久」优先自动清理下载目录中的资源，"
+                                    "直到空间恢复到阈值以上。种子级=删除下载器中最旧的已完成种子（连带文件）；"
+                                    "仅文件=只删文件（可配合源文件联动插件）。建议先试运行预览将删内容，确认后再正式启用；"
+                                    "清理目录本身不会被删除。",
+                        },
+                    },
                     {
                         "component": "VSelect",
                         "props": {
