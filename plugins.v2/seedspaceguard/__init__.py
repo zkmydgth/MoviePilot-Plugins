@@ -37,7 +37,7 @@ class SeedSpaceGuard(_PluginBase):
     plugin_name = "保种空间守护"
     plugin_desc = ("存储空间不足时自动清理保种目录中「保种最久」的资源（种子+文件），"
                    "避免 H&R。支持种子级删除与仅文件两种模式，可限定目标下载器。")
-    plugin_version = "1.0.5"
+    plugin_version = "1.0.6"
     plugin_author = "zkmydgth"
     plugin_config_prefix = "seedspaceguard_"
     plugin_order = 100
@@ -88,12 +88,16 @@ class SeedSpaceGuard(_PluginBase):
         ).strip()
         self._dry_run = bool(config.get("dry_run"))
         self._notify = bool(config.get("notify"))
-        # 目标下载器：逗号/空格分隔的下载器名，留空=全部已启用下载器
-        self._downloaders = [
-            item.strip()
-            for item in re.split(r"[,，;；\s]+", str(config.get("downloaders") or ""))
-            if item.strip()
-        ]
+        # 目标下载器：VSelect 多选保存为列表，也兼容逗号/空格分隔字符串；空=全部已启用下载器
+        raw_dl = config.get("downloaders")
+        if isinstance(raw_dl, list):
+            self._downloaders = [str(x).strip() for x in raw_dl if str(x).strip()]
+        else:
+            self._downloaders = [
+                item.strip()
+                for item in re.split(r"[,，;；\s]+", str(raw_dl or ""))
+                if item.strip()
+            ]
         self._last_result = ""
         self._running = False
         # 手动触发动作：选中后保存即执行一次，执行后自动复位，避免重复触发
@@ -158,8 +162,29 @@ class SeedSpaceGuard(_PluginBase):
             },
         ]
 
+    def _get_downloader_items(self) -> List[Dict[str, str]]:
+        """
+        读取 MoviePilot 已启用的下载器，生成下拉选项。
+
+        :return: VSelect items（title/value 对）
+        """
+        items: List[Dict[str, str]] = []
+        try:
+            from app.helper.service import ServiceConfigHelper
+            for conf in ServiceConfigHelper.get_downloader_configs() or []:
+                if not conf.enabled or not conf.name:
+                    continue
+                title = conf.name
+                if conf.type:
+                    title = f"{title}（{conf.type}）"
+                items.append({"title": title, "value": conf.name})
+        except Exception as err:
+            logger.error("【保种空间守护】读取下载器列表失败：%s", err)
+        return items
+
     def get_form(self) -> Tuple[Optional[List[dict]], Dict[str, Any]]:
         """返回插件配置表单与默认配置。"""
+        downloader_items = self._get_downloader_items()
         return [
             {
                 "component": "VForm",
@@ -223,12 +248,14 @@ class SeedSpaceGuard(_PluginBase):
                         },
                     },
                     {
-                        "component": "VTextField",
+                        "component": "VSelect",
                         "props": {
                             "model": "downloaders",
                             "label": "目标下载器（种子级模式）",
-                            "placeholder": "留空=全部",
-                            "hint": "多个用逗号分隔（如 qbit,tr）；留空表示处理 MoviePilot 中所有已启用下载器",
+                            "hint": "弹出选项卡多选；不选 = 处理所有已启用下载器",
+                            "multiple": True,
+                            "chips": True,
+                            "items": downloader_items,
                         },
                     },
                     {
@@ -787,6 +814,6 @@ class SeedSpaceGuard(_PluginBase):
             "protect_pattern": "*.part|*.!qb|*.download|*.aria2|*.tmp|*.crdownload",
             "dry_run": False,
             "notify": True,
-            "downloaders": "",
+            "downloaders": [],
             "manual_action": "",
         }
