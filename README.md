@@ -37,6 +37,9 @@ https://github.com/zkmydgth/MoviePilot-Plugins
 
 ### 更新历史
 
+<details>
+<summary>📜 点击展开更新记录</summary>
+
 | 版本 | 说明 |
 | --- | --- |
 | v1.0.0 | 初始版本：空间阈值触发、种子级（qB/TR 按添加时间删种子+文件）、仅文件模式、cron 定时、手动触发、试运行与通知 |
@@ -46,6 +49,8 @@ https://github.com/zkmydgth/MoviePilot-Plugins
 | v1.0.4 | 插件详情页新增简略使用说明（清理逻辑/模式/试运行提示） |
 | v1.0.5 | 新增「目标下载器」配置：种子级模式可限定处理 qbit/tr（逗号分隔，留空=全部），表单使用说明同步更新 |
 | v1.0.6 | 「目标下载器」改为下拉多选：自动读取 mp 已启用下载器弹出选项卡勾选（不选=全部），兼容旧字符串配置 |
+
+</details>
 
 ---
 
@@ -79,6 +84,9 @@ https://github.com/zkmydgth/MoviePilot-Plugins
 
 ### 更新历史
 
+<details>
+<summary>📜 点击展开更新记录</summary>
+
 | 版本 | 说明 |
 | --- | --- |
 | v1.0.0 | 初始版本 |
@@ -86,6 +94,8 @@ https://github.com/zkmydgth/MoviePilot-Plugins
 | v1.3.0 | 备份目录改为下拉选择+自由输入，修复按钮认证参数 |
 | v1.3.1 | 修正插件作者显示为 zkmydgth |
 | v1.3.2 | 插件详情页新增简略使用说明（含 PostgreSQL 数据库要求提醒） |
+
+</details>
 
 ---
 
