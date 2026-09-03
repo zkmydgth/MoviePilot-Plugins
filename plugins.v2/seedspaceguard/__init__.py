@@ -36,8 +36,8 @@ class SeedSpaceGuard(_PluginBase):
     # 插件元数据
     plugin_name = "保种空间守护"
     plugin_desc = ("存储空间不足时自动清理保种目录中「保种最久」的资源（种子+文件），"
-                   "避免 H&R。支持种子级删除与仅文件两种模式。")
-    plugin_version = "1.0.4"
+                   "避免 H&R。支持种子级删除与仅文件两种模式，可限定目标下载器。")
+    plugin_version = "1.0.5"
     plugin_author = "zkmydgth"
     plugin_config_prefix = "seedspaceguard_"
     plugin_order = 100
@@ -54,6 +54,7 @@ class SeedSpaceGuard(_PluginBase):
     _protect_pattern: str = "*.part|*.!qb|*.download|*.aria2|*.tmp|*.crdownload"
     _dry_run: bool = False
     _notify: bool = True
+    _downloaders: List[str] = []
     _running: bool = False
     _last_result: str = ""
     _lock: threading.Lock = threading.Lock()
@@ -71,6 +72,7 @@ class SeedSpaceGuard(_PluginBase):
         self._protect_pattern = "*.part|*.!qb|*.download|*.aria2|*.tmp|*.crdownload"
         self._dry_run = False
         self._notify = True
+        self._downloaders = []
         if not config:
             return
         self._enabled = bool(config.get("enabled"))
@@ -86,6 +88,12 @@ class SeedSpaceGuard(_PluginBase):
         ).strip()
         self._dry_run = bool(config.get("dry_run"))
         self._notify = bool(config.get("notify"))
+        # 目标下载器：逗号/空格分隔的下载器名，留空=全部已启用下载器
+        self._downloaders = [
+            item.strip()
+            for item in re.split(r"[,，;；\s]+", str(config.get("downloaders") or ""))
+            if item.strip()
+        ]
         self._last_result = ""
         self._running = False
         # 手动触发动作：选中后保存即执行一次，执行后自动复位，避免重复触发
@@ -169,7 +177,8 @@ class SeedSpaceGuard(_PluginBase):
                                             "type": "info",
                                             "variant": "tonal",
                                             "text": "使用说明：卷剩余空间低于阈值时，按「保种最久」优先自动清理下载目录中的资源，"
-                                                    "直到空间恢复到阈值以上。种子级=删除下载器中最旧的已完成种子（连带文件）；"
+                                                    "直到空间恢复到阈值以上。种子级=删除下载器中最旧的已完成种子（连带文件，"
+                                                    "可用下方「目标下载器」限定范围，留空=全部）；"
                                                     "仅文件=只删文件（可配合源文件联动插件）。建议先试运行预览将删内容，确认后再正式启用；"
                                                     "清理目录本身不会被删除。",
                                         },
@@ -211,6 +220,15 @@ class SeedSpaceGuard(_PluginBase):
                                 {"title": "种子级（推荐）", "value": "seed"},
                                 {"title": "仅文件", "value": "file"},
                             ],
+                        },
+                    },
+                    {
+                        "component": "VTextField",
+                        "props": {
+                            "model": "downloaders",
+                            "label": "目标下载器（种子级模式）",
+                            "placeholder": "留空=全部",
+                            "hint": "多个用逗号分隔（如 qbit,tr）；留空表示处理 MoviePilot 中所有已启用下载器",
                         },
                     },
                     {
@@ -575,6 +593,9 @@ class SeedSpaceGuard(_PluginBase):
                     logger.error("【保种空间守护】读取下载器实例失败：%s", err)
                     continue
                 for name, server in instances.items():
+                    # 仅处理配置选定的目标下载器（空=全部）
+                    if self._downloaders and name not in self._downloaders:
+                        continue
                     try:
                         ret = server.get_torrents()
                     except Exception as err:
@@ -766,5 +787,6 @@ class SeedSpaceGuard(_PluginBase):
             "protect_pattern": "*.part|*.!qb|*.download|*.aria2|*.tmp|*.crdownload",
             "dry_run": False,
             "notify": True,
+            "downloaders": "",
             "manual_action": "",
         }
