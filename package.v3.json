@@ -1,0 +1,215 @@
+{
+    "P115Disk": {
+        "name": "115网盘储存",
+        "description": "更快更强的115网盘存储模块。",
+        "labels": "云盘",
+        "version": "3.0.1",
+        "release": true,
+        "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png",
+        "author": "DDSRem",
+        "system_version": ">=3.0.0",
+        "level": 1,
+        "history": {
+            "v3.0.1": "修复清理缓存响应并适配 V3 存储管理接口",
+            "v3.0.0": "适配 MoviePilot V3 SDK 与插件依赖清单"
+        }
+    },
+    "P123Disk": {
+        "name": "123云盘储存",
+        "description": "使存储支持123云盘。",
+        "labels": "云盘",
+        "version": "3.0.1",
+        "release": true,
+        "icon": "https://raw.githubusercontent.com/DDSRem-Dev/MoviePilot-Plugins/main/icons/P123Disk.png",
+        "author": "DDSRem",
+        "system_version": ">=3.0.0",
+        "level": 1,
+        "history": {
+            "v3.0.1": "适配 V3 存储管理接口并修复复制移动兼容性",
+            "v3.0.0": "适配 MoviePilot V3 SDK 与插件依赖清单"
+        }
+    },
+    "P123StrmHelper": {
+        "name": "123云盘STRM助手",
+        "description": "123云盘STRM生成一条龙服务",
+        "labels": "云盘",
+        "version": "3.0.0",
+        "release": true,
+        "icon": "https://raw.githubusercontent.com/DDSRem-Dev/MoviePilot-Plugins/main/icons/P123Disk.png",
+        "author": "DDSRem",
+        "system_version": ">=3.0.0",
+        "level": 1,
+        "history": {
+            "v3.0.0": "适配 MoviePilot V3 SDK 与插件依赖清单"
+        }
+    },
+    "CloudDriveDisk": {
+        "name": "CloudDrive2储存",
+        "description": "使存储支持 CloudDrive2，grpc 原生 API 操作。",
+        "labels": "云盘",
+        "version": "3.0.1",
+        "release": true,
+        "icon": "Cloudrive_A.png",
+        "author": "DDSRem",
+        "system_version": ">=3.0.0",
+        "level": 1,
+        "history": {
+            "v3.0.1": "适配 MoviePilot V3 存储管理接口",
+            "v3.0.0": "适配 MoviePilot V3 SDK 与插件依赖清单"
+        }
+    },
+    "CCTVDiscover": {
+        "name": "CCTV探索",
+        "description": "让探索支持CCTV的数据浏览。",
+        "labels": "探索",
+        "version": "3.0.0",
+        "release": true,
+        "icon": "https://raw.githubusercontent.com/DDSRem-Dev/MoviePilot-Plugins/main/icons/CCTV_A.png",
+        "author": "DDSRem",
+        "system_version": ">=3.0.0",
+        "level": 1,
+        "history": {
+            "v3.0.0": "适配 MoviePilot V3 SDK、探索源与媒体身份契约"
+        }
+    },
+    "MiGuDiscover": {
+        "name": "咪咕视频探索",
+        "description": "让探索支持咪咕视频的数据浏览。",
+        "labels": "探索",
+        "version": "3.0.0",
+        "release": true,
+        "icon": "https://raw.githubusercontent.com/DDSRem-Dev/MoviePilot-Plugins/main/icons/migu_A.png",
+        "author": "DDSRem",
+        "system_version": ">=3.0.0",
+        "level": 1,
+        "history": {
+            "v3.0.0": "适配 MoviePilot V3 SDK、探索源与媒体身份契约"
+        }
+    },
+    "BilibiliDiscover": {
+        "name": "哔哩哔哩探索",
+        "description": "让探索支持哔哩哔哩的数据浏览。",
+        "labels": "探索",
+        "version": "3.0.0",
+        "release": true,
+        "icon": "Bilibili_E.png",
+        "author": "DDSRem",
+        "system_version": ">=3.0.0",
+        "level": 1,
+        "history": {
+            "v3.0.0": "适配 MoviePilot V3 SDK、探索源与媒体身份契约"
+        }
+    },
+    "BangumiDailyDiscover": {
+        "name": "Bangumi每日放送探索",
+        "description": "让探索支持Bangumi每日放送的数据浏览。",
+        "labels": "探索",
+        "version": "3.0.0",
+        "release": true,
+        "icon": "Bangumi_A.png",
+        "author": "DDSRem",
+        "system_version": ">=3.0.0",
+        "level": 1,
+        "history": {
+            "v3.0.0": "适配 MoviePilot V3 SDK、探索源与媒体身份契约"
+        }
+    },
+    "MangGuoDiscover": {
+        "name": "芒果TV探索",
+        "description": "让探索支持芒果TV的数据浏览。",
+        "labels": "探索",
+        "version": "3.0.0",
+        "release": true,
+        "icon": "https://raw.githubusercontent.com/DDSRem-Dev/MoviePilot-Plugins/main/icons/mangguo_A.jpg",
+        "author": "DDSRem",
+        "system_version": ">=3.0.0",
+        "level": 1,
+        "history": {
+            "v3.0.0": "适配 MoviePilot V3 SDK、探索源与媒体身份契约"
+        }
+    },
+    "TencentVideoDiscover": {
+        "name": "腾讯视频探索",
+        "description": "让探索支持腾讯视频的数据浏览。",
+        "labels": "探索",
+        "version": "3.0.0",
+        "release": true,
+        "icon": "https://raw.githubusercontent.com/DDSRem-Dev/MoviePilot-Plugins/main/icons/tencentvideo_A.png",
+        "author": "DDSRem",
+        "system_version": ">=3.0.0",
+        "level": 1,
+        "history": {
+            "v3.0.0": "适配 MoviePilot V3 SDK、探索源与媒体身份契约"
+        }
+    },
+    "EmbyReverseProxy": {
+        "name": "Emby 302 反向代理",
+        "description": "Emby 302 反向代理，自动代理 HTTP 链接，跳转最终地址，支持外部播放器调用。",
+        "labels": "云盘,媒体",
+        "version": "3.0.0",
+        "release": true,
+        "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/refs/heads/main/icons/Emby_A.png",
+        "author": "DDSRem",
+        "system_version": ">=3.0.0",
+        "level": 1,
+        "history": {
+            "v3.0.0": "适配 MoviePilot V3 SDK 与插件依赖清单"
+        }
+    },
+    "FFprobeNamingSupplement": {
+        "name": "ffprobe命名补充",
+        "description": "整理重命名时调用 ffprobe，统一补全视频及关联字幕、音轨的媒体参数，支持 STRM",
+        "labels": "整理",
+        "version": "3.0.0",
+        "release": true,
+        "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/refs/heads/main/icons/ffmpeg.png",
+        "author": "DDSRem",
+        "system_version": ">=3.0.0",
+        "level": 1,
+        "history": {
+            "v3.0.0": "适配 MoviePilot V3 SDK 与整理重命名事件契约"
+        }
+    },
+    "P115SubFixer": {
+        "name": "115订阅站点修复",
+        "description": "修复115网盘订阅追更插件导致的订阅站点被篡改问题，并自动卸载该插件",
+        "labels": "修复",
+        "version": "3.0.0",
+        "release": true,
+        "icon": "https://raw.githubusercontent.com/DDSRem-Dev/MoviePilot-Plugins/main/icons/cloud.png",
+        "author": "DDSRem",
+        "system_version": ">=3.0.0",
+        "level": 1,
+        "history": {
+            "v3.0.0": "适配 MoviePilot V3 数据库与插件运行时契约"
+        }
+    },
+    "SaMediaSyncDel": {
+        "name": "神医媒体文件同步删除",
+        "description": "通过神医插件通知同步删除历史记录、源文件和下载任务。",
+        "labels": "媒体库,文件整理",
+        "version": "3.0.0",
+        "release": true,
+        "icon": "mediasyncdel.png",
+        "author": "DDSRem",
+        "system_version": ">=3.0.0",
+        "level": 1,
+        "history": {
+            "v3.0.0": "适配 MoviePilot V3 SDK、数据库与统一媒体身份契约"
+        }
+    },
+    "P115StrmHelper": {
+        "name": "115网盘STRM助手",
+        "description": "115网盘STRM生成一条龙服务",
+        "labels": "云盘",
+        "version": "3.0.0",
+        "release": true,
+        "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png",
+        "author": "DDSRem",
+        "system_version": ">=3.0.0",
+        "level": 1,
+        "history": {
+            "v3.0.0": "适配 MoviePilot V3 SDK 与插件依赖清单"
+        }
+    }
+}
