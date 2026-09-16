@@ -37,7 +37,7 @@ class SeedSpaceGuard(_PluginBase):
     plugin_name = "保种空间守护"
     plugin_desc = ("存储空间不足时自动清理保种目录中「保种最久」的资源（种子+文件），"
                    "避免 H&R。支持种子级删除与仅文件两种模式，可限定目标下载器。")
-    plugin_version = "1.0.8"
+    plugin_version = "1.0.9"
     plugin_author = "zkmydgth"
     plugin_config_prefix = "seedspaceguard_"
     plugin_order = 100
@@ -52,6 +52,12 @@ class SeedSpaceGuard(_PluginBase):
     _recent_skip_days: int = 1
     _mode: str = "seed"
     _protect_pattern: str = "*.part|*.!qb|*.download|*.aria2|*.tmp|*.crdownload"
+
+    # Synology DSM 媒体索引目录与其中的元数据文件（删除真实文件后不会自动回收，
+    # 会阻止父目录 rmdir，需按白名单甄别后清理，避免误删 @eaDir 下的用户数据）
+    _SYNO_META_DIR: str = "@eaDir"
+    _SYNO_META_FILE_PREFIXES: Tuple[str, ...] = ("SYNOINDEX", "SYNO_", "SYNOFILE", "THUMB")
+    _SYNO_META_FILES: Tuple[str, ...] = ("Thumbs.db", ".DS_Store")
     _dry_run: bool = False
     _notify: bool = True
     _downloaders: List[str] = []
@@ -91,6 +97,14 @@ class SeedSpaceGuard(_PluginBase):
         ).strip()
         self._dry_run = bool(config.get("dry_run"))
         self._notify = bool(config.get("notify"))
+        # 联动释放等待秒数：0~1800，默认 90
+        raw_wait = config.get("sync_wait_seconds")
+        try:
+            self._sync_wait_seconds = (
+                max(0, min(1800, int(raw_wait))) if raw_wait not in (None, "") else 90
+            )
+        except (TypeError, ValueError):
+            self._sync_wait_seconds = 90
         # 目标下载器：VSelect 多选保存为列表，也兼容逗号/空格分隔字符串；空=全部已启用下载器
         raw_dl = config.get("downloaders")
         if isinstance(raw_dl, list):
@@ -205,12 +219,14 @@ class SeedSpaceGuard(_PluginBase):
                                             "type": "info",
                                             "variant": "tonal",
                                             "text": "使用说明：卷剩余空间低于阈值时，按「保种最久」优先自动清理下载目录中的资源，"
-                                                    "直到空间恢复到阈值以上。删除前会先按缺口预选清单，删除后等待约 90 秒"
+                                                    "直到空间恢复到阈值以上。删除前会先按缺口预选清单，删除后等待指定秒数"
+                                                    "（默认 90 秒，见下方「联动释放等待秒数」）"
                                                     "让「源文件联动清理」等插件释放媒体库侧硬链接，再复核空间（不会因空间释放"
                                                     "滞后而一次性过量删除）。种子级=删除下载器中最旧的已完成种子（连带文件，"
                                                     "可用下方「目标下载器」限定范围，留空=全部）；"
                                                     "仅文件=只删文件（可配合源文件联动插件）。建议先试运行预览将删内容，确认后再正式启用；"
-                                                    "清理目录本身不会被删除。",
+                                                    "清理目录本身不会被删除。删除后还会顺带清理 Synology 在 @eaDir 下遗留的"
+                                                    "媒体索引残片，避免出现「仅剩 @eaDir」的空壳目录。",
                                         },
                                     }
                                 ],
@@ -306,6 +322,16 @@ class SeedSpaceGuard(_PluginBase):
                             "label": "定时检查规则（cron）",
                             "placeholder": "0 */6 * * *",
                             "hint": "默认每 6 小时检查一次",
+                        },
+                    },
+                    {
+                        "component": "VTextField",
+                        "props": {
+                            "model": "sync_wait_seconds",
+                            "label": "联动释放等待秒数",
+                            "placeholder": "90",
+                            "hint": "真实删除后等待「源文件联动清理」等插件释放媒体库侧硬链接的秒数，"
+                                    "再复核空间；默认 90，可填 0-1800（0=不等待）",
                         },
                     },
                     {
@@ -838,6 +864,8 @@ class SeedSpaceGuard(_PluginBase):
     def _prune_empty_dirs(self, file_or_dir: str) -> None:
         """
         自底向上清理删除后遗留的空目录，直到清理目录（target_dir）为止。
+        - 每层先清理 @eaDir 中「已无对应真实文件」的 DSM 索引残片：Synology 不会
+          自动回收这些残片，会阻止父目录 rmdir，留下「仅剩 @eaDir」的空壳目录
         - 只删除空目录（os.rmdir 语义，非空目录会抛 OSError 自动停止）
         - 不删除 target_dir 本身
         - 目录已不存在（如下载器删除种子时已顺带清理）则继续向上
@@ -848,15 +876,104 @@ class SeedSpaceGuard(_PluginBase):
         start = file_or_dir if os.path.isdir(file_or_dir) else os.path.dirname(file_or_dir)
         current = os.path.normpath(start or "")
         while current and current != target and current.startswith(target + os.sep):
+            # 先清 DSM 索引残片，否则仅剩 @eaDir 的目录永远无法 rmdir
+            self._purge_syno_index(current)
             try:
                 os.rmdir(current)
             except FileNotFoundError:
                 # 目录已被其他进程删除，继续向上清理父级
                 pass
             except OSError:
-                # 目录非空或删除失败（如含 @eaDir 子目录），停止向上清理
+                # 目录仍有内容（未删除文件或不可清理的残片），停止向上清理
                 break
             current = os.path.dirname(current)
+        # 目标目录本身不删除，但其内部的索引残片同样会长期堆积，需一并清理
+        # （仅在目标目录之外无须处理时仍会执行；超出 target_dir 的路径不动）
+        start_path = os.path.normpath(start or "")
+        if start_path == target or start_path.startswith(target + os.sep):
+            self._purge_syno_index(target)
+
+    # ---------------------- DSM 索引残片清理 ----------------------
+
+    def _purge_syno_index(self, dir_path: str) -> int:
+        """
+        清理目录内 @eaDir 中已失去对应真实文件的 DSM 媒体索引残片。
+
+        Synology 会为媒体文件在 @eaDir 下创建「同名子目录 + SYNOINDEX_MEDIA_INFO」，
+        且不随原文件删除自动回收，会导致父目录长期非空、无法 rmdir。
+
+        :param dir_path: 待清理目录
+        :return: 清理的条目数
+        """
+        if not dir_path:
+            return 0
+        ea_dir = os.path.join(dir_path, self._SYNO_META_DIR)
+        if not os.path.isdir(ea_dir):
+            return 0
+        try:
+            entries = os.listdir(ea_dir)
+        except OSError:
+            return 0
+        removed = 0
+        for entry in entries:
+            if entry == self._SYNO_META_DIR:
+                continue
+            # 真实文件仍在 → 保留其索引，避免误删仍在保种内容的元数据
+            if os.path.exists(os.path.join(dir_path, entry)):
+                continue
+            entry_path = os.path.join(ea_dir, entry)
+            if not self._is_syno_meta_tree(entry_path):
+                logger.debug("【保种空间守护】跳过非 DSM 索引残片：%s", entry_path)
+                continue
+            try:
+                if os.path.isdir(entry_path) and not os.path.islink(entry_path):
+                    shutil.rmtree(entry_path)
+                else:
+                    os.remove(entry_path)
+                removed += 1
+            except OSError as err:
+                logger.warning("【保种空间守护】清理 DSM 索引残片 %s 失败：%s", entry_path, err)
+        # 索引目录已空则一并删除，父目录才能继续向上清理
+        try:
+            if os.path.isdir(ea_dir) and not os.listdir(ea_dir):
+                os.rmdir(ea_dir)
+        except OSError:
+            pass
+        if removed:
+            logger.info("【保种空间守护】已清理 %d 项 DSM 索引残片：%s", removed, ea_dir)
+        return removed
+
+    def _is_syno_meta_tree(self, path: str) -> bool:
+        """
+        判断路径是否为 DSM 自动生成的媒体索引残片（内部只含 SYNOINDEX 等元数据文件）。
+
+        只认可白名单内的元数据文件，任一无关键都会让整个条目被保留，
+        避免误删 @eaDir 下可能存在的用户数据。
+
+        :param path: 待判断路径
+        :return: 是否可安全删除
+        """
+        if os.path.isdir(path) and not os.path.islink(path):
+            for _root, _dirs, fnames in os.walk(path):
+                for fname in fnames:
+                    if not self._is_syno_meta_file(fname):
+                        return False
+            return True
+        return self._is_syno_meta_file(os.path.basename(path))
+
+    def _is_syno_meta_file(self, name: str) -> bool:
+        """
+        判断文件名是否为 DSM 媒体索引元数据文件。
+
+        :param name: 文件名
+        :return: 是否为 DSM 索引文件
+        """
+        if not name:
+            return False
+        if name in self._SYNO_META_FILES:
+            return True
+        upper = name.upper()
+        return any(upper.startswith(prefix) for prefix in self._SYNO_META_FILE_PREFIXES)
 
     @staticmethod
     def _path_under(path: str, target_dir: str) -> bool:
@@ -895,6 +1012,7 @@ class SeedSpaceGuard(_PluginBase):
             "threshold_gb": 500,
             "recent_skip_days": 1,
             "cron": "0 */6 * * *",
+            "sync_wait_seconds": 90,
             "protect_pattern": "*.part|*.!qb|*.download|*.aria2|*.tmp|*.crdownload",
             "dry_run": False,
             "notify": True,
