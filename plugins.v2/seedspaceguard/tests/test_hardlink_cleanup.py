@@ -12,6 +12,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 import tests  # noqa: F401  触发宿主桩路径注入
 
@@ -533,6 +534,118 @@ class TestPruneEmptyDirs(_FixtureBase):
         self.plugin._prune_empty_dirs(os.path.join(nested, "a.mkv"))
 
         self.assertTrue(os.path.exists(nested), "配置外目录不应被动")
+
+
+class TestHardlinkNoticeWording(_FixtureBase):
+    """
+    硬链接提示文案：必须说明「路径条数」而非「硬链接处数」。
+
+    背景：用户看到「含 2 处硬链接」时无法判断是"共 2 个文件"还是"3 个文件
+    其中 2 个是硬链接"。根因是文案用路径计数（``len(ino_paths[(dev, ino)])``）
+    却措辞成"处硬链接"——而术语上"硬链接数"通常指额外引用数。
+
+    因此这里锁定两点：
+    1. 必须出现「条路径」字样，且不得再出现「处硬链接」
+    2. 路径条数必须真实反映同一 inode 在配置目录内的路径总数
+    """
+
+    def _clean(self, dry_run, dirs, free_seq):
+        """驱动 ``_clean_by_file``，返回结果消息。"""
+        self.activate(dirs)
+        self.plugin._threshold_gb = 5000
+        self.plugin._mode = "file"
+        self.plugin._sync_wait_seconds = 0
+        self.plugin._recent_skip_days = 1
+        self.plugin._dry_run = False
+        self.plugin._volume_path = self.base
+
+        with mock.patch.object(
+            SeedSpaceGuard, "_disk_free_bytes", side_effect=free_seq
+        ):
+            return self.plugin._clean_by_file(1 * GIB, dry_run=dry_run)
+
+    def make_big_file(self, path, size_gb=1.0, age_days=30):
+        """构造 GB 级稀疏文件（占位不占盘），用于让提示里的占用显示为非零。"""
+        with open(path, "wb") as handle:
+            handle.truncate(int(size_gb * GIB))
+        stamp = time.time() - age_days * 86400
+        os.utime(path, (stamp, stamp))
+        return path
+
+    # ------------------------------------------------------------------
+    def test_dry_run_wording_two_paths(self):
+        """试运行：两条路径时应提示「2 条路径」并给出占用空间。"""
+        src = self.make_big_file(os.path.join(self.dl, "movie.mkv"), 1.0)
+        os.link(src, os.path.join(self.lib, "movie.mkv"))
+        self.plugin._protect_pattern = ""
+
+        _count, _released, details = self._clean(
+            True, [self.dl, self.lib], [1 * GIB]
+        )
+
+        line = details[0]
+        self.assertIn("2 条路径", line, f"应说明路径条数，实际：{line}")
+        self.assertNotIn("处硬链接", line, f"旧措辞「处硬链接」必须消失：{line}")
+        # 同一 inode 只占一份空间，提示里给出的占用不应翻倍
+        self.assertIn("共占 1.0GB", line, f"应给出实际占用（不翻倍），实际：{line}")
+
+    def test_real_delete_wording_other_paths(self):
+        """真实删除：应提示「连同其余 N 条路径一并删除」。"""
+        src = self.make_big_file(os.path.join(self.dl, "movie.mkv"), 1.0)
+        os.link(src, os.path.join(self.lib, "movie.mkv"))
+        self.plugin._protect_pattern = ""
+
+        _count, _released, details = self._clean(
+            False, [self.dl, self.lib], [1 * GIB, 10 * GIB, 10 * GIB]
+        )
+
+        line = details[0]
+        self.assertIn("已删除文件", line)
+        expect = "连同其余 1 条路径一并删除"
+        self.assertIn(expect, line, f"应说明其余路径条数，实际：{line}")
+        self.assertNotIn("处硬链接", line, f"旧措辞「处硬链接」必须消失：{line}")
+        self.assertFalse(os.path.exists(src), "硬链接两侧都应被删除")
+
+    def test_single_path_has_no_notice(self):
+        """仅一条路径时不应附加任何硬链接提示（避免噪音）。"""
+        self.make_big_file(os.path.join(self.dl, "solo.mkv"), 1.0)
+        self.plugin._protect_pattern = ""
+
+        _count, _released, details = self._clean(True, [self.dl], [1 * GIB])
+
+        line = details[0]
+        self.assertNotIn("条路径", line, f"单路径不应提示，实际：{line}")
+        self.assertNotIn("硬链接", line, f"单路径不应提示，实际：{line}")
+
+    def test_three_paths_counted_correctly(self):
+        """三条路径（三目录）时应提示「3 条路径」。"""
+        src = self.make_big_file(os.path.join(self.dl, "tri.mkv"), 2.0)
+        os.link(src, os.path.join(self.lib, "tri.mkv"))
+        os.link(src, os.path.join(self.other, "tri.mkv"))
+        self.plugin._protect_pattern = ""
+
+        _count, _released, details = self._clean(
+            True, [self.dl, self.lib, self.other], [1 * GIB]
+        )
+
+        line = details[0]
+        self.assertIn("3 条路径", line, f"应说明 3 条路径，实际：{line}")
+        self.assertIn("共占 2.0GB", line, f"占用仍为单份，实际：{line}")
+
+    def test_no_legacy_wording_anywhere(self):
+        """全量扫描：整个试运行清单都不得再出现旧措辞。"""
+        src = self.make_big_file(os.path.join(self.dl, "a.mkv"), 1.0)
+        os.link(src, os.path.join(self.lib, "a.mkv"))
+        self.make_big_file(os.path.join(self.dl, "b.mkv"), 1.0)
+        self.plugin._protect_pattern = ""
+
+        _count, _released, details = self._clean(
+            True, [self.dl, self.lib], [1 * GIB]
+        )
+
+        joined = "\n".join(details)
+        msg = f"清单中残留旧措辞：\n{joined}"
+        self.assertNotIn("处硬链接", joined, msg)
 
 
 if __name__ == "__main__":
