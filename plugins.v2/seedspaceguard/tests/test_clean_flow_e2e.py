@@ -486,17 +486,14 @@ class TestLinkageIntegration(_E2EBase):
         self.plugin._transferhis = TransferHistoryOper()
         self.plugin._delete_torrents = False
         self.plugin._delete_history = False
-        self.plugin._delete_scrap_infos = False
 
     def test_linkage_triggered_in_real_clean(self):
         """真实删除流程结束后应自动执行联动清理。"""
         media = self.make_file(os.path.join(self.dl, "阿凡达.mkv"), 2 * 1024 * 1024, 30)
-        scrap = self.make_file(os.path.join(self.dl, "阿凡达.nfo"), 1, 30)
         TransferHistoryOper.add_record(11, "/src/阿凡达.mkv", media)
         DownloadHistoryOper.add_seed("HASH-E2E", [media])
 
         self.configure([self.dl], threshold=5000, sync_wait=0)
-        self.plugin._delete_scrap_infos = True
         self.plugin._delete_history = True
         self.plugin._delete_torrents = True
 
@@ -507,23 +504,19 @@ class TestLinkageIntegration(_E2EBase):
                 1 * GIB, dry_run=False
             )
 
-        # 文件与刮削均被清理
+        # 文件被清理
         self.assertFalse(os.path.exists(media))
-        self.assertFalse(os.path.exists(scrap))
         # 转移记录被删除
         self.assertEqual(TransferHistoryOper.deleted_ids, [11])
         # 该种子文件已全部删除 → 触发了删种
         patched.assert_called_once()
         self.assertEqual(patched.call_args.args[0], "HASH-E2E")
         # 明细中应出现联动条目
-        joined = "\n".join(details)
-        self.assertIn("刮削产物", joined)
-        self.assertIn("转移记录", joined)
+        self.assertIn("转移记录", "\n".join(details))
 
     def test_linkage_off_keeps_everything(self):
         """开关全关时，删除文件不得产生任何联动副作用。"""
         media = self.make_file(os.path.join(self.dl, "阿凡达.mkv"), 2 * 1024 * 1024, 30)
-        scrap = self.make_file(os.path.join(self.dl, "阿凡达.nfo"), 1, 30)
         TransferHistoryOper.add_record(12, "/src/阿凡达.mkv", media)
         DownloadHistoryOper.add_seed("HASH-OFF", [media])
 
@@ -536,19 +529,17 @@ class TestLinkageIntegration(_E2EBase):
             )
 
         self.assertFalse(os.path.exists(media), "媒体文件应被删除")
-        self.assertTrue(os.path.exists(scrap), "开关关闭时刮削不应被清理")
+        # 联动开关全关 → 不删记录、不删种
         self.assertEqual(TransferHistoryOper.deleted_ids, [])
         patched.assert_not_called()
 
     def test_linkage_skipped_in_dry_run(self):
         """试运行不得触发任何联动（真删才联动）。"""
         media = self.make_file(os.path.join(self.dl, "阿凡达.mkv"), 2 * 1024 * 1024, 30)
-        scrap = self.make_file(os.path.join(self.dl, "阿凡达.nfo"), 1, 30)
         TransferHistoryOper.add_record(13, "/src/阿凡达.mkv", media)
         DownloadHistoryOper.add_seed("HASH-DRY", [media])
 
         self.configure([self.dl], threshold=5000, sync_wait=0)
-        self.plugin._delete_scrap_infos = True
         self.plugin._delete_history = True
         self.plugin._delete_torrents = True
 
@@ -558,7 +549,6 @@ class TestLinkageIntegration(_E2EBase):
             self.plugin._clean_by_file(1 * GIB, dry_run=True)
 
         self.assertTrue(os.path.exists(media))
-        self.assertTrue(os.path.exists(scrap))
         self.assertEqual(TransferHistoryOper.deleted_ids, [])
         patched.assert_not_called()
 
@@ -585,6 +575,58 @@ class TestLinkageIntegration(_E2EBase):
         self.assertFalse(os.path.exists(old), "旧文件应被删除")
         self.assertTrue(os.path.exists(recent), "保护期内文件应保留")
         patched.assert_not_called()
+
+
+class TestProtectPatternIntegration(_E2EBase):
+    """
+    「保护文件后缀」的端到端验证。
+
+    走 ``_clean_by_file`` 的真实解析路径（``_protect_pattern`` 字符串 →
+    pattern 列表），确保**每个**后缀都生效。若解析只取第一个 pattern，
+    后续后缀会静默失效，导致下载中的临时文件被误删。
+    """
+
+    def test_all_protect_patterns_effective(self):
+        """配置字符串中的每个后缀都必须真正挡住文件。"""
+        # 视频文件（可删）与各类受保护的临时文件
+        media = self.make_file(os.path.join(self.dl, "movie.mkv"),
+                               2 * 1024 * 1024, 30)
+        guarded = [
+            self.make_file(os.path.join(self.dl, name), 1, 30)
+            for name in ("a.part", "b.!qb", "c.download",
+                         "d.aria2", "e.tmp", "f.crdownload")
+        ]
+        self.configure([self.dl], threshold=5000, sync_wait=0)
+        self.plugin._protect_pattern = (
+            "*.part|*.!qb|*.download|*.aria2|*.tmp|*.crdownload"
+        )
+
+        with self.patch_free([1 * GIB, 10 * GIB, 10 * GIB]):
+            _count, _released, _details = self.plugin._clean_by_file(
+                1 * GIB, dry_run=False
+            )
+
+        self.assertFalse(os.path.exists(media), "普通视频应被删除")
+        for path in guarded:
+            self.assertTrue(
+                os.path.exists(path),
+                f"受保护文件被误删：{os.path.basename(path)}"
+                f"（保护后缀未全部生效）",
+            )
+
+    def test_comma_separated_protect_pattern(self):
+        """逗号分隔的保护后缀同样必须全部生效。"""
+        media = self.make_file(os.path.join(self.dl, "movie.mkv"),
+                               2 * 1024 * 1024, 30)
+        guard = self.make_file(os.path.join(self.dl, "x.tmp"), 1, 30)
+        self.configure([self.dl], threshold=5000, sync_wait=0)
+        self.plugin._protect_pattern = "*.part,*.tmp"
+
+        with self.patch_free([1 * GIB, 10 * GIB, 10 * GIB]):
+            self.plugin._clean_by_file(1 * GIB, dry_run=False)
+
+        self.assertFalse(os.path.exists(media))
+        self.assertTrue(os.path.exists(guard), "逗号分隔的第二个后缀未生效")
 
 
 if __name__ == "__main__":
