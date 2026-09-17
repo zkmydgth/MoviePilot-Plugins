@@ -76,7 +76,7 @@ https://github.com/zkmydgth/MoviePilot-Plugins
 
 | 项目 | 说明 |
 | --- | --- |
-| 版本 | v1.3.3 |
+| 版本 | v1.3.4 |
 | 标签 | 系统工具, 备份 |
 | 适用版本 | MoviePilot >= 2.0.0 |
 | 数据库要求 | MoviePilot 需使用 **PostgreSQL**（10+，含最新 18.x） |
@@ -111,6 +111,7 @@ https://github.com/zkmydgth/MoviePilot-Plugins
 | v1.3.1 | 修正插件作者显示为 zkmydgth |
 | v1.3.2 | 插件详情页新增简略使用说明（含 PostgreSQL 数据库要求提醒） |
 | v1.3.3 | **正式发布到插件市场**（启用自动打包发布）：补充插件图标；插件简介补齐「一键还原」能力说明 |
+| v1.3.4 | 修复还原操作的两阶段交互：未选中备份时不再显示【确认还原】（此前点击必然失败）；列表行【还原】【删除】按钮补上文字标签并给出操作引导 |
 
 </details>
 
