@@ -16,6 +16,8 @@ from unittest import mock
 
 import tests  # noqa: F401  触发宿主桩路径注入
 
+from app.db.downloadhistory_oper import DownloadHistoryOper
+from app.db.transferhistory_oper import TransferHistoryOper
 from seedspaceguard import SeedSpaceGuard, GIB
 
 PROTECT_PATTERN = "*.part|*.!qb|*.download|*.aria2|*.tmp|*.crdownload"
@@ -466,6 +468,123 @@ class TestSeedCandidates(_E2EBase):
         self.assertEqual(len(candidates), 1)
         self.assertEqual(candidates[0]["downloader"], "qb1")
         ModuleManager.reset()
+
+
+class TestLinkageIntegration(_E2EBase):
+    """
+    联动清理的端到端集成：验证在真实删除流程中确实被触发。
+
+    单元测试已覆盖各联动方法的边界，这里补的是「接线是否接上」——
+    避免出现「方法都对，但 _clean_by_file 忘了调用」这类集成缺口。
+    """
+
+    def setUp(self):
+        super().setUp()
+        DownloadHistoryOper.reset()
+        TransferHistoryOper.reset()
+        self.plugin._downloadhis = DownloadHistoryOper()
+        self.plugin._transferhis = TransferHistoryOper()
+        self.plugin._delete_torrents = False
+        self.plugin._delete_history = False
+        self.plugin._delete_scrap_infos = False
+
+    def test_linkage_triggered_in_real_clean(self):
+        """真实删除流程结束后应自动执行联动清理。"""
+        media = self.make_file(os.path.join(self.dl, "阿凡达.mkv"), 2 * 1024 * 1024, 30)
+        scrap = self.make_file(os.path.join(self.dl, "阿凡达.nfo"), 1, 30)
+        TransferHistoryOper.add_record(11, "/src/阿凡达.mkv", media)
+        DownloadHistoryOper.add_seed("HASH-E2E", [media])
+
+        self.configure([self.dl], threshold=5000, sync_wait=0)
+        self.plugin._delete_scrap_infos = True
+        self.plugin._delete_history = True
+        self.plugin._delete_torrents = True
+
+        with self.patch_free([1 * GIB, 10 * GIB, 10 * GIB]), \
+                mock.patch.object(SeedSpaceGuard, "_delete_torrent_by_hash",
+                                  return_value=True) as patched:
+            _count, _released, details = self.plugin._clean_by_file(
+                1 * GIB, dry_run=False
+            )
+
+        # 文件与刮削均被清理
+        self.assertFalse(os.path.exists(media))
+        self.assertFalse(os.path.exists(scrap))
+        # 转移记录被删除
+        self.assertEqual(TransferHistoryOper.deleted_ids, [11])
+        # 该种子文件已全部删除 → 触发了删种
+        patched.assert_called_once()
+        self.assertEqual(patched.call_args.args[0], "HASH-E2E")
+        # 明细中应出现联动条目
+        joined = "\n".join(details)
+        self.assertIn("刮削产物", joined)
+        self.assertIn("转移记录", joined)
+
+    def test_linkage_off_keeps_everything(self):
+        """开关全关时，删除文件不得产生任何联动副作用。"""
+        media = self.make_file(os.path.join(self.dl, "阿凡达.mkv"), 2 * 1024 * 1024, 30)
+        scrap = self.make_file(os.path.join(self.dl, "阿凡达.nfo"), 1, 30)
+        TransferHistoryOper.add_record(12, "/src/阿凡达.mkv", media)
+        DownloadHistoryOper.add_seed("HASH-OFF", [media])
+
+        self.configure([self.dl], threshold=5000, sync_wait=0)
+        with self.patch_free([1 * GIB, 10 * GIB, 10 * GIB]), \
+                mock.patch.object(SeedSpaceGuard, "_delete_torrent_by_hash",
+                                  return_value=True) as patched:
+            _count, _released, _details = self.plugin._clean_by_file(
+                1 * GIB, dry_run=False
+            )
+
+        self.assertFalse(os.path.exists(media), "媒体文件应被删除")
+        self.assertTrue(os.path.exists(scrap), "开关关闭时刮削不应被清理")
+        self.assertEqual(TransferHistoryOper.deleted_ids, [])
+        patched.assert_not_called()
+
+    def test_linkage_skipped_in_dry_run(self):
+        """试运行不得触发任何联动（真删才联动）。"""
+        media = self.make_file(os.path.join(self.dl, "阿凡达.mkv"), 2 * 1024 * 1024, 30)
+        scrap = self.make_file(os.path.join(self.dl, "阿凡达.nfo"), 1, 30)
+        TransferHistoryOper.add_record(13, "/src/阿凡达.mkv", media)
+        DownloadHistoryOper.add_seed("HASH-DRY", [media])
+
+        self.configure([self.dl], threshold=5000, sync_wait=0)
+        self.plugin._delete_scrap_infos = True
+        self.plugin._delete_history = True
+        self.plugin._delete_torrents = True
+
+        with self.patch_free([1 * GIB]), \
+                mock.patch.object(SeedSpaceGuard, "_delete_torrent_by_hash",
+                                  return_value=True) as patched:
+            self.plugin._clean_by_file(1 * GIB, dry_run=True)
+
+        self.assertTrue(os.path.exists(media))
+        self.assertTrue(os.path.exists(scrap))
+        self.assertEqual(TransferHistoryOper.deleted_ids, [])
+        patched.assert_not_called()
+
+    def test_partial_deletion_keeps_torrent(self):
+        """
+        种子尚有文件未删 → 保留种子（核心约束的集成验证）。
+
+        构造一个含两个文件的种子，但只有其中一个够旧、会被清理；
+        另一个因在保护期内被跳过。此时**不得**删除该种子。
+        """
+        old = self.make_file(os.path.join(self.dl, "old.mkv"), 2 * 1024 * 1024, 30)
+        recent = self.make_file(os.path.join(self.dl, "recent.mkv"), 10, 0)
+        DownloadHistoryOper.add_seed("HASH-PART", [old, recent])
+
+        self.configure([self.dl], threshold=5000, sync_wait=0)
+        self.plugin._recent_skip_days = 1  # recent 在保护期内，不会被选入
+        self.plugin._delete_torrents = True
+
+        with self.patch_free([1 * GIB, 10 * GIB, 10 * GIB]), \
+                mock.patch.object(SeedSpaceGuard, "_delete_torrent_by_hash",
+                                  return_value=True) as patched:
+            self.plugin._clean_by_file(1 * GIB, dry_run=False)
+
+        self.assertFalse(os.path.exists(old), "旧文件应被删除")
+        self.assertTrue(os.path.exists(recent), "保护期内文件应保留")
+        patched.assert_not_called()
 
 
 if __name__ == "__main__":
