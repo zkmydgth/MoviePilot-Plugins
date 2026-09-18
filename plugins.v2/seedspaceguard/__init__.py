@@ -66,7 +66,7 @@ class SeedSpaceGuard(_PluginBase):
     plugin_desc = ("存储空间不足时自动清理保种目录中「保种最久」的资源（种子+文件），"
                    "避免 H&R。支持种子级删除与仅文件两种模式，可限定目标下载器；"
                    "除保护后缀外所有文件均纳入清理，可选联动删除种子与转移记录。")
-    plugin_version = "1.3.1"
+    plugin_version = "1.3.2"
     plugin_author = "zkmydgth"
     plugin_config_prefix = "seedspaceguard_"
     plugin_order = 100
@@ -107,6 +107,15 @@ class SeedSpaceGuard(_PluginBase):
     _transferhis: Optional[TransferHistoryOper] = None
     _running: bool = False
     _last_result: str = ""
+    # 单次清理的聚合计数（文件/转移记录/种子），仅用于构造通知摘要，
+    # 不进明细：明细全部写入日志由用户自行查阅
+    _clean_stats: dict = {
+        "files": 0,
+        "transfers": 0,
+        "seeds": 0,
+        "stalled": False,
+        "dry_run": False,
+    }
     _lock: threading.Lock = threading.Lock()
 
     def init_plugin(self, config: dict = None) -> None:
@@ -315,6 +324,7 @@ class SeedSpaceGuard(_PluginBase):
                         "props": {
                             "model": "manual_action",
                             "label": "手动触发一次",
+                            "class": "mt-4",
                             "hint": "选择动作后点击保存即后台执行一次，执行完自动复位。"
                                    "空间未低于阈值时提示无需清理；正式清理为真删，请先试运行确认",
                             "items": [
@@ -329,6 +339,7 @@ class SeedSpaceGuard(_PluginBase):
                         "props": {
                             "model": "enabled",
                             "label": "启用插件",
+                            "class": "mt-4",
                             "hint": "启用后按下方定时规则检查空间，不足时自动清理保种最久的资源",
                         },
                     },
@@ -337,6 +348,7 @@ class SeedSpaceGuard(_PluginBase):
                         "props": {
                             "model": "mode",
                             "label": "清理模式",
+                            "class": "mt-4",
                             "hint": "种子级：直接删除下载器中最老的已完成种子（连带文件），一步到位不留红种；"
                                    "仅文件：只删文件，种子是否联动删除由下方「联动删除种子」开关决定"
                                    "（需该种子文件全部删除后才删种）",
@@ -351,6 +363,7 @@ class SeedSpaceGuard(_PluginBase):
                         "props": {
                             "model": "downloaders",
                             "label": "目标下载器（种子级模式）",
+                            "class": "mt-4",
                             "hint": "弹出选项卡多选；不选 = 处理所有已启用下载器",
                             "multiple": True,
                             "chips": True,
@@ -362,6 +375,7 @@ class SeedSpaceGuard(_PluginBase):
                         "props": {
                             "model": "target_dirs",
                             "label": "保种/清理目录（每行一个）",
+                            "class": "mt-4",
                             "rows": 4,
                             "placeholder": "/volume1/video/下载\n/volume1/video/媒体库",
                             "hint": "每行一个绝对路径。若下载目录与媒体库目录中的文件互为硬链接，"
@@ -375,6 +389,7 @@ class SeedSpaceGuard(_PluginBase):
                         "props": {
                             "model": "volume_path",
                             "label": "空间检查路径",
+                            "class": "mt-4",
                             "placeholder": "/volume1",
                             "hint": "df 对应的卷路径，插件读取其剩余空间",
                         },
@@ -384,6 +399,7 @@ class SeedSpaceGuard(_PluginBase):
                         "props": {
                             "model": "threshold_gb",
                             "label": "剩余空间阈值（GB）",
+                            "class": "mt-4",
                             "placeholder": "500",
                             "hint": "剩余空间低于该值才触发清理，清理到恢复至该值为止",
                         },
@@ -393,6 +409,7 @@ class SeedSpaceGuard(_PluginBase):
                         "props": {
                             "model": "recent_skip_days",
                             "label": "保护最近添加天数",
+                            "class": "mt-4",
                             "placeholder": "1",
                             "hint": "最近 N 天添加的种子/文件不清理（保种时间短，删了易触发 H&R）",
                         },
@@ -402,6 +419,7 @@ class SeedSpaceGuard(_PluginBase):
                         "props": {
                             "model": "cron",
                             "label": "定时检查规则（cron）",
+                            "class": "mt-4",
                             "placeholder": "0 */6 * * *",
                             "hint": "默认每 6 小时检查一次",
                         },
@@ -411,6 +429,7 @@ class SeedSpaceGuard(_PluginBase):
                         "props": {
                             "model": "sync_wait_seconds",
                             "label": "空间释放最长等待秒数",
+                            "class": "mt-4",
                             "placeholder": "90",
                             "hint": "删除后轮询等待空间释放的时长上限，默认 90，可填 0-1800（0=不等待）。"
                                     "每 5 秒轮询一次，释放达标即提前结束，无需空等整个时长；"
@@ -422,6 +441,7 @@ class SeedSpaceGuard(_PluginBase):
                         "props": {
                             "model": "protect_pattern",
                             "label": "保护文件后缀（仅文件模式）",
+                            "class": "mt-4",
                             "placeholder": "*.part|*.!qb|*.download|*.aria2|*.tmp|*.crdownload",
                             "hint": "以 | 分隔的通配符，命中的文件不删除",
                         },
@@ -431,6 +451,7 @@ class SeedSpaceGuard(_PluginBase):
                         "props": {
                             "model": "delete_torrents",
                             "label": "联动删除种子",
+                            "class": "mt-4",
                             "hint": "删除文件后，联动删除对应的下载器种子。"
                                     "仅文件模式下**必须该种子的所有文件都已删除**才会删种，"
                                     "任一文件仍在（含被保护后缀跳过的）则保留种子；"
@@ -442,6 +463,7 @@ class SeedSpaceGuard(_PluginBase):
                         "props": {
                             "model": "delete_history",
                             "label": "删除转移记录",
+                            "class": "mt-4",
                             "hint": "删除文件后，顺带删除 MoviePilot 中对应的转移历史记录"
                                     "（先按目标路径匹配，未命中再按源路径匹配）",
                         },
@@ -451,6 +473,7 @@ class SeedSpaceGuard(_PluginBase):
                         "props": {
                             "model": "dry_run",
                             "label": "试运行（只列不删）",
+                            "class": "mt-4",
                             "hint": "开启后仅输出将清理的清单，不实际删除，建议首次先试运行",
                         },
                     },
@@ -459,6 +482,7 @@ class SeedSpaceGuard(_PluginBase):
                         "props": {
                             "model": "notify",
                             "label": "完成后通知",
+                            "class": "mt-4",
                             "hint": "清理完成后发送站内消息通知",
                         },
                     },
@@ -602,6 +626,14 @@ class SeedSpaceGuard(_PluginBase):
             self._running = True
             mode = mode_override or self._mode
             dry_run = self._dry_run if dry_run_override is None else bool(dry_run_override)
+            # 重置本次清理的聚合计数（供通知摘要使用，明细只进日志）
+            self._clean_stats = {
+                "files": 0,
+                "transfers": 0,
+                "seeds": 0,
+                "stalled": False,
+                "dry_run": dry_run,
+            }
 
             if not self._target_dirs:
                 return self._finish("未配置清理目录（target_dirs）", None)
@@ -657,21 +689,24 @@ class SeedSpaceGuard(_PluginBase):
             elif dry_run:
                 suffix = f"，共列出 {deleted} 个待删资源（预计释放约 {released_gb}GB）"
             elif deleted > 0:
-                suffix = f"，共删除 {deleted} 个（释放约 {released_gb}GB）"
+                suffix = f"，释放约 {released_gb}GB"
             free_gb_now = self._disk_free_gb()
             msg = f"{prefix}空间不足处理完成{suffix}，当前剩余 {free_gb_now}GB{invalid_note}"
-            return self._finish(msg, detail_lines[:10])
+            return self._finish(msg, detail_lines)
         finally:
             self._running = False
             self._lock.release()
 
-    def _finish(self, msg: str, details: Optional[List[str]],
+    def _finish(self, msg: str, details: Optional[List[str]] = None,
                 notify: Optional[bool] = None) -> str:
         """
         记录结果并按需通知。
 
+        通知只给「汇总计数」（删除文件数 / 转移记录数 / 种子数），不罗列每个
+        被删文件的明细——明细全部写入插件日志，用户可自行查阅。
+
         :param msg: 结果摘要
-        :param details: 明细行
+        :param details: 明细行（仅入日志，不进通知）
         :param notify: 是否通知，None 表示按配置
         """
         self._last_result = msg
@@ -682,14 +717,37 @@ class SeedSpaceGuard(_PluginBase):
         do_notify = self._notify if notify is None else notify
         if do_notify:
             try:
+                text = self._build_notify_text(msg)
                 self.post_message(
                     mtype=NotificationType.Plugin,
                     title="保种空间守护",
-                    text=msg + ("\n" + "\n".join(details) if details else ""),
+                    text=text,
                 )
             except Exception as err:
                 logger.error("【保种空间守护】发送通知失败：%s", err)
         return msg
+
+    def _build_notify_text(self, msg: str) -> str:
+        """
+        根据聚合计数构造通知正文：仅展示三类汇总数字，不罗列文件明细。
+
+        :param msg: 结果摘要（已含运行状态与释放量）
+        :return: 通知正文
+        """
+        s = getattr(self, "_clean_stats", {}) or {}
+        has_count = (
+            s.get("files") or s.get("transfers") or s.get("seeds") or s.get("stalled")
+        )
+        if not has_count:
+            return msg
+        prefix = "预计" if s.get("dry_run") else "共"
+        lines = []
+        if s.get("stalled"):
+            lines.append("⚠️ 空间未如期释放，已停止清理（详见插件日志）")
+        lines.append(f"{prefix}删除文件：{s.get('files') or 0} 个")
+        lines.append(f"{prefix}删除转移记录：{s.get('transfers') or 0} 条")
+        lines.append(f"{prefix}删除种子：{s.get('seeds') or 0} 个")
+        return msg + "\n" + "\n".join(lines)
 
     def _disk_free_bytes(self) -> Optional[int]:
         """
@@ -773,6 +831,13 @@ class SeedSpaceGuard(_PluginBase):
         detail_lines: List[str] = []
         deleted = 0
         released_gb = 0.0
+        # 本方法自身也保证统计存在（测试可能直接调用），不与 check_and_clean 重置冲突
+        if "seeds" not in getattr(self, "_clean_stats", {}):
+            self._clean_stats = {
+                "files": 0, "transfers": 0, "seeds": 0,
+                "stalled": False, "dry_run": dry_run,
+            }
+        self._clean_stats["dry_run"] = dry_run
 
         # 试运行：空间不会真正释放，用累计候选大小模拟释放量判断是否达标
         if dry_run:
@@ -789,6 +854,7 @@ class SeedSpaceGuard(_PluginBase):
                 deleted += 1
                 released_gb += float(cand["size_gb"])
                 est_free += float(cand["size_gb"])
+            self._clean_stats["seeds"] = deleted
             return deleted, round(released_gb, 1), detail_lines
 
         # 真实删除：分轮按缺口预选并删除，等待释放后复核
@@ -835,9 +901,10 @@ class SeedSpaceGuard(_PluginBase):
                     logger.info("【保种空间守护】%s", detail_lines[-1])
                     # 种子级模式下种子已被下载器删除，无需再按「文件全删才删种」
                     # 判定；这里只需顺带清理文件侧残留（刮削产物、转移记录）
-                    self._run_linkage_on_seed_deleted(
+                    history = self._run_linkage_on_seed_deleted(
                         cand, detail_lines, dry_run
                     )
+                    self._clean_stats["transfers"] += history
                     # 删除种子连带文件后，清理可能遗留的空目录（保护配置目录本身）
                     self._prune_empty_dirs(cand["path"])
             # 轮询等待空间释放（达标提前退出），再复核
@@ -859,7 +926,9 @@ class SeedSpaceGuard(_PluginBase):
                     )
                     logger.warning("【保种空间守护】%s", warn)
                     detail_lines.append(warn)
+                    self._clean_stats["stalled"] = True
                     break
+        self._clean_stats["seeds"] = deleted
         return deleted, round(released_gb, 1), detail_lines
 
     def _release_is_healthy(self, released: int, nominal: int) -> bool:
@@ -1095,7 +1164,7 @@ class SeedSpaceGuard(_PluginBase):
 
     def _run_linkage_on_seed_deleted(
         self, cand: Dict[str, Any], detail_lines: List[str], dry_run: bool
-    ) -> None:
+    ) -> int:
         """
         种子级模式下，种子（连带文件）已被下载器删除后的联动收尾。
 
@@ -1103,12 +1172,14 @@ class SeedSpaceGuard(_PluginBase):
         **不执行删种判定**，只处理文件侧的遗留：删除该种子下各文件的转移历史记录。
 
         文件路径来源见 ``_seed_file_paths``；拿不到时跳过，不做全盘扫描。
+
+        :return: 本次清理的转移记录条数（供通知聚合，不进明细）
         """
         if dry_run or not self._linkage_enabled():
-            return
+            return 0
         paths = self._seed_file_paths(cand)
         if not paths:
-            return
+            return 0
         history = 0
         for path in paths:
             if self._delete_history and self._delete_transfer_history(path):
@@ -1116,6 +1187,7 @@ class SeedSpaceGuard(_PluginBase):
         if history:
             detail_lines.append(f"已删除转移记录 {history} 条（种子：{cand['title']}）")
             logger.info("【保种空间守护】%s", detail_lines[-1])
+        return history
 
     def _seed_file_paths(self, cand: Dict[str, Any]) -> List[str]:
         """
@@ -1391,6 +1463,13 @@ class SeedSpaceGuard(_PluginBase):
         detail_lines: List[str] = []
         deleted = 0
         released_gb = 0.0
+        # 本方法自身也保证统计存在（测试可能直接调用），不与 check_and_clean 重置冲突
+        if "files" not in getattr(self, "_clean_stats", {}):
+            self._clean_stats = {
+                "files": 0, "transfers": 0, "seeds": 0,
+                "stalled": False, "dry_run": dry_run,
+            }
+        self._clean_stats["dry_run"] = dry_run
 
         # 试运行：空间不会真正释放，用累计文件大小模拟释放量判断是否达标
         if dry_run:
@@ -1412,6 +1491,7 @@ class SeedSpaceGuard(_PluginBase):
                 deleted += 1
                 released_gb += size / GIB
                 est_free += size / GIB
+            self._clean_stats["files"] = deleted
             return deleted, round(released_gb, 1), detail_lines
 
         # 真实删除：分轮按缺口预选文件并删除，等待空间真正回收后复核，
@@ -1477,15 +1557,19 @@ class SeedSpaceGuard(_PluginBase):
                     )
                     logger.warning("【保种空间守护】%s", warn)
                     detail_lines.append(warn)
+                    self._clean_stats["stalled"] = True
                     break
         # 删除流程结束后统一执行联动清理（转移记录 / 种子）
         if deleted_paths and self._linkage_enabled():
             stats = self._run_linkage_after_delete(deleted_paths, detail_lines, dry_run)
+            self._clean_stats["transfers"] += stats["history"]
+            self._clean_stats["seeds"] += stats["torrent"]
             logger.info(
                 "【保种空间守护】联动清理完成：转移记录 %d 条，"
                 "删除种子 %d 个，保留种子 %d 个",
                 stats["history"], stats["torrent"], stats["torrent_kept"],
             )
+        self._clean_stats["files"] = deleted
         return deleted, round(released_gb, 1), detail_lines
 
     # ============================ 工具方法 ============================
