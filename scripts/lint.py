@@ -40,7 +40,14 @@ def _warn(path: Path, lineno: int, msg: str) -> None:
 def _get_python_files(root: Path) -> List[Path]:
     files: List[Path] = []
     for p in root.rglob("*.py"):
-        parts = p.parts
+        # 只检查**相对 root** 的路径分量。直接对 p.parts 判断会连带 root 自身的
+        # 绝对路径，一旦仓库位于隐藏目录下（如 ~/.cache/...），父级分量会被
+        # 下面的 `startswith(".")` 命中而整体跳过——表现为静默扫描 0 个文件、
+        # 永远"通过"，本地预检形同虚设。
+        try:
+            parts = p.relative_to(root).parts
+        except ValueError:
+            continue
         if any(part.startswith(".") for part in parts):
             if ".github" not in parts:
                 continue
