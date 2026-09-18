@@ -56,9 +56,16 @@ class _TmpBase(unittest.TestCase):
         )
 
     def rel_files(self) -> list:
-        """当前临时目录下的全部**文件**（相对路径，排序），不含目录。"""
+        """
+        当前临时目录下的全部**文件**（相对路径，排序），不含目录。
+
+        路径分隔符统一为 ``/``：``Path`` 在 Windows 下产出反斜杠
+        （CI windows-latest 实测），若断言写死 ``/`` 会误报失败。
+        """
         return sorted(
-            str(p.relative_to(self.base)) for p in self.base.rglob("*") if p.is_file()
+            str(p.relative_to(self.base)).replace("\\", "/")
+            for p in self.base.rglob("*")
+            if p.is_file()
         )
 
 
@@ -240,11 +247,24 @@ class TestHasPrefixConsumers(_TmpBase):
         self.assertIsNone(parts)
 
     def test_p115_strm_path_generates_relative(self):
-        """全量目录：应由匹配到的网盘路径换算出本地路径。"""
+        """
+        全量目录：应由匹配到的网盘路径换算出本地路径。
+
+        注意：实现用 ``Path`` 拼接本地路径，**Windows 下会产反斜杠**
+        （实测 CI windows-latest：`\\local\\strm\\2026\\片名#...`）。这是
+        平台正常行为，断言须做分隔符归一化，否则在 Windows 上误报失败。
+        """
         paths = "/local/strm#/115/电影"
         ok, final = PathUtils.get_p115_strm_path(paths, "/115/电影/2026/片名")
         self.assertTrue(ok)
-        self.assertEqual(final, "/local/strm/2026/片名#/115/电影/2026/片名")
+        local_part, _, remote_part = final.partition("#")
+        self.assertEqual(
+            local_part.replace("\\", "/"),
+            "/local/strm/2026/片名",
+            "本地路径应由网盘路径换算出相对部分",
+        )
+        # '#' 之后的网盘路径部分不受本地分隔符影响
+        self.assertEqual(remote_part, "/115/电影/2026/片名")
 
     def test_p115_strm_path_outside_refused(self):
         paths = "/local/strm#/115/电影"
