@@ -66,7 +66,7 @@ class SeedSpaceGuard(_PluginBase):
     plugin_desc = ("存储空间不足时自动清理保种目录中「保种最久」的资源（种子+文件），"
                    "避免 H&R。支持种子级删除与仅文件两种模式，可限定目标下载器；"
                    "除保护后缀外所有文件均纳入清理，可选联动删除种子与转移记录。")
-    plugin_version = "1.3.2"
+    plugin_version = "1.3.6"
     plugin_author = "zkmydgth"
     plugin_config_prefix = "seedspaceguard_"
     plugin_order = 100
@@ -92,6 +92,11 @@ class SeedSpaceGuard(_PluginBase):
     _SYNO_META_DIR: str = "@eaDir"
     _SYNO_META_FILE_PREFIXES: Tuple[str, ...] = ("SYNOINDEX", "SYNO_", "SYNOFILE", "THUMB")
     _SYNO_META_FILES: Tuple[str, ...] = ("Thumbs.db", ".DS_Store")
+    # 下载器模块「按 hash 查询种子」的方法名。MoviePilot v2 起统一为
+    # list_torrents，更早的版本叫 get_torrents（注意 get_torrents 本身是
+    # transmission_rpc / qbittorrent-api 客户端实例的方法，不是模块方法）；
+    # 基类并不提供任一方法，故只能逐个探测，两者都尝试以兼容不同版本。
+    _TORRENT_QUERY_METHODS: Tuple[str, ...] = ("list_torrents", "get_torrents")
     _dry_run: bool = False
     _notify: bool = True
     _downloaders: List[str] = []
@@ -660,14 +665,36 @@ class SeedSpaceGuard(_PluginBase):
             threshold_bytes = self._threshold_gb * GIB
 
             prefix = f"[{'试运行' if dry_run else '清理'}] "
+
+            # 孤儿种子回收：先于「空间是否充足」的早退执行。
+            #
+            # 半删种子的成因是「单轮只删到预留空间即停」，其剩余文件要等后续轮次
+            # 才会被删完。而一旦删完，空间往往刚刚越过阈值，后续轮次直接以
+            # 「空间充足」早退，删种判定再无机会执行——种子便永久卡在下载器里。
+            # 因此这里在早退之前无条件回收一次：只针对「文件已全部删除但种子仍
+            # 在」的空壳，不删任何文件，空间充足时也不产生额外删除行为。
+            orphan_stats = self._reap_orphan_seeds(dry_run)
+            orphan_lines = orphan_stats.pop("_lines", [])
+            orphan_note = ""
+            if orphan_stats["torrent"]:
+                orphan_note = (
+                    f"（另{'预计' if dry_run else ''}回收空壳种子 "
+                    f"{orphan_stats['torrent']} 个）"
+                )
+
             # 阈值比较用字节，避免 GB 取整导致的边界反复触发或永不触发
             if free_bytes >= threshold_bytes:
+                # 带上 prefix：试运行与正式清理必须一眼可辨，否则用户无法
+                # 从结果判断本次到底是「只列不删」还是「已真删」
                 msg = (
-                    f"空间充足（{free_gb}GB ≥ {self._threshold_gb}GB），无需清理"
-                    f"{invalid_note}"
+                    f"{prefix}空间充足（{free_gb}GB ≥ {self._threshold_gb}GB），"
+                    f"无需清理{orphan_note}{invalid_note}"
                 )
                 logger.info("【保种空间守护】%s", msg)
-                return self._finish(msg, None, notify=False)
+                # 空间充足时默认静默；仅当本轮确实回收了空壳种子才通知，
+                # 否则用户会持续收到「无需清理」的噪音
+                return self._finish(msg, orphan_lines or None,
+                                    notify=True if orphan_lines else False)
 
             logger.info("【保种空间守护】空间不足（%sGB < %sGB），开始%s处理（%s），"
                         "监控 %d 个目录",
@@ -681,6 +708,7 @@ class SeedSpaceGuard(_PluginBase):
             else:
                 result = self._clean_by_file(free_bytes, dry_run)
             deleted, released_gb, detail_lines = result
+            detail_lines = orphan_lines + list(detail_lines or [])
 
             suffix = ""
             if deleted == -1:
@@ -690,6 +718,9 @@ class SeedSpaceGuard(_PluginBase):
                 suffix = f"，共列出 {deleted} 个待删资源（预计释放约 {released_gb}GB）"
             elif deleted > 0:
                 suffix = f"，释放约 {released_gb}GB"
+            # 空壳回收量同样要进结果消息：它发生在删文件之前，若不汇总，
+            # 用户在「空间不足」这一主路径上反而看不到任何空壳回收痕迹
+            suffix += orphan_note
             free_gb_now = self._disk_free_gb()
             msg = f"{prefix}空间不足处理完成{suffix}，当前剩余 {free_gb_now}GB{invalid_note}"
             return self._finish(msg, detail_lines)
@@ -1003,14 +1034,180 @@ class SeedSpaceGuard(_PluginBase):
             return False
 
     def _resolve_hash_by_path(self, path: str) -> str:
-        """按文件路径反查下载 hash，查不到返回空串。"""
-        if not self._downloadhis:
+        """
+        按文件路径反查下载 hash，查不到返回空串。
+
+        两级策略：
+
+        1. **精确匹配**：``DownloadFiles.fullpath`` 直接命中。影片文件（.mkv/.mp4）
+           走这条，命中率最高。
+        2. **目录前缀兜底**：``DownloadFiles`` 只登记正片文件，``.md5``/``.nfo``/
+           ``.srt``/``@eaDir`` 等刮削残留**不在表中**，精确匹配必然落空。此时改用
+           「文件所在目录」与种子的 ``savepath`` 做最长前缀匹配，把残留文件归回
+           它所属的种子。
+
+        为什么必须有第 2 级：仅文件模式删完最后一个残留文件时，种子其实已经
+        「文件全部删除」，本该联动删种；若反查落空导致 ``pending_hashes`` 为空，
+        删种判定会被整段跳过，种子永远留在下载器里做种（实测 BUG）。
+
+        :param path: 文件路径
+        :return: 下载 hash，无法归属时返回空串
+        """
+        if not self._downloadhis or not path:
             return ""
         try:
-            return str(self._downloadhis.get_hash_by_fullpath(path) or "")
+            exact = str(self._downloadhis.get_hash_by_fullpath(path) or "")
         except Exception as err:
             logger.error("【保种空间守护】反查下载 hash 失败（%s）：%s", path, err)
+            exact = ""
+        if exact:
+            return exact
+        # 精确匹配落空：多半是刮削残留，退化为按目录前缀归属
+        return self._resolve_hash_by_parent_dir(path)
+
+    def _resolve_hash_by_parent_dir(self, path: str) -> str:
+        """
+        按「文件所在目录」反查下载 hash（刮削残留兜底）。
+
+        ``DownloadFiles`` 只登记正片文件，``.md5``/``.nfo``/``.srt``/``@eaDir``
+        这类刮削残留没有记录，拿它们的完整路径去精确匹配必然落空。但残留文件
+        一定与正片同处一个**种子目录**，而目录名就是种子名，因此改用
+        「被删文件所在目录」去和「活跃种子的内容路径」做最长前缀匹配。
+
+        数据源取下载器实时种子列表（``_collect_seed_candidates``），而非
+        ``DownloadFiles`` 表：前者能拿到全部种子且自带 ``module``，后者既无
+        列举接口、又可能因历史未登记而缺项。
+
+        :param path: 文件路径
+        :return: 下载 hash，无法归属时返回空串
+        """
+        parent = os.path.dirname(os.path.normpath(path))
+        if not parent:
             return ""
+        cache = getattr(self, "_dir_hash_cache", None)
+        if cache is None:
+            cache = {}
+            self._dir_hash_cache = cache
+        if parent in cache:
+            return cache[parent]
+
+        hit = ""
+        best_len = -1
+        try:
+            candidates = self._collect_seed_candidates()
+        except Exception as err:
+            logger.error("【保种空间守护】按目录反查种子失败：%s", err)
+            candidates = []
+        for cand in candidates:
+            seed_path = os.path.normpath(str(cand.get("path") or ""))
+            hash_str = str(cand.get("hash") or "")
+            if not seed_path or not hash_str:
+                continue
+            if parent == seed_path or parent.startswith(seed_path + os.sep):
+                if len(seed_path) > best_len:
+                    best_len = len(seed_path)
+                    hit = hash_str
+        cache[parent] = hit
+        return hit
+
+    def _reap_orphan_seeds(self, dry_run: bool) -> Dict[str, Any]:
+        """
+        回收「空壳种子」：文件已全部删除，但种子仍留在下载器里做种。
+
+        这是「跨轮补全」的收尾环节。仅文件模式的删除策略是「删到预留空间即停」，
+        半删种子要等后续轮次才被删完；而删完的那一刻空间往往刚好越过阈值，
+        后续轮次会以「空间充足」直接早退，删种判定再无入口。因此在每轮开始时
+        无条件扫一次空壳：**不删任何文件**，只删已经被删空的种子。
+
+        「已删空」的判定复用 ``_seed_fully_removed``（对磁盘做物理复核），
+        与文件删除链路的判定标准完全一致，不存在两套口径。
+
+        有意**不受保护期限制**：保护期保护的是「新下载、尚未做种的资源」，
+        而文件都不存在了的种子已无保种价值，继续保留只会占着保号名额。
+
+        试运行（``dry_run``）**照常扫描全部候选**，只把「删种」换成「记一笔」：
+        试运行的价值就在于如实预告「这一轮将会回收哪些种子」，若因试运行而
+        整段跳过扫描，用户得到的「回收 0 个」便是假象而非实情。真正的前置
+        阻断只有两条——没有可用下载器、或用户未开启删种开关，此时扫了也无
+        意义，直接返回。
+
+        :param dry_run: 是否试运行（不执行真实删种，仅记录将回收的种子）
+        :return: 统计字典（torrent 回收数 / checked 候选数 / _lines 明细行）
+        """
+        stats: Dict[str, Any] = {
+            "torrent": 0, "checked": 0, "alive": 0, "failed": 0, "_lines": [],
+        }
+        # 前置阻断：无下载器则无从扫描；删种开关未开则扫了也没用。
+        # 注意此处刻意**不含 dry_run**——试运行要如实预告将回收的种子。
+        if not self._downloader_available() or not self._delete_torrents:
+            return stats
+
+        try:
+            candidates = self._collect_seed_candidates()
+        except Exception as err:
+            logger.error("【保种空间守护】空壳种子扫描失败：%s", err)
+            return stats
+        if not candidates:
+            logger.info("【保种空间守护】空壳种子扫描：候选种子 0 个，跳过")
+            return stats
+
+        for cand in candidates:
+            hash_str = str(cand.get("hash") or "")
+            if not hash_str:
+                continue
+            stats["checked"] += 1
+            try:
+                if not self._seed_fully_removed(hash_str):
+                    stats["alive"] += 1
+                    continue
+            except Exception as err:
+                logger.error("【保种空间守护】空壳种子判定失败（%s）：%s", hash_str, err)
+                stats["failed"] += 1
+                continue
+            title = str(cand.get("title") or hash_str)
+            module = cand.get("module")
+            downloader = cand.get("downloader")
+            # 试运行：判定照做，但不真删，只记录「将会回收」的种子
+            if dry_run:
+                stats["torrent"] += 1
+                line = f"[试运行] 将回收空壳种子（该种子文件已全部删除）：{title}"
+                stats["_lines"].append(line)
+                logger.info("【保种空间守护】%s", line)
+                continue
+            try:
+                ok = module.remove_torrents(
+                    hashs=[hash_str], delete_file=False, downloader=downloader,
+                ) if module else False
+            except Exception as err:
+                logger.error("【保种空间守护】回收空壳种子失败（%s）：%s", hash_str, err)
+                ok = False
+            if ok:
+                stats["torrent"] += 1
+                line = f"已回收空壳种子（该种子文件已全部删除）：{title}"
+                stats["_lines"].append(line)
+                logger.info("【保种空间守护】%s", line)
+
+        if stats["torrent"] or stats["checked"]:
+            logger.info(
+                "【保种空间守护】空壳种子回收完成：扫描 %d 个，%s %d 个"
+                "（判定仍有文件 %d 个，判定失败 %d 个）",
+                stats["checked"],
+                "预计回收" if dry_run else "回收",
+                stats["torrent"],
+                stats["alive"], stats["failed"],
+            )
+        return stats
+
+    def _downloader_available(self) -> bool:
+        """是否存在任一可用的已启用下载器（供空壳回收做前置判断）。"""
+        try:
+            manager = ModuleManager()
+            for dl_type in (DownloaderType.Qbittorrent, DownloaderType.Transmission):
+                if list(manager.get_running_subtype_module(dl_type) or []):
+                    return True
+        except Exception as err:
+            logger.error("【保种空间守护】检测下载器可用性失败：%s", err)
+        return False
 
     def _seed_fully_removed(self, hash_str: str) -> bool:
         """
@@ -1085,6 +1282,52 @@ class SeedSpaceGuard(_PluginBase):
             logger.error("【保种空间守护】联动删除种子失败（%s）：%s", hash_str, err)
             return False
 
+    def _query_torrents_by_hash(self, module, hash_str: str, name: str):
+        """
+        在单个下载器模块上按 hash 查询种子，兼容新旧方法名。
+
+        MoviePilot 的下载器模块并未在基类统一提供查询方法：v2 起方法名为
+        ``list_torrents``，更早的版本叫 ``get_torrents``（``get_torrents``
+        实际是 transmission_rpc / qbittorrent-api 客户端实例的方法，不是
+        模块方法）。这里按优先级逐个探测，取首个可用方法的结果。
+
+        ``list_torrents`` 默认只返回带 MoviePilot 内置标签的种子，手动添加
+        或从别处转移来的种子会被漏掉，因此显式传 ``include_all_tags=True``；
+        若该版本的实现不接受此参数，捕获 TypeError 后退回不带参数的调用。
+
+        :param module: 下载器模块实例
+        :param hash_str: 种子 hash
+        :param name: 下载器名称，仅用于日志
+        :return: ``(种子列表, 命中的方法名, 异常)``，语义如下：
+                 - 方法名为空：模块不具备任一查询方法（多半不是下载器模块）
+                 - 异常非空：查询失败，种子列表不可信
+                 - 否则：种子列表即查询结果，可能为空
+        """
+        for method_name in self._TORRENT_QUERY_METHODS:
+            method = getattr(module, method_name, None)
+            if not callable(method):
+                continue
+            attempts = [{"hashs": [hash_str]}]
+            if method_name == "list_torrents":
+                attempts.insert(0, {"hashs": [hash_str], "include_all_tags": True})
+            last_err = None
+            for kwargs in attempts:
+                try:
+                    return method(**kwargs), method_name, None
+                except TypeError as err:
+                    # 多半是签名不支持 include_all_tags，换一组参数重试
+                    last_err = err
+                    continue
+                except Exception as err:
+                    last_err = err
+                    break
+            logger.warning(
+                "【保种空间守护】下载器 %s 的 %s 查询异常（hash：%s）：%s",
+                name, method_name, hash_str, last_err,
+            )
+            return None, method_name, last_err
+        return None, "", None
+
     def _get_downloader_for(self, hash_str: str):
         """
         找出该 hash 所属的下载器实例。
@@ -1097,19 +1340,49 @@ class SeedSpaceGuard(_PluginBase):
         except Exception as err:
             logger.error("【保种空间守护】读取下载器模块失败：%s", err)
             return None
+        checked: List[str] = []
+        seen: List[str] = []
         for module in modules:
-            if not hasattr(module, "get_torrents"):
+            name = str(getattr(module, "name", "") or "") or "?"
+            torrents, method_name, err = self._query_torrents_by_hash(
+                module, hash_str, name
+            )
+            if not method_name:
+                # ModuleManager 返回的是全部模块（含站点、媒体库等），
+                # 不具备查询方法的不是下载器，静默跳过
+                seen.append(f"{name}（无查询方法）")
                 continue
-            try:
-                torrents = module.get_torrents(hashs=[hash_str])
-            except Exception:
+            seen.append(f"{name}（{method_name}）")
+            if err is not None:
+                checked.append(f"{name}（查询异常）")
                 continue
             if not torrents:
+                logger.info(
+                    "【保种空间守护】下载器 %s 未持有 hash %s 的种子", name, hash_str
+                )
+                checked.append(f"{name}（未持有）")
                 continue
-            name = str(getattr(module, "name", "") or "")
             if self._downloaders and name not in self._downloaders:
+                logger.info(
+                    "【保种空间守护】下载器 %s 持有 hash %s，但不在配置的目标下载器范围内，跳过",
+                    name, hash_str,
+                )
+                checked.append(f"{name}（范围外）")
                 continue
+            logger.info(
+                "【保种空间守护】定位到下载器 %s 持有 hash %s（查询方法：%s）",
+                name, hash_str, method_name,
+            )
             return module
+        if not checked:
+            logger.warning(
+                "【保种空间守护】未找到可查询种子的下载器（hash：%s）；已遍历模块：%s",
+                hash_str, "、".join(seen) or "无",
+            )
+        else:
+            logger.warning(
+                "【保种空间守护】遍历下载器均未命中 hash %s：%s", hash_str, "、".join(checked)
+            )
         return None
 
     def _run_linkage_after_delete(
@@ -1146,6 +1419,13 @@ class SeedSpaceGuard(_PluginBase):
                 hash_str = self._resolve_hash_by_path(path)
                 if hash_str:
                     pending_hashes.setdefault(hash_str, os.path.basename(path))
+                else:
+                    # 反查失败会让该文件所属种子彻底失去删种机会，必须留痕；
+                    # 常见于未经 MoviePilot 登记的刮削残留或手动放入的文件。
+                    logger.warning(
+                        "【保种空间守护】无法按路径归属种子，跳过该文件的删种判定：%s",
+                        path,
+                    )
 
         # 种子级判定：仅文件模式下「所有文件都删完」才删种
         if self._delete_torrents and self._mode == "file":
@@ -1238,9 +1518,14 @@ class SeedSpaceGuard(_PluginBase):
         """
         收集目标目录下所有下载器的已完成种子候选。
 
+        排除两类种子：**未完成**的（下载中/暂停/校验中），以及**内容路径不在
+        监控目录内**的。排除数量会在汇总日志中列出，便于核对「下载器里有 N 个
+        种子，为何只有 M 个进入候选」。
+
         :return: 候选列表，每项含 module/downloader/hash/title/added/size_gb
         """
         candidates: List[Dict[str, Any]] = []
+        counted = {"total": 0, "unfinished": 0, "out_of_scope": 0}
         manager = ModuleManager()
         for dl_type in (DownloaderType.Qbittorrent, DownloaderType.Transmission):
             try:
@@ -1265,15 +1550,55 @@ class SeedSpaceGuard(_PluginBase):
                         continue
                     items = ret[0] if isinstance(ret, tuple) else ret
                     for item in items or []:
+                        counted["total"] += 1
                         cand = self._parse_torrent(dl_type, item)
                         if not cand:
+                            # 未完成（下载中/暂停/校验）的种子一律排除
+                            counted["unfinished"] += 1
                             continue
                         # 种子路径落在任一配置目录下即纳入候选
-                        if cand["path"] and self._path_under_any(cand["path"]):
-                            cand["module"] = module
-                            cand["downloader"] = name
-                            candidates.append(cand)
+                        if not cand["path"] or not self._path_under_any(cand["path"]):
+                            counted["out_of_scope"] += 1
+                            continue
+                        cand["module"] = module
+                        cand["downloader"] = name
+                        candidates.append(cand)
+        # 汇总日志：说明「下载器里有多少 / 为何只剩这些候选」，
+        # 避免用户看到「tr 有一千多个种子却只扫了几百个」时无从判断
+        logger.info(
+            "【保种空间守护】种子候选收集：下载器共 %d 个，"
+            "未完成 %d 个，不在监控目录 %d 个，纳入候选 %d 个",
+            counted["total"], counted["unfinished"],
+            counted["out_of_scope"], len(candidates),
+        )
         return candidates
+
+    @staticmethod
+    def _pick_attr(item: Any, *names: str, default: Any = None) -> Any:
+        """
+        按候选属性名依次取值，兼容同一字段的不同命名风格。
+
+        ``transmission_rpc`` 的 ``Torrent`` 对象暴露的是 **snake_case** 属性
+        （``percent_done`` / ``download_dir`` / ``total_size``），而 MoviePilot
+        在部分版本或包装层里会转成 **camelCase**（``percentDone`` / ``downloadDir``）。
+        插件此前只按 camelCase 取，导致 Transmission 的种子全部因
+        ``percentDone`` 缺失而被判为「未完成」丢弃——实测 1765 个种子全数解析失败，
+        删种与空壳回收彻底失效。这里对两种命名都做兼容。
+
+        :param item: 种子对象（对象或 dict）
+        :param names: 候选属性名，按顺序取第一个「存在且非 None」的值
+        :param default: 全部缺失时的返回值
+        :return: 取到的值或 default
+        """
+        for name in names:
+            if isinstance(item, dict):
+                if name in item and item[name] is not None:
+                    return item[name]
+                continue
+            value = getattr(item, name, None)
+            if value is not None:
+                return value
+        return default
 
     def _parse_torrent(self, dl_type: DownloaderType,
                        item: Any) -> Optional[Dict[str, Any]]:
@@ -1285,28 +1610,43 @@ class SeedSpaceGuard(_PluginBase):
         :return: 候选字典或 None（未完成/缺关键字段）
         """
         if dl_type == DownloaderType.Qbittorrent:
-            # qBittorrent：dict 字段
-            progress = float(item.get("progress") or 0)
+            # qBittorrent：TorrentDictionary，camelCase 之外的键名保持原样
+            progress = float(self._pick_attr(item, "progress", default=0) or 0)
             if progress < 0.999:
                 return None
-            path = item.get("content_path") or item.get("save_path") or ""
+            path = (
+                self._pick_attr(item, "content_path", "contentPath", default="")
+                or self._pick_attr(item, "save_path", "savePath", default="")
+                or ""
+            )
             # 保种起点优先取完成时间（completion_on），无则退化为添加时间
-            added = int(item.get("completion_on") or item.get("added_on") or 0)
+            added = int(
+                self._pick_attr(item, "completion_on", "completionOn",
+                                "added_on", "addedOn", default=0) or 0
+            )
             return {
                 "path": path,
-                "hash": item.get("hash"),
-                "title": item.get("name") or item.get("hash") or "",
+                "hash": self._pick_attr(item, "hash", default=""),
+                "title": self._pick_attr(item, "name", default="") or "",
                 "added": added,
-                "size_gb": round(int(item.get("size") or 0) / (1024 ** 3), 1),
+                "size_gb": round(
+                    int(self._pick_attr(item, "size", "total_size",
+                                        "totalSize", default=0) or 0)
+                    / (1024 ** 3), 1
+                ),
             }
-        # Transmission：Torrent 对象
-        if float(getattr(item, "percentDone", 0) or 0) < 0.999:
+        # Transmission：Torrent 对象（snake_case）或 dict（camelCase）
+        percent = float(
+            self._pick_attr(item, "percent_done", "percentDone", default=0) or 0
+        )
+        if percent < 0.999:
             return None
-        dl_dir = getattr(item, "downloadDir", "") or ""
-        name = getattr(item, "name", "") or ""
+        dl_dir = self._pick_attr(item, "download_dir", "downloadDir", default="") or ""
+        name = self._pick_attr(item, "name", default="") or ""
         path = os.path.join(dl_dir, name) if dl_dir else ""
         # 保种起点优先取完成时间（done_date），无则退化为添加时间（addedDate）
-        done = getattr(item, "done_date", None) or getattr(item, "date_done", None)
+        done = self._pick_attr(item, "done_date", "date_done", "doneDate",
+                               "dateDone", default=None)
         added = 0
         if done is not None:
             try:
@@ -1314,13 +1654,19 @@ class SeedSpaceGuard(_PluginBase):
             except (AttributeError, OSError, ValueError):
                 added = 0
         if not added:
-            added = int(getattr(item, "addedDate", 0) or 0)
+            added = int(
+                self._pick_attr(item, "added_date", "addedDate", default=0) or 0
+            )
         return {
             "path": path,
-            "hash": getattr(item, "hashString", "") or getattr(item, "id", ""),
-            "title": name or str(getattr(item, "id", "")),
+            "hash": self._pick_attr(item, "hash_string", "hashString",
+                                    "id", default="") or "",
+            "title": name,
             "added": added,
-            "size_gb": round(int(getattr(item, "totalSize", 0) or 0) / (1024 ** 3), 1),
+            "size_gb": round(
+                int(self._pick_attr(item, "total_size", "totalSize", default=0) or 0)
+                / (1024 ** 3), 1
+            ),
         }
 
     # ============================ 仅文件清理 ============================

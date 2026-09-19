@@ -629,5 +629,112 @@ class TestProtectPatternIntegration(_E2EBase):
         self.assertTrue(os.path.exists(guard), "逗号分隔的第二个后缀未生效")
 
 
+class TestDryRunFullPreview(_E2EBase):
+    """
+    试运行的「如实预告」必须覆盖全部三类动作，缺一不可。
+
+    v1.3.5 的空壳回收在试运行下整段跳过，导致用户拿到的预演「只有文件、
+    没有种子」，与实际执行存在落差。这里验证：空间不足时，试运行应当同时
+    预告「将删除的文件」与「将回收的空壳种子」。
+    """
+
+    class _SeedServer:
+        """伪下载器：持有指定种子，记录删种调用。"""
+
+        def __init__(self):
+            self.torrents = []
+            self.removed = []
+
+        def add(self, path, hash_str, name):
+            self.torrents.append({
+                "progress": 1.0,
+                "content_path": path,
+                "hash": hash_str,
+                "name": name,
+                "completion_on": int(time.time()) - 30 * 86400,
+                "size": 1024 ** 3,
+            })
+
+        def get_torrents(self, *args, **kwargs):
+            return list(self.torrents)
+
+        def list_torrents(self, hashs=None, *args, **kwargs):
+            want = set(hashs or [])
+            return [t for t in self.torrents if not want or t["hash"] in want]
+
+        def remove_torrents(self, hashs=None, delete_file=False, downloader=None):
+            self.removed.append((list(hashs or []), delete_file, downloader))
+            return True
+
+    def _setup(self):
+        """造一个空壳种子，并放一个大文件制造「空间不足需删文件」。"""
+        from app.core.module import ModuleManager
+        from app.schemas.types import DownloaderType
+
+        ModuleManager.reset()
+        DownloadHistoryOper.reset()
+        server = self._SeedServer()
+        seed_dir = os.path.join(self.dl, "OrphanCell")
+        os.makedirs(seed_dir, exist_ok=True)
+        gone = os.path.join(seed_dir, "a.mkv")
+        DownloadHistoryOper.add_seed("HASH_ORPHAN_E2E", [gone])  # 记录在、文件不在
+        server.add(seed_dir, "HASH_ORPHAN_E2E", "OrphanCell")
+        ModuleManager.register_downloader(
+            DownloaderType.Qbittorrent, "qb", server
+        )
+        self.plugin._downloadhis = DownloadHistoryOper()
+        big = self.make_file(os.path.join(self.dl, "big.mkv"),
+                             3 * 1024 * 1024, 30)
+        self.configure([self.dl], threshold=500, mode="file", sync_wait=0)
+        self.plugin._delete_torrents = True
+        return server, big
+
+    def tearDown(self):
+        from app.core.module import ModuleManager
+        ModuleManager.reset()
+        super().tearDown()
+
+    def test_dry_run_previews_both_file_and_orphan(self):
+        """试运行应同时预告待删文件与待回收空壳，且两者都不真做。"""
+        server, big = self._setup()
+
+        with self.patch_free([1 * GIB]):
+            msg = self.plugin.check_and_clean(
+                source="手动", dry_run_override=True
+            )
+
+        self.assertTrue(os.path.exists(big), "试运行绝不允许删文件")
+        self.assertEqual(server.removed, [], "试运行绝不允许删种子")
+        self.assertTrue(msg.startswith("[试运行]"), f"缺前缀：{msg}")
+        self.assertIn("预计回收空壳种子 1 个", msg, "试运行应预告空壳回收")
+
+    def test_dry_run_and_real_report_same_orphan_count(self):
+        """同场景下，试运行预告的空壳数与正式跑的实删数必须一致。"""
+        server, _big = self._setup()
+
+        with self.patch_free([1 * GIB]):
+            preview = self.plugin.check_and_clean(
+                source="手动", dry_run_override=True
+            )
+        self.assertIn("预计回收空壳种子 1 个", preview)
+        self.assertEqual(server.removed, [], "试运行不得留下删种痕迹")
+
+        with self.patch_free([1 * GIB, 10 * GIB, 10 * GIB]):
+            self.plugin.check_and_clean(source="手动", dry_run_override=False)
+        self.assertEqual(
+            [h for h, _, _ in server.removed], [["HASH_ORPHAN_E2E"]],
+            "正式跑实删数应与试运行预告一致",
+        )
+
+    def test_real_run_message_uses_clean_prefix(self):
+        """正式清理的消息应带 [清理] 前缀，与试运行可辨。"""
+        server, _big = self._setup()
+        with self.patch_free([1 * GIB, 10 * GIB, 10 * GIB]):
+            msg = self.plugin.check_and_clean(
+                source="手动", dry_run_override=False
+            )
+        self.assertTrue(msg.startswith("[清理]"), f"缺前缀：{msg}")
+
+
 if __name__ == "__main__":
     unittest.main()
