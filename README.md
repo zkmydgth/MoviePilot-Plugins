@@ -130,11 +130,11 @@ https://github.com/zkmydgth/MoviePilot-Plugins
 
 ## 115网盘STRM助手（P115StrmHelper）
 
-> ⚠️ **当前状态：源码备份，未发布。**
+> ✅ **已发布**：v3.1.0 已推送并在插件市场上线（`package.v3.json` 中 `release: true`）。
 >
-> `package.v3.json` 中 `release` 已设为 `false`，插件市场**不会出现**该条目，请勿通过市场源安装（市场里能装到的仍是上游 V2 版）。
+> ⚠️ **请勿同时订阅上游仓库**：上游 [DDSRem-Dev/MoviePilot-Plugins](https://github.com/DDSRem-Dev/MoviePilot-Plugins) 的 V2 版插件 ID 同为 `P115StrmHelper`，同时订阅会导致插件被反复覆盖，且两者数据库结构不兼容。
 >
-> 本仓库此处仅用于保存 V3 适配版源码备用。需要正式上线时，把 `release` 改回 `true` 并推送 `main` 分支即可触发发布流程。
+> 本插件为 **MoviePilot V3 适配版**，`system_version` 要求 `>=3.0.0`，在 MoviePilot V2 上不会出现在市场列表中——这是版本约束的正常表现，非发布故障。
 
 115 网盘 STRM 生成一条龙服务，覆盖 STRM 生成、302 跳转、转移整理、媒体库同步删除等完整链路。本仓库保存的是 **MoviePilot V3 适配版**（`plugins.v3`），仅支持 MoviePilot >= 3.0.0。
 
@@ -142,11 +142,11 @@ https://github.com/zkmydgth/MoviePilot-Plugins
 
 | 项目 | 说明 |
 | --- | --- |
-| 版本 | v3.1.0（**未发布**） |
+| 版本 | v3.1.0（已发布） |
 | 标签 | 云盘 |
 | 适用版本 | MoviePilot >= 3.0.0 |
 | 源码目录 | `plugins.v3/p115strmhelper` |
-| 发布状态 | 暂不发布（`release: false`） |
+| 发布状态 | 已发布（`release: true`） |
 
 ### 功能特性
 
@@ -171,9 +171,9 @@ https://github.com/zkmydgth/MoviePilot-Plugins
 
 ### 已知注意事项
 
-- **本插件当前未发布**（`release: false`）。因此同时订阅上游与本仓库**不会冲突**，市场里该插件只会解析到上游 V2 版
-- **一旦将来改为发布**（`release: true`），就**不要同时订阅上游**：两者插件 ID 均为 `P115StrmHelper`，同时订阅会导致插件被反复覆盖，且数据库结构不兼容风险高
+- **本插件已发布**（`release: true`，v3.1.0）。因此**不要同时订阅上游**：两者插件 ID 均为 `P115StrmHelper`，同时订阅会导致插件被反复覆盖，且数据库结构不兼容风险高——若此前订阅了上游 V2 版，请先取消订阅再装本版
 - 本版本为主版本 3.x，与上游 V2 版本（2.x）不互通，**不建议在 V2 环境安装**
+- 在 **MoviePilot V2** 上，因 `system_version` 要求 `>=3.0.0`，该插件不会出现在插件市场列表中。这是版本约束的正常表现，**不是发布故障**
 - 插件数据库迁移锚点、事件队列名均沿用上游命名，便于从上游 V2 迁移时保留既有数据
 
 ---
