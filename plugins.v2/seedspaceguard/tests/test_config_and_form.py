@@ -218,6 +218,45 @@ class TestDefaultConfigAndForm(unittest.TestCase):
         self.assertIsInstance(form, list)
         self.assertIsInstance(default, dict)
 
+    def test_form_top_notice_is_concise(self):
+        """待办2：配置表单顶部说明必须精简（不得回退为 447 字长文）。
+
+        原长文把「种子级/仅文件、联动清理、保护后缀、硬链接多目录」等
+        已在各配置项 hint 中重复的内容全堆在首屏，占全表单文案量的 39%。
+        现压缩到约 110 字，只保留核心行为、安全承诺与首次使用引导。
+        """
+        form, _default = self.plugin.get_form()
+        texts = []
+        for props in self._collect_props(form):
+            if isinstance(props, dict) and props.get("text"):
+                texts.append(str(props["text"]))
+        notice = [t for t in texts if "使用说明" in t]
+        self.assertTrue(notice, "表单应保留顶部使用说明")
+        body = notice[0]
+        self.assertLessEqual(
+            len(body), 200,
+            f"顶部说明应精简到 200 字以内，实际 {len(body)} 字",
+        )
+        # 三条必须保留的要素
+        self.assertIn("保种最久", body, "应保留核心行为说明")
+        self.assertIn("宁可空间不足", body, "应保留安全承诺")
+        self.assertIn("试运行", body, "应保留首次使用引导")
+
+    def test_form_top_notice_drops_duplicated_details(self):
+        """待办2：已被各配置项 hint 覆盖的细节不应再堆在顶部说明里。"""
+        form, _default = self.plugin.get_form()
+        notice = ""
+        for props in self._collect_props(form):
+            if isinstance(props, dict) and "使用说明" in str(props.get("text") or ""):
+                notice = str(props["text"])
+                break
+        self.assertTrue(notice, "表单应保留顶部使用说明")
+        for detail in ("硬链接", "种子级", "@eaDir", "保护文件后缀"):
+            self.assertNotIn(
+                detail, notice,
+                f"「{detail}」已在对应配置项 hint 中说明，不应重复出现在顶部",
+            )
+
     # ------------------------------------------------------------------
     def _walk(self, node):
         """深度遍历表单节点。"""

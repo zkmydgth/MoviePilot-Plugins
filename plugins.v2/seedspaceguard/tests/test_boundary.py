@@ -603,19 +603,46 @@ class TestLinkageConservative(_Base):
             "全部文件不存在时应允许删种",
         )
 
-    def test_blank_record_path_does_not_block(self):
+    def test_blank_record_path_is_inconclusive_and_kept(self):
         """
-        记录里路径为空串时应跳过该条（视为无残留）。
+        记录里路径全为空串时属于「无从判定」，必须保留种子。
 
-        若误判为"文件存在"，种子将永远删不掉，形成静默的功能失效。
+        历史教训（v1.3.6 实测误删事故）：旧实现把「所有记录路径都失效」
+        一律当成「已删空」并删种。而记录路径失效的成因很多——qBittorrent →
+        Transmission 做种转移后旧路径消失、下载器被清空重建、目录迁移等，
+        此时磁盘上文件可能完好无损。仅凭失效记录就删种，会误删正在保种的
+        资源（实测一个 178GB、84 个文件的种子被误删）。
+
+        安全方向必须选对：误删一个完好种子的代价，远大于一个空壳种子
+        多留一轮。因此「判不了」一律保留。
         """
         from app.db.downloadhistory_oper import DownloadHistoryOper
 
         DownloadHistoryOper.add_seed("HASH-BLANK", ["", ""])
 
-        self.assertTrue(
+        self.assertFalse(
             self.plugin._seed_fully_removed("HASH-BLANK"),
-            "空路径记录不应阻止删种",
+            "空路径记录无从判定，必须保守保留种子",
+        )
+
+    def test_blank_record_but_real_path_alive_is_kept(self):
+        """记录路径失效、但下载器报告的真实路径仍有文件 → 必须保留种子。
+
+        这是误删事故的直接复现场景：判定不能被失效记录带偏，
+        要以下载器当前报告的内容路径做物理复核。
+        """
+        from app.db.downloadhistory_oper import DownloadHistoryOper
+
+        # 记录里的路径是「已不存在的旧路径」
+        DownloadHistoryOper.add_seed("HASH-MOVED", [os.path.join(self.dl, "旧路径", "a.mkv")])
+        # 但下载器报告的真实路径下有文件
+        real_dir = os.path.join(self.dl, "真实目录")
+        os.makedirs(real_dir, exist_ok=True)
+        self.make_file(os.path.join(real_dir, "正片.mkv"))
+
+        self.assertFalse(
+            self.plugin._seed_fully_removed("HASH-MOVED", {"path": real_dir}),
+            "真实路径仍有文件，必须保留种子（不得因记录失效而误删）",
         )
 
     def test_delete_torrent_empty_hash_refused(self):

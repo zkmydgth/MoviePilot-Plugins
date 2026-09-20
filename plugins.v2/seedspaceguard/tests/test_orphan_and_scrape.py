@@ -32,6 +32,7 @@ from unittest import mock
 
 import tests  # noqa: F401  触发宿主桩路径注入
 
+import seedspaceguard  # noqa: E402  取模块级常量做可注入测试
 from app.core.module import ModuleManager
 from app.db.downloadhistory_oper import DownloadHistoryOper
 from app.db.transferhistory_oper import TransferHistoryOper
@@ -602,6 +603,183 @@ class TestDryRunPreviewsOrphans(_Base):
 
         msg = self._run(dry_run=True)
         self.assertNotIn("空壳种子", msg, "有文件在的种子不应被预报回收")
+        self.assertEqual(server.removed, [])
+
+
+# ==========================================================================
+# 六、误删事故回归（v1.3.7）
+#     「记录路径失效」不得被当成「文件已全部删除」
+# ==========================================================================
+class TestStaleRecordMustNotCauseRemoval(_Base):
+    """
+    真实事故回归（2026-09-20 18:00:04）。
+
+    事故经过：某种子 09-15 在 qBittorrent 入库并登记 ``DownloadFiles``；
+    之后下载器助手把它转移到 Transmission 做种（同一 hash 两处并存）；
+    09-20 12:00 dlh 清空 qB，登记在案的那份路径随之失效。当日 18:00 的
+    空壳扫描纳入该种子（tr 侧路径在监控目录内），``_seed_fully_removed``
+    仅凭失效记录判出「文件已全部删除」，把种删了——而磁盘上 84 个文件、
+    178GB 内容完好无损。
+
+    修复要求：判定必须做物理复核，凡「判不了」一律保留。
+    """
+
+    def _register(self, seed_dir, hash_str, record_paths, name="The.King"):
+        """注册种子：下载器报告 seed_dir，记录却写 record_paths。"""
+        server = _FakeServer([_torrent(seed_dir, hash_str, name)])
+        ModuleManager.register_downloader(DownloaderType.Qbittorrent, "qb", server)
+        DownloadHistoryOper.add_seed(hash_str, record_paths)
+        return server
+
+    def test_real_files_alive_with_stale_record_kept(self):
+        """核心场景：记录失效，但真实目录里文件都在 → 绝不允许回收。"""
+        seed_dir = os.path.join(self.dl, "The.King")
+        os.makedirs(seed_dir, exist_ok=True)
+        for i in range(3):
+            with open(os.path.join(seed_dir, f"e{i}.mkv"), "wb") as handle:
+                handle.write(b"x" * 128)
+        # 记录指向已失效的旧路径（模拟 qB 被清空后的状态）
+        self._register(seed_dir, "HASH_KING",
+                       [os.path.join(self.dl, "已失效的旧路径", "e0.mkv")])
+
+        stats = self.plugin._reap_orphan_seeds(dry_run=False)
+
+        self.assertEqual(stats["torrent"], 0, "文件完好的种子严禁回收")
+        self.assertEqual(stats["alive"], 1)
+        self.assertEqual(stats["checked"], 1, "该种子必须真的进入过判定")
+
+    def test_blank_record_with_real_files_kept(self):
+        """记录路径全为空串，但真实目录有文件 → 保留。"""
+        seed_dir = os.path.join(self.dl, "Blank")
+        os.makedirs(seed_dir, exist_ok=True)
+        with open(os.path.join(seed_dir, "a.mkv"), "wb") as handle:
+            handle.write(b"x")
+        self._register(seed_dir, "HASH_BLANK", ["", ""], name="Blank")
+
+        stats = self.plugin._reap_orphan_seeds(dry_run=False)
+        self.assertEqual(stats["torrent"], 0)
+        self.assertEqual(stats["alive"], 1)
+
+    def test_no_record_at_all_with_real_files_kept(self):
+        """完全没有下载记录，但真实目录有文件 → 保留。"""
+        seed_dir = os.path.join(self.dl, "NoRecord")
+        os.makedirs(seed_dir, exist_ok=True)
+        with open(os.path.join(seed_dir, "a.mkv"), "wb") as handle:
+            handle.write(b"x")
+        server = _FakeServer([_torrent(seed_dir, "HASH_NOREC", "NoRecord")])
+        ModuleManager.register_downloader(DownloaderType.Qbittorrent, "qb", server)
+
+        stats = self.plugin._reap_orphan_seeds(dry_run=False)
+        self.assertEqual(stats["torrent"], 0)
+        self.assertEqual(server.removed, [])
+
+    def test_truly_empty_dir_still_reaped(self):
+        """真实目录确实空（文件全删）→ 仍应正常回收，修复不能矫枉过正。"""
+        seed_dir = os.path.join(self.dl, "ReallyGone")
+        os.makedirs(seed_dir, exist_ok=True)
+        gone = os.path.join(seed_dir, "gone.mkv")
+        # 记录存在但文件已删（正常链路：插件自己删完后留下的状态）
+        DownloadHistoryOper.add_seed("HASH_GONE", [gone])
+        server = _FakeServer([_torrent(seed_dir, "HASH_GONE", "ReallyGone")])
+        ModuleManager.register_downloader(DownloaderType.Qbittorrent, "qb", server)
+
+        stats = self.plugin._reap_orphan_seeds(dry_run=False)
+        self.assertEqual(stats["torrent"], 1, "确证删空的种子仍应被回收")
+        self.assertEqual(server.removed[0][0], ["HASH_GONE"])
+
+    def test_empty_dir_no_records_still_reaped(self):
+        """目录空且无记录：物理复核确认无文件，允许回收。"""
+        seed_dir = os.path.join(self.dl, "EmptyNoRec")
+        os.makedirs(seed_dir, exist_ok=True)
+        server = _FakeServer([_torrent(seed_dir, "HASH_EMPTY", "EmptyNoRec")])
+        ModuleManager.register_downloader(DownloaderType.Qbittorrent, "qb", server)
+
+        stats = self.plugin._reap_orphan_seeds(dry_run=False)
+        self.assertEqual(stats["torrent"], 1)
+
+    def test_dry_run_reports_same_as_real_for_stale(self):
+        """试运行对「记录失效但文件在」的种子同样不得预告回收。"""
+        seed_dir = os.path.join(self.dl, "StaleDry")
+        os.makedirs(seed_dir, exist_ok=True)
+        with open(os.path.join(seed_dir, "a.mkv"), "wb") as handle:
+            handle.write(b"x")
+        self._register(seed_dir, "HASH_SD",
+                       [os.path.join(self.dl, "旧路径", "a.mkv")], name="StaleDry")
+
+        dry = self.plugin._reap_orphan_seeds(dry_run=True)
+        real = self.plugin._reap_orphan_seeds(dry_run=False)
+        self.assertEqual(dry["torrent"], 0)
+        self.assertEqual(real["torrent"], 0)
+        self.assertEqual(dry["torrent"], real["torrent"])
+
+    def test_nested_subdir_with_files_kept(self):
+        """种子目录本身为空但子目录有文件 → 仍算「未删空」，保留。"""
+        seed_dir = os.path.join(self.dl, "Nested")
+        sub = os.path.join(seed_dir, "Season 01")
+        os.makedirs(sub, exist_ok=True)
+        with open(os.path.join(sub, "e01.mkv"), "wb") as handle:
+            handle.write(b"x")
+        server = _FakeServer([_torrent(seed_dir, "HASH_NEST", "Nested")])
+        ModuleManager.register_downloader(DownloaderType.Qbittorrent, "qb", server)
+
+        stats = self.plugin._reap_orphan_seeds(dry_run=False)
+        self.assertEqual(stats["torrent"], 0, "子目录有文件同样属于未删空")
+        self.assertEqual(server.removed, [])
+
+    def test_dir_scan_failure_keeps_seed(self):
+        """目录读不了（权限/IO 异常）→ 无从判定 → 必须保留种子。"""
+        seed_dir = os.path.join(self.dl, "Unreadable")
+        os.makedirs(seed_dir, exist_ok=True)
+        with open(os.path.join(seed_dir, "a.mkv"), "wb") as handle:
+            handle.write(b"x")
+        server = _FakeServer([_torrent(seed_dir, "HASH_UNREAD", "Unreadable")])
+        ModuleManager.register_downloader(DownloaderType.Qbittorrent, "qb", server)
+
+        with mock.patch("os.scandir", side_effect=OSError("权限不足")):
+            stats = self.plugin._reap_orphan_seeds(dry_run=False)
+
+        self.assertEqual(stats["torrent"], 0, "扫描异常时必须保守保留")
+        self.assertEqual(server.removed, [])
+
+    def test_huge_dir_treated_as_alive(self):
+        """条目数超过扫描上限 → 保守判定「有文件」，不得回收。
+
+        构造「条目数 > max_scan」的真实场景：把上限压到 0，只要目录里
+        存在任何条目，循环第一次就命中上限分支，从而验证「扫不完时保守
+        判有」。目录里只放子目录、不放文件，确保命中的是上限分支而非
+        entry.is_file 分支。
+        """
+        seed_dir = os.path.join(self.dl, "Huge")
+        os.makedirs(os.path.join(seed_dir, "d1"), exist_ok=True)
+        server = _FakeServer([_torrent(seed_dir, "HASH_HUGE", "Huge")])
+        ModuleManager.register_downloader(DownloaderType.Qbittorrent, "qb", server)
+
+        self.assertTrue(
+            SeedSpaceGuard._dir_has_any_file(seed_dir, max_scan=0),
+            "扫不完时必须保守判定「有文件」",
+        )
+
+        # 让插件内部的扫描走同一分支（上限压到 0）
+        with mock.patch.object(seedspaceguard, "DIR_SCAN_MAX_ENTRIES", 0):
+            stats = self.plugin._reap_orphan_seeds(dry_run=False)
+
+        self.assertEqual(stats["torrent"], 0, "扫不完时必须保守保留")
+        self.assertEqual(server.removed, [])
+
+    def test_record_query_error_keeps_seed(self):
+        """查记录抛异常 → 无从判定 → 必须保留种子。"""
+        seed_dir = os.path.join(self.dl, "QueryErr")
+        os.makedirs(seed_dir, exist_ok=True)
+        with open(os.path.join(seed_dir, "a.mkv"), "wb") as handle:
+            handle.write(b"x")
+        server = _FakeServer([_torrent(seed_dir, "HASH_QE", "QueryErr")])
+        ModuleManager.register_downloader(DownloaderType.Qbittorrent, "qb", server)
+
+        with mock.patch.object(DownloadHistoryOper, "get_files_by_hash",
+                               side_effect=RuntimeError("数据库挂了")):
+            stats = self.plugin._reap_orphan_seeds(dry_run=False)
+
+        self.assertEqual(stats["torrent"], 0, "查询异常时必须保守保留")
         self.assertEqual(server.removed, [])
 
 

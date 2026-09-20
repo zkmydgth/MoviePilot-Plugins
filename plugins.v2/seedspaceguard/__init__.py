@@ -54,6 +54,9 @@ RELEASE_POLL_SECONDS: int = 5
 # 名义释放量低于该值时跳过「未释放即停止」硬判定，避免小文件被测量噪声误伤
 RELEASE_HARD_STOP_MIN_BYTES: int = 1024 ** 3
 GIB: int = 1024 ** 3
+# 空壳判定的目录扫描上限：超过该条目数即视为「扫不完」，保守判定为「有文件」。
+# 设上限是为了防御异常巨大的目录，绝不允许因扫不完而把有内容的种子判成空壳。
+DIR_SCAN_MAX_ENTRIES: int = 5000
 
 
 class SeedSpaceGuard(_PluginBase):
@@ -66,7 +69,7 @@ class SeedSpaceGuard(_PluginBase):
     plugin_desc = ("存储空间不足时自动清理保种目录中「保种最久」的资源（种子+文件），"
                    "避免 H&R。支持种子级删除与仅文件两种模式，可限定目标下载器；"
                    "除保护后缀外所有文件均纳入清理，可选联动删除种子与转移记录。")
-    plugin_version = "1.3.6"
+    plugin_version = "1.3.8"
     plugin_author = "zkmydgth"
     plugin_config_prefix = "seedspaceguard_"
     plugin_order = 100
@@ -303,21 +306,12 @@ class SeedSpaceGuard(_PluginBase):
                                         "props": {
                                             "type": "info",
                                             "variant": "tonal",
-                                            "text": "使用说明：卷剩余空间低于阈值时，按「保种最久」优先自动清理配置目录中的资源，"
-                                                    "直到空间恢复到阈值以上。支持多个目录：把「下载目录」与「媒体库目录」"
-                                                    "都填进来，插件会按 inode 自动识别硬链接并两侧一并删除，无需依赖其它插件联动。"
-                                                    "每轮删除后实测空间释放量，若空间几乎未释放（如硬链接仍有残留引用、"
-                                                    "快照占用），会立即停止并告警，宁可空间不足也不过量删除。"
-                                                    "种子级=删除下载器中最旧的已完成种子（连带文件，"
-                                                    "可用下方「目标下载器」限定范围，留空=全部）；"
-                                                    "仅文件=只删文件。建议先试运行预览将删内容，确认后再正式启用；"
-                                                    "清理目录本身不会被删除。删除后还会顺带清理 Synology 在 @eaDir 下遗留的"
-                                                    "媒体索引残片，避免出现「仅剩 @eaDir」的空壳目录。"
-                                                    "清理范围为「除保护文件后缀命中的文件外，目录下所有文件」，"
-                                                    "不区分文件类型；需要保留的文件请填入「保护文件后缀」。"
-                                                    "底部两项「联动清理」可选开启，分别联动删除种子、删除转移记录；"
-                                                    "其中仅文件模式的删种有严格前置条件："
-                                                    "该种子的所有文件都已删除才会删种。",
+                                            "text": "使用说明：空间低于阈值时，按「保种最久」优先清理，"
+                                                    "直到恢复到阈值以上。删除后会实测真实释放量，"
+                                                    "若几乎未释放则立即停止并告警——"
+                                                    "宁可空间不足，也不过量删除。"
+                                                    "首次使用请先用「立即试运行一次」预览将删内容，"
+                                                    "确认无误后再正式清理。",
                                         },
                                     }
                                 ],
@@ -681,6 +675,13 @@ class SeedSpaceGuard(_PluginBase):
                     f"（另{'预计' if dry_run else ''}回收空壳种子 "
                     f"{orphan_stats['torrent']} 个）"
                 )
+                # 空壳回收的本质就是「删种」，必须计入统一种子计数。
+                # 否则摘要会出现「另回收空壳种子 130 个」与「删除种子：0 个」
+                # 两个数字互相打架，用户会以为回收动作没生效。
+                self._clean_stats["seeds"] = (
+                    (self._clean_stats.get("seeds") or 0)
+                    + orphan_stats["torrent"]
+                )
 
             # 阈值比较用字节，避免 GB 取整导致的边界反复触发或永不触发
             if free_bytes >= threshold_bytes:
@@ -691,10 +692,15 @@ class SeedSpaceGuard(_PluginBase):
                     f"无需清理{orphan_note}{invalid_note}"
                 )
                 logger.info("【保种空间守护】%s", msg)
-                # 空间充足时默认静默；仅当本轮确实回收了空壳种子才通知，
-                # 否则用户会持续收到「无需清理」的噪音
+                # 定时触发默认静默：cron 每 6 小时跑一次，若每次都推
+                # 「无需清理」，一天 4 条纯噪音。
+                # 但手动（界面按钮）与命令（/seedguard）是用户主动发起的，
+                # 必须给回执——否则用户点了按钮却收不到任何结果，
+                # 观感等同于「点了没反应」。本轮若确实回收了空壳种子，
+                # 定时触发也要通知，否则回收动作会悄无声息。
+                need_notify = bool(orphan_lines) or source != "定时"
                 return self._finish(msg, orphan_lines or None,
-                                    notify=True if orphan_lines else False)
+                                    notify=need_notify)
 
             logger.info("【保种空间守护】空间不足（%sGB < %sGB），开始%s处理（%s），"
                         "监控 %d 个目录",
@@ -885,7 +891,11 @@ class SeedSpaceGuard(_PluginBase):
                 deleted += 1
                 released_gb += float(cand["size_gb"])
                 est_free += float(cand["size_gb"])
-            self._clean_stats["seeds"] = deleted
+            # 累加而非覆盖：本轮可能在进入本方法前就已回收过空壳种子，
+            # 直接赋值会把那部分计数冲掉，导致摘要少报。
+            self._clean_stats["seeds"] = (
+                (self._clean_stats.get("seeds") or 0) + deleted
+            )
             return deleted, round(released_gb, 1), detail_lines
 
         # 真实删除：分轮按缺口预选并删除，等待释放后复核
@@ -959,7 +969,10 @@ class SeedSpaceGuard(_PluginBase):
                     detail_lines.append(warn)
                     self._clean_stats["stalled"] = True
                     break
-        self._clean_stats["seeds"] = deleted
+        # 累加而非覆盖：保留进入本方法前已回收的空壳种子计数
+        self._clean_stats["seeds"] = (
+            (self._clean_stats.get("seeds") or 0) + deleted
+        )
         return deleted, round(released_gb, 1), detail_lines
 
     def _release_is_healthy(self, released: int, nominal: int) -> bool:
@@ -1157,7 +1170,9 @@ class SeedSpaceGuard(_PluginBase):
                 continue
             stats["checked"] += 1
             try:
-                if not self._seed_fully_removed(hash_str):
+                # 传入候选对象：判定需要种子的真实内容路径做物理复核，
+                # 仅凭 hash 查 DownloadFiles 在双下载器/路径迁移场景会误判
+                if not self._seed_fully_removed(hash_str, cand):
                     stats["alive"] += 1
                     continue
             except Exception as err:
@@ -1209,7 +1224,8 @@ class SeedSpaceGuard(_PluginBase):
             logger.error("【保种空间守护】检测下载器可用性失败：%s", err)
         return False
 
-    def _seed_fully_removed(self, hash_str: str) -> bool:
+    def _seed_fully_removed(self, hash_str: str,
+                            cand: Optional[Dict[str, Any]] = None) -> bool:
         """
         判定某 hash 对应的种子文件是否**已全部删除**。
 
@@ -1217,32 +1233,108 @@ class SeedSpaceGuard(_PluginBase):
         MoviePilot 自身维护，我们用 ``os.unlink`` 删除文件后它不会被同步置 0，
         若直接查 ``state=1`` 会得到「仍有文件」的错误结论，导致种子永远删不掉。
 
-        因此这里列出该 hash 下所有文件记录，逐个 ``os.path.exists`` 复核；
-        只要有任意一个文件在磁盘上仍然存在，就认为该种子尚未删完，**保留种子**。
+        判定分两级，**任一环节发现「有文件」即立刻返回 False（保留种子）**：
 
-        注意：被保护模式跳过的文件（如 ``*.part`` 未完成任务）同样计入存在，
-        从而自然阻止删种——这正是期望行为，避免删掉仍在下载的种子。
+        1. **记录复核**：列出该 hash 下所有 ``DownloadFiles`` 记录，逐个
+           ``os.path.exists`` 复核。只要有任意一个文件在磁盘上仍然存在，
+           就认为该种子尚未删完。
+        2. **物理复核**（关键加固）：直接用种子在下载器上的**真实内容路径**
+           （``cand["path"]``）去磁盘上查。若该路径存在且其中仍有任何文件，
+           同样判定「未删空」。
+
+        为什么必须有第 2 级：``DownloadFiles`` 记录的是**首次下载时**的路径，
+        而种子可能经历 qBittorrent → Transmission 做种转移、下载器清空重建、
+        目录迁移等变化，记录路径随之失效（指向已不存在的旧路径，或为空串）。
+        此时仅凭第 1 级会得出「记录里的文件都不在了 → 已删空」的**错误结论**，
+        把一个磁盘上文件完好的种子误删掉（实测事故）。第 2 级以下载器当前
+        报告的真实路径为准，绕开失效记录，从根本上堵住这个误判。
+
+        **保守原则**：所有「判不了」的情况一律返回 False（保留种子）——
+        记录为空、路径为空、路径不可读、查询异常等，宁可不删也不误删。
 
         :param hash_str: 下载 hash
-        :return: 是否已全部删除（记录为空也视为「无残留」，可删种）
+        :param cand: 种子候选项（含下载器报告的真实内容路径），可为 None
+        :return: 是否已全部删除（仅当两级复核都确认无文件时才为 True）
         """
-        if not self._downloadhis or not hash_str:
+        if not hash_str:
             return False
-        try:
-            records = self._downloadhis.get_files_by_hash(hash_str)
-        except Exception as err:
-            logger.error("【保种空间守护】查询种子文件记录失败（%s）：%s", hash_str, err)
-            return False
-        if not records:
-            # 无文件记录：无从判定，保守起见不删种
-            return False
-        for record in records:
-            fullpath = str(getattr(record, "fullpath", "") or "")
-            if not fullpath:
-                continue
-            if os.path.exists(fullpath):
+
+        # ---- 第 1 级：DownloadFiles 记录复核 ----
+        records_checked = 0
+        record_paths: List[str] = []
+        if self._downloadhis:
+            try:
+                records = self._downloadhis.get_files_by_hash(hash_str)
+            except Exception as err:
+                logger.error("【保种空间守护】查询种子文件记录失败（%s）：%s", hash_str, err)
                 return False
+            for record in records or []:
+                fullpath = str(getattr(record, "fullpath", "") or "")
+                if not fullpath:
+                    continue
+                records_checked += 1
+                record_paths.append(fullpath)
+                if os.path.exists(fullpath):
+                    return False
+
+        # ---- 第 2 级：按下载器报告的真实路径做物理复核 ----
+        if cand is not None:
+            content_path = str(cand.get("path") or "").strip()
+            if content_path and os.path.exists(content_path):
+                # 路径存在：目录要确认其中确无文件，文件则直接算「存在」
+                if os.path.isdir(content_path):
+                    if self._dir_has_any_file(content_path):
+                        return False
+                else:
+                    return False
+
+        # ---- 只有两级都拿到确凿的「无文件」证据，才允许判定为已删空 ----
+        if records_checked == 0 and not (cand and cand.get("path")):
+            # 完全没有任何可复核的依据：无从判定，保守保留种子
+            return False
         return True
+
+    @staticmethod
+    def _dir_has_any_file(path: str, max_scan: Optional[int] = None,
+                          _depth: int = 0) -> bool:
+        """
+        扫描目录，判断其中是否还存在任何普通文件（含子目录）。
+
+        用于空壳判定的物理复核：只关心「有没有文件」，不关心有多少，
+        因此一旦发现第一个文件立即返回 True，避免在超大种子目录上做全量遍历。
+
+        :param path: 待扫描目录
+        :param max_scan: 每层最多扫描的条目数（缺省取 DIR_SCAN_MAX_ENTRIES）
+        :param _depth: 当前递归深度（内部使用，限制最大深度）
+        :return: 目录中是否存在至少一个普通文件
+        """
+        if max_scan is None:
+            max_scan = DIR_SCAN_MAX_ENTRIES
+        try:
+            count = 0
+            with os.scandir(path) as it:
+                for entry in it:
+                    count += 1
+                    if count > max_scan:
+                        # 条目过多时保守判定「有文件」，绝不因扫不完而误删
+                        return True
+                    try:
+                        if entry.is_file(follow_symlinks=False):
+                            return True
+                        if entry.is_dir(follow_symlinks=False) and _depth < 8:
+                            # 子目录里有文件同样算「未删空」
+                            if SeedSpaceGuard._dir_has_any_file(
+                                entry.path, max_scan, _depth + 1
+                            ):
+                                return True
+                    except OSError:
+                        # 单个条目读不了：保守认为有内容
+                        return True
+        except OSError as err:
+            logger.error("【保种空间守护】扫描目录失败（%s）：%s", path, err)
+            # 读不了目录 → 无从判定 → 保守保留
+            return True
+        return False
 
     def _delete_torrent_by_hash(self, hash_str: str, title: str = "") -> bool:
         """
@@ -1418,7 +1510,7 @@ class SeedSpaceGuard(_PluginBase):
             if self._delete_torrents:
                 hash_str = self._resolve_hash_by_path(path)
                 if hash_str:
-                    pending_hashes.setdefault(hash_str, os.path.basename(path))
+                    pending_hashes.setdefault(hash_str, path)
                 else:
                     # 反查失败会让该文件所属种子彻底失去删种机会，必须留痕；
                     # 常见于未经 MoviePilot 登记的刮削残留或手动放入的文件。
@@ -1429,9 +1521,24 @@ class SeedSpaceGuard(_PluginBase):
 
         # 种子级判定：仅文件模式下「所有文件都删完」才删种
         if self._delete_torrents and self._mode == "file":
-            for hash_str, sample in pending_hashes.items():
-                if self._seed_fully_removed(hash_str):
-                    if self._delete_torrent_by_hash(hash_str, sample):
+            # 按 hash 取一次种子的真实内容路径，供物理复核使用。
+            # 注意不能用「被删文件的父目录」当复核对象：一个目录下常同时存放
+            # 多个不同种子的文件，扫父目录会把「同目录的其它种子」误当成自己的
+            # 残留，导致本该删掉的种子永远保留（功能静默失效）。
+            path_by_hash: Dict[str, str] = {}
+            try:
+                for cand in self._collect_seed_candidates():
+                    h = str(cand.get("hash") or "")
+                    if h and h not in path_by_hash:
+                        path_by_hash[h] = str(cand.get("path") or "")
+            except Exception as err:
+                logger.error("【保种空间守护】联动删种前获取种子路径失败：%s", err)
+
+            for hash_str, sample_path in pending_hashes.items():
+                probe = {"path": path_by_hash.get(hash_str, "")}
+                if self._seed_fully_removed(hash_str, probe):
+                    if self._delete_torrent_by_hash(hash_str,
+                                                    os.path.basename(sample_path)):
                         stats["torrent"] += 1
                         detail_lines.append(f"已联动删除种子（该种子文件已全部删除）：{hash_str}")
                         logger.info("【保种空间守护】%s", detail_lines[-1])
