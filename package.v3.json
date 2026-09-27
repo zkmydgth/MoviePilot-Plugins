@@ -13,5 +13,33 @@
       "v3.1.0": "同步上游 V2 主线修复：R302 缓存雪崩防护（并发同键只请求一次 115）、增量清理不再误删目录、远程 ffprobe 稳定性增强、302 接口日志降噪并补充异常堆栈",
       "v3.0.0": "适配 MoviePilot V3 SDK 与插件依赖清单"
     }
+  },
+  "ConfigBackup": {
+    "name": "配置备份",
+    "description": "定时备份 MoviePilot 系统配置、数据库及插件配置到指定目录，支持保留数量自动清理、手动触发和一键还原（V3 独立维护版）。",
+    "labels": "系统工具,备份",
+    "version": "3.0.0",
+    "release": true,
+    "icon": "configbackup.png",
+    "author": "zkmydgth",
+    "system_version": ">=3.0.0",
+    "level": 1,
+    "history": {
+      "v3.0.0": "适配 MoviePilot V3 SDK 与插件依赖清单：core.config→runtime.config、helper.directory→application.directory、log→runtime.log、utils.string→sdk.string、NotificationType→MessageType；独立于 V2 维护线，初始版本 3.0.0"
+    }
+  },
+  "SeedSpaceGuard": {
+    "name": "保种空间守护",
+    "description": "存储空间不足时自动清理保种目录中「保种最久」的资源（种子+文件），支持多目录硬链接双侧删除与释放量实测兜底（V3 独立维护版）。",
+    "labels": "工具",
+    "version": "3.0.0",
+    "release": true,
+    "icon": "seedspaceguard.png",
+    "author": "zkmydgth",
+    "system_version": ">=3.0.0",
+    "level": 1,
+    "history": {
+      "v3.0.0": "适配 MoviePilot V3 并深入改写下载器访问层：已移除的 ModuleManager / ServiceConfigHelper 改为 app.application.downloader.DownloaderHelper（get_services 提供 ServiceInfo.instance 枚举种子、ServiceInfo.module 删种）；core.event→sdk.events、log→runtime.log、NotificationType→MessageType、db.*_oper→db.oper.*；下载器类型改为「配置字符串→DownloaderType 枚举」归一化以避免判定失效。独立于 V2 维护线，初始版本 3.0.0"
+    }
   }
 }
