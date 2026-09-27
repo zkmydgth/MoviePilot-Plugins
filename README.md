@@ -8,15 +8,40 @@ https://github.com/zkmydgth/MoviePilot-Plugins
 
 ---
 
+## V2 / V3 双线维护说明
+
+本仓库同时维护 **MoviePilot V2** 与 **MoviePilot V3** 两条**互相独立**的插件线：
+
+| 维护线 | 源码目录 | 清单文件 | 宿主要求 |
+| --- | --- | --- | --- |
+| V2 | `plugins.v2/<插件>` | `package.v2.json` | MoviePilot 2.x |
+| V3 | `plugins.v3/<插件>` | `package.v3.json` | MoviePilot >= 3.0.0 |
+
+两条线是**两个各自演进的版本**，各有独立的更新历史，不能互相覆盖：
+
+- 同一插件 ID 在 V2 与 V3 上的版本号互不相关——V3 线起步就是我们自己的号码。
+- 插件的约束会决定它在你的环境里是否可见：V3 线要求 `>=3.0.0`，因此在 MoviePilot V2 上不会出现在插件市场列表中。**这是正常的版本约束表现，不是发布故障。**
+- 改完代码后必须同步更新对应清单里的 `version`，否则 GitHub Actions 的发布工作流不会触发，也就不会有新的 Release（这一条踩过坑：115 助手一度只改了源码没改清单，Release 就停更了）。
+
+发布由 `.github/workflows/plugins-release.yml` 驱动：**仅在 `package.v2.json` / `package.v3.json` 发生变化时触发**，并且要求「插件源码里的版本号」与「清单里的版本号」**完全一致**后才能打 tag（`{插件ID}_v{版本号}`）。
+
+> ⚠️ **请勿同时订阅上游仓库**：上游的同名插件 ID 与本仓库重复，同时订阅会导致插件被反复覆盖，且两侧数据结构互不兼容。若此前订阅过上游版本，请先取消订阅再装本仓库版本。
+
+---
+
 ## 保种空间守护（SeedSpaceGuard）
 
 存储空间不足时，自动清理保种目录中「保种最久」的资源（种子 + 文件），避免触发 H&R。
 
-| 项目 | 说明 |
-| --- | --- |
-| 版本 | v1.3.8 |
-| 标签 | 存储管理 |
-| 适用版本 | MoviePilot >= 2.12.0 |
+| 项目 | V2 版 | V3 版 |
+| --- | --- | --- |
+| 最新版本 | v1.3.8 | **v3.0.0** |
+| 标签 | 存储管理 | 存储管理 |
+| 适用版本 | MoviePilot >= 2.12.0 | MoviePilot >= 3.0.0 |
+| 源码目录 | `plugins.v2/seedspaceguard` | `plugins.v3/seedspaceguard` |
+| 发布状态 | 已发布 | 已发布 |
+
+> 两个版本功能完全一致，**按你的 MoviePilot 大版本二选一即可**；版本号不同不代表功能差异，只代表维护线不同。
 
 ### 功能特性
 
@@ -48,10 +73,53 @@ https://github.com/zkmydgth/MoviePilot-Plugins
 - **完成通知**：清理结果通过站内消息推送。定时触发沿用「无动作即静默」（避免每 6 小时推一条「无需清理」的噪音），**手动（页面按钮）与命令（`/seedguard`）触发一律推送结果**——用户主动发起必须有回执；另外定时触发若本轮确实回收了空壳种子，也会通知
 - **统计口径一致**：空壳种子回收本质就是「删种」，其数量会计入通知摘要的「删除种子」计数，不会出现「另回收空壳种子 130 个」与「删除种子：0 个」自相矛盾的显示
 
-### 更新历史
+### V3 版（v3.0.0，MoviePilot >= 3.0.0）
+
+V3 版**功能与 V2 v1.3.8 完全一致**，改动全部集中在宿主机（MoviePilot）API 适配上：
+
+| 原 V2 依赖 | V3 替代 | 备注 |
+| --- | --- | --- |
+| `app.core.event` | `app.sdk.events` | 事件总线迁移到 SDK 层 |
+| `app.core.module.ModuleManager` | `app.application.downloader.DownloaderHelper` | V3 **已彻底移除** `ModuleManager`（无兼容别名） |
+| `app.helper.service.ServiceConfigHelper` | 同上 | V3 **已彻底移除** `ServiceConfigHelper`（无兼容别名） |
+| `app.db.downloadhistory_oper` | `app.db.oper.downloadhistory` | 统一到 `db.oper` 子包 |
+| `app.db.transferhistory_oper` | `app.db.oper.transferhistory` | 同上 |
+| `app.log` | `app.runtime.log` | 日志组件下沉到 runtime 层 |
+| `NotificationType` | `MessageType` | V3 里旧名已不存在 |
+
+**下载器访问层是这次改写最深的一处**（`ModuleManager` / `ServiceConfigHelper` 在 V3 中连路径都不存在了），对应关系如下：
+
+| V2 写法 | V3 写法 |
+| --- | --- |
+| `ServiceConfigHelper.get_downloader_configs()` | `DownloaderHelper().get_configs()`（已内建过滤「未启用/无名称/无类型」） |
+| `ModuleManager().get_modules()` | `DownloaderHelper().get_services()` |
+| `ModuleManager().get_running_subtype_module(type)` | `DownloaderHelper().get_services()` |
+| `module.get_instances()` → 逐个实例查种子 | `ServiceInfo.instance` 负责枚举种子 |
+| 拿到的 module 直接删种 | `ServiceInfo.module` 负责删种 |
+
+其中踩到一个**很隐蔽的坑**，值得单独记一笔：
+
+> V3 的 `DownloaderType` 是**纯 Enum**（值是 `"Qbittorrent"` 这种首字母大写），而 `DownloaderConf.type` 是普通字符串（`"qbittorrent"` 全小写）。二者用 `==` 比较**恒为 False**。
+> V2 走 `ModuleManager` 时拿到的直接就是枚举成员，所以从来没出过问题；V3 改走配置后必须先把字符串**归一化成枚举**再往下传，否则所有依赖「下载器类型判定」的分支会静默全部失效——种子一个都识别不出来，但日志里没有任何报错。
+> V3 版已加入 `_resolve_downloader_type()` 做归一化，并补了对应的回归测试。
+
+V3 版自带完整测试资产：294 个单测 + 113 个变异体，全部通过且 **0 逃逸**。
+
+#### V3 更新历史
 
 <details>
-<summary>📜 点击展开更新记录</summary>
+<summary>📜 点击展开 V3 更新记录</summary>
+
+| 版本 | 说明 |
+| --- | --- |
+| v3.0.0 | 适配 MoviePilot V3：`core.event→sdk.events`、`log→runtime.log`、`NotificationType→MessageType`、`db.*_oper→db.oper.*`；深入改写下载器访问层，已移除的 `ModuleManager` / `ServiceConfigHelper` 改为 `app.application.downloader.DownloaderHelper`（`ServiceInfo.instance` 枚举种子、`ServiceInfo.module` 删种）；下载器类型改为「配置字符串 → `DownloaderType` 枚举」归一化，避免 V3 下类型判定全面失效。独立于 V2 维护线，初始版本 3.0.0，功能对齐 V2 v1.3.8 |
+
+</details>
+
+### V2 更新历史
+
+<details>
+<summary>📜 点击展开 V2 更新记录</summary>
 
 | 版本 | 说明 |
 | --- | --- |
@@ -85,12 +153,16 @@ https://github.com/zkmydgth/MoviePilot-Plugins
 
 定时备份 MoviePilot 系统配置、数据库及插件配置到指定目录，支持保留数量自动清理、手动触发和一键还原。
 
-| 项目 | 说明 |
-| --- | --- |
-| 版本 | v1.3.3 |
-| 标签 | 系统工具, 备份 |
-| 适用版本 | MoviePilot >= 2.0.0 |
-| 数据库要求 | MoviePilot 需使用 **PostgreSQL**（10+，含最新 18.x） |
+| 项目 | V2 版 | V3 版 |
+| --- | --- | --- |
+| 最新版本 | v1.3.4 | **v3.0.0** |
+| 标签 | 系统工具, 备份 | 系统工具, 备份 |
+| 适用版本 | MoviePilot >= 2.0.0 | MoviePilot >= 3.0.0 |
+| 源码目录 | `plugins.v2/configbackup` | `plugins.v3/configbackup` |
+| 发布状态 | 已发布 | 已发布 |
+| 数据库要求 | PostgreSQL（10+，含 18.x） | 同左 |
+
+> 两个版本功能完全一致，**按你的 MoviePilot 大版本二选一即可**；版本号不同不代表功能差异，只代表维护线不同。
 
 ### 功能特性
 
@@ -109,7 +181,32 @@ https://github.com/zkmydgth/MoviePilot-Plugins
 - **备份目录灵活配置**：支持下拉候选 + 自由输入
 - **完成通知**：备份/还原结果站内消息推送
 
-### 更新历史
+### V3 版（v3.0.0，MoviePilot >= 3.0.0）
+
+V3 版**功能与 V2 v1.3.4 完全一致**，仅做宿主 API 迁移：
+
+| 原 V2 依赖 | V3 替代 |
+| --- | --- |
+| `app.core.config` | `app.runtime.config` |
+| `app.helper.directory` | `app.application.directory` |
+| `app.log` | `app.runtime.log` |
+| `app.utils.string` | `app.sdk.string` |
+| `NotificationType` | `MessageType` |
+
+V3 版自带 46 个单测（含 43 个子测试）+ 18 个边界变异体，全部通过。
+
+#### V3 更新历史
+
+<details>
+<summary>📜 点击展开 V3 更新记录</summary>
+
+| 版本 | 说明 |
+| --- | --- |
+| v3.0.0 | 适配 MoviePilot V3：`core.config→runtime.config`、`helper.directory→application.directory`、`log→runtime.log`、`utils.string→sdk.string`、`NotificationType→MessageType`；测试桩补齐 V3 形态所需的宿主接口。独立于 V2 维护线，初始版本 3.0.0，功能对齐 V2 v1.3.4 |
+
+</details>
+
+### V2 更新历史
 
 <details>
 <summary>📜 点击展开更新记录</summary>
@@ -130,7 +227,7 @@ https://github.com/zkmydgth/MoviePilot-Plugins
 
 ## 115网盘STRM助手（P115StrmHelper）
 
-> ✅ **已发布**：v3.1.0 已推送并在插件市场上线（`package.v3.json` 中 `release: true`）。
+> ✅ **已发布**：v3.2.0 已推送并在插件市场上线（`package.v3.json` 中 `release: true`）。
 >
 > ⚠️ **请勿同时订阅上游仓库**：上游 [DDSRem-Dev/MoviePilot-Plugins](https://github.com/DDSRem-Dev/MoviePilot-Plugins) 的 V2 版插件 ID 同为 `P115StrmHelper`，同时订阅会导致插件被反复覆盖，且两者数据库结构不兼容。
 >
@@ -142,7 +239,7 @@ https://github.com/zkmydgth/MoviePilot-Plugins
 
 | 项目 | 说明 |
 | --- | --- |
-| 版本 | v3.1.0（已发布） |
+| 版本 | v3.2.0（已发布） |
 | 标签 | 云盘 |
 | 适用版本 | MoviePilot >= 3.0.0 |
 | 源码目录 | `plugins.v3/p115strmhelper` |
@@ -164,6 +261,7 @@ https://github.com/zkmydgth/MoviePilot-Plugins
 
 | 版本 | 说明 |
 | --- | --- |
+| v3.2.0 | **修复 V3 环境下插件无法加载的两个硬断点**：<br>① **`TransferTask` 导入路径失效**——V3 已把整理任务工作项迁到 `app.application.transfer.models`（目的是避免 import 环），旧路径 `app.schemas` 下的导出被去掉，插件一加载就 `ImportError`。<br>② **`ChannelCapabilityManager` 被彻底移除**——V3 的 `Message.buttons` 降级为 `Optional[List[List[dict]]]`，不再提供按渠道查询按钮能力的方法，交互视图渲染时必崩。现改为使用插件**本地兜底实现**，不再硬依赖宿主内部符号。<br>说明：上一版 v3.1.0 发布后只提交了修复代码、没有同步更新 `package.v3.json`，导致发布工作流（仅监听 `package*.json`）没有触发，修复迟迟没能进发行版。v3.2.0 连同版本登记一并补上。 |
 | v3.1.0 | 同步上游 V2 主线修复：R302 缓存雪崩防护（并发同键只请求一次 115）、增量清理不再误删目录、远程 ffprobe 稳定性增强、302 接口日志降噪并补充异常堆栈；随包携带离线 wheels，测试套件自带宿主桩可独立运行 |
 | v3.0.0 | 适配 MoviePilot V3 SDK 与插件依赖清单 |
 
@@ -171,7 +269,7 @@ https://github.com/zkmydgth/MoviePilot-Plugins
 
 ### 已知注意事项
 
-- **本插件已发布**（`release: true`，v3.1.0）。因此**不要同时订阅上游**：两者插件 ID 均为 `P115StrmHelper`，同时订阅会导致插件被反复覆盖，且数据库结构不兼容风险高——若此前订阅了上游 V2 版，请先取消订阅再装本版
+- **本插件已发布**（`release: true`，v3.2.0）。因此**不要同时订阅上游**：两者插件 ID 均为 `P115StrmHelper`，同时订阅会导致插件被反复覆盖，且数据库结构不兼容风险高——若此前订阅了上游 V2 版，请先取消订阅再装本版
 - 本版本为主版本 3.x，与上游 V2 版本（2.x）不互通，**不建议在 V2 环境安装**
 - 在 **MoviePilot V2** 上，因 `system_version` 要求 `>=3.0.0`，该插件不会出现在插件市场列表中。这是版本约束的正常表现，**不是发布故障**
 - 插件数据库迁移锚点、事件队列名均沿用上游命名，便于从上游 V2 迁移时保留既有数据

@@ -19,7 +19,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PLUGIN_DIR = os.path.dirname(HERE)
-TARGET = os.path.join(PLUGIN_DIR, "seedspaceguard.py")
+TARGET = os.path.join(PLUGIN_DIR, "__init__.py")
 
 # 各片段用显式拼接构造，避免三引号内嵌三引号导致的转义问题
 NEED_NOTIFY_OLD = (

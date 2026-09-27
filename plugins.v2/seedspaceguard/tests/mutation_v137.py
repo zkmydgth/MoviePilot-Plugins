@@ -19,7 +19,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PLUGIN_DIR = os.path.dirname(HERE)
-TARGET = os.path.join(PLUGIN_DIR, "seedspaceguard.py")
+TARGET = os.path.join(PLUGIN_DIR, "__init__.py")
 BACKUP = "/tmp/sg135_mutation_backup.py"
 
 

@@ -19,7 +19,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PLUGIN_DIR = os.path.dirname(HERE)
-TARGET = os.path.join(PLUGIN_DIR, "seedspaceguard.py")
+TARGET = os.path.join(PLUGIN_DIR, "__init__.py")
 BACKUP = "/tmp/sg135_mutation_backup.py"
 
 
@@ -61,7 +61,7 @@ MUTANTS = [
     ),
     (
         "空壳回收失效：判定反转（有文件也回收，会误删在做种的资源）",
-        """                if not self._seed_fully_removed(hash_str):
+        """                if not self._seed_fully_removed(hash_str, cand):
                     stats["alive"] += 1
                     continue""",
         """                if self._seed_fully_removed(hash_str):
@@ -132,8 +132,8 @@ MUTANTS = [
     ),
     (
         "空壳回收越界：不看配置目录范围（会删到监控目录外的种子）",
-        """                        if not cand["path"] or not self._path_under_any(cand["path"]):""",
-        """                        if not cand["path"]:""",
+        """                if not cand["path"] or not self._path_under_any(cand["path"]):""",
+        """                if not cand["path"]:""",
         "应导致 test_orphan_outside_target_dirs_ignored 失败",
     ),
     (
