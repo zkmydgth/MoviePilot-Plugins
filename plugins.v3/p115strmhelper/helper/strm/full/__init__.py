@@ -22,8 +22,16 @@ from p115client.tool.iterdir import (
 from app.sdk.config import settings
 from app.sdk.logging import logger
 
-from full_strm_sync import Processor, PackedResult
-from full_strm_sync import __version__ as rust_core_version
+try:
+    from full_strm_sync import Processor, PackedResult
+    from full_strm_sync import __version__ as rust_core_version
+except ImportError:  # pragma: no cover - 取决于宿主是否装了 Rust 扩展
+    # MoviePilot V3 运行在 Python 3.14（cp314），而 full_strm_sync 上游只发布
+    # cp312 ABI 的 wheel，宿主装不上。此时自动回落到纯 Python 全量同步路径，
+    # 功能完全一致，仅大批量场景慢一些。
+    Processor = None
+    PackedResult = None
+    rust_core_version = None
 
 from ....core.config import configer
 from ....core.history import StrmExecHistoryManager
@@ -50,6 +58,29 @@ from .interaction import strm_cleanup_interaction
 ProcessResult = namedtuple(
     "ProcessResult", ["status", "path", "message", "data", "path_entry"]
 )
+
+
+def resolve_rust_mode(enabled: bool) -> bool:
+    """
+    判定本次全量同步是否真的能走 Rust 加速路径
+
+    MoviePilot V3 运行在 Python 3.14（cp314），而 full_strm_sync 上游只发布
+    cp312 ABI 的 wheel，宿主装不上。此时即便用户开启了 Rust 加速，也必须回落到
+    纯 Python 路径——否则会在 Processor 初始化处直接失败。
+
+    :param enabled (bool): 用户配置的 Rust 加速开关
+    :return bool: 实际是否启用 Rust 加速
+    """
+    if not enabled:
+        return False
+    if Processor is None:
+        logger.warning(
+            "【全量STRM生成】已开启 Rust 加速，但当前 Python 环境未提供 full_strm_sync"
+            "（该扩展仅有 cp312 wheel，MoviePilot V3 的 Python 3.14 无法安装），"
+            "本次自动回落为纯 Python 处理路径：结果一致，速度会慢一些。"
+        )
+        return False
+    return True
 
 
 class FullSyncStrmHelper:
@@ -785,7 +816,7 @@ class FullSyncStrmHelper:
 
         :param full_sync_strm_paths (str): 全量同步路径配置字符串
         """
-        rust = configer.full_sync_process_rust
+        rust = resolve_rust_mode(configer.full_sync_process_rust)
         media_paths = full_sync_strm_paths.split("\n")
 
         num_io_workers = 8

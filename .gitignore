@@ -20,9 +20,18 @@ sdist/
 *.egg
 MANIFEST
 
+# 前端依赖与构建中间产物（node_modules 不入库，由 CI 用 npm ci 还原）
+node_modules/
+
 # wheels：默认忽略，仅放行插件随源码分发的离线依赖
 wheels/
 !plugins.v3/p115strmhelper/wheels/
+
+# 插件前端构建产物：Vue 联邦模式运行时必须读取 dist/assets/remoteEntry.js，
+# 缺失会直接报「组件加载错误」，因此这里放行并纳入版本控制。
+# 产物由 frontend/<插件ID>/ 构建生成，CI 亦会重新构建后覆盖。
+!plugins.v3/*/dist/
+!plugins.v3/*/dist/**
 
 # 数据库与运行时数据
 *.db
