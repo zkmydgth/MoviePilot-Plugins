@@ -244,7 +244,7 @@ def _build_probe_task(mediainfo, season: Optional[int], fileitem=None):
     :return: 最小 TransferTask；构造不可用返回 None
     """
     try:
-        from app.schemas import TransferTask as MPTransferTask
+        from app.application.transfer.models import TransferTask as MPTransferTask
         from app.sdk.media import MetaBase
     except Exception as err:
         logger.debug(f"【整理接管】探针任务所需宿主类型不可用: {err}")

@@ -16,7 +16,7 @@ from app.application.directory import DirectoryHelper
 from app.sdk.logging import logger
 from app.schemas import FileItem, TransferInfo
 from app.schemas.message import Message
-from app.schemas import TransferTask as MPTransferTask
+from app.application.transfer.models import TransferTask as MPTransferTask
 from app.schemas.types import EventType, MediaType, MessageType
 from app.sdk.utilities import StringUtils
 
