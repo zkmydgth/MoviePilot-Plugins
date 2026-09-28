@@ -564,7 +564,9 @@ class SeedSpaceGuard(_PluginBase):
             mode_override=mode_override,
             dry_run_override=dry_run,
         )
-        return {"success": True, "message": result}
+        # 宿主 envelope 契约：前端 isApiResponse() 要求恰好三键
+        # （success / message / data），且 success 为 bool、message 为 str。
+        return {"success": True, "message": result, "data": None}
 
     async def api_status(self, request: Request) -> Dict[str, Any]:
         """
@@ -573,18 +575,23 @@ class SeedSpaceGuard(_PluginBase):
         :param request: FastAPI 请求对象
         """
         free_gb = self._disk_free_gb()
+        # 业务字段一律放进 data，不得平铺在顶层：
+        # 顶层多一个键就会破坏宿主 envelope 的三键契约，前端弹「无效响应」。
         return {
             "success": True,
-            "enabled": self._enabled,
-            "target_dirs": self._target_dirs,
-            # 兼容旧字段：返回首个目录，便于老调用方平滑过渡
-            "target_dir": self._target_dirs[0] if self._target_dirs else "",
-            "volume_path": self._volume_path,
-            "free_gb": free_gb,
-            "threshold_gb": self._threshold_gb,
-            "mode": self._mode,
-            "dry_run": self._dry_run,
-            "last_result": self._last_result,
+            "message": "获取成功",
+            "data": {
+                "enabled": self._enabled,
+                "target_dirs": self._target_dirs,
+                # 兼容旧字段：返回首个目录，便于老调用方平滑过渡
+                "target_dir": self._target_dirs[0] if self._target_dirs else "",
+                "volume_path": self._volume_path,
+                "free_gb": free_gb,
+                "threshold_gb": self._threshold_gb,
+                "mode": self._mode,
+                "dry_run": self._dry_run,
+                "last_result": self._last_result,
+            },
         }
 
     # ============================ 命令事件 ============================
