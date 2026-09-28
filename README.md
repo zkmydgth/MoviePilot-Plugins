@@ -208,7 +208,12 @@ https://github.com/zkmydgth/MoviePilot-Plugins
 
 - 同一插件 ID 在 V2 与 V3 上的版本号互不相关。
 - V3 线要求 `>=3.0.0`，因此在 MoviePilot V2 上不会出现在插件市场列表中——**这是正常的版本约束表现，不是发布故障。**
-- 发布由 `.github/workflows/plugins-release.yml` 驱动：**仅在 `package.v2.json` / `package.v3.json` 发生变化时触发**，并且要求「插件源码里的版本号」与「清单里的版本号」**完全一致**后才能打 tag。
+- 发布由 `.github/workflows/plugins-release.yml` 驱动，触发路径包括：`package*.json`、`plugins/**`、`plugins.v2/**`、`plugins.v3/**`、`.github/scripts/verify_plugin_versions.py` 以及该 workflow 自身。
+- 工作流第一步是 **版本一致性校验**（`.github/scripts/verify_plugin_versions.py`），要求：
+  1. `version.py` 中定义了 `VERSION`；
+  2. 该 `VERSION` 与 `package.v2.json` / `package.v3.json` 里的 `version` **完全一致**；
+  3. `__init__.py` 中必须写作 `plugin_version = VERSION`，**禁止硬编码版本号字符串**。
+- 以上任一条件不满足，工作流会在校验阶段直接失败，不会产出 Release —— 这是为了避免「清单版本已升、插件类属性仍是旧值」导致用户端**一直提示有更新**但装不上新版本。
 - 改完代码后必须同步更新对应清单里的 `version`，否则发布工作流不会触发。
 
 <details>

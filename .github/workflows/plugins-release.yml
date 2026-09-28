@@ -30,15 +30,45 @@ on:
         default: false
 
   # 2. 自动触发器：当 main 分支的指定文件发生 push 时
+  #
+  # 注意：paths 同时包含 package*.json 与 plugins*/**。
+  #   仅含 package*.json 时，"只改源码不改清单"的提交不会触发任何校验，
+  #   会让版本错位（version.py 已升、__init__.py 未同步）静默通过。
+  #   加入源码路径后，这类提交至少会跑一次 verify-versions 做校验。
   push:
     branches:
       - main
     paths:
       - 'package*.json'
+      - 'plugins/**'
+      - 'plugins.v2/**'
+      - 'plugins.v3/**'
+      - '.github/scripts/verify_plugin_versions.py'
+      - '.github/workflows/plugins-release.yml'
 
 jobs:
+  # 版本声明一致性校验（快速失败，避免打出错位的安装包）
+  #
+  # 背景（2026-09-28 事故）：ConfigBackup / SeedSpaceGuard 的 version.py
+  # 已升到 3.0.1，但 __init__.py 的 plugin_version 仍硬编码 "3.0.0"，
+  # 打包流程只按 version.py 校验 → 校验通过却打出了旧代码的安装包。
+  verify-versions:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Verify plugin version declarations
+        run: python3 .github/scripts/verify_plugin_versions.py
+
   # 检测需要发布的插件
   detect-changes:
+    needs: verify-versions
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.detector.outputs.plugins }}
