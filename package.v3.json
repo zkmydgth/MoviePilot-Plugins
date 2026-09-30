@@ -10,38 +10,43 @@
     "system_version": ">=3.0.0",
     "level": 1,
     "history": {
-      "v3.2.1": "适配 MoviePilot V3 的 Python 3.14 运行时：Rust 加速扩展（full_strm_sync / txt_tree_storage / share_strm_scan）上游只发布 cp312 wheel，声明为必需依赖会让 uv 整体解析失败导致插件装不上，现改为环境标记可选依赖；目录树 TXT 后端补齐纯 Python 实现（已与 Rust 版做过等价性比对），分享 STRM 扫描器提供纯 Python 实现，全量同步在扩展缺失时自动回落纯 Python 路径；pyahocorasick 升至 2.3.1（首个提供 cp314 wheel 的版本）。同时修复 Vue 联邦前端组件加载失败：此前前端构建产物 dist/ 未随源码分发，运行时读不到 remoteEntry.js 导致打开插件报「组件加载错误」，现补齐 dist/ 并纳入版本控制；并修正构建配置中重复打包 Vuetify 全局样式的问题（改为交由宿主共享），避免污染主程序界面",
+      "v3.2.1": "适配 MoviePilot V3 的 Python 3.14 运行时：Rust 加速扩展（full_strm_sync / txt_tree_storage / share_strm_scan）上游只发布 cp312 wheel，声明为必需依赖会让 uv 整体解析失败导致插件装不上，现改为环境标记可选依赖；目录树 TXT 后端补齐纯 Python 实现（已与 Rust 版做过等价性比对），分享 STRM 扫描器提供纯 Python 实现，全量同步在扩展缺失时自动回落纯 Python 路径；pyahocorasick 升至 2.3.1（首个提供 cp314 wheel 的版本）",
       "v3.2.0": "修复 V3 兼容性两个硬断点：TransferTask 导入路径改为 app.application.transfer.models（V3 已将整理任务工作项迁至 application 层以避免 import 环）；交互视图改用插件本地 ChannelCapabilityManager 兜底实现（V3 已彻底移除 app.schemas.message.ChannelCapabilityManager）；配套补齐 V3 形态测试桩",
       "v3.1.0": "同步上游 V2 主线修复：R302 缓存雪崩防护（并发同键只请求一次 115）、增量清理不再误删目录、远程 ffprobe 稳定性增强、302 接口日志降噪并补充异常堆栈",
       "v3.0.0": "适配 MoviePilot V3 SDK 与插件依赖清单"
-    }
+    },
+    "v3": true
   },
   "ConfigBackup": {
     "name": "配置备份",
     "description": "定时备份 MoviePilot 系统配置、数据库及插件配置到指定目录，支持保留数量自动清理、手动触发和一键还原（V3 独立维护版）。",
     "labels": "系统工具,备份",
-    "version": "3.0.0",
+    "version": "3.0.1",
     "release": true,
     "icon": "configbackup.png",
     "author": "zkmydgth",
     "system_version": ">=3.0.0",
     "level": 1,
     "history": {
-      "v3.0.0": "适配 MoviePilot V3 SDK 与插件依赖清单：core.config→runtime.config、helper.directory→application.directory、log→runtime.log、utils.string→sdk.string、NotificationType→MessageType；独立于 V2 维护线，初始版本 3.0.0"
-    }
+      "v3.0.0": "适配 MoviePilot V3 SDK 与插件依赖清单：core.config→runtime.config、helper.directory→application.directory、log→runtime.log、utils.string→sdk.string、NotificationType→MessageType；独立于 V2 维护线，初始版本 3.0.0",
+      "v3.0.1": "修复 V3 前端 envelope 契约导致的「服务器返回了无效响应」弹窗：isApiResponse() 要求响应恰好三键（success/message/data），插件原只返回两键，校验失败即弹错但后端已执行。4 个 API 全部 return 补齐 data；删除改为两阶段确认（先选中再确认，新增 pending_delete.json），避免列表误点【删除】直接抹掉备份；文件名校验收紧为「bk_ 前缀 + .zip 后缀」。"
+    },
+    "v3": true
   },
   "SeedSpaceGuard": {
     "name": "保种空间守护",
     "description": "存储空间不足时自动清理保种目录中「保种最久」的资源（种子+文件），支持多目录硬链接双侧删除与释放量实测兜底（V3 独立维护版）。",
     "labels": "工具",
-    "version": "3.0.0",
+    "version": "3.0.1",
     "release": true,
     "icon": "seedspaceguard.png",
     "author": "zkmydgth",
     "system_version": ">=3.0.0",
     "level": 1,
     "history": {
-      "v3.0.0": "适配 MoviePilot V3 并深入改写下载器访问层：已移除的 ModuleManager / ServiceConfigHelper 改为 app.application.downloader.DownloaderHelper（get_services 提供 ServiceInfo.instance 枚举种子、ServiceInfo.module 删种）；core.event→sdk.events、log→runtime.log、NotificationType→MessageType、db.*_oper→db.oper.*；下载器类型改为「配置字符串→DownloaderType 枚举」归一化以避免判定失效。独立于 V2 维护线，初始版本 3.0.0"
-    }
+      "v3.0.0": "适配 MoviePilot V3 并深入改写下载器访问层：已移除的 ModuleManager / ServiceConfigHelper 改为 app.application.downloader.DownloaderHelper（get_services 提供 ServiceInfo.instance 枚举种子、ServiceInfo.module 删种）；core.event→sdk.events、log→runtime.log、NotificationType→MessageType、db.*_oper→db.oper.*；下载器类型改为「配置字符串→DownloaderType 枚举」归一化以避免判定失效。独立于 V2 维护线，初始版本 3.0.0",
+      "v3.0.1": "修复 V3 前端 envelope 契约问题：api_run 补齐 data 键；api_status 业务字段由顶层移入 data（原顶层 8 键必然触发「无效响应」弹窗）。"
+    },
+    "v3": true
   }
 }
