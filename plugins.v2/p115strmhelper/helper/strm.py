@@ -25,7 +25,9 @@ from ..core.scrape import media_scrape_metadata
 from ..db_manager.oper import FileDbHelper
 from ..utils.path import PathUtils
 from ..utils.strm import StrmUrlGetter, StrmGenerater
+from ..utils.mediainfo_download import MediainfoDownloadMiddleware
 from ..utils.exception import PanPathNotFound, PanDataNotInDb, CanNotFindPathToCid
+from ..utils.automaton import AutomatonUtils
 from ..helper.mediainfo_download import MediaInfoDownloader
 
 from app.log import logger
@@ -621,6 +623,13 @@ class FullSyncStrmHelper:
         self.download_mediainfo_list = []
 
         self.strmurlgetter = StrmUrlGetter()
+        self.sgab = AutomatonUtils.build_automaton(configer.strm_generate_blacklist)
+        self.mdaw = AutomatonUtils.build_automaton(
+            configer.mediainfo_download_whitelist
+        )
+        self.mdab = AutomatonUtils.build_automaton(
+            configer.mediainfo_download_blacklist
+        )
 
         self.local_tree = configer.PLUGIN_TEMP_PATH / "local_tree.txt"
         self.pan_tree = configer.PLUGIN_TEMP_PATH / "pan_tree.txt"
@@ -813,6 +822,22 @@ class FullSyncStrmHelper:
                                 new_file_path,
                                 self.overwrite_mode,
                             )
+
+                    if not (
+                        result := MediainfoDownloadMiddleware.should_download(
+                            filename=file_path.name,
+                            blacklist_automaton=self.mdab,
+                            whitelist_automaton=self.mdaw,
+                        )
+                    )[1]:
+                        self.__base_logger(
+                            "warn",
+                            "【全量STRM生成】%s，跳过网盘路径: %s",
+                            result[0],
+                            item["path"],
+                        )
+                        return path_entry
+
                     pickcode = item["pickcode"]
                     if not pickcode:
                         logger.error(
@@ -839,7 +864,10 @@ class FullSyncStrmHelper:
 
             if not (
                 result := StrmGenerater.should_generate_strm(
-                    original_file_name, "full", item.get("size", None)
+                    filename=original_file_name,
+                    mode="full",
+                    filesize=item.get("size", None),
+                    blacklist_automaton=self.sgab,
                 )
             )[1]:
                 self.__base_logger(

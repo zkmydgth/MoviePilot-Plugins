@@ -3,6 +3,8 @@ from typing import Optional
 
 from app.core.config import settings
 
+from ahocorasick import Automaton
+
 from ..core.config import configer
 
 
@@ -27,7 +29,7 @@ class StrmUrlGetter:
         if self.strmurlmoderesolver:
             strm_url_format = self.strmurlmoderesolver.get_mode(file_name)
 
-        if strm_url_format not in ["pickname", "pickcode"]:
+        if strm_url_format not in {"pickname", "pickcode"}:
             strm_url_format = configer.strm_url_format
 
         strm_url = f"{configer.moviepilot_address.rstrip('/')}/api/v1/plugin/P115StrmHelper/redirect_url?apikey={settings.API_TOKEN}&pickcode={pickcode}"
@@ -47,7 +49,7 @@ class StrmUrlGetter:
         if self.strmurlmoderesolver:
             strm_url_format = self.strmurlmoderesolver.get_mode(file_name)
 
-        if strm_url_format not in ["pickname", "pickcode"]:
+        if strm_url_format not in {"pickname", "pickcode"}:
             strm_url_format = configer.strm_url_format
 
         strm_url = f"{configer.moviepilot_address.rstrip('/')}/api/v1/plugin/P115StrmHelper/redirect_url?apikey={settings.API_TOKEN}&share_code={share_code}&receive_code={receive_code}&id={file_id}"
@@ -114,13 +116,21 @@ class StrmGenerater:
 
     @staticmethod
     def should_generate_strm(
-        filename: str, mode: str, filesize: Optional[int] = None
+        filename: str,
+        mode: str,
+        filesize: Optional[int] = None,
+        blacklist_automaton: Optional[Automaton] = None,
     ) -> tuple[str, bool]:
         """
         判断文件是否能生成总规则
         """
         # 1. 判断是否在黑名单
-        blacklist_msg, blacklist_status = StrmGenerater.not_blacklist_key(filename)
+        if blacklist_automaton:
+            blacklist_msg, blacklist_status = StrmGenerater.not_blacklist_key_automaton(
+                filename, blacklist_automaton
+            )
+        else:
+            blacklist_msg, blacklist_status = StrmGenerater.not_blacklist_key(filename)
         if not blacklist_status:
             return blacklist_msg, blacklist_status
 
@@ -130,6 +140,22 @@ class StrmGenerater:
             return minsize_msg, minsize_status
 
         return "", True
+
+    @staticmethod
+    def not_blacklist_key_automaton(
+        filename, blacklist_automaton: Automaton
+    ) -> tuple[str, bool]:
+        """
+        使用 Aho-Corasick 自动机判断文件名是否包含黑名单中的任何关键词
+        """
+        if not blacklist_automaton:
+            return "", True
+        lower_filename = filename.lower()
+        try:
+            _, (original_keyword, _) = next(blacklist_automaton.iter(lower_filename))
+            return f"匹配到黑名单关键词 {original_keyword}", False
+        except StopIteration:
+            return "", True
 
     @staticmethod
     def not_blacklist_key(filename) -> tuple[str, bool]:

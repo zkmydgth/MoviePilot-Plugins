@@ -1062,6 +1062,22 @@
                     </v-col>
                   </v-row>
 
+                  <v-row class="mt-4">
+                    <v-col cols="12">
+                      <v-combobox v-model="config.mediainfo_download_whitelist" label="媒体信息文件下载关键词过滤白名单"
+                        hint="输入关键词后按回车确认，可添加多个。不包含这些词的媒体信息文件将不会下载。" persistent-hint multiple chips closable-chips
+                        variant="outlined" density="compact"></v-combobox>
+                    </v-col>
+                  </v-row>
+
+                  <v-row class="mt-4">
+                    <v-col cols="12">
+                      <v-combobox v-model="config.mediainfo_download_blacklist" label="媒体信息文件下载关键词过滤黑名单"
+                        hint="输入关键词后按回车确认，可添加多个。包含这些词的媒体信息文件将不会下载。" persistent-hint multiple chips closable-chips
+                        variant="outlined" density="compact"></v-combobox>
+                    </v-col>
+                  </v-row>
+
                 </v-card-text>
               </v-window-item>
 
@@ -1420,7 +1436,9 @@ const config = reactive({
   upload_offline_info: true,
   transfer_module_enhancement: false,
   strm_url_mode_custom: '',
-  strm_generate_blacklist: []
+  strm_generate_blacklist: [],
+  mediainfo_download_whitelist: [],
+  mediainfo_download_blacklist: []
 });
 
 // 消息提示
