@@ -156,12 +156,13 @@ def main() -> int:
         return 1
     print()
 
-    caught = escaped = 0
+    caught = escaped = skipped = 0
     escaped_names = []
     try:
         for idx, (name, old, new, expect) in enumerate(MUTANTS, 1):
             if old not in original:
                 print(f"[{idx:2d}] ⚠️  跳过（源码不匹配，需更新变异体定义）：{name}")
+                skipped += 1
                 continue
             mutated = original.replace(old, new, 1)
             with open(TARGET, "w", encoding="utf-8") as handle:
@@ -183,11 +184,16 @@ def main() -> int:
     print()
     print("=" * 72)
     total = caught + escaped
-    print(f"变异测试结果：{caught}/{total} 被捕获，{escaped} 个逃逸")
+    print(f"变异测试结果：{caught}/{total} 被捕获，{escaped} 个逃逸"
+          + (f"，{skipped} 个跳过（防护未生效！）" if skipped else ""))
     if escaped_names:
         print("逃逸清单（需补充测试）：")
         for name in escaped_names:
             print(f"  - {name}")
+        return 1
+    if skipped:
+        # 跳过意味着变异体定义与源码脱节，防护可能已悄悄失效 —— 视为失败
+        print("❌ 存在被跳过的变异体：定义与源码不匹配即等于该缺陷无人守护")
         return 1
     print("🎉 全部变异被捕获，测试防护有效")
     return 0
