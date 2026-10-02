@@ -61,7 +61,7 @@ MUTANTS = [
     ),
     (
         "空壳回收失效：判定反转（有文件也回收，会误删在做种的资源）",
-        """                if not self._seed_fully_removed(hash_str):
+        """                if not self._seed_fully_removed(hash_str, cand):
                     stats["alive"] += 1
                     continue""",
         """                if self._seed_fully_removed(hash_str):
@@ -81,25 +81,33 @@ MUTANTS = [
     ),
     (
         "空壳回收无保护：试运行也真的删种",
-        """        if dry_run or not self._downloader_available() or not self._delete_torrents:
-            return stats""",
-        """        if not self._downloader_available() or not self._delete_torrents:
-            return stats""",
+        """            if dry_run:
+                stats["torrent"] += 1""",
+        """            if False:
+                stats["torrent"] += 1""",
         "应导致 test_dry_run_does_not_remove 失败",
     ),
     (
         "空壳回收无保护：开关关闭仍执行",
-        """        if dry_run or not self._downloader_available() or not self._delete_torrents:
+        """        if not self._downloader_available() or not self._delete_torrents:
             return stats""",
-        """        if dry_run or not self._downloader_available():
+        """        if not self._downloader_available():
             return stats""",
         "应导致 test_switch_off_noop 失败",
     ),
     (
-        "空壳回收越界：不看配置目录范围（会删到监控目录外的种子）",
-        """                        if cand and cand["path"] and self._path_under_any(cand["path"]):""",
-        """                        if cand and cand["path"]:""",
-        "应导致 test_orphan_outside_target_dirs_ignored 失败",
+        "空壳回收越界：默认（开关关）也扫监控目录外的种子",
+        """                in_scope = bool(cand["path"]) and self._path_under_any(cand["path"])
+                if not in_scope:
+                    counted["out_of_scope"] += 1
+                    # 主链路：范围外直接丢弃；空壳回收：保留（见上方方法说明）
+                    if scope_only:
+                        continue""",
+        """                in_scope = bool(cand["path"]) and self._path_under_any(cand["path"])
+                if not in_scope:
+                    counted["out_of_scope"] += 1""",
+        "应导致 test_orphan_outside_target_dirs_ignored 失败"
+        "（v3.0.4 起范围外覆盖由 orphan_seed_scope 开关控制，默认关闭时不可越界）",
     ),
     (
         "空壳回收统计错误：不计数（用户看不到回收结果）",
@@ -213,12 +221,13 @@ def main() -> int:
         return 1
     print()
 
-    caught = escaped = 0
+    caught = escaped = skipped = 0
     escaped_names = []
     try:
         for idx, (name, old, new, expect) in enumerate(MUTANTS, 1):
             if old not in original:
                 print(f"[{idx:2d}] ⚠️  跳过（源码不匹配，需更新变异体定义）：{name}")
+                skipped += 1
                 continue
             mutated = original.replace(old, new, 1)
             with open(TARGET, "w", encoding="utf-8") as handle:
@@ -241,11 +250,17 @@ def main() -> int:
     print()
     print("=" * 72)
     total = caught + escaped
-    print(f"变异测试结果：{caught}/{total} 被捕获，{escaped} 个逃逸")
-    if escaped_names:
-        print("逃逸清单（需补充测试）：")
-        for name in escaped_names:
-            print(f"  - {name}")
+    skip_note = f"，{skipped} 个跳过（防护未生效！）" if skipped else ""
+    print(f"变异测试结果：{caught}/{total} 被捕获，{escaped} 个逃逸{skip_note}")
+    if escaped_names or skipped:
+        # 跳过同样是防护失效：变异体没跑，等于该缺陷无人守护。
+        # 因此这里一并判失败，避免「源码重构后变异体悄悄失效」被长期忽略。
+        if escaped_names:
+            print("逃逸清单（需补充测试）：")
+            for name in escaped_names:
+                print(f"  - {name}")
+        if skipped:
+            print(f"跳过 {skipped} 个：源码片段已变化，变异体定义需同步更新")
         return 1
     print("🎉 全部变异被捕获，测试防护有效")
     return 0
