@@ -11,6 +11,7 @@
 
 模块对象除 ``get_instances`` 外还需提供 ``name`` 与 ``remove_torrents``，
 前者用于日志与「目标下载器范围」过滤，后者是真正下发删种动作的入口。
+v3.0.5 起还需转发 ``torrent_files``（取种子自身文件清单），供空壳判定使用。
 """
 
 from typing import Any, Dict, List
@@ -36,6 +37,11 @@ class _Module:
     def get_instances(self) -> Dict[str, Any]:
         return dict(self._mapping)
 
+    def _pick_server(self, downloader: Any = None) -> Any:
+        """按实例名挑下载器实例；未指定或不存在时取首个。"""
+        target = self._mapping.get(downloader) if downloader else None
+        return target if target is not None else self._mapping.get(self.name)
+
     def list_torrents(self, hashs: Any = None, include_all_tags: bool = False,
                       **kwargs: Any) -> List[Any]:
         """
@@ -57,6 +63,32 @@ class _Module:
                 if wanted is None or hash_str in wanted:
                     results.append(item)
         return results
+
+    def torrent_files(self, tid: Any = None, downloader: Any = None,
+                      **kwargs: Any) -> Any:
+        """
+        取指定种子的文件清单，转发给注入的伪下载器。
+
+        真实 MoviePilot 的下载器模块统一提供 ``torrent_files(tid, downloader)``
+        （qBittorrent 返回 dict 列表，Transmission 返回 ``transmission_rpc.File``
+        列表），插件 v3.0.5 的空壳判定依赖它。伪下载器若未实现 ``get_files``
+        则返回 ``None``，等价于「取不到清单」，驱动调用方退回保守逻辑。
+        """
+        target = self._pick_server(downloader)
+        if target is None:
+            return None
+        getter = getattr(target, "get_files", None)
+        if callable(getter):
+            return getter(tid=tid, downloader=downloader)
+        getter = getattr(target, "torrent_files", None)
+        if callable(getter):
+            return getter(tid=tid, downloader=downloader)
+        return None
+
+    # 别名：部分宿主版本用 get_files 这个较旧的方法名
+    def get_files(self, tid: Any = None, downloader: Any = None,
+                  **kwargs: Any) -> Any:
+        return self.torrent_files(tid=tid, downloader=downloader, **kwargs)
 
     def remove_torrents(self, hashs: Any = None, delete_file: bool = False,
                         downloader: Any = None, **kwargs: Any) -> bool:

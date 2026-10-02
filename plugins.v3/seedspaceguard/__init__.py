@@ -1686,22 +1686,29 @@ class SeedSpaceGuard(_PluginBase):
         1. **记录复核**：列出该 hash 下所有 ``DownloadFiles`` 记录，逐个
            ``os.path.exists`` 复核。只要有任意一个文件在磁盘上仍然存在，
            就认为该种子尚未删完。
-        2. **物理复核**（关键加固）：直接用种子在下载器上的**真实内容路径**
-           （``cand["path"]``）去磁盘上查。若该路径存在且其中仍有任何文件，
-           同样判定「未删空」。
+        2. **自身文件复核**（关键加固，v3.0.5 起）：向下载器查该种子
+           **自己的**文件清单（``_get_seed_files``），逐个 ``os.path.exists``。
+           任一文件仍在 → 未删空。取不到清单时**退回**扫 ``cand["path"]``
+           目录的旧逻辑（保守：宁可漏回收不可误删）。
 
         为什么必须有第 2 级：``DownloadFiles`` 记录的是**首次下载时**的路径，
         而种子可能经历 qBittorrent → Transmission 做种转移、下载器清空重建、
         目录迁移等变化，记录路径随之失效（指向已不存在的旧路径，或为空串）。
         此时仅凭第 1 级会得出「记录里的文件都不在了 → 已删空」的**错误结论**，
         把一个磁盘上文件完好的种子误删掉（实测事故）。第 2 级以下载器当前
-        报告的真实路径为准，绕开失效记录，从根本上堵住这个误判。
+        报告的真实清单为准，绕开失效记录，从根本上堵住这个误判。
+
+        为什么第 2 级要用「自身清单」而非「扫目录」（v3.0.5 修复）：扫目录的
+        语义是「这个种子**所在目录**里还有文件吗」，而一个目录下常同时存放
+        多个不同种子的文件（实测某剧集目录下 19 个种子各管一集）。此时
+        「自己的文件已删光、同目录还有兄弟种子的文件」会被误判为未删空，
+        该种子便永远回收不掉——功能静默失效，且日志上毫无异常痕迹。
 
         **保守原则**：所有「判不了」的情况一律返回 False（保留种子）——
         记录为空、路径为空、路径不可读、查询异常等，宁可不删也不误删。
 
         :param hash_str: 下载 hash
-        :param cand: 种子候选项（含下载器报告的真实内容路径），可为 None
+        :param cand: 种子候选项（含 ``module`` / ``dl_dir`` / ``path``），可为 None
         :return: 是否已全部删除（仅当两级复核都确认无文件时才为 True）
         """
         if not hash_str:
@@ -1725,8 +1732,26 @@ class SeedSpaceGuard(_PluginBase):
                 if os.path.exists(fullpath):
                     return False
 
-        # ---- 第 2 级：按下载器报告的真实路径做物理复核 ----
+        # ---- 第 2 级：按「本种子自身文件清单」做物理复核 ----
+        #
+        # v3.0.5 改造：此前这里扫的是 cand["path"] 指向的**整个目录**，
+        # 语义是「这个种子**所在目录**里还有文件吗」。一个目录下常同时存放
+        # 多个不同种子的文件（实测某剧集目录下有 19 个种子各管一集），
+        # 于是「自己的文件已删光、但同目录还有兄弟种子的文件」会被误判为
+        # 「未删空」→ 该种子永远回收不掉（功能静默失效）。
+        #
+        # 现在改为先问下载器「这个种子自己有哪些文件」，只复核这些路径。
+        # 取不到清单时**退回旧的扫目录逻辑**——宁可漏回收也不误删。
+        own_files: List[str] = []
         if cand is not None:
+            own_files = self._get_seed_files(hash_str, cand)
+        if own_files:
+            if any(os.path.exists(p) for p in own_files):
+                # 自己的文件还在 → 保留（与旧逻辑一致）
+                return False
+            # 自己的文件全没了 → 落到下方「确凿无文件」判定
+        elif cand is not None:
+            # 取不到清单 → 退回旧的「扫内容目录」逻辑（保守垫）
             content_path = str(cand.get("path") or "").strip()
             if content_path and os.path.exists(content_path):
                 # 路径存在：目录要确认其中确无文件，文件则直接算「存在」
@@ -1737,10 +1762,175 @@ class SeedSpaceGuard(_PluginBase):
                     return False
 
         # ---- 只有两级都拿到确凿的「无文件」证据，才允许判定为已删空 ----
-        if records_checked == 0 and not (cand and cand.get("path")):
+        if records_checked == 0 and not own_files and not (cand and cand.get("path")):
             # 完全没有任何可复核的依据：无从判定，保守保留种子
             return False
         return True
+
+    # ---------------------- 种子自身文件清单 ----------------------
+
+    # 下载器模块上「取种子文件清单」的方法名（按优先级探测，兼容别名）
+    _TORRENT_FILE_METHODS = ("torrent_files", "get_files")
+
+    def _get_seed_files(self, hash_str: str,
+                        cand: Optional[Dict[str, Any]]) -> List[str]:
+        """
+        取该种子**自身**负责的文件的绝对路径清单。
+
+        与 ``_dir_has_any_file(cand["path"])`` 的**根本区别**：后者的语义是
+        「这个种子**所在目录**里还有文件吗」，而本方法回答「这个种子**自己的**
+        文件还在吗」。一个目录下常同时存放多个不同种子的文件（实测：某剧集
+        目录下 19 个种子各管一集），两种语义在同目录多种子时必然分叉 ——
+        前者会把「同目录的其它种子」误当成自己的残留，导致本该回收的种子
+        永远回收不掉（v3.0.5 修复的核心缺陷）。
+
+        走 MoviePilot 下载器模块的统一接口 ``torrent_files(tid, downloader)``
+        （别名 ``get_files``）。两种下载器的返回形态不同，必须分别处理：
+
+        - **qBittorrent**：``TorrentFilesList``（dict 列表），文件名取
+          ``f["name"]`` / ``f.get("name")``
+        - **Transmission**：``transmission_rpc.File`` 对象列表，取 ``f.name``
+
+        两种下载器的 ``name`` 均为**相对种子根的路径**（含种子名子目录，
+        如 ``The.Long.Watch.../E13.mkv``），必须与下载目录拼接成绝对路径
+        才能落到磁盘上复核。
+
+        **拼接基准**的取法（按可靠性排序）：
+
+        1. ``cand["dl_dir"]``（解析种子时记下的下载目录，最可靠）
+        2. 兜底：从 ``cand["path"]`` 反推 —— 若 ``path`` 是目录，则
+           ``dirname(path)`` 即下载目录；若 ``path`` 是单个文件（qB 的
+           ``content_path`` 可能是文件），则取 ``path`` 去掉种子名后的父级
+
+        **保守原则**：任何「取不到」的情况一律返回**空列表** —— 无候选、
+        无模块、方法不存在、调用抛异常、返回为空、基准目录取不到。调用方
+        据此退回「扫内容目录」的旧逻辑，宁可漏回收也不误删。
+
+        :param hash_str: 下载 hash
+        :param cand: 种子候选（需含 ``module``；``dl_dir`` / ``path`` 用于拼接）
+        :return: 绝对路径列表；任何异常/不支持/无结果 → 空列表
+        """
+        if not hash_str or not cand:
+            return []
+        module = cand.get("module")
+        if module is None:
+            return []
+
+        raw = self._call_torrent_files(module, hash_str, cand.get("downloader"))
+        if not raw:
+            return []
+
+        names = self._extract_file_names(raw)
+        if not names:
+            return []
+
+        # 拼接基准：下载目录。取不到基准目录 → 整体放弃（清单是相对路径，
+        # 拼不出绝对路径；绝不拿相对路径去 os.path.exists，那会在进程
+        # 工作目录下意外命中，把判定建立在错误依据上）。
+        base = self._seed_download_base(cand)
+        if not base:
+            return []
+        return [os.path.normpath(os.path.join(base, name)) for name in names]
+
+    def _call_torrent_files(self, module: Any, hash_str: str,
+                            downloader: Any) -> Any:
+        """
+        调用下载器模块的取文件清单接口，兼容方法名与签名差异。
+
+        方法名按 ``_TORRENT_FILE_METHODS`` 优先探测（``torrent_files`` 为
+        新版统一名，``get_files`` 为部分宿主版本的旧名）。签名上，
+        少数版本不接受 ``downloader`` 关键字，捕获 ``TypeError`` 后退回
+        只传 ``tid`` 重试。
+
+        :param module: 下载器模块对象
+        :param hash_str: 种子 hash（作为 tid 传入）
+        :param downloader: 下载器实例名，可为 None
+        :return: 原始返回（形态由下载器决定）；不可用/异常/无结果 → None
+        """
+        method = None
+        for method_name in self._TORRENT_FILE_METHODS:
+            candidate = getattr(module, method_name, None)
+            if callable(candidate):
+                method = candidate
+                break
+        if method is None:
+            return None
+        try:
+            return method(tid=hash_str, downloader=downloader)
+        except TypeError:
+            # 签名不接受 downloader 关键字，退回只传 tid
+            try:
+                return method(tid=hash_str)
+            except Exception as err:
+                logger.warning(
+                    "【保种空间守护】获取种子文件清单失败（%s）：%s", hash_str, err
+                )
+                return None
+        except Exception as err:
+            logger.warning(
+                "【保种空间守护】获取种子文件清单失败（%s）：%s", hash_str, err
+            )
+            return None
+
+    @staticmethod
+    def _extract_file_names(raw: Any) -> List[str]:
+        """
+        从下载器返回的文件清单中提取文件名（相对路径）。
+
+        兼容两种形态：``qBittorrent`` 返回 dict 列表（取 ``["name"]``），
+        ``Transmission`` 返回 ``transmission_rpc.File`` 对象列表（取 ``.name``）。
+
+        :param raw: 下载器 ``torrent_files`` 的原始返回
+        :return: 非空文件名列表（顺序与清单一致）
+        """
+        names: List[str] = []
+        for item in raw:
+            if isinstance(item, dict):
+                name = item.get("name")
+            else:
+                name = getattr(item, "name", None)
+            name = str(name or "").strip()
+            if name:
+                names.append(name)
+        return names
+
+    def _seed_download_base(self, cand: Dict[str, Any]) -> str:
+        """
+        推断该种子文件清单的相对路径基准（即下载器的「保存目录」）。
+
+        优先取 ``cand["dl_dir"]``（``_parse_torrent`` 解析时就地记下）。
+        取不到时从 ``cand["path"]`` 反推，两条路径分别对应两种下载器：
+
+        - **Transmission**：``path = os.path.join(dl_dir, name)`` → 是目录，
+          下载目录 = ``dirname(path)``
+        - **qBittorrent**：``path`` 取 ``content_path``，**可能是单文件路径**
+          （实测：单集种子时 content_path 直接指向 .mkv）；此时文件名末尾
+          恰好是种子名目录之后的部分，需逐级向上找到「种子名」这一层
+
+        :param cand: 种子候选
+        :return: 基准目录绝对路径；无法推断时返回空串
+        """
+        dl_dir = str(cand.get("dl_dir") or "").strip()
+        if dl_dir:
+            return dl_dir
+        path = str(cand.get("path") or "").strip()
+        if not path:
+            return ""
+        title = str(cand.get("title") or "").strip()
+        # 目录形态：path 本身是种子目录 → 上一级即下载目录
+        if os.path.isdir(path):
+            parent = os.path.dirname(os.path.normpath(path))
+            return parent if parent and parent != path else ""
+        # 文件形态（qB 单文件种子）：沿路径向上找与种子名同名的目录层
+        current = os.path.dirname(os.path.normpath(path))
+        limit = 0
+        while current and current != os.path.dirname(current) and limit < 8:
+            if title and os.path.basename(current) == title:
+                parent = os.path.dirname(current)
+                return parent if parent and parent != current else ""
+            current = os.path.dirname(current)
+            limit += 1
+        return ""
 
     @staticmethod
     def _dir_has_any_file(path: str, max_scan: Optional[int] = None,
@@ -1975,21 +2165,30 @@ class SeedSpaceGuard(_PluginBase):
 
         # 种子级判定：仅文件模式下「所有文件都删完」才删种
         if self._delete_torrents and self._mode == "file":
-            # 按 hash 取一次种子的真实内容路径，供物理复核使用。
-            # 注意不能用「被删文件的父目录」当复核对象：一个目录下常同时存放
+            # 按 hash 取一次种子的**完整候选对象**，供物理复核使用。
+            #
+            # ⚠️ 这里必须传完整候选（含 module / dl_dir / path），不能只传
+            # path：_seed_fully_removed 现在要先向下载器查「这个种子自己的
+            # 文件清单」（_get_seed_files），而该方法需要 cand["module"]。
+            # 只传 path 会让清单永远取不到 → 退回扫目录 → 同目录多种子时
+            # 依旧误判「未删空」，本次修复在该链路等于没做（v3.0.5 补漏）。
+            #
+            # 同样不能用「被删文件的父目录」当复核对象：一个目录下常同时存放
             # 多个不同种子的文件，扫父目录会把「同目录的其它种子」误当成自己的
             # 残留，导致本该删掉的种子永远保留（功能静默失效）。
-            path_by_hash: Dict[str, str] = {}
+            cand_by_hash: Dict[str, Dict[str, Any]] = {}
             try:
                 for cand in self._collect_seed_candidates():
                     h = str(cand.get("hash") or "")
-                    if h and h not in path_by_hash:
-                        path_by_hash[h] = str(cand.get("path") or "")
+                    if h and h not in cand_by_hash:
+                        cand_by_hash[h] = cand
             except Exception as err:
-                logger.error("【保种空间守护】联动删种前获取种子路径失败：%s", err)
+                logger.error("【保种空间守护】联动删种前获取种子信息失败：%s", err)
 
             for hash_str, sample_path in pending_hashes.items():
-                probe = {"path": path_by_hash.get(hash_str, "")}
+                # 取不到候选（多为范围外/解析失败）→ probe=None，
+                # 退化为「仅有第 1 级记录复核」，与改造前行为一致，不误删
+                probe = cand_by_hash.get(hash_str)
                 if self._seed_fully_removed(hash_str, probe):
                     if self._delete_torrent_by_hash(hash_str,
                                                     os.path.basename(sample_path)):
@@ -2073,7 +2272,6 @@ class SeedSpaceGuard(_PluginBase):
             if os.path.exists(candidate):
                 guess.append(candidate)
         return guess
-
 
     def _collect_seed_candidates(self) -> List[Dict[str, Any]]:
         """
@@ -2248,6 +2446,13 @@ class SeedSpaceGuard(_PluginBase):
                                         "totalSize", default=0) or 0)
                     / (1024 ** 3), 1
                 ),
+                # 种子文件清单（torrent_files）返回的是**相对路径**，
+                # 需要一个基准目录才能拼成绝对路径做物理复核。
+                # qB 的 save_path 即「保存目录」，语义正确。
+                "dl_dir": str(
+                    self._pick_attr(item, "save_path", "savePath",
+                                    default="") or ""
+                ).strip(),
             }
         # Transmission：Torrent 对象（snake_case）或 dict（camelCase）
         percent = float(
@@ -2281,6 +2486,8 @@ class SeedSpaceGuard(_PluginBase):
                 int(self._pick_attr(item, "total_size", "totalSize", default=0) or 0)
                 / (1024 ** 3), 1
             ),
+            # 文件清单的相对路径基准（TR 即 download_dir）
+            "dl_dir": str(dl_dir).strip(),
         }
 
     # ============ 种子级连带清理（硬链接 + 辅种） ============

@@ -102,16 +102,36 @@ RELATED_LIB_NEW = (
     "        pass\n"
 )
 
-# ⑦ 空壳判定去掉物理复核（第 2 级）
+# ⑦ 空壳判定去掉物理复核（第 2 级整体失效）
+#
+# v3.0.5 起第 2 级有两段：①按自身文件清单复核 ②取不到清单时退回扫目录。
+# 要让「物理复核」整体失效，必须两段都打掉——任一段保留都仍能拦住误删。
 FULLY_REMOVED_OLD = (
+    "        own_files: List[str] = []\n"
     "        if cand is not None:\n"
+    "            own_files = self._get_seed_files(hash_str, cand)\n"
+    "        if own_files:\n"
+    "            if any(os.path.exists(p) for p in own_files):\n"
+    "                # 自己的文件还在 → 保留（与旧逻辑一致）\n"
+    "                return False\n"
+    "            # 自己的文件全没了 → 落到下方「确凿无文件」判定\n"
+    "        elif cand is not None:\n"
+    "            # 取不到清单 → 退回旧的「扫内容目录」逻辑（保守垫）\n"
     "            content_path = str(cand.get(\"path\") or \"\").strip()\n"
     "            if content_path and os.path.exists(content_path):\n"
+    "                # 路径存在：目录要确认其中确无文件，文件则直接算「存在」\n"
+    "                if os.path.isdir(content_path):\n"
+    "                    if self._dir_has_any_file(content_path):\n"
+    "                        return False\n"
+    "                else:\n"
+    "                    return False\n"
 )
 FULLY_REMOVED_NEW = (
+    "        own_files: List[str] = []\n"
+    "        if cand is not None:\n"
+    "            own_files = self._get_seed_files(hash_str, cand)\n"
     "        if False:\n"
-    "            content_path = str(cand.get(\"path\") or \"\").strip()\n"
-    "            if content_path and os.path.exists(content_path):\n"
+    "            return False\n"
 )
 
 # ⑧ 统计用赋值而非累加（半残多轮场景少报）
