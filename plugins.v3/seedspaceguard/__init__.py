@@ -390,6 +390,7 @@ class SeedSpaceGuard(_PluginBase):
                             "class": "mt-4",
                             "hint": "选择动作后点击保存即后台执行一次，执行完自动复位。"
                                    "空间未低于阈值时提示无需清理；正式清理为真删，请先试运行确认",
+                            "persistent-hint": True,
                             "items": [
                                 {"title": "— 选择动作后保存触发 —", "value": ""},
                                 {"title": "立即试运行一次（只列不删）", "value": "dry"},
@@ -404,6 +405,7 @@ class SeedSpaceGuard(_PluginBase):
                             "label": "启用插件",
                             "class": "mt-4",
                             "hint": "启用后按下方定时规则检查空间，不足时自动清理保种最久的资源",
+                            "persistent-hint": True,
                         },
                     },
                     {
@@ -415,6 +417,7 @@ class SeedSpaceGuard(_PluginBase):
                             "hint": "种子级：直接删除下载器中最老的已完成种子（连带文件），一步到位不留红种；"
                                    "仅文件：只删文件，种子是否联动删除由下方「联动删除种子」开关决定"
                                    "（需该种子文件全部删除后才删种）",
+                            "persistent-hint": True,
                             "items": [
                                 {"title": "种子级（推荐）", "value": "seed"},
                                 {"title": "仅文件", "value": "file"},
@@ -433,6 +436,7 @@ class SeedSpaceGuard(_PluginBase):
                                    "请把两个目录都填进来，插件会自动识别并两侧一并删除；"
                                    "只填一侧会导致删除后空间不释放（插件检测到会停止并告警）。"
                                    "以 # 开头的行会被忽略，可用于临时停用某个目录",
+                            "persistent-hint": True,
                         },
                     },
                     {
@@ -443,6 +447,7 @@ class SeedSpaceGuard(_PluginBase):
                             "class": "mt-4",
                             "placeholder": "/volume1",
                             "hint": "df 对应的卷路径，插件读取其剩余空间",
+                            "persistent-hint": True,
                         },
                     },
                     {
@@ -453,6 +458,7 @@ class SeedSpaceGuard(_PluginBase):
                             "class": "mt-4",
                             "placeholder": "500",
                             "hint": "剩余空间低于该值才触发清理，清理到恢复至该值为止",
+                            "persistent-hint": True,
                         },
                     },
                     {
@@ -463,6 +469,7 @@ class SeedSpaceGuard(_PluginBase):
                             "class": "mt-4",
                             "placeholder": "1",
                             "hint": "最近 N 天添加的种子/文件不清理（保种时间短，删了易触发 H&R）",
+                            "persistent-hint": True,
                         },
                     },
                     {
@@ -473,6 +480,7 @@ class SeedSpaceGuard(_PluginBase):
                             "class": "mt-4",
                             "placeholder": "0 */6 * * *",
                             "hint": "默认每 6 小时检查一次",
+                            "persistent-hint": True,
                         },
                     },
                     {
@@ -485,6 +493,7 @@ class SeedSpaceGuard(_PluginBase):
                             "hint": "删除后轮询等待空间释放的时长上限，默认 90，可填 0-1800（0=不等待）。"
                                     "每 5 秒轮询一次，释放达标即提前结束，无需空等整个时长；"
                                     "仅当释放滞后（如快照占用、文件系统延迟回收）时才会等满",
+                            "persistent-hint": True,
                         },
                     },
                     {
@@ -494,6 +503,7 @@ class SeedSpaceGuard(_PluginBase):
                             "label": "试运行（只列不删）",
                             "class": "mt-4",
                             "hint": "开启后仅输出将清理的清单，不实际删除，建议首次先试运行",
+                            "persistent-hint": True,
                         },
                     },
                     {
@@ -503,6 +513,7 @@ class SeedSpaceGuard(_PluginBase):
                             "label": "完成后通知",
                             "class": "mt-4",
                             "hint": "清理完成后发送站内消息通知",
+                            "persistent-hint": True,
                         },
                     },
                     # ---- 分组标题：种子级模式设置（仅 mode=seed 显示） ----
@@ -519,6 +530,7 @@ class SeedSpaceGuard(_PluginBase):
                             "class": "mt-4",
                             "hint": "弹出选项卡多选；不选 = 处理所有已启用下载器。"
                                     "仅种子级模式生效",
+                            "persistent-hint": True,
                             "multiple": True,
                             "chips": True,
                             "items": downloader_items,
@@ -538,6 +550,7 @@ class SeedSpaceGuard(_PluginBase):
                                     "文件已不存在，辅种无做种意义）。"
                                     "辅种不受保护期约束（H&R 只针对下载的种子）。"
                                     "关闭后恢复旧行为：只删主种子，硬链接与辅种不动",
+                            "persistent-hint": True,
                             "show": "mode === 'seed'",
                         },
                     },
@@ -555,6 +568,7 @@ class SeedSpaceGuard(_PluginBase):
                                     "同一 inode 只要有任一路径被种子引用就整组保留；"
                                     "保护期内的文件与保护后缀不动。"
                                     "因涉及主动删除用户文件，请务必先开「试运行」核对清单",
+                            "persistent-hint": True,
                             "show": "mode === 'seed'",
                         },
                     },
@@ -574,6 +588,7 @@ class SeedSpaceGuard(_PluginBase):
                             "hint": "以 | 分隔的通配符，命中的文件不删除。"
                                     "在「仅文件」模式与种子级的「清理无主文件」中生效；"
                                     "种子级主链路（直接删种子）不适用",
+                            "persistent-hint": True,
                             "show": "mode === 'file'",
                         },
                     },
@@ -593,6 +608,7 @@ class SeedSpaceGuard(_PluginBase):
                                     "任一文件仍在（含被保护后缀跳过的）则保留种子。"
                                     "种子级模式下：它是「空壳回收」的总闸——"
                                     "关闭后，文件已删完但仍留在下载器里的空壳种子不会被回收",
+                            "persistent-hint": True,
                         },
                     },
                     {
@@ -603,6 +619,7 @@ class SeedSpaceGuard(_PluginBase):
                             "class": "mt-4",
                             "hint": "**两种模式通用**。删除文件后，顺带删除 MoviePilot 中对应的"
                                     "转移历史记录（先按目标路径匹配，未命中再按源路径匹配）",
+                            "persistent-hint": True,
                         },
                     },
                     {
@@ -621,6 +638,7 @@ class SeedSpaceGuard(_PluginBase):
                                     "只要磁盘上仍有文件就绝不回收。"
                                     "注意这会让插件的行为边界扩展到配置目录之外，"
                                     "请确认理解后再开启",
+                            "persistent-hint": True,
                         },
                     },
                 ],
@@ -2649,8 +2667,15 @@ class SeedSpaceGuard(_PluginBase):
         """
         index: Dict[Tuple[int, int], List[str]] = {}
 
+        # 路径可能并不存在：_seed_related_paths 刻意「不过滤存在性」
+        # （会补上「配置目录 + 种子名」这类推断路径，媒体库侧硬链接的
+        # 落点常在此），缺失路径必须直接跳过而非抛异常——否则半残种子
+        # （记录残留、路径已删）在删种前的建索引阶段就会崩，整轮清理中断。
         def _record(fpath: str) -> None:
-            st = os.lstat(fpath)
+            try:
+                st = os.lstat(fpath)
+            except OSError:
+                return
             if not stat.S_ISREG(st.st_mode):
                 return
             plist = index.setdefault((st.st_dev, st.st_ino), [])

@@ -20,10 +20,12 @@ v3.0.6 起按四组重排：
 表达式为假时设 ``style.display='none'``。前端在旧版本不认该属性时会退化为
 「全部显示」——**功能不受损，只是不够清爽**，故本改造是安全的增强。
 
-这些用例守护三件事：
+这些用例守护四件事：
 1. 四个组标题都在，且不会污染「顶部使用说明」的专项断言；
 2. 模式专用项确实带上了正确的 ``show`` 条件；
-3. 全局项与通用项**绝不**带 ``show``（防止误藏导致用户找不到设置）。
+3. 全局项与通用项**绝不**带 ``show``（防止误藏导致用户找不到设置）；
+4. 凡带 ``hint`` 的控件都带 ``persistent-hint: True``，让说明文字常驻
+   （否则桌面端会退化成「点开开关才显示」）。
 """
 
 import unittest
@@ -256,6 +258,87 @@ class TestLabelClarity(_FormBase):
                 "两种模式", hint,
                 f"{model} 为两模式通用，hint 应写明以免误会：{hint[:40]}",
             )
+
+
+class TestHintPersistent(_FormBase):
+    """说明文字常驻显示（persistent-hint）。
+
+    背景
+    ----
+    Vuetify 的 ``VInput`` 只在 ``props.hint && (props.persistentHint ||
+    props.focused)`` 时渲染 hint（源码 ``VInput.tsx`` 的 ``messages``
+    computed），而 ``persistentHint`` 默认 ``false``。MoviePilot 的插件
+    表单渲染器 ``FormRender.vue`` **未**给控件传 ``persistent-hint``，
+    于是插件配置页的说明文字在桌面端要「点开/关闭开关」才出现（移动端
+    因为不受 focus 语义约束反而直接可见）—— 这被用户当成 bug 报了过来。
+
+    解法：插件侧显式传 ``"persistent-hint": True``。``parseProps`` 的
+    ``else`` 分支会把未知 prop 原样透传给组件，故该属性能够生效。
+
+    本类守护三件事：
+    1. 每个带 ``hint`` 的控件都必须带 ``persistent-hint``（否则说明又会
+       变成「要交互才出现」）；
+    2. ``persistent-hint`` 的值必须是布尔 ``True`` —— 若写成字符串 ``"true"``
+       会踩 ``parseProps`` 的坑：字符串值若恰好等于某个配置 key 名，会被
+       当成「取配置值」而非字面量；
+    3. 不带 ``hint`` 的控件不应画蛇添足地带 ``persistent-hint``。
+    """
+
+    def _controls_with_hint(self):
+        """收集所有「带了非空 hint」的控件 props。"""
+        out = []
+        for n in self._walk(self.form):
+            props = n.get("props") or {}
+            if str(props.get("hint") or "").strip():
+                out.append((props.get("model") or props.get("text") or "?", props))
+        return out
+
+    def test_every_hint_is_persistent(self):
+        """凡有 hint 的控件，都必须带 persistent-hint: True。"""
+        controls = self._controls_with_hint()
+        self.assertTrue(controls, "表单里竟然没有一个带 hint 的控件？")
+        missing = [name for name, p in controls if "persistent-hint" not in p]
+        self.assertFalse(
+            missing,
+            "以下控件的说明文字会退化为「需交互才显示」，缺 persistent-hint："
+            + ", ".join(missing),
+        )
+
+    def test_persistent_hint_value_is_bool_true(self):
+        """persistent-hint 必须是布尔 True，不能是字符串。"""
+        for name, p in self._controls_with_hint():
+            if "persistent-hint" not in p:
+                continue
+            value = p["persistent-hint"]
+            self.assertIs(
+                value, True,
+                f"{name} 的 persistent-hint 必须是布尔 True，实际类型 "
+                f"{type(value).__name__}、值 {value!r}（字符串可能被 parseProps "
+                f"当成配置 key 取值）",
+            )
+
+    def test_no_persistent_hint_without_hint(self):
+        """没有 hint 的控件不应带 persistent-hint（无意义且易误导）。"""
+        for n in self._walk(self.form):
+            props = n.get("props") or {}
+            if "persistent-hint" not in props:
+                continue
+            self.assertTrue(
+                str(props.get("hint") or "").strip(),
+                f"控件 {props.get('model')} 没有 hint，却带了 persistent-hint",
+            )
+
+    def test_persistent_hint_count(self):
+        """persistent-hint 的出现次数应等于带 hint 的控件数（一一对应）。"""
+        controls = self._controls_with_hint()
+        total = sum(
+            1 for n in self._walk(self.form)
+            if "persistent-hint" in (n.get("props") or {})
+        )
+        self.assertEqual(
+            total, len(controls),
+            f"persistent-hint 出现 {total} 次，但有 {len(controls)} 个控件带 hint",
+        )
 
 
 class TestNoModelRegression(_FormBase):
