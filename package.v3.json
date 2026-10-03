@@ -24,7 +24,7 @@
     "name": "配置备份",
     "description": "定时备份 MoviePilot 系统配置、数据库及插件配置到指定目录，支持保留数量自动清理、手动触发和一键还原（V3 独立维护版）。",
     "labels": "系统工具,备份",
-    "version": "3.0.1",
+    "version": "3.1.0",
     "release": true,
     "icon": "configbackup.png",
     "author": "zkmydgth",
@@ -32,7 +32,8 @@
     "level": 1,
     "history": {
       "v3.0.0": "适配 MoviePilot V3 SDK 与插件依赖清单：core.config→runtime.config、helper.directory→application.directory、log→runtime.log、utils.string→sdk.string、NotificationType→MessageType；独立于 V2 维护线，初始版本 3.0.0",
-      "v3.0.1": "修复 V3 前端 envelope 契约导致的「服务器返回了无效响应」弹窗：isApiResponse() 要求响应恰好三键（success/message/data），插件原只返回两键，校验失败即弹错但后端已执行。4 个 API 全部 return 补齐 data；删除改为两阶段确认（先选中再确认，新增 pending_delete.json），避免列表误点【删除】直接抹掉备份；文件名校验收紧为「bk_ 前缀 + .zip 后缀」。"
+      "v3.0.1": "修复 V3 前端 envelope 契约导致的「服务器返回了无效响应」弹窗：isApiResponse() 要求响应恰好三键（success/message/data），插件原只返回两键，校验失败即弹错但后端已执行。4 个 API 全部 return 补齐 data；删除改为两阶段确认（先选中再确认，新增 pending_delete.json），避免列表误点【删除】直接抹掉备份；文件名校验收紧为「bk_ 前缀 + .zip 后缀」。",
+      "v3.1.0": "新增了保留天数、备份包清单与列表「内容」列、覆盖式还原、附加路径排除规则、通知场景可配（默认「插件」）与打包临时目录外置；修复了备份失败不通知、SQLite 数据库未落盘即复制、按 ctime 排序误删最新备份、损坏包仍占保留名额、待确认状态长期不失效、附加路径全量复制易撑爆备份等问题。"
     },
     "v3": true
   },
