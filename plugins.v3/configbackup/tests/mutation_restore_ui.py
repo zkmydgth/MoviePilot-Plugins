@@ -111,10 +111,12 @@ def main() -> int:
     print("✅ 基线：全部用例通过\n")
 
     escaped = []
+    skipped = []
     try:
         for name, old, new, expect in MUTANTS:
             if old not in original:
                 print(f"⚠️  跳过：{name}\n    锚点未在源码中找到，需同步更新本脚本")
+                skipped.append(name)
                 continue
             with open(_PLUGIN_SRC, "w", encoding="utf-8") as handle:
                 handle.write(original.replace(old, new, 1))
@@ -130,11 +132,16 @@ def main() -> int:
 
     print("-" * 66)
     total = len(MUTANTS)
-    print(f"变异体 {total} 个，逃逸 {len(escaped)} 个")
+    print(f"变异体 {total} 个，逃逸 {len(escaped)} 个，跳过 {len(skipped)} 个")
     if escaped:
         print("存在逃逸，需补充测试用例：")
         for name in escaped:
             print(f"  - {name}")
+        return 1
+    if skipped:
+        # 跳过必须等同于失败（2026-10-02 定案）：锚点失配 = 该防护从未生效，
+        # 却退出码 0、报表全绿，比逃逸更隐蔽。
+        print(f"⚠️ {len(skipped)} 个变异体锚点失配（防护未生效！）——按规约等同于失败")
         return 1
     print("零逃逸：现有用例能有效拦截本次涉及的所有回退。")
     return 0
