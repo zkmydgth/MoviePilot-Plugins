@@ -49,6 +49,7 @@ class ConfigBackup(_PluginBase):
     _cron = None
     _backup_dir = None
     _keep_count = 10
+    _keep_days = 7
     _backup_plugins = True
     _extra_paths = None
     _notify = False
@@ -77,6 +78,7 @@ class ConfigBackup(_PluginBase):
             self._cron = config.get("cron") or ""
             self._backup_dir = config.get("backup_dir") or ""
             self._keep_count = int(config.get("keep_count") or 10)
+            self._keep_days = int(config.get("keep_days") or 0)
             self._backup_plugins = bool(config.get("backup_plugins", True))
             self._extra_paths = config.get("extra_paths") or ""
             self._notify = bool(config.get("notify"))
@@ -90,6 +92,7 @@ class ConfigBackup(_PluginBase):
                 "cron": self._cron,
                 "backup_dir": self._backup_dir,
                 "keep_count": self._keep_count,
+                "keep_days": self._keep_days,
                 "backup_plugins": self._backup_plugins,
                 "extra_paths": self._extra_paths,
                 "notify": self._notify,
@@ -279,7 +282,7 @@ class ConfigBackup(_PluginBase):
                         "content": [
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 6},
+                                "props": {"cols": 12, "md": 12},
                                 "content": [
                                     {
                                         "component": "VCronField",
@@ -303,6 +306,23 @@ class ConfigBackup(_PluginBase):
                                             "type": "number",
                                             "min": "1",
                                             "hint": "超过该数量的最旧备份将自动删除；与「保留天数」满足其一即保留",
+                                            "persistent-hint": True,
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 6},
+                                "content": [
+                                    {
+                                        "component": "VTextField",
+                                        "props": {
+                                            "model": "keep_days",
+                                            "label": "保留天数",
+                                            "type": "number",
+                                            "min": "0",
+                                            "hint": "该天数内的备份一律不删；填 0 表示只看个数",
                                             "persistent-hint": True,
                                         }
                                     }
@@ -361,6 +381,8 @@ class ConfigBackup(_PluginBase):
                                             "label": "附加备份路径",
                                             "rows": 3,
                                             "placeholder": "每行一个文件或目录路径，将一并复制进备份包",
+                                            "hint": "目录可写 \"路径|*.log,node_modules,cache\" 排除不需要的内容（逗号分隔）",
+                                            "persistent-hint": True,
                                         }
                                     }
                                 ]
@@ -374,6 +396,7 @@ class ConfigBackup(_PluginBase):
             "cron": "",
             "backup_dir": "/config/backup",
             "keep_count": 10,
+            "keep_days": 7,
             "backup_plugins": True,
             "extra_paths": "",
             "notify": False,
@@ -542,8 +565,9 @@ class ConfigBackup(_PluginBase):
                         "variant": "tonal",
                         "class": "mt-2",
                         "text": f"已选中待还原备份：{pending.get('filename', '')}"
-                                f"（备份于 {pending.get('time', '')}）。"
-                                f"请点击上方【确认还原】执行（还原前会自动先备份当前状态作为安全网），"
+                                f"（备份于 {pending.get('time', '')}，含 {pending.get('summary', '未知内容')}）。"
+                                f"请点击上方【确认还原】执行（还原为覆盖式：备份包中含有的配置会回到备份那一刻，"
+                                f"备份后新增的插件配置与站点 Cookie 将被清除；还原前会自动先备份当前状态作为安全网），"
                                 f"或点击【取消还原】放弃本次操作。",
                     },
                 }
@@ -633,6 +657,16 @@ class ConfigBackup(_PluginBase):
                             "content": [
                                 {
                                     "component": "p",
+                                    "props": {"class": "mb-0 text-caption"},
+                                    "text": item.get("summary", ""),
+                                }
+                            ],
+                        },
+                        {
+                            "component": "td",
+                            "content": [
+                                {
+                                    "component": "p",
                                     "props": {"class": "mb-0"},
                                     "text": item["time"],
                                 }
@@ -709,6 +743,7 @@ class ConfigBackup(_PluginBase):
                                         "content": [
                                             {"component": "th", "props": {"class": "text-left"}, "text": "备份文件"},
                                             {"component": "th", "props": {"class": "text-left"}, "text": "大小"},
+                                            {"component": "th", "props": {"class": "text-left"}, "text": "内容"},
                                             {"component": "th", "props": {"class": "text-left"}, "text": "创建时间"},
                                             {"component": "th", "props": {"class": "text-right"}, "text": "操作"},
                                         ],
@@ -823,6 +858,15 @@ class ConfigBackup(_PluginBase):
                         return {"success": False, "message": f"待还原的备份文件不存在：{pending['filename']}", "data": None}
                     # 还原前自动备份当前状态（安全网）
                     bk_ok, bk_msg = self.__backup()
+                    if not bk_ok:
+                        # 完全还原会先删后写，安全网没兜住就不许动——
+                        # 否则一次失败的安全网 + 一次失败的还原 = 什么都没了。
+                        self.__set_pending_restore(None)
+                        return {
+                            "success": False,
+                            "message": f"还原前安全备份失败，已中止还原（未改动任何配置）：{bk_msg}",
+                            "data": None,
+                        }
                     # 执行还原
                     ok, msg = self.__restore(zip_path)
                     # 无论成败都清除待确认状态
@@ -863,6 +907,7 @@ class ConfigBackup(_PluginBase):
                 "filename": safe_name,
                 "time": ctime,
                 "size": os.path.getsize(zip_path),
+                "summary": self.__summarize(str(zip_path)),
             })
             logger.info(f"已选择待还原备份 {safe_name}")
             return {"success": True, "message": f"已选择备份 {safe_name}，请点击页面顶部的【确认还原】按钮执行还原", "data": None}
@@ -1032,8 +1077,7 @@ class ConfigBackup(_PluginBase):
             cookies_src = restore_dir / "cookies"
             if cookies_src.exists() and cookies_src.is_dir():
                 cookies_dst = Path(settings.CONFIG_PATH) / "cookies"
-                cookies_dst.mkdir(parents=True, exist_ok=True)
-                shutil.copytree(cookies_src, cookies_dst, dirs_exist_ok=True)
+                self.__overlay(cookies_src, cookies_dst)
                 cfg_restored.append("cookies")
             if cfg_restored:
                 msgs.append(f"系统配置文件还原成功（{'、'.join(cfg_restored)}）")
@@ -1044,9 +1088,8 @@ class ConfigBackup(_PluginBase):
             plugins_src = restore_dir / "plugins"
             if plugins_src.exists() and plugins_src.is_dir():
                 plugins_dst = Path(settings.CONFIG_PATH) / "plugins"
-                plugins_dst.mkdir(parents=True, exist_ok=True)
-                shutil.copytree(plugins_src, plugins_dst, dirs_exist_ok=True)
-                msgs.append("插件配置还原成功")
+                n = self.__overlay(plugins_src, plugins_dst)
+                msgs.append(f"插件配置还原成功（覆盖 {n} 项）")
             else:
                 msgs.append("备份中无插件配置，跳过")
 
@@ -1074,6 +1117,38 @@ class ConfigBackup(_PluginBase):
         finally:
             if restore_dir and restore_dir.exists():
                 shutil.rmtree(restore_dir, ignore_errors=True)
+
+    @staticmethod
+    def __overlay(src_dir: Path, dst_dir: Path) -> int:
+        """
+        覆盖式还原一个目录：备份包里出现过的顶层项**先删后写**，包里没有的不动。
+
+        为什么不直接 rmtree 目标目录：老备份包可能只装了部分内容，
+        整目录清空会把备份之后新增的东西一并抹掉，风险远大于收益。
+        为什么不能只 copytree 合并：残留文件会让「还原」名不副实——
+        备份之后装的插件配置留了下来，旧版本插件起来读到不匹配的配置。
+
+        :param src_dir: 备份包内的目录
+        :param dst_dir: 目标目录
+        :return: 覆盖的顶层项数量
+        """
+        count = 0
+        dst_dir.mkdir(parents=True, exist_ok=True)
+        for item in src_dir.iterdir():
+            target = dst_dir / item.name
+            if target.is_symlink():
+                target.unlink()
+            elif target.exists():
+                if target.is_dir():
+                    shutil.rmtree(target, ignore_errors=True)
+                else:
+                    target.unlink()
+            if item.is_dir():
+                shutil.copytree(item, target)
+            else:
+                shutil.copy(item, target)
+            count += 1
+        return count
 
     def __restore_database(self, sql_file: Path) -> Tuple[bool, str]:
         """
@@ -1164,7 +1239,7 @@ class ConfigBackup(_PluginBase):
                     continue
                 try:
                     if src.is_dir():
-                        shutil.copytree(src, Path(line), dirs_exist_ok=True)
+                        self.__overlay(src, Path(line))
                     else:
                         Path(line).parent.mkdir(parents=True, exist_ok=True)
                         shutil.copy(src, line)
@@ -1202,6 +1277,7 @@ class ConfigBackup(_PluginBase):
                 "path": f,
                 "size": os.path.getsize(f),
                 "time": datetime.fromtimestamp(self.__backup_time(f)).strftime("%Y-%m-%d %H:%M:%S"),
+                "summary": self.__summarize(f),
             })
         return result
 
@@ -1239,6 +1315,76 @@ class ConfigBackup(_PluginBase):
             except Exception as e:
                 logger.error(f"发送备份通知失败: {e}")
         return success, msg
+
+    def __write_manifest(self, temp_dir: Path) -> None:
+        """
+        在备份包内写入清单：这个包是什么时候、在什么环境下、装了哪些内容。
+
+        没有它，用户只能靠文件名猜——选错包还原的代价是配置被覆盖。
+        老备份包本来就没有这个文件，读取方必须容忍缺失。
+
+        :param temp_dir: 备份临时目录
+        """
+        extra_manifest = temp_dir / "extra" / "extra_paths.txt"
+        try:
+            extra_count = len([
+                ln for ln in extra_manifest.read_text(encoding="utf-8").splitlines() if ln.strip()
+            ]) if extra_manifest.exists() else 0
+        except Exception:
+            extra_count = 0
+        info = {
+            "plugin": self.plugin_name,
+            "version": VERSION,
+            "created": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "db_type": str(settings.DB_TYPE),
+            "database": (temp_dir / "postgresql_backup.sql").exists()
+                        or bool(list(temp_dir.glob("user.db*"))),
+            "plugins": (temp_dir / "plugins").exists(),
+            "extra_count": extra_count,
+            "files": sum(1 for f in temp_dir.rglob("*") if f.is_file()),
+        }
+        try:
+            (temp_dir / "backup_manifest.json").write_text(
+                json.dumps(info, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+        except Exception as e:
+            logger.warning(f"写入备份清单失败: {e}")
+
+    @staticmethod
+    def __read_manifest(zip_path: Path) -> Optional[Dict[str, Any]]:
+        """
+        读取备份包内的清单；老包无此文件时返回 None（不得因此拒绝还原）。
+
+        :param zip_path: 备份包路径
+        :return: 清单内容或 None
+        """
+        try:
+            with zipfile.ZipFile(zip_path, "r") as zf:
+                if "backup_manifest.json" not in zf.namelist():
+                    return None
+                return json.loads(zf.read("backup_manifest.json").decode("utf-8"))
+        except Exception:
+            return None
+
+    @staticmethod
+    def __summarize(zip_path: str) -> str:
+        """
+        把清单压成一行摘要，用于列表展示。
+
+        :param zip_path: 备份包路径
+        :return: 摘要文本
+        """
+        data = ConfigBackup.__read_manifest(Path(zip_path))
+        if not data:
+            return "老备份包（无清单）"
+        parts = []
+        if data.get("database"):
+            parts.append(f"数据库({data.get('db_type') or '未知'})")
+        if data.get("plugins"):
+            parts.append("插件配置")
+        if data.get("extra_count"):
+            parts.append(f"附加×{data['extra_count']}")
+        return "＋".join(parts) if parts else "仅系统配置"
 
     @staticmethod
     def __verify_zip(zip_file: str) -> bool:
@@ -1309,17 +1455,17 @@ class ConfigBackup(_PluginBase):
             logger.error(f"创建备份目录失败: {bk_path} {e}")
             return False, f"创建备份目录失败: {e}"
 
-        # 临时备份目录
+        # 临时备份目录：放系统临时区，不要放在备份目录里——备份目录常挂在网盘上，
+        # 几万个小文件跨网 IO 既慢又容易被中断。
         backup_name = f"{self._prefix}{time.strftime('%Y%m%d%H%M%S')}"
-        temp_dir = bk_path / backup_name
+        temp_dir = Path(tempfile.mkdtemp(
+            prefix="configbackup_",
+            dir=settings.TEMP_PATH if settings.TEMP_PATH else None,
+        ))
         zip_file = str(bk_path / backup_name) + ".zip"
         msgs = []
 
         try:
-            if temp_dir.exists():
-                shutil.rmtree(temp_dir)
-            temp_dir.mkdir(parents=True)
-
             # 1. 备份数据库
             db_success, db_msg = self.__dump_database(temp_dir)
             msgs.append(db_msg)
@@ -1343,10 +1489,15 @@ class ConfigBackup(_PluginBase):
             if not (db_success and cfg_success and plugin_success and extra_success):
                 return False, "；".join(msgs)
 
-            # 5. 压缩
-            shutil.make_archive(str(bk_path / backup_name), "zip", str(temp_dir))
-            shutil.rmtree(str(temp_dir))
-            # 5.1 自检：损坏的包改名隔离，避免占保留名额、被当成可还原备份
+            # 5. 写入清单（记录这个包含什么，供还原前确认选中的是哪一份）
+            self.__write_manifest(temp_dir)
+
+            # 6. 压缩：先在临时区成包，再整体移入备份目录（网盘场景更快，也更原子）
+            shutil.make_archive(str(temp_dir), "zip", str(temp_dir))
+            shutil.rmtree(str(temp_dir), ignore_errors=True)
+            shutil.move(str(temp_dir) + ".zip", zip_file)
+
+            # 6.1 自检：损坏的包改名隔离，避免占保留名额、被当成可还原备份
             if not self.__verify_zip(zip_file):
                 broken = zip_file + ".broken"
                 try:
@@ -1360,15 +1511,18 @@ class ConfigBackup(_PluginBase):
             success = True
         except Exception as e:
             logger.error(f"创建备份失败: {e}")
-            if temp_dir.exists():
-                shutil.rmtree(temp_dir, ignore_errors=True)
+            shutil.rmtree(str(temp_dir), ignore_errors=True)
+            leftover = Path(str(temp_dir) + ".zip")
+            if leftover.exists():
+                leftover.unlink()
             return False, f"创建备份失败: {e}"
 
-        # 6. 清理旧备份
+        # 7. 清理旧备份
         del_cnt = self.__clean_old_backups(bk_path)
         if del_cnt > 0:
             msgs.append(f"自动清理旧备份 {del_cnt} 份")
 
+        msg = "；".join(msgs)
         logger.info(msg)
         return success, msg
 
@@ -1598,10 +1752,15 @@ class ConfigBackup(_PluginBase):
         copied = 0
         extra_dir = temp_dir / "extra"
         manifest_lines = []
-        for line in self._extra_paths.splitlines():
-            line = line.strip()
-            if not line:
+        for raw in self._extra_paths.splitlines():
+            raw = raw.strip()
+            if not raw:
                 continue
+            # 支持 "路径|排除模式1,模式2"：附加路径里常混着缓存/日志，
+            # 全量 copytree 会把它撑成几个 G。
+            path_part, _, excl_part = raw.partition("|")
+            line = path_part.strip()
+            excludes = [p.strip() for p in excl_part.split(",") if p.strip()]
             src = Path(line)
             if not src.exists():
                 failed.append(line)
@@ -1609,7 +1768,12 @@ class ConfigBackup(_PluginBase):
             try:
                 target = extra_dir / src.name
                 if src.is_dir():
-                    shutil.copytree(src, target, dirs_exist_ok=True)
+                    shutil.copytree(
+                        src,
+                        target,
+                        dirs_exist_ok=True,
+                        ignore=shutil.ignore_patterns(*excludes) if excludes else None,
+                    )
                 else:
                     target.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy(src, target)
@@ -1646,8 +1810,21 @@ class ConfigBackup(_PluginBase):
         del_cnt = len(files) - int(self._keep_count)
         if del_cnt <= 0:
             return 0
+        # 保留天数保护：该天数内的一律不删。两个条件是「满足其一即保留」——
+        # 高频定时 + 小 keep_count 时，光靠个数会把最近几小时的备份也清光。
+        keep_days = int(self._keep_days or 0)
+        if keep_days > 0:
+            cutoff = time.time() - keep_days * 86400
+            old_enough = 0
+            for f in files:
+                if self.__backup_time(f) >= cutoff:
+                    break
+                old_enough += 1
+            del_cnt = min(del_cnt, old_enough)
+        if del_cnt <= 0:
+            return 0
         logger.info(
-            f"备份文件数量 {len(files)}，保留 {self._keep_count}，需删除 {del_cnt} 份"
+            f"备份文件数量 {len(files)}，保留 {self._keep_count} 份 / {keep_days} 天，需删除 {del_cnt} 份"
         )
         for i in range(del_cnt):
             try:

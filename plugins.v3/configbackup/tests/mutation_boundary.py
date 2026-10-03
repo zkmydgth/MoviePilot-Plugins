@@ -242,6 +242,48 @@ MUTANTS = [
         """                pass""",
         "应导致 restore_lock_prevents_concurrent 失败",
     ),
+
+    # ---------------- v3.1.0 新增防护 ----------------
+    (
+        "覆盖式还原退化为合并：不删目标端直接 copytree",
+        """            if target.is_symlink():
+                target.unlink()
+            elif target.exists():
+                if target.is_dir():
+                    shutil.rmtree(target, ignore_errors=True)
+                else:
+                    target.unlink()""",
+        """            pass""",
+        "应导致 test_directory_is_replaced_not_merged 失败（残留文件清不掉）",
+    ),
+    (
+        "安全网失败仍继续还原（先删后写没了兜底）",
+        """                    if not bk_ok:
+                        # 完全还原会先删后写，安全网没兜住就不许动——
+                        # 否则一次失败的安全网 + 一次失败的还原 = 什么都没了。
+                        self.__set_pending_restore(None)
+                        return {
+                            "success": False,
+                            "message": f"还原前安全备份失败，已中止还原（未改动任何配置）：{bk_msg}",
+                            "data": None,
+                        }""",
+        """                    pass""",
+        "应导致 test_restore_aborted_when_safety_backup_fails 失败",
+    ),
+    (
+        "保留天数保护移除：高频定时会把最近几小时的备份也删光",
+        """        keep_days = int(self._keep_days or 0)
+        if keep_days > 0:
+            cutoff = time.time() - keep_days * 86400
+            old_enough = 0
+            for f in files:
+                if self.__backup_time(f) >= cutoff:
+                    break
+                old_enough += 1
+            del_cnt = min(del_cnt, old_enough)""",
+        """        keep_days = int(self._keep_days or 0)""",
+        "应导致 test_recent_backups_survive_count_pressure 失败",
+    ),
 ]
 
 
