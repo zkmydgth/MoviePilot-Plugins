@@ -25,8 +25,10 @@ import shutil
 import subprocess
 import sys
 
-PLUGIN_DIR = "/root/.codebuddy/artifact/user-repo/plugins.v3/configbackup"
-PLUGINS_V2 = "/root/.codebuddy/artifact/user-repo/plugins.v3"
+# 由脚本自身位置推导，避免换克隆/换机器后硬编码路径失配（此前写死沙箱绝对路径）
+_HERE = os.path.dirname(os.path.abspath(__file__))
+PLUGIN_DIR = os.path.dirname(_HERE)
+PLUGINS_V2 = os.path.dirname(PLUGIN_DIR)
 TARGET = os.path.join(PLUGIN_DIR, "__init__.py")
 BACKUP = "/tmp/cb_boundary_backup.py"
 
@@ -68,8 +70,9 @@ MUTANTS = [
     (
         "api_delete 防护移除：不校验文件名直接删除",
         """        safe_name = Path(filename).name
-        if safe_name != filename or not safe_name.startswith(self._prefix):
-            return {"success": False, "message": "非法文件名"}
+        if safe_name != filename or not safe_name.startswith(self._prefix) \\
+                or not safe_name.endswith(".zip"):
+            return {"success": False, "message": "非法文件名", "data": None}
         bk_path = Path(self._backup_dir) if self._backup_dir else self.get_data_path()
         target = bk_path / safe_name""",
         """        safe_name = Path(filename).name
@@ -80,8 +83,9 @@ MUTANTS = [
     (
         "api_restore 选择阶段防护移除：不校验文件名",
         """            safe_name = Path(filename).name
-            if safe_name != filename or not safe_name.startswith(self._prefix):
-                return {"success": False, "message": "非法文件名"}
+            if safe_name != filename or not safe_name.startswith(self._prefix) \\
+                    or not safe_name.endswith(".zip"):
+                return {"success": False, "message": "非法文件名", "data": None}
             zip_path = self.__resolve_backup_path(safe_name)""",
         """            safe_name = Path(filename).name
             zip_path = self.__resolve_backup_path(safe_name)""",
@@ -107,8 +111,8 @@ MUTANTS = [
     ),
     (
         "清理范围放宽：把非备份文件也纳入删除候选",
-        """        files = sorted(glob.glob(f"{bk_path}/{self._prefix}*.zip"), key=os.path.getctime)""",
-        """        files = sorted(glob.glob(f"{bk_path}/*"), key=os.path.getctime)""",
+        """        files = sorted(glob.glob(f"{bk_path}/{self._prefix}*.zip"), key=self.__backup_time)""",
+        """        files = sorted(glob.glob(f"{bk_path}/*"), key=self.__backup_time)""",
         "应导致 does_not_touch_non_backup_files 失败",
     ),
 
@@ -124,14 +128,42 @@ MUTANTS = [
         "应导致 corrupt 状态相关测试报错",
     ),
     (
-        "缺字段状态不再降级：只判存在不判 filename",
-        """                data = json.loads(f.read_text(encoding="utf-8"))
+        "缺字段状态不再降级：只判存在不判 filename（删除 / 还原两侧同时变异）",
+        [
+            (
+                """                data = json.loads(f.read_text(encoding="utf-8"))
                 if data and data.get("filename"):
+                    if self.__is_expired(data):
+                        logger.info("待确认删除状态已过期，自动清除")
+                        self.__set_pending_delete(None)
+                        return None
                     return data""",
-        """                data = json.loads(f.read_text(encoding="utf-8"))
+                """                data = json.loads(f.read_text(encoding="utf-8"))
                 if data:
+                    if self.__is_expired(data):
+                        logger.info("待确认删除状态已过期，自动清除")
+                        self.__set_pending_delete(None)
+                        return None
                     return data""",
-        "应导致 empty_object_degrades_to_none 失败",
+            ),
+            (
+                """                data = json.loads(f.read_text(encoding="utf-8"))
+                if data and data.get("filename"):
+                    if self.__is_expired(data):
+                        logger.info("待确认还原状态已过期，自动清除")
+                        self.__set_pending_restore(None)
+                        return None
+                    return data""",
+                """                data = json.loads(f.read_text(encoding="utf-8"))
+                if data:
+                    if self.__is_expired(data):
+                        logger.info("待确认还原状态已过期，自动清除")
+                        self.__set_pending_restore(None)
+                        return None
+                    return data""",
+            ),
+        ],
+        "应导致 删除侧 / 还原侧「缺 filename 降级为 None」用例失败",
     ),
     (
         "zip 完整性校验移除：损坏包也能进入待还原状态",
@@ -139,9 +171,9 @@ MUTANTS = [
                 with zipfile.ZipFile(zip_path, "r") as zf:
                     bad = zf.testzip()
                 if bad:
-                    return {"success": False, "message": f"备份文件已损坏（{bad}）"}
+                    return {"success": False, "message": f"备份文件已损坏（{bad}）", "data": None}
             except Exception as e:
-                return {"success": False, "message": f"无法读取备份文件: {e}"}""",
+                return {"success": False, "message": f"无法读取备份文件: {e}", "data": None}""",
         """            pass""",
         "应导致 损坏包/截断包/空文件 拒绝测试失败",
     ),
@@ -149,16 +181,16 @@ MUTANTS = [
         "悬空状态未清除：文件不存在也不清 pending（残留脏状态）",
         """                    if not zip_path or not zip_path.exists():
                         self.__set_pending_restore(None)
-                        return {"success": False, "message": f"待还原的备份文件不存在：{pending['filename']}"}""",
+                        return {"success": False, "message": f"待还原的备份文件不存在：{pending['filename']}", "data": None}""",
         """                    if not zip_path or not zip_path.exists():
-                        return {"success": False, "message": f"待还原的备份文件不存在：{pending['filename']}"}""",
+                        return {"success": False, "message": f"待还原的备份文件不存在：{pending['filename']}", "data": None}""",
         "应导致 pending_pointing_to_deleted_file_is_cleared 失败",
     ),
     (
         "确认还原不校验 pending：无待还原时静默继续",
         """                    pending = self.__get_pending_restore()
                     if not pending or not pending.get("filename"):
-                        return {"success": False, "message": "没有待还原的备份，请先在列表中选择备份文件"}""",
+                        return {"success": False, "message": "没有待还原的备份，请先在列表中选择备份文件", "data": None}""",
         """                    pending = self.__get_pending_restore() or {}""",
         "应导致 confirm_without_pending / corrupt_state_confirm 失败",
     ),
@@ -166,12 +198,12 @@ MUTANTS = [
         "取消非幂等：无 pending 时取消报错",
         """            if confirm == "cancel":
                 self.__set_pending_restore(None)
-                return {"success": True, "message": "已取消还原操作"}""",
+                return {"success": True, "message": "已取消还原操作", "data": None}""",
         """            if confirm == "cancel":
                 if not self.__get_pending_restore():
-                    return {"success": False, "message": "没有待还原的备份"}
+                    return {"success": False, "message": "没有待还原的备份", "data": None}
                 self.__set_pending_restore(None)
-                return {"success": True, "message": "已取消还原操作"}""",
+                return {"success": True, "message": "已取消还原操作", "data": None}""",
         "应导致 cancel_is_idempotent_when_no_pending 失败",
     ),
     (
@@ -186,16 +218,17 @@ MUTANTS = [
     ),
     (
         "删除不校验存在性：不存在也报成功（误导用户）",
-        """        if not target.exists():
-            return {"success": False, "message": "备份文件不存在"}
-        try:""",
-        """        try:""",
+        """            if not target or not target.exists():
+                self.__set_pending_delete(None)
+                return {"success": False, "message": f"待删除的备份文件不存在：{safe_name}", "data": None}
+            try:""",
+        """            try:""",
         "应导致 delete_twice_is_idempotent / delete_on_missing_dir 失败",
     ),
     (
         "空文件名不校验（删除接口）",
         """        if not filename:
-            return {"success": False, "message": "缺少文件名参数"}
+            return {"success": False, "message": "缺少文件名参数", "data": None}
         # 防止路径穿越""",
         """        # 防止路径穿越""",
         "应导致 empty_filename_rejected 失败",
@@ -205,7 +238,7 @@ MUTANTS = [
     (
         "还原并发锁移除（可重入导致重复还原）",
         """                if not self._restore_lock.acquire(blocking=False):
-                    return {"success": False, "message": "已有还原操作正在进行，请稍后再试"}""",
+                    return {"success": False, "message": "已有还原操作正在进行，请稍后再试", "data": None}""",
         """                pass""",
         "应导致 restore_lock_prevents_concurrent 失败",
     ),

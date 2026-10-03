@@ -661,6 +661,28 @@ class TestRestoreLock(_BoundaryBase):
 
         self.assertIsNone(self.get_pending(), "失败后也应清除待还原状态")
 
+    def test_missing_filename_degrades_to_none(self):
+        """状态文件有内容却缺 filename 字段：应降级为 None，不能当成有效待确认。"""
+        path = self.pending_file()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"foo": "bar"}), encoding="utf-8")
+
+        self.assertIsNone(self.get_pending(), "缺 filename 应降级为 None")
+
+    def test_confirm_delete_reports_vanished_file(self):
+        """选中后文件被删：确认删除应明确报「不存在」，不能报成功。"""
+        name = f"{self._prefix}20260918_090000.zip"
+        path = self.make_backup("20260918_090000")
+
+        self.plugin.api_delete(filename=name)
+        self.assertIsNotNone(self.get_pending_delete(), "应已进入待删除状态")
+
+        path.unlink()
+
+        result = self.plugin.api_delete(filename="", confirm="1")
+        self.assertFalse(result.get("success"))
+        self.assertIn("不存在", result.get("message", ""), "文件已消失应明确报不存在")
+
 
 if __name__ == "__main__":
     unittest.main()
