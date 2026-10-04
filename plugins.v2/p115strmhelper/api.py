@@ -55,7 +55,12 @@ from .schemas.plugin import (
     StrmCleanupRequestIdPayload,
 )
 from .helper.strm.full import strm_cleanup_interaction
-from .helper.strm.share import share_strm_cleaner
+from .helper.strm.share import (
+    share_strm_cleaner,
+    share_strm_cleanup_summary_store,
+    share_strm_missing_media_store,
+    share_strm_pending_queue,
+)
 from .schemas.api import ApiResponse
 from .schemas.share import ShareApiData, ShareResponseData, ShareSaveParent
 from .schemas.strm_api import (
@@ -1100,7 +1105,7 @@ class Api:
         列出待确认的分享 STRM 清理批次
         """
         try:
-            summaries = share_strm_cleaner.list_pending_summaries()
+            summaries = share_strm_pending_queue.list_pending_summaries()
             return ApiResponse(data={"batches": summaries})
         except Exception as e:
             logger.error(f"【分享STRM清理】列出待确认批次失败: {e}", exc_info=True)
@@ -1119,7 +1124,7 @@ class Api:
             rid = (request_id or "").strip()
             if not rid:
                 return ApiResponse(code=1, msg="缺少 request_id")
-            found, paths, total = share_strm_cleaner.pending_batch_paths_page(
+            found, paths, total = share_strm_pending_queue.pending_batch_paths_page(
                 rid, page, limit
             )
             if not found:
@@ -1142,7 +1147,7 @@ class Api:
             rid = (payload.request_id or "").strip()
             if not rid:
                 return ApiResponse(code=1, msg="缺少 request_id")
-            batch, cerr = share_strm_cleaner.claim_pending_batch(rid)
+            batch, cerr = share_strm_pending_queue.claim_pending_batch(rid)
             if cerr == "batch_not_found":
                 return ApiResponse(code=1, msg="未找到该批次或已处理")
             if cerr == "invalid_batch":
@@ -1192,7 +1197,7 @@ class Api:
             rid = (payload.request_id or "").strip()
             if not rid:
                 return ApiResponse(code=1, msg="缺少 request_id")
-            if not share_strm_cleaner.cancel_pending_batch(rid):
+            if not share_strm_pending_queue.cancel_pending_batch(rid):
                 return ApiResponse(code=1, msg="未找到该批次或已处理")
             return ApiResponse(msg="已取消该批次")
         except Exception as e:
@@ -1228,7 +1233,7 @@ class Api:
         上次分享 STRM 清理扫描摘要
         """
         try:
-            s = share_strm_cleaner.get_last_summary()
+            s = share_strm_cleanup_summary_store.get()
             return ApiResponse(data={"summary": s})
         except Exception as e:
             return ApiResponse(code=1, msg=str(e))
@@ -1242,7 +1247,7 @@ class Api:
         分页列出缺失媒体条目（分片读取）
         """
         try:
-            items, total = share_strm_cleaner.missing_media_page(page, limit)
+            items, total = share_strm_missing_media_store.page(page, limit)
             return ApiResponse(data={"items": items, "total": total, "page": page})
         except Exception as e:
             logger.error(f"【分享STRM清理】缺失媒体列表失败: {e}", exc_info=True)
@@ -1257,12 +1262,12 @@ class Api:
         """
         try:
             if payload.clear_all:
-                share_strm_cleaner.missing_media_clear(None, True)
+                share_strm_missing_media_store.clear(None, True)
                 return ApiResponse(msg="已清空缺失媒体列表")
             uid = (payload.uid or "").strip()
             if not uid:
                 return ApiResponse(code=1, msg="缺少 uid 或未设置 clear_all")
-            if not share_strm_cleaner.missing_media_clear(uid, False):
+            if not share_strm_missing_media_store.clear(uid, False):
                 return ApiResponse(code=1, msg="未找到该记录")
             return ApiResponse(msg="已删除")
         except Exception as e:
