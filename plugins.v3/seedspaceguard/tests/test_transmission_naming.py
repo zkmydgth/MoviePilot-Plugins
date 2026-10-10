@@ -10,7 +10,7 @@ v1.3.5 专项测试：Transmission 种子字段命名兼容（snake_case / camel
     而 ``transmission_rpc.Torrent`` 暴露的是 **snake_case**：
 
         percentDone  → <缺失>      实际为 percent_done = 1.0
-        downloadDir  → <缺失>      实际为 download_dir = /volume2/...
+        downloadDir  → <缺失>      实际为 download_dir = /volume1/media/...
         totalSize    → <缺失>      实际为 total_size
 
     于是每个 TR 种子都在 ``percentDone < 0.999`` 处被判为「未完成」丢弃，
@@ -32,7 +32,7 @@ from seedspaceguard import SeedSpaceGuard
 class _TorrentSnake:
     """复刻 transmission_rpc.Torrent 的 snake_case 属性。"""
 
-    def __init__(self, name="圆桌派.S08", dl_dir="/volume2/影视剧收藏/圆桌派系列",
+    def __init__(self, name="Show.S08", dl_dir="/volume1/media/ShowSeries",
                  percent=1.0, total=39808172988, hash_str="1c8864d2aa"):
         self.name = name
         self.download_dir = dl_dir
@@ -79,10 +79,10 @@ class TestTransmissionNaming(unittest.TestCase):
         cand = self.plugin._parse_torrent(DownloaderType.Transmission, _TorrentSnake())
         self.assertIsNotNone(cand, "snake_case 种子不得被判为未完成而丢弃")
         self.assertEqual(cand["hash"], "1c8864d2aa")
-        self.assertEqual(cand["title"], "圆桌派.S08")
+        self.assertEqual(cand["title"], "Show.S08")
         self.assertEqual(
             cand["path"],
-            "/volume2/影视剧收藏/圆桌派系列/圆桌派.S08",
+            "/volume1/media/ShowSeries/Show.S08",
             "download_dir 缺失会导致路径拼接为空，必须用 snake_case 取到",
         )
         self.assertAlmostEqual(cand["size_gb"], 37.1, places=1)

@@ -30,7 +30,7 @@ MUTANTS = [
         "core/config.py",
         '    "暂不可用",',
         '    "__never_matches__",',
-        "内置失败词表丢失「暂不可用」（HDHaven 用例回归）",
+        "内置失败词表丢失「暂不可用」（示例 bot 用例回归）",
     ),
     (
         "core/signin.py",

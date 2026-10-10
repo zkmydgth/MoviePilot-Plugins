@@ -157,7 +157,7 @@ DEFAULT_REPEATED_KEYWORDS = (
 
 # 失败关键词（内置默认）：命中即判「失败」，并因此进入失败重试。
 #
-# 场景（2026-10-08 用户定案）：@HDHaven_Bot 回「签到服务暂不可用，请稍后重试。」——
+# 场景（2026-10-08 用户定案）：@example_bot_d 回「签到服务暂不可用，请稍后重试。」——
 # 这类文案既不含成功词也不含已签到词，旧逻辑会落到「未确认」（既不计失败、也不重试），
 # 与用户口径不符。故新增本词表；判定顺序在成功/已签到之后，避免误伤成功文案。
 DEFAULT_FAILURE_KEYWORDS = (
@@ -183,11 +183,11 @@ acc1 | 账号1 | +12025550101
 acc2 | 账号2 | +12025550102"""
 
 DEFAULT_TARGETS_TEXT = """# 一行一个签到目标：账号标识 | bot | 按钮/命令 | 按钮文字或命令 | 等待秒数(可省)
-acc1 | @bb_emby_bot | 按钮 | 签到
-acc1 | @HG_Emby_bot | 按钮 | 签到
-acc1 | @okemby_bot | 按钮 | 签到
-acc1 | @HDHaven_Bot | 命令 | /checkin
-acc2 | @okemby_bot | 按钮 | 签到"""
+acc1 | @example_bot_b | 按钮 | 签到
+acc1 | @example_bot_c | 按钮 | 签到
+acc1 | @example_bot_a | 按钮 | 签到
+acc1 | @example_bot_d | 命令 | /checkin
+acc2 | @example_bot_a | 按钮 | 签到"""
 
 
 @dataclass
@@ -685,11 +685,11 @@ def default_slot_config() -> Dict[str, Any]:
         config[f"account_{index}_login_password"] = ""
 
     targets = [
-        ("acc1", "@bb_emby_bot", SIGN_TYPE_BUTTON, "签到", 15),
-        ("acc1", "@HG_Emby_bot", SIGN_TYPE_BUTTON, "签到", 15),
-        ("acc1", "@okemby_bot", SIGN_TYPE_BUTTON, "签到", 15),
-        ("acc1", "@HDHaven_Bot", SIGN_TYPE_COMMAND, "/checkin", 15),
-        ("acc2", "@okemby_bot", SIGN_TYPE_BUTTON, "签到", 15),
+        ("acc1", "@example_bot_b", SIGN_TYPE_BUTTON, "签到", 15),
+        ("acc1", "@example_bot_c", SIGN_TYPE_BUTTON, "签到", 15),
+        ("acc1", "@example_bot_a", SIGN_TYPE_BUTTON, "签到", 15),
+        ("acc1", "@example_bot_d", SIGN_TYPE_COMMAND, "/checkin", 15),
+        ("acc2", "@example_bot_a", SIGN_TYPE_BUTTON, "签到", 15),
     ]
     for index in range(1, MAX_TARGET_SLOTS + 1):
         if index <= len(targets):

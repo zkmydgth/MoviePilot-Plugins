@@ -145,12 +145,12 @@ class TestParseTargets(unittest.TestCase):
         self.assertEqual(len(buttons), 4)
         self.assertEqual(len(commands), 1)
         self.assertEqual(commands[0].action_text, "/checkin")
-        self.assertEqual(commands[0].bot_username, "@HDHaven_Bot")
+        self.assertEqual(commands[0].bot_username, "@example_bot_d")
 
     def test_bot_username_gets_at_prefix(self) -> None:
         """bot 用户名缺 @ 时自动补上。"""
-        targets = parse_targets("acc1 | okemby_bot | 按钮 | 签到")
-        self.assertEqual(targets[0].bot_username, "@okemby_bot")
+        targets = parse_targets("acc1 | example_bot_a | 按钮 | 签到")
+        self.assertEqual(targets[0].bot_username, "@example_bot_a")
 
     def test_command_alias_and_wait(self) -> None:
         """「命令」别名识别为命令式，等待秒数生效。"""

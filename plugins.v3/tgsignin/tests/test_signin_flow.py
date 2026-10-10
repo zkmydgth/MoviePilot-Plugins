@@ -230,7 +230,7 @@ class TestSigninButtonMode(unittest.TestCase):
         ]
         target = BotTarget(
             account_key="acc1",
-            bot_username="@bb_emby_bot",
+            bot_username="@example_bot_b",
             sign_type=SIGN_TYPE_BUTTON,
             action_text="签到",
         )
@@ -276,7 +276,7 @@ class TestSigninButtonMode(unittest.TestCase):
         ]
         target = BotTarget(
             account_key="acc1",
-            bot_username="@okemby_bot",
+            bot_username="@example_bot_a",
             sign_type=SIGN_TYPE_BUTTON,
             action_text="签到",
         )
@@ -300,7 +300,7 @@ class TestSigninCommandMode(unittest.TestCase):
         client = _FakeClient(batches=[[_FakeMessage("✅ 签到成功！获得 5 积分")]])
         target = BotTarget(
             account_key="acc1",
-            bot_username="@HDHaven_Bot",
+            bot_username="@example_bot_d",
             sign_type=SIGN_TYPE_COMMAND,
             action_text="/checkin",
         )
@@ -592,10 +592,10 @@ class TestBuildNotifyText(unittest.TestCase):
             }
 
         results = [
-            item("@bb_emby_bot", STATUS_SUCCESS, "🎉 签到成功 | 10 子弹 💴 当前持有"),
-            item("@HG_Emby_bot", STATUS_REPEATED, "🍉 你好鸭 请选择功能", "您今天已经签到过了"),
-            item("@HDHaven_Bot", STATUS_REPEATED, "✅ 今日已签到，明天再来。"),
-            item("@okemby_bot", STATUS_REPEATED, "🍉 你好鸭 请选择功能"),
+            item("@example_bot_b", STATUS_SUCCESS, "🎉 签到成功 | 10 子弹 💴 当前持有"),
+            item("@example_bot_c", STATUS_REPEATED, "🍉 你好鸭 请选择功能", "您今天已经签到过了"),
+            item("@example_bot_d", STATUS_REPEATED, "✅ 今日已签到，明天再来。"),
+            item("@example_bot_a", STATUS_REPEATED, "🍉 你好鸭 请选择功能"),
             item("@other_bot", STATUS_UNCONFIRMED, "我不知道你在说什么"),
         ]
         text = build_notify_text(results, "手动", NOTIFY_MODE_SUCCESS)
@@ -630,7 +630,7 @@ class TestRunAccountAddsLabel(unittest.TestCase):
         account = AccountConfig(key="acc1", label="账号1", phone="+8613800138000")
         target = BotTarget(
             account_key="acc1",
-            bot_username="@HDHaven_Bot",
+            bot_username="@example_bot_d",
             sign_type=SIGN_TYPE_COMMAND,
             action_text="/checkin",
         )
@@ -667,7 +667,7 @@ class TestSigninStaleGuard(unittest.TestCase):
         """
         return BotTarget(
             account_key="acc1",
-            bot_username="@okemby_bot",
+            bot_username="@example_bot_a",
             sign_type=sign_type,
             action_text="签到" if sign_type == SIGN_TYPE_BUTTON else "/checkin",
         )
@@ -827,7 +827,7 @@ class TestButtonCandidates(unittest.TestCase):
         """
         return BotTarget(
             account_key="acc1",
-            bot_username="@okemby_bot",
+            bot_username="@example_bot_a",
             sign_type=SIGN_TYPE_BUTTON,
             action_text=action,
         )
@@ -906,7 +906,7 @@ class TestFloodWaitRetry(unittest.TestCase):
         """
         return BotTarget(
             account_key="acc1",
-            bot_username="@okemby_bot",
+            bot_username="@example_bot_a",
             sign_type=SIGN_TYPE_COMMAND,
             action_text="/checkin",
         )
@@ -964,7 +964,7 @@ class TestAccountTimeout(unittest.TestCase):
         """
         return BotTarget(
             account_key="acc1",
-            bot_username="@okemby_bot",
+            bot_username="@example_bot_a",
             sign_type=SIGN_TYPE_COMMAND,
             action_text="/checkin",
         )
@@ -1005,8 +1005,8 @@ class TestNormalizeBot(unittest.TestCase):
 
     def test_normalize(self) -> None:
         """带不带 @、大小写不同都视为同一个 bot。"""
-        self.assertEqual(signin_mod.normalize_bot("@OKEmby_Bot"), "okemby_bot")
-        self.assertEqual(signin_mod.normalize_bot("okemby_bot"), "okemby_bot")
+        self.assertEqual(signin_mod.normalize_bot("@Example_Bot_A"), "example_bot_a")
+        self.assertEqual(signin_mod.normalize_bot("example_bot_a"), "example_bot_a")
 
     def test_run_all_matches_without_at(self) -> None:
         """命令里漏了 @ 也能匹配到目标。"""
@@ -1014,7 +1014,7 @@ class TestNormalizeBot(unittest.TestCase):
         account = AccountConfig(key="acc1", label="账号1")
         target = BotTarget(
             account_key="acc1",
-            bot_username="@HDHaven_Bot",
+            bot_username="@example_bot_d",
             sign_type=SIGN_TYPE_COMMAND,
             action_text="/checkin",
         )
@@ -1023,7 +1023,7 @@ class TestNormalizeBot(unittest.TestCase):
         ), mock.patch.object(signin_mod, "asyncio", _FakeAsyncio):
             results = asyncio.run(
                 signin_mod.run_all(
-                    [account], [target], Path("/tmp"), None, only_bot="HDHaven_Bot"
+                    [account], [target], Path("/tmp"), None, only_bot="example_bot_d"
                 )
             )
         self.assertEqual(len(results), 1)
@@ -1047,7 +1047,7 @@ class TestProbeTarget(unittest.TestCase):
         ]
         target = BotTarget(
             account_key="acc1",
-            bot_username="@okemby_bot",
+            bot_username="@example_bot_a",
             sign_type=SIGN_TYPE_BUTTON,
             action_text="签到",
         )

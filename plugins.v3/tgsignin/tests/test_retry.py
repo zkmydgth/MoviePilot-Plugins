@@ -22,7 +22,7 @@ from tgsignin.core.retry import (
 NOW = datetime(2026, 10, 7, 15, 0, tzinfo=timezone(timedelta(hours=8)))
 
 
-def _target(bot: str = "@okemby_bot", enabled: bool = True) -> BotTarget:
+def _target(bot: str = "@example_bot_a", enabled: bool = True) -> BotTarget:
     """
     构造一个签到目标。
 
@@ -80,7 +80,7 @@ class TestEvaluateRetry(unittest.TestCase):
         due, _ = evaluate_retry(
             [target], _failed_state(7 * 3600), now=NOW, retry_interval_hours=6
         )
-        self.assertEqual([item.bot_username for item in due], ["@okemby_bot"])
+        self.assertEqual([item.bot_username for item in due], ["@example_bot_a"])
 
     def test_failed_not_due_before_interval(self) -> None:
         """未到重试间隔 → 不重试。"""
@@ -122,7 +122,7 @@ class TestEvaluateRetry(unittest.TestCase):
 
     def test_only_due_target_returned(self) -> None:
         """多个目标时只返回到期的那一个。"""
-        due_target = _target("@okemby_bot")
+        due_target = _target("@example_bot_a")
         fresh_target = _target("@other_bot")
         state = _failed_state(7 * 3600)
         state["signin_state"][retry_key(fresh_target)] = {
@@ -132,7 +132,7 @@ class TestEvaluateRetry(unittest.TestCase):
             "last_attempt_at": (NOW - timedelta(minutes=5)).timestamp(),
         }
         due, _ = evaluate_retry([due_target, fresh_target], state, now=NOW)
-        self.assertEqual([item.bot_username for item in due], ["@okemby_bot"])
+        self.assertEqual([item.bot_username for item in due], ["@example_bot_a"])
 
 
 class TestRecordAttempts(unittest.TestCase):

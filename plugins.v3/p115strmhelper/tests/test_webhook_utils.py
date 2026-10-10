@@ -19,45 +19,45 @@ class TestParseItemPaths(TestCase):
     def test_parse_single_item_path(self):
         """测试解析单个 Item Path"""
         description = """Item Name:
-狂怒沙暴
+示例影片
 
 Item Path:
-/data2/test/狂怒沙暴 (2023)/狂怒沙暴 (2023) - 1080p.strm
+/volume1/media/示例影片 (2023)/示例影片 (2023) - 1080p.strm
 
 Mount Paths:
-http://192.168.31.99:23000/api/v1/plugin/P115StrmHelper/redirect_url?pickcode=cg04ctinkn3aidbzc"""
+http://192.0.2.99:23000/api/v1/plugin/P115StrmHelper/redirect_url?pickcode=abcdefghijklmnop"""
 
         result = WebhookUtils.parse_item_paths_from_description(description)
-        expected = ["/data2/test/狂怒沙暴 (2023)/狂怒沙暴 (2023) - 1080p.strm"]
+        expected = ["/volume1/media/示例影片 (2023)/示例影片 (2023) - 1080p.strm"]
         self.assertEqual(result, expected)
 
     def test_parse_multiple_item_paths(self):
         """测试解析多个 Item Path（多版本剧集）"""
         description = """Item Name:
-狂怒沙暴
+示例影片
 
 Item Path:
-/data2/test/狂怒沙暴 (2023)/狂怒沙暴 (2023) - 1080p.strm
-/data2/test/狂怒沙暴 (2023)/狂怒沙暴 (2023) - 720p.strm
+/volume1/media/示例影片 (2023)/示例影片 (2023) - 1080p.strm
+/volume1/media/示例影片 (2023)/示例影片 (2023) - 720p.strm
 
 Mount Paths:
-http://192.168.31.99:23000/api/v1/plugin/P115StrmHelper/redirect_url?pickcode=cg04ctinkn3aidbzc"""
+http://192.0.2.99:23000/api/v1/plugin/P115StrmHelper/redirect_url?pickcode=abcdefghijklmnop"""
 
         result = WebhookUtils.parse_item_paths_from_description(description)
         expected = [
-            "/data2/test/狂怒沙暴 (2023)/狂怒沙暴 (2023) - 1080p.strm",
-            "/data2/test/狂怒沙暴 (2023)/狂怒沙暴 (2023) - 720p.strm",
+            "/volume1/media/示例影片 (2023)/示例影片 (2023) - 1080p.strm",
+            "/volume1/media/示例影片 (2023)/示例影片 (2023) - 720p.strm",
         ]
         self.assertEqual(result, expected)
 
     def test_parse_item_path_on_same_line(self):
         """测试 Item Path 在同一行的情况"""
-        description = """Item Name: 狂怒沙暴
-Item Path: /data2/test/狂怒沙暴 (2023)/狂怒沙暴 (2023) - 1080p.strm
+        description = """Item Name: 示例影片
+Item Path: /volume1/media/示例影片 (2023)/示例影片 (2023) - 1080p.strm
 Mount Paths: http://example.com"""
 
         result = WebhookUtils.parse_item_paths_from_description(description)
-        expected = ["/data2/test/狂怒沙暴 (2023)/狂怒沙暴 (2023) - 1080p.strm"]
+        expected = ["/volume1/media/示例影片 (2023)/示例影片 (2023) - 1080p.strm"]
         self.assertEqual(result, expected)
 
     def test_parse_empty_description(self):
@@ -67,7 +67,7 @@ Mount Paths: http://example.com"""
 
     def test_parse_no_item_path(self):
         """测试没有 Item Path 的情况"""
-        description = """Item Name: 狂怒沙暴
+        description = """Item Name: 示例影片
 Mount Paths: http://example.com"""
 
         result = WebhookUtils.parse_item_paths_from_description(description)
@@ -96,48 +96,48 @@ D:\\data\\test\\movie2.strm"""
     def test_parse_ignore_urls(self):
         """测试忽略 URL"""
         description = """Item Path:
-/data2/test/movie.strm
+/volume1/media/movie.strm
 http://example.com/path/to/file
 https://example.com/path/to/file
-/data2/test/movie2.strm"""
+/volume1/media/movie2.strm"""
 
         result = WebhookUtils.parse_item_paths_from_description(description)
-        expected = ["/data2/test/movie.strm", "/data2/test/movie2.strm"]
+        expected = ["/volume1/media/movie.strm", "/volume1/media/movie2.strm"]
         self.assertEqual(result, expected)
 
     def test_parse_with_extra_whitespace(self):
         """测试包含额外空白字符的情况"""
         description = """Item Path:
-    /data2/test/movie.strm
+    /volume1/media/movie.strm
 
-    /data2/test/movie2.strm
+    /volume1/media/movie2.strm
     """
 
         result = WebhookUtils.parse_item_paths_from_description(description)
-        expected = ["/data2/test/movie.strm", "/data2/test/movie2.strm"]
+        expected = ["/volume1/media/movie.strm", "/volume1/media/movie2.strm"]
         self.assertEqual(result, expected)
 
     def test_parse_complex_description(self):
         """测试复杂的 Description 格式"""
         description = """Item Name:
-狂怒沙暴
+示例影片
 
 Item Path:
-/data2/test/狂怒沙暴 (2023)/狂怒沙暴 (2023) - 1080p.strm
-/data2/test/狂怒沙暴 (2023)/狂怒沙暴 (2023) - 720p.strm
-/data2/test/狂怒沙暴 (2023)/狂怒沙暴 (2023) - 4K.strm
+/volume1/media/示例影片 (2023)/示例影片 (2023) - 1080p.strm
+/volume1/media/示例影片 (2023)/示例影片 (2023) - 720p.strm
+/volume1/media/示例影片 (2023)/示例影片 (2023) - 4K.strm
 
 Mount Paths:
-http://192.168.31.99:23000/api/v1/plugin/P115StrmHelper/redirect_url?pickcode=cg04ctinkn3aidbzc
+http://192.0.2.99:23000/api/v1/plugin/P115StrmHelper/redirect_url?pickcode=abcdefghijklmnop
 
 Other Info:
 Some other information here"""
 
         result = WebhookUtils.parse_item_paths_from_description(description)
         expected = [
-            "/data2/test/狂怒沙暴 (2023)/狂怒沙暴 (2023) - 1080p.strm",
-            "/data2/test/狂怒沙暴 (2023)/狂怒沙暴 (2023) - 720p.strm",
-            "/data2/test/狂怒沙暴 (2023)/狂怒沙暴 (2023) - 4K.strm",
+            "/volume1/media/示例影片 (2023)/示例影片 (2023) - 1080p.strm",
+            "/volume1/media/示例影片 (2023)/示例影片 (2023) - 720p.strm",
+            "/volume1/media/示例影片 (2023)/示例影片 (2023) - 4K.strm",
         ]
         self.assertEqual(result, expected)
 
@@ -160,8 +160,8 @@ Some other information here"""
         result = WebhookUtils.parse_item_paths_from_description(description)
 
         expected = [
-            "/data2/test/狂怒沙暴 (2023)/狂怒沙暴 (2023) - 1080p.strm",
-            "/data2/test/狂怒沙暴 (2023)/狂怒沙暴 (2023) - 720p.strm",
+            "/volume1/media/示例影片 (2023)/示例影片 (2023) - 1080p.strm",
+            "/volume1/media/示例影片 (2023)/示例影片 (2023) - 720p.strm",
         ]
 
         self.assertEqual(result, expected)

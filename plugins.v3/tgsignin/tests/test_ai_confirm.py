@@ -3,7 +3,7 @@
 
 覆盖：
 
-1. **失败关键词**：明确失败文案（如 @HDHaven_Bot 的「签到服务暂不可用，请稍后重试。」）
+1. **失败关键词**：明确失败文案（如 @example_bot_d 的「签到服务暂不可用，请稍后重试。」）
    必须判「失败」并因此进入失败重试；且不得误伤成功/已签到文案（判定优先级）。
 2. **AI 复核接线**：默认关闭时不动原判；开启后仅对「未确认」调用；
    AI 判失败要连带 `ok=False`（进重试）、判已签到/成功要转为对应档位；
@@ -58,7 +58,7 @@ UNAVAILABLE_REPLY = "签到服务暂不可用，请稍后重试。"
 
 TARGET = BotTarget(
     account_key="acc1",
-    bot_username="@HDHaven_Bot",
+    bot_username="@example_bot_d",
     sign_type=SIGN_TYPE_COMMAND,
     action_text="/checkin",
 )
@@ -103,7 +103,7 @@ def _stub_impl(reply: str, ok: bool = True, alert: str = ""):
 class TestFailureKeywords(unittest.TestCase):
     """失败关键词分档与优先级。"""
 
-    def test_hdhaven_unavailable_is_failed(self) -> None:
+    def test_example_bot_unavailable_is_failed(self) -> None:
         """「签到服务暂不可用，请稍后重试。」必须判失败（本次需求的核心用例）。"""
         self.assertEqual(
             classify_result(UNAVAILABLE_REPLY, True, "发命令「/checkin」"),

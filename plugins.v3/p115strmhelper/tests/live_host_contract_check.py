@@ -12,7 +12,7 @@
 
 用法（容器内）::
 
-    cd /app && python /config/local-plugins/plugins.v3/p115strmhelper/tests/live_host_contract_check.py
+    cd /app && python <本地插件源>/plugins.v3/p115strmhelper/tests/live_host_contract_check.py
 
 退出码：0 = 无失败项；1 = 存在失败项。依赖宿主链实例的检查在实例尚未创建时记为
 SKIP —— 探针**不主动构造**宿主链（宿主单例在"运行上下文未就绪"时构造会抛异常，

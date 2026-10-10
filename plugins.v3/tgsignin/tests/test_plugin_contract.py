@@ -254,7 +254,7 @@ class TestPage(unittest.TestCase):
                 {
                     "time": "2026-10-11 00:02:26",
                     "account": "acc1",
-                    "bot": "@HDHaven_Bot",
+                    "bot": "@example_bot_d",
                     "verdict": "success",
                     "keyword": "连续签到",
                 }
@@ -663,21 +663,21 @@ class TestPageExtras(unittest.TestCase):
         stamp = time.time()
         today = today_text()
         state["signin_state"] = {
-            "acc1|@bb_emby_bot": {
+            "acc1|@example_bot_b": {
                 "date": today,
                 "ok": True,
                 "ok_today": True,
                 "attempts": 1,
                 "last_attempt_at": stamp,
             },
-            "acc1|@HG_Emby_bot": {
+            "acc1|@example_bot_c": {
                 "date": today,
                 "ok": False,
                 "ok_today": False,
                 "attempts": 2,
                 "last_attempt_at": stamp,
             },
-            "acc1|@okemby_bot": {"date": "2000-01-01"},
+            "acc1|@example_bot_a": {"date": "2000-01-01"},
         }
         save_state(data_dir, state)
         blob = json.dumps(plugin.get_page(), ensure_ascii=False)
@@ -740,7 +740,7 @@ class TestPageExtras(unittest.TestCase):
                 {
                     "time": "2026-10-11 00:01:00",
                     "account": "acc1",
-                    "bot": "@okemby_bot",
+                    "bot": "@example_bot_a",
                     "method": "按钮式",
                     "ok": False,
                     "reply": "",
@@ -759,7 +759,7 @@ class TestPageExtras(unittest.TestCase):
         self.assertEqual(len(retries), 1)
         params = retries[0]["events"]["click"]["params"]
         self.assertEqual(params["account"], "acc1")
-        self.assertEqual(params["bot"], "@okemby_bot")
+        self.assertEqual(params["bot"], "@example_bot_a")
 
     def test_history_keeps_status_and_alert(self) -> None:
         """history 落盘保留 status/alert/ai_*（详情页 AI 复核列不再恒空的前提）。"""

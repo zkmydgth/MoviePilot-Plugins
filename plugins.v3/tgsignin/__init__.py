@@ -991,7 +991,7 @@ class TgSignin(_PluginBase):
                                     "props": {
                                         "model": f"target_{index}_bot",
                                         "label": "bot 用户名",
-                                        "placeholder": "@okemby_bot",
+                                        "placeholder": "@example_bot_a",
                                         "show": enabled_expr,
                                     },
                                 }
@@ -2170,7 +2170,7 @@ class TgSignin(_PluginBase):
         """
         返回「可用账号 / bot」提示串（命令参数写错时展示）。
 
-        :return str: 形如 ``账号 acc1、acc2；bot @bb_emby_bot、@okemby_bot``
+        :return str: 形如 ``账号 acc1、acc2；bot @example_bot_b、@example_bot_a``
         """
 
         self._refresh_parsed_config()

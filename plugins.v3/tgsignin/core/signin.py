@@ -5,7 +5,7 @@
 
 - **按钮式**（emby 类 bot）：先发 ``/start`` 拉出菜单 → 在最近几条消息里找
   文字含关键词的 inline 按钮 → 点击 → 等待 → 读回最新回复；
-- **命令式**（如 HDHaven）：直接发命令 → 等待 → 读回 bot 回复。
+- **命令式**（如示例 bot）：直接发命令 → 等待 → 读回 bot 回复。
 
 **只有「本次发送之后收到的」消息才算数**：bot 离线时最近消息全是上一次的残留
 （旧菜单、上次那句「🎉 签到成功」），按时间过滤才不会被误判成成功；本次一条新消息都没有
@@ -293,7 +293,7 @@ async def _click_button(
     observed: List[str] = []
     fallback: Optional[Tuple[Any, Any]] = None
     # 轮询等菜单（2026-10-11 修）：bot 回菜单慢、或菜单按钮文案与配置不同，
-    # 单次 sleep 后只扫一遍必然假失败（@okemby_bot 的历史高频失败即此）
+    # 单次 sleep 后只扫一遍必然假失败（@example_bot_a 的历史高频失败即此）
     for _ in range(polls):
         messages = await client.get_messages(entity, limit=_MSG_SCAN_LIMIT)
         fresh = _fresh_messages(messages, sent_at)
@@ -378,7 +378,7 @@ def classify_result(
     按 bot 回复内容给签到结果分档。
 
     判据来自交接单实测：emby 类 bot 真签到成功会回「🎉 签到成功 | N 子弹…」，
-    重复签到只回主菜单并弹一句提示（callback 应答）；HDHaven 重复签到回
+    重复签到只回主菜单并弹一句提示（callback 应答）；示例 bot 重复签到回
     「✅ 今日已签到，明天再来。」。
 
     :param reply: bot 回复文本

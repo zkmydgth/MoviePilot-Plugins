@@ -193,7 +193,7 @@ class TestAiKeywordAuditLog(unittest.TestCase):
                     {
                         "time": "2026-10-08 09:00:00",
                         "account": "acc1",
-                        "bot": "@HDHaven_Bot",
+                        "bot": "@example_bot_d",
                         "verdict": "failure",
                         "keyword": "服务暂不可用",
                     }
@@ -246,7 +246,7 @@ class TestPluginAutofill(unittest.TestCase):
         return [
             {
                 "account": "acc1",
-                "bot": "@HDHaven_Bot",
+                "bot": "@example_bot_d",
                 "ai_verdict": "failure",
                 # 第 1 个已在失败栏、第 2 个与成功栏重复、第 3 个是新的
                 "ai_keywords": ["暂不可用", "签到成功", "服务开小差"],
@@ -254,14 +254,14 @@ class TestPluginAutofill(unittest.TestCase):
             },
             {
                 "account": "acc1",
-                "bot": "@bb_emby_bot",
+                "bot": "@example_bot_b",
                 "ai_verdict": "success",
                 "ai_keywords": ["签到成功", "获得积分"],
                 "time": "2026-10-08 09:00:00",
             },
             {
                 "account": "acc1",
-                "bot": "@okemby_bot",
+                "bot": "@example_bot_a",
                 "ai_verdict": "repeated",
                 "ai_keywords": ["今天已签到啦"],
                 "time": "2026-10-08 09:00:00",
@@ -294,7 +294,7 @@ class TestPluginAutofill(unittest.TestCase):
         same = [
             {
                 "account": "acc1",
-                "bot": "@HDHaven_Bot",
+                "bot": "@example_bot_d",
                 "ai_verdict": "failure",
                 "ai_keywords": ["暂不可用"],
                 "time": "t",
