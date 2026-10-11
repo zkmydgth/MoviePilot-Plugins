@@ -21,6 +21,90 @@ PLUGIN_DIR = Path(__file__).resolve().parent.parent
 # (文件, 原片段, 变异片段, 说明)
 MUTANTS = [
     (
+        "__init__.py",
+        '                + ("true" if self._row_is_group_target(index) else "false")',
+        '                + "true"',
+        "「回复归属标识」不再按群目标显示（bot 行也露出这一栏）",
+    ),
+    (
+        "core/groups.py",
+        "    payload = cache.get(wanted)",
+        "    payload = cache.get(wanted or sorted(cache)[0])",
+        "本行未选账号时拿别的账号的群凑候选",
+    ),
+    (
+        "__init__.py",
+        '            "function okId(x) { return /^@[A-Za-z0-9_]{4,}$/.test(x) "',
+        '            "function okId(x) { return /^.*$/.test(x) "',
+        "群标识形态校验失效：只输入未点选的关键词会被当成目标写进配置",
+    ),
+    (
+        "__init__.py",
+        'if (raw && typeof raw === "object") { raw = raw.value || raw.title || ""; }',
+        'if (raw && typeof raw === "object") { raw = raw.title || ""; }',
+        "对象形态的选中项不再取 value（点选整项后读不到群号）",
+    ),
+    (
+        "__init__.py",
+        "if (m) { ref = m[1]; }",
+        "if (m) { ref = m[0]; }",
+        "标题串截取带上了「（」后缀（截出的不是纯群号）",
+    ),
+    (
+        "__init__.py",
+        '+ f"if (!okId(ref)) {{ alert({invalid_hint}); return; }} "',
+        '+ f"if (false) {{ alert({invalid_hint}); return; }} "',
+        "填入前不再把关：半截筛选词会被写进目标",
+    ),
+    (
+        "__init__.py",
+        "            [item for item in self._accounts if item.key == account.key]",
+        "            list(self._accounts)",
+        "「更新群组」忽略 account 参数：想只刷一个账号却刷了全部",
+    ),
+    (
+        "core/groups.py",
+        '            "private": not username,',
+        '            "private": False,',
+        "私有群标记失效（没有 @用户名 的群被当成公开群）",
+    ),
+    (
+        "core/groups.py",
+        '        key=lambda row: (not bool(row.get("private")), str(row.get("title") or "")),',
+        '        key=lambda row: str(row.get("title") or ""),',
+        "群组排序失效：私有群不再排前面",
+    ),
+    (
+        "core/groups.py",
+        '            "rows": rows[:MAX_GROUP_ROWS],',
+        '            "rows": rows,',
+        "群组列表截断失效（群多时刷屏）",
+    ),
+    (
+        "core/groups.py",
+        '    name = str(username or "").strip().lstrip("@")',
+        '    name = ""',
+        "公开群不再优先用 @用户名（改填数字 ID）",
+    ),
+    (
+        "core/config.py",
+        '            f"target_{index}_enabled": bool(target),',
+        '            f"target_{index}_enabled": True,',
+        "文本 → 槽位同步失效：文本里没有的槽位仍显示为启用",
+    ),
+    (
+        "__init__.py",
+        '            + f")) {{ return; }} {bot} = ref; }}"',
+        '            + f")) {{ return; }} {pick} = ref; }}"',
+        "「填入本槽」写错字段（写回下拉而不是「bot / 群」）",
+    ),
+    (
+        "__init__.py",
+        "        if self._use_text_mode:",
+        "        if False:  # 变异：同步方向固定为「槽位 → 文本」",
+        "同步方向反了：文本模式下不回填槽位",
+    ),
+    (
         "core/config.py",
         'return SIGN_TYPE_COMMAND if "命令" in value else SIGN_TYPE_BUTTON',
         "return SIGN_TYPE_BUTTON",
@@ -76,9 +160,33 @@ MUTANTS = [
     ),
     (
         "core/config.py",
-        'if not bot_username.startswith("@"):',
-        "if False:",
-        "bot 用户名不再补 @",
+        '    if not value.startswith("@"):\n        return f"@{value}"',
+        '    if False:  # 变异：不再补 @\n        return f"@{value}"',
+        "目标标识不再补 @（用户名目标解析失败）",
+    ),
+    (
+        "core/config.py",
+        "    if _NUMERIC_REF_RE.match(value):\n        return value",
+        "    if False:  # 变异：数字 ID 不再原样保留\n        return value",
+        "私有群数字 ID 被当成用户名（补 @ 后解析失败）",
+    ),
+    (
+        "core/signin.py",
+        "            return int(sender_id) == int(bot_id)",
+        "            return True  # 变异：私聊目标不再校验发送者",
+        "私聊目标不再校验发送者（别人同时签到会串档）",
+    ),
+    (
+        "core/signin.py",
+        '    return bool(getattr(sender, "bot", False))',
+        "    return True  # 变异：群里不再排除真人发言",
+        "群里真人发言不再被排除（闲聊会被当成本次结果）",
+    ),
+    (
+        "core/signin.py",
+        "        if marker and marker not in text.lower():\n            continue",
+        "        if False:  # 变异：不再校验归属标识\n            continue",
+        "归属标识校验失效（别人的回复也算本次结果）",
     ),
     (
         "core/config.py",

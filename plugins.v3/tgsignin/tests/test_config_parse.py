@@ -27,6 +27,7 @@ from tgsignin.core.config import (
     default_slot_config,
     login_actions,
     normalize_key,
+    normalize_target_ref,
     parse_accounts,
     parse_targets,
     targets_from_slots,
@@ -133,6 +134,24 @@ class TestAccountsRoundTrip(unittest.TestCase):
         self.assertIn("deadbeef", text)
 
 
+class TestNormalizeTargetRef(unittest.TestCase):
+    """签到目标标识归一化（2026-10-12 加：支持私有群数字 ID）。"""
+
+    def test_username_gets_at_prefix(self) -> None:
+        """普通用户名补 @，已带 @ 的原样保留。"""
+        self.assertEqual(normalize_target_ref("example_bot_a"), "@example_bot_a")
+        self.assertEqual(normalize_target_ref("@example_bot_a"), "@example_bot_a")
+
+    def test_numeric_id_kept_as_is(self) -> None:
+        """数字 ID（含负号）原样保留，不加 @。"""
+        self.assertEqual(normalize_target_ref("-1001234567890"), "-1001234567890")
+        self.assertEqual(normalize_target_ref(" -1001234567890 "), "-1001234567890")
+
+    def test_blank_stays_blank(self) -> None:
+        """空值仍返回空串。"""
+        self.assertEqual(normalize_target_ref("   "), "")
+
+
 class TestParseTargets(unittest.TestCase):
     """签到目标解析。"""
 
@@ -151,6 +170,36 @@ class TestParseTargets(unittest.TestCase):
         """bot 用户名缺 @ 时自动补上。"""
         targets = parse_targets("acc1 | example_bot_a | 按钮 | 签到")
         self.assertEqual(targets[0].bot_username, "@example_bot_a")
+
+    def test_numeric_group_id_kept_and_resolves_int(self) -> None:
+        """私有群数字 ID 不补 @，实体标识按 int 解析。"""
+        target = parse_targets(
+            "acc1 | -1001234567890 | 命令 | /checkin@example_bot"
+        ).pop()
+        self.assertEqual(target.bot_username, "-1001234567890")
+        self.assertEqual(target.entity_ref(), -1001234567890)
+
+    def test_username_ref_resolves_string(self) -> None:
+        """用户名目标的实体标识是 @字符串。"""
+        target = parse_targets("acc1 | example_bot_a | 按钮 | 签到").pop()
+        self.assertEqual(target.entity_ref(), "@example_bot_a")
+
+    def test_owner_marker_parsed_and_roundtrip(self) -> None:
+        """第 6 段是回复归属标识；回显后再解析保持等价。"""
+        target = parse_targets(
+            "acc1 | -1001234567890 | 命令 | /checkin@example_bot | 20 | example_user"
+        ).pop()
+        self.assertEqual(target.wait_seconds, 20)
+        self.assertEqual(target.owner_marker, "example_user")
+        again = parse_targets(targets_to_text([target])).pop()
+        self.assertEqual(again.bot_username, "-1001234567890")
+        self.assertEqual(again.owner_marker, "example_user")
+
+    def test_marker_absent_keeps_five_columns(self) -> None:
+        """没配归属标识时不补列（旧配置回显原样）。"""
+        target = parse_targets("acc1 | @b | 命令 | /checkin | 15").pop()
+        self.assertEqual(target.owner_marker, "")
+        self.assertEqual(targets_to_text([target]), "acc1 | @b | 命令 | /checkin | 15")
 
     def test_command_alias_and_wait(self) -> None:
         """「命令」别名识别为命令式，等待秒数生效。"""
@@ -204,6 +253,13 @@ class TestValidateConfig(unittest.TestCase):
             parse_targets("acc2 | @b | 按钮 | 签到"),
         )
         self.assertTrue(any("不存在的账号" in item for item in problems))
+
+    def test_invite_link_reported_without_echo(self) -> None:
+        """邀请链接会被提示，且不回显链接本身（可能含邀请 hash）。"""
+        targets = parse_targets("acc1 | https://t.me/+abcdefghij | 命令 | /checkin")
+        problems = validate_config(parse_accounts(DEFAULT_ACCOUNTS_TEXT), targets)
+        self.assertTrue(any("邀请链接" in item for item in problems))
+        self.assertFalse(any("abcdefghij" in item for item in problems))
 
     def test_missing_phone_reported(self) -> None:
         """账号没填手机号要报出来。"""
@@ -268,6 +324,19 @@ class TestSlotConfig(unittest.TestCase):
         self.assertEqual(
             targets_from_slots({**base, "target_1_wait": 999}, []).pop().wait_seconds, 120
         )
+
+    def test_target_slot_numeric_id_and_owner(self) -> None:
+        """槽位模式同样支持数字 ID 目标与回复归属标识；默认归属标识为空。"""
+        config = default_slot_config()
+        self.assertEqual(config["target_1_owner"], "")
+        config["target_1_bot"] = "-1001234567890"
+        config["target_1_method"] = "命令"
+        config["target_1_action"] = "/checkin@example_bot"
+        config["target_1_owner"] = "example_user"
+        target = targets_from_slots(config, ["acc1"])[0]
+        self.assertEqual(target.bot_username, "-1001234567890")
+        self.assertEqual(target.entity_ref(), -1001234567890)
+        self.assertEqual(target.owner_marker, "example_user")
 
     def test_target_requires_account_and_bot(self) -> None:
         """账号或 bot 缺失的目标被跳过。"""

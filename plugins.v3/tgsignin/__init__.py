@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import threading
 from datetime import datetime
 from pathlib import Path
@@ -69,12 +70,20 @@ from .core.config import (
     coerce_scalar,
     default_slot_config,
     login_actions,
+    mirror_slots_to_text,
+    mirror_text_to_slots,
     parse_accounts,
     parse_keywords,
     parse_targets,
     targets_from_slots,
     targets_to_text,
     validate_config,
+)
+from .core.groups import (
+    MAX_GROUP_ROWS,
+    group_list_text,
+    group_pick_items,
+    list_chat_groups,
 )
 from .core.login import clear_pending, confirm_login, load_pending, send_code
 from .core.ai import AiSigninJudge
@@ -99,6 +108,7 @@ from .core.store import (
     PAGE_RESULT_LIMIT,
     load_state,
     recent_results,
+    record_groups,
     record_login,
     record_login_event,
     record_run,
@@ -326,6 +336,7 @@ class TgSignin(_PluginBase):
         self._drop_legacy_config_keys()
 
         self._refresh_parsed_config()
+        self._sync_mode_views()
         # 保存配置时若选了「登录动作」，在后台派发（不阻塞保存请求）
         self._dispatch_login_actions()
 
@@ -395,6 +406,33 @@ class TgSignin(_PluginBase):
         self._config_problems = validate_config(self._accounts, self._targets)
         for problem in self._config_problems:
             logger.warning("【TgSignin】配置问题：%s", problem)
+
+    def _sync_mode_views(self) -> None:
+        """
+        让槽位（UI）与文本模式保持一致，避免「改了槽位、文本还是旧的」这类误解。
+
+        槽位模式：把槽位内容镜像进两个文本域；文本里**超出槽位容量**的行（第 5 个账号
+        起、第 9 条目标起）原样保留，它们只在文本模式下生效、UI 显示不了。
+        文本模式：把文本的前 4 个账号 / 前 8 条目标回填进槽位，超出的条目只留在文本里。
+        仅在内容确有变化时写回配置（``save_config_data`` 对未变化的写入本身也会跳过）。
+
+        :return None
+        """
+
+        if self._use_text_mode:
+            payload = mirror_text_to_slots(
+                self._raw_config, self._accounts, self._targets
+            )
+        else:
+            payload = mirror_slots_to_text(
+                self._raw_config, self._accounts, self._targets
+            )
+        if not payload:
+            return
+        self._raw_config = payload
+        self._accounts_text = str(payload.get("accounts_text") or self._accounts_text)
+        self._targets_text = str(payload.get("targets_text") or self._targets_text)
+        self.update_config(payload)
 
     def _proxy_tuple(self) -> Optional[Tuple[str, str, int]]:
         """
@@ -579,6 +617,156 @@ class TgSignin(_PluginBase):
             },
         }
 
+    def _row_account_key(self, index: int) -> str:
+        """
+        取第 ``index`` 条目标槽当前的账号标识（配置里的值优先，其次按解析结果回落）。
+
+        :param index: 目标槽序号（1 起）
+        :return str: 账号标识（``acc1``…）；该行没选账号时返回空串
+        """
+
+        key = coerce_scalar(self._raw_config.get(f"target_{index}_account"))
+        if key:
+            return key
+        if 1 <= index <= len(self._targets):
+            return self._targets[index - 1].account_key
+        return ""
+
+    def _group_pick_items(self, account_key: str = "") -> List[Dict[str, str]]:
+        """
+        返回配置表单「从已查到的群组选」的候选项。
+
+        候选项来自最近一次「查询群组」的缓存结果，且只列**指定账号**的群组：一个账号看不到
+        别人账号的群，混在一起容易选错（2026-10-12 用户要求）。本行没选账号、或该账号还没
+        查过时返回空列表（旁边按钮会提示先查一次）。
+
+        :param account_key: 只列该账号的群组（目标槽按其行账号传入）
+        :return List[Dict[str, str]]: ``[{"title": 群名（群号）, "value": 目标标识}]``
+        """
+
+        state = load_state(self.get_data_path())
+        return group_pick_items(state.get("groups") or {}, account_key)
+
+    def _row_group_refs(self, index: int) -> set:
+        """
+        取该目标行账号已查到的群组标识集合（``ref`` 与公开用户名，均小写、去 ``@``）。
+
+        :param index: 目标槽序号（1 起）
+        :return set: 群组标识集合（账号没查过时为空集）
+        """
+
+        account_key = self._row_account_key(index)
+        if not account_key:
+            return set()
+        cache = (load_state(self.get_data_path()).get("groups") or {}).get(account_key)
+        rows = cache.get("rows") if isinstance(cache, dict) else None
+        refs: set = set()
+        for row in rows or []:
+            if not isinstance(row, dict):
+                continue
+            for value in (str(row.get("ref") or ""), str(row.get("username") or "")):
+                text = value.strip()
+                if text:
+                    refs.add(text)
+                    refs.add(text.lstrip("@").lower())
+        return refs
+
+    def _row_is_group_target(self, index: int) -> bool:
+        """
+        判断该目标行是不是「群」目标（决定「回复归属标识」这一栏是否显示）。
+
+        群签到才需要归属标识，bot 私聊不需要（2026-10-12 用户要求按需显示）。判据按可靠性
+        从高到低：
+
+        1. 值形如数字 ID（``-100…``）：群 / 频道，显示；
+        2. 值命中该行账号已查到的群组（``ref`` 或公开用户名）：群，显示；
+        3. 值像 bot（以 ``bot`` 结尾，如 ``@example_bot``）：不是群，隐藏；
+        4. 其它（含手填的群用户名、刚选好还没保存的群组）：按群处理——宁可多显示一栏，
+           也不让群目标缺了这一项；
+        5. 该行还没有目标（bot 与候选都为空）：隐藏（等填了目标再说）。
+
+        :param index: 目标槽序号（1 起）
+        :return bool: 是群目标返回 True
+        """
+
+        values = [
+            str(coerce_scalar(self._raw_config.get(f"target_{index}_bot")) or "").strip(),
+            str(coerce_scalar(self._raw_config.get(f"target_{index}_pick")) or "").strip(),
+        ]
+        values = [value for value in values if value]
+        if not values:
+            return False
+        refs = self._row_group_refs(index)
+        for value in values:
+            if re.fullmatch(r"-?\d{5,}", value):
+                return True
+            if value in refs or value.lstrip("@").lower() in refs:
+                return True
+        for value in values:
+            if value.lstrip("@").lower().endswith("bot"):
+                return False
+        return True
+
+    def _fill_target_button_js(self, index: int) -> str:
+        """
+        生成配置表单「填入本槽」按钮的前端脚本：把选择框里的群组解析成群标识写进本槽的「bot」。
+
+        配置表单渲染器只认 ``props.on*`` 字符串脚本，且在 ``with(model)`` 作用域内以
+        ``(value)(event)`` 求值（配置表单里 ``events`` 不生效）。所以这里读同一行选择框的
+        model 值、写同一行的「bot / 群」字段，**点完仍需按「保存」才会生效**。
+
+        解析顺序（2026-10-12 修，用户反馈「选中后点填入被误拦」）：
+
+        1. 选中整项对象（``{"title": "群名（群号）", "value": "群号"}``，同表的
+           ``target_N_method`` 也是这么存的）→ 取 ``value``；
+        2. 已是群标识（``@用户名`` / ``-100…`` 数字 ID）→ 直接用；
+        3. 完整标题串（含我们自己的 ``（群号）`` 后缀）→ 从括号里截出群号。
+
+        三步都认不出（例如只在框里打了半截筛选词）才提示，避免把无效值写进目标。
+
+        :param index: 目标槽序号（1 起）
+        :return str: 可直接放进 ``props.onClick`` 的 JS 函数源码
+        """
+
+        pick = f"model.target_{index}_pick"
+        bot = f"model.target_{index}_bot"
+        empty_hint = json.dumps(
+            "先在上面「从已查到的群组选」选择框里选一个群组（可以输入群名关键词筛选）；"
+            "候选只列本行账号的群组：候选是空的请先确认本行账号已选好并保存，"
+            "再到详情页点「查询群组」/「更新群组（全部账号）」查一次",
+            ensure_ascii=False,
+        )
+        invalid_hint = json.dumps(
+            "没能从选择框里认出群标识（当前内容像半截筛选关键词）。"
+            "请在下拉候选里点选一个群组，或把 @用户名 / -100 开头的群号直接填进「bot / 群」那一栏",
+            ensure_ascii=False,
+        )
+        ask = json.dumps(
+            "」填入本槽的「bot / 群」。群目标建议用命令式（按钮式菜单在群里常不响应）；"
+            "点完按「保存」生效。继续？",
+            ensure_ascii=False,
+        )
+        # 解析：对象取 value / 标题串截群号；随后按 @用户名 或 -100… 数字 ID 形态把关
+        resolve = (
+            'var raw = v; '
+            'if (raw && typeof raw === "object") { raw = raw.value || raw.title || ""; } '
+            'var ref = (typeof raw === "string") ? raw.trim() : ""; '
+            "function okId(x) { return /^@[A-Za-z0-9_]{4,}$/.test(x) "
+            "|| /^-?\\d{5,}$/.test(x); } "
+            "if (!okId(ref)) { var m = ref.match(/（(-?\\d{5,})）/); if (m) { ref = m[1]; } } "
+        )
+        return (
+            f"function () {{ var v = {pick}; "
+            f"if (!v) {{ alert({empty_hint}); return; }} "
+            + resolve
+            + f"if (!okId(ref)) {{ alert({invalid_hint}); return; }} "
+            + "if (!confirm("
+            + json.dumps("将把「", ensure_ascii=False)
+            + " + ref + "
+            + ask
+            + f")) {{ return; }} {bot} = ref; }}"
+        )
+
     def get_form(self) -> Tuple[Optional[List[dict]], Dict[str, Any]]:
         """
         返回插件配置表单与默认配置。
@@ -593,6 +781,7 @@ class TgSignin(_PluginBase):
             {"title": "按钮式（先 /start 再点按钮）", "value": "按钮"},
             {"title": "命令式（直接发命令）", "value": "命令"},
         ]
+        # 查群号的候选项按「行」计算（见下面的目标槽循环）：只列该行账号的群组
         login_action_items = [
             {"title": LOGIN_ACTION_NONE, "value": LOGIN_ACTION_NONE},
             {"title": LOGIN_ACTION_SEND, "value": LOGIN_ACTION_SEND},
@@ -948,11 +1137,19 @@ class TgSignin(_PluginBase):
         content.append(
             self._group_header(
                 "签到目标",
-                f"最多 {MAX_TARGET_SLOTS} 条；打开左侧开关后选账号（下拉）/填 bot/选方式",
+                f"最多 {MAX_TARGET_SLOTS} 条；打开左侧开关后选账号（下拉）/填 bot 或群/选方式",
             )
         )
         for index in range(1, MAX_TARGET_SLOTS + 1):
             enabled_expr = f"target_{index}_enabled"
+            # 本行的候选：只列本行账号的群组（账号改了要保存并重开配置页才会重算）
+            row_account = self._row_account_key(index)
+            group_items = self._group_pick_items(row_account)
+            # 「回复归属标识」只在群目标上显示（bot 私聊用不到；2026-10-12 用户要求）
+            owner_show = (
+                f"{enabled_expr} && "
+                + ("true" if self._row_is_group_target(index) else "false")
+            )
             content.append(
                 {
                     "component": "VRow",
@@ -990,9 +1187,20 @@ class TgSignin(_PluginBase):
                                     "component": "VTextField",
                                     "props": {
                                         "model": f"target_{index}_bot",
-                                        "label": "bot 用户名",
-                                        "placeholder": "@example_bot_a",
+                                        "label": "bot 用户名 / 群",
+                                        "placeholder": "@example_bot 或 -100…（群号）",
                                         "show": enabled_expr,
+                                        **(
+                                            {
+                                                "persistent-hint": True,
+                                                "hint": "私聊签到填 bot（@example_bot）；"
+                                                        "群签到填群：公开群填 @群用户名，"
+                                                        "私有群填数字 ID（-100…，可先用右侧"
+                                                        "「从已查到的群组选」挑）",
+                                            }
+                                            if index == 1
+                                            else {}
+                                        ),
                                     },
                                 }
                             ],
@@ -1039,6 +1247,83 @@ class TgSignin(_PluginBase):
                                         "placeholder": "15",
                                         "show": enabled_expr,
                                     },
+                                }
+                            ],
+                        },
+                    ],
+                }
+            )
+            content.append(
+                {
+                    "component": "VRow",
+                    "content": [
+                        {
+                            "component": "VCol",
+                            "props": {"cols": 12, "md": 5, "offset-md": 1},
+                            "content": [
+                                {
+                                    "component": "VTextField",
+                                    "props": {
+                                        "model": f"target_{index}_owner",
+                                        "label": "回复归属标识（群签到可选）",
+                                        "placeholder": "站点账号名，如 example_user",
+                                        "show": owner_show,
+                                        "persistent-hint": True,
+                                        "hint": "只在本行是群目标时出现（bot 私聊用不到）。填了之后只有回复里出现它"
+                                                "才算本目标的本次结果，用于同一个群里多人同时签到或群里另有"
+                                                "闲聊时区分归属；留空时群里只排除真人发言（群目标建议填）",
+                                    },
+                                }
+                            ],
+                        },
+                        {
+                            "component": "VCol",
+                            "props": {"cols": 12, "md": 3},
+                            "content": [
+                                {
+                                    # 可输入筛选的组合框：群多的账号（几十上百个）里直接打群名关键词
+                                    # 就能缩到几条，比纯下拉翻列表好用（2026-10-12 用户要求）
+                                    "component": "VCombobox",
+                                    "props": {
+                                        "model": f"target_{index}_pick",
+                                        "label": "从已查到的群组选（可输入群名筛选）",
+                                        "items": group_items,
+                                        "clearable": True,
+                                        "menu-props": {"max-height": 380},
+                                        "show": enabled_expr,
+                                        **(
+                                            {
+                                                "persistent-hint": True,
+                                                "hint": "候选只列**本行账号**的群组，来自详情页"
+                                                        "「查询群组 / 更新群组」的结果（列表不会自动更新）；"
+                                                        "输入群名关键词即可筛选（如输入「交流」），"
+                                                        "在候选里点选后按右侧「填入本槽」写进本行，"
+                                                        "再按「保存」生效；改过本行账号要先保存并重开配置页，"
+                                                        "候选才会换成新账号的群。只输入文字不点选不会生效",
+                                            }
+                                            if index == 1
+                                            else {}
+                                        ),
+                                    },
+                                }
+                            ],
+                        },
+                        {
+                            "component": "VCol",
+                            "props": {"cols": 12, "md": 3},
+                            "content": [
+                                {
+                                    "component": "VBtn",
+                                    "props": {
+                                        "color": "secondary",
+                                        "variant": "tonal",
+                                        "size": "small",
+                                        "class": "mt-1",
+                                        "prepend-icon": "mdi-arrow-down-bold-box-outline",
+                                        "show": enabled_expr,
+                                        "onClick": self._fill_target_button_js(index),
+                                    },
+                                    "text": "填入本槽",
                                 }
                             ],
                         },
@@ -1151,10 +1436,11 @@ class TgSignin(_PluginBase):
                 },
                 self._group_header(
                     "高级：文本批量配置",
-                    "默认关闭；开启后用多行文本代替上面的槽位（适合批量粘贴或超过槽位数）。"
-                    "注意：两种模式是各自独立的数据源 —— 关掉文本模式后按上面的槽位解析，"
-                    "槽位为空会回落到内置示例值；且账号标识（acc1…）决定 session 文件名，"
-                    "切换模式后可能需要重新登录",
+                    "默认关闭；开启后用多行文本配置账号与目标（适合批量粘贴，条目数不限）。"
+                    "两种表达会保持同步：槽位模式会把槽位镜像进文本，文本模式会把前 "
+                    f"{MAX_ACCOUNT_SLOTS} 个账号 / 前 {MAX_TARGET_SLOTS} 条目标回填进槽位；"
+                    "超出槽位容量的条目只留在文本里、UI 显示不了。"
+                    "账号标识（acc1…）决定 session 文件名，改动后可能需要重新登录",
                 ),
                 {
                     "component": "VRow",
@@ -1201,7 +1487,10 @@ class TgSignin(_PluginBase):
                                         "rows": 5,
                                         "show": "use_text_mode",
                                         "persistent-hint": True,
-                                        "hint": "格式：账号标识 | bot用户名 | 按钮或命令 | 按钮文字或命令 [| 等待秒数]",
+                                        "hint": "格式：账号标识 | 目标 | 按钮/命令 | 按钮文字或命令"
+                                                " [| 等待秒数] [| 回复归属标识]；"
+                                                "「目标」可填 @用户名（bot / 公开群）"
+                                                "或私有群数字 ID（-100 开头）",
                                     },
                                 }
                             ],
@@ -1411,6 +1700,94 @@ class TgSignin(_PluginBase):
             self._group_header("AI 归纳关键词（只增不删、已查重）"),
             _table(["时间", "账号", "bot", "档位", "新增词"], rows),
         ]
+
+    def _groups_block(self) -> List[dict]:
+        """
+        详情页「群组列表（查群号）」区块：各账号最近一次查询到的群组与数字 ID。
+
+        查询按钮在页面顶部的操作行里（每个账号一个「查询群组」，另有一个「更新群组（全部
+        账号）」）。这里只渲染缓存结果，没有缓存时给出引导文案。
+
+        :return List[dict]: 页面节点列表
+        """
+
+        state = load_state(self.get_data_path())
+        cache = state.get("groups") or {}
+        content: List[dict] = [
+            self._group_header(
+                "群组列表（查群号）",
+                "只读查询（只发 GetDialogs，不发送任何消息）。列表不会自动更新：点上方"
+                "「查询群组 · <账号>」或「更新群组（全部账号）」才会刷新。私有群没有 @用户名，"
+                "只能填数字 ID；广播频道一般只有管理员能发言，不适合作为签到目标",
+            )
+        ]
+        if not cache:
+            content.append(
+                {
+                    "component": "VAlert",
+                    "props": {
+                        "type": "info",
+                        "variant": "tonal",
+                        "class": "mb-3",
+                        "text": "还没有查询过。点上方「查询群组 · <账号>」按钮，"
+                                "或「更新群组（全部账号）」一次刷新所有账号，结果会写进这里；"
+                                "也可以用命令 /tggroups <账号标识>，"
+                                "列表会直接发到聊天里（手机上方便复制）",
+                    },
+                }
+            )
+            return content
+        content.append(
+            {
+                "component": "VAlert",
+                "props": {
+                    "type": "info",
+                    "variant": "tonal",
+                    "class": "mb-3",
+                    "text": "在配置页「签到目标」的「从已查到的群组选」里可以直接挑"
+                            "（可输入群名关键词筛选），再用「填入本槽」写进目标；"
+                            "填完按「保存」生效。列表不会自动更新，换群后记得点上方「更新群组」",
+                },
+            }
+        )
+        for account_key in sorted(cache):
+            payload = cache.get(account_key) or {}
+            rows: List[Dict[str, Any]] = []
+            for row in payload.get("rows") or []:
+                rows.append(
+                    {
+                        "component": "tr",
+                        "content": [
+                            {"component": "td", "text": str(row.get("title") or "")},
+                            {"component": "td", "text": str(row.get("chat_id") or "")},
+                            {
+                                "component": "td",
+                                "text": str(row.get("username") or "—"),
+                            },
+                            {"component": "td", "text": str(row.get("kind") or "")},
+                            {
+                                "component": "td",
+                                "text": (
+                                    "已配为目标"
+                                    if row.get("configured")
+                                    else (
+                                        "需数字 ID"
+                                        if row.get("private")
+                                        else "可填 @用户名"
+                                    )
+                                ),
+                            },
+                        ],
+                    }
+                )
+            total = payload.get("total") or len(rows)
+            content.append(
+                self._group_header(
+                    f"{account_key} 的群组（{payload.get('time') or ''} 查询，共 {total} 个）"
+                )
+            )
+            content.append(_table(["群名", "群号", "用户名", "类型", "备注"], rows))
+        return content
 
     def _button(
         self,
@@ -1676,6 +2053,22 @@ class TgSignin(_PluginBase):
                     params={"account": account.key},
                 )
             )
+            # 查群号：加群签到目标时不必再到别处找数字 ID（2026-10-12 加）
+            actions.append(
+                self._button(
+                    f"查询群组 · {account.label}",
+                    "/groups",
+                    color="secondary",
+                    params={"account": account.key},
+                )
+            )
+        if self._accounts:
+            # 群组列表不会自动更新：一次刷新全部账号的缓存（2026-10-12 用户要求）
+            actions.append(
+                self._button(
+                    "更新群组（全部账号）", "/groups/refresh", color="secondary"
+                )
+            )
         actions.extend(
             [
                 self._button("立即签到", "/signin/run", color="primary"),
@@ -1726,7 +2119,8 @@ class TgSignin(_PluginBase):
                         self._result_rows(),
                     ),
                 ]
-                + self._ai_keyword_block(),
+                + self._ai_keyword_block()
+                + self._groups_block(),
             }
         ]
 
@@ -1794,6 +2188,20 @@ class TgSignin(_PluginBase):
                 "methods": ["GET", "POST"],
                 "summary": "测试单个签到目标",
                 "description": "发一次 /start（或命令）并回读实际看到的按钮文案，用于修正「按钮文字」。",
+            },
+            {
+                "path": "/groups",
+                "endpoint": self.api_list_groups,
+                "methods": ["GET", "POST"],
+                "summary": "查询群组与群号",
+                "description": "只读列出某个账号可见的群 / 频道与数字 ID，用于填写群签到目标。",
+            },
+            {
+                "path": "/groups/refresh",
+                "endpoint": self.api_refresh_groups,
+                "methods": ["GET", "POST"],
+                "summary": "更新群组（全部账号）",
+                "description": "逐个账号只读查询会话列表并刷新群组缓存；某个账号失败不影响其它账号。",
             },
         ]
 
@@ -2180,6 +2588,122 @@ class TgSignin(_PluginBase):
             or "（未配置目标）"
         )
         return f"账号 {accounts}；bot {bots}"
+
+    def _configured_refs(self, account_key: str) -> List[str]:
+        """
+        收集某个账号已配置的目标标识（``@用户名`` 或数字 ID 原样）。
+
+        :param account_key: 账号标识（``acc1``…）
+        :return List[str]: 目标标识列表
+        """
+
+        self._refresh_parsed_config()
+        return [
+            target.bot_username
+            for target in self._targets
+            if target.account_key == account_key
+        ]
+
+    async def _query_groups(self, account: AccountConfig) -> Dict[str, Any]:
+        """
+        查询某个账号可见的群组并缓存结果（只读，不发送任何消息）。
+
+        :param account: 账号配置
+        :return Dict[str, Any]: ``{ok, message, data}``
+        """
+
+        result = await list_chat_groups(
+            account,
+            self.get_data_path(),
+            self._proxy_tuple(),
+            self._configured_refs(account.key),
+        )
+        if not result.get("ok"):
+            return {
+                "ok": False,
+                "message": str(result.get("message") or "查询失败"),
+                "data": None,
+            }
+        record_groups(self.get_data_path(), account.key, result)
+        rows = result.get("rows") or []
+        private = sum(1 for row in rows if row.get("private"))
+        note = "；结果已截断，只保留前若干条" if result.get("truncated") else ""
+        return {
+            "ok": True,
+            "message": (
+                f"{account.display()}：共 {result.get('total')} 个群 / 频道，"
+                f"其中 {private} 个私有群（没有 @用户名，只能填数字 ID）{note}"
+            ),
+            "data": result,
+        }
+
+    async def api_list_groups(self, request: Request) -> Dict[str, Any]:
+        """
+        查询某个账号的群组与群号（只读；不发送任何消息）。
+
+        :param request: FastAPI 请求对象
+        :return Dict[str, Any]: 统一响应结构
+        """
+
+        if not self._enabled:
+            return {"success": False, "message": "插件未启用", "data": None}
+        params = await self._read_params(request)
+        account = self._find_account(params.get("account"))
+        if account is None:
+            return {
+                "success": False,
+                "message": f"找不到账号 {params.get('account')}",
+                "data": {"hint": self._targets_hint()},
+            }
+        result = await self._query_groups(account)
+        return {
+            "success": bool(result.get("ok")),
+            "message": str(result.get("message") or ""),
+            "data": result.get("data"),
+        }
+
+    async def api_refresh_groups(self, request: Request) -> Dict[str, Any]:
+        """
+        逐个账号查询群组并刷新缓存（只读，不发消息）。
+
+        缓存不自动更新：只有点「查询群组 · <账号>」、点本接口对应的「更新群组（全部账号）」
+        按钮，或发 ``/tggroups`` 命令才会刷新（2026-10-12 用户要求补一个主动刷新入口）。
+        某个账号失败不影响其它账号，逐条汇总成一句话返回。
+
+        :param request: FastAPI 请求对象（可带 ``account`` 参数只刷新一个账号）
+        :return Dict[str, Any]: 统一响应结构
+        """
+
+        if not self._enabled:
+            return {"success": False, "message": "插件未启用", "data": None}
+        params = await self._read_params(request)
+        wanted = str(params.get("account") or "").strip()
+        account = self._find_account(wanted) if wanted else None
+        if wanted and account is None:
+            return {
+                "success": False,
+                "message": f"找不到账号 {wanted}",
+                "data": {"hint": self._targets_hint()},
+            }
+        accounts = (
+            [item for item in self._accounts if item.key == account.key]
+            if account is not None
+            else list(self._accounts)
+        )
+        if not accounts:
+            return {"success": False, "message": "还没有启用的账号，无法查询群组", "data": None}
+        lines: List[str] = []
+        ok_count = 0
+        for item in accounts:
+            result = await self._query_groups(item)
+            if result.get("ok"):
+                ok_count += 1
+            lines.append(f"{item.display()}：{result.get('message')}")
+        return {
+            "success": ok_count == len(accounts),
+            "message": f"{ok_count}/{len(accounts)} 个账号查询成功；" + "；".join(lines),
+            "data": {"ok_count": ok_count, "total": len(accounts)},
+        }
 
     async def api_probe_target(self, request: Request) -> Dict[str, Any]:
         """
@@ -2615,6 +3139,13 @@ class TgSignin(_PluginBase):
                 "category": "",
                 "data": {"action": "tgsignin_status"},
             },
+            {
+                "cmd": "/tggroups",
+                "event": EventType.PluginAction,
+                "desc": "查询群组与群号：/tggroups <账号标识>",
+                "category": "",
+                "data": {"action": "tgsignin_groups"},
+            },
         ]
 
     @eventmanager.register(EventType.PluginAction)
@@ -2663,6 +3194,39 @@ class TgSignin(_PluginBase):
                 source=source,
                 userid=userid,
                 title="【Telegram 自动签到】",
+                text=text,
+            )
+            return
+
+        if action == "tgsignin_groups":
+            args = str(data.get("arg_str") or "").split()
+            account = self._find_account(args[0] if args else "")
+            if account is None:
+                available = (
+                    "、".join(item.key for item in self._accounts) or "（未配置账号）"
+                )
+                self.post_message(
+                    channel=channel,
+                    source=source,
+                    userid=userid,
+                    title="Telegram 群组列表",
+                    text=f"用法：/tggroups <账号标识>；可用账号：{available}",
+                )
+                return
+            try:
+                result = self._run_sync(lambda: self._query_groups(account))
+                if result.get("ok"):
+                    rows = (result.get("data") or {}).get("rows") or []
+                    text = group_list_text(rows, account_label=f"{account.display()}：")
+                else:
+                    text = str(result.get("message") or "查询失败")
+            except Exception as error:  # pylint: disable=broad-except
+                text = f"执行失败：{type(error).__name__}: {error}"
+            self.post_message(
+                channel=channel,
+                source=source,
+                userid=userid,
+                title="【Telegram 群组列表】",
                 text=text,
             )
             return

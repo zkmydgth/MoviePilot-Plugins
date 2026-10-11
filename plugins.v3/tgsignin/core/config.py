@@ -16,9 +16,13 @@ MoviePilot 的 JSON 配置表单没有按钮组件，做不出「增删行」的
 
     <标识> | <显示名> | <手机号> [| <api_id> | <api_hash>]
 
-签到目标行（等待秒数可省，默认 15）::
+签到目标行（等待秒数、回复归属标识都可省；等待秒数默认 15）::
 
-    <账号标识> | <bot 用户名> | <按钮|命令> | <按钮文字 或 命令> [| <等待秒数>]
+    <账号标识> | <目标> | <按钮|命令> | <按钮文字 或 命令> [| <等待秒数>] [| <回复归属标识>]
+
+「目标」可填 bot 或群用户名（可带或不带 ``@``），也可填私有群/频道的数字 ID
+（形如 ``-1001234567890``）；「回复归属标识」可选，配了之后只有 bot 回复里
+出现它才算本目标的本次结果（同一个群里多人同时签到、或群里另有闲聊时确认归属）。
 """
 
 from __future__ import annotations
@@ -62,6 +66,7 @@ __all__ = [
     "DEFAULT_TARGETS_TEXT",
     "parse_accounts",
     "accounts_to_text",
+    "normalize_target_ref",
     "parse_targets",
     "targets_to_text",
     "accounts_from_slots",
@@ -72,6 +77,10 @@ __all__ = [
     "coerce_scalar",
     "normalize_key",
     "validate_config",
+    "ACCOUNTS_TEXT_HEADER",
+    "TARGETS_TEXT_HEADER",
+    "mirror_slots_to_text",
+    "mirror_text_to_slots",
 ]
 
 # 签到方式：按钮式（先 /start 再点按钮）与命令式（直接发命令）
@@ -87,6 +96,8 @@ _SEPARATORS = ("|", "｜")
 
 # 账号标识只允许小写字母数字与下划线/短横线：它会被拼进 session 文件名
 _KEY_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,15}$")
+# 目标标识：允许「数字 ID」（私有群/频道，形如 -1001234567890）或 @用户名
+_NUMERIC_REF_RE = re.compile(r"^-?\d+$")
 
 # Telegram Desktop 官方公开应用凭据（应用级，可登录任意多个账号）
 DEFAULT_API_ID = 2040
@@ -177,17 +188,33 @@ DEFAULT_FAILURE_KEYWORDS = (
     "temporarily unavailable",
 )
 
-# 默认示例账号与签到目标（占位号码，用户可随意增删改）
-DEFAULT_ACCOUNTS_TEXT = """# 一行一个账号：标识 | 显示名 | 手机号
-acc1 | 账号1 | +12025550101
-acc2 | 账号2 | +12025550102"""
+# 文本模式的头部注释：同步槽位时按它重建，保证用户看到的一直是当前格式说明
+ACCOUNTS_TEXT_HEADER = "# 一行一个账号：标识 | 显示名 | 手机号"
+TARGETS_TEXT_HEADER = (
+    "# 一行一个签到目标：账号标识 | 目标 | 按钮/命令 | 按钮文字或命令 [| 等待秒数] [| 回复归属标识]\n"
+    "# 「目标」可填 @用户名（bot / 公开群）或私有群数字 ID（-100 开头，如 -1001234567890）\n"
+    "# 「回复归属标识」可选：填了之后只有回复里出现它才算本目标的本次结果"
+)
 
-DEFAULT_TARGETS_TEXT = """# 一行一个签到目标：账号标识 | bot | 按钮/命令 | 按钮文字或命令 | 等待秒数(可省)
-acc1 | @example_bot_b | 按钮 | 签到
-acc1 | @example_bot_c | 按钮 | 签到
-acc1 | @example_bot_a | 按钮 | 签到
-acc1 | @example_bot_d | 命令 | /checkin
-acc2 | @example_bot_a | 按钮 | 签到"""
+# 默认示例账号与签到目标（占位号码，用户可随意增删改）
+DEFAULT_ACCOUNTS_TEXT = "\n".join(
+    [
+        ACCOUNTS_TEXT_HEADER,
+        "acc1 | 账号1 | +12025550101",
+        "acc2 | 账号2 | +12025550102",
+    ]
+)
+
+DEFAULT_TARGETS_TEXT = "\n".join(
+    [
+        TARGETS_TEXT_HEADER,
+        "acc1 | @example_bot_b | 按钮 | 签到",
+        "acc1 | @example_bot_c | 按钮 | 签到",
+        "acc1 | @example_bot_a | 按钮 | 签到",
+        "acc1 | @example_bot_d | 命令 | /checkin",
+        "acc2 | @example_bot_a | 按钮 | 签到",
+    ]
+)
 
 
 @dataclass
@@ -220,7 +247,7 @@ class BotTarget:
 
     # 引用 AccountConfig.key
     account_key: str
-    # bot 用户名（可带或不带 @）
+    # 目标标识：bot/群用户名（可带或不带 @），或私有群/频道的数字 ID（形如 -1001234567890）
     bot_username: str
     # 签到方式：SIGN_TYPE_BUTTON 或 SIGN_TYPE_COMMAND
     sign_type: str = SIGN_TYPE_BUTTON
@@ -230,6 +257,8 @@ class BotTarget:
     wait_seconds: int = 15
     # 该条是否启用
     enabled: bool = True
+    # 回复归属标识（可选）：配了就要求 bot 回复里出现它，才算本目标的本次结果
+    owner_marker: str = ""
 
     def method_desc(self) -> str:
         """
@@ -241,6 +270,18 @@ class BotTarget:
         if self.sign_type == SIGN_TYPE_BUTTON:
             return f"点按钮「{self.action_text}」"
         return f"发命令「{self.action_text}」"
+
+    def entity_ref(self) -> Any:
+        """
+        返回 telethon 可解析的目标标识。
+
+        :return Any: 数字 ID 目标返回 ``int``，用户名目标返回 ``@用户名`` 字符串
+        """
+
+        value = str(self.bot_username or "").strip()
+        if _NUMERIC_REF_RE.match(value):
+            return int(value)
+        return value
 
 
 def _split_line(line: str) -> List[str]:
@@ -270,6 +311,27 @@ def normalize_key(raw: str) -> str:
 
     cleaned = re.sub(r"[^0-9a-zA-Z_-]", "", coerce_scalar(raw).strip().lower())
     return cleaned
+
+
+def normalize_target_ref(raw: str) -> str:
+    """
+    归一化签到目标标识。
+
+    - 数字 ID（如 ``-1001234567890``，可带负号）：原样保留，执行时按数字实体解析；
+    - 其余（bot 用户名、公开群用户名）：缺 ``@`` 时补上。
+
+    :param raw: 用户填写的目标（``@用户名`` 或 数字 ID）
+    :return str: 归一化后的目标标识；空值返回空串
+    """
+
+    value = str(raw or "").strip()
+    if not value:
+        return ""
+    if _NUMERIC_REF_RE.match(value):
+        return value
+    if not value.startswith("@"):
+        return f"@{value}"
+    return value
 
 
 def coerce_scalar(value: Any) -> str:
@@ -416,7 +478,7 @@ def parse_targets(text: Optional[str]) -> List[BotTarget]:
     解析签到目标多行文本。
 
     :param text: 多行文本，每行
-        ``账号标识 | bot | 按钮/命令 | 内容 [| 等待秒数]``
+        ``账号标识 | 目标 | 按钮/命令 | 内容 [| 等待秒数] [| 回复归属标识]``
     :return List[BotTarget]: 目标列表（忽略空行与注释行，等待秒数非法时回落 15）
     """
 
@@ -429,11 +491,9 @@ def parse_targets(text: Optional[str]) -> List[BotTarget]:
         if len(fields) < 4:
             continue
         account_key = normalize_key(fields[0])
-        bot_username = fields[1].strip()
+        bot_username = normalize_target_ref(fields[1])
         if not account_key or not bot_username:
             continue
-        if not bot_username.startswith("@"):
-            bot_username = f"@{bot_username}"
         sign_type = _normalize_sign_type(fields[2])
         action_text = fields[3].strip()
         if not action_text:
@@ -444,6 +504,7 @@ def parse_targets(text: Optional[str]) -> List[BotTarget]:
                 wait_seconds = max(1, min(120, int(float(fields[4]))))
             except ValueError:
                 wait_seconds = 15
+        owner_marker = fields[5].strip() if len(fields) > 5 else ""
         targets.append(
             BotTarget(
                 account_key=account_key,
@@ -451,6 +512,7 @@ def parse_targets(text: Optional[str]) -> List[BotTarget]:
                 sign_type=sign_type,
                 action_text=action_text,
                 wait_seconds=wait_seconds,
+                owner_marker=owner_marker,
             )
         )
     return targets
@@ -467,17 +529,17 @@ def targets_to_text(targets: Sequence[BotTarget]) -> str:
     type_names = {SIGN_TYPE_BUTTON: "按钮", SIGN_TYPE_COMMAND: "命令"}
     lines: List[str] = []
     for target in targets:
-        lines.append(
-            " | ".join(
-                [
-                    target.account_key,
-                    target.bot_username,
-                    type_names.get(target.sign_type, "按钮"),
-                    target.action_text,
-                    str(target.wait_seconds),
-                ]
-            )
-        )
+        fields = [
+            target.account_key,
+            target.bot_username,
+            type_names.get(target.sign_type, "按钮"),
+            target.action_text,
+            str(target.wait_seconds),
+        ]
+        # 归属标识为空时不补列，保持旧配置回显原样
+        if target.owner_marker:
+            fields.append(target.owner_marker)
+        lines.append(" | ".join(fields))
     return "\n".join(lines)
 
 
@@ -508,6 +570,12 @@ def validate_config(
         if target.account_key not in keys:
             problems.append(
                 f"签到目标 {target.bot_username} 引用了不存在的账号「{target.account_key}」"
+            )
+        if target.bot_username.startswith("@http") or "t.me/" in target.bot_username:
+            # 不回显链接本身（可能含邀请 hash）
+            problems.append(
+                "有一个签到目标看起来是邀请链接：私有群请填数字 ID（-100 开头），"
+                "公开群或 bot 填 @用户名"
             )
     return problems
 
@@ -620,7 +688,7 @@ def targets_from_slots(
     从表单槽位字段解析签到目标列表。
 
     槽位字段命名：``target_<n>_enabled`` / ``_account`` / ``_bot`` / ``_method``
-    / ``_action`` / ``_wait``。只取「启用且 bot 与账号都填了」的槽位；
+    / ``_action`` / ``_wait`` / ``_owner``。只取「启用且 bot 与账号都填了」的槽位；
     引用了不存在的账号也会保留，交给 ``validate_config`` 提示。
 
     :param config: 插件配置字典
@@ -634,11 +702,11 @@ def targets_from_slots(
         if not config.get(f"target_{index}_enabled"):
             continue
         account_key = normalize_key(config.get(f"target_{index}_account"))
-        bot_username = coerce_scalar(config.get(f"target_{index}_bot"))
+        bot_username = normalize_target_ref(
+            coerce_scalar(config.get(f"target_{index}_bot"))
+        )
         if not account_key or not bot_username:
             continue
-        if not bot_username.startswith("@"):
-            bot_username = f"@{bot_username}"
         sign_type = _normalize_sign_type(coerce_scalar(config.get(f"target_{index}_method")))
         action_text = coerce_scalar(config.get(f"target_{index}_action"))
         if not action_text:
@@ -657,6 +725,7 @@ def targets_from_slots(
                 sign_type=sign_type,
                 action_text=action_text,
                 wait_seconds=wait_seconds,
+                owner_marker=coerce_scalar(config.get(f"target_{index}_owner")),
             )
         )
     return targets
@@ -705,4 +774,134 @@ def default_slot_config() -> Dict[str, Any]:
         )
         config[f"target_{index}_action"] = action
         config[f"target_{index}_wait"] = wait
+        config[f"target_{index}_owner"] = ""
+        # 「从已查到的群组选」下拉的选中值（只用于「填入本槽」按钮，不参与解析）
+        config[f"target_{index}_pick"] = ""
     return config
+
+
+def _content_lines(text: Optional[str]) -> List[str]:
+    """
+    取多行文本里的数据行（丢掉空行与 ``#`` 注释行），保持原样与顺序。
+
+    :param text: 多行文本
+    :return List[str]: 数据行列表（已 strip）
+    """
+
+    return [
+        line.strip()
+        for line in str(text or "").splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    ]
+
+
+def _join_text(header: str, lines: Sequence[str], overflow: Sequence[str]) -> str:
+    """
+    拼接文本域内容：头部注释 + 数据行 + 超出槽位容量的尾部行。
+
+    :param header: 头部注释（可含多行）
+    :param lines: 由槽位镜像出来的数据行
+    :param overflow: 原文本里超出槽位容量、需要原样保留的数据行
+    :return str: 多行文本
+    """
+
+    return "\n".join([header, *lines, *overflow]).rstrip()
+
+
+def mirror_slots_to_text(
+    raw_config: Mapping[str, Any],
+    accounts: Sequence[AccountConfig],
+    targets: Sequence[BotTarget],
+) -> Dict[str, Any]:
+    """
+    槽位模式下的同步：把槽位内容镜像成文本表达。
+
+    文本里**超出槽位容量**的行（第 5 个账号起、第 9 条目标起）原样保留——它们只在
+    文本模式下生效、UI 显示不了；头部注释按当前格式重建，方便直接编辑。槽位与文本
+    都为空、或槽位为空而文本仍有内容（旧版升级的兜底路径）时不做任何事，避免把用户
+    已有的文本覆盖成空。
+
+    :param raw_config: 当前原始配置
+    :param accounts: 槽位解析出的账号列表
+    :param targets: 槽位解析出的目标列表
+    :return Dict[str, Any]: 需要写回的完整配置；无变化时返回空字典
+    """
+
+    if not accounts and not targets:
+        return {}
+    current = dict(raw_config)
+    if not accounts and _content_lines(current.get("accounts_text")):
+        # 槽位空、文本仍有内容：还停在旧版升级的兜底路径上，别动用户的文本
+        return {}
+    account_lines = accounts_to_text(accounts).splitlines()
+    target_lines = targets_to_text(targets).splitlines()
+    new_accounts_text = _join_text(
+        ACCOUNTS_TEXT_HEADER,
+        account_lines,
+        _content_lines(current.get("accounts_text"))[MAX_ACCOUNT_SLOTS:],
+    )
+    new_targets_text = _join_text(
+        TARGETS_TEXT_HEADER,
+        target_lines,
+        _content_lines(current.get("targets_text"))[MAX_TARGET_SLOTS:],
+    )
+    payload = dict(current)
+    changed = False
+    if str(current.get("accounts_text") or "") != new_accounts_text:
+        payload["accounts_text"] = new_accounts_text
+        changed = True
+    if str(current.get("targets_text") or "") != new_targets_text:
+        payload["targets_text"] = new_targets_text
+        changed = True
+    return payload if changed else {}
+
+
+def mirror_text_to_slots(
+    raw_config: Mapping[str, Any],
+    accounts: Sequence[AccountConfig],
+    targets: Sequence[BotTarget],
+) -> Dict[str, Any]:
+    """
+    文本模式下的同步：把文本里的前 4 个账号、前 8 条目标回填进槽位字段。
+
+    多出的账号 / 目标只留在文本里（UI 显示不了，也不影响运行）；文本里没有的槽位会被
+    清成「未启用」，避免槽位残留旧值让人误以为还生效。登录动作、验证码与两步验证密码
+    不参与同步（它们与用哪种模式无关）。
+
+    :param raw_config: 当前原始配置
+    :param accounts: 文本解析出的账号列表
+    :param targets: 文本解析出的目标列表
+    :return Dict[str, Any]: 需要写回的完整配置；无变化时返回空字典
+    """
+
+    payload = dict(raw_config)
+    changed = False
+    for index in range(1, MAX_ACCOUNT_SLOTS + 1):
+        account = accounts[index - 1] if index <= len(accounts) else None
+        wanted = {
+            f"account_{index}_enabled": bool(account),
+            f"account_{index}_label": account.label if account else "",
+            f"account_{index}_phone": account.phone if account else "",
+        }
+        for key, value in wanted.items():
+            if payload.get(key) != value:
+                payload[key] = value
+                changed = True
+    for index in range(1, MAX_TARGET_SLOTS + 1):
+        target = targets[index - 1] if index <= len(targets) else None
+        wanted = {
+            f"target_{index}_enabled": bool(target),
+            f"target_{index}_account": target.account_key if target else "",
+            f"target_{index}_bot": target.bot_username if target else "",
+            f"target_{index}_method": (
+                "命令" if target is not None and target.sign_type == SIGN_TYPE_COMMAND else "按钮"
+            ),
+            f"target_{index}_action": target.action_text if target else "",
+            f"target_{index}_wait": target.wait_seconds if target else 15,
+            f"target_{index}_owner": target.owner_marker if target else "",
+        }
+        for key, value in wanted.items():
+            if payload.get(key) != value:
+                payload[key] = value
+                changed = True
+    return payload if changed else {}

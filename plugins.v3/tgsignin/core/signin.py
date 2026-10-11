@@ -46,6 +46,7 @@ from .store import load_state
 __all__ = [
     "signin_one",
     "normalize_bot",
+    "resolve_target_entity",
     "probe_target",
     "run_account",
     "run_all",
@@ -145,6 +146,102 @@ def _matches_candidates(text: str, candidates: Sequence[str]) -> bool:
     return any(str(word).lower() in lowered for word in candidates if word)
 
 
+def _peer_id_of(entity: Any) -> Optional[int]:
+    """
+    取实体自身的数字 ID（bot / 群），取不到时返回 None。
+
+    :param entity: telethon 实体
+    :return Optional[int]: 数字 ID；无法取到返回 None（此时不做发送者过滤）
+    """
+
+    value = getattr(entity, "id", None)
+    try:
+        return int(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _is_group_entity(entity: Any) -> bool:
+    """
+    判断实体是不是「群 / 频道」（有标题，或用 megagroup/broadcast 标记）。
+
+    :param entity: telethon 实体
+    :return bool: 群或频道返回 True；用户 / bot 返回 False
+    """
+
+    if getattr(entity, "title", ""):
+        return True
+    return bool(getattr(entity, "megagroup", False)) or bool(
+        getattr(entity, "broadcast", False)
+    )
+
+
+def _target_bot_id(entity: Any) -> Optional[int]:
+    """
+    目标实体是用户 / bot 时返回它的数字 ID，是群 / 频道时返回 None。
+
+    群里无法从「群实体」推出 bot 的 ID，此时改用「发送者是不是机器人」判定。
+
+    :param entity: telethon 实体
+    :return Optional[int]: 私聊目标的数字 ID；群 / 频道目标返回 None
+    """
+
+    if _is_group_entity(entity):
+        return None
+    return _peer_id_of(entity)
+
+
+def _from_bot(message: Any, bot_id: Optional[int]) -> bool:
+    """
+    判断消息是否算「目标自己发的」（2026-10-12 加，防群内多人同时签到串档）。
+
+    两种判定口径：
+
+    - 私聊 / bot 目标（``bot_id`` 有值）：发送者必须就是它（精确匹配）；
+    - 群 / 频道目标（``bot_id`` 为 None）：从群实体推不出 bot 的 ID，退化为
+      「只留明确是机器人、或发送者未知的消息」，明确是真人（``bot`` 为假）的
+      发言一律排除；同一个 bot 回给别人的结果仍需靠「回复归属标识」区分。
+
+    自己发出的消息（``out``）一律不算。
+
+    :param message: telethon 消息
+    :param bot_id: 目标 bot 的数字 ID；群 / 频道目标为 None
+    :return bool: 可以算作目标自己发的返回 True
+    """
+
+    if getattr(message, "out", False):
+        return False
+    sender = getattr(message, "sender", None)
+    sender_id = getattr(message, "sender_id", None)
+    if sender_id is None and sender is not None:
+        sender_id = getattr(sender, "id", None)
+    if bot_id is not None:
+        if sender_id is None:
+            return False
+        try:
+            return int(sender_id) == int(bot_id)
+        except (TypeError, ValueError):
+            return False
+    if sender is None:
+        # 群里发送者未知：不排除（靠归属标识兜底），避免漏掉真结果
+        return True
+    return bool(getattr(sender, "bot", False))
+
+
+def _from_bot_only(messages: Sequence[Any], bot_id: Optional[int]) -> List[Any]:
+    """
+    只保留目标 bot 发出的消息（``bot_id`` 为 None 时原样返回）。
+
+    :param messages: telethon 消息列表
+    :param bot_id: 目标 bot 的数字 ID；None 表示不做过滤
+    :return List[Any]: 过滤后的消息列表
+    """
+
+    if bot_id is None:
+        return list(messages)
+    return [message for message in messages if _from_bot(message, bot_id)]
+
+
 def _find_menu(
     messages: Sequence[Any],
     candidates: Sequence[str],
@@ -191,6 +288,8 @@ async def _click_and_read(
     button: Any,
     wait_seconds: int,
     sent_at: Optional[Any] = None,
+    bot_id: Optional[int] = None,
+    owner_marker: Optional[str] = None,
 ) -> Tuple[bool, str, str, str]:
     """
     点击按钮并读回「点击之后」的新回复 / 弹窗。
@@ -204,6 +303,8 @@ async def _click_and_read(
     :param button: 待点击的按钮
     :param wait_seconds: 点击后等待秒数
     :param sent_at: 本次 /start 的发送时刻（新证据的时间下界）
+    :param bot_id: 目标 bot 的数字 ID（只认它自己发的回复）；None 表示不过滤
+    :param owner_marker: 回复归属标识（可选）：回复里必须出现它
     :return Tuple[bool, str, str, str]: ``(是否点到, 回复文本, 弹窗文本, 错误信息)``
     """
 
@@ -217,8 +318,13 @@ async def _click_and_read(
         edge = menu_date + timedelta(microseconds=1)
         cutoff = edge if cutoff is None or edge > cutoff else cutoff
     await asyncio.sleep(max(1, min(int(wait_seconds), 60)))
-    latest = await client.get_messages(entity, limit=3)
-    return True, _pick_reply(latest, cutoff), alert, ""
+    latest = await client.get_messages(entity, limit=_MSG_SCAN_LIMIT)
+    return (
+        True,
+        _pick_reply(latest, cutoff, bot_id=bot_id, owner_marker=owner_marker),
+        alert,
+        "",
+    )
 
 
 def _fresh_messages(
@@ -248,21 +354,43 @@ def _fresh_messages(
     return fresh
 
 
-def _pick_reply(messages: Sequence[Any], sent_at: Optional[Any] = None) -> str:
+def _pick_reply(
+    messages: Sequence[Any],
+    sent_at: Optional[Any] = None,
+    bot_id: Optional[int] = None,
+    owner_marker: Optional[str] = None,
+) -> str:
     """
-    从消息列表里挑一条「本次」bot 的文本回复。
+    从消息列表里挑一条「本次、且确实回给自己」的文本回复。
+
+    三重过滤（2026-10-12 加后两条，防群内多人同时签到串档）：
+
+    1. 只认本次发送之后的（``sent_at``）；
+    2. 只认目标 bot 自己发的（``bot_id``）：别人的发言、别人触发的菜单不再算；
+    3. 配了归属标识时回复里必须出现它（如站点账号名）。
+
+    一条都不满足就返回空串，由上层判失败/未确认，不拿别人的消息顶账。
 
     :param messages: telethon 消息列表（新→旧）
     :param sent_at: 本次发送时刻；None 表示不做时间过滤
+    :param bot_id: 目标 bot 的数字 ID；None 表示不做发送者过滤
+    :param owner_marker: 回复归属标识（可选）
     :return str: 回复文本；没有则返回空串
     """
 
     latest = _fresh_messages(messages, sent_at)
+    marker = str(owner_marker or "").strip().lower()
     for message in latest:
-        if not getattr(message, "out", False) and getattr(message, "text", None):
-            return str(message.text)
-    if latest:
-        return str(getattr(latest[0], "text", "") or "")
+        if getattr(message, "out", False):
+            continue
+        text = str(getattr(message, "text", None) or "")
+        if not text:
+            continue
+        if not _from_bot(message, bot_id):
+            continue
+        if marker and marker not in text.lower():
+            continue
+        return text
     return ""
 
 
@@ -272,6 +400,8 @@ async def _click_button(
     keyword: str,
     wait_seconds: int,
     sent_at: Optional[Any] = None,
+    bot_id: Optional[int] = None,
+    owner_marker: Optional[str] = None,
 ) -> Tuple[bool, str, str, str]:
     """
     在最近消息里点文字含关键词的按钮，并读回回复。
@@ -281,6 +411,8 @@ async def _click_button(
     :param keyword: 按钮关键词（如「签到」）
     :param wait_seconds: 点击后等待秒数
     :param sent_at: 本次 /start 的发送时刻，用于只认本次菜单（None 表示不过滤）
+    :param bot_id: 目标 bot 的数字 ID（按钮/回复都只认它自己发的）
+    :param owner_marker: 回复归属标识（可选）：回复里必须出现它
     :return Tuple[bool, str, str, str]: ``(是否点到, 回复文本, 弹窗文本, 错误信息)``；
         弹窗文本来自 Telegram 的 callback 应答（bot 用 ``answerCallbackQuery``
         弹的那句提示，例如「您今天已经签到过了」），拿不到时为空串
@@ -295,7 +427,9 @@ async def _click_button(
     # 轮询等菜单（2026-10-11 修）：bot 回菜单慢、或菜单按钮文案与配置不同，
     # 单次 sleep 后只扫一遍必然假失败（@example_bot_a 的历史高频失败即此）
     for _ in range(polls):
-        messages = await client.get_messages(entity, limit=_MSG_SCAN_LIMIT)
+        messages = _from_bot_only(
+            await client.get_messages(entity, limit=_MSG_SCAN_LIMIT), bot_id
+        )
         fresh = _fresh_messages(messages, sent_at)
         for message in fresh:
             for row in (getattr(message, "buttons", None) or []):
@@ -306,7 +440,14 @@ async def _click_button(
         menu = _find_menu(fresh, candidates)
         if menu is not None:
             return await _click_and_read(
-                client, entity, menu[0], menu[1], wait_seconds, sent_at
+                client,
+                entity,
+                menu[0],
+                menu[1],
+                wait_seconds,
+                sent_at,
+                bot_id=bot_id,
+                owner_marker=owner_marker,
             )
         if fallback is None:
             # 没等到新菜单：留一条「最近一条含候选按钮的旧消息」兜底，
@@ -315,11 +456,20 @@ async def _click_button(
         await asyncio.sleep(_MENU_POLL_INTERVAL_SECONDS)
     if fallback is not None:
         return await _click_and_read(
-            client, entity, fallback[0], fallback[1], wait_seconds, sent_at
+            client,
+            entity,
+            fallback[0],
+            fallback[1],
+            wait_seconds,
+            sent_at,
+            bot_id=bot_id,
+            owner_marker=owner_marker,
         )
     if not observed:
         observed = _collect_button_texts(
-            await client.get_messages(entity, limit=_MSG_SCAN_LIMIT)
+            _from_bot_only(
+                await client.get_messages(entity, limit=_MSG_SCAN_LIMIT), bot_id
+            )
         )
     hint = "、".join(observed[:_BUTTON_HINT_LIMIT]) or "（最近消息里没有任何按钮）"
     return (
@@ -495,6 +645,37 @@ async def signin_one(
     return result
 
 
+async def resolve_target_entity(client: Any, target: BotTarget) -> Any:
+    """
+    解析签到目标的 Telegram 实体。
+
+    支持两种目标：``@用户名``（bot 或公开群）与数字 ID（``-100…``，私有群 / 频道）。
+    数字 ID 依赖本账号会话里缓存的实体；第一次解析失败时先补拉一次会话列表再试，
+    仍失败则抛出可读错误（2026-10-12 加，私有群签到用）。
+
+    :param client: 已连接的 TelegramClient
+    :param target: 签到目标
+    :return Any: telethon 实体
+    :raises Exception: 用户名目标解析失败时原样抛出；数字 ID 补缓存后仍失败时抛 ValueError
+    """
+
+    ref = target.entity_ref()
+    try:
+        return await client.get_entity(ref)
+    except Exception as error:  # pylint: disable=broad-except
+        if not isinstance(ref, int):
+            raise
+        try:
+            # 数字 ID 只能靠会话缓存解析：缓存里没有该群时先拉一次会话列表补齐
+            await client.get_dialogs(limit=None)
+            return await client.get_entity(ref)
+        except Exception as retry_error:  # pylint: disable=broad-except
+            raise ValueError(
+                "该数字 ID 不在本账号的会话缓存里：请确认账号已加入该群/频道，"
+                "或改用 @用户名；也可以先用该账号手动打开一次这个会话"
+            ) from retry_error
+
+
 async def _signin_one_impl(
     client: Any,
     target: BotTarget,
@@ -518,10 +699,12 @@ async def _signin_one_impl(
         "time": now_text(),
     }
     try:
-        entity = await client.get_entity(target.bot_username)
+        entity = await resolve_target_entity(client, target)
     except Exception as error:  # pylint: disable=broad-except
-        result["error"] = f"找不到 bot {target.bot_username}：{error}"
+        result["error"] = f"找不到目标 {target.bot_username}：{error}"
         return result
+    # 私聊目标是它自己的数字 ID（精确过滤）；群/频道目标为 None（改按发送者是不是机器人）
+    bot_id = _target_bot_id(entity)
 
     try:
         if target.sign_type == SIGN_TYPE_BUTTON:
@@ -529,7 +712,13 @@ async def _signin_one_impl(
             sent_at = getattr(start_message, "date", None)
             # 等菜单交给 _click_button 内部轮询（不再单次 sleep 后只扫一遍）
             clicked, reply, alert, error = await _click_button(
-                client, entity, target.action_text, target.wait_seconds, sent_at
+                client,
+                entity,
+                target.action_text,
+                target.wait_seconds,
+                sent_at,
+                bot_id=bot_id,
+                owner_marker=target.owner_marker,
             )
             # 只有「点到按钮 + bot 有返回（回复或弹窗）」才算动作完成；
             # 点到旧按钮而 bot 零返回 = bot 可能离线，必须如实判失败
@@ -550,11 +739,18 @@ async def _signin_one_impl(
             )
             sent_at = getattr(command_message, "date", None)
             await asyncio.sleep(target.wait_seconds)
-            latest = await client.get_messages(entity, limit=3)
-            reply = _pick_reply(latest, sent_at)
+            latest = await client.get_messages(entity, limit=_MSG_SCAN_LIMIT)
+            reply = _pick_reply(
+                latest, sent_at, bot_id=bot_id, owner_marker=target.owner_marker
+            )
             result["ok"] = bool(reply)
             result["reply"] = reply
-            result["error"] = "" if reply else "发送后没等到 bot 回复（bot 可能离线）"
+            result["error"] = (
+                ""
+                if reply
+                else "发送后没等到 bot 回复（bot 可能离线、被限流，"
+                "或回复里没有配置的「回复归属标识」）"
+            )
             return result
     except Exception as error:  # pylint: disable=broad-except
         result["error"] = f"执行失败：{type(error).__name__}: {error}"
@@ -866,15 +1062,18 @@ async def probe_target(
                 "message": f"账号 {account.key} 未登录或 session 已失效，请重新登录",
                 "buttons": [],
             }
-        entity = await client.get_entity(target.bot_username)
+        entity = await resolve_target_entity(client, target)
+        bot_id = _target_bot_id(entity)
         if target.sign_type == SIGN_TYPE_BUTTON:
             await client.send_message(entity, "/start")
         else:
             await client.send_message(entity, target.action_text or "/checkin")
         await asyncio.sleep(max(3, min(int(wait_seconds), 30)))
-        messages = await client.get_messages(entity, limit=_MSG_SCAN_LIMIT)
+        messages = _from_bot_only(
+            await client.get_messages(entity, limit=_MSG_SCAN_LIMIT), bot_id
+        )
         buttons = _collect_button_texts(messages)
-        reply = _pick_reply(messages, None)
+        reply = _pick_reply(messages, None, bot_id=bot_id)
         return {
             "ok": True,
             "buttons": buttons,

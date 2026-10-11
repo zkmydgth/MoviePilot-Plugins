@@ -112,6 +112,18 @@ class TestConfigForm(unittest.TestCase):
         missing = [model for model in models if model not in defaults]
         self.assertEqual(missing, [])
 
+    def test_target_slot_has_owner_marker_field(self) -> None:
+        """每个签到目标槽都有「回复归属标识」字段，且默认值为空串。"""
+        form, defaults = self.plugin.get_form()
+        models = {
+            node["props"]["model"]
+            for node in _walk(form)
+            if isinstance(node.get("props"), dict) and node["props"].get("model")
+        }
+        self.assertIn("target_1_owner", models)
+        self.assertIn("target_8_owner", models)
+        self.assertEqual(defaults["target_1_owner"], "")
+
     def test_persistent_hint_is_bool(self) -> None:
         """persistent-hint 必须是布尔 True（写字符串会失效）。"""
         form, _ = self.plugin.get_form()
@@ -289,9 +301,10 @@ class TestApiCommandService(unittest.TestCase):
             self.assertTrue(item["methods"])
 
     def test_commands(self) -> None:
-        """三条命令都指向本插件的 action。"""
+        """四条命令都指向本插件的 action（含查群号的 /tggroups）。"""
         commands = self.plugin.get_command()
-        self.assertEqual(len(commands), 3)
+        self.assertEqual(len(commands), 4)
+        self.assertIn("/tggroups", [command["cmd"] for command in commands])
         for command in commands:
             self.assertTrue(command["cmd"].startswith("/tg"))
             self.assertTrue(command["data"]["action"].startswith("tgsignin_"))
@@ -510,7 +523,7 @@ class TestLoginDispatch(unittest.TestCase):
         )
 
     def test_no_dispatch_without_action(self) -> None:
-        """默认动作「不操作」时不派发后台任务、也不写配置。"""
+        """默认动作「不操作」时不派发后台任务，也不会改写任何登录动作字段。"""
         plugin = TgSignin()
         with mock.patch.object(
             TgSignin,
@@ -518,7 +531,12 @@ class TestLoginDispatch(unittest.TestCase):
             staticmethod(lambda target, name: self.fail("不该派发后台任务")),
         ):
             plugin.init_plugin(self._config())
-        self.assertEqual(plugin.config_updates, [])
+        # 「槽位 ↔ 文本」同步会写回一次配置，这是预期行为；但写回内容不得碰登录动作
+        for payload in plugin.config_updates:
+            for index in range(1, MAX_ACCOUNT_SLOTS + 1):
+                self.assertEqual(
+                    payload.get(f"account_{index}_login_action"), LOGIN_ACTION_NONE
+                )
 
 
 class TestBackgroundApi(unittest.TestCase):

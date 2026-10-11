@@ -110,7 +110,13 @@ class _FakeMessage:
     """消息替身。"""
 
     def __init__(
-        self, text: str = "", out: bool = False, buttons=None, date=None
+        self,
+        text: str = "",
+        out: bool = False,
+        buttons=None,
+        date=None,
+        sender_id=None,
+        sender=None,
     ) -> None:
         """
         构造消息。
@@ -119,29 +125,79 @@ class _FakeMessage:
         :param out: 是否为自己发出
         :param buttons: 按钮矩阵
         :param date: 消息时间（带时区）；None 表示不参与时间过滤
+        :param sender_id: 发送者数字 ID（群内归属判定用）；None 表示取不到
+        :param sender: 发送者对象（含 ``bot`` 标记）；None 表示拿不到发送者
         """
         self.text = text
         self.out = out
         self.buttons = buttons
         self.date = date
+        self.sender_id = sender_id
+        self.sender = sender
+
+
+class _FakeEntity:
+    """实体替身：带数字 ID 与用户名（供发送者过滤与数字 ID 解析）。"""
+
+    def __init__(self, username: str = "", entity_id=None, title: str = "") -> None:
+        """
+        构造实体替身。
+
+        :param username: 用户名（或原始标识）
+        :param entity_id: 数字 ID；None 表示取不到（此时插件不做发送者过滤）
+        :param title: 群标题；非空表示目标是群/频道（改按「发送者是不是机器人」判定）
+        """
+        self.username = username
+        self.id = entity_id
+        self.title = title
+
+
+class _FakeUser:
+    """发送者替身：只带 bot 标记（群内归属判定用）。"""
+
+    def __init__(self, user_id=None, bot: bool = False) -> None:
+        """
+        构造发送者替身。
+
+        :param user_id: 数字 ID
+        :param bot: 是否机器人
+        """
+        self.id = user_id
+        self.bot = bot
 
 
 class _FakeClient:
     """TelegramClient 替身：按脚本依次返回消息。"""
 
-    def __init__(self, batches, entity_error: bool = False, sent_date=None) -> None:
+    def __init__(
+        self,
+        batches,
+        entity_error: bool = False,
+        sent_date=None,
+        entity_id=None,
+        entity_fail_times: int = 0,
+        entity_title: str = "",
+    ) -> None:
         """
         构造客户端。
 
         :param batches: ``get_messages`` 依次返回的消息批次
         :param entity_error: 是否让 get_entity 抛错
         :param sent_date: ``send_message`` 返回消息的时间（本次发送时刻）
+        :param entity_id: get_entity 返回实体的数字 ID（None 表示取不到）
+        :param entity_fail_times: 前 N 次 ``get_entity`` 抛错（验证数字 ID 补缓存重试）
+        :param entity_title: get_entity 返回实体的群标题（非空表示群/频道目标）
         """
         self._batches = list(batches)
         self._entity_error = entity_error
         self._sent_date = sent_date
+        self._entity_id = entity_id
+        self._entity_fail_times = int(entity_fail_times or 0)
+        self._entity_title = entity_title
         self.sent: list = []
         self.clicks: list = []
+        self.entity_refs: list = []
+        self.dialogs_called = 0
         self.connected = False
 
     def make_buttons(self, texts) -> list:
@@ -163,16 +219,33 @@ class _FakeClient:
         """
         return [[_FakeButton(text, self.clicks, alert) for text in texts]]
 
-    async def get_entity(self, username: str):
+    async def get_entity(self, ref):
         """
-        返回 bot 实体。
+        返回目标实体（可先失败几次，模拟「数字 ID 不在会话缓存里」）。
 
-        :param username: bot 用户名
-        :return object: 实体
+        :param ref: 目标标识（``@用户名`` 或数字 ID）
+        :return _FakeEntity: 实体替身
         """
+        self.entity_refs.append(ref)
         if self._entity_error:
-            raise ValueError(f"cannot find any entity corresponding to {username}")
-        return {"username": username}
+            raise ValueError(f"cannot find any entity corresponding to {ref}")
+        if self._entity_fail_times > 0:
+            self._entity_fail_times -= 1
+            raise ValueError(f"Could not find the input entity for {ref}")
+        return _FakeEntity(
+            username=str(ref), entity_id=self._entity_id, title=self._entity_title
+        )
+
+    async def get_dialogs(self, limit=None):
+        """
+        模拟补拉会话列表（把实体塞进会话缓存）。
+
+        :param limit: 条数上限（替身忽略）
+        :return list: 空列表
+        """
+        del limit
+        self.dialogs_called += 1
+        return []
 
     async def send_message(self, entity, text: str):
         """
@@ -258,7 +331,7 @@ class TestSigninButtonMode(unittest.TestCase):
         target = BotTarget(account_key="acc1", bot_username="@nope")
         result = asyncio.run(signin_one(client, target))
         self.assertFalse(result["ok"])
-        self.assertIn("找不到 bot", result["error"])
+        self.assertIn("找不到目标", result["error"])
 
     def test_button_alert_is_captured(self) -> None:
         """点击按钮时 bot 的弹窗提示（callback 应答）要被记录，并据此分档。"""
@@ -998,6 +1071,297 @@ class TestAccountTimeout(unittest.TestCase):
             )
         self.assertEqual(results, [])
         self.assertIn("执行超时", error)
+
+
+class TestSigninAttribution(unittest.TestCase):
+    """群内归属判定（2026-10-12 加）：只认目标 bot 自己发的回复 + 可选「回复归属标识」。"""
+
+    SENT = datetime(2026, 10, 12, 9, 0, tzinfo=timezone(timedelta(hours=8)))
+    FRESH = SENT + timedelta(seconds=2)
+    BOT_ID = 111222333
+    OTHER_ID = 999000111
+    GROUP_ID = 111222333000
+
+    def setUp(self) -> None:
+        """替换 sleep，避免测试真的等待。"""
+        patcher = mock.patch.object(signin_mod, "asyncio", _FakeAsyncio)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _target(
+        self,
+        bot: str = "@example_bot_a",
+        marker: str = "",
+        sign_type: str = SIGN_TYPE_COMMAND,
+    ) -> BotTarget:
+        """
+        构造签到目标。
+
+        :param bot: 目标标识（@用户名 或 数字 ID）
+        :param marker: 回复归属标识
+        :param sign_type: 签到方式
+        :return BotTarget: 目标
+        """
+
+        return BotTarget(
+            account_key="acc1",
+            bot_username=bot,
+            sign_type=sign_type,
+            action_text="签到" if sign_type == SIGN_TYPE_BUTTON else "/checkin@example_bot",
+            owner_marker=marker,
+        )
+
+    def test_other_member_reply_is_ignored(self) -> None:
+        """群里别人同时签到：别人的「签到成功」不算我的本次结果。"""
+        client = _FakeClient(
+            batches=[
+                [
+                    _FakeMessage(
+                        "📅 签到成功！@other",
+                        sender_id=self.OTHER_ID,
+                        date=self.FRESH,
+                    )
+                ]
+            ],
+            sent_date=self.SENT,
+            entity_id=self.BOT_ID,
+        )
+        result = asyncio.run(signin_one(client, self._target()))
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["status"], STATUS_FAILED)
+        self.assertIn("没等到 bot 回复", result["error"])
+        self.assertNotIn("other", str(result.get("reply") or ""))
+
+    def test_bot_reply_picked_among_member_messages(self) -> None:
+        """同一批里既有群友发言也有 bot 回复：只认 bot 那条。"""
+        client = _FakeClient(
+            batches=[
+                [
+                    _FakeMessage(
+                        "哈哈这个月又满了",
+                        sender_id=self.OTHER_ID,
+                        date=self.FRESH + timedelta(seconds=3),
+                    ),
+                    _FakeMessage(
+                        "📅 签到成功！@me", sender_id=self.BOT_ID, date=self.FRESH
+                    ),
+                ]
+            ],
+            sent_date=self.SENT,
+            entity_id=self.BOT_ID,
+        )
+        result = asyncio.run(signin_one(client, self._target()))
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["status"], STATUS_SUCCESS)
+        self.assertIn("@me", result["reply"])
+
+    def test_owner_marker_required_in_reply(self) -> None:
+        """配了归属标识：bot 回复里没有它就不算本次结果。"""
+        client = _FakeClient(
+            batches=[
+                [
+                    _FakeMessage(
+                        "📅 签到成功！@other",
+                        sender_id=self.BOT_ID,
+                        date=self.FRESH,
+                    )
+                ]
+            ],
+            sent_date=self.SENT,
+            entity_id=self.BOT_ID,
+        )
+        result = asyncio.run(signin_one(client, self._target(marker="example_user")))
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["status"], STATUS_FAILED)
+        self.assertIn("归属标识", result["error"])
+
+    def test_owner_marker_matching_reply_is_success(self) -> None:
+        """回复里出现归属标识时正常判成功。"""
+        client = _FakeClient(
+            batches=[
+                [
+                    _FakeMessage(
+                        "📅 签到成功！@example_user",
+                        sender_id=self.BOT_ID,
+                        date=self.FRESH,
+                    )
+                ]
+            ],
+            sent_date=self.SENT,
+            entity_id=self.BOT_ID,
+        )
+        result = asyncio.run(signin_one(client, self._target(marker="example_user")))
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["status"], STATUS_SUCCESS)
+
+    def test_group_target_ignores_human_chatter(self) -> None:
+        """群目标（数字 ID）：真人发言被排除，bot 的回复被认下。"""
+        client = _FakeClient(
+            batches=[
+                [
+                    _FakeMessage(
+                        "哈哈这个月又满了",
+                        sender=_FakeUser(self.OTHER_ID, bot=False),
+                        date=self.FRESH + timedelta(seconds=3),
+                    ),
+                    _FakeMessage(
+                        "📅 签到成功！@example_user",
+                        sender=_FakeUser(self.BOT_ID, bot=True),
+                        date=self.FRESH,
+                    ),
+                ]
+            ],
+            sent_date=self.SENT,
+            entity_id=self.GROUP_ID,
+            entity_title="示例私有群",
+        )
+        result = asyncio.run(
+            signin_one(
+                client, self._target(bot="-1001234567890", marker="example_user")
+            )
+        )
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["status"], STATUS_SUCCESS)
+        self.assertIn("@example_user", result["reply"])
+
+    def test_group_target_without_marker_skips_chatter(self) -> None:
+        """群目标未配归属标识时，真人发言仍被排除（只留机器人/发送者未知的消息）。"""
+        client = _FakeClient(
+            batches=[
+                [
+                    _FakeMessage(
+                        "哈哈这个月又满了",
+                        sender=_FakeUser(self.OTHER_ID, bot=False),
+                        date=self.FRESH + timedelta(seconds=3),
+                    ),
+                    _FakeMessage(
+                        "📅 签到成功！@example_user",
+                        sender=_FakeUser(self.BOT_ID, bot=True),
+                        date=self.FRESH,
+                    ),
+                ]
+            ],
+            sent_date=self.SENT,
+            entity_id=self.GROUP_ID,
+            entity_title="示例私有群",
+        )
+        result = asyncio.run(signin_one(client, self._target(bot="-1001234567890")))
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["status"], STATUS_SUCCESS)
+        self.assertIn("@example_user", result["reply"])
+
+    def test_group_target_marker_rejects_other_members_result(self) -> None:
+        """群目标 + 归属标识：同一个 bot 回给别人的结果不算我的。"""
+        client = _FakeClient(
+            batches=[
+                [
+                    _FakeMessage(
+                        "📅 签到成功！@other",
+                        sender=_FakeUser(self.BOT_ID, bot=True),
+                        date=self.FRESH,
+                    )
+                ]
+            ],
+            sent_date=self.SENT,
+            entity_id=self.GROUP_ID,
+            entity_title="示例私有群",
+        )
+        result = asyncio.run(
+            signin_one(
+                client, self._target(bot="-1001234567890", marker="example_user")
+            )
+        )
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["status"], STATUS_FAILED)
+        self.assertIn("归属标识", result["error"])
+        self.assertNotIn("other", str(result.get("reply") or ""))
+
+    def test_group_target_keeps_unknown_sender(self) -> None:
+        """群目标里拿不到发送者的消息不被排除（避免漏判真结果）。"""
+        client = _FakeClient(
+            batches=[[_FakeMessage("📅 签到成功！@example_user", date=self.FRESH)]],
+            sent_date=self.SENT,
+            entity_id=self.GROUP_ID,
+            entity_title="示例私有群",
+        )
+        result = asyncio.run(signin_one(client, self._target(bot="-1001234567890")))
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["status"], STATUS_SUCCESS)
+
+    def test_button_reply_from_other_member_is_ignored(self) -> None:
+        """按钮式同样只认 bot 自己发的新回复。"""
+        client = _FakeClient(batches=[], sent_date=self.SENT, entity_id=self.BOT_ID)
+        client._batches = [
+            [
+                _FakeMessage(
+                    "请选择功能",
+                    buttons=client.make_buttons(["🎯 签到"]),
+                    sender_id=self.BOT_ID,
+                    date=self.FRESH,
+                )
+            ],
+            [
+                _FakeMessage(
+                    "群里路人插话",
+                    sender_id=self.OTHER_ID,
+                    date=self.FRESH + timedelta(seconds=5),
+                )
+            ],
+        ]
+        result = asyncio.run(
+            signin_one(client, self._target(sign_type=SIGN_TYPE_BUTTON))
+        )
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["status"], STATUS_FAILED)
+        self.assertIn("无任何返回", result["error"])
+
+    def test_numeric_group_target_resolves_int(self) -> None:
+        """私有群数字 ID 目标：按 int 解析实体（不补 @）。"""
+        client = _FakeClient(
+            batches=[
+                [
+                    _FakeMessage(
+                        "📅 签到成功！@example_user",
+                        sender_id=self.BOT_ID,
+                        date=self.FRESH,
+                    )
+                ]
+            ],
+            sent_date=self.SENT,
+            entity_id=self.BOT_ID,
+        )
+        result = asyncio.run(signin_one(client, self._target(bot="-1001234567890")))
+        self.assertTrue(result["ok"])
+        self.assertEqual(client.entity_refs, [-1001234567890])
+
+    def test_numeric_group_id_retries_after_dialog_refresh(self) -> None:
+        """数字 ID 不在会话缓存里：先补拉会话列表，再解析一次即成功。"""
+        client = _FakeClient(
+            batches=[
+                [
+                    _FakeMessage(
+                        "📅 签到成功！@example_user",
+                        sender_id=self.BOT_ID,
+                        date=self.FRESH,
+                    )
+                ]
+            ],
+            sent_date=self.SENT,
+            entity_id=self.BOT_ID,
+            entity_fail_times=1,
+        )
+        result = asyncio.run(signin_one(client, self._target(bot="-1001234567890")))
+        self.assertTrue(result["ok"])
+        self.assertEqual(client.dialogs_called, 1)
+        self.assertEqual(client.entity_refs, [-1001234567890, -1001234567890])
+
+    def test_username_target_is_not_refreshed(self) -> None:
+        """用户名目标解析失败不补会话缓存，直接报「找不到目标」。"""
+        client = _FakeClient(batches=[[]], entity_error=True, sent_date=self.SENT)
+        result = asyncio.run(signin_one(client, self._target()))
+        self.assertFalse(result["ok"])
+        self.assertIn("找不到目标", result["error"])
+        self.assertEqual(client.dialogs_called, 0)
 
 
 class TestNormalizeBot(unittest.TestCase):

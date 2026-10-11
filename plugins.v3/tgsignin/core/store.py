@@ -12,7 +12,7 @@ import json
 import os
 import threading
 from pathlib import Path
-from typing import Any, Dict, List, Sequence
+from typing import Any, Dict, List, Mapping, Sequence
 
 from .retry import record_attempts
 
@@ -27,6 +27,7 @@ __all__ = [
     "record_run",
     "recent_results",
     "record_ai_keywords",
+    "record_groups",
     "AI_KEYWORD_LOG_LIMIT",
 ]
 
@@ -109,6 +110,7 @@ def load_state(data_dir: Path) -> Dict[str, Any]:
         "history": [],
         "results": [],
         "ai_keyword_log": [],
+        "groups": {},
     }
     if not path.exists():
         return default
@@ -281,5 +283,38 @@ def record_ai_keywords(
     log: List[Dict[str, Any]] = list(state.get("ai_keyword_log") or [])
     log.extend(dict(item) for item in entries)
     state["ai_keyword_log"] = log[-AI_KEYWORD_LOG_LIMIT:]
+    save_state(data_dir, state)
+    return state
+
+
+def record_groups(
+    data_dir: Path,
+    account_key: str,
+    payload: Mapping[str, Any],
+) -> Dict[str, Any]:
+    """
+    记录某个账号最近一次「查询群组」的结果。
+
+    供详情页的群组表格与配置表单里的「从已查到的群组选」下拉使用（2026-10-12 加）。
+    群名与群号属于账号私有信息，只落在插件数据目录（0600）与页面/命令回复里，不进日志。
+
+    :param data_dir: 插件数据目录
+    :param account_key: 账号标识（``acc1``…）
+    :param payload: 查询结果（``rows`` / ``total`` / ``truncated``）
+    :return Dict[str, Any]: 更新后的状态字典
+    """
+
+    from datetime import datetime, timedelta, timezone  # pylint: disable=import-outside-toplevel
+
+    state = load_state(data_dir)
+    bucket: Dict[str, Any] = state.setdefault("groups", {})
+    bucket[account_key] = {
+        "time": datetime.now(timezone(timedelta(hours=8))).strftime(
+            "%Y-%m-%d %H:%M:%S"
+        ),
+        "total": int(payload.get("total") or 0),
+        "truncated": bool(payload.get("truncated")),
+        "rows": [dict(row) for row in (payload.get("rows") or [])],
+    }
     save_state(data_dir, state)
     return state
