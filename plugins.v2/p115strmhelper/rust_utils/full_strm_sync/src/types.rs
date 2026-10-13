@@ -27,9 +27,9 @@ pub struct FileInput {
     pub sha1: Option<String>,
 }
 
-impl<'source> FromPyObject<'source> for FileInput {
-    fn extract(ob: &'source PyAny) -> PyResult<Self> {
-        let dict: &'source PyDict = ob.downcast()?;
+impl<'py> FromPyObject<'py> for FileInput {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        let dict = ob.downcast::<PyDict>()?;
 
         let name: String = dict
             .get_item("name")?
