@@ -1,33 +1,4 @@
 {
-  "P115StrmHelper": {
-    "name": "115网盘STRM助手",
-    "description": "115网盘STRM生成一条龙服务（V3 独立维护版）",
-    "license": "GPL-3.0",
-    "labels": "云盘",
-    "version": "2.7.25",
-    "release": true,
-    "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png",
-    "author": "zkmydgth",
-    "system_version": ">=3.0.0",
-    "level": 1,
-    "history": {
-      "v2.7.25": "测试样例里的示例地址与路径改用文档占位值，无功能变更。",
-      "v2.7.24": "修复了插件页保存配置不生效的问题（保存后重开面板值会变回去）；同步上游 2.8.76 适配 RE0（原 HDHive）新域名与签到、搜索、解锁流程。",
-      "v2.7.22": "修复「分享 STRM 清理 → 缺失媒体」列表的媒体 ID 不显示：V3 媒体身份契约改为 media_source + media_id 后，后端只输出新键，而前端仍按 tmdbid/tvdbid/imdbid/doubanid 判断「该行是否有媒体 ID」并逐项渲染，导致该栏恒为空；本版在写入与读取两侧都按 media_source 反填旧四键（新键保留，两套键名共存），并修正测试桩宿主里 MediaSource.TMDB 取值与真机不一致（桩写 \"tmdb\"，真机为 \"themoviedb\"）造成的假绿。",
-      "v2.7.21": "修复「接管网盘整理」的失败/提前返回路径不结算：未识别媒体、未识别集数、重复投递、非 115 回退与接管成功等分支此前都缺少宿主 durable 收口，导致同一文件被整理队列每约 15 秒反复重投（每轮新增一条失败历史）；现全部按宿主语义提交终态或交回原生整理，并在补丁前校验收口入口缺失即放弃接管。",
-      "v2.7.20": "修复「接管网盘整理」（115 批量整理）在 MoviePilot V3 上静默失效：宿主已把刮削批次收尾方法改名为 _finish_scrape_batch_task、并把作业队列挂在整理链实例上，旧校验按老私有名与类视角检查，导致补丁在启用阶段被整体放弃（日志却仍打印“已启用”）。本版改为候选名解析＋实例视角校验（宿主实例尚未创建时推迟到运行期首单复核，不主动构造宿主单例），失败重试改用 V3 的 durable 重试入口 _request_durable_transfer_retry；补丁未生效时不再打印“已启用”，而是明确报错并回退 MoviePilot 原生整理。另新增真机宿主契约探针与 15 项回归测试，防止宿主再次改名时静默失效。",
-      "v2.7.19": "同步上游 2.8.75：升级 p115client 0.0.9.7.2 并适配目录遍历/网盘接口，修复增量同步集数映射串位、整理结果不完整时报错、重新整理后旧目录残留通用刮削文件。⚠️ 本版含随包依赖变更：更新后请重启 MoviePilot 让依赖装载生效（或在容器内 uv pip install --find-links …/wheels 后重载插件）。",
-      "v2.7.18": "⚠️ 更新后请重启 MoviePilot：本插件随包分发第三方依赖（含 Rust 加速扩展轮子），而 MP 只在启动时自动安装插件缺失依赖，只更新不重启不会生效（也可在容器内手动 uv pip 安装依赖后再重载插件）。本版仅更新更新说明，无功能变更。",
-      "v2.7.17": "补齐三个 Rust 加速扩展的 cp314 轮子并放开 3.14 环境标记，Python 3.14 宿主现在也能启用 Rust 加速（此前走纯 Python 降级）。⚠️ 本版含随包依赖变更：更新后请重启 MoviePilot 让依赖装载生效（或在容器内手动 uv pip install --find-links …/wheels 安装依赖后重载插件）。",
-      "v2.7.16": "增量同步报错可诊断性加固：导出目录树解析异常统一转成带处置指向的提示，并跳过无意义的重试。",
-      "v2.7.15": "新增 python-concurrenttools 兼容别名（有条件生效）：共享运行环境里若已装 0.1.9（threadpool_map / taskgroup_map 已改名 thread_conmap / async_conmap），插件在 import 阶段自动把新名别名回旧名，p115client 0.0.9.6.5.1 不再直接崩溃（此前表现为插件加载报 cannot import name 'threadpool_map'）。requirements.txt 仍保留 <0.1.9 上限，别名只是兜底；等 p115client 升级到适配 0.1.9 的版本后应与上限一并移除。",
-      "v2.7.14": "修复测试环境依赖：test_transfer_classify 单独运行时报缺 app.application.transfer",
-      "v2.7.13": "前端本地目录浏览修复：本地分支误用 MP 框架 storage/list（type:share），实例未配置对应存储类型或接口格式不兼容时返回非数组，触发「浏览本地目录失败: 浏览目录失败：无效响应」。改为调用插件自带 browse_dir?is_local=true（api.py 已正确实现基于 path.iterdir 的本地列目录），并复用网盘分支响应解析。涉及 Page.vue 与 useDirSelector.js 两处。",
-      "v2.7.12": "依赖修复：p115client==0.0.9.6.5.1 只声明 python-concurrenttools>=0.1.8 而无上限，上游 0.1.9（2026-09-29）把 threadpool_map 改名为 thread_conmap，导致全新安装解析到 0.1.9 后 p115client 导入即失败（cannot import name 'threadpool_map' from 'concurrenttools'，插件加载报错）。现于 requirements.txt 与 pyproject.toml 显式锁定 python-concurrenttools<0.1.9，与 v3.2.1 起锁定的 p115client 成对生效。已装旧版用户需更新到本版以触发依赖重新校验。",
-      "v2.7.11": "版本号重置为低于上游（上游当前 2.8.74），避免订阅本仓库的用户因版本号更高而收到「官方已更新」的误导提醒；插件代码与 v3.2.1 完全一致，功能无任何变化。后续升级按 2.7.12、2.7.13 顺序递增。"
-    },
-    "v3": true
-  },
   "ConfigBackup": {
     "name": "配置备份",
     "description": "定时备份 MoviePilot 系统配置、数据库及插件配置到指定目录，支持保留数量自动清理、手动触发和一键还原（V3 独立维护版）。",
