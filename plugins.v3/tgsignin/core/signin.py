@@ -1125,7 +1125,9 @@ async def run_all(
     :param failure_keywords: 自定义「签到失败」关键词（None 用内置默认）
     :param ai_judge: 可选的 AI 复核协程（仅「未确认」时调用）
     :param concurrency: 并发上限（1 = 串行；2-4 = 同账号内「每 bot 一路」并发）
-    :return List[Dict[str, Any]]: 扁平的结果列表
+    :return List[Dict[str, Any]]: 扁平的结果列表；账号级失败时按该账号的启用目标
+        逐个补一条失败结果（``account_error=True``，error 为账号级原因），使通知能列出
+        未签到目标、失败重试也能在当天覆盖它们
     """
 
     allowed = (
@@ -1164,20 +1166,32 @@ async def run_all(
             ai_judge=ai_judge,
             concurrency=concurrency,
         )
-        if account_error:
-            results.append(
-                {
-                    "bot": "-",
-                    "account": account.key,
-                    "account_label": account.display(),
-                    "method": "-",
-                    "ok": False,
-                    "reply": "",
-                    "error": account_error,
-                    "time": now_text(),
-                }
-            )
         results.extend(account_results)
+        if account_error:
+            # 账号级失败（超时/未登录/session 失效/连接异常）时该账号的目标大多没跑成：
+            # 逐目标补一条失败结果。除了让通知写清「哪些目标没签到」，关键是让状态文件
+            # 按「账号|bot」留下失败记录 —— 否则 evaluate_retry 读不到这些目标的记录，
+            # 当天不会自动补签（2026-10-15 修：此前只写一条 bot="-" 的账号行）。
+            settled = {
+                f"{item.get('account')}|{item.get('bot')}"
+                for item in account_results
+            }
+            for target in account_targets:
+                if f"{account.key}|{target.bot_username}" in settled:
+                    continue
+                results.append(
+                    {
+                        "bot": target.bot_username,
+                        "account": account.key,
+                        "account_label": account.display(),
+                        "method": "-",
+                        "ok": False,
+                        "reply": "",
+                        "error": account_error,
+                        "account_error": True,
+                        "time": now_text(),
+                    }
+                )
     return results
 
 

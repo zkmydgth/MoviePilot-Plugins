@@ -16,7 +16,7 @@ from unittest import mock
 import tests  # noqa: F401  触发宿主桩与插件路径注入
 
 from tgsignin.core import signin as signin_mod
-from tgsignin.core.retry import TZ
+from tgsignin.core.retry import TZ, evaluate_retry, record_attempts
 from tgsignin.core.config import (
     NOTIFY_MODE_ALL,
     NOTIFY_MODE_FAILURE,
@@ -1071,6 +1071,120 @@ class TestAccountTimeout(unittest.TestCase):
             )
         self.assertEqual(results, [])
         self.assertIn("执行超时", error)
+
+
+class TestAccountErrorTargets(unittest.TestCase):
+    """账号级失败落到每个目标上（2026-10-15 修）：通知能列清未签到目标、当天可重试。"""
+
+    @staticmethod
+    def _target(bot: str) -> BotTarget:
+        """
+        构造一个启用中的按钮式目标。
+
+        :param bot: bot 用户名
+        :return BotTarget: 目标
+        """
+
+        return BotTarget(
+            account_key="acc1",
+            bot_username=bot,
+            sign_type=SIGN_TYPE_BUTTON,
+            action_text="签到",
+        )
+
+    @staticmethod
+    async def _timeout_account(*args, **kwargs):
+        """
+        替身：账号级超时——没有任何结果，只回一条账号级错误。
+
+        :param args: 忽略
+        :param kwargs: 忽略
+        :return tuple: ``([], 账号级错误)``
+        """
+
+        del args, kwargs
+        return [], "账号 acc1 执行超时（>300s），已中止本轮"
+
+    def test_run_all_writes_failure_per_target(self) -> None:
+        """账号级失败：每个启用目标各得一条失败结果，原因原样带出。"""
+
+        targets = [self._target("@example_bot_a"), self._target("@example_bot_b")]
+        account = AccountConfig(key="acc1", label="账号1")
+        with mock.patch.object(signin_mod, "run_account", self._timeout_account):
+            results = asyncio.run(
+                signin_mod.run_all([account], targets, Path("/tmp"), None)
+            )
+        self.assertEqual(
+            [item["bot"] for item in results],
+            ["@example_bot_a", "@example_bot_b"],
+        )
+        for item in results:
+            self.assertFalse(item["ok"])
+            self.assertIn("执行超时", item["error"])
+            self.assertTrue(item["account_error"])
+
+    def test_partial_account_results_are_not_duplicated(self) -> None:
+        """同时返回结果与账号级错误时，已出结果的目标不再重复补行。"""
+
+        targets = [self._target("@example_bot_a"), self._target("@example_bot_b")]
+        account = AccountConfig(key="acc1", label="账号1")
+
+        async def _partial(*args, **kwargs):
+            """
+            替身：第一个目标已出结果，第二个随账号级错误一起中止。
+
+            :param args: 忽略
+            :param kwargs: 忽略
+            :return tuple: ``(结果列表, 账号级错误)``
+            """
+
+            del args, kwargs
+            done = {
+                "bot": "@example_bot_a",
+                "account": "acc1",
+                "ok": True,
+                "reply": "签到成功",
+                "error": "",
+                "status": STATUS_SUCCESS,
+                "time": "2026-10-15 09:00:00",
+            }
+            return [done], "账号 acc1 执行异常：ConnectionError"
+
+        with mock.patch.object(signin_mod, "run_account", _partial):
+            results = asyncio.run(
+                signin_mod.run_all([account], targets, Path("/tmp"), None)
+            )
+        self.assertEqual(
+            [item["bot"] for item in results],
+            ["@example_bot_a", "@example_bot_b"],
+        )
+        self.assertTrue(results[0]["ok"])
+        self.assertNotIn("account_error", results[0])
+        self.assertFalse(results[1]["ok"])
+        self.assertIn("ConnectionError", results[1]["error"])
+
+    def test_account_timeout_enters_retry_window(self) -> None:
+        """回归：账号级超时留下的失败记录，到期后能被失败重试取到（当天可补签）。"""
+
+        targets = [self._target("@example_bot_a"), self._target("@example_bot_b")]
+        account = AccountConfig(key="acc1", label="账号1")
+        moment = datetime(2026, 10, 15, 9, 0, tzinfo=TZ)
+        with mock.patch.object(signin_mod, "run_account", self._timeout_account):
+            results = asyncio.run(
+                signin_mod.run_all([account], targets, Path("/tmp"), None)
+            )
+        state = record_attempts({}, results, now=moment)
+        early, _ = evaluate_retry(
+            targets, state, now=moment + timedelta(hours=1), retry_interval_hours=6
+        )
+        self.assertEqual(early, [])
+        due, _ = evaluate_retry(
+            targets, state, now=moment + timedelta(hours=6), retry_interval_hours=6
+        )
+        self.assertEqual(
+            [item.bot_username for item in due],
+            ["@example_bot_a", "@example_bot_b"],
+        )
 
 
 class TestSigninAttribution(unittest.TestCase):

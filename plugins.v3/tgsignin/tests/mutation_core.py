@@ -338,6 +338,30 @@ MUTANTS = [
         "    state[\"ai_keyword_log\"] = []",
         "AI 归纳审计日志丢失",
     ),
+    (
+        "core/signin.py",
+        '            for target in account_targets:\n'
+        '                if f"{account.key}|{target.bot_username}" in settled:\n'
+        "                    continue",
+        "            for target in account_targets:\n"
+        "                if True:\n"
+        "                    continue",
+        "账号级失败不再逐目标补失败结果（当天重试窗口取不到这些目标）",
+    ),
+    (
+        "core/signin.py",
+        '                if f"{account.key}|{target.bot_username}" in settled:\n'
+        "                    continue",
+        "                if False:\n"
+        "                    continue",
+        "已出结果的目标被重复补失败行（通知与计数重复）",
+    ),
+    (
+        "core/signin.py",
+        '                        "error": account_error,',
+        '                        "error": "",',
+        "账号级失败原因不再带进结果（看不出为什么没签上）",
+    ),
 ]
 
 
