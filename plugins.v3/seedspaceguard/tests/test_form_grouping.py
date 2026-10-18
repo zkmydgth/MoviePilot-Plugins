@@ -9,11 +9,12 @@
 尤其 ``orphan_seed_scope``（实为**两模式通用**）被冠以「种子级：」前缀，
 更是把不存在的模式约束强加给了用户。
 
-v3.0.6 起按四组重排：
+v3.0.12 起按五组重排：
   ① 全局基础设置（常驻）
   ② 种子级模式设置（``show: mode === 'seed'``）
   ③ 仅文件模式设置（``show: mode === 'file'``）
   ④ 种子联动设置（两种模式通用，常驻）
+  ⑤ 目录维护设置（两种模式通用，常驻；v3.0.12 新增「空壳目录扫描」）
 
 ``show`` 由 MoviePilot 前端 FormRender 求值（源码
 ``src/components/render/FormRender.vue`` 的 ``parseProps``）：
@@ -21,7 +22,7 @@ v3.0.6 起按四组重排：
 「全部显示」——**功能不受损，只是不够清爽**，故本改造是安全的增强。
 
 这些用例守护四件事：
-1. 四个组标题都在，且不会污染「顶部使用说明」的专项断言；
+1. 各分组标题都在，且不会污染「顶部使用说明」的专项断言；
 2. 模式专用项确实带上了正确的 ``show`` 条件；
 3. 全局项与通用项**绝不**带 ``show``（防止误藏导致用户找不到设置）；
 4. 凡带 ``hint`` 的控件都带 ``persistent-hint: True``，让说明文字常驻
@@ -45,6 +46,7 @@ ALWAYS_VISIBLE_MODELS = (
     "threshold_gb", "recent_skip_days", "cron", "sync_wait_seconds",
     "dry_run", "notify",
     "delete_torrents", "delete_history", "orphan_seed_scope",
+    "empty_dir_sweep",
 )
 
 GROUP_TITLES = (
@@ -52,6 +54,7 @@ GROUP_TITLES = (
     "种子级模式设置",
     "仅文件模式设置",
     "种子联动设置（两种模式通用）",
+    "目录维护设置（两种模式通用）",
 )
 
 
@@ -103,8 +106,8 @@ class _FormBase(unittest.TestCase):
 class TestGroupHeaders(_FormBase):
     """分组标题的存在性与安全性。"""
 
-    def test_four_group_headers_present(self):
-        """四个分组标题都应存在。"""
+    def test_all_group_headers_present(self):
+        """所有分组标题都应存在。"""
         texts = " | ".join(str(p.get("text") or "") for p in self._group_headers())
         for title in GROUP_TITLES:
             self.assertIn(title, texts, f"缺少分组标题：{title}")
@@ -345,7 +348,7 @@ class TestNoModelRegression(_FormBase):
     """改造不应增删任何 model。"""
 
     def test_models_unchanged(self):
-        """表单 model 集合应与改造前一致（18 项），仅顺序与分组变化。"""
+        """表单 model 集合应与登记清单一致（19 项），仅顺序与分组变化。"""
         models = set(self._props_by_model())
         expected = set(ALWAYS_VISIBLE_MODELS) | set(SEED_ONLY_MODELS) | set(FILE_ONLY_MODELS)
         self.assertEqual(models, expected, f"model 集合发生变化：{models ^ expected}")

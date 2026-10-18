@@ -113,11 +113,11 @@ MUTANTS = [
         "试运行前缀缺失：空间充足消息不带 [试运行]（回归 v1.3.5 原始缺陷）",
         """                msg = (
                     f"{prefix}空间充足（{free_gb}GB ≥ {self._threshold_gb}GB），"
-                    f"无需清理{orphan_note}{invalid_note}"
+                    f"无需清理{orphan_note}{sweep_note}{invalid_note}"
                 )""",
         """                msg = (
                     f"空间充足（{free_gb}GB ≥ {self._threshold_gb}GB），"
-                    f"无需清理{orphan_note}{invalid_note}"
+                    f"无需清理{orphan_note}{sweep_note}{invalid_note}"
                 )""",
         "应导致 test_dry_run_message_has_prefix / test_real_run_message_has_prefix 失败",
     ),
@@ -125,7 +125,7 @@ MUTANTS = [
         "空壳回收量在「空间不足」路径不可见：漏拼 orphan_note（回归原始缺陷）",
         """            # 空壳回收量同样要进结果消息：它发生在删文件之前，若不汇总，
             # 用户在「空间不足」这一主路径上反而看不到任何空壳回收痕迹
-            suffix += orphan_note
+            suffix += orphan_note + sweep_note
             free_gb_now = self._disk_free_gb()""",
         """            free_gb_now = self._disk_free_gb()""",
         "应导致 test_dry_run_previews_both_file_and_orphan / "

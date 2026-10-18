@@ -23,7 +23,9 @@ TARGET = os.path.join(PLUGIN_DIR, "__init__.py")
 
 # 各片段用显式拼接构造，避免三引号内嵌三引号导致的转义问题
 NEED_NOTIFY_OLD = (
-    '                need_notify = bool(orphan_lines) or source != "定时"'
+    "                need_notify = (\n"
+    '                    bool(orphan_lines) or bool(sweep_lines) or source != "定时"\n'
+    "                )"
 )
 NEED_NOTIFY_NEW_FALSE = (
     "                need_notify = True if orphan_lines else False"

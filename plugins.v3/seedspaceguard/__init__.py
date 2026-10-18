@@ -67,6 +67,9 @@ DEFAULT_PROTECT_PATTERN: str = "*.part|*.!qb|*.download|*.aria2|*.tmp|*.crdownlo
 # 空壳判定的目录扫描上限：超过该条目数即视为「扫不完」，保守判定为「有文件」。
 # 设上限是为了防御异常巨大的目录，绝不允许因扫不完而把有内容的种子判成空壳。
 DIR_SCAN_MAX_ENTRIES: int = 5000
+# 监控目录空壳扫描的最大递归深度：超过即视为「无法确证为空」，保守不删。
+# 目录树正常只有「下载分类/资源/季」两三层，设上限只为防御异常深层结构。
+EMPTY_SWEEP_MAX_DEPTH: int = 10
 
 
 class SeedSpaceGuard(_PluginBase):
@@ -132,6 +135,10 @@ class SeedSpaceGuard(_PluginBase):
     # 默认关是因为它会把手伸到配置目录之外，属行为边界扩大，须显式授权。
     # ⚠️ 依赖 delete_torrents（联动删除种子）——总闸不开则本开关无任何效果。
     _orphan_seed_scope: bool = False
+    # 监控目录空壳扫描：清理「除 DSM 索引残片外已无任何内容」的空目录（默认开）。
+    # 只删目录、不删任何真实文件；典型成因是下载器删种时删掉了文件，但
+    # Synology 的 @eaDir 索引残片让目录无法被 rmdir，于是长期留下空壳。
+    _empty_dir_sweep: bool = True
     # 数据层操作器（懒加载，导入失败时置 None 并降级跳过联动）
     _downloadhis: Optional[DownloadHistoryOper] = None
     _transferhis: Optional[TransferHistoryOper] = None
@@ -145,6 +152,7 @@ class SeedSpaceGuard(_PluginBase):
         "seeds": 0,
         "companions": 0,
         "orphans": 0,
+        "dirs": 0,
         "stalled": False,
         "dry_run": False,
     }
@@ -173,6 +181,7 @@ class SeedSpaceGuard(_PluginBase):
         self._companion_cleanup = True
         self._orphan_cleanup = False
         self._orphan_seed_scope = False
+        self._empty_dir_sweep = True
         if not config:
             return
         self._enabled = bool(config.get("enabled"))
@@ -220,6 +229,11 @@ class SeedSpaceGuard(_PluginBase):
         # 同样用 bool()——它把手伸到配置目录之外，属行为边界扩大，
         # 必须显式授权，绝不可因「未配置」而默认打开。
         self._orphan_seed_scope = bool(config.get("orphan_seed_scope"))
+        # 空壳目录扫描：默认**开启**，仅显式为 False 时关闭。
+        # 它只删除「除 DSM 索引残片外没有任何内容」的目录，不碰任何真实文件，
+        # 因此与「主动删文件」类开关的默认策略相反；同样不用 bool()，
+        # 否则未配置（None）会被当成关闭，与默认开相反。
+        self._empty_dir_sweep = config.get("empty_dir_sweep", True) is not False
         self._init_linkage_opers()
         # 联动释放等待秒数：0~1800，默认 90
         raw_wait = config.get("sync_wait_seconds")
@@ -713,6 +727,29 @@ class SeedSpaceGuard(_PluginBase):
                             "persistent-hint": True,
                         },
                     },
+                    # ---- 分组标题：目录维护设置（两模式通用，不显隐） ----
+                    self._group_header(
+                        "目录维护设置（两种模式通用）",
+                        "整理与删种留下的空壳目录清理，不删除任何真实文件",
+                    ),
+                    {
+                        "component": "VSwitch",
+                        "props": {
+                            "model": "empty_dir_sweep",
+                            "label": "扫描并清理监控目录空壳",
+                            "class": "mt-4",
+                            "hint": "**两种模式通用，默认开启**。每轮检查监控目录，"
+                                    "删除「除 @eaDir 等 DSM 索引残片外已无任何内容」的"
+                                    "空目录——典型成因是下载器删种时删掉了文件，"
+                                    "但群晖的 @eaDir 残片让目录无法被 rmdir，"
+                                    "插件自身也不会再访问它。"
+                                    "只删目录与可安全识别的 DSM 索引残片："
+                                    "目录内只要还有任一真实文件、符号链接或"
+                                    "无法识别的元数据就整棵保留；"
+                                    "配置目录本身永不删除。试运行时只列出不删。",
+                            "persistent-hint": True,
+                        },
+                    },
                 ],
             }
         ], self._default_config()
@@ -942,13 +979,28 @@ class SeedSpaceGuard(_PluginBase):
                     + orphan_stats["torrent"]
                 )
 
+            # 空壳目录扫描：同样先于「空间是否充足」的早退执行。
+            # 空壳目录与剩余空间无关（文件早被下载器/人工删掉，只剩 @eaDir
+            # 残片），若只在空间不足时执行，绝大多数残留永远等不到那一轮。
+            sweep_stats = self._sweep_empty_dirs(dry_run)
+            sweep_lines = sweep_stats.pop("_lines", [])
+            sweep_note = ""
+            if sweep_stats["dirs"]:
+                sweep_note = (
+                    f"（另{'预计' if dry_run else ''}清理空壳目录 "
+                    f"{sweep_stats['dirs']} 个）"
+                )
+                self._clean_stats["dirs"] = (
+                    (self._clean_stats.get("dirs") or 0) + sweep_stats["dirs"]
+                )
+
             # 阈值比较用字节，避免 GB 取整导致的边界反复触发或永不触发
             if free_bytes >= threshold_bytes:
                 # 带上 prefix：试运行与正式清理必须一眼可辨，否则用户无法
                 # 从结果判断本次到底是「只列不删」还是「已真删」
                 msg = (
                     f"{prefix}空间充足（{free_gb}GB ≥ {self._threshold_gb}GB），"
-                    f"无需清理{orphan_note}{invalid_note}"
+                    f"无需清理{orphan_note}{sweep_note}{invalid_note}"
                 )
                 logger.info("【保种空间守护】%s", msg)
                 # 定时触发默认静默：cron 每 6 小时跑一次，若每次都推
@@ -957,8 +1009,10 @@ class SeedSpaceGuard(_PluginBase):
                 # 必须给回执——否则用户点了按钮却收不到任何结果，
                 # 观感等同于「点了没反应」。本轮若确实回收了空壳种子，
                 # 定时触发也要通知，否则回收动作会悄无声息。
-                need_notify = bool(orphan_lines) or source != "定时"
-                return self._finish(msg, orphan_lines or None,
+                need_notify = (
+                    bool(orphan_lines) or bool(sweep_lines) or source != "定时"
+                )
+                return self._finish(msg, (orphan_lines + sweep_lines) or None,
                                     notify=need_notify)
 
             logger.info("【保种空间守护】空间不足（%sGB < %sGB），开始%s处理（%s），"
@@ -992,7 +1046,7 @@ class SeedSpaceGuard(_PluginBase):
             else:
                 result = self._clean_by_file(free_bytes, dry_run)
             deleted, released_gb, detail_lines = result
-            detail_lines = orphan_lines + list(detail_lines or [])
+            detail_lines = orphan_lines + sweep_lines + list(detail_lines or [])
 
             suffix = ""
             if deleted == -1:
@@ -1004,7 +1058,7 @@ class SeedSpaceGuard(_PluginBase):
                 suffix = f"，释放约 {released_gb}GB"
             # 空壳回收量同样要进结果消息：它发生在删文件之前，若不汇总，
             # 用户在「空间不足」这一主路径上反而看不到任何空壳回收痕迹
-            suffix += orphan_note
+            suffix += orphan_note + sweep_note
             free_gb_now = self._disk_free_gb()
             msg = f"{prefix}空间不足处理完成{suffix}，当前剩余 {free_gb_now}GB{invalid_note}"
             return self._finish(msg, detail_lines)
@@ -1057,6 +1111,7 @@ class SeedSpaceGuard(_PluginBase):
         has_count = (
             s.get("files") or s.get("transfers") or s.get("seeds")
             or s.get("companions") or s.get("orphans") or s.get("stalled")
+            or s.get("dirs")
         )
         if not has_count:
             return msg
@@ -1075,6 +1130,9 @@ class SeedSpaceGuard(_PluginBase):
             # 同样独立成行：无主文件既非「按种子删」也非「按文件删」，
             # 与 files/seeds 混在一起会让用户看不懂数字来源
             lines.append(f"{prefix}清理无主文件：{s.get('orphans')} 个")
+        if s.get("dirs"):
+            # 空壳目录只删目录、不删文件，单独成行避免与「删除文件」混淆
+            lines.append(f"{prefix}清理空壳目录：{s.get('dirs')} 个")
         return msg + "\n" + "\n".join(lines)
 
     def _disk_free_bytes(self) -> Optional[int]:
@@ -3328,6 +3386,137 @@ class SeedSpaceGuard(_PluginBase):
         # 配置目录本身不删除，但其内部的索引残片同样会长期堆积，需一并清理
         self._purge_syno_index(owner)
 
+    # ---------------------- 监控目录空壳扫描 ----------------------
+
+    def _sweep_empty_dirs(self, dry_run: bool) -> Dict[str, Any]:
+        """
+        扫描监控目录，清理「除 DSM 索引残片外已无任何内容」的空壳目录。
+
+        与 ``_prune_empty_dirs`` 的分工：
+
+        - ``_prune_empty_dirs`` 只在插件自己删文件 / 删种之后沿该路径向上收尾；
+        - 本方法每轮独立巡检，专门处理「文件早已被下载器或人工删掉、只剩
+          @eaDir 残片」的目录——这类目录没有任何触发点，旧逻辑永远扫不到。
+
+        只删除目录与可安全识别的 DSM 索引残片，不删除任何真实文件：
+        目录内只要还有任一真实文件、符号链接或无法识别的元数据，
+        整棵子树都会被保留（见 ``_sweep_dir_tree``）。
+
+        :param dry_run: 是否试运行（只统计与记录，不做任何删除）
+        :return: 统计字典（dirs：清理的目录数 / checked：检查的目录数 / _lines：明细行）
+        """
+        stats: Dict[str, Any] = {"dirs": 0, "checked": 0, "_lines": []}
+        if not self._empty_dir_sweep:
+            return stats
+        for root in (self._active_dirs or self._target_dirs):
+            if not root or not os.path.isdir(root):
+                continue
+            try:
+                self._sweep_dir_tree(os.path.normpath(root), dry_run, stats, 0)
+            except OSError as err:
+                # 单个根目录读不了不应影响其它目录，记一条告警继续
+                logger.warning("【保种空间守护】空壳目录扫描失败（%s）：%s", root, err)
+        if stats["dirs"] or stats["checked"]:
+            logger.info(
+                "【保种空间守护】空壳目录扫描完成：检查 %d 个目录，%s %d 个",
+                stats["checked"],
+                "预计清理" if dry_run else "清理",
+                stats["dirs"],
+            )
+        return stats
+
+    def _sweep_dir_tree(self, dir_path: str, dry_run: bool,
+                        stats: Dict[str, Any], depth: int) -> bool:
+        """
+        自底向上检查并清理一棵目录树，返回该目录清理后是否已无真实内容。
+
+        判定从严：任一真实文件、符号链接、无法识别的元数据、读取失败或
+        超出递归深度上限，都会让整棵子树被判定为「有内容」而保留。
+
+        :param dir_path: 当前目录路径
+        :param dry_run: 是否试运行（只统计，不删除）
+        :param stats: 统计字典（原地累加）
+        :param depth: 相对监控根目录的深度（0 表示配置目录本身）
+        :return: 该目录在清理后是否已无任何真实内容
+        """
+        if depth > EMPTY_SWEEP_MAX_DEPTH:
+            # 深度异常时保守判「有内容」，绝不因扫不完而误删
+            return False
+        try:
+            entries = list(os.scandir(dir_path))
+        except OSError:
+            return False
+        stats["checked"] += 1
+        empty = True
+        for entry in entries:
+            if entry.name == self._SYNO_META_DIR:
+                # DSM 索引目录不算内容，但其内部残留是否可清由后续判定把关
+                continue
+            try:
+                if entry.is_symlink():
+                    # 符号链接一律视为内容：不跟随、不删除
+                    empty = False
+                    continue
+                if entry.is_dir(follow_symlinks=False):
+                    if not self._sweep_dir_tree(entry.path, dry_run, stats, depth + 1):
+                        empty = False
+                    continue
+            except OSError:
+                empty = False
+                continue
+            if not self._is_syno_meta_file(entry.name):
+                empty = False
+        if not empty:
+            return False
+        if depth == 0:
+            # 配置目录本身永不删除，即使它是空的
+            return True
+        if not self._syno_index_only(dir_path):
+            # @eaDir 内还有不可安全识别的条目（可能是用户数据）→ 保留
+            return False
+        if dry_run:
+            stats["dirs"] += 1
+            line = f"[试运行] 将删除空壳目录（已无真实文件）：{dir_path}"
+            stats["_lines"].append(line)
+            logger.info("【保种空间守护】%s", line)
+            return True
+        self._purge_syno_index(dir_path)
+        try:
+            os.rmdir(dir_path)
+        except OSError as err:
+            # 目录在扫描后被其它进程写入 / 权限不足：保留并记录，不强行删除
+            logger.warning("【保种空间守护】删除空壳目录失败 %s：%s", dir_path, err)
+            return False
+        stats["dirs"] += 1
+        line = f"已删除空壳目录（已无真实文件）：{dir_path}"
+        stats["_lines"].append(line)
+        logger.info("【保种空间守护】%s", line)
+        return True
+
+    def _syno_index_only(self, dir_path: str) -> bool:
+        """
+        只读判断目录的 @eaDir 内是否只剩可安全清理的 DSM 索引残片。
+
+        :param dir_path: 待判断目录（真实内容已由调用方判定为无）
+        :return: @eaDir 不存在或其中条目全为 DSM 索引残片时为 True
+        """
+        ea_dir = os.path.join(dir_path, self._SYNO_META_DIR)
+        if not os.path.isdir(ea_dir):
+            return True
+        try:
+            entries = os.listdir(ea_dir)
+        except OSError:
+            return False
+        for entry in entries:
+            if entry == self._SYNO_META_DIR:
+                continue
+            if os.path.exists(os.path.join(dir_path, entry)):
+                # 对应真实文件仍在 → 不属于空壳
+                return False
+            if not self._is_syno_meta_tree(os.path.join(ea_dir, entry)):
+                return False
+        return True
+
     # ---------------------- DSM 索引残片清理 ----------------------
 
     def _purge_syno_index(self, dir_path: str) -> int:
@@ -3498,6 +3687,8 @@ class SeedSpaceGuard(_PluginBase):
             "companion_cleanup": True,
             "orphan_cleanup": False,
             "orphan_seed_scope": False,
+            # 空壳目录扫描：新装默认开启（只删空目录，不碰真实文件）
+            "empty_dir_sweep": True,
             "downloaders": [],
             "manual_action": "",
         }
