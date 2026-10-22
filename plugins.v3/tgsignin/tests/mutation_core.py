@@ -362,6 +362,25 @@ MUTANTS = [
         '                        "error": "",',
         "账号级失败原因不再带进结果（看不出为什么没签上）",
     ),
+    (
+        "core/signin.py",
+        "        cutoff = menu_date if cutoff is None or menu_date > cutoff else cutoff",
+        "        cutoff = menu_date + timedelta(microseconds=1) if cutoff is None "
+        "or menu_date > cutoff else cutoff",
+        "证据下界把菜单所在那一秒排除（同秒到达的签到结果被滤掉 → 误报失败）",
+    ),
+    (
+        "core/signin.py",
+        "            and text == menu_text",
+        "            and (text == menu_text or True)",
+        "被点击的菜单一律按 id 排除（原地改写成结果的同一条消息也被丢弃）",
+    ),
+    (
+        "core/signin.py",
+        '        edited_date = getattr(message, "edit_date", None)',
+        "        edited_date = None",
+        "原地编辑时间不再参与「本次证据」判定（菜单改写成结果会被当旧消息丢弃）",
+    ),
 ]
 
 

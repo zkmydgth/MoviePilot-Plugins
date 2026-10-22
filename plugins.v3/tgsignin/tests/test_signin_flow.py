@@ -117,6 +117,8 @@ class _FakeMessage:
         date=None,
         sender_id=None,
         sender=None,
+        message_id=None,
+        edit_date=None,
     ) -> None:
         """
         构造消息。
@@ -127,6 +129,8 @@ class _FakeMessage:
         :param date: 消息时间（带时区）；None 表示不参与时间过滤
         :param sender_id: 发送者数字 ID（群内归属判定用）；None 表示取不到
         :param sender: 发送者对象（含 ``bot`` 标记）；None 表示拿不到发送者
+        :param message_id: 消息 ID（排除被点击菜单时用）；None 表示取不到
+        :param edit_date: 原地编辑时间；None 表示没有被编辑过
         """
         self.text = text
         self.out = out
@@ -134,6 +138,8 @@ class _FakeMessage:
         self.date = date
         self.sender_id = sender_id
         self.sender = sender
+        self.id = message_id
+        self.edit_date = edit_date
 
 
 class _FakeEntity:
@@ -837,12 +843,52 @@ class TestSigninStaleGuard(unittest.TestCase):
             "请选择功能",
             buttons=client.make_buttons(["🎯 签到"]),
             date=self.FRESH,
+            message_id=101,
         )
         client._batches = [[menu], [menu]]
         result = asyncio.run(signin_one(client, self._target()))
         self.assertFalse(result["ok"])
         self.assertEqual(result["status"], STATUS_FAILED)
         self.assertIn("无任何返回", result["error"])
+
+    def test_reply_in_same_second_as_menu_success(self) -> None:
+        """菜单与签到结果落在同一秒时仍要认（秒级精度回归，2026-10-23 实测）。
+
+        Telegram 消息时间只到「秒」：bot 常把菜单和「🎉 签到成功」发在同一秒。
+        旧实现把证据下界设成 ``menu_date + 1µs``，同秒到达的结果消息会被整条滤掉，
+        于是实际签到成功却报「只回了菜单/没有给出签到结果」。
+        """
+        client = _FakeClient(batches=[], sent_date=self.SENT)
+        menu = _FakeMessage(
+            "请选择功能",
+            buttons=client.make_buttons(["🎯 签到"]),
+            date=self.FRESH,
+            message_id=201,
+        )
+        reply = _FakeMessage(
+            "🎉 签到成功 | 12 子弹", date=self.FRESH, message_id=202
+        )
+        client._batches = [[menu], [reply, menu]]
+        result = asyncio.run(signin_one(client, self._target()))
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["status"], STATUS_SUCCESS)
+        self.assertIn("签到成功", result["reply"])
+
+    def test_inplace_edited_menu_counts_as_result(self) -> None:
+        """被点击的菜单原地改写成签到结果：按 edit_date 视为本次证据。"""
+        menu = _FakeMessage("请选择功能", date=self.OLD, message_id=301)
+        edited = _FakeMessage(
+            "🎉 签到成功 | 8 子弹",
+            date=self.OLD,
+            edit_date=self.FRESH,
+            message_id=301,
+        )
+        picked = signin_mod._pick_reply(
+            [edited, menu],
+            self.SENT,
+            menu=(301, "请选择功能"),
+        )
+        self.assertIn("签到成功", picked)
 
     def test_fresh_alert_repeated(self) -> None:
         """弹窗说「已签到」也计入判据（修复 signin_one 漏传 alert）。"""

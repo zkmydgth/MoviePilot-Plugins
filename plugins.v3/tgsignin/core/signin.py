@@ -311,17 +311,31 @@ async def _click_and_read(
     # click() 对 inline 按钮返回 BotCallbackAnswer（含 .message/.alert）
     answer = await button.click()
     alert = str(getattr(answer, "message", "") or "")
-    # 证据下界：菜单自身不算「点击后的新回复」，但也不能早于本次 /start
+    # 证据下界：菜单自身不算「点击后的新回复」，但也不能早于本次 /start。
+    # ⚠️ Telegram 消息时间只有「秒」精度，bot 常把菜单和签到结果发在同一秒里；
+    # 旧实现用 menu_date + 1µs 当下界，会把同秒到达的「🎉 签到成功」整条滤掉 →
+    # 实际签到成功却报「只回了菜单」（2026-10-23 @okemby_bot / @HG_Emby_bot 实测）。
+    # 现在下界取菜单所在秒（含），菜单本身靠 id + 原文排除，被原地编辑改写过
+    # 文字的同一条消息仍然算证据。
     menu_date = getattr(message, "date", None)
     cutoff = sent_at
     if menu_date is not None:
-        edge = menu_date + timedelta(microseconds=1)
-        cutoff = edge if cutoff is None or edge > cutoff else cutoff
+        cutoff = menu_date if cutoff is None or menu_date > cutoff else cutoff
     await asyncio.sleep(max(1, min(int(wait_seconds), 60)))
     latest = await client.get_messages(entity, limit=_MSG_SCAN_LIMIT)
+    menu_snapshot = (
+        getattr(message, "id", None),
+        str(getattr(message, "text", "") or ""),
+    )
     return (
         True,
-        _pick_reply(latest, cutoff, bot_id=bot_id, owner_marker=owner_marker),
+        _pick_reply(
+            latest,
+            cutoff,
+            bot_id=bot_id,
+            owner_marker=owner_marker,
+            menu=menu_snapshot,
+        ),
         alert,
         "",
     )
@@ -344,6 +358,13 @@ def _fresh_messages(
     fresh: List[Any] = []
     for message in messages:
         sent_date = getattr(message, "date", None)
+        # 原地编辑过的消息（date 保持原始发送时间、edit_date 是改写时间）也算「本次」：
+        # 有些 bot 直接把菜单改写成签到结果，只比 date 会把它当旧消息丢掉（2026-10-23 加）
+        edited_date = getattr(message, "edit_date", None)
+        if edited_date is not None and (
+            sent_date is None or edited_date > sent_date
+        ):
+            sent_date = edited_date
         if sent_date is None:
             continue
         try:
@@ -359,6 +380,7 @@ def _pick_reply(
     sent_at: Optional[Any] = None,
     bot_id: Optional[int] = None,
     owner_marker: Optional[str] = None,
+    menu: Optional[Tuple[Any, str]] = None,
 ) -> str:
     """
     从消息列表里挑一条「本次、且确实回给自己」的文本回复。
@@ -367,7 +389,9 @@ def _pick_reply(
 
     1. 只认本次发送之后的（``sent_at``）；
     2. 只认目标 bot 自己发的（``bot_id``）：别人的发言、别人触发的菜单不再算；
-    3. 配了归属标识时回复里必须出现它（如站点账号名）。
+    3. 配了归属标识时回复里必须出现它（如站点账号名）；
+    4. 传了 ``menu``（被点击的菜单 ``(id, 原文)``）时排除菜单本身 —— 否则
+       「点了按钮但 bot 只回菜单」会被当成回复，把分档逻辑带偏。
 
     一条都不满足就返回空串，由上层判失败/未确认，不拿别人的消息顶账。
 
@@ -375,16 +399,25 @@ def _pick_reply(
     :param sent_at: 本次发送时刻；None 表示不做时间过滤
     :param bot_id: 目标 bot 的数字 ID；None 表示不做发送者过滤
     :param owner_marker: 回复归属标识（可选）
+    :param menu: 被点击菜单的 ``(消息 id, 原文)``；None 表示不排除
     :return str: 回复文本；没有则返回空串
     """
 
     latest = _fresh_messages(messages, sent_at)
     marker = str(owner_marker or "").strip().lower()
+    menu_id, menu_text = menu if menu is not None else (None, None)
     for message in latest:
         if getattr(message, "out", False):
             continue
         text = str(getattr(message, "text", None) or "")
         if not text:
+            continue
+        if (
+            menu_id is not None
+            and getattr(message, "id", None) == menu_id
+            and text == menu_text
+        ):
+            # 被点击的那条菜单本身不是结果；只有它被原地改写成了别的内容才算证据
             continue
         if not _from_bot(message, bot_id):
             continue
