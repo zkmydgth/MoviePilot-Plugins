@@ -22,7 +22,13 @@ from app.runtime.log import logger
 from app.schemas import MessageType
 
 from .douban_api import DoubanScoreClient
-from .matcher import build_ai_messages, parse_ai_bindings, season_marker, select_candidates
+from .matcher import (
+    build_ai_messages,
+    episode_slot,
+    parse_ai_bindings,
+    season_marker,
+    select_candidates,
+)
 from .version import VERSION
 
 
@@ -973,6 +979,8 @@ class DoubanScoreWatch(_PluginBase):
             season = getattr(sub, "season", None)
             if isinstance(season, int) and season not in entry["seasons"]:
                 entry["seasons"].append(season)
+            entry["total_episode"] = getattr(sub, "total_episode", None)
+            entry["lack_episode"] = getattr(sub, "lack_episode", None)
             entry["sub_state"] = str(getattr(sub, "state", "") or "")
             if entry.get("status") == "removed":
                 entry["status"] = "pending"
@@ -1022,13 +1030,11 @@ class DoubanScoreWatch(_PluginBase):
         seasons = entry.get("seasons") or []
         # 单季订阅按季对齐豆瓣条目；多季订阅按整剧条目处理
         wanted_season = seasons[0] if len(seasons) == 1 else None
-        result = select_candidates(
-            candidates, str(entry.get("title") or ""), entry.get("year"), wanted_season
-        )
-        if result.get("auto"):
-            self._bind(entry, result["auto"], "search")
+        auto, pool, note = self._resolve_candidates(entry, candidates, client, wanted_season)
+        if auto:
+            self._bind(entry, auto, "search")
+            entry["bindings"][-1]["match_note"] = note
             return True
-        pool = result.get("candidates") or []
         entry["candidates"] = pool
         entry["tries"] = int(entry.get("tries") or 0) + 1
         if pool and self._ai_enabled and ai_budget[0] > 0:
@@ -1048,6 +1054,100 @@ class DoubanScoreWatch(_PluginBase):
         entry["match_reason"] = "豆瓣未搜到条目" if not pool else f"{len(pool)} 个候选待确认"
         entry["last_check"] = datetime.now().strftime("%Y-%m-%d %H:%M")
         return False
+
+    def _resolve_candidates(
+        self,
+        entry: Dict[str, Any],
+        candidates: List[Dict[str, Any]],
+        client: DoubanScoreClient,
+        wanted_season: Optional[int],
+    ) -> Tuple[Optional[Dict[str, Any]], List[Dict[str, Any]], str]:
+        """
+        在候选中确定要绑定的豆瓣条目。
+
+        优先级：季标记且集数能覆盖当前进度 → 按累计集数区间定位 → 标题与年份。
+        长篇动画常见「TMDB 一季、豆瓣拆成第一季/年番1/年番2」，必须按集数区间落位。
+
+        :param entry: 追踪条目
+        :param candidates: 豆瓣候选
+        :param client: 豆瓣查询客户端，用于补齐条目集数
+        :param wanted_season: 单季订阅的季号
+        :return: (自动绑定条目或 None, 候选列表, 判定说明)
+        """
+        if not candidates:
+            return None, [], "豆瓣未搜到条目"
+        current_episode = self._current_episode(entry)
+        # 没有集数信息时退回纯标题/年份匹配
+        if not current_episode:
+            result = select_candidates(
+                candidates, str(entry.get("title") or ""), entry.get("year"), wanted_season
+            )
+            return result.get("auto"), result.get("candidates") or [], str(result.get("reason") or "")
+        enriched = self._enrich_candidates(entry, candidates, client)
+        if wanted_season:
+            same = [
+                item for item in enriched if season_marker(item.get("title")) == wanted_season
+            ]
+            if len(same) == 1:
+                episodes = same[0].get("episodes")
+                if not episodes or episodes >= current_episode:
+                    return same[0], [], f"第{wanted_season}季命中（{episodes or '集数未知'}集）"
+            if len(same) > 1:
+                return None, same[:5], f"豆瓣有多个第{wanted_season}季候选"
+        hit = episode_slot(enriched, current_episode)
+        if hit:
+            return (
+                hit,
+                [],
+                f"按集数区间匹配：第 {hit.get('episode_start')}-{hit.get('episode_end')} 集 → "
+                f"{hit.get('title')}（当前第 {current_episode} 集）",
+            )
+        result = select_candidates(
+            enriched, str(entry.get("title") or ""), entry.get("year"), wanted_season
+        )
+        if result.get("auto"):
+            return result.get("auto"), [], str(result.get("reason") or "")
+        return None, (result.get("candidates") or enriched)[:5], str(result.get("reason") or "")
+
+    def _current_episode(self, entry: Dict[str, Any]) -> int:
+        """
+        计算订阅当前进度到第几集。
+
+        :param entry: 追踪条目
+        :return: 集号；信息不足时返回 0
+        """
+        total = entry.get("total_episode")
+        lack = entry.get("lack_episode")
+        if isinstance(total, int) and isinstance(lack, int) and total > 0 and 0 <= lack <= total:
+            return total - lack
+        return 0
+
+    def _enrich_candidates(
+        self,
+        entry: Dict[str, Any],
+        candidates: List[Dict[str, Any]],
+        client: DoubanScoreClient,
+    ) -> List[Dict[str, Any]]:
+        """
+        为候选补充豆瓣条目的集数与年份。
+
+        :param entry: 追踪条目
+        :param candidates: 豆瓣候选
+        :param client: 豆瓣查询客户端
+        :return: 补充后的候选列表
+        """
+        enriched: List[Dict[str, Any]] = []
+        for item in candidates[:8]:
+            detail = client.detail(str(item.get("douban_id")), str(entry.get("type") or "")) or {}
+            merged = dict(item)
+            if detail.get("episodes"):
+                merged["episodes"] = detail["episodes"]
+            if detail.get("year"):
+                merged["year"] = detail["year"]
+            enriched.append(merged)
+            # 逐条补齐，避免连续请求触发豆瓣风控
+            time.sleep(0.8)
+        return enriched
 
     def _check_entry(
         self,
@@ -1459,33 +1559,55 @@ class DoubanScoreWatch(_PluginBase):
 
     def _migrate_season_bindings(self) -> None:
         """
-        清理旧版本按年份误绑到其它季的绑定。
+        清理旧版本的错误绑定。
 
-        单季订阅且季号大于 1 时，绑定的豆瓣标题若不带该季标记（或带的是别的季），
-        一律解绑，让下一轮按季重新匹配；豆瓣只有整剧条目时重匹配仍会回到同一条目。
+        v1：单季订阅且季号大于 1 时，绑定标题不带该季标记（或是别的季）的一律解绑。
+        v2：单季订阅（S1）却绑到带「第X季 / 年番X」标记的条目时也解绑，
+            让下一轮按累计集数区间重新落位（长篇动画常见这种拆分）。
         """
         state = self._state or {}
-        if state.get("season_migrated_v1"):
-            return
-        for entry in (state.get("entries") or {}).values():
-            seasons = entry.get("seasons") or []
-            if len(seasons) != 1:
-                continue
-            wanted = seasons[0]
-            if not isinstance(wanted, int) or wanted <= 1:
-                continue
-            bindings = entry.get("bindings") or []
-            kept = [
-                binding
-                for binding in bindings
-                if season_marker(binding.get("title") or "") == wanted
-            ]
-            if len(kept) != len(bindings):
-                entry["bindings"] = kept
-                entry["candidates"] = []
-                if not kept:
-                    entry["status"] = "pending"
-        state["season_migrated_v1"] = True
+        changed = False
+        if not state.get("season_migrated_v1"):
+            for entry in (state.get("entries") or {}).values():
+                seasons = entry.get("seasons") or []
+                if len(seasons) != 1:
+                    continue
+                wanted = seasons[0]
+                if not isinstance(wanted, int) or wanted <= 1:
+                    continue
+                bindings = entry.get("bindings") or []
+                kept = [
+                    binding
+                    for binding in bindings
+                    if season_marker(binding.get("title") or "") == wanted
+                ]
+                if len(kept) != len(bindings):
+                    entry["bindings"] = kept
+                    entry["candidates"] = []
+                    if not kept:
+                        entry["status"] = "pending"
+                    changed = True
+            state["season_migrated_v1"] = True
+        if not state.get("episode_migrated_v1"):
+            for entry in (state.get("entries") or {}).values():
+                seasons = entry.get("seasons") or []
+                if seasons != [1]:
+                    continue
+                bindings = entry.get("bindings") or []
+                kept = [
+                    binding
+                    for binding in bindings
+                    if season_marker(binding.get("title") or "") is None
+                ]
+                if len(kept) != len(bindings):
+                    entry["bindings"] = kept
+                    entry["candidates"] = []
+                    if not kept:
+                        entry["status"] = "pending"
+                    changed = True
+            state["episode_migrated_v1"] = True
+        if changed or not state.get("season_migrated_v2_saved"):
+            state["season_migrated_v2_saved"] = True
         self._save_state(state)
 
     @staticmethod
