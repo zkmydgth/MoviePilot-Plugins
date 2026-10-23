@@ -104,7 +104,7 @@
     "name": "豆瓣开分通知",
     "description": "跟踪订阅资源的豆瓣评分，从无分变为有分时推送分数、评价人数与首次观测日期；只追无分条目，支持多豆瓣条目绑定与 AI 季映射（默认关）。",
     "labels": "消息通知,豆瓣",
-    "version": "1.0.8",
+    "version": "1.0.9",
     "release": true,
     "icon": "doubanscorewatch.png",
     "author": "zkmydgth",
