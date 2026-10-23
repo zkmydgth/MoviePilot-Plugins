@@ -59,6 +59,40 @@ def season_marker(title: Any) -> Optional[int]:
     return _cn_to_int(match.group(1) or match.group(2) or "")
 
 
+def episode_slot(candidates: List[Dict[str, Any]], current_episode: int) -> Optional[Dict[str, Any]]:
+    """
+    按累计集数把当前集号落到某个豆瓣条目上。
+
+    适用于 TMDB 只有一季、豆瓣却按「第一季 / 年番1 / 年番2…」拆分的长篇动画：
+    按年份排序后累加各条目集数，返回覆盖 current_episode 的那一条。
+
+    :param candidates: 带 episodes 字段的豆瓣候选
+    :param current_episode: 当前已播/已订到的集号（从 1 开始）
+    :return: 命中的候选（附带 episode_start / episode_end），无命中时返回 None
+    """
+    if current_episode <= 0:
+        return None
+    pool = [
+        item
+        for item in candidates
+        if isinstance(item.get("episodes"), int) and item["episodes"] > 0
+    ]
+    if not pool:
+        return None
+    pool.sort(key=lambda item: (str(item.get("year") or "9999"), str(item.get("douban_id") or "")))
+    offset = 0
+    for item in pool:
+        start = offset + 1
+        end = offset + int(item["episodes"])
+        offset = end
+        if start <= current_episode <= end:
+            hit = dict(item)
+            hit["episode_start"] = start
+            hit["episode_end"] = end
+            return hit
+    return None
+
+
 def normalize_title(value: Any) -> str:
     """
     规范化标题，便于做等值比较。
