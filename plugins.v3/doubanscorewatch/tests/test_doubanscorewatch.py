@@ -191,6 +191,67 @@ class DoubanScoreWatchTestCase(unittest.TestCase):
         self.assertEqual(entry["bindings"], [])
         self.assertEqual(entry["status"], "pending")
 
+    # A4. 集数区间落位（长篇动画）
+    def test_episode_slot_picks_year_arc(self):
+        """按累计集数把第 163 集落到年番3。"""
+        from matcher import episode_slot
+
+        hit = episode_slot(
+            [
+                {"douban_id": "1", "title": "仙逆 第一季", "year": "2023", "episodes": 24},
+                {"douban_id": "2", "title": "仙逆 年番1", "year": "2024", "episodes": 52},
+                {"douban_id": "3", "title": "仙逆 年番2", "year": "2025", "episodes": 52},
+                {"douban_id": "4", "title": "仙逆 年番3", "year": "2026", "episodes": 52},
+            ],
+            163,
+        )
+        self.assertIsNotNone(hit)
+        self.assertEqual(hit["douban_id"], "4")
+        self.assertEqual((hit["episode_start"], hit["episode_end"]), (129, 180))
+
+    def test_resolve_candidates_uses_episode_range(self):
+        """季标记条目的集数覆盖不了当前进度时，改按集数区间落位。"""
+        entry = self._entry(
+            title="仙逆",
+            year="2023",
+            seasons=[1],
+            total_episode=200,
+            lack_episode=37,
+        )
+        candidates = [
+            {"douban_id": "1", "title": "仙逆 第一季", "year": "2023"},
+            {"douban_id": "2", "title": "仙逆 年番1", "year": "2024"},
+            {"douban_id": "3", "title": "仙逆 年番2", "year": "2025"},
+            {"douban_id": "4", "title": "仙逆 年番3", "year": "2026"},
+        ]
+        episodes = {"1": 24, "2": 52, "3": 52, "4": 52}
+
+        class FakeClient:
+            """按 ID 返回集数的客户端替身。"""
+
+            def detail(self, douban_id, media_type):
+                """返回集数。"""
+                del media_type
+                return {"episodes": episodes[douban_id]}
+
+        auto, _pool, note = self.plugin._resolve_candidates(entry, candidates, FakeClient(), 1)
+        self.assertIsNotNone(auto)
+        self.assertEqual(auto["douban_id"], "4")
+        self.assertIn("按集数区间匹配", note)
+
+    def test_migration_unbinds_marked_binding_for_single_season(self):
+        """单季订阅绑到带季标记的条目时，迁移解绑等待按集数重匹配。"""
+        entry = self._entry(
+            title="仙逆",
+            seasons=[1],
+            status="scored",
+            bindings=[self._binding(douban_id="1", title="仙逆 第一季", year="2023")],
+        )
+        self.plugin._state = {"entries": {entry["key"]: entry}, "pending_notices": []}
+        self.plugin._migrate_season_bindings()
+        self.assertEqual(entry["bindings"], [])
+        self.assertEqual(entry["status"], "pending")
+
     # B. AI 结果校验
     def test_parse_ai_bindings_filters_invalid(self):
         """候选外 ID、低置信度与越界季号都被丢弃。"""
