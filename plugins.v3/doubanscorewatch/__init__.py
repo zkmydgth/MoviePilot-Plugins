@@ -858,18 +858,51 @@ class DoubanScoreWatch(_PluginBase):
         state = self._state or self._load_state()
         self._ensure_plan(state, now)
         self._state = state
-        if self._rounds_done(state, now.date()) >= self._rounds_per_day:
+        done = self._rounds_done(state, now.date())
+        if done >= self._rounds_per_day:
+            self._note_once(
+                state,
+                "done",
+                f"今日定时检查已完成 {done}/{self._rounds_per_day} 轮，跳过",
+            )
             self._flush_notices(state)
             return
         if not self._in_window(now, self._window_start, self._window_end):
+            self._note_once(
+                state,
+                "outside",
+                f"当前 {now:%H:%M} 不在检查窗口 {self._window_start}-{self._window_end}，跳过",
+            )
             self._flush_notices(state)
             return
         planned = self._next_plan_time(state, now)
-        if planned is None or now < planned:
+        if planned is None:
+            self._note_once(state, "noplan", "今日没有待执行计划，跳过")
+            self._flush_notices(state)
+            return
+        if now < planned:
+            self._note_once(state, "wait", f"等待今日计划时间 {planned:%H:%M}（当前 {now:%H:%M}）")
             self._flush_notices(state)
             return
         self._run_round(state, now)
         self._flush_notices(state)
+
+    def _note_once(self, state: Dict[str, Any], key: str, message: str) -> None:
+        """
+        同一自然日、同一原因只记一次 INFO 日志，避免每十分钟刷屏。
+
+        :param state: 插件状态字典
+        :param key: 原因标识
+        :param message: 日志正文
+        """
+        today = date.today().isoformat()
+        logged = state.setdefault("logged_reasons", {})
+        if logged.get(key) == today:
+            return
+        logged[key] = today
+        state["logged_reasons"] = {name: day for name, day in logged.items() if day == today}
+        self._save_state(state)
+        logger.info(f"【豆瓣开分】{message}")
 
     def _run_round(
         self,
