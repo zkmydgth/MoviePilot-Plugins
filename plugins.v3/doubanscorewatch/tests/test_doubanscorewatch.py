@@ -488,6 +488,36 @@ class DoubanScoreWatchTestCase(unittest.TestCase):
         self.assertEqual(len(set(timestamps)), 2)
 
     # F. 页面渲染
+    def test_note_once_deduplicates_per_day(self):
+        """同一原因同一天只记一次日志，避免每十分钟刷屏。"""
+        from app.runtime.log import logger as stub_logger
+
+        self.plugin._state = {"entries": {}, "pending_notices": [], "logged_reasons": {}}
+        before = len(stub_logger.records)
+        self.plugin._note_once(self.plugin._state, "done", "今日定时检查已完成 1/1 轮，跳过")
+        self.plugin._note_once(self.plugin._state, "done", "今日定时检查已完成 1/1 轮，跳过")
+        hits = [m for m in stub_logger.records[before:] if "已完成" in m]
+        self.assertEqual(len(hits), 1)
+
+    def test_tick_logs_completed_reason(self):
+        """当天轮次已用完时，定时入口写一条跳过原因。"""
+        import datetime as dt
+
+        from app.runtime.log import logger as stub_logger
+
+        self.plugin._enabled = True
+        self.plugin._rounds_per_day = 1
+        today = dt.date.today().isoformat()
+        self.plugin._state = {
+            "entries": {},
+            "pending_notices": [],
+            "plan": {"date": today, "times": ["21:10"], "done": 1},
+        }
+        before = len(stub_logger.records)
+        self.plugin._tick()
+        hits = [m for m in stub_logger.records[before:] if "今日定时检查已完成" in m]
+        self.assertEqual(len(hits), 1)
+
     def test_page_lists_candidate_bind_buttons(self):
         """未匹配条目应在页面列出候选与绑定按钮。"""
         self.plugin._enabled = True
