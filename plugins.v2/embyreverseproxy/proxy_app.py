@@ -4,7 +4,7 @@ from hashlib import sha256
 from re import IGNORECASE, compile as re_compile, search as re_search, sub as re_sub
 from time import monotonic
 from typing import Any, List, Tuple
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,12 +15,16 @@ from fastapi.responses import (
     StreamingResponse,
 )
 from httpx import AsyncClient, Limits, Response as HttpxResponse
+from starlette.requests import ClientDisconnect
 from websockets import connect
 
 from app.log import logger
 
 PLAYBACK_URL_CACHE_TTL_SECONDS = 90
 PLAYBACK_URL_CACHE_MAX_SIZE = 500
+PLAYBACK_STRM_CACHE_TTL_SECONDS = 300
+
+EMBY_AUTH_TOKEN_RE = re_compile(r'Token="([^"]+)"')
 
 CACHE_KEY_HEADERS = (
     "authorization",
@@ -127,6 +131,23 @@ def create_app(
     emby_host = emby_host.rstrip("/")
     pin_rules = pin_rules or []
 
+    async def _read_request_body_safe(request: Request) -> bytes | None:
+        """
+        读取请求体；客户端已断开时返回 None，避免 ClientDisconnect 未处理导致 500
+
+        :param request: 当前请求
+        :return: 请求体字节串，或 None 表示客户端已断开
+        """
+        try:
+            return await request.body()
+        except ClientDisconnect:
+            logger.debug(
+                "客户端已断开: %s %s",
+                request.method,
+                request.scope.get("path", ""),
+            )
+            return None
+
     def _strip_accept_encoding(headers: dict[str, str]) -> dict[str, str]:
         """
         去掉 Accept-Encoding，便于上游返回未压缩内容以便修改 body。
@@ -152,7 +173,7 @@ def create_app(
             return True
         if path.endswith(".html") or path.endswith(".htm"):
             return True
-        if path.startswith("/emby/") or path.startswith("/items/"):
+        if path.startswith(("/emby/", "/items/", "/videos/", "/audio/", "/sync/")):
             return False
         last = path.rsplit("/", 1)[-1]
         if "." not in last:
@@ -222,11 +243,15 @@ def create_app(
                 return True
         return False
 
-    def _apply_force_direct_play_to_media_sources(data: dict[str, Any]) -> None:
+    def _apply_force_direct_play_to_media_sources(
+        data: dict[str, Any], item_id: str
+    ) -> None:
         """
-        对 PlaybackInfo 中所有 MediaSource 强制 DirectPlay，去掉转码相关字段。
+        对 PlaybackInfo 中所有 MediaSource 强制 DirectPlay，去掉转码相关字段，
+        并将 DirectStreamUrl 设为相对直链（相对当前连接主机，便于走代理 302）
 
-        :param data: PlaybackInfo 字典（就地修改）。
+        :param data: PlaybackInfo 字典（就地修改）
+        :param item_id: 条目 ID，用于拼 /videos 或 /audio 下的 stream 路径
         """
         sources = data.get("MediaSources")
         if not isinstance(sources, list):
@@ -241,9 +266,21 @@ def create_app(
                 "TranscodingUrl",
                 "TranscodingContainer",
                 "TranscodingSubProtocol",
-                "DirectStreamUrl",
             ):
                 ms.pop(key, None)
+            ms.pop("DirectStreamUrl", None)
+            sid = ms.get("Id", "")
+            if not isinstance(sid, str) or not sid:
+                continue
+            qsid = quote(sid, safe="")
+            if str(ms.get("Type", "")).lower() == "audio":
+                ms["DirectStreamUrl"] = (
+                    f"/audio/{item_id}/stream?Static=true&MediaSourceId={qsid}"
+                )
+            else:
+                ms["DirectStreamUrl"] = (
+                    f"/videos/{item_id}/stream?Static=true&MediaSourceId={qsid}"
+                )
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -255,6 +292,8 @@ def create_app(
         app.state.playback_url_cache = {}
         app.state.playback_cache_order = []
         app.state.playback_cache_lock = Lock()
+        app.state.strm_source_cache = {}
+        app.state.strm_source_lock = Lock()
         yield
         await app.state.http_client_follow.aclose()
         await app.state.http_client_no_follow.aclose()
@@ -291,16 +330,24 @@ def create_app(
 
     def _extract_api_key(request: Request) -> str | None:
         """
-        从请求中提取 api_key（query 或 X-Emby-Token 头）。
+        从请求中提取 api_key（query、X-Emby-Token 头、或 MediaBrowser 认证头）
 
-        :param request: 当前请求。
-        :return: API Key 或 None。
+        :param request: 当前请求
+        :return: API Key 或 None
         """
         api_key = request.query_params.get("api_key") or request.query_params.get(
             "X-Emby-Token"
         )
         if not api_key:
             api_key = request.headers.get("X-Emby-Token")
+        if not api_key:
+            for hdr in ("X-Emby-Authorization", "Authorization"):
+                val = request.headers.get(hdr)
+                if val:
+                    m = EMBY_AUTH_TOKEN_RE.search(val)
+                    if m:
+                        api_key = m.group(1)
+                        break
         return api_key
 
     def _build_forward_headers(request: Request) -> dict[str, str]:
@@ -334,18 +381,17 @@ def create_app(
         request: Request, item_id: str, name: str = ""
     ) -> RedirectResponse | StreamingResponse | JSONResponse | Response:
         """
-        处理媒体路由：有 api_key 时尝试 PlaybackInfo 后重定向/流式代理，否则走通用反向代理。
+        处理媒体路由：尝试 302 重定向（PlaybackInfo 或 STRM 缓存），失败则走通用反向代理
 
-        :param request: 当前请求。
-        :param item_id: 媒体项 ID。
-        :param name: 路径中的名称（未使用，由路由匹配）。
-        :return: 重定向、流式响应或错误 JSON。
+        :param request: 当前请求
+        :param item_id: 媒体项 ID
+        :param name: 路径中的名称（未使用，由路由匹配）
+        :return: 重定向、流式响应或错误 JSON
         """
         api_key = _extract_api_key(request)
-        if api_key:
-            resp = await _try_media_response(item_id, api_key, request)
-            if resp:
-                return resp
+        resp = await _try_media_response(item_id, api_key, request)
+        if resp:
+            return resp
         return await _reverse_proxy(request)
 
     async def _resolve_redirect(
@@ -400,16 +446,16 @@ def create_app(
         return url_or_path
 
     async def _try_media_response(
-        item_id: str, api_key: str, request: Request
-    ) -> RedirectResponse | StreamingResponse | JSONResponse | None:
+        item_id: str, api_key: str | None, request: Request
+    ) -> RedirectResponse | None:
         """
-        查询 PlaybackInfo 获取真实地址；浏览器走流式代理，原生客户端走 302 重定向。
-        对 (item_id, media_source_id, 必要 header 哈希) 做短期缓存，命中时跳过 PlaybackInfo 与 _resolve_redirect。
+        尝试获取媒体文件真实地址并返回 302 重定向
+        优先级：已解析 URL 缓存 → PlaybackInfo 实时查询 → STRM 源缓存
 
-        :param item_id: 媒体项 ID。
-        :param api_key: Emby API Key。
-        :param request: 当前请求。
-        :return: 重定向/流式/错误响应，或 None 表示回退到反向代理。
+        :param item_id: 媒体项 ID
+        :param api_key: Emby API Key，可为 None
+        :param request: 当前请求
+        :return: 302 重定向响应，或 None 表示回退到反向代理
         """
         media_source_id = request.query_params.get("MediaSourceId") or ""
         cache_key = (item_id, media_source_id, _header_hash(request))
@@ -430,44 +476,70 @@ def create_app(
                     except ValueError:
                         pass
         if cached_final_url is not None:
+            logger.debug("PlaybackInfo 使用缓存: item_id=%s", item_id)
             return RedirectResponse(url=cached_final_url, status_code=302)
 
-        url = f"{emby_host}/Items/{item_id}/PlaybackInfo?X-Emby-Token={api_key}"
-        client_follow = request.app.state.http_client_follow
-        try:
-            resp = await client_follow.post(url, timeout=10)
-            resp.raise_for_status()
-            data = resp.json()
-        except Exception:
-            logger.warning("PlaybackInfo 请求失败: item_id=%s", item_id, exc_info=True)
+        http_path = None
+
+        if api_key:
+            url = f"{emby_host}/Items/{item_id}/PlaybackInfo?X-Emby-Token={api_key}"
+            client_follow = request.app.state.http_client_follow
+            try:
+                resp = await client_follow.post(url, timeout=10)
+                resp.raise_for_status()
+                data = resp.json()
+            except Exception:
+                logger.warning(
+                    "PlaybackInfo 请求失败: item_id=%s", item_id, exc_info=True
+                )
+                data = {}
+            for source in data.get("MediaSources", []):
+                sid = source.get("Id", "")
+                if media_source_id and sid != media_source_id:
+                    continue
+                path = source.get("Path", "")
+                path = _apply_pin_rules(path, pin_rules)
+                if path.startswith(("http://", "https://")):
+                    http_path = path
+                    break
+
+        if not http_path:
+            strm_cache = request.app.state.strm_source_cache
+            strm_lock = request.app.state.strm_source_lock
+            async with strm_lock:
+                entry = strm_cache.get(item_id)
+            if entry:
+                sources_map, expiry_ts = entry
+                if monotonic() < expiry_ts:
+                    if media_source_id and media_source_id in sources_map:
+                        http_path = sources_map[media_source_id]
+                    elif sources_map:
+                        http_path = next(iter(sources_map.values()))
+                    if http_path:
+                        logger.debug("使用 STRM 源缓存: item_id=%s", item_id)
+
+        if not http_path:
             return None
 
-        for source in data.get("MediaSources", []):
-            sid = source.get("Id", "")
-            if media_source_id and sid != media_source_id:
-                continue
-            path = source.get("Path", "")
-            path = _apply_pin_rules(path, pin_rules)
-            if path.startswith(("http://", "https://")):
-                fwd_headers = _build_forward_headers(request)
-                final_url = await _resolve_redirect(client_follow, path, fwd_headers)
+        client_follow = request.app.state.http_client_follow
+        fwd_headers = _build_forward_headers(request)
+        final_url = await _resolve_redirect(client_follow, http_path, fwd_headers)
 
-                async with lock:
-                    now = monotonic()
-                    expiry = now + PLAYBACK_URL_CACHE_TTL_SECONDS
-                    expired = [k for k in order if cache.get(k) and cache[k][1] < now]
-                    for k in expired:
-                        cache.pop(k, None)
-                    order[:] = [k for k in order if k not in frozenset(expired)]
-                    while len(cache) >= PLAYBACK_URL_CACHE_MAX_SIZE and order:
-                        oldest = order.pop(0)
-                        cache.pop(oldest, None)
-                    cache[cache_key] = (final_url, expiry)
-                    order.append(cache_key)
+        async with lock:
+            now = monotonic()
+            expiry = now + PLAYBACK_URL_CACHE_TTL_SECONDS
+            expired = [k for k in order if cache.get(k) and cache[k][1] < now]
+            for k in expired:
+                cache.pop(k, None)
+            order[:] = [k for k in order if k not in frozenset(expired)]
+            while len(cache) >= PLAYBACK_URL_CACHE_MAX_SIZE and order:
+                oldest = order.pop(0)
+                cache.pop(oldest, None)
+            cache[cache_key] = (final_url, expiry)
+            order.append(cache_key)
 
-                logger.info("302 重定向: item_id=%s -> %s", item_id, final_url)
-                return RedirectResponse(url=final_url, status_code=302)
-        return None
+        logger.info("302 重定向: item_id=%s -> %s", item_id, final_url)
+        return RedirectResponse(url=final_url, status_code=302)
 
     for route in MEDIA_ROUTES:
         app.api_route(route, methods=["GET", "HEAD"], response_model=None)(
@@ -654,7 +726,9 @@ def create_app(
             target_url += f"?{qs}"
 
         headers = _strip_accept_encoding(_build_forward_headers(request))
-        body = await request.body()
+        body = await _read_request_body_safe(request)
+        if body is None:
+            return Response(status_code=204, content=b"")
         client = request.app.state.http_client_follow
 
         excluded = HOP_BY_HOP_HEADERS | {"content-encoding", "content-length"}
@@ -735,7 +809,25 @@ def create_app(
                 headers=_resp_headers_from_httpx(resp),
             )
 
-        _apply_force_direct_play_to_media_sources(data)
+        _apply_force_direct_play_to_media_sources(data, item_id)
+
+        strm_sources: dict[str, str] = {}
+        for ms in data.get("MediaSources", []):
+            if not isinstance(ms, dict):
+                continue
+            ms_path = ms.get("Path", "")
+            ms_path_applied = _apply_pin_rules(ms_path, pin_rules)
+            if ms_path_applied.startswith(("http://", "https://")):
+                strm_sources[ms.get("Id", "")] = ms_path_applied
+        if strm_sources:
+            strm_cache = request.app.state.strm_source_cache
+            strm_lock = request.app.state.strm_source_lock
+            async with strm_lock:
+                strm_cache[item_id] = (
+                    strm_sources,
+                    monotonic() + PLAYBACK_STRM_CACHE_TTL_SECONDS,
+                )
+
         reason = "STRM" if is_strm else "路径替换"
         logger.info(
             "PlaybackInfo: %s 已强制 DirectPlay item_id=%s",
@@ -772,7 +864,9 @@ def create_app(
             target_url += f"?{qs}"
 
         headers = _strip_accept_encoding(_build_forward_headers(request))
-        body = await request.body()
+        body = await _read_request_body_safe(request)
+        if body is None:
+            return Response(status_code=204, content=b"")
         client = request.app.state.http_client_no_follow
         try:
             resp = await client.request(
@@ -843,7 +937,9 @@ def create_app(
             target_url += f"?{qs}"
 
         headers = _build_forward_headers(request)
-        body = await request.body()
+        body = await _read_request_body_safe(request)
+        if body is None:
+            return Response(status_code=204, content=b"")
 
         client = request.app.state.http_client_no_follow
         try:
