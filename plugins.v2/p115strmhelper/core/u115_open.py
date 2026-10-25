@@ -12,6 +12,7 @@ from oss2.models import PartInfo
 
 from app import schemas
 from app.log import logger
+from app.core.config import global_vars
 from app.helper.storage import StorageHelper
 from app.chain.storage import StorageChain
 from app.modules.filemanager.storages import transfer_process
@@ -42,6 +43,8 @@ class U115OpenHelper:
     _auth_state = {}
 
     base_url = "https://proapi.115.com"
+
+    chunk_size = 10 * 1024 * 1024
 
     def __init__(self):
         super().__init__()
@@ -522,7 +525,7 @@ class U115OpenHelper:
             security_token=security_token,
         )
         bucket = oss2.Bucket(auth, endpoint, bucket_name, connect_timeout=120)
-        part_size = determine_part_size(file_size, preferred_size=50 * 1024 * 1024)
+        part_size = determine_part_size(file_size, preferred_size=self.chunk_size)
 
         # 初始化进度条
         logger.info(
@@ -557,6 +560,9 @@ class U115OpenHelper:
                 part_number = 1
                 offset = 0
                 while offset < file_size:
+                    if global_vars.is_transfer_stopped(local_path.as_posix()):
+                        logger.info(f"【P115Open】{local_path} 上传已取消！")
+                        return None
                     num_to_upload = min(part_size, file_size - offset)
                     for attempt in range(3):
                         try:
