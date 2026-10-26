@@ -16,8 +16,8 @@ https://github.com/zkmydgth/MoviePilot-Plugins
 | [**保种空间守护**](#保种空间守护seedspaceguard) | 空间不足时自动清理保种最久的资源，避免 H&R | MoviePilot >= 3.0.0 |
 | [**Telegram 自动签到**](#telegram-自动签到tgsignin) | 多账号定时到各自订阅的 Telegram bot 签到，也支持**群内签到**（按钮式/命令式） | MoviePilot >= 3.0.0 |
 | [**综艺正片守卫**](#综艺正片守卫varietyguard) | 整理综艺整季包时按关键词只保留正片、静默跳过先导/花絮/加更等非正片 | MoviePilot >= 3.0.0 |
-| [**豆瓣开分通知**](#豆瓣开分通知doubanscorewatch)
-| [**TG 磁力离线**](#tg-磁力离线tgofflinebot) | 在 Telegram 里发磁力 / ed2k / 种子链接即提交 115 离线，整理前做「库已存在」检查与 MP / AI 识别比对，整理后补发入库与 STRM 通知 | MoviePilot >= 3.0.0 | | 订阅资源豆瓣出分时推送分数、评价人数与首次观测日期；只追无分条目，支持多条目绑定与集数区间对齐 | MoviePilot >= 3.0.0 |
+| [**豆瓣开分通知**](#豆瓣开分通知doubanscorewatch) | 订阅资源豆瓣出分时推送分数、评价人数与首次观测日期；只追无分条目，支持多条目绑定与集数区间对齐 | MoviePilot >= 3.0.0 |
+| [**TG 磁力离线**](#tg-磁力离线tgofflinebot) | 在 Telegram 里发磁力 / ed2k / 种子链接即提交 115 离线，整理前做「库已存在」检查与 MP / AI 识别比对，整理后补发入库与 STRM 通知 | MoviePilot >= 3.0.0 |
 
 > 以上为 **V3 插件线**（源码在 `plugins.v3/`），仅支持 MoviePilot >= 3.0.0。
 > V2 插件线已停止更新，相关说明见文末[附录](#附录v2-插件线已停更)，仅供存档查阅。
