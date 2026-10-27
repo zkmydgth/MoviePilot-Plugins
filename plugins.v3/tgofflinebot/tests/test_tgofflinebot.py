@@ -8,6 +8,7 @@ TgOfflineBot 单元测试。
 """
 
 import asyncio
+import base64
 import threading
 import time
 from types import SimpleNamespace
@@ -938,13 +939,50 @@ def test_complete_notifications_are_aggregated(monkeypatch: pytest.MonkeyPatch) 
         "示例剧", "2024", 1, 2, "/video/电视剧/示例剧/示例剧.S01E02.mkv"
     )
     assert sent == []
-    plugin._flush_notify("示例剧|1")
+    plugin._flush_notify(next(iter(plugin._notify_buffer)))
     assert len(sent) == 1
     assert "E01,E02" in sent[0]
     assert "第1季" in sent[0]
     # 入库通知不再带具体路径
     assert "/video" not in sent[0]
     assert "/mnt" not in sent[0]
+
+
+def test_notify_keys_isolate_season_show_and_year() -> None:
+    """不同剧、不同季、同名不同年份各自独立，不会合并进同一条通知。"""
+    plugin = make_plugin(
+        _notify_window=300,
+        _notify_only_from_bot=False,
+        _notify_strm=False,
+        _notify_chat_id="123",
+    )
+    plugin._buffer_complete(
+        "示例剧", "2024", 1, 1, "/video/电视剧/示例剧/示例剧.S01E01.mkv", "电视剧"
+    )
+    plugin._buffer_complete(
+        "示例剧", "2024", 2, 1, "/video/电视剧/示例剧/示例剧.S02E01.mkv", "电视剧"
+    )
+    plugin._buffer_complete(
+        "另一部剧", "2024", 1, 1, "/video/电视剧/另一部剧/另一部剧.S01E01.mkv", "电视剧"
+    )
+    plugin._buffer_complete(
+        "同名电影", "2024", 0, 0, "/video/电影/同名电影 (2024)/同名电影.mkv", "电影"
+    )
+    plugin._buffer_complete(
+        "同名电影", "1999", 0, 0, "/video/电影/同名电影 (1999)/同名电影.mkv", "电影"
+    )
+    keys = set(plugin._notify_buffer)
+    assert len(keys) == 5
+    assert "示例剧|2024|1|电视剧" in keys
+    assert "示例剧|2024|2|电视剧" in keys
+    assert "另一部剧|2024|1|电视剧" in keys
+    assert "同名电影|2024|0|电影" in keys
+    assert "同名电影|1999|0|电影" in keys
+    # 取消定时器，避免窗口到点后真的推送测试消息
+    for timer in list(plugin._notify_timers.values()):
+        timer.cancel()
+    plugin._notify_timers.clear()
+    plugin._notify_buffer.clear()
 
 
 def test_strm_target_requires_mapping() -> None:
@@ -2079,6 +2117,93 @@ def test_owned_name_recorded_from_links(monkeypatch: pytest.MonkeyPatch) -> None
     assert plugin._is_owned_path("/待整理/Unrelated.Release.2024/x.mkv") is False
 
 
+def test_link_info_hash_normalizes_both_forms() -> None:
+    """磁力 btih 的十六进制与 base32 两种写法都要归一化成 40 位小写十六进制。"""
+    plugin = make_plugin(_owned_names={})
+    info_hash = "f7b6c5016b4c299ee42b70e6cc7d1b0938d7c37e"
+    base32_hash = base64.b32encode(bytes.fromhex(info_hash)).decode()
+    assert plugin._link_info_hash(f"magnet:?xt=urn:btih:{info_hash.upper()}") == info_hash
+    assert plugin._link_info_hash(f"magnet:?xt=urn:btih:{base32_hash}") == info_hash
+    assert plugin._link_info_hash("magnet:?xt=urn:btih:AAAA&dn=Some.Show") == ""
+    assert plugin._link_info_hash("ed2k://|file|A.mkv|1|0123456789ABCDEF0123456789ABCDEF|/") == ""
+
+
+def test_owned_name_recorded_from_offline_task(monkeypatch: pytest.MonkeyPatch) -> None:
+    """磁力不带 dn 时，按 info_hash 从 115 离线任务名补记来源，预检不再误判。"""
+    plugin = make_plugin(_owned_names={})
+    monkeypatch.setattr(plugin, "_start_owned_sync", lambda hashes: None)
+    info_hash = "f7b6c5016b4c299ee42b70e6cc7d1b0938d7c37e"
+    plugin._record_owned_links([f"magnet:?xt=urn:btih:{info_hash.upper()}"])
+    # 没有 dn 时拿不到名称，只能先记住 info_hash
+    assert plugin._owned_names == {}
+    assert info_hash in plugin._pending_owned_hashes
+    name = (
+        "[ 高清剧集网 www.BTHDTV.com ]是，首相  第二季[全8集][中文字幕]."
+        "首相.Yes.Prime.Minister.S02.1987.2160p.WEB-DL.H265.AAC-SeeWEB"
+    )
+    tasks = [
+        {
+            "info_hash": info_hash,
+            "name": name,
+            "status": 2,
+            "percent": 100.0,
+            "add_time": time.time(),
+        }
+    ]
+    monkeypatch.setattr(plugin, "_list_offline_tasks", lambda: tasks)
+    plugin._sync_owned_task_names(attempts=1)
+    assert plugin._is_owned_path(f"/待整理/{name}/01.mkv") is True
+    assert plugin._pending_owned_hashes == {}
+
+
+def test_owned_sync_ignores_other_offline_tasks(monkeypatch: pytest.MonkeyPatch) -> None:
+    """补记来源只认本次提交的 info_hash，其它渠道的任务不能算成本插件任务。"""
+    plugin = make_plugin(_owned_names={})
+    monkeypatch.setattr(plugin, "_start_owned_sync", lambda hashes: None)
+    plugin._record_owned_links(["magnet:?xt=urn:btih:" + "A" * 40])
+    tasks = [
+        {
+            "info_hash": "b" * 40,
+            "name": "Other.Release.2024",
+            "status": 2,
+            "percent": 100.0,
+            "add_time": time.time(),
+        }
+    ]
+    monkeypatch.setattr(plugin, "_list_offline_tasks", lambda: tasks)
+    plugin._sync_owned_task_names(attempts=1)
+    assert plugin._is_owned_path("/待整理/Other.Release.2024/x.mkv") is False
+
+
+def test_owned_sync_is_single_flight(monkeypatch: pytest.MonkeyPatch) -> None:
+    """短时间内连续提交只启动一个补记线程，避免并发请求 115 接口。"""
+    plugin = make_plugin(_owned_names={})
+    plugin._owned_sync_lock = threading.Lock()
+    started: List[str] = []
+
+    class FakeThread:
+        """只记录启动次数、不真正执行 target 的线程替身。"""
+
+        def __init__(
+            self,
+            target: Any = None,
+            args: Any = (),
+            name: str = "",
+            daemon: bool = False,
+        ) -> None:
+            self.name = name
+
+        def start(self) -> None:
+            """记录线程名，不执行任务。"""
+            started.append(self.name)
+
+    monkeypatch.setattr(tgofflinebot.threading, "Thread", FakeThread)
+    plugin._start_owned_sync(["a" * 40])
+    plugin._start_owned_sync(["b" * 40])
+    assert started == ["TgOfflineBot-OwnedSync"]
+    plugin._owned_sync_lock.release()
+
+
 def test_cleanup_skips_non_owned_offline_tasks(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -2182,7 +2307,7 @@ def test_directory_source_is_not_deleted(monkeypatch: pytest.MonkeyPatch) -> Non
 def test_notify_forces_flush_after_long_window(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """持续有新集时，超过 5 分钟强制发一次通知。"""
+    """持续有新集时，超过 30 分钟强制发一次通知。"""
     plugin = make_plugin(
         _notify_window=60, _notify_only_from_bot=False, _notify_strm=False,
         _notify_chat_id="123",
@@ -2193,18 +2318,54 @@ def test_notify_forces_flush_after_long_window(
         "_send_text",
         lambda chat_id, text, message_id=None, keyboard=None: sent.append(text) or 1,
     )
-    key = "示例剧|1"
+    key = "示例剧|2024|1|"
     plugin._notify_buffer[key] = {
         "title": "示例剧",
         "year": "2024",
         "season": 1,
         "episodes": {1},
         "dests": {"/video/电视剧/示例剧/示例剧.S01E01.mkv"},
-        "first_ts": time.time() - 400,
+        "first_ts": time.time() - 1900,
     }
     plugin._buffer_complete("示例剧", "2024", 1, 2, "/video/电视剧/示例剧/示例剧.S01E02.mkv")
     assert sent
     assert "E01,E02" in sent[0]
+
+
+def test_notify_defaults_merge_quietly_and_skip_strm() -> None:
+    """默认静默窗口 300 秒、STRM 通知默认关闭。"""
+    plugin = make_plugin()
+    _, defaults = plugin.get_form()
+    assert defaults["notify_window"] == 300
+    assert defaults["notify_strm"] is False
+    assert tgofflinebot.NOTIFY_MAX_HOLD_SECONDS == 1800
+
+
+def test_flush_notify_skips_strm_when_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """关闭 STRM 通知后，整理完成只发入库汇总，不启动 STRM 核对。"""
+    plugin = make_plugin(
+        _notify_window=0,
+        _notify_strm=False,
+        _notify_only_from_bot=False,
+        _notify_chat_id="123",
+    )
+    sent: List[str] = []
+    checks: List[str] = []
+    monkeypatch.setattr(
+        plugin,
+        "_send_text",
+        lambda chat_id, text, message_id=None, keyboard=None: sent.append(text) or 1,
+    )
+    monkeypatch.setattr(
+        plugin, "_verify_strm_batch", lambda dests, label: checks.append(label)
+    )
+    plugin._buffer_complete(
+        "示例剧", "2024", 1, 1, "/video/电视剧/示例剧/示例剧.S01E01.mkv"
+    )
+    assert len(sent) == 1
+    assert checks == []
 
 
 def test_scope_root_directory_is_not_batch_retried(

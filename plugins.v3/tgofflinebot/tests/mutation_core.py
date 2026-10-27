@@ -70,9 +70,27 @@ MUTATIONS = [
     ),
     (
         "通知饿死保护",
-        'forced = window > 0 and now - float(item.get("first_ts") or now) >= 300',
-        "forced = False",
+        'and now - float(item.get("first_ts") or now) >= NOTIFY_MAX_HOLD_SECONDS',
+        "and False",
         "tests/test_tgofflinebot.py::test_notify_forces_flush_after_long_window",
+    ),
+    (
+        "通知静默默认窗口",
+        "DEFAULT_NOTIFY_WINDOW = 300",
+        "DEFAULT_NOTIFY_WINDOW = 60",
+        "tests/test_tgofflinebot.py::test_notify_defaults_merge_quietly_and_skip_strm",
+    ),
+    (
+        "STRM 通知开关",
+        "if self._notify_strm and dests:",
+        "if dests:",
+        "tests/test_tgofflinebot.py::test_flush_notify_skips_strm_when_disabled",
+    ),
+    (
+        "通知聚合键含年份与类型",
+        'key = f"{title}|{year}|{season}|{type_key}"',
+        'key = f"{title}|{season}"',
+        "tests/test_tgofflinebot.py::test_notify_keys_isolate_season_show_and_year",
     ),
     (
         "待决策去重",

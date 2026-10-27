@@ -16,6 +16,7 @@ TG 磁力离线（TgOfflineBot）。
 """
 
 import asyncio
+import base64
 import inspect
 import json
 import re
@@ -98,6 +99,15 @@ DEFAULT_PRECHECK_SCOPE = "/待整理"
 IDENTIFIER_TTL_SECONDS = 3600
 # 本插件提交任务的来源标记存活时间（秒）
 OWNED_TTL_SECONDS = 86400
+# 部分磁力链接不带 dn，115 的落盘名只能从离线任务列表取回；
+# 提交后在该窗口内按 info_hash 轮询补记来源名称
+OWNED_PENDING_TTL_SECONDS = 900
+OWNED_SYNC_INTERVAL_SECONDS = 2.0
+OWNED_SYNC_ATTEMPTS = 5
+# 整理完成通知的静默聚合窗口（秒）：同一「标题+季」静默这么久才发一条汇总
+DEFAULT_NOTIFY_WINDOW = 300
+# 持续有集进来时最多压这么久必须发一次，避免通知饿死
+NOTIFY_MAX_HOLD_SECONDS = 1800
 # 残留清理不按扩展名设限：所有剩余文件都交给 AI 判断保留还是删除
 # 同一目录的残留扫描节流（秒）
 RESIDUE_SCAN_INTERVAL = 600
@@ -235,12 +245,12 @@ class TgOfflineBot(_PluginBase):
     _precheck_timeout: int = DEFAULT_PRECHECK_TIMEOUT
     # 通知开关
     _notify_transfer: bool = True
-    _notify_strm: bool = True
+    _notify_strm: bool = False
     _notify_chat_id: str = ""
     # 只通知本插件提交范围（默认 /待整理）内的整理，避免订阅下载也刷屏
     _notify_only_from_bot: bool = True
     # 聚合窗口：同一「标题+季」在该秒数内的整理合并成一条通知，0 表示逐条发
-    _notify_window: int = 60
+    _notify_window: int = DEFAULT_NOTIFY_WINDOW
     _notify_buffer: Dict[str, Dict[str, Any]] = {}
     _notify_timers: Dict[str, threading.Timer] = {}
     # 失败通知去重：key -> 过期时间戳
@@ -278,6 +288,10 @@ class TgOfflineBot(_PluginBase):
     _library_cache: Optional[Tuple[float, List[Tuple[str, List[str]]]]] = None
     # 本插件提交过的任务名称标记：归一化名称 -> 过期时间戳
     _owned_names: Dict[str, float] = {}
+    # 待按 info_hash 补记来源名称的离线任务：info_hash -> 截止时间戳
+    _pending_owned_hashes: Dict[str, float] = {}
+    # 补记同步的单飞锁：短时间内多次提交只跑一个线程，避免并发打 115 接口
+    _owned_sync_lock: threading.Lock = threading.Lock()
     # 整理后残留清理
     _cleanup_residue_enabled: bool = True
     _cleanup_unrecognized: bool = True
@@ -333,10 +347,10 @@ class TgOfflineBot(_PluginBase):
         self._precheck_scope = ""
         self._precheck_timeout = DEFAULT_PRECHECK_TIMEOUT
         self._notify_transfer = True
-        self._notify_strm = True
+        self._notify_strm = False
         self._notify_chat_id = ""
         self._notify_only_from_bot = True
-        self._notify_window = 60
+        self._notify_window = DEFAULT_NOTIFY_WINDOW
         self._notify_buffer = {}
         self._notify_timers = {}
         self._failed_recent = {}
@@ -356,6 +370,8 @@ class TgOfflineBot(_PluginBase):
         self._offline_delete_notified = {}
         self._library_cache = None
         self._owned_names = {}
+        self._pending_owned_hashes = {}
+        self._owned_sync_lock = threading.Lock()
         self._cleanup_residue_enabled = True
         self._cleanup_unrecognized = True
         self._residue_checked = {}
@@ -400,11 +416,11 @@ class TgOfflineBot(_PluginBase):
             config.get("precheck_timeout"), DEFAULT_PRECHECK_TIMEOUT, 0, 120
         )
         self._notify_transfer = bool(config.get("notify_transfer", True))
-        self._notify_strm = bool(config.get("notify_strm", True))
+        self._notify_strm = bool(config.get("notify_strm", False))
         self._notify_chat_id = str(config.get("notify_chat_id") or "").strip()
         self._notify_only_from_bot = bool(config.get("notify_only_from_bot", True))
         self._notify_window = self._clamp_int(
-            config.get("notify_window"), 60, 0, 600
+            config.get("notify_window"), DEFAULT_NOTIFY_WINDOW, 0, 600
         )
         self._library_check_enabled = bool(config.get("library_check_enabled", True))
         self._delete_when_exists = bool(config.get("delete_when_exists", True))
@@ -828,12 +844,13 @@ class TgOfflineBot(_PluginBase):
                         "component": "VTextField",
                         "props": {
                             "model": "notify_window",
-                            "label": "通知聚合窗口（秒，0 = 逐条发）",
+                            "label": "通知聚合静默窗口（秒，0 = 逐条发）",
                             "class": "mt-4",
                             "type": "number",
-                            "placeholder": "60",
-                            "hint": "同一部剧在该时间内的整理会合并成一条（列出集号）；"
-                                    "批量整理一季时不会每集刷一条",
+                            "placeholder": "300",
+                            "hint": "同一部剧静默这么久没有新集才发一条汇总（列出集号）；"
+                                    "整季顺序整理只要单集间隔小于该值就会合并，"
+                                    "持续有新集时最多压 30 分钟",
                             "persistent-hint": True,
                         },
                     },
@@ -927,9 +944,9 @@ class TgOfflineBot(_PluginBase):
             "precheck_scope": DEFAULT_PRECHECK_SCOPE,
             "precheck_timeout": DEFAULT_PRECHECK_TIMEOUT,
             "notify_transfer": True,
-            "notify_strm": True,
+            "notify_strm": False,
             "notify_only_from_bot": True,
-            "notify_window": 60,
+            "notify_window": DEFAULT_NOTIFY_WINDOW,
             "cleanup_residue_enabled": True,
             "cleanup_unrecognized": True,
             "cleanup_empty_dirs": True,
@@ -1878,6 +1895,38 @@ class TgOfflineBot(_PluginBase):
                 hints.append(Path(name).stem)
         return [item for item in hints if item]
 
+    @staticmethod
+    def _link_info_hash(link: str) -> str:
+        """
+        提取磁力链接的 BT info_hash（40 位十六进制小写）。
+
+        只有磁力链接能直接给出 info_hash；ed2k 与种子直链返回空字符串，
+        仍按名称提示匹配。32 位 base32 形式的 btih 会先解码再归一化。
+
+        :param link: 磁力 / ed2k / 种子链接
+        :return: info_hash；无法取得时为空字符串
+        """
+        text = str(link or "").strip()
+        if not text.lower().startswith("magnet:"):
+            return ""
+        try:
+            params = parse_qs(urlparse(text).query)
+        except Exception:  # noqa: BLE001 - 解析失败按无法识别处理
+            return ""
+        for value in params.get("xt", []):
+            raw = str(value or "").strip()
+            if not raw.lower().startswith("urn:btih:"):
+                continue
+            digest = raw.split(":", 2)[-1].strip()
+            if re.fullmatch(r"[0-9A-Fa-f]{40}", digest):
+                return digest.lower()
+            if re.fullmatch(r"[A-Za-z2-7]{32}", digest):
+                try:
+                    return base64.b32decode(digest.upper()).hex()
+                except Exception:  # noqa: BLE001 - 非法 base32 不记录
+                    return ""
+        return ""
+
     def _record_owned_links(self, links: List[str]) -> None:
         """
         记录本次提交任务的来源标记，后续只处理这些任务。
@@ -1897,6 +1946,135 @@ class TgOfflineBot(_PluginBase):
             self._prune_owned_names_locked()
         if updated:
             self._persist_owned_names()
+        hashes = [
+            info_hash
+            for info_hash in (self._link_info_hash(link) for link in links)
+            if info_hash
+        ]
+        if not hashes:
+            return
+        deadline = now + OWNED_PENDING_TTL_SECONDS
+        with self._choice_lock:
+            for info_hash in hashes:
+                self._pending_owned_hashes[info_hash] = deadline
+        self._start_owned_sync(hashes)
+
+    def _start_owned_sync(self, hashes: List[str]) -> None:
+        """
+        后台把本次提交的 info_hash 与 115 离线任务名对齐。
+
+        磁力链接不带 dn 时，落盘名只能从离线任务列表拿到；不补记的话
+        后续整理预检会把这些任务误判成「非本插件任务」。
+        同一时刻只允许一个补记线程，它会把期间新登记的 hash 一起处理。
+
+        :param hashes: 本次提交的 info_hash 列表
+        """
+        if not hashes:
+            return
+        if not self._owned_sync_lock.acquire(blocking=False):
+            return
+        threading.Thread(
+            target=self._run_owned_sync,
+            args=(list(hashes),),
+            name="TgOfflineBot-OwnedSync",
+            daemon=True,
+        ).start()
+
+    def _run_owned_sync(self, hashes: List[str]) -> None:
+        """
+        补记线程主体：执行同步并确保释放单飞锁。
+
+        :param hashes: 本次提交的 info_hash 列表
+        """
+        try:
+            self._sync_owned_task_names(hashes)
+        finally:
+            self._owned_sync_lock.release()
+
+    def _sync_owned_task_names(
+        self,
+        hashes: Optional[List[str]] = None,
+        attempts: int = OWNED_SYNC_ATTEMPTS,
+    ) -> None:
+        """
+        按 info_hash 把 115 离线任务名补记为来源标记。
+
+        提交后任务不一定立刻出现在离线列表里，因此按固定间隔重试；
+        只认本次提交的 info_hash，不会把其它渠道的任务算成本插件任务。
+
+        :param hashes: 本次需要补齐的 info_hash；为空时处理全部待办
+        :param attempts: 最多轮询次数
+        """
+        targets = {str(item).lower() for item in (hashes or []) if item}
+        if targets:
+            with self._choice_lock:
+                for info_hash in targets:
+                    if info_hash not in self._pending_owned_hashes:
+                        self._pending_owned_hashes[info_hash] = (
+                            time.time() + OWNED_PENDING_TTL_SECONDS
+                        )
+        for attempt in range(max(1, attempts)):
+            now = time.time()
+            with self._choice_lock:
+                for expired in [
+                    info_hash
+                    for info_hash, deadline in self._pending_owned_hashes.items()
+                    if deadline <= now
+                ]:
+                    self._pending_owned_hashes.pop(expired, None)
+                pending = dict(self._pending_owned_hashes)
+            if not pending:
+                return
+            try:
+                tasks = self._list_offline_tasks()
+            except Exception as err:  # noqa: BLE001 - 网络异常下一轮再试
+                logger.warning(
+                    f"【TG磁力离线】补记任务名称失败：{self._mask_secrets(str(err))}"
+                )
+                tasks = None
+            names: List[str] = []
+            if tasks:
+                with self._choice_lock:
+                    for task in tasks:
+                        if not isinstance(task, dict):
+                            continue
+                        info_hash = str(task.get("info_hash") or "").lower()
+                        if info_hash not in pending:
+                            continue
+                        key = self._name_key(str(task.get("name") or ""))
+                        if not key:
+                            continue
+                        self._owned_names[key] = time.time() + OWNED_TTL_SECONDS
+                        self._pending_owned_hashes.pop(info_hash, None)
+                        names.append(str(task.get("name") or ""))
+                if names:
+                    self._persist_owned_names()
+                    logger.info(
+                        f"【TG磁力离线】已按离线任务补记来源：{len(names)} 个 · "
+                        f"{names[0][:60]}"
+                    )
+            with self._choice_lock:
+                finished = not self._pending_owned_hashes
+            if finished:
+                return
+            if attempt + 1 < max(1, attempts):
+                if self._stop_event.wait(OWNED_SYNC_INTERVAL_SECONDS):
+                    return
+
+    def _sync_owned_once(self) -> None:
+        """
+        巡检线程使用的单次补记：有待办时才请求，且不与后台同步并发。
+        """
+        with self._choice_lock:
+            has_pending = bool(self._pending_owned_hashes)
+        if not has_pending:
+            return
+        if not self._owned_sync_lock.acquire(blocking=False):
+            return
+        try:
+            self._sync_owned_task_names(attempts=1)
+        finally:
+            self._owned_sync_lock.release()
 
     def _prune_owned_names_locked(self) -> None:
         """清理已过期的来源标记（调用方需持有 choice 锁）。"""
@@ -2703,6 +2881,8 @@ class TgOfflineBot(_PluginBase):
             try:
                 # 即使整理失败、没有触发完成事件，也要让识别词到期被移除
                 self._cleanup_identifiers()
+                # 提交后短窗口内按 info_hash 补记离线任务名，兜底后台同步线程
+                self._sync_owned_once()
                 self._cleanup_stuck_offline()
                 with self._choice_lock:
                     has_owned = any(
@@ -3151,7 +3331,9 @@ class TgOfflineBot(_PluginBase):
             if match_episode:
                 episode = int(match_episode.group(1))
             logger.info(f"【TG磁力离线】按历史补发完成通知：{title} {src}")
-            self._buffer_complete(title, year, season, episode, dest)
+            self._buffer_complete(
+                title, year, season, episode, dest, getattr(record, "type", "")
+            )
             found_new = True
         return found_new
 
@@ -3185,7 +3367,9 @@ class TgOfflineBot(_PluginBase):
         if match_episode:
             episode = int(match_episode.group(1))
         logger.info(f"【TG磁力离线】按历史补发完成通知：{title} {src}")
-        self._buffer_complete(title, year, season, episode, dest)
+        self._buffer_complete(
+            title, year, season, episode, dest, getattr(record, "type", "")
+        )
 
     @eventmanager.register(EventType.TransferComplete)
     def _on_transfer_complete(self, event: Event) -> None:
@@ -3292,7 +3476,15 @@ class TgOfflineBot(_PluginBase):
             or ""
         )
         if self._notify_transfer:
-            self._buffer_complete(title, year, season, episode, dest)
+            self._buffer_complete(
+                title,
+                year,
+                season,
+                episode,
+                dest,
+                self._event_value(mediainfo, "type")
+                or self._event_value(mediainfo, "media_type"),
+            )
         self._cleanup_identifiers()
         if (
             self._cleanup_residue_enabled
@@ -3357,18 +3549,31 @@ class TgOfflineBot(_PluginBase):
         logger.info("【TG磁力离线】" + " / ".join(lines))
 
     def _buffer_complete(
-        self, title: str, year: str, season: int, episode: int, dest: str
+        self,
+        title: str,
+        year: str,
+        season: int,
+        episode: int,
+        dest: str,
+        media_type: Any = "",
     ) -> None:
         """
         把一次整理完成事件并入聚合缓冲，并按窗口延时发送汇总。
+
+        聚合键包含年份与媒体类型：同名不同年份的电影、同年同名的电影与剧集版
+        都不会被合并进同一条通知；不同季、不同剧本来就各自独立。
 
         :param title: 媒体标题
         :param year: 年份
         :param season: 季号，0 表示电影或未知
         :param episode: 集号，0 表示电影或未知
         :param dest: 整理目标路径
+        :param media_type: 媒体类型（电影 / 电视剧），用于区分同名条目
         """
-        key = f"{title}|{season}"
+        type_key = self._name_key(
+            str(getattr(media_type, "value", media_type) or "")
+        )
+        key = f"{title}|{year}|{season}|{type_key}"
         window = max(0, self._notify_window)
         now = time.time()
         with self._choice_lock:
@@ -3390,8 +3595,11 @@ class TgOfflineBot(_PluginBase):
             existing = self._notify_timers.pop(key, None)
             if existing:
                 existing.cancel()
-            # 持续有新集进来时定时器会被不断重置，超过 5 分钟强制发一次，避免通知饿死
-            forced = window > 0 and now - float(item.get("first_ts") or now) >= 300
+            # 持续有新集进来时定时器会被不断重置，压太久要强制发一次，避免通知饿死
+            forced = (
+                window > 0
+                and now - float(item.get("first_ts") or now) >= NOTIFY_MAX_HOLD_SECONDS
+            )
             timer = None
             if window > 0 and not forced:
                 timer = threading.Timer(window, self._flush_notify, args=(key,))
