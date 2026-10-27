@@ -191,6 +191,56 @@ MUTATIONS = [
         "        if False:\n            return None",
         "tests/test_tgofflinebot.py::test_strm_target_requires_mapping",
     ),
+    (
+        "残留巡检空即休眠",
+        "        if found_owned:\n"
+        '            self._wake_residue_sweep("待整理目录里仍有本插件任务")\n'
+        "            return\n"
+        "        self._sleep_residue_sweep()",
+        "        if found_owned:\n"
+        '            self._wake_residue_sweep("待整理目录里仍有本插件任务")\n'
+        "            return\n"
+        "        pass",
+        "tests/test_tgofflinebot.py::test_sweep_sleeps_when_no_owned_dir",
+    ),
+    (
+        "在途任务时不休眠",
+        "        if self._residue_in_flight():\n"
+        "            return\n"
+        "        with self._choice_lock:\n"
+        "            was_idle = self._residue_idle",
+        "        if False:\n"
+        "            return\n"
+        "        with self._choice_lock:\n"
+        "            was_idle = self._residue_idle",
+        "tests/test_tgofflinebot.py::test_sweep_stays_awake_while_offline_task_running",
+    ),
+    (
+        "休眠期跳过定时巡检",
+        "        if not self._residue_idle:\n"
+        "            return True\n"
+        "        if self._residue_idle_recheck <= 0:",
+        "        if True:\n"
+        "            return True\n"
+        "        if self._residue_idle_recheck <= 0:",
+        "tests/test_tgofflinebot.py::test_residue_sweep_recheck_interval",
+    ),
+    (
+        "唤醒解除休眠",
+        "            self._residue_idle = False\n"
+        "            self._residue_idle_since = 0.0",
+        "            pass\n"
+        "            self._residue_idle_since = 0.0",
+        "tests/test_tgofflinebot.py::test_sweep_wakes_on_new_submit",
+    ),
+    (
+        "复查刷新休眠起点",
+        "            self._residue_idle = True\n"
+        "            self._residue_idle_since = time.time()",
+        "            self._residue_idle = True\n"
+        "            pass",
+        "tests/test_tgofflinebot.py::test_residue_recheck_refreshes_idle_start",
+    ),
 ]
 
 

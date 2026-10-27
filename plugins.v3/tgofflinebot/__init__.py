@@ -306,6 +306,11 @@ class TgOfflineBot(_PluginBase):
     _cleanup_empty_dirs: bool = True
     # 定期扫描待整理目录的间隔（秒），0 表示关闭
     _residue_sweep_interval: int = 1800
+    # 待整理范围里已没有本插件任务目录时休眠，暂停定时巡检
+    _residue_idle: bool = False
+    _residue_idle_since: float = 0.0
+    # 休眠后的兜底复查间隔（分钟），0 表示休眠期间不再复查
+    _residue_idle_recheck: int = 0
     # 预整理缓存：同一部剧的 AI 识别与库存在查询只做一次
     _ai_cache: Dict[str, Tuple[float, Optional[AiRecognition]]] = {}
     _exists_cache: Dict[str, Tuple[float, Any]] = {}
@@ -381,6 +386,9 @@ class TgOfflineBot(_PluginBase):
         self._misc_timers = {}
         self._cleanup_empty_dirs = True
         self._residue_sweep_interval = 1800
+        self._residue_idle = False
+        self._residue_idle_since = 0.0
+        self._residue_idle_recheck = 0
         self._ai_cache = {}
         self._exists_cache = {}
         self._ai_error_notified = 0.0
@@ -434,6 +442,9 @@ class TgOfflineBot(_PluginBase):
         )
         self._residue_sweep_interval = self._clamp_int(
             config.get("residue_sweep_interval"), 1800, 0, 3600
+        )
+        self._residue_idle_recheck = self._clamp_int(
+            config.get("residue_idle_recheck"), 0, 0, 1440
         )
         self._cleanup_empty_dirs = bool(config.get("cleanup_empty_dirs", True))
         self._offline_timeout = self._clamp_int(
@@ -836,7 +847,22 @@ class TgOfflineBot(_PluginBase):
                             "type": "number",
                             "placeholder": "1800",
                             "hint": "默认只在发现新的入库记录时扫描待整理目录；这里的间隔是兜底，"
-                                    "用于清理被拦截、没有入库记录的场景，空闲时不会主动扫 115",
+                                    "用于清理被拦截、没有入库记录的场景，空闲时不会主动扫 115；"
+                                    "待整理目录里没有本插件任务时会自动休眠",
+                            "persistent-hint": True,
+                        },
+                    },
+                    {
+                        "component": "VTextField",
+                        "props": {
+                            "model": "residue_idle_recheck",
+                            "label": "休眠后兜底复查间隔（分钟，0 = 不复查）",
+                            "class": "mt-4",
+                            "type": "number",
+                            "placeholder": "0",
+                            "hint": "待整理目录里已没有本插件任务时暂停定时巡检，"
+                                    "新提交、补记任务名、新入库记录或整理事件都会自动恢复；"
+                                    "填大于 0 的数字则休眠期间每隔这么久再复查一次",
                             "persistent-hint": True,
                         },
                     },
@@ -952,6 +978,7 @@ class TgOfflineBot(_PluginBase):
             "cleanup_empty_dirs": True,
             "residue_delay": 300,
             "residue_sweep_interval": 600,
+            "residue_idle_recheck": 0,
             "notify_chat_id": "",
             "strm_local_root": "",
             "strm_pan_root": "/video",
@@ -1946,6 +1973,8 @@ class TgOfflineBot(_PluginBase):
             self._prune_owned_names_locked()
         if updated:
             self._persist_owned_names()
+            # 新提交的任务马上可能落盘，唤醒已休眠的兜底巡检
+            self._wake_residue_sweep("提交了新任务")
         hashes = [
             info_hash
             for info_hash in (self._link_info_hash(link) for link in links)
@@ -2049,6 +2078,7 @@ class TgOfflineBot(_PluginBase):
                         names.append(str(task.get("name") or ""))
                 if names:
                     self._persist_owned_names()
+                    self._wake_residue_sweep("补记到离线任务名")
                     logger.info(
                         f"【TG磁力离线】已按离线任务补记来源：{len(names)} 个 · "
                         f"{names[0][:60]}"
@@ -2898,6 +2928,7 @@ class TgOfflineBot(_PluginBase):
                 if (
                     self._residue_sweep_interval > 0
                     and now - last_sweep >= self._residue_sweep_interval
+                    and self._residue_sweep_allowed(now)
                 ):
                     self._sweep_pending_residue()
                     last_sweep = now
@@ -3335,6 +3366,8 @@ class TgOfflineBot(_PluginBase):
                 title, year, season, episode, dest, getattr(record, "type", "")
             )
             found_new = True
+        if found_new:
+            self._wake_residue_sweep("发现新的入库记录")
         return found_new
 
     def _notify_from_recent_history(self) -> None:
@@ -3922,6 +3955,8 @@ class TgOfflineBot(_PluginBase):
         """
         if not self._cleanup_residue_enabled or fileitem is None:
             return
+        # 有整理事件说明待整理范围里刚出现了本插件目录，唤醒已休眠的兜底巡检
+        self._wake_residue_sweep("整理事件")
         parent = Path(source_path).parent.as_posix()
         if self._is_scope_root(parent):
             return
@@ -4031,6 +4066,7 @@ class TgOfflineBot(_PluginBase):
         定期扫描待整理范围下属于本插件提交的目录，清理残留文件。
 
         既覆盖「库已存在被拦截」这类没有整理完成事件的场景，也能清掉此前遗漏的目录。
+        扫描后若范围里已没有本插件任务目录，就进入休眠，等新任务或整理事件唤醒。
         """
         if not self._cleanup_residue_enabled:
             return
@@ -4049,6 +4085,8 @@ class TgOfflineBot(_PluginBase):
         except Exception as err:  # noqa: BLE001 - 巡检失败下轮再试
             logger.warning(f"【TG磁力离线】残留巡检不可用：{err}")
             return
+        found_owned = False
+        reachable = 0
         for root in self._scope_roots():
             root_item = self._get_dir_item(root)
             if not root_item:
@@ -4058,15 +4096,106 @@ class TgOfflineBot(_PluginBase):
             except Exception as err:  # noqa: BLE001 - 单个目录失败不影响其它
                 logger.warning(f"【TG磁力离线】列举目录失败：{root} - {err}")
                 continue
+            reachable += 1
             for item in children:
                 if str(getattr(item, "type", "") or "") != "dir":
                     continue
                 name = str(getattr(item, "name", "") or "")
                 if not name or not self._is_owned_text(name):
                     continue
+                found_owned = True
                 path = str(getattr(item, "path", "") or "")
                 if path:
                     self._cleanup_residue(path, item)
+        if not reachable:
+            # 目录都取不到时无法判断是否为空，保持现状，避免误休眠
+            return
+        if found_owned:
+            self._wake_residue_sweep("待整理目录里仍有本插件任务")
+            return
+        self._sleep_residue_sweep()
+
+    def _residue_sweep_allowed(self, now: float) -> bool:
+        """
+        判断当前是否允许执行一次定时残留巡检。
+
+        休眠期间只有到达兜底复查间隔才放行；间隔为 0 表示休眠后不再复查，
+        等新任务、入库记录或整理事件唤醒。
+
+        :param now: 当前时间戳
+        :return: 允许执行返回 True
+        """
+        if not self._residue_idle:
+            return True
+        if self._residue_idle_recheck <= 0:
+            return False
+        return now - self._residue_idle_since >= self._residue_idle_recheck * 60
+
+    def _sleep_residue_sweep(self) -> None:
+        """
+        待整理范围里已没有本插件任务目录时休眠，暂停定时巡检以减少 115 请求。
+
+        有在途离线任务时不休眠：115 的目录要等下载完成才出现，提前睡下会漏掉残留。
+        重复调用会刷新休眠起点，供兜底复查计时。
+        """
+        if self._residue_in_flight():
+            return
+        with self._choice_lock:
+            was_idle = self._residue_idle
+            self._residue_idle = True
+            self._residue_idle_since = time.time()
+        if not was_idle:
+            logger.info(
+                "【TG磁力离线】待整理目录里已没有本插件任务，暂停定时残留巡检"
+                "（有新任务、入库记录或整理事件时恢复）"
+            )
+
+    def _wake_residue_sweep(self, reason: str) -> None:
+        """
+        结束残留巡检的休眠状态。
+
+        :param reason: 唤醒原因，仅用于日志
+        """
+        with self._choice_lock:
+            if not self._residue_idle:
+                return
+            self._residue_idle = False
+            self._residue_idle_since = 0.0
+        logger.info(f"【TG磁力离线】恢复待整理残留巡检：{reason}")
+
+    def _residue_in_flight(self) -> bool:
+        """
+        判断是否还有本插件的在途离线任务。
+
+        在途期间 115 目录可能还没落盘，此时不能休眠。先看提交后的在途窗口，
+        窗口过期后再向本机 P115StrmHelper 接口确认一次（不消耗 115 请求）；
+        接口不可用时按「仍有在途」处理，宁可多扫一次也不漏清。
+
+        :return: 仍有在途任务时返回 True
+        """
+        now = time.time()
+        if self._offline_active_until and now <= self._offline_active_until:
+            return True
+        try:
+            tasks = self._list_offline_tasks()
+        except Exception as err:  # noqa: BLE001 - 接口异常时按在途处理
+            logger.warning(
+                "【TG磁力离线】确认在途任务失败，暂不休眠："
+                f"{self._mask_secrets(str(err))}"
+            )
+            return True
+        if tasks is None:
+            return True
+        for task in tasks:
+            if not isinstance(task, dict):
+                continue
+            try:
+                status = int(task.get("status", -1))
+            except (TypeError, ValueError):
+                continue
+            if status == 0 and self._is_owned_text(str(task.get("name") or "")):
+                return True
+        return False
 
     @staticmethod
     def _residue_prompt() -> ChatPromptTemplate:

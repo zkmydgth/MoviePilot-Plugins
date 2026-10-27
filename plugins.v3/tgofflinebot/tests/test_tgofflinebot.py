@@ -2681,3 +2681,164 @@ def test_proxies_none_when_unset(monkeypatch: pytest.MonkeyPatch) -> None:
     plugin = make_plugin(_proxy="")
     monkeypatch.setattr(TgOfflineBot, "_host_setting", lambda self, name, default=None: "")
     assert plugin._telegram_proxies() is None
+
+
+def test_sweep_sleeps_when_no_owned_dir(monkeypatch: pytest.MonkeyPatch) -> None:
+    """待整理里只剩非本插件目录时，残留巡检进入休眠，后续定时巡检不再发请求。"""
+    from app.chain.storage import StorageChain
+
+    plugin = make_plugin(_offline_active_until=0.0)
+    calls: List[str] = []
+    monkeypatch.setattr(
+        plugin, "_get_dir_item", lambda path: calls.append(path) or {"path": path}
+    )
+    monkeypatch.setattr(
+        StorageChain,
+        "list_files",
+        lambda self, item, recursion=False: [
+            SimpleNamespace(
+                type="dir",
+                name="Unrelated.Release.2024",
+                path="/待整理/Unrelated.Release.2024",
+            )
+        ],
+    )
+    monkeypatch.setattr(plugin, "_list_offline_tasks", lambda: [])
+    plugin._sweep_pending_residue()
+    assert plugin._residue_idle is True
+    assert plugin._residue_idle_since > 0
+    assert calls == ["/待整理"]
+    # 兜底复查默认关闭：休眠期间不再放行定时巡检
+    assert plugin._residue_sweep_allowed(time.time() + 86400) is False
+
+
+def test_sweep_stays_awake_while_offline_task_running(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """离线任务仍在下载、目录可能还没落盘时，即使目录为空也不休眠。"""
+    from app.chain.storage import StorageChain
+
+    plugin = make_plugin(_offline_active_until=0.0)
+    monkeypatch.setattr(plugin, "_get_dir_item", lambda path: {"path": path})
+    monkeypatch.setattr(
+        StorageChain, "list_files", lambda self, item, recursion=False: []
+    )
+    monkeypatch.setattr(
+        plugin, "_list_offline_tasks", lambda: [{"name": "downloading", "status": 0}]
+    )
+    plugin._sweep_pending_residue()
+    assert plugin._residue_idle is False
+
+
+def test_sweep_stays_awake_within_submit_window(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """刚提交任务后的在途窗口内不休眠，也不额外请求离线列表。"""
+    from app.chain.storage import StorageChain
+
+    plugin = make_plugin()
+    monkeypatch.setattr(plugin, "_get_dir_item", lambda path: {"path": path})
+    monkeypatch.setattr(
+        StorageChain, "list_files", lambda self, item, recursion=False: []
+    )
+
+    def _boom() -> List[Any]:
+        """在途窗口内不应请求离线列表。"""
+        raise AssertionError("不应请求离线任务列表")
+
+    monkeypatch.setattr(plugin, "_list_offline_tasks", _boom)
+    plugin._sweep_pending_residue()
+    assert plugin._residue_idle is False
+
+
+def test_sweep_keeps_state_when_root_unreachable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """取不到范围根时无法判断是否为空，保持现状不误休眠。"""
+    plugin = make_plugin(_offline_active_until=0.0)
+    monkeypatch.setattr(plugin, "_get_dir_item", lambda path: None)
+    plugin._sweep_pending_residue()
+    assert plugin._residue_idle is False
+
+
+def test_sweep_wakes_when_owned_dir_appears(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """休眠后目录里重新出现本插件任务目录时解除休眠。"""
+    from app.chain.storage import StorageChain
+
+    plugin = make_plugin(
+        _offline_active_until=0.0,
+        _residue_idle=True,
+        _residue_idle_since=time.time(),
+    )
+    cleaned: List[str] = []
+    monkeypatch.setattr(plugin, "_get_dir_item", lambda path: {"path": path})
+    monkeypatch.setattr(
+        StorageChain,
+        "list_files",
+        lambda self, item, recursion=False: [
+            SimpleNamespace(
+                type="dir",
+                name="downloading",
+                path="/待整理/downloading",
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        plugin, "_cleanup_residue", lambda parent, item: cleaned.append(parent)
+    )
+    plugin._sweep_pending_residue()
+    assert plugin._residue_idle is False
+    assert cleaned == ["/待整理/downloading"]
+
+
+def test_sweep_wakes_on_new_submit(monkeypatch: pytest.MonkeyPatch) -> None:
+    """休眠期间提交新任务会立即恢复定时巡检。"""
+    plugin = make_plugin(
+        _owned_names={}, _residue_idle=True, _residue_idle_since=time.time()
+    )
+    plugin._record_owned_links(
+        [
+            "ed2k://|file|Another.Movie.2024.mkv|100|"
+            "0123456789ABCDEF0123456789ABCDEF|/"
+        ]
+    )
+    assert plugin._residue_idle is False
+    assert plugin._residue_idle_since == 0.0
+
+
+def test_residue_sweep_recheck_interval(monkeypatch: pytest.MonkeyPatch) -> None:
+    """兜底复查间隔为 0 时休眠期间不放行；大于 0 时到期才放行并刷新起点。"""
+    plugin = make_plugin(
+        _offline_active_until=0.0,
+        _residue_idle=True,
+        _residue_idle_since=1000.0,
+        _residue_idle_recheck=0,
+    )
+    assert plugin._residue_sweep_allowed(100000.0) is False
+    plugin._residue_idle_recheck = 60
+    assert plugin._residue_sweep_allowed(1000.0 + 3599) is False
+    assert plugin._residue_sweep_allowed(1000.0 + 3600) is True
+
+
+def test_residue_recheck_refreshes_idle_start(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """兜底复查再次确认没有本插件目录时刷新休眠起点，避免每轮都复查。"""
+    from app.chain.storage import StorageChain
+
+    plugin = make_plugin(
+        _offline_active_until=0.0,
+        _residue_idle=True,
+        _residue_idle_since=1000.0,
+        _residue_idle_recheck=60,
+    )
+    monkeypatch.setattr(plugin, "_get_dir_item", lambda path: {"path": path})
+    monkeypatch.setattr(
+        StorageChain, "list_files", lambda self, item, recursion=False: []
+    )
+    monkeypatch.setattr(plugin, "_list_offline_tasks", lambda: [])
+    plugin._sweep_pending_residue()
+    assert plugin._residue_idle is True
+    assert plugin._residue_idle_since > 1000.0
