@@ -497,6 +497,106 @@ MUTATIONS = [
         "            # 不清理空目录：视为完成，避免重试队列白占一小时\n            return False",
         "tests/test_tgofflinebot.py::test_remove_if_empty_counts_done_when_switch_off",
     ),
+    (
+        "按提交顺序排队",
+        "        for task in ordered_tasks:\n            if not isinstance(task, dict):",
+        "        for task in tasks:\n            if not isinstance(task, dict):",
+        "tests/test_tgofflinebot.py::test_organize_queue_handles_one_task_per_round",
+    ),
+    (
+        "整理队列一轮一个",
+        "            if dispatched_this_round:\n"
+        "                # 队列语义：一轮只整理一个任务，其余排队等这批整理收尾后再来\n"
+        "                continue",
+        "            if False:\n"
+        "                continue",
+        "tests/test_tgofflinebot.py::test_organize_queue_handles_one_task_per_round",
+    ),
+    (
+        "触发整理登记宽限期",
+        '                self._organize_dispatched[organize_path.rstrip("/")] = time.time()',
+        "                pass",
+        "tests/test_tgofflinebot.py::test_organize_queue_handles_one_task_per_round",
+    ),
+    (
+        "队列未清空暂缓巡检清理",
+        "        if self._organize_batch_active():\n"
+        "            # 队列语义：整批任务都整理完之前不清理残留，避免把还没入库的正片当广告删掉",
+        "        if False:\n"
+        "            # 队列语义：整批任务都整理完之前不清理残留，避免把还没入库的正片当广告删掉",
+        "tests/test_tgofflinebot.py::test_sweep_waits_until_organize_batch_finishes",
+    ),
+    (
+        "定时清理给队列让路",
+        "        if self._organize_batch_active():\n"
+        "            # 队列还没整理完：这一轮的残留清理交给整批结束后的统一巡检",
+        "        if False:\n"
+        "            # 队列还没整理完：这一轮的残留清理交给整批结束后的统一巡检",
+        "tests/test_tgofflinebot.py::test_residue_timer_skips_while_batch_active",
+    ),
+    (
+        "定时清理跳过刚整理的目录",
+        "        if self._residue_cleanup_blocked(parent):\n"
+        "            # 刚触发整理、MP 还在异步搬文件，此时目录里仍是正片",
+        "        if False:\n"
+        "            # 刚触发整理、MP 还在异步搬文件，此时目录里仍是正片",
+        "tests/test_tgofflinebot.py::test_residue_timer_skips_recently_dispatched",
+    ),
+    (
+        "巡检跳过刚整理的目录",
+        "                if path and self._residue_cleanup_blocked(path):\n"
+        "                    # 这个目录刚触发过整理，MP 还在异步搬文件，先不动它\n"
+        "                    continue",
+        "                if False:\n"
+        "                    # 这个目录刚触发过整理，MP 还在异步搬文件，先不动它\n"
+        "                    continue",
+        "tests/test_tgofflinebot.py::test_sweep_skips_recently_dispatched_dir",
+    ),
+    (
+        "批次判据只看待整理登记",
+        "        with self._choice_lock:\n"
+        "            return any(\n"
+        "                deadline > now for deadline in self._pending_transfer.values()\n"
+        "            )",
+        "        with self._choice_lock:\n"
+        "            return False",
+        "tests/test_tgofflinebot.py::test_sweep_waits_until_organize_batch_finishes",
+    ),
+    (
+        "标题按多语言候选匹配",
+        "        mp_titles = {\n"
+        "            self._normalize_title(title)\n"
+        "            for title in self._mp_title_candidates(mediainfo)\n"
+        "        }\n"
+        "        ai_title = self._normalize_title(ai.name)\n"
+        "        if ai_title and ai_title not in mp_titles:",
+        "        mp_titles = {\n"
+        "            self._normalize_title(title)\n"
+        "            for title in self._mp_title_candidates(mediainfo)\n"
+        "        }\n"
+        "        ai_title = self._normalize_title(ai.name)\n"
+        "        if ai_title and ai_title != self._normalize_title(snapshot[\"title\"]):",
+        "tests/test_tgofflinebot.py::test_same_media_matches_english_original_title",
+    ),
+    (
+        "别名纳入标题候选",
+        "        if isinstance(names, (list, tuple)):",
+        "        if False and isinstance(names, (list, tuple)):",
+        "tests/test_tgofflinebot.py::test_same_media_matches_alias_name",
+    ),
+    (
+        "任务目录缺失不发混放提醒",
+        "                if self._pending_finished_without_target(info_hash):\n"
+        "                    logger.info(\n"
+        '                        f"【TG磁力离线】任务已完成但目标目录无对应项，注销登记：{name}"\n'
+        "                    )\n"
+        "                else:\n"
+        "                    logger.info(\n"
+        '                        f"【TG磁力离线】任务已完成但目标目录暂无对应项，等落盘：{name}"\n'
+        "                    )",
+        "                self._defer_organize_notice(info_hash, name)",
+        "tests/test_tgofflinebot.py::test_organize_missing_target_does_not_send_mixed_notice",
+    ),
 ]
 
 

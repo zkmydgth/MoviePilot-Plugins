@@ -123,6 +123,9 @@ OWNED_SYNC_INTERVAL_SECONDS = 2.0
 OWNED_SYNC_ATTEMPTS = 5
 # 提交到指定目录后，等待「下载完成 → 主动触发整理」的登记有效期（秒）
 PENDING_TRANSFER_TTL_SECONDS = 6 * 3600
+# 触发整理到 MP 真正搬完文件的宽限期（秒）：这段时间目录里仍躺着正片，
+# 残留清理必须跳过，否则会把还没整理的正片当成广告删掉
+ORGANIZE_CLEANUP_GRACE_SECONDS = 1800
 # 整理完成通知的静默聚合窗口（秒）：同一「标题+季」静默这么久才发一条汇总
 DEFAULT_NOTIFY_WINDOW = 300
 # 持续有集进来时最多压这么久必须发一次，避免通知饿死
@@ -255,6 +258,10 @@ class TgOfflineBot(_PluginBase):
     _offline_deleted_notified: Dict[str, float] = {}
     # 已完成后在目标目录找不到对应项的首次时间：info_hash -> 时间戳
     _organize_seen: Dict[str, float] = {}
+    # 已触发整理、但 MP 可能还在异步搬文件的目录：目录路径 -> 触发时间戳
+    _organize_dispatched: Dict[str, float] = {}
+    # 「整理队列未清空、已暂缓残留清理」是否已写过日志，避免每轮刷屏
+    _organize_batch_noted: bool = False
     # 待重试删除的空目录：路径 -> 截止时间戳（115 列表有延迟，删完文件后目录可能仍显示非空）
     _pending_dir_removals: Dict[str, float] = {}
     # 单轮巡检里待汇总的手动整理提醒，合并成一条消息发出
@@ -388,6 +395,8 @@ class TgOfflineBot(_PluginBase):
         self._organize_notices = []
         self._offline_deleted_notified = {}
         self._organize_seen = {}
+        self._organize_dispatched = {}
+        self._organize_batch_noted = False
         self._pending_dir_removals = {}
         self._api_token = ""
         self._bot_username = ""
@@ -469,6 +478,8 @@ class TgOfflineBot(_PluginBase):
         self._organize_notices = []
         self._offline_deleted_notified = {}
         self._organize_seen = {}
+        self._organize_dispatched = {}
+        self._organize_batch_noted = False
         self._pending_dir_removals = {}
         self._api_token = str(config.get("api_token") or "").strip()
         self._batch_size = self._clamp_int(
@@ -2572,11 +2583,48 @@ class TgOfflineBot(_PluginBase):
         value = re.sub(r"[\s\-_:：·,，.。'\"!！?？()（）\[\]【】]", "", str(text or ""))
         return value.lower()
 
+    @staticmethod
+    def _mp_title_candidates(mediainfo: Any) -> List[str]:
+        """
+        收集 MP 侧可用于比对的标题候选。
+
+        TMDB 在中文环境下返回中文标题（如「忘却之岛」），而磁力文件名多是
+        英文原名（如 `Forgotten Island`）；只比 `title` 会把同一部片判成不一致。
+        这里把多语言标题与别名一并纳入候选，任一命中即视为同一部片。
+
+        :param mediainfo: MP 的 MediaInfo 对象
+        :return: 去重后的标题候选列表，保持原有顺序
+        """
+        raw_titles: List[str] = []
+        for field in (
+            "title",
+            "en_title",
+            "hk_title",
+            "tw_title",
+            "sg_title",
+            "original_title",
+            "original_name",
+        ):
+            value = str(getattr(mediainfo, field, "") or "").strip()
+            if value:
+                raw_titles.append(value)
+        names = getattr(mediainfo, "names", None)
+        if isinstance(names, (list, tuple)):
+            for name in names:
+                value = str(name or "").strip()
+                if value:
+                    raw_titles.append(value)
+        candidates: List[str] = []
+        for title in raw_titles:
+            if title not in candidates:
+                candidates.append(title)
+        return candidates
+
     def _same_media(self, mediainfo: Any, ai: AiRecognition) -> bool:
         """
         判断 MP 与 AI 的识别结果是否指向同一部媒体。
 
-        比较类型、归一化标题、年份与季号；任一项明确冲突即判为不一致。
+        比较类型、多语言标题候选、年份与季号；任一项明确冲突即判为不一致。
 
         :param mediainfo: MP 识别结果
         :param ai: AI 识别结果
@@ -2587,7 +2635,12 @@ class TgOfflineBot(_PluginBase):
         mp_type = snapshot["type"]
         if mp_type in ("movie", "tv") and ai_type in ("movie", "tv") and mp_type != ai_type:
             return False
-        if self._normalize_title(snapshot["title"]) != self._normalize_title(ai.name):
+        mp_titles = {
+            self._normalize_title(title)
+            for title in self._mp_title_candidates(mediainfo)
+        }
+        ai_title = self._normalize_title(ai.name)
+        if ai_title and ai_title not in mp_titles:
             return False
         if snapshot["year"] and ai.year and snapshot["year"] != str(ai.year):
             return False
@@ -3093,8 +3146,21 @@ class TgOfflineBot(_PluginBase):
         if tasks is None:
             # 接口暂时不可用：保留登记，下一轮再试
             return
+        # 队列语义：按提交（登记）顺序排队，最早提交、最早下完的先整理；
+        # 115 列表通常把最新任务排在前面，直接遍历会变成后提交的先整理
+        order = {info_hash: index for index, info_hash in enumerate(pending)}
+        ordered_tasks = sorted(
+            (
+                task
+                for task in tasks
+                if isinstance(task, dict)
+                and str(task.get("info_hash") or "").lower() in order
+            ),
+            key=lambda task: order[str(task.get("info_hash") or "").lower()],
+        )
         children: Optional[List[Any]] = None
-        for task in tasks:
+        dispatched_this_round = False
+        for task in ordered_tasks:
             if not isinstance(task, dict):
                 continue
             info_hash = str(task.get("info_hash") or "").lower()
@@ -3123,17 +3189,23 @@ class TgOfflineBot(_PluginBase):
                 # 单文件且目标目录里只有它：整理根目录等价于只整理这个任务
                 organize_path = target
             elif item is None:
-                # 任务已完成但目标目录里找不到对应项：多半已被整理或删除，
+                # 任务已完成但目标目录里找不到对应项：多半已被残留清理或整理移除，
+                # 与「单文件与其它任务混放」不是一回事，不能发手动整理提醒；
                 # 超过宽限期就注销登记，避免每轮空转请求 115
                 if self._pending_finished_without_target(info_hash):
                     logger.info(
                         f"【TG磁力离线】任务已完成但目标目录无对应项，注销登记：{name}"
                     )
                 else:
-                    self._defer_organize_notice(info_hash, name)
+                    logger.info(
+                        f"【TG磁力离线】任务已完成但目标目录暂无对应项，等落盘：{name}"
+                    )
                 continue
             else:
                 self._defer_organize_notice(info_hash, name)
+                continue
+            if dispatched_this_round:
+                # 队列语义：一轮只整理一个任务，其余排队等这批整理收尾后再来
                 continue
             ok, detail = self._trigger_manual_transfer(organize_path)
             if not ok:
@@ -3141,9 +3213,14 @@ class TgOfflineBot(_PluginBase):
                     f"【TG磁力离线】触发整理失败，下一轮重试：{organize_path} - {detail}"
                 )
                 continue
+            dispatched_this_round = True
             with self._choice_lock:
                 self._pending_transfer.pop(info_hash, None)
                 self._organize_seen.pop(info_hash, None)
+                # MP 搬文件是异步的：触发整理后这段时间内目录里仍是正片，
+                # 记下触发时间，让残留巡检先跳过该目录
+                self._organize_dispatched[organize_path.rstrip("/")] = time.time()
+                self._prune_organize_dispatched_locked(time.time())
             self._persist_pending_transfer()
             self._append_history("整理", Path(organize_path).name)
             logger.info(f"【TG磁力离线】已触发网盘整理：{organize_path}")
@@ -4593,6 +4670,18 @@ class TgOfflineBot(_PluginBase):
             if current is not threading.current_thread():
                 return
             self._residue_timers.pop(parent, None)
+        if self._organize_batch_active():
+            # 队列还没整理完：这一轮的残留清理交给整批结束后的统一巡检
+            logger.info(
+                f"【TG磁力离线】整理队列尚未清空，暂缓清理该目录：{parent}"
+            )
+            return
+        if self._residue_cleanup_blocked(parent):
+            # 刚触发整理、MP 还在异步搬文件，此时目录里仍是正片
+            logger.info(
+                f"【TG磁力离线】该目录刚触发整理，暂缓清理：{parent}"
+            )
+            return
         self._cleanup_residue(parent, fileitem)
 
     def _collect_residue_entries(
@@ -4939,6 +5028,57 @@ class TgOfflineBot(_PluginBase):
             f"改用 {storage} 访问 115 目录"
         )
 
+    def _prune_organize_dispatched_locked(self, now: float) -> None:
+        """
+        清理过期的「已触发整理」标记。
+
+        :param now: 当前时间戳
+        """
+        expired = [
+            key
+            for key, stamp in self._organize_dispatched.items()
+            if now - stamp >= ORGANIZE_CLEANUP_GRACE_SECONDS
+        ]
+        for key in expired:
+            self._organize_dispatched.pop(key, None)
+
+    def _organize_batch_active(self) -> bool:
+        """
+        判断整理队列里是否还有没触发整理的任务。
+
+        还有待整理登记就说明这批任务没走完；此时不做残留清理，
+        等整批任务都整理完再统一清一次。刚触发整理、MP 正在搬文件的
+        那一个目录由 `_residue_cleanup_blocked` 单独保护，不拖住整批。
+
+        :return: 批次仍在进行时返回 True
+        """
+        now = time.time()
+        with self._choice_lock:
+            return any(
+                deadline > now for deadline in self._pending_transfer.values()
+            )
+
+    def _residue_cleanup_blocked(self, path: str) -> bool:
+        """
+        判断该目录是否仍在「刚触发整理、MP 正在搬文件」的宽限期内。
+
+        触发整理是异步的：这几分钟里目录中仍是正片，判成残留就会误删；
+        过了宽限期还没搬走的文件才交给 AI 判。
+
+        :param path: 任务目录路径
+        :return: 需要跳过清理时返回 True
+        """
+        key = (path or "").rstrip("/")
+        if not key:
+            return False
+        now = time.time()
+        with self._choice_lock:
+            self._prune_organize_dispatched_locked(now)
+            dispatched = self._organize_dispatched.get(key)
+        return bool(
+            dispatched and now - dispatched < ORGANIZE_CLEANUP_GRACE_SECONDS
+        )
+
     def _sweep_pending_residue(self) -> None:
         """
         定期扫描待整理范围下属于本插件提交的目录，清理残留文件。
@@ -4957,6 +5097,16 @@ class TgOfflineBot(_PluginBase):
         if not has_owned and not target:
             # 既没有名称标记也没配置专属目录时不发请求，避免空轮询
             return
+        if self._organize_batch_active():
+            # 队列语义：整批任务都整理完之前不清理残留，避免把还没入库的正片当广告删掉
+            if not self._organize_batch_noted:
+                self._organize_batch_noted = True
+                logger.info(
+                    "【TG磁力离线】整理队列尚未清空，暂缓残留清理，整批整理完再统一清理"
+                )
+            self._wake_residue_sweep("整理队列未清空")
+            return
+        self._organize_batch_noted = False
         try:
             from app.chain.storage import StorageChain
 
@@ -4995,6 +5145,9 @@ class TgOfflineBot(_PluginBase):
                 if not (in_target or self._is_owned_text(name)):
                     continue
                 found_owned = True
+                if path and self._residue_cleanup_blocked(path):
+                    # 这个目录刚触发过整理，MP 还在异步搬文件，先不动它
+                    continue
                 if path:
                     self._cleanup_residue(path, item)
         if not reachable:

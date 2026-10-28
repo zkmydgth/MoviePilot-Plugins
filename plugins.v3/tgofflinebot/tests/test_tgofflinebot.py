@@ -64,6 +64,8 @@ def make_plugin(**overrides: Any) -> TgOfflineBot:
     plugin._organize_notices = []
     plugin._offline_deleted_notified = {}
     plugin._organize_seen = {}
+    plugin._organize_dispatched = {}
+    plugin._organize_batch_noted = False
     plugin._pending_dir_removals = {}
     plugin._misc_buffer = {}
     plugin._misc_timers = {}
@@ -683,6 +685,8 @@ def make_mediainfo(
     media_type: str = "电影",
     seasons: Optional[Dict[int, List[int]]] = None,
     media_id: str = "123",
+    en_title: str = "",
+    names: Optional[List[str]] = None,
 ) -> Any:
     """
     构造 MP 识别结果替身。
@@ -692,6 +696,8 @@ def make_mediainfo(
     :param media_type: 媒体类型
     :param seasons: 季集字典
     :param media_id: 媒体 ID
+    :param en_title: 英文标题
+    :param names: 别名与译名
     :return: 替身对象
     """
     return SimpleNamespace(
@@ -701,6 +707,8 @@ def make_mediainfo(
         seasons=seasons or {},
         media_id=media_id,
         media_source="tmdb",
+        en_title=en_title,
+        names=names or [],
     )
 
 
@@ -735,6 +743,43 @@ def test_same_media_matches() -> None:
     plugin = make_plugin()
     ai = AiRecognition(name="示例电影", year="2024", media_type="movie", confidence=0.9)
     assert plugin._same_media(make_mediainfo(), ai) is True
+
+
+def test_same_media_matches_english_original_title() -> None:
+    """MP 给中文标题、AI 给英文原名时判为同一媒体。"""
+    plugin = make_plugin()
+    ai = AiRecognition(
+        name="Forgotten Island", year="2026", media_type="movie", confidence=0.95
+    )
+    mediainfo = make_mediainfo(
+        title="忘却之岛", year="2026", en_title="Forgotten Island"
+    )
+    assert plugin._same_media(mediainfo, ai) is True
+
+
+def test_same_media_matches_alias_name() -> None:
+    """AI 标题命中 MP 别名列表时判为同一媒体。"""
+    plugin = make_plugin()
+    ai = AiRecognition(name="Verity", year="2026", media_type="movie", confidence=0.92)
+    mediainfo = make_mediainfo(
+        title="不存在的罪人", year="2026", names=["Verity", "真理"]
+    )
+    assert plugin._same_media(mediainfo, ai) is True
+
+
+def test_mp_title_candidates_include_multilanguage_fields() -> None:
+    """标题候选收集多语言字段与别名，并去重。"""
+    plugin = make_plugin()
+    mediainfo = make_mediainfo(
+        title="忘却之岛",
+        en_title="Forgotten Island",
+        names=["忘却之岛", "遗忘之岛"],
+    )
+    assert plugin._mp_title_candidates(mediainfo) == [
+        "忘却之岛",
+        "Forgotten Island",
+        "遗忘之岛",
+    ]
 
 
 def test_same_media_detects_type_conflict() -> None:
@@ -4108,3 +4153,219 @@ def test_remove_if_empty_counts_done_when_switch_off(
     monkeypatch.setattr(plugin, "_is_scope_root", lambda path: False)
     monkeypatch.setattr(plugin, "_is_target_root", lambda path: False)
     assert plugin._remove_if_empty("/待整理/TG/某任务") is True
+
+
+# ============================ 整理队列与残留清理时序 ============================
+
+
+def test_organize_queue_handles_one_task_per_round(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """多个任务同时下完时按提交顺序排队（不看 115 列表顺序），一轮只整理一个。"""
+    plugin = make_plugin()
+    first, second = "1" * 40, "2" * 40
+    plugin._pending_transfer = {first: time.time() + 600, second: time.time() + 600}
+    monkeypatch.setattr(plugin, "_effective_target_path", lambda: "/待整理/TG")
+    monkeypatch.setattr(
+        plugin,
+        "_list_offline_tasks",
+        # 115 列表通常把最新任务排前面，这里故意让后提交的排在前面
+        lambda: [
+            {"info_hash": second, "status": 2, "name": "Movie.Two.2021"},
+            {"info_hash": first, "status": 2, "name": "Movie.One.2020"},
+        ],
+    )
+    monkeypatch.setattr(
+        plugin,
+        "_list_target_children",
+        lambda: [
+            SimpleNamespace(type="dir", name="Movie.One.2020", path="/待整理/TG/Movie.One.2020"),
+            SimpleNamespace(type="dir", name="Movie.Two.2021", path="/待整理/TG/Movie.Two.2021"),
+        ],
+    )
+    calls: List[str] = []
+    monkeypatch.setattr(
+        plugin,
+        "_trigger_manual_transfer",
+        lambda path: calls.append(path) or (True, "ok"),
+    )
+    plugin._organize_completed_tasks()
+    assert calls == ["/待整理/TG/Movie.One.2020"]
+    assert list(plugin._pending_transfer) == [second]
+    assert "/待整理/TG/Movie.One.2020" in plugin._organize_dispatched
+    # 队列里的下一个任务等下一轮巡检再整理
+    plugin._organize_completed_tasks()
+    assert calls == ["/待整理/TG/Movie.One.2020", "/待整理/TG/Movie.Two.2021"]
+
+
+def test_organize_missing_target_does_not_send_mixed_notice(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """任务目录已不存在时不再误报「与他人混放，未自动整理」。"""
+    plugin = make_plugin()
+    info_hash = "3" * 40
+    plugin._pending_transfer = {info_hash: time.time() + 3600}
+    monkeypatch.setattr(plugin, "_effective_target_path", lambda: "/待整理/TG")
+    monkeypatch.setattr(
+        plugin,
+        "_list_offline_tasks",
+        lambda: [
+            {"info_hash": info_hash, "status": 2, "name": "理智与情感.6v电影"}
+        ],
+    )
+    monkeypatch.setattr(
+        plugin,
+        "_list_target_children",
+        lambda: [
+            SimpleNamespace(
+                type="dir", name="别的任务", path="/待整理/TG/别的任务"
+            )
+        ],
+    )
+    notified: List[str] = []
+    monkeypatch.setattr(plugin, "_send_notify", lambda text: notified.append(text))
+    plugin._organize_completed_tasks()
+    assert notified == []
+    assert plugin._organize_notices == []
+    assert info_hash in plugin._pending_transfer
+
+
+def test_sweep_waits_until_organize_batch_finishes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """队列里还有待整理任务时，巡检不清理任何目录。"""
+    from app.chain.storage import StorageChain
+
+    plugin = make_plugin(_offline_active_until=0.0)
+    plugin._owned_names = {}
+    plugin._pending_transfer = {"4" * 40: time.time() + 3600}
+    monkeypatch.setattr(plugin, "_effective_target_path", lambda: "/待整理/TG")
+    monkeypatch.setattr(plugin, "_scope_roots", lambda: ["/待整理"])
+    monkeypatch.setattr(plugin, "_get_existing_dir", lambda path: {"path": path})
+    monkeypatch.setattr(
+        StorageChain,
+        "list_files",
+        lambda self, item, recursion=False: [
+            SimpleNamespace(
+                type="dir", name="理智与情感", path="/待整理/TG/理智与情感"
+            )
+        ],
+    )
+    cleaned: List[str] = []
+    monkeypatch.setattr(
+        plugin, "_cleanup_residue", lambda parent, item: cleaned.append(parent)
+    )
+    plugin._sweep_pending_residue()
+    assert cleaned == []
+    assert plugin._organize_batch_noted is True
+    assert plugin._residue_idle is False
+
+
+def test_sweep_cleans_after_batch_and_grace(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """待整理登记清空、且触发整理已过宽限期后，巡检统一清理残留。"""
+    from app.chain.storage import StorageChain
+
+    plugin = make_plugin(_offline_active_until=0.0)
+    plugin._owned_names = {}
+    plugin._pending_transfer = {}
+    plugin._organize_dispatched = {
+        "/待整理/TG/某剧": time.time() - 7200,
+    }
+    monkeypatch.setattr(plugin, "_effective_target_path", lambda: "/待整理/TG")
+    monkeypatch.setattr(plugin, "_scope_roots", lambda: ["/待整理"])
+    monkeypatch.setattr(plugin, "_get_existing_dir", lambda path: {"path": path})
+    monkeypatch.setattr(
+        StorageChain,
+        "list_files",
+        lambda self, item, recursion=False: [
+            SimpleNamespace(type="dir", name="某剧", path="/待整理/TG/某剧")
+        ],
+    )
+    cleaned: List[str] = []
+    monkeypatch.setattr(
+        plugin, "_cleanup_residue", lambda parent, item: cleaned.append(parent)
+    )
+    plugin._sweep_pending_residue()
+    assert cleaned == ["/待整理/TG/某剧"]
+    assert plugin._organize_dispatched == {}
+
+
+def test_residue_timer_skips_while_batch_active(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """整理事件触发的定时清理同样要给队列让路。"""
+    plugin = make_plugin()
+    plugin._pending_transfer = {"5" * 40: time.time() + 3600}
+    path = "/待整理/TG/某剧"
+    # 让「计时器仍是当前线程」这道前置闸门通过，否则用例会在判断前就返回
+    plugin._residue_timers[path] = threading.current_thread()
+    cleaned: List[str] = []
+    monkeypatch.setattr(
+        plugin, "_cleanup_residue", lambda parent, item: cleaned.append(parent)
+    )
+    plugin._run_residue_cleanup(path, SimpleNamespace(path=path))
+    assert cleaned == []
+
+
+def test_residue_timer_runs_when_queue_empty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """队列已清空且目录不在宽限期时，定时清理照常执行。"""
+    plugin = make_plugin()
+    path = "/待整理/TG/某剧"
+    plugin._residue_timers[path] = threading.current_thread()
+    cleaned: List[str] = []
+    monkeypatch.setattr(
+        plugin, "_cleanup_residue", lambda parent, item: cleaned.append(parent)
+    )
+    plugin._run_residue_cleanup(path, SimpleNamespace(path=path))
+    assert cleaned == [path]
+
+
+def test_residue_timer_skips_recently_dispatched(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """刚触发整理的目录即使队列已清空，也要等宽限期过完再清。"""
+    plugin = make_plugin()
+    path = "/待整理/TG/某剧"
+    plugin._organize_dispatched = {path: time.time()}
+    plugin._residue_timers[path] = threading.current_thread()
+    cleaned: List[str] = []
+    monkeypatch.setattr(
+        plugin, "_cleanup_residue", lambda parent, item: cleaned.append(parent)
+    )
+    plugin._run_residue_cleanup(path, SimpleNamespace(path=path))
+    assert cleaned == []
+
+
+def test_sweep_skips_recently_dispatched_dir(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """队列已清空时，只跳过刚触发整理的那个目录，其它目录照常清理。"""
+    from app.chain.storage import StorageChain
+
+    plugin = make_plugin(_offline_active_until=0.0)
+    plugin._owned_names = {}
+    plugin._pending_transfer = {}
+    plugin._organize_dispatched = {"/待整理/TG/刚整理": time.time()}
+    monkeypatch.setattr(plugin, "_effective_target_path", lambda: "/待整理/TG")
+    monkeypatch.setattr(plugin, "_scope_roots", lambda: ["/待整理"])
+    monkeypatch.setattr(plugin, "_get_existing_dir", lambda path: {"path": path})
+    monkeypatch.setattr(
+        StorageChain,
+        "list_files",
+        lambda self, item, recursion=False: [
+            SimpleNamespace(
+                type="dir", name="刚整理", path="/待整理/TG/刚整理"
+            ),
+            SimpleNamespace(type="dir", name="旧任务", path="/待整理/TG/旧任务"),
+        ],
+    )
+    cleaned: List[str] = []
+    monkeypatch.setattr(
+        plugin, "_cleanup_residue", lambda parent, item: cleaned.append(parent)
+    )
+    plugin._sweep_pending_residue()
+    assert cleaned == ["/待整理/TG/旧任务"]
