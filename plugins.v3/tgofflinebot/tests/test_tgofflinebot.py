@@ -58,6 +58,13 @@ def make_plugin(**overrides: Any) -> TgOfflineBot:
     plugin._residue_checked = {}
     plugin._residue_timers = {}
     plugin._residue_delay = 300
+    plugin._storage_fallback_noted = set()
+    plugin._pending_transfer = {}
+    plugin._organize_notified = {}
+    plugin._organize_notices = []
+    plugin._offline_deleted_notified = {}
+    plugin._organize_seen = {}
+    plugin._pending_dir_removals = {}
     plugin._misc_buffer = {}
     plugin._misc_timers = {}
     plugin._cleanup_empty_dirs = True
@@ -268,7 +275,7 @@ def test_dir_command_updates_target(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_dir_command_reset(monkeypatch: pytest.MonkeyPatch) -> None:
-    """`/dir default` 恢复默认链路。"""
+    """`/dir default` 恢复自动解析。"""
     plugin = make_plugin(_target_path="/video/电影")
     replies = capture_replies(plugin)
     monkeypatch.setattr(
@@ -278,7 +285,7 @@ def test_dir_command_reset(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     plugin._handle_update(make_update("/dir default"))
     assert plugin._target_path == ""
-    assert "恢复默认" in replies[-1]
+    assert "自动解析" in replies[-1]
 
 
 def test_allow_and_deny(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -370,6 +377,12 @@ def test_submit_uses_explicit_path(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(tgofflinebot.requests, "post", fake_post)
     plugin = make_plugin(_target_path="/video/电影")
+    monkeypatch.setattr(
+        plugin, "_ensure_submit_target", lambda: (True, "/video/电影", "")
+    )
+    monkeypatch.setattr(
+        plugin, "_get_existing_dir", lambda path: SimpleNamespace(type="dir")
+    )
     plugin._submit_links(["ed2k://|file|a|1|0123456789ABCDEF0123456789ABCDEF|/"])
     assert captured["json"]["path"] == "/video/电影"
 
@@ -1448,7 +1461,7 @@ def test_sweep_skips_without_owned_tasks(
     plugin = make_plugin(_owned_names={})
     called: List[str] = []
     monkeypatch.setattr(
-        plugin, "_get_dir_item", lambda path: called.append(path) or None
+        plugin, "_get_existing_dir", lambda path: called.append(path) or None
     )
     plugin._sweep_pending_residue()
     assert called == []
@@ -1506,7 +1519,7 @@ def test_remove_if_empty_deletes_directory(
     monkeypatch.setattr(
         StorageChain, "delete_file", lambda self, item: (deleted.append(item) or True)
     )
-    monkeypatch.setattr(plugin, "_get_dir_item", lambda path: {"path": path})
+    monkeypatch.setattr(plugin, "_get_existing_dir", lambda path: {"path": path})
     monkeypatch.setattr(
         plugin, "_buffer_misc_notify", lambda key, line: notified.append(key)
     )
@@ -1530,7 +1543,7 @@ def test_remove_if_empty_skips_non_empty(
     monkeypatch.setattr(
         StorageChain, "delete_file", lambda self, item: (deleted.append(item) or True)
     )
-    monkeypatch.setattr(plugin, "_get_dir_item", lambda path: {"path": path})
+    monkeypatch.setattr(plugin, "_get_existing_dir", lambda path: {"path": path})
     plugin._remove_if_empty("/待整理/示例剧")
     assert deleted == []
 
@@ -1641,7 +1654,7 @@ def test_choice_callback_allows_group_member(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """群里任何成员都能点击「按 MP / 按 AI 整理」。"""
-    plugin = make_plugin(_allowed_users={"123456789"})
+    plugin = make_plugin(_allowed_users={"123456789", "-1001234567890"})
     plugin._pending_groups["/待整理/示例剧"] = {
         "token": "tok1",
         "dir": "/待整理/示例剧",
@@ -1814,7 +1827,7 @@ def test_cleanup_stuck_offline_filters_and_deletes(monkeypatch: pytest.MonkeyPat
     )
     plugin._cleanup_stuck_offline()
     assert deleted == ["aaa"]
-    assert any("离线任务卡住" in text for text in notified)
+    assert any("异常的离线任务" in text for text in notified)
 
 
 def test_cleanup_deletes_progressed_but_stalled(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1894,12 +1907,12 @@ def test_cleanup_residue_keeps_media_and_deletes_ads(
     )
     monkeypatch.setattr(
         plugin,
-        "_list_residue_items",
-        lambda fileitem, parent="": [video, subtitle, ad, unknown],
+        "_collect_residue_entries",
+        lambda fileitem, parent="": ([video, subtitle, ad, unknown], []),
     )
     seen: List[List[str]] = []
 
-    def fake_verdict(names: List[str]) -> Dict[str, Optional[bool]]:
+    def fake_verdict(names: List[str], sizes: Any = None) -> Dict[str, Optional[bool]]:
         """记录参与判定的文件，并按剧本返回结论。"""
         seen.append(list(names))
         verdict: Dict[str, Optional[bool]] = {}
@@ -1941,9 +1954,9 @@ def test_cleanup_residue_respects_unrecognized_switch(
     ad = SimpleNamespace(type="file", path="/待整理/示例剧/a.txt", name="a.txt", extension="txt")
     unknown = SimpleNamespace(type="file", path="/待整理/示例剧/b.dat", name="b.dat", extension="dat")
     monkeypatch.setattr(
-        plugin, "_list_residue_items", lambda fileitem, parent="": [ad, unknown]
+        plugin, "_collect_residue_entries", lambda fileitem, parent="": ([ad, unknown], [])
     )
-    monkeypatch.setattr(plugin, "_ai_residue_verdict", lambda names: {name: None for name in names})
+    monkeypatch.setattr(plugin, "_ai_residue_verdict", lambda names, sizes=None: {name: None for name in names})
     deleted: List[str] = []
     monkeypatch.setattr(
         plugin, "_delete_residue_item", lambda item: deleted.append(item.name) or True
@@ -1985,11 +1998,11 @@ def test_residue_skips_files_beyond_review_limit(
         for index in range(60)
     ]
     monkeypatch.setattr(
-        plugin, "_list_residue_items", lambda fileitem, parent="": items
+        plugin, "_collect_residue_entries", lambda fileitem, parent="": (items, [])
     )
     reviewed: List[List[str]] = []
 
-    def fake_verdict(names: List[str]) -> Dict[str, Optional[bool]]:
+    def fake_verdict(names: List[str], sizes: Any = None) -> Dict[str, Optional[bool]]:
         """模拟真实实现：只送审前 50 个，其余不出现在结果里。"""
         reviewed.append(list(names))
         return {name: True for name in names[:50]}
@@ -2063,7 +2076,7 @@ def test_cleanup_residue_skips_scope_root(monkeypatch: pytest.MonkeyPatch) -> No
     plugin = make_plugin(_precheck_scope="/待整理")
     calls: List[int] = []
     monkeypatch.setattr(
-        plugin, "_list_residue_items", lambda fileitem, parent="": calls.append(1) or []
+        plugin, "_collect_residue_entries", lambda fileitem, parent="": (calls.append(1) or [], [])
     )
     plugin._cleanup_residue(
         "/待整理",
@@ -2079,7 +2092,7 @@ def test_cleanup_residue_throttles_same_directory(
     plugin = make_plugin()
     calls: List[int] = []
     monkeypatch.setattr(
-        plugin, "_list_residue_items", lambda fileitem, parent="": calls.append(1) or []
+        plugin, "_collect_residue_entries", lambda fileitem, parent="": (calls.append(1) or [], [])
     )
     for _ in range(2):
         plugin._cleanup_residue(
@@ -2632,7 +2645,7 @@ def test_cleanup_stuck_offline_reports_failure(monkeypatch: pytest.MonkeyPatch) 
 
 
 def test_manual_transfer_uses_parent_directory(monkeypatch: pytest.MonkeyPatch) -> None:
-    """重跑整理时把文件路径换成父目录，避免 115 上被当成目录创建。"""
+    """重跑整理时把确认过的文件路径换成父目录，避免 115 上被当成目录创建。"""
     captured: Dict[str, Any] = {}
 
     def fake_post(url: str, **kwargs: Any) -> _FakeResponse:
@@ -2642,9 +2655,30 @@ def test_manual_transfer_uses_parent_directory(monkeypatch: pytest.MonkeyPatch) 
 
     monkeypatch.setattr(tgofflinebot.requests, "post", fake_post)
     plugin = make_plugin()
+    monkeypatch.setattr(plugin, "_parent_if_file", lambda path: "/待整理/剧集")
     ok, _ = plugin._trigger_manual_transfer("/待整理/剧集/示例.S01E01.mkv")
     assert ok is True
     assert captured["json"] == {"path": "/待整理/剧集"}
+
+
+def test_manual_transfer_keeps_dotted_directory(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """场景目录名带点时不能被当成文件截断到父目录。"""
+    captured: Dict[str, Any] = {}
+
+    def fake_post(url: str, **kwargs: Any) -> _FakeResponse:
+        """记录请求体。"""
+        captured.update(kwargs)
+        return _FakeResponse(200, {"code": 0, "msg": "ok"})
+
+    monkeypatch.setattr(tgofflinebot.requests, "post", fake_post)
+    plugin = make_plugin()
+    monkeypatch.setattr(plugin, "_parent_if_file", lambda path: "")
+    target = "/待整理/TG/某剧.2020.1080p-GRP"
+    ok, _ = plugin._trigger_manual_transfer(target)
+    assert ok is True
+    assert captured["json"] == {"path": target}
 
 
 # ============================ 代理解析 ============================
@@ -2690,7 +2724,7 @@ def test_sweep_sleeps_when_no_owned_dir(monkeypatch: pytest.MonkeyPatch) -> None
     plugin = make_plugin(_offline_active_until=0.0)
     calls: List[str] = []
     monkeypatch.setattr(
-        plugin, "_get_dir_item", lambda path: calls.append(path) or {"path": path}
+        plugin, "_get_existing_dir", lambda path: calls.append(path) or {"path": path}
     )
     monkeypatch.setattr(
         StorageChain,
@@ -2719,7 +2753,7 @@ def test_sweep_stays_awake_while_offline_task_running(
     from app.chain.storage import StorageChain
 
     plugin = make_plugin(_offline_active_until=0.0)
-    monkeypatch.setattr(plugin, "_get_dir_item", lambda path: {"path": path})
+    monkeypatch.setattr(plugin, "_get_existing_dir", lambda path: {"path": path})
     monkeypatch.setattr(
         StorageChain, "list_files", lambda self, item, recursion=False: []
     )
@@ -2737,7 +2771,7 @@ def test_sweep_stays_awake_within_submit_window(
     from app.chain.storage import StorageChain
 
     plugin = make_plugin()
-    monkeypatch.setattr(plugin, "_get_dir_item", lambda path: {"path": path})
+    monkeypatch.setattr(plugin, "_get_existing_dir", lambda path: {"path": path})
     monkeypatch.setattr(
         StorageChain, "list_files", lambda self, item, recursion=False: []
     )
@@ -2756,7 +2790,7 @@ def test_sweep_keeps_state_when_root_unreachable(
 ) -> None:
     """取不到范围根时无法判断是否为空，保持现状不误休眠。"""
     plugin = make_plugin(_offline_active_until=0.0)
-    monkeypatch.setattr(plugin, "_get_dir_item", lambda path: None)
+    monkeypatch.setattr(plugin, "_get_existing_dir", lambda path: None)
     plugin._sweep_pending_residue()
     assert plugin._residue_idle is False
 
@@ -2773,7 +2807,7 @@ def test_sweep_wakes_when_owned_dir_appears(
         _residue_idle_since=time.time(),
     )
     cleaned: List[str] = []
-    monkeypatch.setattr(plugin, "_get_dir_item", lambda path: {"path": path})
+    monkeypatch.setattr(plugin, "_get_existing_dir", lambda path: {"path": path})
     monkeypatch.setattr(
         StorageChain,
         "list_files",
@@ -2834,7 +2868,7 @@ def test_residue_recheck_refreshes_idle_start(
         _residue_idle_since=1000.0,
         _residue_idle_recheck=60,
     )
-    monkeypatch.setattr(plugin, "_get_dir_item", lambda path: {"path": path})
+    monkeypatch.setattr(plugin, "_get_existing_dir", lambda path: {"path": path})
     monkeypatch.setattr(
         StorageChain, "list_files", lambda self, item, recursion=False: []
     )
@@ -2842,3 +2876,1235 @@ def test_residue_recheck_refreshes_idle_start(
     plugin._sweep_pending_residue()
     assert plugin._residue_idle is True
     assert plugin._residue_idle_since > 1000.0
+
+
+def test_first_pan_path_accepts_list_json_and_text() -> None:
+    """P115StrmHelper 的路径配置可能是列表、JSON 文本或换行文本。"""
+    plugin = make_plugin()
+    assert plugin._first_pan_path(["/待整理"]) == "/待整理"
+    assert plugin._first_pan_path('["/待整理", "/其它"]') == "/待整理"
+    assert plugin._first_pan_path("/待整理\n/其它") == "/待整理"
+    assert plugin._first_pan_path("/待整理，/其它") == "/待整理"
+    assert plugin._first_pan_path("") == ""
+    assert plugin._first_pan_path(None) == ""
+
+
+def test_effective_target_reads_helper_configs() -> None:
+    """离线目录优先；缺失时退回整理目录，并拼上专属子目录。"""
+    plugin = make_plugin()
+    plugin._strm_helper_cache = (
+        time.time(),
+        {"offline_download_paths": ["/离线下载"], "pan_transfer_paths": "/待整理"},
+    )
+    assert plugin._effective_target_path() == "/离线下载/TG"
+    plugin._strm_helper_cache = (time.time(), {"pan_transfer_paths": "/待整理"})
+    assert plugin._effective_target_path() == "/待整理/TG"
+
+
+def test_effective_target_empty_subdir_uses_base_dir() -> None:
+    """子目录留空时直接使用 P115StrmHelper 的离线目录。"""
+    plugin = make_plugin(_offline_subdir="")
+    plugin._strm_helper_cache = (time.time(), {"offline_download_paths": ["/待整理"]})
+    assert plugin._effective_target_path() == "/待整理"
+
+
+def test_effective_target_prefers_manual_path() -> None:
+    """手填 target_path 时以手填为准。"""
+    plugin = make_plugin(_target_path="/自定义/目录/")
+    plugin._strm_helper_cache = (time.time(), {"offline_download_paths": ["/待整理"]})
+    assert plugin._effective_target_path() == "/自定义/目录"
+
+
+def test_effective_target_empty_when_helper_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """拿不到 P115StrmHelper 配置时不猜路径，退回默认链路。"""
+    plugin = make_plugin()
+    monkeypatch.setattr(plugin, "_strm_helper_config", lambda: {})
+    assert plugin._effective_target_path() == ""
+
+
+def test_owned_path_uses_target_prefix(monkeypatch: pytest.MonkeyPatch) -> None:
+    """专属目录下的任务按路径前缀判定，不再依赖名称标记。"""
+    plugin = make_plugin()
+    plugin._owned_names = {}
+    monkeypatch.setattr(plugin, "_effective_target_path", lambda: "/待整理/TG")
+    assert plugin._is_owned_path("/待整理/TG/某剧.S01E01.mkv") is True
+    assert plugin._is_owned_path("/待整理/TG") is False
+    assert plugin._is_owned_path("/待整理/其它/某剧.S01E01.mkv") is False
+
+
+def test_owned_path_falls_back_to_name_marker(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """没有专属目录或路径不在其中时仍按名称标记判定。"""
+    plugin = make_plugin()
+    plugin._owned_names = {"abc12345": time.time() + 600}
+    monkeypatch.setattr(plugin, "_effective_target_path", lambda: "/待整理/TG")
+    assert plugin._is_owned_path("/待整理/abc12345.2020.mkv") is True
+
+
+def test_target_root_skips_empty_dir_cleanup(monkeypatch: pytest.MonkeyPatch) -> None:
+    """专属目录是容器目录，清空后也不能删除；任务目录照常处理。"""
+    from app.chain.storage import StorageChain
+
+    plugin = make_plugin()
+    monkeypatch.setattr(plugin, "_effective_target_path", lambda: "/待整理/TG")
+    deleted: List[str] = []
+    monkeypatch.setattr(plugin, "_get_existing_dir", lambda path: SimpleNamespace(path=path))
+    monkeypatch.setattr(
+        StorageChain, "list_files", lambda self, item, recursion=False: []
+    )
+    monkeypatch.setattr(
+        StorageChain,
+        "delete_file",
+        lambda self, item: deleted.append(str(item.path)) or True,
+    )
+    plugin._cleanup_empty_dirs = True
+    plugin._remove_if_empty("/待整理/TG")
+    assert deleted == []
+    plugin._remove_if_empty("/待整理/TG/某剧")
+    assert deleted == ["/待整理/TG/某剧"]
+
+
+def test_target_root_skips_residue_scan(monkeypatch: pytest.MonkeyPatch) -> None:
+    """专属目录根下混着多个任务，不做同目录残留扫描。"""
+    plugin = make_plugin()
+    monkeypatch.setattr(plugin, "_effective_target_path", lambda: "/待整理/TG")
+    scanned: List[str] = []
+    monkeypatch.setattr(
+        plugin, "_collect_residue_entries", lambda item, parent="": (scanned.append(parent) or [], [])
+    )
+    plugin._cleanup_residue("/待整理/TG", SimpleNamespace(path="/待整理/TG"))
+    assert scanned == []
+
+
+def test_ensure_target_dir_touches_storage_layer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """目录不存在时由存储层的 get_folder 递归创建。"""
+    plugin = make_plugin()
+    monkeypatch.setattr(plugin, "_effective_target_path", lambda: "/待整理/TG")
+    seen: List[str] = []
+
+    def fake_dir(path: str) -> Any:
+        """记录被请求的目录并返回目录项。"""
+        seen.append(path)
+        return {"path": path}
+
+    monkeypatch.setattr(plugin, "_get_dir_item", fake_dir)
+    assert plugin._ensure_target_dir() == (True, "/待整理/TG")
+    assert seen == ["/待整理/TG"]
+
+
+def test_sweep_cleans_target_subdirs_without_name_marker(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """专属目录下的子目录直接视为本插件任务，不要求名称能匹配。"""
+    from app.chain.storage import StorageChain
+
+    plugin = make_plugin(_offline_active_until=0.0)
+    plugin._owned_names = {}
+    monkeypatch.setattr(plugin, "_effective_target_path", lambda: "/待整理/TG")
+    monkeypatch.setattr(plugin, "_scope_roots", lambda: ["/待整理"])
+    monkeypatch.setattr(plugin, "_get_existing_dir", lambda path: {"path": path})
+    cleaned: List[str] = []
+    monkeypatch.setattr(
+        plugin, "_cleanup_residue", lambda parent, item: cleaned.append(parent)
+    )
+
+    def fake_list(self: Any, item: Any, recursion: bool = False) -> List[Any]:
+        """按 root 返回不同子项：范围根下是 TG，TG 下是任务目录与 TG 自身。"""
+        root = str(item.get("path") if isinstance(item, dict) else item.path)
+        if root == "/待整理":
+            return [SimpleNamespace(type="dir", name="TG", path="/待整理/TG")]
+        return [
+            SimpleNamespace(type="dir", name="TG", path="/待整理/TG"),
+            SimpleNamespace(
+                type="dir", name="某剧.S01", path="/待整理/TG/某剧.S01"
+            ),
+        ]
+
+    monkeypatch.setattr(StorageChain, "list_files", fake_list)
+    plugin._sweep_pending_residue()
+    assert cleaned == ["/待整理/TG/某剧.S01"]
+
+
+def test_storage_candidates_put_config_first(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """存储候选以配置值为先，再追加官方 115 标识；历史显示名也照原样保留在首位。"""
+    plugin = make_plugin()
+    monkeypatch.setattr(plugin, "_storage_module", lambda: "115网盘Plus")
+    assert plugin._storage_candidates() == ["115网盘Plus", "u115", "n"]
+    monkeypatch.setattr(plugin, "_storage_module", lambda: "")
+    assert plugin._storage_candidates() == ["u115", "n"]
+    monkeypatch.setattr(plugin, "_storage_module", lambda: "u115")
+    assert plugin._storage_candidates() == ["u115", "n"]
+
+
+def test_storage_candidates_never_fall_back_to_local(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """本地存储不能作为兜底：115 路径交给 local 会在容器里建出同名目录。"""
+    plugin = make_plugin()
+    monkeypatch.setattr(plugin, "_storage_module", lambda: "local")
+    assert plugin._storage_candidates() == ["u115", "n"]
+
+
+def test_get_dir_item_falls_back_to_supported_storage(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """配置的存储标识不被宿主支持时，改用官方 115 存储取目录并只提示一次。"""
+    from app.chain.storage import StorageChain
+
+    plugin = make_plugin()
+    monkeypatch.setattr(plugin, "_storage_module", lambda: "115网盘Plus")
+    calls: List[str] = []
+
+    def fake_get_folder(self: Any, storage: str, path: Any) -> Any:
+        """模拟宿主：未知存储返回 None，u115 返回目录项。"""
+        calls.append(storage)
+        return SimpleNamespace(path=str(path), storage=storage) if storage == "u115" else None
+
+    monkeypatch.setattr(StorageChain, "get_folder", fake_get_folder)
+    item = plugin._get_dir_item("/待整理/TG")
+    assert item is not None and item.storage == "u115"
+    assert calls == ["115网盘Plus", "u115"]
+    assert plugin._storage_fallback_noted == {"u115"}
+    # 第二次命中兜底不再重复记提示
+    plugin._get_dir_item("/待整理/TG")
+    assert plugin._storage_fallback_noted == {"u115"}
+
+
+def test_get_dir_item_returns_none_when_all_unsupported(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """所有候选存储都取不到目录时返回 None，由上层按「暂不可达」处理。"""
+    from app.chain.storage import StorageChain
+
+    plugin = make_plugin()
+    monkeypatch.setattr(plugin, "_storage_module", lambda: "115网盘Plus")
+    monkeypatch.setattr(
+        StorageChain, "get_folder", lambda self, storage, path: None
+    )
+    assert plugin._get_dir_item("/待整理/TG") is None
+    assert plugin._storage_fallback_noted == set()
+
+
+# ============================ 下载完成后主动整理 ============================
+
+
+def test_multi_file_task_organizes_subdir(monkeypatch: pytest.MonkeyPatch) -> None:
+    """多文件任务整理它在目标目录下的独立子目录。"""
+    plugin = make_plugin()
+    info_hash = "a" * 40
+    plugin._pending_transfer = {info_hash: time.time() + 600}
+    monkeypatch.setattr(plugin, "_effective_target_path", lambda: "/待整理/TG")
+    monkeypatch.setattr(
+        plugin,
+        "_list_offline_tasks",
+        lambda: [{"info_hash": info_hash, "status": 2, "name": "Some.Show.S01.1080p-GRP"}],
+    )
+    monkeypatch.setattr(
+        plugin,
+        "_list_target_children",
+        lambda: [
+            SimpleNamespace(
+                type="dir",
+                name="Some.Show.S01.1080p-GRP",
+                path="/待整理/TG/Some.Show.S01.1080p-GRP",
+            )
+        ],
+    )
+    calls: List[str] = []
+
+    def fake_transfer(path: str) -> Any:
+        """记录被整理的路径。"""
+        calls.append(path)
+        return True, "ok"
+
+    monkeypatch.setattr(plugin, "_trigger_manual_transfer", fake_transfer)
+    plugin._organize_completed_tasks()
+    assert calls == ["/待整理/TG/Some.Show.S01.1080p-GRP"]
+    assert plugin._pending_transfer == {}
+
+
+def test_single_file_organizes_root_when_alone(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """单文件任务独占目标目录时，整理根目录等价于只整理它。"""
+    plugin = make_plugin()
+    info_hash = "b" * 40
+    plugin._pending_transfer = {info_hash: time.time() + 600}
+    monkeypatch.setattr(plugin, "_effective_target_path", lambda: "/待整理/TG")
+    monkeypatch.setattr(
+        plugin,
+        "_list_offline_tasks",
+        lambda: [{"info_hash": info_hash, "status": 2, "name": "Movie.2020.1080p-GRP"}],
+    )
+    monkeypatch.setattr(
+        plugin,
+        "_list_target_children",
+        lambda: [
+            SimpleNamespace(
+                type="file",
+                name="Movie.2020.1080p-GRP.mkv",
+                path="/待整理/TG/Movie.2020.1080p-GRP.mkv",
+            )
+        ],
+    )
+    calls: List[str] = []
+
+    def fake_transfer(path: str) -> Any:
+        """记录被整理的路径。"""
+        calls.append(path)
+        return True, "ok"
+
+    monkeypatch.setattr(plugin, "_trigger_manual_transfer", fake_transfer)
+    plugin._organize_completed_tasks()
+    assert calls == ["/待整理/TG"]
+    assert plugin._pending_transfer == {}
+
+
+def test_single_file_keeps_pending_when_others_exist(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """单文件与其它任务混放时不整理根目录，只提醒一次并保留登记。"""
+    plugin = make_plugin()
+    info_hash = "c" * 40
+    plugin._pending_transfer = {info_hash: time.time() + 600}
+    monkeypatch.setattr(plugin, "_effective_target_path", lambda: "/待整理/TG")
+    monkeypatch.setattr(
+        plugin,
+        "_list_offline_tasks",
+        lambda: [{"info_hash": info_hash, "status": 2, "name": "Movie.2020.1080p-GRP"}],
+    )
+    monkeypatch.setattr(
+        plugin,
+        "_list_target_children",
+        lambda: [
+            SimpleNamespace(
+                type="file",
+                name="Movie.2020.1080p-GRP.mkv",
+                path="/待整理/TG/Movie.2020.1080p-GRP.mkv",
+            ),
+            SimpleNamespace(type="dir", name="其它任务", path="/待整理/TG/其它任务"),
+        ],
+    )
+    calls: List[str] = []
+    notified: List[str] = []
+    monkeypatch.setattr(
+        plugin, "_trigger_manual_transfer", lambda path: calls.append(path) or (True, "ok")
+    )
+    monkeypatch.setattr(plugin, "_send_notify", lambda text: notified.append(text))
+    plugin._organize_completed_tasks()
+    assert calls == []
+    assert info_hash in plugin._pending_transfer
+    assert len(notified) == 1 and "手动整理" in notified[0]
+    # 同一任务不重复提醒
+    plugin._organize_completed_tasks()
+    assert len(notified) == 1
+
+
+def test_incomplete_task_not_organized(monkeypatch: pytest.MonkeyPatch) -> None:
+    """下载中、失败或重试中的任务都不触发整理。"""
+    plugin = make_plugin()
+    info_hash = "d" * 40
+    plugin._pending_transfer = {info_hash: time.time() + 600}
+    monkeypatch.setattr(plugin, "_effective_target_path", lambda: "/待整理/TG")
+    monkeypatch.setattr(
+        plugin,
+        "_list_offline_tasks",
+        lambda: [{"info_hash": info_hash, "status": 0, "name": "Movie.2020.1080p-GRP"}],
+    )
+    monkeypatch.setattr(
+        plugin,
+        "_list_target_children",
+        lambda: [
+            SimpleNamespace(
+                type="dir",
+                name="Movie.2020.1080p-GRP",
+                path="/待整理/TG/Movie.2020.1080p-GRP",
+            )
+        ],
+    )
+    calls: List[str] = []
+    monkeypatch.setattr(
+        plugin, "_trigger_manual_transfer", lambda path: calls.append(path) or (True, "ok")
+    )
+    plugin._organize_completed_tasks()
+    assert calls == []
+    assert info_hash in plugin._pending_transfer
+
+
+def test_expired_pending_is_pruned(monkeypatch: pytest.MonkeyPatch) -> None:
+    """过期登记直接清掉，不再请求离线列表。"""
+    plugin = make_plugin()
+    plugin._pending_transfer = {"e" * 40: time.time() - 10}
+    monkeypatch.setattr(plugin, "_effective_target_path", lambda: "/待整理/TG")
+    called: List[bool] = []
+    monkeypatch.setattr(
+        plugin, "_list_offline_tasks", lambda: called.append(True) or []
+    )
+    plugin._organize_completed_tasks()
+    assert plugin._pending_transfer == {}
+    assert called == []
+
+
+def test_trigger_failure_keeps_pending(monkeypatch: pytest.MonkeyPatch) -> None:
+    """触发整理失败时保留登记，等下一轮重试。"""
+    plugin = make_plugin()
+    info_hash = "f" * 40
+    plugin._pending_transfer = {info_hash: time.time() + 600}
+    monkeypatch.setattr(plugin, "_effective_target_path", lambda: "/待整理/TG")
+    monkeypatch.setattr(
+        plugin,
+        "_list_offline_tasks",
+        lambda: [{"info_hash": info_hash, "status": 2, "name": "Some.Show.S01"}],
+    )
+    monkeypatch.setattr(
+        plugin,
+        "_list_target_children",
+        lambda: [
+            SimpleNamespace(
+                type="dir", name="Some.Show.S01", path="/待整理/TG/Some.Show.S01"
+            )
+        ],
+    )
+    monkeypatch.setattr(plugin, "_trigger_manual_transfer", lambda path: (False, "boom"))
+    plugin._organize_completed_tasks()
+    assert info_hash in plugin._pending_transfer
+
+
+def test_pending_transfer_registered_only_with_target(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """只有指定了目标目录才登记待整理；默认链路交给 P115StrmHelper。"""
+    plugin = make_plugin()
+    monkeypatch.setattr(plugin, "_start_owned_sync", lambda hashes: None)
+    link = (
+        "magnet:?xt=urn:btih:" + "1" * 40 + "&dn=Some.Show.S01.1080p-GRP"
+    )
+    monkeypatch.setattr(plugin, "_effective_target_path", lambda: "/待整理/TG")
+    plugin._record_owned_links([link])
+    assert list(plugin._pending_transfer) == ["1" * 40]
+    assert plugin._pending_transfer["1" * 40] > time.time()
+    plugin._pending_transfer = {}
+    monkeypatch.setattr(plugin, "_effective_target_path", lambda: "")
+    plugin._record_owned_links([link])
+    assert plugin._pending_transfer == {}
+
+
+def test_parent_if_file_only_for_files(monkeypatch: pytest.MonkeyPatch) -> None:
+    """只有真实类型是文件时才换成父目录，目录名带点也保持原样。"""
+    plugin = make_plugin()
+    monkeypatch.setattr(
+        plugin, "_get_item_by_path", lambda path: SimpleNamespace(type="file")
+    )
+    assert plugin._parent_if_file("/待整理/TG/a.mkv") == "/待整理/TG"
+    monkeypatch.setattr(
+        plugin, "_get_item_by_path", lambda path: SimpleNamespace(type="dir")
+    )
+    assert plugin._parent_if_file("/待整理/TG/某剧.2020.1080p-GRP") == ""
+    monkeypatch.setattr(plugin, "_get_item_by_path", lambda path: None)
+    assert plugin._parent_if_file("/待整理/TG/某剧") == ""
+
+
+# ============================ 读路径不得创建目录 ============================
+
+
+def test_get_existing_dir_never_creates(monkeypatch: pytest.MonkeyPatch) -> None:
+    """查询目录只读：不存在的目录返回 None，且不会调用会创建目录的接口。"""
+    plugin = make_plugin()
+    created: List[str] = []
+    monkeypatch.setattr(plugin, "_get_dir_item", lambda path: created.append(path) or {"path": path})
+    monkeypatch.setattr(plugin, "_get_item_by_path", lambda path: None)
+    assert plugin._get_existing_dir("/待整理/TG") is None
+    monkeypatch.setattr(
+        plugin, "_get_item_by_path", lambda path: SimpleNamespace(type="file")
+    )
+    assert plugin._get_existing_dir("/待整理/TG") is None
+    monkeypatch.setattr(
+        plugin, "_get_item_by_path", lambda path: SimpleNamespace(type="dir")
+    )
+    assert plugin._get_existing_dir("/待整理/TG") is not None
+    assert created == []
+
+
+def test_remove_if_empty_does_not_create_missing_dir(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """目录已不存在时直接返回，不先造一个空壳再删。"""
+    plugin = make_plugin()
+    created: List[str] = []
+    deleted: List[str] = []
+    monkeypatch.setattr(
+        plugin, "_get_dir_item", lambda path: created.append(path) or {"path": path}
+    )
+    monkeypatch.setattr(plugin, "_get_existing_dir", lambda path: None)
+    monkeypatch.setattr(plugin, "_is_scope_root", lambda path: False)
+    monkeypatch.setattr(plugin, "_is_target_root", lambda path: False)
+    monkeypatch.setattr(
+        plugin, "_delete_residue_item", lambda item: deleted.append(str(item)) or True
+    )
+    plugin._cleanup_empty_dirs = True
+    plugin._remove_if_empty("/待整理/TG/某任务")
+    assert created == []
+    assert deleted == []
+
+
+def test_list_target_children_uses_read_only_lookup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """列目标目录时目录不存在就直接返回 None，不因本次巡检把目录建出来。"""
+    plugin = make_plugin()
+    monkeypatch.setattr(plugin, "_effective_target_path", lambda: "/待整理/TG")
+    monkeypatch.setattr(plugin, "_get_existing_dir", lambda path: None)
+    monkeypatch.setattr(
+        plugin, "_get_dir_item", lambda path: pytest.fail("不应调用创建型接口")
+    )
+    assert plugin._list_target_children() is None
+
+
+# ============================ 提交前确认目标目录 ============================
+
+
+def test_ensure_submit_target_clears_cache_and_rebuilds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """目录取不到时先清缓存再重建，成功后返回可用状态。"""
+    plugin = make_plugin()
+    monkeypatch.setattr(plugin, "_effective_target_path", lambda: "/待整理/TG")
+    state = {"exists": False, "cleared": 0}
+
+    def fake_existing(path: str) -> Any:
+        """第一次查不到；清缓存后视为已重建。"""
+        return SimpleNamespace(type="dir") if state["exists"] else None
+
+    def fake_clear() -> None:
+        """记录清缓存调用并让目录变为可解析。"""
+        state["cleared"] += 1
+        state["exists"] = True
+
+    monkeypatch.setattr(plugin, "_get_existing_dir", fake_existing)
+    monkeypatch.setattr(plugin, "_ensure_target_dir", lambda: (True, "/待整理/TG"))
+    monkeypatch.setattr(plugin, "_clear_path_caches", fake_clear)
+    ready, target, note = plugin._ensure_submit_target()
+    assert ready is True and target == "/待整理/TG"
+    assert state["cleared"] == 1 and "缓存" in note
+
+
+def test_ensure_submit_target_fails_when_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """清缓存后仍取不到目录时判为不可用，交由调用方拒绝提交。"""
+    plugin = make_plugin()
+    monkeypatch.setattr(plugin, "_effective_target_path", lambda: "/待整理/TG")
+    monkeypatch.setattr(plugin, "_get_existing_dir", lambda path: None)
+    monkeypatch.setattr(plugin, "_ensure_target_dir", lambda: (False, "/待整理/TG"))
+    cleared: List[int] = []
+    monkeypatch.setattr(plugin, "_clear_path_caches", lambda: cleared.append(1))
+    ready, target, note = plugin._ensure_submit_target()
+    assert ready is False and target == "/待整理/TG"
+    assert "不可用" in note and cleared == [1]
+
+
+def test_submit_rejects_when_target_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """目标目录不可用时直接回执失败，不把任务交给离线接口。"""
+    posted: List[str] = []
+    monkeypatch.setattr(
+        tgofflinebot.requests,
+        "post",
+        lambda url, **kwargs: posted.append(url) or _FakeResponse(200, {"code": 0}),
+    )
+    plugin = make_plugin()
+    monkeypatch.setattr(plugin, "_list_offline_tasks", lambda: [])
+    monkeypatch.setattr(
+        plugin, "_ensure_submit_target", lambda: (False, "/待整理/TG", "目标目录不可用")
+    )
+    ok, detail = plugin._submit_links(
+        ["magnet:?xt=urn:btih:" + "2" * 40 + "&dn=Some.Movie.2020"]
+    )
+    assert ok is False and "不可用" in detail
+    assert posted == []
+
+
+def test_submit_warns_when_target_missing_after_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """接口报成功但目录不可用：算成功但回执警示，且仍登记来源。"""
+    recorded: List[Any] = []
+    monkeypatch.setattr(
+        tgofflinebot.requests,
+        "post",
+        lambda url, **kwargs: _FakeResponse(200, {"code": 0, "msg": "ok"}),
+    )
+    plugin = make_plugin()
+    monkeypatch.setattr(plugin, "_list_offline_tasks", lambda: [])
+    monkeypatch.setattr(
+        plugin, "_ensure_submit_target", lambda: (True, "/待整理/TG", "")
+    )
+    monkeypatch.setattr(plugin, "_get_existing_dir", lambda path: None)
+    monkeypatch.setattr(
+        plugin, "_record_owned_links", lambda links: recorded.append(links)
+    )
+    ok, detail = plugin._submit_links(
+        ["magnet:?xt=urn:btih:" + "3" * 40 + "&dn=Some.Movie.2020"]
+    )
+    assert ok is True and "默认离线目录" in detail
+    # 任务已建好，来源必须登记，否则后续预检与整理都不认它
+    assert recorded
+
+
+def test_organize_notices_merge_into_one_message(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """多个单文件任务混放时只发一条汇总提醒。"""
+    plugin = make_plugin()
+    hashes = ["a" * 40, "b" * 40]
+    plugin._pending_transfer = {h: time.time() + 600 for h in hashes}
+    monkeypatch.setattr(plugin, "_effective_target_path", lambda: "/待整理/TG")
+    monkeypatch.setattr(
+        plugin,
+        "_list_offline_tasks",
+        lambda: [
+            {"info_hash": hashes[0], "status": 2, "name": "Movie.One.2020"},
+            {"info_hash": hashes[1], "status": 2, "name": "Movie.Two.2021"},
+        ],
+    )
+    monkeypatch.setattr(
+        plugin,
+        "_list_target_children",
+        lambda: [
+            SimpleNamespace(type="file", name="Movie.One.2020.mkv", path="/待整理/TG/a.mkv"),
+            SimpleNamespace(type="file", name="Movie.Two.2021.mkv", path="/待整理/TG/b.mkv"),
+        ],
+    )
+    monkeypatch.setattr(
+        plugin, "_trigger_manual_transfer", lambda path: (False, "should not run")
+    )
+    notified: List[str] = []
+    monkeypatch.setattr(plugin, "_send_notify", lambda text: notified.append(text))
+    plugin._organize_completed_tasks()
+    assert len(notified) == 1
+    assert "2 个" in notified[0] and "Movie.One.2020" in notified[0]
+    assert hashes[0] in plugin._pending_transfer and hashes[1] in plugin._pending_transfer
+
+
+# ============================ 识别比对与选择消息 ============================
+
+
+def test_ai_cache_key_includes_episode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """同目录同季的不同集必须使用不同缓存键，否则整季复用第一集结果。"""
+    plugin = make_plugin()
+    monkeypatch.setattr(
+        TgOfflineBot,
+        "_mp_snapshot",
+        staticmethod(
+            lambda mediainfo: {
+                "title": "喜人奇妙夜",
+                "year": "2024",
+                "type": "tv",
+                "season": "第1季",
+                "episode": mediainfo,
+                "media_id": "257161",
+                "source": "themoviedb",
+            }
+        ),
+    )
+    first = plugin._ai_cache_key("/待整理/TG/剧/S01E01.mp4", "S01E01")
+    second = plugin._ai_cache_key("/待整理/TG/剧/S01E02.mp4", "S01E02")
+    assert first != second
+    assert first.endswith("S01E01") and second.endswith("S01E02")
+
+
+def test_choice_message_resent_after_send_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """首条选择消息发送失败后，下一个文件要重新发带按钮的消息。"""
+    plugin = make_plugin(_notify_chat_id="123456789")
+    sends: List[Any] = []
+    state = {"fail": True}
+
+    def fake_send(chat_id: Any, text: str, message_id: Any = None, keyboard: Any = None) -> Any:
+        """第一次返回失败，之后返回消息 ID。"""
+        sends.append(keyboard)
+        if state["fail"]:
+            state["fail"] = False
+            return None
+        return 999
+
+    monkeypatch.setattr(plugin, "_send_text", fake_send)
+    monkeypatch.setattr(plugin, "_precheck_timeout", 0)
+    snapshot = {"title": "喜来奇妙夜", "season": "第1季", "episode": "S01E01"}
+    ai = AiRecognition(name="喜来奇妙夜", year="2024", media_type="tv", season=1, episode=1, confidence=0.9)
+    plugin._ask_choice("/待整理/TG/剧/S01E01.mp4", snapshot, ai)
+    assert len(sends) == 1 and sends[0] is not None
+    group = list(plugin._pending_groups.values())[0]
+    assert group.get("message_id") is None
+    # 冷却期内不重发，避免 Telegram 抖动时刷屏
+    plugin._ask_choice("/待整理/TG/剧/S01E02.mp4", {**snapshot, "episode": "S01E02"}, ai)
+    assert len(sends) == 1
+    # 冷却结束后重发成功，并记下消息 ID
+    group["retry_at"] = 0.0
+    plugin._ask_choice("/待整理/TG/剧/S01E03.mp4", {**snapshot, "episode": "S01E03"}, ai)
+    assert len(sends) == 2 and sends[1] is not None
+    assert group.get("message_id") == 999
+
+
+def test_choice_message_edits_after_success(monkeypatch: pytest.MonkeyPatch) -> None:
+    """消息已发出后，后续文件只编辑同一条消息，不再重复发送。"""
+    plugin = make_plugin(_notify_chat_id="123456789")
+    sends: List[Any] = []
+    edits: List[Any] = []
+    monkeypatch.setattr(plugin, "_precheck_timeout", 0)
+    monkeypatch.setattr(
+        plugin, "_send_text", lambda chat_id, text, message_id=None, keyboard=None: sends.append(text) or 42
+    )
+    monkeypatch.setattr(
+        plugin, "_edit_text", lambda chat_id, message_id, text: edits.append(message_id)
+    )
+    snapshot = {"title": "喜来奇妙夜", "season": "第1季", "episode": "S01E01"}
+    ai = AiRecognition(name="喜来奇妙夜", year="2024", media_type="tv", season=1, episode=1, confidence=0.9)
+    plugin._ask_choice("/待整理/TG/剧/S01E01.mp4", snapshot, ai)
+    plugin._ask_choice("/待整理/TG/剧/S01E02.mp4", {**snapshot, "episode": "S01E02"}, ai)
+    assert len(sends) == 1
+    assert edits == [42]
+
+
+# ============================ 失败/重试任务的清理 ============================
+
+
+def _offline_task(
+    info_hash: str, name: str, status: int, percent: float, age_minutes: int
+) -> Dict[str, Any]:
+    """构造一条离线任务记录。"""
+    return {
+        "info_hash": info_hash,
+        "name": name,
+        "status": status,
+        "percent": percent,
+        "add_time": time.time() - age_minutes * 60,
+    }
+
+
+def test_cleanup_deletes_failed_task_after_threshold(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """115 标记为下载失败且超时的任务会被删除并通知。"""
+    plugin = make_plugin(_offline_active_until=time.time() + 600)
+    plugin._owned_names = {"failmovie2020": time.time() + 3600}
+    task = _offline_task("f" * 40, "Fail.Movie.2020", 1, 98.7, 45)
+    monkeypatch.setattr(plugin, "_list_offline_tasks", lambda: [task])
+    deleted: List[str] = []
+    notified: List[str] = []
+    monkeypatch.setattr(
+        plugin, "_delete_offline_task", lambda info_hash: deleted.append(info_hash) or True
+    )
+    monkeypatch.setattr(plugin, "_send_notify", lambda text: notified.append(text))
+    plugin._cleanup_stuck_offline()
+    assert deleted == ["f" * 40]
+    assert notified and "下载失败" in notified[0]
+
+
+def test_cleanup_keeps_failed_task_before_threshold(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """失败未超过阈值时先留着，给 115 侧恢复的机会。"""
+    plugin = make_plugin(_offline_active_until=time.time() + 600)
+    plugin._owned_names = {"failmovie2020": time.time() + 3600}
+    task = _offline_task("f" * 40, "Fail.Movie.2020", 1, 50.0, 3)
+    monkeypatch.setattr(plugin, "_list_offline_tasks", lambda: [task])
+    deleted: List[str] = []
+    monkeypatch.setattr(
+        plugin, "_delete_offline_task", lambda info_hash: deleted.append(info_hash) or True
+    )
+    plugin._cleanup_stuck_offline()
+    assert deleted == []
+
+
+def test_cleanup_deletes_retrying_task_after_threshold(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """长时间停在重试中的任务同样清理。"""
+    plugin = make_plugin(_offline_active_until=time.time() + 600)
+    plugin._owned_names = {"retrymovie2021": time.time() + 3600}
+    task = _offline_task("g" * 40, "Retry.Movie.2021", 3, 12.0, 60)
+    monkeypatch.setattr(plugin, "_list_offline_tasks", lambda: [task])
+    deleted: List[str] = []
+    notified: List[str] = []
+    monkeypatch.setattr(
+        plugin, "_delete_offline_task", lambda info_hash: deleted.append(info_hash) or True
+    )
+    monkeypatch.setattr(plugin, "_send_notify", lambda text: notified.append(text))
+    plugin._cleanup_stuck_offline()
+    assert deleted == ["g" * 40]
+    assert notified and "重试中" in notified[0]
+
+
+def test_cleanup_polls_while_pending_even_after_window(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """提交窗口过期但仍有待整理登记时，继续巡检而不是直接返回。"""
+    plugin = make_plugin(_offline_active_until=time.time() - 10)
+    plugin._pending_transfer = {"h" * 40: time.time() + 3600}
+    plugin._owned_names = {}
+    called: List[bool] = []
+    monkeypatch.setattr(
+        plugin,
+        "_list_offline_tasks",
+        lambda: called.append(True)
+        or [_offline_task("h" * 40, "Still.Downloading", 0, 40.0, 1)],
+    )
+    monkeypatch.setattr(plugin, "_delete_offline_task", lambda info_hash: True)
+    plugin._cleanup_stuck_offline()
+    assert called == [True]
+    # 未完成任务会把巡检窗口往后推
+    assert plugin._offline_active_until > time.time()
+
+
+def test_cleanup_extends_pending_deadline_for_unfinished(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """未完成任务会续期待整理登记，避免超过 6 小时后被遗忘。"""
+    plugin = make_plugin(_offline_active_until=time.time() + 600)
+    info_hash = "i" * 40
+    plugin._pending_transfer = {info_hash: time.time() + 60}
+    plugin._owned_names = {}
+    monkeypatch.setattr(
+        plugin,
+        "_list_offline_tasks",
+        lambda: [_offline_task(info_hash, "Still.Downloading", 0, 5.0, 2)],
+    )
+    monkeypatch.setattr(plugin, "_delete_offline_task", lambda info_hash: True)
+    plugin._cleanup_stuck_offline()
+    assert plugin._pending_transfer[info_hash] > time.time() + 3600
+
+
+# ============================ 删除通知合并与去重 ============================
+
+
+def test_offline_cleanup_merges_and_dedupes(monkeypatch: pytest.MonkeyPatch) -> None:
+    """一轮删除多个任务只发一条汇总；同一任务重复出现不重复删/通知。"""
+    plugin = make_plugin(_offline_timeout=5, _notify_chat_id="123")
+    plugin._owned_names = {"failone": time.time() + 3600, "failtwo": time.time() + 3600}
+    now = time.time()
+    tasks = [
+        {"info_hash": "a1", "name": "Fail.One", "status": 0, "percent": 0, "add_time": now - 600},
+        {"info_hash": "b2", "name": "Fail.Two", "status": 0, "percent": 0, "add_time": now - 700},
+    ]
+    deleted: List[str] = []
+    notified: List[str] = []
+    monkeypatch.setattr(plugin, "_list_offline_tasks", lambda: tasks)
+    monkeypatch.setattr(
+        plugin, "_delete_offline_task", lambda info_hash: deleted.append(info_hash) or True
+    )
+    monkeypatch.setattr(plugin, "_send_notify", lambda text: notified.append(text))
+    plugin._cleanup_stuck_offline()
+    assert deleted == ["a1", "b2"]
+    assert len(notified) == 1
+    assert "2 个" in notified[0] and "Fail.One" in notified[0] and "Fail.Two" in notified[0]
+    # 115 列表延迟，同一批任务再返回一次也不重复删除
+    plugin._cleanup_stuck_offline()
+    assert deleted == ["a1", "b2"]
+    assert len(notified) == 1
+
+
+def test_offline_cleanup_drops_pending_registration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """任务被删除后同步注销待整理登记，避免每轮空转。"""
+    plugin = make_plugin(_offline_timeout=5, _notify_chat_id="123")
+    now = time.time()
+    info_hash = "c3"
+    plugin._pending_transfer = {info_hash: now + 3600}
+    plugin._owned_names = {"stuckone": now + 3600}
+    tasks = [
+        {"info_hash": info_hash, "name": "Stuck.One", "status": 0, "percent": 0, "add_time": now - 600}
+    ]
+    monkeypatch.setattr(plugin, "_list_offline_tasks", lambda: tasks)
+    monkeypatch.setattr(plugin, "_delete_offline_task", lambda info_hash: True)
+    monkeypatch.setattr(plugin, "_send_notify", lambda text: None)
+    plugin._cleanup_stuck_offline()
+    assert plugin._pending_transfer == {}
+
+
+# ============================ 残留递归扫描 ============================
+
+
+def test_collect_residue_entries_walks_subdirs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """花絮这类子目录里的文件也要被收集到。"""
+    from app.chain.storage import StorageChain
+
+    plugin = make_plugin()
+    tree = {
+        "/待整理/TG/任务": [
+            SimpleNamespace(type="dir", name="Featurettes", path="/待整理/TG/任务/Featurettes")
+        ],
+        "/待整理/TG/任务/Featurettes": [
+            SimpleNamespace(type="dir", name="Promos", path="/待整理/TG/任务/Featurettes/Promos")
+        ],
+        "/待整理/TG/任务/Featurettes/Promos": [
+            SimpleNamespace(type="file", name="ad.mkv", path="/待整理/TG/任务/Featurettes/Promos/ad.mkv")
+        ],
+    }
+
+    monkeypatch.setattr(plugin, "_get_existing_dir", lambda path: SimpleNamespace(type="dir", path=path))
+
+    def fake_list(self: Any, item: Any, recursion: bool = False) -> List[Any]:
+        """按路径返回预置子项。"""
+        return tree.get(item.path, [])
+
+    monkeypatch.setattr(StorageChain, "list_files", fake_list)
+    files, dirs = plugin._collect_residue_entries(None, "/待整理/TG/任务")
+    assert [f.name for f in files] == ["ad.mkv"]
+    assert "/待整理/TG/任务/Featurettes" in dirs
+    assert "/待整理/TG/任务/Featurettes/Promos" in dirs
+
+
+def test_organize_gives_up_when_target_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """任务已完成但目标目录没有对应项时，宽限期后注销登记。"""
+    plugin = make_plugin()
+    info_hash = "d4"
+    plugin._pending_transfer = {info_hash: time.time() + 3600}
+    monkeypatch.setattr(plugin, "_effective_target_path", lambda: "/待整理/TG")
+    monkeypatch.setattr(
+        plugin,
+        "_list_offline_tasks",
+        lambda: [{"info_hash": info_hash, "status": 2, "name": "Movie.2020"}],
+    )
+    monkeypatch.setattr(plugin, "_list_target_children", lambda: [])
+    notified: List[str] = []
+    monkeypatch.setattr(plugin, "_send_notify", lambda text: notified.append(text))
+    # 第一次只记录首次时间，仍保留登记
+    plugin._organize_completed_tasks()
+    assert info_hash in plugin._pending_transfer
+    # 宽限期内再次巡检也不注销
+    plugin._organize_completed_tasks()
+    assert info_hash in plugin._pending_transfer
+    # 宽限期过后注销
+    plugin._organize_seen[info_hash] = time.time() - 3600
+    plugin._organize_completed_tasks()
+    assert plugin._pending_transfer == {}
+
+
+# ============================ 空目录删除重试 ============================
+
+
+def test_remove_if_empty_true_when_dir_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """目录已不存在时视为清理完成，避免重试队列反复堆积。"""
+    plugin = make_plugin()
+    monkeypatch.setattr(plugin, "_is_scope_root", lambda path: False)
+    monkeypatch.setattr(plugin, "_is_target_root", lambda path: False)
+    monkeypatch.setattr(plugin, "_get_existing_dir", lambda path: None)
+    assert plugin._remove_if_empty("/待整理/TG/某任务/Featurettes") is True
+
+
+def test_cleanup_residue_enqueues_dir_removal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """删除残留文件后把相关目录排进重试队列。"""
+    plugin = make_plugin()
+    monkeypatch.setattr(plugin, "_is_scope_root", lambda path: False)
+    monkeypatch.setattr(plugin, "_is_target_root", lambda path: False)
+    monkeypatch.setattr(plugin, "_purge_stale_records", lambda prefix: None)
+    monkeypatch.setattr(plugin, "_remove_if_empty", lambda path: False)
+    ad = SimpleNamespace(type="file", name="ad.mkv", path="/待整理/TG/任务/Promos/ad.mkv")
+    monkeypatch.setattr(
+        plugin,
+        "_collect_residue_entries",
+        lambda item, parent="": ([ad], ["/待整理/TG/任务/Featurettes", "/待整理/TG/任务/Featurettes/Promos"]),
+    )
+    monkeypatch.setattr(plugin, "_ai_residue_verdict", lambda names, sizes=None: {name: True for name in names})
+    monkeypatch.setattr(plugin, "_delete_residue_item", lambda item: True)
+    plugin._cleanup_residue("/待整理/TG/任务", SimpleNamespace(path="/待整理/TG/任务"))
+    queued = set(plugin._pending_dir_removals)
+    assert "/待整理/TG/任务/Featurettes/Promos" in queued
+    assert "/待整理/TG/任务" in queued
+
+
+def test_retry_dir_removals_deletes_when_empty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """重试队列里的目录变空后会真正删除并出队。"""
+    plugin = make_plugin()
+    plugin._pending_dir_removals = {"p": time.time() + 600}
+    monkeypatch.setattr(plugin, "_remove_if_empty", lambda path: True)
+    plugin._retry_dir_removals()
+    assert plugin._pending_dir_removals == {}
+
+
+def test_retry_dir_removals_drops_after_deadline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """超过重试期限的目录直接出队，不再反复请求。"""
+    plugin = make_plugin()
+    plugin._pending_dir_removals = {"p": time.time() - 10}
+    called: List[str] = []
+    monkeypatch.setattr(plugin, "_remove_if_empty", lambda path: called.append(path) or True)
+    plugin._retry_dir_removals()
+    assert plugin._pending_dir_removals == {}
+    assert called == []
+
+
+# ============================ 通知送达可诊断 ============================
+
+
+def test_send_notify_retries_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    """通知发送失败会重试一次，仍失败则只记录不抛错。"""
+    plugin = make_plugin(_notify_chat_id="123456789")
+    results = [None, 555]
+    calls: List[Any] = []
+
+    def fake_send(chat_id: Any, text: str, message_id: Any = None, keyboard: Any = None) -> Any:
+        """按队列返回发送结果。"""
+        calls.append(text)
+        return results.pop(0)
+
+    monkeypatch.setattr(plugin, "_send_text", fake_send)
+    monkeypatch.setattr(tgofflinebot.time, "sleep", lambda seconds: None)
+    plugin._send_notify("测试通知")
+    assert len(calls) == 2
+
+
+def test_send_notify_no_retry_on_success(monkeypatch: pytest.MonkeyPatch) -> None:
+    """首发送成功时不再重试。"""
+    plugin = make_plugin(_notify_chat_id="123456789")
+    calls: List[Any] = []
+    monkeypatch.setattr(
+        plugin, "_send_text", lambda chat_id, text, message_id=None, keyboard=None: calls.append(text) or 77
+    )
+    plugin._send_notify("测试通知")
+    assert len(calls) == 1
+
+
+def test_cleanup_residue_enqueues_even_without_deleted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """目录里已没有文件、只剩空子目录时也要排队重试删除。"""
+    plugin = make_plugin()
+    monkeypatch.setattr(plugin, "_is_scope_root", lambda path: False)
+    monkeypatch.setattr(plugin, "_is_target_root", lambda path: False)
+    monkeypatch.setattr(plugin, "_purge_stale_records", lambda prefix: None)
+    monkeypatch.setattr(plugin, "_remove_if_empty", lambda path: False)
+    monkeypatch.setattr(
+        plugin,
+        "_collect_residue_entries",
+        lambda item, parent="": ([], ["/待整理/TG/任务/Featurettes"]),
+    )
+    plugin._cleanup_residue("/待整理/TG/任务", SimpleNamespace(path="/待整理/TG/任务"))
+    assert "/待整理/TG/任务/Featurettes" in plugin._pending_dir_removals
+    assert "/待整理/TG/任务" in plugin._pending_dir_removals
+
+
+# ============================ 残留判定：只保留正片 ============================
+
+
+def test_size_text_formats() -> None:
+    """体积文本便于送审时判断哪个是正片。"""
+    assert TgOfflineBot._size_text(0) == ""
+    assert TgOfflineBot._size_text(None) == ""
+    assert TgOfflineBot._size_text(512) == "512.0 B"
+    assert TgOfflineBot._size_text(1024 ** 3) == "1.0 GB"
+
+
+def test_ai_residue_verdict_matches_sized_entries(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """模型把体积后缀一起带回来时，仍要能映射回原文件名。"""
+    plugin = make_plugin()
+    monkeypatch.setattr(
+        plugin,
+        "_invoke_llm_text",
+        lambda prompt, values, timeout: '{"delete_files": ["a.mkv（1.0 GB）"], "reason": "trailer"}',
+    )
+    verdict = plugin._ai_residue_verdict(["a.mkv"], {"a.mkv": 1024 ** 3})
+    assert verdict == {"a.mkv": True}
+
+
+# ============================ 代码审查修复用例 ============================
+
+
+def test_retry_transfer_refuses_whole_root(monkeypatch: pytest.MonkeyPatch) -> None:
+    """目标目录根下还有别的任务时，不允许整目录重跑。"""
+    plugin = make_plugin()
+    monkeypatch.setattr(plugin, "_is_target_root", lambda path: True)
+    monkeypatch.setattr(
+        plugin,
+        "_list_target_children",
+        lambda: [SimpleNamespace(type="dir", name="a"), SimpleNamespace(type="dir", name="b")],
+    )
+    called: List[str] = []
+    monkeypatch.setattr(
+        plugin, "_trigger_manual_transfer", lambda path: called.append(path) or (True, "ok")
+    )
+    ok, detail = plugin._retry_transfer("/待整理/TG/裸文件.mkv", None)
+    assert ok is False and "整目录重跑" in detail
+    assert called == []
+
+
+def test_retry_transfer_allows_root_when_single(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """目标目录只剩这一个任务时，允许按目录重跑。"""
+    plugin = make_plugin()
+    monkeypatch.setattr(plugin, "_is_target_root", lambda path: True)
+    monkeypatch.setattr(
+        plugin, "_list_target_children", lambda: [SimpleNamespace(type="file", name="a.mkv")]
+    )
+    called: List[str] = []
+    monkeypatch.setattr(
+        plugin, "_trigger_manual_transfer", lambda path: called.append(path) or (True, "ok")
+    )
+    ok, _ = plugin._retry_transfer("/待整理/TG/a.mkv", None)
+    assert ok is True
+    assert called == ["/待整理/TG"]
+
+
+def test_cleanup_residue_skips_enqueue_when_files_remain(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """目录里还有文件且本轮没删任何东西时，不进空目录重试队列。"""
+    plugin = make_plugin()
+    monkeypatch.setattr(plugin, "_is_scope_root", lambda path: False)
+    monkeypatch.setattr(plugin, "_is_target_root", lambda path: False)
+    monkeypatch.setattr(plugin, "_purge_stale_records", lambda prefix: None)
+    monkeypatch.setattr(plugin, "_remove_if_empty", lambda path: False)
+    keep = SimpleNamespace(type="file", name="正片.mkv", path="/待整理/TG/任务/正片.mkv")
+    monkeypatch.setattr(
+        plugin, "_collect_residue_entries", lambda item, parent="": ([keep], [])
+    )
+    monkeypatch.setattr(plugin, "_ai_residue_verdict", lambda names, sizes=None: {"正片.mkv": False})
+    monkeypatch.setattr(plugin, "_delete_residue_item", lambda item: True)
+    enqueued: List[List[str]] = []
+    monkeypatch.setattr(plugin, "_enqueue_dir_removal", lambda paths: enqueued.append(list(paths)))
+    plugin._cleanup_residue("/待整理/TG/任务", SimpleNamespace(path="/待整理/TG/任务"))
+    assert enqueued == []
+
+
+def test_enqueue_dir_removal_skips_container_roots(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """范围根与目标目录根都是容器目录，不进重试队列。"""
+    plugin = make_plugin()
+    monkeypatch.setattr(plugin, "_effective_target_path", lambda: "/待整理/TG")
+    monkeypatch.setattr(plugin, "_scope_roots", lambda: ["/待整理"])
+    plugin._enqueue_dir_removal(["/待整理", "/待整理/TG", "/待整理/TG/任务"])
+    assert list(plugin._pending_dir_removals) == ["/待整理/TG/任务"]
+
+
+def test_stop_service_joins_watch_thread(monkeypatch: pytest.MonkeyPatch) -> None:
+    """停止插件时也要结束巡检线程，避免重载后两个巡检并行。"""
+    plugin = make_plugin()
+
+    class FakeThread:
+        """记录 join 调用的线程替身。"""
+
+        def __init__(self) -> None:
+            self.joined: List[float] = []
+
+        @staticmethod
+        def is_alive() -> bool:
+            """始终认为存活。"""
+            return True
+
+        def join(self, timeout: float = None) -> None:  # noqa: ANN001
+            """记录超时时间。"""
+            self.joined.append(timeout)
+
+    watch = FakeThread()
+    plugin._offline_watch_thread = watch
+    plugin._thread = None
+    plugin.stop_service()
+    assert watch.joined == [5]
+
+
+def test_pending_dropped_when_missing_from_list(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """任务整条从离线列表消失时，宽限期后注销登记。"""
+    plugin = make_plugin()
+    info_hash = "e" * 40
+    plugin._pending_transfer = {info_hash: time.time() + 3600}
+    monkeypatch.setattr(plugin, "_effective_target_path", lambda: "/待整理/TG")
+    monkeypatch.setattr(plugin, "_list_offline_tasks", lambda: [])
+    monkeypatch.setattr(plugin, "_list_target_children", lambda: [])
+    plugin._organize_completed_tasks()
+    assert info_hash in plugin._pending_transfer
+    plugin._organize_seen[info_hash] = time.time() - 3600
+    plugin._organize_completed_tasks()
+    assert plugin._pending_transfer == {}
+
+
+def test_precheck_scope_includes_target(monkeypatch: pytest.MonkeyPatch) -> None:
+    """目标目录不在配置的比对范围里时，仍要参与预检。"""
+    plugin = make_plugin(_precheck_scope="/待整理")
+    monkeypatch.setattr(plugin, "_effective_target_path", lambda: "/电影/待整理")
+    assert plugin._in_precheck_scope("/电影/待整理/某剧/x.mkv") is True
+    assert plugin._in_precheck_scope("/其它/x.mkv") is False
+
+
+def test_filter_existing_links_ignores_reverse_substring() -> None:
+    """新链接名更长但包含旧任务名时，不应被判为已存在。"""
+    plugin = make_plugin()
+
+    def fake_tasks() -> List[Dict[str, Any]]:
+        """已有任务名是新名称的前缀片段。"""
+        return [{"name": "Some.Show.S01"}]
+
+    plugin._list_offline_tasks = fake_tasks
+    pending, skipped = plugin._filter_existing_links(
+        ["magnet:?xt=urn:btih:AAAA&dn=Some.Show.S01.1080p.WEB-DL-GROUP"]
+    )
+    assert pending and not skipped
+
+
+def test_choice_callback_rejects_unauthorized_group(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """未授权群里的按钮点击不生效。"""
+    plugin = make_plugin(_allowed_users={"123456789"})
+    plugin._pending_groups["/待整理/示例剧"] = {
+        "token": "tok1",
+        "dir": "/待整理/示例剧",
+        "paths": ["/待整理/示例剧/a.mkv"],
+        "message_id": 1,
+    }
+    applied: List[Any] = []
+    notices: List[str] = []
+    monkeypatch.setattr(plugin, "_answer_callback", lambda cid: None)
+    monkeypatch.setattr(plugin, "_edit_text", lambda chat_id, message_id, text: notices.append(text))
+    monkeypatch.setattr(
+        plugin, "_apply_choice_group", lambda dir_key, use_ai: applied.append(dir_key) or "ok"
+    )
+    plugin._handle_choice_callback(
+        {
+            "id": "cb2",
+            "data": "tgob:mp:tok1",
+            "from": {"id": 111},
+            "message": {"message_id": 9, "chat": {"id": -1009999999999, "type": "supergroup"}},
+        }
+    )
+    assert applied == []
+    assert notices and "未授权" in notices[0]
+
+
+def test_remove_if_empty_counts_done_when_switch_off(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """关闭空目录清理时视为已完成，避免重试队列白占。"""
+    plugin = make_plugin(_cleanup_empty_dirs=False)
+    monkeypatch.setattr(plugin, "_is_scope_root", lambda path: False)
+    monkeypatch.setattr(plugin, "_is_target_root", lambda path: False)
+    assert plugin._remove_if_empty("/待整理/TG/某任务") is True
