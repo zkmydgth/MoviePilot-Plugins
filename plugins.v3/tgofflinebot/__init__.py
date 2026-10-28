@@ -133,6 +133,12 @@ NOTIFY_MAX_HOLD_SECONDS = 1800
 # 残留清理不按扩展名设限：所有剩余文件都交给 AI 判断保留还是删除
 # 同一目录的残留扫描节流（秒）
 RESIDUE_SCAN_INTERVAL = 600
+# 判定「整理目标是媒体文件」用的扩展名白名单：目录名常带点（Show.S01.1080p），
+# 只看 Path.suffix 会把目录误当成文件
+STRM_MEDIA_SUFFIXES = (
+    ".mp4", ".mkv", ".ts", ".m2ts", ".avi", ".mov", ".wmv",
+    ".flv", ".webm", ".mpg", ".mpeg", ".rmvb", ".iso", ".strm",
+)
 # 媒体源到识别词字段的映射（识别词只认这些字段名）
 MEDIA_SOURCE_ID_FIELDS = {
     "tmdb": "tmdbid",
@@ -263,7 +269,9 @@ class TgOfflineBot(_PluginBase):
     # 「整理队列未清空、已暂缓残留清理」是否已写过日志，避免每轮刷屏
     _organize_batch_noted: bool = False
     # 待重试删除的空目录：路径 -> 截止时间戳（115 列表有延迟，删完文件后目录可能仍显示非空）
-    _pending_dir_removals: Dict[str, float] = {}
+    _pending_dir_removals: Dict[str, Dict[str, float]] = {}
+    # 配置写回锁：/dir、/allow、/deny 等改动可能并发，读-改-写必须串行
+    _config_write_lock = threading.Lock()
     # 单轮巡检里待汇总的手动整理提醒，合并成一条消息发出
     _organize_notices: List[str] = []
     _api_token: str = ""
@@ -365,7 +373,7 @@ class TgOfflineBot(_PluginBase):
     # 空路径事件的日志节流时间戳
     _empty_event_logged: float = 0.0
     # 已按历史补发过通知的记录标识，避免重复
-    _notified_histories: Set[str] = set()
+    _notified_histories: List[str] = []
     # STRM 通知使用的本地根、网盘根与核对间隔（秒）
     _strm_local_root: str = ""
     _strm_pan_root: str = ""
@@ -404,7 +412,9 @@ class TgOfflineBot(_PluginBase):
         self._started_at = ""
         self._batch_size = DEFAULT_BATCH_SIZE
         self._batch_interval = DEFAULT_BATCH_INTERVAL
-        self._submit_lock = threading.Lock()
+        if not getattr(self, "_submit_lock", None):
+            # 复用同一把锁：重载时旧批量线程仍持有它，换成新锁会让两路同时提交
+            self._submit_lock = threading.Lock()
         self._precheck_enabled = True
         self._precheck_scope = ""
         self._precheck_timeout = DEFAULT_PRECHECK_TIMEOUT
@@ -451,7 +461,7 @@ class TgOfflineBot(_PluginBase):
         self._exists_cache = {}
         self._ai_error_notified = 0.0
         self._empty_event_logged = 0.0
-        self._notified_histories = set()
+        self._notified_histories = []
         self._strm_local_root = ""
         self._strm_pan_root = ""
         self._strm_check_delay = DEFAULT_STRM_CHECK_DELAY
@@ -571,7 +581,7 @@ class TgOfflineBot(_PluginBase):
             }
         stored_notified = self._read_data("notified_histories")
         if isinstance(stored_notified, list):
-            self._notified_histories = {str(item) for item in stored_notified}
+            self._notified_histories = [str(item) for item in stored_notified]
         try:
             stored_submit = float(self._read_data("last_submit_ts") or 0)
         except (TypeError, ValueError):
@@ -1490,7 +1500,10 @@ class TgOfflineBot(_PluginBase):
             return
 
         if text.startswith("/"):
-            command, _, argument = text.partition(" ")
+            # 按任意空白切分：全角空格、制表符、换行都能识别
+            parts = text.split(maxsplit=1)
+            command = parts[0]
+            argument = parts[1].strip() if len(parts) > 1 else ""
             # 兼容 /cmd@bot_username 写法
             command = command.split("@", 1)[0].lower()
             argument = argument.strip()
@@ -1638,14 +1651,22 @@ class TgOfflineBot(_PluginBase):
         target = self._target_display()
         batch_size = max(1, self._batch_size)
         if len(links) <= batch_size:
-            success, detail = self._submit_links(links)
+            try:
+                # 与后台分批共用一道闸，避免两路同时打 115 触发风控
+                with self._submit_lock:
+                    success, detail, submitted = self._submit_links(links)
+            except Exception as err:  # noqa: BLE001 - 提交异常必须有回执
+                logger.error(f"【TG磁力离线】同步提交异常：{err}")
+                success, detail, submitted = False, f"提交异常：{err}", 0
             if success:
                 self._last_result = detail
-                text = f"已提交 {len(links)} 条离线任务\n目标：{target}\n{detail}"
-                self._append_history("成功", f"{len(links)} 条 · {detail}")
+                # 回执只保留提交结果本身：条数和目标目录对用户没有增量信息，
+                # 落点可以在 /status 里看
+                text = detail
+                self._append_history("成功", f"{submitted} 条 · {detail}")
             else:
                 self._last_result = f"提交失败：{detail}"
-                text = f"提交失败：{detail}\n目标：{target}"
+                text = f"提交失败：{detail}"
                 self._append_history("失败", detail)
             self._reply(chat_id, text, message_id)
             return None
@@ -1689,56 +1710,66 @@ class TgOfflineBot(_PluginBase):
         cumulative = 0
         failures: List[str] = []
         stopped = False
+        # 记录进入时的停止信号与代数：重载会替换这两个对象，
+        # 用局部变量判断才能让旧线程在新一轮初始化后立刻停下
+        stop_event = self._stop_event
+        generation = self._generation
 
         with self._submit_lock:
-            for index, batch in enumerate(batches, start=1):
-                if self._stop_event.is_set():
-                    stopped = True
-                    break
-                cumulative += len(batch)
-                success, detail = self._submit_links(batch)
-                if success:
-                    submitted += len(batch)
-                else:
-                    failures.append(f"第 {index} 批：{detail}")
-                logger.info(
-                    f"【TG磁力离线】分批进度 {index}/{len(batches)}："
-                    f"本批 {len(batch)} 条，{'成功' if success else '失败'}"
-                )
-                self._edit_text(
-                    chat_id,
-                    progress_id,
-                    f"提交中：{index}/{len(batches)} 批，已成功 {submitted} 条"
-                    f"，累计 {cumulative}/{total} 条"
-                    + (f"\n失败 {len(failures)} 批" if failures else ""),
-                )
-                if index < len(batches):
-                    # 失败后延长等待，降低连续触发风控的概率
-                    wait_seconds = (
-                        self._batch_interval if success else self._batch_interval * 2
-                    )
-                    if self._wait_between_batches(wait_seconds):
+            try:
+                for index, batch in enumerate(batches, start=1):
+                    if stop_event.is_set() or generation != self._generation:
                         stopped = True
                         break
+                    cumulative += len(batch)
+                    try:
+                        success, detail, accepted = self._submit_links(batch)
+                    except Exception as err:  # noqa: BLE001 - 单批异常不拖垮整轮
+                        success, detail, accepted = False, f"提交异常：{err}", 0
+                    if success:
+                        submitted += accepted
+                    else:
+                        failures.append(f"第 {index} 批：{detail}")
+                    logger.info(
+                        f"【TG磁力离线】分批进度 {index}/{len(batches)}："
+                        f"本批 {len(batch)} 条，{'成功' if success else '失败'}"
+                    )
+                    self._edit_text(
+                        chat_id,
+                        progress_id,
+                        f"提交中：{index}/{len(batches)} 批，已成功 {submitted} 条"
+                        f"，累计 {cumulative}/{total} 条"
+                        + (f"\n失败 {len(failures)} 批" if failures else ""),
+                    )
+                    if index < len(batches):
+                        # 失败后延长等待，降低连续触发风控的概率
+                        wait_seconds = (
+                            self._batch_interval
+                            if success
+                            else self._batch_interval * 2
+                        )
+                        if self._wait_between_batches(wait_seconds):
+                            stopped = True
+                            break
+            finally:
+                # 无论正常结束、停止还是异常中断，都要给出最终回执并落账
+                if stopped:
+                    final_text = f"已停止：成功提交 {submitted}/{total} 条"
+                else:
+                    final_text = f"提交完成：成功 {submitted}/{total} 条"
+                if failures:
+                    final_text += "\n" + "\n".join(failures[:5])
+                    if len(failures) > 5:
+                        final_text += f"\n……另有 {len(failures) - 5} 批失败"
 
-        if stopped:
-            final_text = f"已停止：成功提交 {submitted}/{total} 条"
-        else:
-            final_text = f"提交完成：成功 {submitted}/{total} 条"
-        if failures:
-            final_text += "\n" + "\n".join(failures[:5])
-            if len(failures) > 5:
-                final_text += f"\n……另有 {len(failures) - 5} 批失败"
-        final_text += f"\n目标：{target}"
-
-        self._last_result = final_text.replace("\n", " ")
-        self._edit_text(chat_id, progress_id, final_text)
-        if progress_id is None:
-            self._send_text(chat_id, final_text, message_id)
-        self._append_history(
-            "成功" if not failures and not stopped else "部分完成",
-            f"{submitted}/{total} 条",
-        )
+                self._last_result = final_text.replace("\n", " ")
+                self._edit_text(chat_id, progress_id, final_text)
+                if progress_id is None:
+                    self._send_text(chat_id, final_text, message_id)
+                self._append_history(
+                    "成功" if not failures and not stopped else "部分完成",
+                    f"{submitted}/{total} 条",
+                )
 
     def _wait_between_batches(self, seconds: float) -> bool:
         """
@@ -1784,28 +1815,29 @@ class TgOfflineBot(_PluginBase):
             key = self._name_key(hints[0]) if hints else ""
             # 只认「完全相等」或「已有任务名以新名为前缀」；反向子串会把
             # 名字更长的正常新任务误判成已存在
-            if key and any(key == name or name.startswith(key) for name in existing):
+            # 只认完全同名：反向前缀会把「已有任务名更长」的正常新任务也判成已存在
+            if key and key in existing:
                 skipped.append(hints[0])
             else:
                 pending.append(link)
         return pending, skipped
 
-    def _submit_links(self, links: List[str]) -> Tuple[bool, str]:
+    def _submit_links(self, links: List[str]) -> Tuple[bool, str, int]:
         """
         调用本机 P115StrmHelper 的离线下载接口。
 
         :param links: 链接列表
-        :return: (是否成功, 结果说明)
+        :return: (是否成功, 结果说明, 实际提交条数)
         """
         links, skipped = self._filter_existing_links(links)
         if not links:
-            return True, f"{len(skipped)} 条任务均已在离线列表中，已跳过提交"
+            return True, f"{len(skipped)} 条任务均已在离线列表中，已跳过提交", 0
         token = self._api_token_value()
         if not token:
-            return False, "缺少 MoviePilot API Token，无法调用离线接口"
+            return False, "缺少 MoviePilot API Token，无法调用离线接口", 0
         ready, target, note = self._ensure_submit_target()
         if not ready:
-            return False, note
+            return False, note, 0
         if note:
             logger.info(f"【TG磁力离线】{note}")
         url = f"http://127.0.0.1:{self._host_port}/api/v1/plugin/{STRM_HELPER_PLUGIN}/add_offline_task"
@@ -1821,21 +1853,21 @@ class TgOfflineBot(_PluginBase):
             )
         except Exception as err:  # noqa: BLE001 - 网络异常统一转成回执
             logger.error(f"【TG磁力离线】调用离线接口异常：{err}")
-            return False, f"调用离线接口异常：{err}"
+            return False, f"调用离线接口异常：{err}", 0
         if response.status_code == 404:
-            return False, "未找到 P115StrmHelper 离线接口，请确认插件已安装并启用"
+            return False, "未找到 P115StrmHelper 离线接口，请确认插件已安装并启用", 0
         if response.status_code in (401, 403):
-            return False, f"离线接口鉴权失败（HTTP {response.status_code}），请检查 API Token"
+            return False, f"离线接口鉴权失败（HTTP {response.status_code}），请检查 API Token", 0
         try:
             data = response.json()
         except Exception:  # noqa: BLE001 - 非 JSON 响应按失败处理
-            return False, f"离线接口返回异常（HTTP {response.status_code}）"
+            return False, f"离线接口返回异常（HTTP {response.status_code}）", 0
         if response.status_code != 200:
-            return False, f"离线接口返回 HTTP {response.status_code}：{data}"
+            return False, f"离线接口返回 HTTP {response.status_code}：{data}", 0
         code = data.get("code", 0)
         message = str(data.get("msg") or data.get("message") or "").strip()
         if code not in (0, None):
-            return False, message or f"插件返回错误码 {code}"
+            return False, message or f"插件返回错误码 {code}", 0
         landed_warning = ""
         if target and not self._get_existing_dir(target):
             # 接口返回成功但目录仍不可用：115 会静默把任务放进默认离线目录。
@@ -1857,7 +1889,7 @@ class TgOfflineBot(_PluginBase):
             detail += f"；跳过 {len(skipped)} 条已存在的任务"
         if landed_warning:
             detail += f"；{landed_warning}"
-        return True, detail
+        return True, detail, len(links)
 
     # ============================ 整理前识别比对 ============================
 
@@ -1977,9 +2009,12 @@ class TgOfflineBot(_PluginBase):
                 season_text = f"第{int(first_season)}季"
                 episodes = seasons.get(first_season) or []
                 if episodes:
-                    episode_text = f"S{int(first_season):02d}E{int(episodes[0]):02d}"
+                    # 季集值可能是 list 也可能是 set，统一取最小集号
+                    first_episode = min(int(value) for value in episodes)
+                    episode_text = f"S{int(first_season):02d}E{first_episode:02d}"
             except (TypeError, ValueError):
-                season_text = ""
+                # 季号已经解析成功时不要一并清空，只丢弃集号
+                episode_text = ""
         return {
             "title": str(getattr(mediainfo, "title", "") or ""),
             "year": str(getattr(mediainfo, "year", "") or ""),
@@ -2303,11 +2338,11 @@ class TgOfflineBot(_PluginBase):
         :param key: 记录标识（目标路径或源路径）
         """
         with self._choice_lock:
-            self._notified_histories.add(key)
+            if key not in self._notified_histories:
+                self._notified_histories.append(key)
             if len(self._notified_histories) > 200:
-                self._notified_histories = set(
-                    list(self._notified_histories)[-100:]
-                )
+                # list 保序：保留最近 100 条，避免 set 随机裁剪把刚写入的键丢掉
+                self._notified_histories = self._notified_histories[-100:]
             snapshot = list(self._notified_histories)
         try:
             self.save_data("notified_histories", snapshot)
@@ -2375,11 +2410,14 @@ class TgOfflineBot(_PluginBase):
         :return: 以 / 开头、结尾无斜杠的路径列表
         """
         raw = self._precheck_scope or DEFAULT_PRECHECK_SCOPE
-        return [
-            item.strip().rstrip("/")
-            for item in re.split(r"[,，\n]", raw)
-            if item.strip()
-        ]
+        roots: List[str] = []
+        for item in re.split(r"[,，\n]", raw):
+            # 与 _is_scope_root / _in_precheck_scope 的比较口径保持一致：
+            # 补前导斜杠、合并重复斜杠、去掉尾斜杠，避免配置少写斜杠时判定整体失效
+            value = self._normalize_path(item)
+            if value and value not in roots:
+                roots.append(value)
+        return roots
 
     def _skip_once(self, path: str, minutes: int = 10) -> None:
         """
@@ -2809,10 +2847,13 @@ class TgOfflineBot(_PluginBase):
                 return
             time.sleep(min(5.0, max(0.0, deadline - time.monotonic())))
         with self._choice_lock:
-            group = self._pending_groups.pop(dir_key, None)
+            group = self._pending_groups.get(dir_key)
+            if not group or group.get("token") != token:
+                # 这批已被用户选择，或已被同目录的新一批替换：不能按旧批次收尾
+                return
+            self._pending_groups.pop(dir_key, None)
             paths = list((group or {}).get("paths") or [])
-            for path in paths:
-                self._pending_choices.pop(path, None)
+            items = {path: self._pending_choices.pop(path, {}) for path in paths}
         if not paths:
             return
         logger.info(
@@ -2826,7 +2867,9 @@ class TgOfflineBot(_PluginBase):
             ok, detail = self._trigger_manual_transfer(dir_key)
         if not ok:
             for path in paths:
-                single_ok, single_detail = self._retry_transfer(path, None)
+                single_ok, single_detail = self._retry_transfer(
+                    path, (items.get(path) or {}).get("fileitem")
+                )
                 ok = ok or single_ok
                 if not single_ok:
                     detail = single_detail
@@ -2929,41 +2972,6 @@ class TgOfflineBot(_PluginBase):
         status = "已重新触发整理" if ok else f"重新整理失败：{detail}"
         return f"{status}（{'AI' if use_ai else 'MP'} 结果，{len(paths)} 个文件）{note}"
 
-    def _apply_choice(
-        self, source_path: str, use_ai: bool, target: Dict[str, Any]
-    ) -> str:
-        """
-        按用户选择重新触发整理；选择 AI 时先写入限定该文件名的识别词。
-
-        :param source_path: 源文件路径
-        :param use_ai: 是否按 AI 结果整理
-        :param target: 待决策项
-        :return: 结果说明文本
-        """
-        with self._choice_lock:
-            self._pending_choices.pop(source_path, None)
-        self._skip_once(source_path)
-        note = ""
-        if use_ai:
-            rule = self._make_identifier_rule(source_path, target.get("ai") or {})
-            if rule:
-                added = self._append_identifiers([rule])
-                if added:
-                    with self._choice_lock:
-                        self._identifier_rules[rule] = time.time()
-                    note = f"\n已写入临时识别词：{rule}"
-                    self._persist_identifier_rules()
-                else:
-                    note = "\n识别词已存在，直接按 AI 结果整理"
-            else:
-                note = "\n无法生成识别词，已按 MP 结果整理"
-        ok, detail = self._retry_transfer(source_path, target.get("fileitem"))
-        self._append_history(
-            "按AI整理" if use_ai else "按MP整理", Path(source_path).name
-        )
-        status = "已重新触发整理" if ok else f"重新整理失败：{detail}"
-        return f"{status}（{'AI' if use_ai else 'MP'} 结果）{note}"
-
     def _retry_transfer(self, source_path: str, fileitem: Any) -> Tuple[bool, str]:
         """
         重新触发单个文件的整理。
@@ -2989,6 +2997,9 @@ class TgOfflineBot(_PluginBase):
             except Exception as err:  # noqa: BLE001 - 失败后回退目录重跑
                 logger.warning(f"【TG磁力离线】按文件重跑异常：{err}")
         parent = Path(source_path).parent.as_posix()
+        if self._is_scope_root(parent):
+            # 范围根（如 /待整理）下混着多个来源的任务，整目录重跑会把别人一起推进队列
+            return False, "父目录是待整理范围根，拒绝整目录重跑"
         if self._is_target_root(parent):
             # 目标目录根下可能混着多个任务：整目录重跑会把别人一起推进整理队列
             children = self._list_target_children()
@@ -3471,8 +3482,12 @@ class TgOfflineBot(_PluginBase):
                     and now - last_sweep >= self._residue_sweep_interval
                     and self._residue_sweep_allowed(now)
                 ):
-                    self._sweep_pending_residue()
-                    last_sweep = now
+                    if self._sweep_pending_residue():
+                        last_sweep = now
+                    else:
+                        # 本轮被跳过（队列未清空/目录不可用），60 秒后再试；
+                        # 不要把「没扫」记成「已扫」，否则要再等一个完整周期
+                        last_sweep = now - self._residue_sweep_interval + 60
             except Exception as err:  # noqa: BLE001 - 巡检失败下一轮重试
                 logger.error(
                     f"【TG磁力离线】离线任务巡检失败：{self._mask_secrets(str(err))}"
@@ -3545,9 +3560,13 @@ class TgOfflineBot(_PluginBase):
         只要还有本插件未完成的任务就持续巡检，不再受「提交后 1 小时」限制。
         """
         expired = not self._offline_active_until or time.time() > self._offline_active_until
+        now_ts = time.time()
         with self._choice_lock:
             has_pending = bool(self._pending_transfer)
-        if expired and not has_pending:
+            has_owned = any(expire > now_ts for expire in self._owned_names.values())
+        if expired and not has_pending and not has_owned:
+            # 没有待整理登记、也没有未过期的来源标记时才停：
+            # 未配置目标目录时本就没有 pending，不能据此判定「没有在途任务」
             return
         tasks = self._list_offline_tasks()
         if tasks is None:
@@ -4439,22 +4458,42 @@ class TgOfflineBot(_PluginBase):
         把目录排进队列后每轮巡检重试，成功或超时后出队。
         """
         with self._choice_lock:
-            pending = dict(self._pending_dir_removals)
+            pending = {key: dict(value) for key, value in self._pending_dir_removals.items()}
         if not pending:
             return
         now = time.time()
         finished: List[str] = []
-        for path, deadline in pending.items():
+        updates: Dict[str, Dict[str, float]] = {}
+        for path, state in pending.items():
+            deadline = float(state.get("deadline") or 0)
             if deadline <= now:
                 finished.append(path)
                 continue
+            if now < float(state.get("next_try") or 0):
+                # 还在退避窗口内，本轮不请求 115
+                continue
             if self._remove_if_empty(path):
                 finished.append(path)
-        if not finished:
+                continue
+            attempts = int(state.get("attempts") or 0) + 1
+            if attempts >= 3:
+                # 连续 3 次仍非空：大概率是含正片的目录，出队避免持续请求 115
+                logger.info(f"【TG磁力离线】空目录重试放弃（仍非空）：{path}")
+                finished.append(path)
+                continue
+            updates[path] = {
+                "deadline": deadline,
+                "attempts": attempts,
+                "next_try": now + (60 if attempts == 1 else 300),
+            }
+        if not finished and not updates:
             return
         with self._choice_lock:
             for path in finished:
                 self._pending_dir_removals.pop(path, None)
+            for path, state in updates.items():
+                if path in self._pending_dir_removals:
+                    self._pending_dir_removals[path] = state
 
     def _enqueue_dir_removal(self, paths: List[str]) -> None:
         """
@@ -4464,7 +4503,7 @@ class TgOfflineBot(_PluginBase):
         """
         if not paths:
             return
-        deadline = time.time() + 3600
+        now = time.time()
         target = self._effective_target_path()
         roots = set(self._scope_roots())
         with self._choice_lock:
@@ -4475,9 +4514,18 @@ class TgOfflineBot(_PluginBase):
                 if key in roots or (target and key == target):
                     # 容器目录一律保留，不进重试队列
                     continue
-                if key not in self._pending_dir_removals and len(self._pending_dir_removals) >= 200:
-                    continue
-                self._pending_dir_removals[key] = deadline
+                state = self._pending_dir_removals.get(key)
+                if state is None:
+                    if len(self._pending_dir_removals) >= 200:
+                        continue
+                    self._pending_dir_removals[key] = {
+                        "deadline": now + 3600,
+                        "attempts": 0,
+                        "next_try": now,
+                    }
+                else:
+                    # 已在队列：只续总期限，不重置尝试次数与退避，避免永久重试
+                    state["deadline"] = max(float(state.get("deadline") or 0), now + 3600)
 
     def _cleanup_residue(self, parent: str, fileitem: Any) -> None:
         """
@@ -4526,6 +4574,10 @@ class TgOfflineBot(_PluginBase):
             verdict = self._ai_residue_verdict(
                 [name for _, name in candidates], sizes
             )
+            if candidates and not verdict:
+                # AI 一个结论都没给：不记为「已扫描」，下一轮巡检立刻重试
+                with self._choice_lock:
+                    self._residue_checked.pop(parent, None)
             for item, name in candidates:
                 if name not in verdict:
                     # 超出单次送审上限的文件保守跳过，不做「无结论即删」
@@ -4629,7 +4681,12 @@ class TgOfflineBot(_PluginBase):
         except Exception as err:  # noqa: BLE001 - 清理失败不影响其它步骤
             logger.warning(f"【TG磁力离线】清理整理历史失败：{err}")
 
-    def _schedule_residue_cleanup(self, source_path: str, fileitem: Any) -> None:
+    def _schedule_residue_cleanup(
+        self,
+        source_path: str,
+        fileitem: Any,
+        delay_seconds: Optional[float] = None,
+    ) -> None:
         """
         安排目录静默后的残留清理。
 
@@ -4638,6 +4695,7 @@ class TgOfflineBot(_PluginBase):
 
         :param source_path: 源文件路径
         :param fileitem: 源文件项
+        :param delay_seconds: 覆盖默认延迟（秒），用于被跳过后的重排
         """
         if not self._cleanup_residue_enabled or fileitem is None:
             return
@@ -4646,7 +4704,11 @@ class TgOfflineBot(_PluginBase):
         parent = Path(source_path).parent.as_posix()
         if self._is_scope_root(parent):
             return
-        delay = max(60, self._residue_delay)
+        delay = (
+            max(60, self._residue_delay)
+            if delay_seconds is None
+            else max(10, float(delay_seconds))
+        )
         with self._choice_lock:
             existing = self._residue_timers.pop(parent, None)
             if existing:
@@ -4675,12 +4737,15 @@ class TgOfflineBot(_PluginBase):
             logger.info(
                 f"【TG磁力离线】整理队列尚未清空，暂缓清理该目录：{parent}"
             )
+            # 重排一次短延迟，避免本轮跳过后再等一个完整巡检周期
+            self._schedule_residue_cleanup(parent, fileitem, delay_seconds=300)
             return
         if self._residue_cleanup_blocked(parent):
             # 刚触发整理、MP 还在异步搬文件，此时目录里仍是正片
             logger.info(
                 f"【TG磁力离线】该目录刚触发整理，暂缓清理：{parent}"
             )
+            self._schedule_residue_cleanup(parent, fileitem, delay_seconds=300)
             return
         self._cleanup_residue(parent, fileitem)
 
@@ -5079,15 +5144,17 @@ class TgOfflineBot(_PluginBase):
             dispatched and now - dispatched < ORGANIZE_CLEANUP_GRACE_SECONDS
         )
 
-    def _sweep_pending_residue(self) -> None:
+    def _sweep_pending_residue(self) -> bool:
         """
         定期扫描待整理范围下属于本插件提交的目录，清理残留文件。
 
         既覆盖「库已存在被拦截」这类没有整理完成事件的场景，也能清掉此前遗漏的目录。
         扫描后若范围里已没有本插件任务目录，就进入休眠，等新任务或整理事件唤醒。
+
+        :return: 本轮是否真正执行了扫描（被跳过时返回 False，调用方据此决定是否推进节流）
         """
         if not self._cleanup_residue_enabled:
-            return
+            return False
         now = time.time()
         with self._choice_lock:
             has_owned = any(
@@ -5096,7 +5163,7 @@ class TgOfflineBot(_PluginBase):
         target = self._effective_target_path()
         if not has_owned and not target:
             # 既没有名称标记也没配置专属目录时不发请求，避免空轮询
-            return
+            return False
         if self._organize_batch_active():
             # 队列语义：整批任务都整理完之前不清理残留，避免把还没入库的正片当广告删掉
             if not self._organize_batch_noted:
@@ -5105,7 +5172,7 @@ class TgOfflineBot(_PluginBase):
                     "【TG磁力离线】整理队列尚未清空，暂缓残留清理，整批整理完再统一清理"
                 )
             self._wake_residue_sweep("整理队列未清空")
-            return
+            return False
         self._organize_batch_noted = False
         try:
             from app.chain.storage import StorageChain
@@ -5152,11 +5219,12 @@ class TgOfflineBot(_PluginBase):
                     self._cleanup_residue(path, item)
         if not reachable:
             # 目录都取不到时无法判断是否为空，保持现状，避免误休眠
-            return
+            return False
         if found_owned:
             self._wake_residue_sweep("待整理目录里仍有本插件任务")
-            return
+            return True
         self._sleep_residue_sweep()
+        return True
 
     def _residue_sweep_allowed(self, now: float) -> bool:
         """
@@ -5431,40 +5499,9 @@ class TgOfflineBot(_PluginBase):
         elif not path.startswith(local_root):
             return None
         target = Path(path)
-        if target.suffix:
+        if target.suffix.lower() in STRM_MEDIA_SUFFIXES:
             return target.with_suffix(".strm")
         return target
-
-    def _verify_strm(self, dest: str, title: str) -> None:
-        """
-        延时核对 STRM 是否已生成；最多等待 10 分钟，避免增量同步周期未到就误报。
-
-        :param dest: 整理目标路径
-        :param title: 媒体标题，用于通知
-        """
-        target = self._strm_target(dest)
-        if target is None:
-            return
-        delay = max(10, self._strm_check_delay)
-        deadline = time.monotonic() + 600
-        while time.monotonic() < deadline:
-            if self._stop_event.is_set():
-                return
-            try:
-                ready = (
-                    target.exists()
-                    if target.suffix == ".strm"
-                    else target.is_dir() and any(target.glob("*.strm"))
-                )
-            except OSError:
-                ready = False
-            if ready:
-                self._send_notify(f"STRM 已生成\n{title or target.stem}\n{target}")
-                return
-            time.sleep(delay)
-        self._send_notify(
-            f"未检测到 STRM（已等待 10 分钟）\n{title or target.stem}\n{target}"
-        )
 
     def _reply(self, chat_id: Any, text: str, message_id: Any = None) -> None:
         """
@@ -5645,9 +5682,11 @@ class TgOfflineBot(_PluginBase):
         def writer() -> None:
             """执行配置写回。"""
             try:
-                config = self.get_config() or {}
-                config.update(changes)
-                self.update_config(config)
+                # 串行化读-改-写：并发写回会互相覆盖，丢掉其中一个改动
+                with self._config_write_lock:
+                    config = self.get_config() or {}
+                    config.update(changes)
+                    self.update_config(config)
             except Exception as err:  # noqa: BLE001 - 配置写回失败只记日志
                 logger.error(f"【TG磁力离线】写回配置失败：{err}")
 

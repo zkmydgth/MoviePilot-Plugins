@@ -208,11 +208,11 @@ MUTATIONS = [
         "残留巡检空即休眠",
         "        if found_owned:\n"
         '            self._wake_residue_sweep("待整理目录里仍有本插件任务")\n'
-        "            return\n"
+        "            return True\n"
         "        self._sleep_residue_sweep()",
         "        if found_owned:\n"
         '            self._wake_residue_sweep("待整理目录里仍有本插件任务")\n'
-        "            return\n"
+        "            return True\n"
         "        pass",
         "tests/test_tgofflinebot.py::test_sweep_sleeps_when_no_owned_dir",
     ),
@@ -356,12 +356,7 @@ MUTATIONS = [
         "                if self._offline_failed_timeout <= 0:",
         "tests/test_tgofflinebot.py::test_cleanup_keeps_failed_task_before_threshold",
     ),
-    (
-        "有待整理登记时继续巡检",
-        "        if expired and not has_pending:",
-        "        if expired:",
-        "tests/test_tgofflinebot.py::test_cleanup_polls_while_pending_even_after_window",
-    ),
+
     (
         "未完成任务续期登记",
         "                        self._pending_transfer[info_hash] = (\n"
@@ -477,12 +472,7 @@ MUTATIONS = [
         "        if False:",
         "tests/test_tgofflinebot.py::test_precheck_scope_includes_target",
     ),
-    (
-        "重复过滤单向匹配",
-        "            if key and any(key == name or name.startswith(key) for name in existing):",
-        "            if key and any(key in name or name in key for name in existing):",
-        "tests/test_tgofflinebot.py::test_filter_existing_links_ignores_reverse_substring",
-    ),
+
     (
         "按钮校验群授权",
         '        if (\n            chat_type in ("group", "supergroup")\n'
@@ -585,6 +575,21 @@ MUTATIONS = [
         "tests/test_tgofflinebot.py::test_same_media_matches_alias_name",
     ),
     (
+        "提交回执只保留结果行",
+        "                # 回执只保留提交结果本身：条数和目标目录对用户没有增量信息，\n"
+        "                # 落点可以在 /status 里看\n"
+        "                text = detail",
+        "                text = f\"已提交 {len(links)} 条离线任务\\n目标：{target}\\n{detail}\"",
+        "tests/test_tgofflinebot.py::test_full_flow_replies_and_records",
+    ),
+    (
+        "批量回执不带目标行",
+        "        self._last_result = final_text.replace(\"\\n\", \" \")",
+        "        final_text += f\"\\n目标：{target}\"\n"
+        "        self._last_result = final_text.replace(\"\\n\", \" \")",
+        "tests/test_tgofflinebot.py::test_batch_final_reply_has_no_target_line",
+    ),
+    (
         "任务目录缺失不发混放提醒",
         "                if self._pending_finished_without_target(info_hash):\n"
         "                    logger.info(\n"
@@ -596,6 +601,118 @@ MUTATIONS = [
         "                    )",
         "                self._defer_organize_notice(info_hash, name)",
         "tests/test_tgofflinebot.py::test_organize_missing_target_does_not_send_mixed_notice",
+    ),
+    (
+        "同步提交异常仍回执",
+        "            except Exception as err:  # noqa: BLE001 - 提交异常必须有回执\n"
+        "                logger.error(f\"【TG磁力离线】同步提交异常：{err}\")\n"
+        "                success, detail, submitted = False, f\"提交异常：{err}\", 0",
+        "            except Exception as err:  # noqa: BLE001 - 提交异常必须有回执\n"
+        "                logger.error(f\"【TG磁力离线】同步提交异常：{err}\")\n"
+        "                raise",
+        "tests/test_tgofflinebot.py::test_sync_submit_exception_still_replies",
+    ),
+    (
+        "失败回执不带目标行",
+        "                text = f\"提交失败：{detail}\"",
+        "                text = f\"提交失败：{detail}\\n目标：{target}\"",
+        "tests/test_tgofflinebot.py::test_fail_reply_has_no_target_line",
+    ),
+    (
+        "分批异常也写最终回执",
+        "            finally:\n"
+        "                # 无论正常结束、停止还是异常中断，都要给出最终回执并落账",
+        "            except Exception:  # noqa: BLE001 - 变异：吞掉异常且不写回执\n"
+        "                pass\n"
+        "            if False:\n"
+        "                # 无论正常结束、停止还是异常中断，都要给出最终回执并落账",
+        "tests/test_tgofflinebot.py::test_batch_exception_still_sends_final_summary",
+    ),
+    (
+        "超时不吞新批次",
+        "            if not group or group.get(\"token\") != token:\n"
+        "                # 这批已被用户选择，或已被同目录的新一批替换：不能按旧批次收尾\n"
+        "                return",
+        "            if not group:\n"
+        "                # 这批已被用户选择，或已被同目录的新一批替换：不能按旧批次收尾\n"
+        "                return",
+        "tests/test_tgofflinebot.py::test_choice_timeout_ignores_replaced_group",
+    ),
+    (
+        "范围根拒绝整目录重跑",
+        "        if self._is_scope_root(parent):\n"
+        "            # 范围根（如 /待整理）下混着多个来源的任务，整目录重跑会把别人一起推进队列",
+        "        if False and self._is_scope_root(parent):\n"
+        "            # 范围根（如 /待整理）下混着多个来源的任务，整目录重跑会把别人一起推进队列",
+        "tests/test_tgofflinebot.py::test_retry_transfer_refuses_scope_root",
+    ),
+    (
+        "范围配置归一化",
+        "            value = self._normalize_path(item)",
+        "            value = item.strip().rstrip(\"/\")",
+        "tests/test_tgofflinebot.py::test_scope_roots_normalize_leading_slash",
+    ),
+    (
+        "季集集合取最小集号",
+        "                    first_episode = min(int(value) for value in episodes)",
+        "                    first_episode = int(episodes[0])",
+        "tests/test_tgofflinebot.py::test_mp_snapshot_handles_set_episodes",
+    ),
+    (
+        "重复判定只认同名",
+        "            if key and key in existing:",
+        "            if key and any(key == name or name.startswith(key) for name in existing):",
+        "tests/test_tgofflinebot.py::test_duplicate_filter_only_matches_exact_name",
+    ),
+    (
+        "全跳过不计提交数",
+        "            return True, f\"{len(skipped)} 条任务均已在离线列表中，已跳过提交\", 0",
+        "            return True, f\"{len(skipped)} 条任务均已在离线列表中，已跳过提交\", len(skipped)",
+        "tests/test_tgofflinebot.py::test_all_duplicates_submit_zero",
+    ),
+    (
+        "有来源标记仍巡检",
+        "        if expired and not has_pending and not has_owned:",
+        "        if expired and not has_pending:",
+        "tests/test_tgofflinebot.py::test_cleanup_runs_when_owned_marks_exist",
+    ),
+    (
+        "通知去重保留最近",
+        "                self._notified_histories = self._notified_histories[-100:]",
+        "                self._notified_histories = self._notified_histories[:100]",
+        "tests/test_tgofflinebot.py::test_notified_histories_keeps_recent",
+    ),
+    (
+        "带点目录不当文件",
+        "        if target.suffix.lower() in STRM_MEDIA_SUFFIXES:",
+        "        if target.suffix:",
+        "tests/test_tgofflinebot.py::test_strm_target_treats_dotted_dir_as_dir",
+    ),
+    (
+        "跳过巡检不推进节流",
+        "            self._wake_residue_sweep(\"整理队列未清空\")\n            return False",
+        "            self._wake_residue_sweep(\"整理队列未清空\")\n            return True",
+        "tests/test_tgofflinebot.py::test_sweep_reports_skipped_when_batch_active",
+    ),
+    (
+        "空目录重试上限",
+        "            if attempts >= 3:",
+        "            if attempts >= 100:",
+        "tests/test_tgofflinebot.py::test_dir_removal_backs_off_and_gives_up",
+    ),
+    (
+        "AI 无结论不记扫描",
+        "                with self._choice_lock:\n"
+        "                    self._residue_checked.pop(parent, None)",
+        "                with self._choice_lock:\n"
+        "                    pass",
+        "tests/test_tgofflinebot.py::test_residue_scan_not_recorded_when_ai_empty",
+    ),
+    (
+        "命令按任意空白切分",
+        "            parts = text.split(maxsplit=1)",
+        "            parts = text.split(\" \", 1)",
+        "tests/test_tgofflinebot.py::test_command_accepts_fullwidth_space",
     ),
 ]
 

@@ -70,7 +70,7 @@ def make_plugin(**overrides: Any) -> TgOfflineBot:
     plugin._misc_buffer = {}
     plugin._misc_timers = {}
     plugin._cleanup_empty_dirs = True
-    plugin._notified_histories = set()
+    plugin._notified_histories = []
     # 默认把测试常用的路径/任务名标记为「本插件提交」，隔离逻辑另有专门用例
     owned_until = time.time() + 3600
     plugin._owned_names = {
@@ -360,8 +360,9 @@ def test_submit_uses_default_path(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(tgofflinebot.requests, "post", fake_post)
     plugin = make_plugin()
-    ok, detail = plugin._submit_links(["magnet:?xt=urn:btih:AAAA"])
+    ok, detail, submitted = plugin._submit_links(["magnet:?xt=urn:btih:AAAA"])
     assert ok is True
+    assert submitted == 1
     assert captured["json"] == {"links": ["magnet:?xt=urn:btih:AAAA"], "path": None}
     assert captured["headers"]["X-API-KEY"] == "test-token"
     assert "add_offline_task" in captured["url"]
@@ -394,7 +395,7 @@ def test_submit_reports_missing_helper(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         tgofflinebot.requests, "post", lambda url, **kwargs: _FakeResponse(404, {})
     )
-    ok, detail = make_plugin()._submit_links(["magnet:?xt=urn:btih:AAAA"])
+    ok, detail, _ = make_plugin()._submit_links(["magnet:?xt=urn:btih:AAAA"])
     assert ok is False
     assert "P115StrmHelper" in detail
 
@@ -404,7 +405,7 @@ def test_submit_reports_auth_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         tgofflinebot.requests, "post", lambda url, **kwargs: _FakeResponse(403, {})
     )
-    ok, detail = make_plugin()._submit_links(["magnet:?xt=urn:btih:AAAA"])
+    ok, detail, _ = make_plugin()._submit_links(["magnet:?xt=urn:btih:AAAA"])
     assert ok is False
     assert "鉴权失败" in detail
 
@@ -416,7 +417,7 @@ def test_submit_reports_plugin_error(monkeypatch: pytest.MonkeyPatch) -> None:
         "post",
         lambda url, **kwargs: _FakeResponse(200, {"code": -1, "msg": "添加失败"}),
     )
-    ok, detail = make_plugin()._submit_links(["magnet:?xt=urn:btih:AAAA"])
+    ok, detail, _ = make_plugin()._submit_links(["magnet:?xt=urn:btih:AAAA"])
     assert ok is False
     assert detail == "添加失败"
 
@@ -433,7 +434,7 @@ def test_submit_without_token_fails_fast(monkeypatch: pytest.MonkeyPatch) -> Non
     monkeypatch.setattr(tgofflinebot.requests, "post", fake_post)
     monkeypatch.setattr(TgOfflineBot, "_host_setting", lambda self, name, default=None: "")
     plugin = make_plugin(_api_token="")
-    ok, detail = plugin._submit_links(["magnet:?xt=urn:btih:AAAA"])
+    ok, detail, _ = plugin._submit_links(["magnet:?xt=urn:btih:AAAA"])
     assert ok is False
     assert "API Token" in detail
     assert called == []
@@ -453,7 +454,9 @@ def test_full_flow_replies_and_records(monkeypatch: pytest.MonkeyPatch) -> None:
             "magnet:?xt=urn:btih:AAAA\ned2k://|file|a|1|0123456789ABCDEF0123456789ABCDEF|/"
         )
     )
-    assert replies and "已提交 2 条" in replies[0]
+    assert replies and "2 个新任务已成功添加" in replies[0]
+    # 回执只保留提交结果，不再附带条数与目标目录
+    assert "目标：" not in replies[0]
     assert plugin._history[-1]["kind"] == "成功"
 
 
@@ -501,13 +504,13 @@ def test_small_batch_submits_synchronously(monkeypatch: pytest.MonkeyPatch) -> N
     def submit(links: List[str]):
         """记录提交并返回成功。"""
         calls.append(list(links))
-        return True, "ok"
+        return True, "ok", len(links)
 
     monkeypatch.setattr(plugin, "_submit_links", submit)
     thread = plugin._submit_and_reply(make_links(20), 1, 2)
     assert thread is None
     assert len(calls) == 1 and len(calls[0]) == 20
-    assert replies and "已提交 20 条" in replies[0]
+    assert replies and replies[0] == "ok"
 
 
 def test_large_batch_splits_and_waits(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -519,7 +522,7 @@ def test_large_batch_splits_and_waits(monkeypatch: pytest.MonkeyPatch) -> None:
     def submit(links: List[str]):
         """记录每批条数。"""
         calls.append(len(links))
-        return True, "ok"
+        return True, "ok", len(links)
 
     monkeypatch.setattr(plugin, "_submit_links", submit)
     monkeypatch.setattr(plugin, "_wait_between_batches", lambda seconds: bool(waits.append(seconds)))
@@ -534,6 +537,23 @@ def test_large_batch_splits_and_waits(monkeypatch: pytest.MonkeyPatch) -> None:
     assert plugin._history[-1]["kind"] == "成功"
 
 
+def test_batch_final_reply_has_no_target_line(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """分批提交的最终回执不再附带目标目录行。"""
+    edits: List[str] = []
+    plugin = make_plugin(_batch_size=20, _batch_interval=0)
+    monkeypatch.setattr(plugin, "_submit_links", lambda links: (True, "ok", len(links)))
+    monkeypatch.setattr(plugin, "_wait_between_batches", lambda seconds: False)
+    monkeypatch.setattr(plugin, "_send_text", lambda chat_id, text, message_id=None: 555)
+    monkeypatch.setattr(
+        plugin, "_edit_text", lambda chat_id, message_id, text: edits.append(text)
+    )
+    plugin._submit_batches([make_links(20), make_links(5)], 1, 2)
+    assert edits and "目标：" not in edits[-1]
+    assert edits[-1].startswith("提交完成：成功 25/25 条")
+
+
 def test_failed_batch_doubles_interval_and_continues(monkeypatch: pytest.MonkeyPatch) -> None:
     """某批失败后间隔翻倍，后续批次继续提交。"""
     calls: List[int] = []
@@ -542,7 +562,11 @@ def test_failed_batch_doubles_interval_and_continues(monkeypatch: pytest.MonkeyP
     def submit(links: List[str]):
         """前两批失败，之后成功。"""
         calls.append(len(links))
-        return (len(calls) > 2), ("ok" if len(calls) > 2 else "boom")
+        return (
+            (len(calls) > 2),
+            ("ok" if len(calls) > 2 else "boom"),
+            (len(links) if len(calls) > 2 else 0),
+        )
 
     plugin = make_plugin(_batch_size=10, _batch_interval=30)
     monkeypatch.setattr(plugin, "_submit_links", submit)
@@ -567,7 +591,7 @@ def test_batch_stops_on_stop_event(monkeypatch: pytest.MonkeyPatch) -> None:
         """第一批提交后立刻触发停止。"""
         calls.append(len(links))
         stop.set()
-        return True, "ok"
+        return True, "ok", len(links)
 
     monkeypatch.setattr(plugin, "_submit_links", submit)
     monkeypatch.setattr(plugin, "_wait_between_batches", lambda seconds: stop.is_set())
@@ -582,7 +606,7 @@ def test_batch_stops_on_stop_event(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_batch_submission_sends_no_notification(monkeypatch: pytest.MonkeyPatch) -> None:
     """分批路径同样不触发 MoviePilot 通知。"""
     plugin = make_plugin(_batch_size=10)
-    monkeypatch.setattr(plugin, "_submit_links", lambda links: (True, "ok"))
+    monkeypatch.setattr(plugin, "_submit_links", lambda links: (True, "ok", len(links)))
     monkeypatch.setattr(plugin, "_wait_between_batches", lambda seconds: False)
     monkeypatch.setattr(plugin, "_send_text", lambda chat_id, text, message_id=None: 555)
     monkeypatch.setattr(plugin, "_edit_text", lambda chat_id, message_id, text: None)
@@ -629,12 +653,12 @@ def test_group_whitelisted_member_can_submit(monkeypatch: pytest.MonkeyPatch) ->
     def submit(links: List[str]):
         """记录提交并返回成功。"""
         submitted.append(len(links))
-        return True, "ok"
+        return True, "ok", len(links)
 
     monkeypatch.setattr(plugin, "_submit_links", submit)
     plugin._handle_update(make_group_update("magnet:?xt=urn:btih:AAAA", user_id=111))
     assert submitted == [1]
-    assert replies and "已提交 1 条" in replies[0]
+    assert replies and replies[0] == "ok"
 
 
 def test_group_not_whitelisted_is_ignored() -> None:
@@ -896,32 +920,6 @@ def test_precheck_mismatch_sends_choice(monkeypatch: pytest.MonkeyPatch) -> None
     keyboard = sent[-1]["keyboard"]["inline_keyboard"][0]
     assert keyboard[0]["text"] == "按 MP 识别整理"
     assert keyboard[1]["text"] == "按 AI 识别整理"
-
-
-def test_apply_choice_ai_writes_identifier_and_retries(monkeypatch: pytest.MonkeyPatch) -> None:
-    """选择 AI 时写入限定文件名的识别词并重新触发整理。"""
-    plugin = make_plugin()
-    plugin._skip_precheck_until = {}
-    monkeypatch.setattr(plugin, "_trigger_manual_transfer", lambda path: (True, "ok"))
-    monkeypatch.setattr(plugin, "_resolve_ai_media_id", lambda name, year, media_type: ("999", "tmdb"))
-    SystemConfigOper._store["CustomIdentifiers"] = ["# 现有规则"]
-    target = {
-        "path": "/待整理/示例电影.2024.1080p.mkv",
-        "ai": {
-            "name": "示例电影",
-            "year": "2024",
-            "media_type": "movie",
-            "season": 0,
-            "episode": 0,
-            "confidence": 0.9,
-        },
-    }
-    text = plugin._apply_choice("/待整理/示例电影.2024.1080p.mkv", True, target)
-    assert "已重新触发整理" in text
-    assert plugin._is_skipped("/待整理/示例电影.2024.1080p.mkv") is True
-    rules = SystemConfigOper._store["CustomIdentifiers"]
-    assert any("tmdbid=999" in rule and "type=movie" in rule for rule in rules)
-    assert plugin._identifier_rules
 
 
 def test_identifier_rule_uses_enum_source_value(
@@ -2068,25 +2066,29 @@ def test_residue_skips_files_beyond_review_limit(
 def test_identifier_rule_is_persisted(monkeypatch: pytest.MonkeyPatch) -> None:
     """写入识别词后把清单持久化，重启后仍能清理。"""
     plugin = make_plugin()
-    monkeypatch.setattr(plugin, "_trigger_manual_transfer", lambda path: (True, "ok"))
     monkeypatch.setattr(
         plugin, "_resolve_ai_media_id", lambda name, year, media_type: ("1", "tmdb")
     )
     saved: List[str] = []
-    monkeypatch.setattr(
-        plugin, "save_data", lambda key, value: saved.append(key)
-    )
-    target = {
-        "path": "/待整理/示例剧/a.mkv",
-        "ai": {
+    monkeypatch.setattr(plugin, "save_data", lambda key, value: saved.append(key))
+    SystemConfigOper._store["CustomIdentifiers"] = []
+    rule = plugin._make_identifier_rule(
+        "/待整理/示例剧/a.mkv",
+        {
             "name": "示例剧",
             "year": "2024",
             "media_type": "tv",
             "season": 1,
             "episode": 1,
         },
-    }
-    plugin._apply_choice("/待整理/示例剧/a.mkv", True, target)
+    )
+    assert rule
+    added = plugin._append_identifiers([rule])
+    assert added
+    with plugin._choice_lock:
+        for item in added:
+            plugin._identifier_rules[item] = time.time()
+    plugin._persist_identifier_rules()
     assert "identifier_rules" in saved
 
 
@@ -2649,6 +2651,8 @@ def test_cleanup_skips_when_idle(monkeypatch: pytest.MonkeyPatch) -> None:
     """没有在途任务时完全不请求离线列表。"""
     plugin = make_plugin(_offline_timeout=5)
     plugin._offline_active_until = 0.0
+    # 既没有待整理登记，也没有未过期的来源标记，才算「没有在途任务」
+    plugin._owned_names = {}
     calls: List[int] = []
     monkeypatch.setattr(
         plugin, "_list_offline_tasks", lambda: calls.append(1) or []
@@ -3470,7 +3474,7 @@ def test_submit_rejects_when_target_unavailable(
     monkeypatch.setattr(
         plugin, "_ensure_submit_target", lambda: (False, "/待整理/TG", "目标目录不可用")
     )
-    ok, detail = plugin._submit_links(
+    ok, detail, _ = plugin._submit_links(
         ["magnet:?xt=urn:btih:" + "2" * 40 + "&dn=Some.Movie.2020"]
     )
     assert ok is False and "不可用" in detail
@@ -3496,7 +3500,7 @@ def test_submit_warns_when_target_missing_after_success(
     monkeypatch.setattr(
         plugin, "_record_owned_links", lambda links: recorded.append(links)
     )
-    ok, detail = plugin._submit_links(
+    ok, detail, _ = plugin._submit_links(
         ["magnet:?xt=urn:btih:" + "3" * 40 + "&dn=Some.Movie.2020"]
     )
     assert ok is True and "默认离线目录" in detail
@@ -3884,7 +3888,9 @@ def test_retry_dir_removals_deletes_when_empty(
 ) -> None:
     """重试队列里的目录变空后会真正删除并出队。"""
     plugin = make_plugin()
-    plugin._pending_dir_removals = {"p": time.time() + 600}
+    plugin._pending_dir_removals = {
+        "p": {"deadline": time.time() + 600, "attempts": 0, "next_try": 0}
+    }
     monkeypatch.setattr(plugin, "_remove_if_empty", lambda path: True)
     plugin._retry_dir_removals()
     assert plugin._pending_dir_removals == {}
@@ -3895,7 +3901,9 @@ def test_retry_dir_removals_drops_after_deadline(
 ) -> None:
     """超过重试期限的目录直接出队，不再反复请求。"""
     plugin = make_plugin()
-    plugin._pending_dir_removals = {"p": time.time() - 10}
+    plugin._pending_dir_removals = {
+        "p": {"deadline": time.time() - 10, "attempts": 0, "next_try": 0}
+    }
     called: List[str] = []
     monkeypatch.setattr(plugin, "_remove_if_empty", lambda path: called.append(path) or True)
     plugin._retry_dir_removals()
@@ -4369,3 +4377,215 @@ def test_sweep_skips_recently_dispatched_dir(
     )
     plugin._sweep_pending_residue()
     assert cleaned == ["/待整理/TG/旧任务"]
+
+
+# ============================ 审计修复回归（2.6.0） ============================
+
+
+def test_sync_submit_exception_still_replies(monkeypatch: pytest.MonkeyPatch) -> None:
+    """同步提交抛异常时也要回执，不能静默丢链接。"""
+    plugin = make_plugin()
+    replies = capture_replies(plugin)
+
+    def boom(links: List[str]):
+        """模拟提交过程抛错。"""
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(plugin, "_submit_links", boom)
+    plugin._submit_and_reply(["magnet:?xt=urn:btih:AAAA"], 1, 2)
+    assert replies and "提交异常" in replies[0]
+    assert plugin._history[-1]["kind"] == "失败"
+
+
+def test_fail_reply_has_no_target_line(monkeypatch: pytest.MonkeyPatch) -> None:
+    """提交失败的回执只保留原因，不再附带目标目录行。"""
+    plugin = make_plugin()
+    replies = capture_replies(plugin)
+    monkeypatch.setattr(plugin, "_submit_links", lambda links: (False, "boom", 0))
+    plugin._submit_and_reply(["magnet:?xt=urn:btih:AAAA"], 1, 2)
+    assert replies and "提交失败" in replies[0]
+    assert "目标：" not in replies[0]
+
+
+def test_batch_exception_still_sends_final_summary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """分批中途异常也要给出最终回执并落账。"""
+    edits: List[str] = []
+    plugin = make_plugin(_batch_size=10, _batch_interval=0)
+
+    def boom(links: List[str]):
+        """模拟单批抛错。"""
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(plugin, "_submit_links", boom)
+    monkeypatch.setattr(plugin, "_wait_between_batches", lambda seconds: False)
+    monkeypatch.setattr(plugin, "_send_text", lambda chat_id, text, message_id=None: 555)
+    monkeypatch.setattr(
+        plugin, "_edit_text", lambda chat_id, message_id, text: edits.append(text)
+    )
+    plugin._submit_batches([make_links(10), make_links(10)], 1, 2)
+    assert edits
+    assert "提交完成" in edits[-1]
+    assert plugin._history[-1]["kind"] == "部分完成"
+
+
+def test_choice_timeout_ignores_replaced_group(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """旧批次超时收尾时，不能把已替换的同目录新批次一起收掉。"""
+    plugin = make_plugin()
+    dir_key = "/待整理/示例剧"
+    plugin._pending_groups[dir_key] = {
+        "token": "new-token",
+        "dir": dir_key,
+        "paths": ["/待整理/示例剧/b.mkv"],
+    }
+    plugin._pending_choices["/待整理/示例剧/b.mkv"] = {"path": "/待整理/示例剧/b.mkv"}
+    monkeypatch.setattr(plugin, "_trigger_manual_transfer", lambda path: (True, "ok"))
+    monkeypatch.setattr(plugin, "_send_notify", lambda text: None)
+    # seconds=0：不进等待循环，直接走收尾分支（模拟「循环结束瞬间已被替换」）
+    plugin._choice_timeout_worker(dir_key, "old-token", 0)
+    assert plugin._pending_groups[dir_key]["token"] == "new-token"
+    assert "/待整理/示例剧/b.mkv" in plugin._pending_choices
+
+
+def test_scope_roots_normalize_leading_slash() -> None:
+    """范围配置少写斜杠或多写斜杠时仍能归一化成同一路径。"""
+    plugin = make_plugin(_precheck_scope="待整理, /电影//待整理 ")
+    assert plugin._scope_roots() == ["/待整理", "/电影/待整理"]
+
+
+def test_mp_snapshot_handles_set_episodes() -> None:
+    """季集值是 set 时也能取出季号与最小集号。"""
+    plugin = make_plugin()
+    mediainfo = make_mediainfo(media_type="电视剧", seasons={1: {3, 1, 2}})
+    snapshot = plugin._mp_snapshot(mediainfo)
+    assert snapshot["season"] == "第1季"
+    assert snapshot["episode"] == "S01E01"
+
+
+def test_duplicate_filter_only_matches_exact_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """已有任务名更长时不能把新任务判成已存在。"""
+    plugin = make_plugin()
+    monkeypatch.setattr(
+        plugin, "_list_offline_tasks", lambda: [{"name": "Some.Show.S01.1080p"}]
+    )
+    pending, skipped = plugin._filter_existing_links(
+        ["magnet:?xt=urn:btih:AAAA&dn=Some.Show.S01"]
+    )
+    assert pending and not skipped
+
+
+def test_all_duplicates_submit_zero(monkeypatch: pytest.MonkeyPatch) -> None:
+    """全部被判重复时，成功提交条数记为 0。"""
+    plugin = make_plugin()
+    monkeypatch.setattr(plugin, "_filter_existing_links", lambda links: ([], links))
+    ok, detail, submitted = plugin._submit_links(["magnet:?xt=urn:btih:AAAA"])
+    assert ok is True
+    assert submitted == 0
+    assert "跳过提交" in detail
+
+
+def test_cleanup_runs_when_owned_marks_exist(monkeypatch: pytest.MonkeyPatch) -> None:
+    """没有 pending 登记但有未过期来源标记时，仍要巡检离线任务。"""
+    plugin = make_plugin(_offline_timeout=5)
+    plugin._offline_active_until = 0.0
+    plugin._pending_transfer = {}
+    plugin._owned_names = {"任务": time.time() + 600}
+    calls: List[int] = []
+    monkeypatch.setattr(
+        plugin, "_list_offline_tasks", lambda: calls.append(1) or []
+    )
+    plugin._cleanup_stuck_offline()
+    assert calls == [1]
+
+
+def test_notified_histories_keeps_recent(monkeypatch: pytest.MonkeyPatch) -> None:
+    """去重表裁剪时保留最近的记录，不随机丢弃。"""
+    plugin = make_plugin()
+    monkeypatch.setattr(plugin, "save_data", lambda key, value: None)
+    for index in range(205):
+        plugin._remember_notified(f"/video/{index}.mkv")
+    # 超过 200 条时裁到最近 100 条，之后继续增长，长度稳定在 100~200 之间
+    assert 100 <= len(plugin._notified_histories) <= 200
+    assert "/video/204.mkv" in plugin._notified_histories
+    # 最旧的记录必须被裁掉，不能保留旧的一半
+    assert "/video/0.mkv" not in plugin._notified_histories
+
+
+def test_strm_target_treats_dotted_dir_as_dir() -> None:
+    """目标是「名字带点的目录」时不能被当成文件改成 .strm。"""
+    plugin = make_plugin()
+    plugin._strm_local_root = "/mnt/strm"
+    plugin._strm_pan_root = "/video"
+    target = plugin._strm_target("/video/电影/Show.S01.1080p")
+    assert target is not None
+    assert str(target).endswith("Show.S01.1080p")
+
+
+def test_sweep_reports_skipped_when_batch_active(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """整理队列未清空时巡检返回「未执行」，调用方不应推进节流。"""
+    plugin = make_plugin()
+    plugin._pending_transfer = {"a" * 40: time.time() + 600}
+    monkeypatch.setattr(plugin, "_effective_target_path", lambda: "/待整理/TG")
+    assert plugin._sweep_pending_residue() is False
+
+
+def test_dir_removal_backs_off_and_gives_up(monkeypatch: pytest.MonkeyPatch) -> None:
+    """连续失败达到上限的目录直接出队，避免持续请求 115。"""
+    plugin = make_plugin()
+    plugin._pending_dir_removals = {
+        "p": {"deadline": time.time() + 600, "attempts": 2, "next_try": 0}
+    }
+    calls: List[str] = []
+    monkeypatch.setattr(
+        plugin, "_remove_if_empty", lambda path: calls.append(path) or False
+    )
+    plugin._retry_dir_removals()
+    assert plugin._pending_dir_removals == {}
+    assert calls == ["p"]
+
+
+def test_residue_scan_not_recorded_when_ai_empty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """AI 没有结论时不记账，下一轮还要重试。"""
+    plugin = make_plugin()
+    fileitem = SimpleNamespace(type="file", path="/待整理/示例剧/a.mkv")
+    monkeypatch.setattr(
+        plugin,
+        "_collect_residue_entries",
+        lambda item, parent: (
+            [SimpleNamespace(type="file", name="a.avi", path="/待整理/示例剧/a.avi", size=1)],
+            [],
+        ),
+    )
+    monkeypatch.setattr(plugin, "_ai_residue_verdict", lambda names, sizes: {})
+    monkeypatch.setattr(plugin, "_purge_stale_records", lambda prefix: None)
+    monkeypatch.setattr(plugin, "_remove_if_empty", lambda path: False)
+    monkeypatch.setattr(plugin, "_enqueue_dir_removal", lambda paths: None)
+    plugin._cleanup_residue("/待整理/示例剧", fileitem)
+    assert "/待整理/示例剧" not in plugin._residue_checked
+
+
+def test_command_accepts_fullwidth_space(monkeypatch: pytest.MonkeyPatch) -> None:
+    """命令后用全角空格分隔参数也能识别。"""
+    plugin = make_plugin()
+    replies = capture_replies(plugin)
+    plugin._handle_update(make_update("/help　示例"))
+    assert replies
+    assert "未知指令" not in replies[0]
+
+
+def test_retry_transfer_refuses_scope_root(monkeypatch: pytest.MonkeyPatch) -> None:
+    """父目录是待整理范围根时拒绝整目录重跑。"""
+    plugin = make_plugin()
+    monkeypatch.setattr(plugin, "_scope_roots", lambda: ["/待整理"])
+    ok, detail = plugin._retry_transfer("/待整理/a.mkv", None)
+    assert ok is False
+    assert "范围根" in detail
