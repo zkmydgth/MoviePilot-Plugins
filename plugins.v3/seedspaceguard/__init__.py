@@ -131,6 +131,10 @@ class SeedSpaceGuard(_PluginBase):
     # 种子级模式：清理「无主文件」——不被任何种子引用的孤儿硬链接（默认关）。
     # 仅种子级生效。默认关是因为它主动删除用户文件、判定逻辑复杂，需显式开启。
     _orphan_cleanup: bool = False
+    # 种子级模式：连带删除辅种时，是否同样受「保护最近添加天数」约束。
+    # 默认开启——辅种在其它站点同样是「下载过的种子」，同样可能有 H&R 要求，
+    # 不能因为主种子可删就把刚辅上的新种一并摘掉。
+    _companion_protect: bool = True
     # 空壳回收的扫描范围：是否覆盖「内容路径不在监控目录内」的种子（默认关）。
     # 默认关是因为它会把手伸到配置目录之外，属行为边界扩大，须显式授权。
     # ⚠️ 依赖 delete_torrents（联动删除种子）——总闸不开则本开关无任何效果。
@@ -154,8 +158,21 @@ class SeedSpaceGuard(_PluginBase):
         "orphans": 0,
         "dirs": 0,
         "stalled": False,
+        "cancelled": False,
         "dry_run": False,
     }
+    # 本轮运行的取消信号：每轮开始时新建，停用/重载时置位旧事件，
+    # 清理循环逐轮检查后尽快收手（用「每轮一个新事件」而不是复位同一个，
+    # 才能既停住旧运行、又不误伤紧接着启动的新一轮）
+    _run_cancel_event: Optional[threading.Event] = None
+    # 本次实际执行的模式（配置模式与手动覆盖可能不同，联动判定必须用实际值）
+    _active_mode: str = ""
+    # 配置校验失败的原因（用于详情页提示，不阻断插件加载）
+    _config_error: str = ""
+    # 下载器路径映射：{实例名: [(存储路径, 下载器路径), ...]}
+    _path_mappings: Dict[str, List[Tuple[str, str]]] = {}
+    # 路径反查种子的本轮缓存（避免同一轮反复枚举全部种子）
+    _seed_path_index_cache: Optional[Dict[str, str]] = None
     _lock: threading.Lock = threading.Lock()
 
     def init_plugin(self, config: dict = None) -> None:
@@ -179,9 +196,14 @@ class SeedSpaceGuard(_PluginBase):
         self._delete_torrents = False
         self._delete_history = False
         self._companion_cleanup = True
+        self._companion_protect = True
         self._orphan_cleanup = False
         self._orphan_seed_scope = False
         self._empty_dir_sweep = True
+        self._active_mode = ""
+        self._config_error = ""
+        self._path_mappings = {}
+        self._seed_path_index_cache = None
         if not config:
             return
         self._enabled = bool(config.get("enabled"))
@@ -202,12 +224,49 @@ class SeedSpaceGuard(_PluginBase):
                 except Exception as err:
                     # 迁移回写失败不影响本次运行（内存中已生效），下次启动会重试
                     logger.error("【保种空间守护】迁移多目录配置失败：%s", err)
-        self._target_dirs = self._parse_dirs(raw_dirs)
         self._volume_path = str(config.get("volume_path") or "/volume1").strip()
-        self._threshold_gb = int(config.get("threshold_gb") or 500)
+        self._target_dirs = self._filter_target_dirs(self._parse_dirs(raw_dirs))
+        try:
+            self._threshold_gb = int(config.get("threshold_gb") or 500)
+        except (TypeError, ValueError):
+            self._threshold_gb = 500
+            self._config_error = "剩余空间阈值不是有效数字，已回退默认 500GB"
+            logger.error("【保种空间守护】%s", self._config_error)
+        if self._threshold_gb < 0:
+            self._threshold_gb = 500
+            self._config_error = "剩余空间阈值不能为负数，已回退默认 500GB"
+            logger.error("【保种空间守护】%s", self._config_error)
         self._cron = str(config.get("cron") or "0 */6 * * *").strip()
-        self._recent_skip_days = max(0, int(config.get("recent_skip_days") or 0))
-        self._mode = str(config.get("mode") or "seed").strip() or "seed"
+        try:
+            CronTrigger.from_crontab(self._cron)
+        except (TypeError, ValueError) as err:
+            logger.error(
+                "【保种空间守护】定时规则无效（%s）：%s，已回退默认每 6 小时",
+                self._cron, err,
+            )
+            self._cron = "0 */6 * * *"
+            self._config_error = "定时规则无效，已回退默认每 6 小时"
+        try:
+            self._recent_skip_days = max(
+                0, int(config.get("recent_skip_days") or 0)
+            )
+        except (TypeError, ValueError):
+            self._recent_skip_days = 0
+            self._config_error = "保护最近添加天数不是有效数字，已回退为 0"
+            logger.error("【保种空间守护】%s", self._config_error)
+        raw_mode = str(config.get("mode") or "seed").strip().lower()
+        if raw_mode not in ("seed", "file"):
+            # 配置里的模式没有经过前端白名单（手工改配置、旧版本残留都可能），
+            # 非法值绝不能静默落到「仅文件」分支——那会在用户以为删种时只删文件。
+            self._config_error = (
+                f"清理模式配置无效：{raw_mode or '空'}（仅支持 seed/file），"
+                f"已拒绝启用"
+            )
+            logger.error("【保种空间守护】%s", self._config_error)
+            self._mode = "seed"
+            self._enabled = False
+        else:
+            self._mode = raw_mode
         # 保护文件后缀：**留空即不保护任何文件**（2026-10-09 定案）。
         # 此处刻意不回落到默认模板——用户显式清空该项就是要「不做后缀保护」，
         # 回落会让清空变成无效操作（.part 等仍被挡住且无任何提示）。
@@ -221,6 +280,7 @@ class SeedSpaceGuard(_PluginBase):
         # 注意此处刻意不用 bool()——bool(None) 为 False，会让「未配置」变成关闭，
         # 与「默认开」的语义相反。
         self._companion_cleanup = config.get("companion_cleanup", True) is not False
+        self._companion_protect = config.get("companion_protect", True) is not False
         # 种子级「无主文件」清理：默认**关闭**，仅显式为真时开启。
         # 与上一项相反，这里刻意用 bool()——它主动删除用户文件且判定逻辑
         # 复杂，必须由用户显式勾选，绝不能因「未配置」而默认打开。
@@ -255,9 +315,13 @@ class SeedSpaceGuard(_PluginBase):
             ]
         self._last_result = ""
         self._running = False
+        try:
+            self._last_result = str(self.get_data("last_result") or "")
+        except Exception as err:
+            logger.warning("【保种空间守护】读取上次运行结果失败：%s", err)
         # 手动触发动作：选中后保存即执行一次，执行后自动复位，避免重复触发
         manual_action = str(config.get("manual_action") or "").strip()
-        if manual_action in ("dry", "clean"):
+        if manual_action in ("dry", "clean") and self._enabled:
             try:
                 saved = self.get_config() or {}
                 self.update_config({**saved, "manual_action": ""})
@@ -273,6 +337,8 @@ class SeedSpaceGuard(_PluginBase):
                 },
                 daemon=True,
             ).start()
+        elif manual_action in ("dry", "clean"):
+            logger.warning("【保种空间守护】插件未启用或配置无效，已忽略手动触发")
         if not self._enabled:
             return
         if not self._target_dirs:
@@ -470,7 +536,9 @@ class SeedSpaceGuard(_PluginBase):
                             "class": "mt-4",
                             "hint": "种子级：直接删除下载器中最老的已完成种子（连带文件），一步到位不留红种；"
                                    "仅文件：只删文件，种子是否联动删除由下方「联动删除种子」开关决定"
-                                   "（需该种子文件全部删除后才删种）",
+                                   "（需该种子文件全部删除后才删种）。"
+                                   "注意：仅文件模式不判断文件是否仍在做种，删除后对应种子可能变红，"
+                                   "需要保留做种请改用种子级模式",
                             "persistent-hint": True,
                             "items": [
                                 {"title": "种子级（推荐）", "value": "seed"},
@@ -602,8 +670,21 @@ class SeedSpaceGuard(_PluginBase):
                                     "「删了没释放」而停手告警）；"
                                     "②同一内容的所有辅种（同目录、同种子名的其它站点种子；"
                                     "文件已不存在，辅种无做种意义）。"
-                                    "辅种不受保护期约束（H&R 只针对下载的种子）。"
                                     "关闭后恢复旧行为：只删主种子，硬链接与辅种不动",
+                            "persistent-hint": True,
+                            "show": "mode === 'seed'",
+                        },
+                    },
+                    {
+                        "component": "VSwitch",
+                        "props": {
+                            "model": "companion_protect",
+                            "label": "辅种也受保护期约束",
+                            "class": "mt-4",
+                            "hint": "仅种子级模式生效，默认开启。开启后，处于「保护最近添加"
+                                    "天数」内的辅种不会被连带删除——同一个文件可能在别的"
+                                    "站点是刚辅上的新种，那边同样可能有 H&R 要求。"
+                                    "关闭表示：只要主种子够老，同内容的所有辅种一并摘除",
                             "persistent-hint": True,
                             "show": "mode === 'seed'",
                         },
@@ -756,7 +837,7 @@ class SeedSpaceGuard(_PluginBase):
 
     def get_page(self) -> Optional[List[dict]]:
         """返回插件详情页面。"""
-        if not self._enabled:
+        if not self._enabled and not self._config_error:
             return None
         free_gb = self._disk_free_gb()
         free_text = f"{free_gb}GB" if free_gb is not None else "未知"
@@ -767,7 +848,16 @@ class SeedSpaceGuard(_PluginBase):
         else:
             head = "、".join(self._target_dirs[:3])
             dirs_text = f"{head} 等 {len(self._target_dirs)} 个目录"
-        return [
+        page: List[dict] = []
+        if self._config_error:
+            page.append({
+                "component": "VAlert",
+                "props": {
+                    "type": "error",
+                    "text": f"配置校验失败：{self._config_error}",
+                },
+            })
+        page.extend([
             {
                 "component": "VAlert",
                 "props": {
@@ -779,19 +869,28 @@ class SeedSpaceGuard(_PluginBase):
             {
                 "component": "VAlert",
                 "props": {
-                    "type": "success" if "成功" in self._last_result or "充足" in self._last_result else "warning",
+                    "type": self._result_alert_type(self._last_result),
                     "text": self._last_result or "尚未运行，可在插件命令 /seedguard 或 API 手动触发",
                 },
             },
-        ]
+        ])
+        return page
 
     def get_service(self) -> List[Dict[str, Any]]:
         """注册插件定时服务。"""
+        try:
+            trigger = CronTrigger.from_crontab(self._cron)
+        except (TypeError, ValueError) as err:
+            logger.error(
+                "【保种空间守护】定时规则无效（%s）：%s，本次改用默认每 6 小时",
+                self._cron, err,
+            )
+            trigger = CronTrigger.from_crontab("0 */6 * * *")
         return [
             {
                 "id": "space_check",
                 "name": "保种空间检查与清理",
-                "trigger": CronTrigger.from_crontab(self._cron),
+                "trigger": trigger,
                 "func": self.check_and_clean,
                 "kwargs": {},
             }
@@ -800,6 +899,11 @@ class SeedSpaceGuard(_PluginBase):
     def stop_service(self) -> None:
         """停止插件后台服务并释放资源。"""
         self._running = False
+        # 只置位「当前正在跑的那一轮」的信号：正在跑的清理在下一轮循环
+        # 检查时收手，而不是继续删；没有在跑时不留残余状态
+        event = self.__dict__.get("_run_cancel_event")
+        if event is not None:
+            event.set()
 
     # ============================ API 入口 ============================
 
@@ -845,7 +949,10 @@ class SeedSpaceGuard(_PluginBase):
         )
         # 宿主 envelope 契约：前端 isApiResponse() 要求恰好三键
         # （success / message / data），且 success 为 bool、message 为 str。
-        return {"success": True, "message": result, "data": None}
+        # 未执行成功的两种情形必须如实回报 False，否则前端会把「没跑」
+        # 当成「跑成功了」，用户看不到任何异常。
+        ok = result not in ("插件未启用", "已有清理任务正在运行，本次跳过")
+        return {"success": ok, "message": result, "data": None}
 
     async def api_status(self, request: Request) -> Dict[str, Any]:
         """
@@ -902,7 +1009,7 @@ class SeedSpaceGuard(_PluginBase):
         :param dry_run_override: 临时覆盖试运行开关
         :return: 运行结果摘要
         """
-        if not self._enabled and source != "手动":
+        if not self._enabled:
             return "插件未启用"
         if not self._lock.acquire(blocking=False):
             return "已有清理任务正在运行，本次跳过"
@@ -910,7 +1017,10 @@ class SeedSpaceGuard(_PluginBase):
             if self._running:
                 return "已有清理任务正在运行，本次跳过"
             self._running = True
+            # 新一轮用全新的取消信号，与上一轮彻底隔离
+            self._run_cancel_event = threading.Event()
             mode = mode_override or self._mode
+            self._active_mode = mode
             dry_run = self._dry_run if dry_run_override is None else bool(dry_run_override)
             # 重置本次清理的聚合计数（供通知摘要使用，明细只进日志）
             self._clean_stats = {
@@ -919,7 +1029,9 @@ class SeedSpaceGuard(_PluginBase):
                 "seeds": 0,
                 "companions": 0,
                 "orphans": 0,
+                "dirs": 0,
                 "stalled": False,
+                "cancelled": False,
                 "dry_run": dry_run,
             }
             # 每轮清空跨轮缓存：`_dir_hash_cache`（目录 → hash 反查）若沿用
@@ -929,9 +1041,14 @@ class SeedSpaceGuard(_PluginBase):
             # 本轮的边界依据。两者都必须逐轮重置。
             self._dir_hash_cache = {}
             self._ino_paths = {}
+            self._path_mappings = {}
+            self._seed_path_index_cache = None
+            self.__dict__["_syno_purged_roots"] = set()
 
             if not self._target_dirs:
-                return self._finish("未配置清理目录（target_dirs）", None)
+                return self._finish(
+                    "未配置清理目录（target_dirs）", None, notify=False
+                )
             # 过滤出实际存在的目录，不存在的记警告并跳过（不因个别目录失效而整体罢工）
             invalid = [d for d in self._target_dirs if not os.path.isdir(d)]
             self._active_dirs = [d for d in self._target_dirs if os.path.isdir(d)]
@@ -940,12 +1057,24 @@ class SeedSpaceGuard(_PluginBase):
             invalid_note = ""
             if invalid:
                 invalid_note = f"（已跳过不存在的目录：{'、'.join(invalid)}）"
-                logger.warning(
-                    "【保种空间守护】以下目录不存在，本次已跳过：%s", "、".join(invalid)
+                notified = self.__dict__.setdefault(
+                    "_invalid_dirs_notified", set()
                 )
+                invalid_key = tuple(sorted(invalid))
+                invalid_repeat = invalid_key in notified
+                if not invalid_repeat:
+                    notified.add(invalid_key)
+                    logger.warning(
+                        "【保种空间守护】以下目录不存在，本次已跳过：%s",
+                        "、".join(invalid),
+                    )
+            else:
+                invalid_repeat = False
             if not self._active_dirs:
                 return self._finish(
-                    f"所有配置目录均不存在：{'、'.join(self._target_dirs)}", None
+                    f"所有配置目录均不存在：{'、'.join(self._target_dirs)}",
+                    None,
+                    notify=not invalid_repeat,
                 )
 
             free_bytes = self._disk_free_bytes()
@@ -1022,6 +1151,7 @@ class SeedSpaceGuard(_PluginBase):
                         "种子级" if mode == "seed" else "仅文件",
                         len(self._active_dirs))
 
+            no_candidates = False
             if mode == "seed":
                 result = self._clean_by_seed(free_bytes, dry_run)
                 # 种子级主链路跑完后，若仍未达标且用户开启了「无主文件」清理，
@@ -1029,6 +1159,11 @@ class SeedSpaceGuard(_PluginBase):
                 # 可依（种子不在监控目录内），又不被文件级链路触及（模式互斥），
                 # 若不在此处清理便永久残留。
                 deleted, released_gb, detail_lines = result
+                # 先归一化「没有候选」哨兵，避免它与无主清理数量相加后
+                # 变成一个毫无意义的小正数（旧实现会少报并吞掉提示）。
+                no_candidates = deleted == -1
+                if no_candidates:
+                    deleted = 0
                 try:
                     free_after = self._disk_free_bytes()
                 except Exception:
@@ -1049,13 +1184,21 @@ class SeedSpaceGuard(_PluginBase):
             detail_lines = orphan_lines + sweep_lines + list(detail_lines or [])
 
             suffix = ""
-            if deleted == -1:
+            if no_candidates and deleted <= 0:
+                # 只有确实什么都没删时才说「未找到候选」；若本轮的删除来自
+                # 无主文件清理，仍要如实报告释放量，否则用户看到「没找到」
+                # 却发生了删除，会怀疑统计出错。
                 suffix = "（未找到可清理的已完成种子，可能均处于保护期内或无下载器连接）"
-                deleted = 0
             elif dry_run:
                 suffix = f"，共列出 {deleted} 个待删资源（预计释放约 {released_gb}GB）"
             elif deleted > 0:
-                suffix = f"，释放约 {released_gb}GB"
+                # 带上删除数量：只报 GB 无法核对「到底删了几个」，而本轮
+                # 的删除可能来自种子 / 文件 / 无主文件三条链路
+                suffix = f"，共处理 {deleted} 个资源，释放约 {released_gb}GB"
+            if self._clean_stats.get("stalled"):
+                suffix += "（已提前停止：空间未按预期释放）"
+            if self._cancel_signal().is_set():
+                suffix += "（已取消）"
             # 空壳回收量同样要进结果消息：它发生在删文件之前，若不汇总，
             # 用户在「空间不足」这一主路径上反而看不到任何空壳回收痕迹
             suffix += orphan_note + sweep_note
@@ -1064,6 +1207,7 @@ class SeedSpaceGuard(_PluginBase):
             return self._finish(msg, detail_lines)
         finally:
             self._running = False
+            self._active_mode = ""
             # 显式释放本轮持有的运行态大对象：全库 inode 索引与目录反查缓存
             # 会随媒体库规模增长，不清理则长期常驻（`init_plugin` 才清空）。
             self._ino_paths = {}
@@ -1084,6 +1228,11 @@ class SeedSpaceGuard(_PluginBase):
         """
         self._last_result = msg
         logger.info("【保种空间守护】%s", msg)
+        try:
+            # 结果落盘：重启后详情页仍能看到上次运行结论
+            self.save_data("last_result", msg)
+        except Exception as err:
+            logger.warning("【保种空间守护】保存上次运行结果失败：%s", err)
         if details:
             for line in details:
                 logger.info("【保种空间守护】  %s", line)
@@ -1111,7 +1260,7 @@ class SeedSpaceGuard(_PluginBase):
         has_count = (
             s.get("files") or s.get("transfers") or s.get("seeds")
             or s.get("companions") or s.get("orphans") or s.get("stalled")
-            or s.get("dirs")
+            or s.get("dirs") or s.get("cancelled")
         )
         if not has_count:
             return msg
@@ -1119,6 +1268,8 @@ class SeedSpaceGuard(_PluginBase):
         lines = []
         if s.get("stalled"):
             lines.append("⚠️ 空间未如期释放，已停止清理（详见插件日志）")
+        if s.get("cancelled"):
+            lines.append("已按请求取消本轮清理")
         lines.append(f"{prefix}删除文件：{s.get('files') or 0} 个")
         lines.append(f"{prefix}删除转移记录：{s.get('transfers') or 0} 条")
         lines.append(f"{prefix}删除种子：{s.get('seeds') or 0} 个")
@@ -1158,6 +1309,107 @@ class SeedSpaceGuard(_PluginBase):
         """
         free = self._disk_free_bytes()
         return None if free is None else int(free // GIB)
+
+    def _cancel_signal(self) -> threading.Event:
+        """返回本轮运行的取消信号（懒创建，避免多个实例共享同一事件）。"""
+        event = self.__dict__.get("_run_cancel_event")
+        if event is None:
+            event = threading.Event()
+            self._run_cancel_event = event
+        return event
+
+    def _cancelled(self) -> bool:
+        """是否已收到「停止清理」信号。"""
+        return self._cancel_signal().is_set()
+
+    @staticmethod
+    def _result_alert_type(text: str) -> str:
+        """
+        根据上次运行结果选择详情页提示颜色。
+
+        :param text: 上次运行摘要
+        :return: VAlert 的 type 值
+        """
+        if not text:
+            return "info"
+        if "失败" in text or "无效" in text:
+            return "error"
+        if any(word in text for word in
+               ("未按预期", "未配置", "不存在", "取消", "无法获取")):
+            return "warning"
+        if "空间充足" in text or "处理完成" in text:
+            return "success"
+        return "warning"
+
+    def _filter_target_dirs(self, dirs: List[str]) -> List[str]:
+        """
+        过滤危险或无效的监控目录。
+
+        拒绝根目录、空间检查卷本身与相对路径；对层级很浅的宽目录仅告警，
+        因为「仅文件」模式下监控目录等价于清理范围，一次误配就不可逆。
+
+        :param dirs: 解析后的目录列表
+        :return: 可安全使用的目录列表
+        """
+        volume = os.path.normpath(self._volume_path) if self._volume_path else ""
+        safe: List[str] = []
+        for path in dirs:
+            if not os.path.isabs(path):
+                logger.error(
+                    "【保种空间守护】监控目录必须是绝对路径，已忽略：%s", path
+                )
+                continue
+            norm = os.path.normpath(path)
+            if norm == os.sep:
+                logger.error("【保种空间守护】拒绝把根目录作为监控目录：%s", path)
+                continue
+            if volume and norm == volume:
+                logger.error(
+                    "【保种空间守护】拒绝把空间检查卷本身作为监控目录：%s", path
+                )
+                continue
+            if norm.count(os.sep) <= 1:
+                logger.warning(
+                    "【保种空间守护】监控目录范围很宽，请确认：%s", path
+                )
+            safe.append(norm)
+        return safe
+
+    @staticmethod
+    def _map_return_path(path: str, mapping: Any) -> str:
+        """
+        把下载器返回的路径按配置映射回本地存储路径。
+
+        宿主下载器配置里保存的是 ``(存储路径, 下载器路径)`` 对；下载器报告的是
+        后者，插件的文件复核需要前者。没有映射时原样返回。
+
+        :param path: 下载器返回的路径
+        :param mapping: 映射对列表
+        :return: 本地路径（无法映射时原样返回）
+        """
+        if not path or not mapping:
+            return path
+        norm = os.path.normpath(str(path))
+        best: Optional[Tuple[int, str, str]] = None
+        for pair in mapping:
+            try:
+                storage, download = str(pair[0]), str(pair[1])
+            except (TypeError, IndexError, KeyError):
+                continue
+            if not storage or not download:
+                continue
+            remote = os.path.normpath(download)
+            if norm == remote or norm.startswith(remote + os.sep):
+                if best is None or len(remote) > best[0]:
+                    best = (len(remote), storage, remote)
+        if not best:
+            return path
+        _length, storage, remote = best
+        rest = norm[len(remote):].lstrip(os.sep)
+        return (
+            os.path.normpath(os.path.join(storage, rest))
+            if rest else os.path.normpath(storage)
+        )
 
     def _wait_for_release(self, free_before: int, nominal: int) -> int:
         """
@@ -1208,7 +1460,8 @@ class SeedSpaceGuard(_PluginBase):
         3. **删种后**删硬链接：把索引中仍在盘上的同 inode 路径（媒体库侧）
            unlink 掉，空间才真正释放
         4. 连带删辅种：同内容（同路径 + 同种子名）的其它 hash 一并摘种。文件已
-           不存在，辅种无做种意义；辅种不受保护期约束（H&R 只针对下载的种子）
+           不存在，辅种无做种意义；默认同样受保护期约束（辅种在其它站点也
+           可能承担 H&R），可在配置里显式关闭该保护
 
         注意：``_companion_cleanup`` 关闭时恢复旧行为——由下载器负责删文件，
         媒体库侧硬链接插件不去触碰，空间迟迟不释放时按下述闭环停止并告警。
@@ -1217,20 +1470,46 @@ class SeedSpaceGuard(_PluginBase):
         :param dry_run: 是否试运行
         :return: （处理数，预计/实际释放 GB，明细行）
         """
-        candidates = self._collect_seed_candidates()
-        if not candidates:
+        all_candidates = self._collect_seed_candidates()
+        if not all_candidates:
             return -1, 0.0, []
 
         # 辅种映射：整轮构建一次，避免每个种子重复扫描候选列表。
         # 注意候选已由 _collect_seed_candidates 过滤为「内容在监控目录内」，
         # 因此监控目录外的同名种子不会被牵连删除。
         companion_map = (
-            self._build_companion_map(candidates) if self._companion_cleanup else {}
+            self._build_companion_map(all_candidates)
+            if self._companion_cleanup else {}
         )
 
         cutoff = time.time() - self._recent_skip_days * 86400
-        candidates = [c for c in candidates if c["added"] < cutoff]
+        # 时间未知（0/负数）的种子按「受保护」处理：排在最前面删掉它们，
+        # 等于绕过保护期，极可能误删刚加进来但没记录完成时间的种子。
+        unknown_time = [
+            c for c in all_candidates if int(c.get("added") or 0) <= 0
+        ]
+        if unknown_time:
+            logger.warning(
+                "【保种空间守护】%d 个种子读不到完成/添加时间，本次按保护处理：%s",
+                len(unknown_time),
+                "、".join(str(c.get("title") or c.get("hash")) for c in unknown_time[:5]),
+            )
+        candidates = [
+            c for c in all_candidates
+            if int(c.get("added") or 0) > 0 and int(c["added"]) < cutoff
+        ]
         candidates.sort(key=lambda c: c["added"])
+        added_by_hash = {
+            str(c.get("hash") or ""): int(c.get("added") or 0)
+            for c in all_candidates
+        }
+
+        def _peer_allowed(peer_hash: str) -> bool:
+            """辅种是否允许连带删除（默认与主种子同受保护期约束）。"""
+            if not self._companion_protect:
+                return True
+            added = added_by_hash.get(peer_hash, 0)
+            return 0 < added < cutoff
 
         detail_lines: List[str] = []
         deleted = 0
@@ -1243,7 +1522,8 @@ class SeedSpaceGuard(_PluginBase):
         if "_clean_stats" not in self.__dict__:
             self._clean_stats = {
                 "files": 0, "transfers": 0, "seeds": 0, "companions": 0,
-                "orphans": 0, "stalled": False, "dry_run": dry_run,
+                "orphans": 0, "dirs": 0, "stalled": False,
+                "cancelled": False, "dry_run": dry_run,
             }
         self._clean_stats["dry_run"] = dry_run
 
@@ -1264,6 +1544,7 @@ class SeedSpaceGuard(_PluginBase):
                     peers = [
                         h for h in companion_map.get(
                             self._content_key(cand), []) if h != cand["hash"]
+                        and _peer_allowed(h)
                     ]
                     if peers:
                         line = (
@@ -1286,6 +1567,10 @@ class SeedSpaceGuard(_PluginBase):
         idx = 0
         stall = 0
         while True:
+            if self._cancelled():
+                detail_lines.append("收到停止信号，本轮清理提前结束")
+                self._clean_stats["cancelled"] = True
+                break
             free_now = self._disk_free_bytes()
             free_now = free_bytes if free_now is None else free_now
             if free_now >= self._threshold_gb * GIB:
@@ -1305,6 +1590,10 @@ class SeedSpaceGuard(_PluginBase):
                 # 候选耗尽仍未达标，结束
                 break
             for cand in plan:
+                if self._cancelled():
+                    detail_lines.append("收到停止信号，本轮清理提前结束")
+                    self._clean_stats["cancelled"] = True
+                    break
                 # ---- ① 删种前建 inode 索引（顺序关键，不可后移）----
                 # 删种后下载器会删掉下载侧文件，届时该 inode 的下载侧路径消失，
                 # 只剩媒体库侧孤证，无法再确认「哪些路径是同一文件」。
@@ -1316,7 +1605,10 @@ class SeedSpaceGuard(_PluginBase):
                     # 对目录是整目录 walk，若本种子的 content_path 同时承载别的
                     # 种子（实测存在「一个目录下多集各一个种子」的布局），
                     # 整目录索引 + 无差别删除会连带 unlink 别人的文件 → 红种。
-                    shared_dirs = self._shared_content_dirs(cand, candidates)
+                    # 必须用**未过滤**的全量候选做共用判断：保护期内的新种子
+                    # 已被 candidates 排除，若拿过滤后的列表比对就看不到它们，
+                    # 会把共用目录当成自己独占，连带删掉新种子的文件。
+                    shared_dirs = self._shared_content_dirs(cand, all_candidates)
                     if shared_dirs:
                         kept_related = [
                             p for p in related
@@ -1398,6 +1690,7 @@ class SeedSpaceGuard(_PluginBase):
                     peers = [
                         h for h in companion_map.get(
                             self._content_key(cand), []) if h != cand["hash"]
+                        and _peer_allowed(h)
                     ]
                     if peers:
                         done = 0
@@ -1464,6 +1757,9 @@ class SeedSpaceGuard(_PluginBase):
         :param nominal: 名义释放字节数
         :return: 是否视为正常释放
         """
+        if self._sync_wait_seconds <= 0:
+            # 用户明确选择「不等待」时无法测量释放量，不能据此判失败
+            return True
         if nominal <= RELEASE_HARD_STOP_MIN_BYTES:
             return True
         return released >= int(nominal * RELEASE_TOLERANCE)
@@ -1498,29 +1794,61 @@ class SeedSpaceGuard(_PluginBase):
         与「源文件联动清理」一致，先按目标路径（dest）匹配，未命中再按源路径
         （src）匹配；两者都未命中说明该文件未经 MoviePilot 整理，直接跳过。
 
+        同一路径可能对应多条记录（重复整理、改版重整理等），而宿主接口每次只
+        返回一条，因此删除后继续回查，直到查不到为止（上限 5 条，避免异常
+        情况下死循环）。
+
         :param path: 已删除的文件路径
         :return: 是否确实删除了一条记录
         """
         if not self._delete_history or not self._transferhis:
             return False
-        record = None
-        for query in (self._transferhis.get_by_dest,
-                      self._transferhis.get_by_src):
+        removed_any = False
+        seen_ids: Set[int] = set()
+        for _attempt in range(5):
+            record = None
+            matched_query = None
+            for query in (self._transferhis.get_by_dest,
+                          self._transferhis.get_by_src):
+                try:
+                    found = query(path)
+                except Exception as err:
+                    logger.error("【保种空间守护】查询转移记录失败（%s）：%s", path, err)
+                    continue
+                if found:
+                    record, matched_query = found, query
+                    break
+            if not record:
+                return removed_any
+            record_id = getattr(record, "id", None)
+            if record_id is None or record_id in seen_ids:
+                return removed_any
+            seen_ids.add(record_id)
+            # 宿主的新式「整理任务」记录由状态机独占，删除接口会直接过滤掉
+            # 它们；这类记录不能报「已删除」，否则统计与事实不符。
+            if getattr(record, "transfer_task_id", None) is not None:
+                logger.warning(
+                    "【保种空间守护】转移记录 %s 由整理任务管理，插件不删除", path
+                )
+                return removed_any
             try:
-                record = query(path)
+                self._transferhis.delete(record_id)
             except Exception as err:
-                logger.error("【保种空间守护】查询转移记录失败（%s）：%s", path, err)
-                continue
-            if record:
-                break
-        if not record:
-            return False
-        try:
-            self._transferhis.delete(record.id)
-            return True
-        except Exception as err:
-            logger.error("【保种空间守护】删除转移记录失败（%s）：%s", path, err)
-            return False
+                logger.error("【保种空间守护】删除转移记录失败（%s）：%s", path, err)
+                return removed_any
+            # 删除接口不返回影响行数，只能回查确认：仍能查到同 id 的那条
+            # 就说明这次没删掉，不能报成功。
+            try:
+                still = matched_query(path)
+            except Exception:
+                still = None
+            if still is not None and getattr(still, "id", None) == record_id:
+                logger.warning(
+                    "【保种空间守护】转移记录 %s 删除后仍可查到，视为未删除", path
+                )
+                return removed_any
+            removed_any = True
+        return removed_any
 
     def _resolve_hash_by_path(self, path: str) -> str:
         """
@@ -1580,18 +1908,26 @@ class SeedSpaceGuard(_PluginBase):
         if parent in cache:
             return cache[parent]
 
+        # 种子路径索引整轮只建一次：仅文件模式会按「每个不同父目录」反查，
+        # 旧实现每遇到一个新目录就重新枚举全部种子，几千个目录时会非常慢。
+        index = self.__dict__.get("_seed_path_index_cache")
+        if index is None or not cache:
+            # 目录缓存被清空（新一轮开始或外部复位）时一并重建索引，
+            # 否则会拿着上一轮已失效的种子视图继续判定归属。
+            index = {}
+            try:
+                for cand in self._collect_seed_candidates():
+                    seed_path = os.path.normpath(str(cand.get("path") or ""))
+                    hash_str = str(cand.get("hash") or "")
+                    if seed_path and hash_str:
+                        index[seed_path] = hash_str
+            except Exception as err:
+                logger.error("【保种空间守护】按目录反查种子失败：%s", err)
+            self._seed_path_index_cache = index
+
         hit = ""
         best_len = -1
-        try:
-            candidates = self._collect_seed_candidates()
-        except Exception as err:
-            logger.error("【保种空间守护】按目录反查种子失败：%s", err)
-            candidates = []
-        for cand in candidates:
-            seed_path = os.path.normpath(str(cand.get("path") or ""))
-            hash_str = str(cand.get("hash") or "")
-            if not seed_path or not hash_str:
-                continue
+        for seed_path, hash_str in index.items():
             if parent == seed_path or parent.startswith(seed_path + os.sep):
                 if len(seed_path) > best_len:
                     best_len = len(seed_path)
@@ -1614,9 +1950,13 @@ class SeedSpaceGuard(_PluginBase):
 
         每个种子取三级来源，任一命中即视为「有主」：
 
-        1. 内容路径 / 保存目录（下载器原始报告，最权威）
+        1. 内容路径（下载器原始报告，最权威）
         2. 「配置目录 + 种子名」推断（覆盖记录缺失与路径迁移）
         3. ``DownloadFiles`` 记录（含各集完整路径）
+
+        刻意**不**把「保存目录」整体当成有主：qB 的保存目录常是下载根目录，
+        一旦把它按前缀算作有主，监控目录下的所有文件都会被判成有主，
+        无主清理会静默失效。归属必须落到具体内容路径与文件清单。
 
         :return: 规范化路径集合；**返回 None 表示无法确证**（下载器枚举失败
                  或无可用下载器）——调用方必须据此放弃整轮判定，宁可不动
@@ -1640,6 +1980,9 @@ class SeedSpaceGuard(_PluginBase):
             server = getattr(service, "instance", None)
             if server is None:
                 continue
+            conf = getattr(service, "config", None)
+            mapping = getattr(conf, "path_mapping", None) if conf else None
+            self._path_mappings[name] = list(mapping or [])
             try:
                 ret = server.get_torrents()
             except Exception as err:
@@ -1658,14 +2001,9 @@ class SeedSpaceGuard(_PluginBase):
                                     default="") or ""
                 ).strip()
                 if content:
-                    refs.add(os.path.normpath(content))
-                save_path = str(
-                    self._pick_attr(item, "save_path", "savePath",
-                                    "download_dir", "downloadDir",
-                                    default="") or ""
-                ).strip()
-                if save_path:
-                    refs.add(os.path.normpath(save_path))
+                    refs.add(os.path.normpath(
+                        self._map_return_path(content, mapping)
+                    ))
                 # ② 种子名 → 各配置目录下的推断路径
                 title = str(self._pick_attr(item, "name", default="") or "").strip()
                 if title:
@@ -1675,7 +2013,7 @@ class SeedSpaceGuard(_PluginBase):
                 hash_str = str(self._pick_attr(item, "hash", default="") or "")
                 if hash_str:
                     for path in self._seed_file_paths(
-                        {"hash": hash_str, "title": title, "files": []}
+                        {"hash": hash_str, "title": title}
                     ):
                         refs.add(os.path.normpath(path))
 
@@ -1778,6 +2116,8 @@ class SeedSpaceGuard(_PluginBase):
         if dry_run:
             total_gb = 0.0
             for key in orphan_keys:
+                if self._cancelled():
+                    break
                 plist = self._ino_paths.get(key, [])
                 rep = plist[0] if plist else ""
                 size = float(size_by_key.get(key, 0))
@@ -1796,9 +2136,11 @@ class SeedSpaceGuard(_PluginBase):
         deleted = 0
         released_gb = 0.0
         for key in orphan_keys:
-            if self._disk_free_bytes() is not None:
-                if self._disk_free_bytes() >= self._threshold_gb * GIB:
-                    break
+            if self._cancelled():
+                break
+            free_now = self._disk_free_bytes()
+            if free_now is not None and free_now >= self._threshold_gb * GIB:
+                break
             plist = self._ino_paths.get(key, [])
             rep = plist[0] if plist else ""
             if not rep:
@@ -1818,6 +2160,30 @@ class SeedSpaceGuard(_PluginBase):
                 (self._clean_stats.get("orphans") or 0) + deleted
             )
         return deleted, round(released_gb, 1), detail_lines
+
+    def _seed_may_be_empty(self, cand: Dict[str, Any]) -> bool:
+        """
+        用廉价检查先排除「显然还活着」的种子，避免逐个向下载器取文件清单。
+
+        只做两种**安全**的排除：
+
+        - 内容路径是个仍存在的文件 → 单文件种子一定活着
+        - 内容路径与保存目录都不可见 → 无从判定，按活着处理
+
+        刻意不看「内容目录里有没有文件」：一个目录下可能同时存放多个种子，
+        目录里还有兄弟种子的文件时，本种子自己的文件可能已经删光——这正是
+        必须靠「种子自身清单」才能分辨的情况，不能用目录扫描的廉价判断替代。
+
+        :param cand: 种子候选
+        :return: 是否值得继续做完整空壳判定
+        """
+        path = str(cand.get("path") or "").strip()
+        if path and os.path.exists(path):
+            return os.path.isdir(path)
+        base = str(cand.get("dl_dir") or "").strip()
+        if not base and path:
+            base = os.path.dirname(os.path.normpath(path))
+        return bool(base and os.path.isdir(base))
 
     def _reap_orphan_seeds(self, dry_run: bool) -> Dict[str, Any]:
         """
@@ -1868,10 +2234,17 @@ class SeedSpaceGuard(_PluginBase):
             return stats
 
         for cand in candidates:
+            if self._cancelled():
+                break
             hash_str = str(cand.get("hash") or "")
             if not hash_str:
                 continue
             stats["checked"] += 1
+            # 先用一次 stat/目录扫描排除仍然有文件的种子：完整判定需要向
+            # 下载器逐个取文件清单，上千种子时是一笔很大的 RPC 开销。
+            if not self._seed_may_be_empty(cand):
+                stats["alive"] += 1
+                continue
             try:
                 # 传入候选对象：判定需要种子的真实内容路径做物理复核，
                 # 仅凭 hash 查 DownloadFiles 在双下载器/路径迁移场景会误判
@@ -1961,7 +2334,8 @@ class SeedSpaceGuard(_PluginBase):
         2. **自身文件复核**（关键加固，v3.0.5 起）：向下载器查该种子
            **自己的**文件清单（``_get_seed_files``），逐个 ``os.path.exists``。
            任一文件仍在 → 未删空。取不到清单时**退回**扫 ``cand["path"]``
-           目录的旧逻辑（保守：宁可漏回收不可误删）。
+           目录的旧逻辑；内容路径也不可见时，只有保存目录可见才判空壳，
+           否则视为「路径映射/挂载不可见」而保留（保守：宁可漏回收不可误删）。
 
         为什么必须有第 2 级：``DownloadFiles`` 记录的是**首次下载时**的路径，
         而种子可能经历 qBittorrent → Transmission 做种转移、下载器清空重建、
@@ -1976,8 +2350,9 @@ class SeedSpaceGuard(_PluginBase):
         「自己的文件已删光、同目录还有兄弟种子的文件」会被误判为未删空，
         该种子便永远回收不掉——功能静默失效，且日志上毫无异常痕迹。
 
-        **保守原则**：所有「判不了」的情况一律返回 False（保留种子）——
-        记录为空、路径为空、路径不可读、查询异常等，宁可不删也不误删。
+        **保守原则**：所有「判不了」与「看不见」的情况一律返回 False（保留
+        种子）——记录为空、路径为空、内容路径与保存目录都不可见、查询异常等，
+        宁可不删也不误删。
 
         :param hash_str: 下载 hash
         :param cand: 种子候选项（含 ``module`` / ``dl_dir`` / ``path``），可为 None
@@ -1988,7 +2363,6 @@ class SeedSpaceGuard(_PluginBase):
 
         # ---- 第 1 级：DownloadFiles 记录复核 ----
         records_checked = 0
-        record_paths: List[str] = []
         if self._downloadhis:
             try:
                 records = self._downloadhis.get_files_by_hash(hash_str)
@@ -2000,7 +2374,6 @@ class SeedSpaceGuard(_PluginBase):
                 if not fullpath:
                     continue
                 records_checked += 1
-                record_paths.append(fullpath)
                 if os.path.exists(fullpath):
                     return False
 
@@ -2015,29 +2388,34 @@ class SeedSpaceGuard(_PluginBase):
         # 现在改为先问下载器「这个种子自己有哪些文件」，只复核这些路径。
         # 取不到清单时**退回旧的扫目录逻辑**——宁可漏回收也不误删。
         own_files: List[str] = []
-        if cand is not None:
-            own_files = self._get_seed_files(hash_str, cand)
+        if cand is None:
+            # 没有候选对象时只剩记录一条依据（联动删种的兜底路径，调用方
+            # 已单独计数并告警）。保持既有语义：记录都在且磁盘上都不存在
+            # 才判已删空；没有任何记录则无法判定。
+            return records_checked > 0
+        own_files = self._get_seed_files(hash_str, cand)
         if own_files:
-            if any(os.path.exists(p) for p in own_files):
-                # 自己的文件还在 → 保留（与旧逻辑一致）
-                return False
-            # 自己的文件全没了 → 落到下方「确凿无文件」判定
-        elif cand is not None:
-            # 取不到清单 → 退回旧的「扫内容目录」逻辑（保守垫）
-            content_path = str(cand.get("path") or "").strip()
-            if content_path and os.path.exists(content_path):
-                # 路径存在：目录要确认其中确无文件，文件则直接算「存在」
-                if os.path.isdir(content_path):
-                    if self._dir_has_any_file(content_path):
-                        return False
-                else:
-                    return False
+            # 下载器报告的本种子文件清单是最高证据：全都不在 → 确证删空
+            return not any(os.path.exists(p) for p in own_files)
 
-        # ---- 只有两级都拿到确凿的「无文件」证据，才允许判定为已删空 ----
-        if records_checked == 0 and not own_files and not (cand and cand.get("path")):
-            # 完全没有任何可复核的依据：无从判定，保守保留种子
+        content_path = str(cand.get("path") or "").strip()
+        if content_path and os.path.exists(content_path):
+            # 路径存在：目录要确认其中确无文件，文件则直接算「存在」
+            if os.path.isdir(content_path):
+                return not self._dir_has_any_file(content_path)
             return False
-        return True
+
+        # 内容路径不可见时不能直接判空壳：路径映射不一致、卷未挂载、容器
+        # 看不到下载器路径，都会表现成「所有路径都不存在」。只有保存目录
+        # 本身可见，才能确认「路径确实消失」而不是「我们看不见」。
+        if content_path:
+            base = str(cand.get("dl_dir") or "").strip()
+            if not base:
+                base = os.path.dirname(os.path.normpath(content_path))
+            if base and os.path.isdir(base):
+                return True
+        # 完全没有任何可见证据：无从判定，保守保留种子
+        return False
 
     # ---------------------- 种子自身文件清单 ----------------------
 
@@ -2228,7 +2606,15 @@ class SeedSpaceGuard(_PluginBase):
                     if count > max_scan:
                         # 条目过多时保守判定「有文件」，绝不因扫不完而误删
                         return True
+                    # DSM 索引/系统目录不是「种子内容」：只删真实文件后，
+                    # @eaDir 残片会长期存在，若把它们算成文件，空壳永远
+                    # 回收不了。回收站同理不应参与「是否删空」的判定。
+                    if entry.name.startswith("@") or entry.name == "#recycle":
+                        continue
                     try:
+                        if entry.is_symlink():
+                            # 符号链接也占着目录项，按「仍有内容」保守处理
+                            return True
                         if entry.is_file(follow_symlinks=False):
                             return True
                         if entry.is_dir(follow_symlinks=False):
@@ -2266,11 +2652,20 @@ class SeedSpaceGuard(_PluginBase):
         也可能被其它插件拦截或异步化；直接调用下载器更可靠、结果可判定。
 
         删除前会尝试匹配配置的「目标下载器」范围；未配置则遍历全部已启用下载器。
+
+        删种必须带上**刚定位到的下载器实例名**：宿主的删种接口省略该参数时
+        会落到同类下载器的默认实例，多实例环境下会静默删错对象或什么都不删。
         """
         if not hash_str:
             return False
+        # 清除上一次定位结果，避免把别的种子的下载器名带进来
+        self._resolved_downloader_name = ""
         try:
             module = self._get_downloader_for(hash_str)
+            # _get_downloader_for 会把命中的实例名写入该属性（供此处复用）
+            owner = str(
+                self.__dict__.get("_resolved_downloader_name") or ""
+            ).strip()
         except Exception as err:
             logger.error("【保种空间守护】获取下载器失败（%s）：%s", hash_str, err)
             return False
@@ -2281,15 +2676,31 @@ class SeedSpaceGuard(_PluginBase):
             )
             return False
         try:
-            ok = module.remove_torrents(
-                hashs=[hash_str] if isinstance(hash_str, str) else hash_str,
-                delete_file=False,
-            )
+            kwargs: Dict[str, Any] = {
+                "hashs": [hash_str] if isinstance(hash_str, str) else hash_str,
+                "delete_file": False,
+            }
+            if owner:
+                kwargs["downloader"] = owner
+            ok = module.remove_torrents(**kwargs)
             if ok:
                 logger.info(
-                    "【保种空间守护】已联动删除种子%s（hash：%s）",
-                    f"：{title}" if title else "", hash_str,
+                    "【保种空间守护】已联动删除种子%s（hash：%s，下载器：%s）",
+                    f"：{title}" if title else "", hash_str, owner or "默认",
                 )
+                if owner:
+                    # 宿主接口「请求被接受」不等于「任务已消失」，做一次只读复核；
+                    # 查不到或查询失败都不改变返回结果，只留告警供人工核实。
+                    torrents, method_name, err = self._query_torrents_by_hash(
+                        module, hash_str, owner
+                    )
+                    if method_name and err is None and torrents:
+                        logger.warning(
+                            "【保种空间守护】删种请求已被接受，但复核仍能查到该种子"
+                            "（hash：%s，下载器：%s），可能是删除延迟或实例不匹配，"
+                            "请核实",
+                            hash_str, owner,
+                        )
             return bool(ok)
         except Exception as err:
             logger.error("【保种空间守护】联动删除种子失败（%s）：%s", hash_str, err)
@@ -2347,7 +2758,11 @@ class SeedSpaceGuard(_PluginBase):
 
         先在实际持有该种子的下载器中定位（避免下发给不相关的下载器），
         再按配置的「目标下载器」范围过滤；未配置范围时返回命中实例。
+
+        找到时把实例名写入实例属性 ``_resolved_downloader_name``，供删种调用
+        一并下发；未找到时清空，避免复用上一次的实例名。
         """
+        self._resolved_downloader_name = ""
         try:
             # V3：ModuleManager 已移除，改由 DownloaderHelper 枚举运行中的下载器
             services = DownloaderHelper().get_services()
@@ -2392,6 +2807,7 @@ class SeedSpaceGuard(_PluginBase):
                 "【保种空间守护】定位到下载器 %s 持有 hash %s（查询方法：%s）",
                 name, hash_str, method_name,
             )
+            self._resolved_downloader_name = name
             return module
         if not checked:
             logger.warning(
@@ -2449,8 +2865,11 @@ class SeedSpaceGuard(_PluginBase):
                         path,
                     )
 
-        # 种子级判定：仅文件模式下「所有文件都删完」才删种
-        if self._delete_torrents and self._mode == "file":
+        # 种子级判定：仅文件模式下「所有文件都删完」才删种。
+        # 必须用**本次实际执行**的模式：手动/接口可以用参数临时覆盖模式，
+        # 回读配置里的 _mode 会让「手动仅文件清理」的联动删种整段失效。
+        active_mode = getattr(self, "_active_mode", "") or self._mode
+        if self._delete_torrents and active_mode == "file":
             # 按 hash 取一次种子的**完整候选对象**，供物理复核使用。
             #
             # ⚠️ 这里必须传完整候选（含 module / dl_dir / path），不能只传
@@ -2557,15 +2976,12 @@ class SeedSpaceGuard(_PluginBase):
         取种子对应的本地文件路径清单。
 
         优先级：
-        1. 种子自带的文件清单（``cand["files"]``，若上游提供）
-        2. 按 hash 查 MoviePilot 下载文件记录（最可靠，与「仅文件」模式同源）
-        3. 按「配置目录 + 种子名」推断，仅返回磁盘上确实存在过的路径
+        1. 按 hash 查 MoviePilot 下载文件记录（最可靠，与「仅文件」模式同源）
+        2. 按「配置目录 + 种子名」推断，仅返回磁盘上确实存在过的路径
 
         均不做全盘遍历，避免在大媒体库上产生额外开销。
         """
-        paths = [str(p) for p in (cand.get("files") or []) if str(p).strip()]
-        if paths:
-            return paths
+        paths: List[str] = []
         hash_str = str(cand.get("hash") or "").strip()
         if hash_str and self._downloadhis is None:
             # 种子级模式下若未开启「删除转移记录」，oper 可能未初始化，
@@ -2665,6 +3081,12 @@ class SeedSpaceGuard(_PluginBase):
             if server is None or module is None:
                 logger.error("【保种空间守护】下载器 %s 缺少可用实例或模块，跳过", name)
                 continue
+            # 下载器返回的是「下载器侧路径」，与 MoviePilot 看到的本地路径可能
+            # 不同（跨容器/挂载）。按宿主配置的路径映射先归一化，后续的物理
+            # 复核与归属判断才有意义。
+            conf = getattr(service, "config", None)
+            mapping = getattr(conf, "path_mapping", None) if conf else None
+            self._path_mappings[name] = list(mapping or [])
             try:
                 ret = server.get_torrents()
             except Exception as err:
@@ -2679,6 +3101,8 @@ class SeedSpaceGuard(_PluginBase):
                     # 两个入口在此**行为一致**——空壳回收暂不覆盖未完成种子。
                     counted["unfinished"] += 1
                     continue
+                cand["path"] = self._map_return_path(cand["path"], mapping)
+                cand["dl_dir"] = self._map_return_path(cand["dl_dir"], mapping)
                 in_scope = bool(cand["path"]) and self._path_under_any(cand["path"])
                 if not in_scope:
                     counted["out_of_scope"] += 1
@@ -3224,10 +3648,13 @@ class SeedSpaceGuard(_PluginBase):
         deleted = 0
         released_gb = 0.0
         # 本方法自身也保证统计存在（测试可能直接调用），不与 check_and_clean 重置冲突
-        if "files" not in getattr(self, "_clean_stats", {}):
+        # 守卫必须判「本实例是否已有自己的字典」：类级默认字典本就含全部键，
+        # 判键会出现恒假条件，直接把写入穿透到类属性、在实例间串状态。
+        if "_clean_stats" not in self.__dict__:
             self._clean_stats = {
                 "files": 0, "transfers": 0, "seeds": 0, "companions": 0,
-                "orphans": 0, "stalled": False, "dry_run": dry_run,
+                "orphans": 0, "dirs": 0, "stalled": False,
+                "cancelled": False, "dry_run": dry_run,
             }
         self._clean_stats["dry_run"] = dry_run
 
@@ -3235,6 +3662,8 @@ class SeedSpaceGuard(_PluginBase):
         if dry_run:
             est_free = free_bytes / GIB
             for mtime, fpath, size, key in files:
+                if self._cancelled():
+                    break
                 if est_free >= self._threshold_gb:
                     break
                 mtime_text = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d")
@@ -3261,6 +3690,10 @@ class SeedSpaceGuard(_PluginBase):
         # 本轮实际删除的文件路径，供删除结束后执行联动清理
         deleted_paths: List[str] = []
         while True:
+            if self._cancelled():
+                detail_lines.append("收到停止信号，本轮清理提前结束")
+                self._clean_stats["cancelled"] = True
+                break
             free_now = self._disk_free_bytes()
             free_now = free_bytes if free_now is None else free_now
             if free_now >= self._threshold_gb * GIB:
@@ -3280,6 +3713,10 @@ class SeedSpaceGuard(_PluginBase):
                 # 候选耗尽仍未达标，结束
                 break
             for mtime, fpath, size, key in plan:
+                if self._cancelled():
+                    detail_lines.append("收到停止信号，本轮清理提前结束")
+                    self._clean_stats["cancelled"] = True
+                    break
                 removed = self._delete_one(fpath, key)
                 if removed <= 0:
                     continue
@@ -3384,7 +3821,12 @@ class SeedSpaceGuard(_PluginBase):
                 break
             current = os.path.dirname(current)
         # 配置目录本身不删除，但其内部的索引残片同样会长期堆积，需一并清理
-        self._purge_syno_index(owner)
+        # 同一轮里每删一个文件都会走到这里，@eaDir 的 listdir 不必重复做；
+        # 每个配置目录每轮只清一次。
+        purged = self.__dict__.setdefault("_syno_purged_roots", set())
+        if owner not in purged:
+            purged.add(owner)
+            self._purge_syno_index(owner)
 
     # ---------------------- 监控目录空壳扫描 ----------------------
 
@@ -3443,7 +3885,8 @@ class SeedSpaceGuard(_PluginBase):
             # 深度异常时保守判「有内容」，绝不因扫不完而误删
             return False
         try:
-            entries = list(os.scandir(dir_path))
+            with os.scandir(dir_path) as iterator:
+                entries = list(iterator)
         except OSError:
             return False
         stats["checked"] += 1
@@ -3685,6 +4128,7 @@ class SeedSpaceGuard(_PluginBase):
             "delete_torrents": False,
             "delete_history": False,
             "companion_cleanup": True,
+            "companion_protect": True,
             "orphan_cleanup": False,
             "orphan_seed_scope": False,
             # 空壳目录扫描：新装默认开启（只删空目录，不碰真实文件）

@@ -37,7 +37,9 @@ from seedspaceguard import SeedSpaceGuard
 
 
 # 种子级模式专属（应带 show: mode === 'seed'）
-SEED_ONLY_MODELS = ("downloaders", "companion_cleanup", "orphan_cleanup")
+SEED_ONLY_MODELS = (
+    "downloaders", "companion_cleanup", "companion_protect", "orphan_cleanup",
+)
 # 仅文件模式专属（应带 show: mode === 'file'）
 FILE_ONLY_MODELS = ("protect_pattern",)
 # 两模式通用 / 全局（绝不能带 show，否则会被误藏）
@@ -348,7 +350,7 @@ class TestNoModelRegression(_FormBase):
     """改造不应增删任何 model。"""
 
     def test_models_unchanged(self):
-        """表单 model 集合应与登记清单一致（19 项），仅顺序与分组变化。"""
+        """表单 model 集合应与登记清单一致（20 项），仅顺序与分组变化。"""
         models = set(self._props_by_model())
         expected = set(ALWAYS_VISIBLE_MODELS) | set(SEED_ONLY_MODELS) | set(FILE_ONLY_MODELS)
         self.assertEqual(models, expected, f"model 集合发生变化：{models ^ expected}")

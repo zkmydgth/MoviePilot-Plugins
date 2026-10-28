@@ -136,8 +136,12 @@ MUTANTS = [
      CALLER_NONE_NEW, "拿不到种子清单仍继续清扫 → 误删"),
     ("开关默认值反转为开启", SWITCH_DEFAULT_OLD,
      SWITCH_DEFAULT_NEW, "未配置时默认开启会误删用户文件"),
-    ("保护期过滤被移除", PROTECT_WINDOW_OLD,
-     PROTECT_WINDOW_NEW, "刚入库的文件会被当无主删除"),
+    (
+        "保护期过滤被移除",
+        '        recent_secs = self._recent_skip_days * 86400\n        files, ino_paths = self._index_files(patterns, recent_secs)\n        if not files:',
+        '        files, ino_paths = self._index_files(patterns, 0)\n        if not files:',
+        '刚入库的文件会被当无主删除',
+    ),
 ]
 
 

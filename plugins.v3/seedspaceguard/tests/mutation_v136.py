@@ -166,21 +166,10 @@ MUTANTS = [
         "应导致 test_reap_runs_when_space_plenty 失败",
     ),
     (
-        "空壳回收抑制保护期（把保护期检查错误地加回来，导致空壳永远不回收）",
-        """        for cand in candidates:
-            hash_str = str(cand.get("hash") or "")
-            if not hash_str:
-                continue
-            stats["checked"] += 1""",
-        """        cutoff = __import__("time").time() - self._recent_skip_days * 86400
-        for cand in candidates:
-            hash_str = str(cand.get("hash") or "")
-            if not hash_str:
-                continue
-            if int(cand.get("added") or 0) >= cutoff:
-                continue
-            stats["checked"] += 1""",
-        "应导致 test_recent_orphan_also_reaped 失败（空壳不受保护期限制）",
+        '空壳回收抑制保护期（把保护期检查错误地加回来，导致空壳永远不回收）',
+        '        for cand in candidates:\n            if self._cancelled():\n                break\n            hash_str = str(cand.get("hash") or "")\n            if not hash_str:\n                continue\n            stats["checked"] += 1',
+        '        for cand in candidates:\n            if self._cancelled():\n                break\n            hash_str = str(cand.get("hash") or "")\n            if not hash_str:\n                continue\n            if int(cand.get("added") or 0) >= time.time() - self._recent_skip_days * 86400:\n                continue\n            stats["checked"] += 1',
+        '应被对应用例捕获',
     ),
     (
         "TR 命名兼容失效：只认 camelCase（回归原始 BUG，1765 个种子全丢）",

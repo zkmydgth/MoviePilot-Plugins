@@ -158,19 +158,22 @@ LINKAGE_PATH_ONLY_NEW = (
 
 MUTANTS = [
     (
-        "清单取不到时不退回保守逻辑",
-        NO_FALLBACK_OLD, NO_FALLBACK_NEW,
-        "保守垫被打穿 → 取不到清单就判空壳，可能误摘活跃种子",
+        '清单取不到时不退回保守逻辑',
+        '        own_files = self._get_seed_files(hash_str, cand)\n        if own_files:',
+        '        own_files = self._get_seed_files(hash_str, cand)\n        if not own_files:\n            return True\n        if own_files:',
+        '应被对应用例捕获',
     ),
     (
-        "own_files 混入同目录全部文件",
-        MIX_SIBLINGS_OLD, MIX_SIBLINGS_NEW,
-        "退化成扫目录的相反面 → 清单永不为空，修复静默失效",
+        'own_files 混入同目录全部文件',
+        '        own_files = self._get_seed_files(hash_str, cand)\n        if own_files:',
+        '        own_files = self._get_seed_files(hash_str, cand)\n        _cp = str(cand.get("path") or "")\n        if _cp and os.path.isdir(_cp):\n            own_files = list(own_files) + [\n                os.path.join(_cp, _n) for _n in os.listdir(_cp)\n            ]\n        if own_files:',
+        '应被对应用例捕获',
     ),
     (
-        "空壳判定方向反义",
-        INVERT_OLD, INVERT_NEW,
-        "「有文件」被判成「未删空的反面」→ 判定完全失控",
+        '空壳判定方向反义',
+        '        own_files = self._get_seed_files(hash_str, cand)\n        if own_files:\n            # 下载器报告的本种子文件清单是最高证据：全都不在 → 确证删空\n            return not any(os.path.exists(p) for p in own_files)',
+        '        own_files = self._get_seed_files(hash_str, cand)\n        if own_files:\n            # 下载器报告的本种子文件清单是最高证据：全都不在 → 确证删空\n            return any(os.path.exists(p) for p in own_files)',
+        '应被对应用例捕获',
     ),
     (
         "⚠️ 空壳回收删种改传 delete_file=True",
@@ -183,9 +186,10 @@ MUTANTS = [
         "相对路径拿去 os.path.exists → 判定依据错位",
     ),
     (
-        "第 2 级整体被跳过（异常吞成「无文件」）",
-        SWALLOW_OLD, SWALLOW_NEW,
-        "承认「取清单失败 = 没有文件」→ 保守原则被破坏",
+        '第 2 级整体被跳过（异常吞成「无文件」）',
+        '        own_files = self._get_seed_files(hash_str, cand)\n        if own_files:',
+        '        own_files = self._get_seed_files(hash_str, cand)\n        if False:',
+        '应被对应用例捕获',
     ),
     (
         "仅文件模式联动删种退回只传 path",

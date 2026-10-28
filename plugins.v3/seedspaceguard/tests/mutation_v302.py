@@ -158,10 +158,10 @@ MUTANTS = [
         "应导致 test_hardlinks_removed_after_seed_deleted 失败",
     ),
     (
-        "辅种连带被跳过",
-        COMPANION_OLD,
-        COMPANION_NEW_SKIP,
-        "应导致 test_companion_seeds_removed 失败",
+        '辅种连带被跳过',
+        '                if self._companion_cleanup and companion_map:\n                    peers = [\n                        h for h in companion_map.get(\n                            self._content_key(cand), []) if h != cand["hash"]\n                        and _peer_allowed(h)\n                    ]',
+        '                if False and companion_map:\n                    peers = [\n                        h for h in companion_map.get(\n                            self._content_key(cand), []) if h != cand["hash"]\n                        and _peer_allowed(h)\n                    ]',
+        '应被对应用例捕获',
     ),
     (
         "内容键只用路径（丢掉种子名）→ 合集多集被误判为辅种",

@@ -149,14 +149,10 @@ MUTANTS = [
 
     # ---------------- 保守返回：改成乐观默认 ----------------
     (
-        "保守返回失效：无任何依据时乐观认为可删种",
-        """        if records_checked == 0 and not own_files and not (cand and cand.get("path")):
-            # 完全没有任何可复核的依据：无从判定，保守保留种子
-            return False""",
-        """        if records_checked == 0 and not own_files and not (cand and cand.get("path")):
-            return True""",
-        "应导致 test_blank_record_path_is_inconclusive_and_kept / "
-        "test_no_record_at_all_with_real_files_kept 失败",
+        '保守返回失效：无任何依据时乐观认为可删种',
+        '        # 完全没有任何可见证据：无从判定，保守保留种子\n        return False',
+        '        # 完全没有任何可见证据：无从判定，保守保留种子\n        return True',
+        '应被对应用例捕获',
     ),
     (
         "保守返回失效：查询异常时乐观认为可删种",
@@ -169,17 +165,10 @@ MUTANTS = [
         "应导致 test_record_query_error_keeps_seed 失败",
     ),
     (
-        "物理复核失效：候选路径不被查验（退回只信记录，会误删完好种子）",
-        """        elif cand is not None:
-            # 取不到清单 → 退回旧的「扫内容目录」逻辑（保守垫）
-            content_path = str(cand.get("path") or "").strip()
-            if content_path and os.path.exists(content_path):""",
-        """        elif False:
-            # 取不到清单 → 退回旧的「扫内容目录」逻辑（保守垫）
-            content_path = str(cand.get("path") or "").strip()
-            if content_path and os.path.exists(content_path):""",
-        "应导致 test_real_files_alive_with_stale_record_kept / "
-        "test_blank_record_with_real_files_kept / test_nested_subdir_with_files_kept 失败",
+        '物理复核失效：候选路径不被查验（退回只信记录，会误删完好种子）',
+        '        if content_path and os.path.exists(content_path):\n            # 路径存在：目录要确认其中确无文件，文件则直接算「存在」\n            if os.path.isdir(content_path):\n                return not self._dir_has_any_file(content_path)\n            return False',
+        '        if False and os.path.exists(content_path):\n            # 路径存在：目录要确认其中确无文件，文件则直接算「存在」\n            if os.path.isdir(content_path):\n                return not self._dir_has_any_file(content_path)\n            return False',
+        '应被对应用例捕获',
     ),
     (
         "下载器异常未被吞掉（联动异常冒泡到主流程）",
@@ -192,16 +181,10 @@ MUTANTS = [
         "应导致 delete_torrent_exception_contained 失败",
     ),
     (
-        "删种时连带删文件（delete_file=True，双重删除）",
-        """            ok = module.remove_torrents(
-                hashs=[hash_str] if isinstance(hash_str, str) else hash_str,
-                delete_file=False,
-            )""",
-        """            ok = module.remove_torrents(
-                hashs=[hash_str] if isinstance(hash_str, str) else hash_str,
-                delete_file=True,
-            )""",
-        "应导致 delete_torrent_passes_delete_file_false 失败",
+        '删种时连带删文件（delete_file=True，双重删除）',
+        '            kwargs: Dict[str, Any] = {\n                "hashs": [hash_str] if isinstance(hash_str, str) else hash_str,\n                "delete_file": False,\n            }',
+        '            kwargs: Dict[str, Any] = {\n                "hashs": [hash_str] if isinstance(hash_str, str) else hash_str,\n                "delete_file": True,\n            }',
+        '应被对应用例捕获',
     ),
     (
         "联动开关失效：dry_run 仍执行联动",

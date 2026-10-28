@@ -29,58 +29,34 @@ BACKUP = "/tmp/ssg_backup.py"
 # (名称, 原文, 变异后, 期望被捕获的说明)
 MUTANTS = [
     (
-        # 更新锚点：代码后来引入了 records_checked / record_paths 计数与
-        # 第 2 级物理复核，旧锚点已失配（V2/V3 同受影响，属于历史遗留）
-        "删种判定放宽：第 1 级记录复核的存在性判定失效",
-        """                records_checked += 1
-                record_paths.append(fullpath)
-                if os.path.exists(fullpath):
-                    return False""",
-        """                records_checked += 1
-                record_paths.append(fullpath)
-                if False:
-                    return False""",
-        "应导致「记录里仍有文件却删种」的测试失败",
+        '删种判定放宽：第 1 级记录复核的存在性判定失效',
+        '                records_checked += 1\n                if os.path.exists(fullpath):\n                    return False',
+        '                records_checked += 1\n                if False:\n                    return False',
+        '应被对应用例捕获',
     ),
     (
-        "删种判定放宽：把第 1 级存在性判断反转",
-        """                records_checked += 1
-                record_paths.append(fullpath)
-                if os.path.exists(fullpath):
-                    return False""",
-        """                records_checked += 1
-                record_paths.append(fullpath)
-                if not os.path.exists(fullpath):
-                    return False""",
-        "应导致 all_files_gone / one_file_remains 测试失败",
+        '删种判定放宽：把第 1 级存在性判断反转',
+        '                records_checked += 1\n                if os.path.exists(fullpath):\n                    return False',
+        '                records_checked += 1\n                if not os.path.exists(fullpath):\n                    return False',
+        '应被对应用例捕获',
     ),
     (
-        "删种判定放宽：第 2 级物理复核被移除（只剩记录复核）",
-        """        elif cand is not None:
-            # 取不到清单 → 退回旧的「扫内容目录」逻辑（保守垫）
-            content_path = str(cand.get("path") or "").strip()
-            if content_path and os.path.exists(content_path):""",
-        """        elif False:
-            # 取不到清单 → 退回旧的「扫内容目录」逻辑（保守垫）
-            content_path = str(cand.get("path") or "").strip()
-            if content_path and os.path.exists(content_path):""",
-        "应导致「记录路径失效但磁盘仍有文件却被误删」的测试失败",
+        '删种判定放宽：第 2 级物理复核被移除（只剩记录复核）',
+        '        if content_path and os.path.exists(content_path):\n            # 路径存在：目录要确认其中确无文件，文件则直接算「存在」\n            if os.path.isdir(content_path):\n                return not self._dir_has_any_file(content_path)\n            return False',
+        '        if False and os.path.exists(content_path):\n            # 路径存在：目录要确认其中确无文件，文件则直接算「存在」\n            if os.path.isdir(content_path):\n                return not self._dir_has_any_file(content_path)\n            return False',
+        '应被对应用例捕获',
     ),
     (
-        "保守原则失效：无任何复核依据时也允许删种（危险的乐观默认）",
-        """        if records_checked == 0 and not own_files and not (cand and cand.get("path")):
-            # 完全没有任何可复核的依据：无从判定，保守保留种子
-            return False""",
-        """        if records_checked == 0 and not own_files and not (cand and cand.get("path")):
-            return True""",
-        "应导致 empty_records_returns_false 失败",
+        '保守原则失效：无任何复核依据时也允许删种（危险的乐观默认）',
+        '        # 完全没有任何可见证据：无从判定，保守保留种子\n        return False',
+        '        # 完全没有任何可见证据：无从判定，保守保留种子\n        return True',
+        '应被对应用例捕获',
     ),
     (
-        "转移记录：跳过 dest 直接只查 src",
-        """        for query in (self._transferhis.get_by_dest,
-                      self._transferhis.get_by_src):""",
-        """        for query in (self._transferhis.get_by_src,):""",
-        "应导致 delete_by_dest 失败",
+        '转移记录：跳过 dest 直接只查 src',
+        '            for query in (self._transferhis.get_by_dest,\n                          self._transferhis.get_by_src):',
+        '            for query in (self._transferhis.get_by_src,):',
+        '应被对应用例捕获',
     ),
     (
         "转移记录：开关失效（关闭也执行）",
@@ -99,22 +75,16 @@ MUTANTS = [
         "应导致 dry_run_no_side_effect 失败",
     ),
     (
-        "种子级模式误做删种判定（跨越模式边界）",
-        """        if self._delete_torrents and self._mode == "file":""",
-        """        if self._delete_torrents:""",
-        "应导致 seed_mode_skips_delete_judgement 失败",
+        '种子级模式误做删种判定（跨越模式边界）',
+        '        active_mode = getattr(self, "_active_mode", "") or self._mode\n        if self._delete_torrents and active_mode == "file":',
+        '        if self._delete_torrents:',
+        '应被对应用例捕获',
     ),
     (
-        "删种时误连带删除文件（delete_file=True）",
-        """            ok = module.remove_torrents(
-                hashs=[hash_str] if isinstance(hash_str, str) else hash_str,
-                delete_file=False,
-            )""",
-        """            ok = module.remove_torrents(
-                hashs=[hash_str] if isinstance(hash_str, str) else hash_str,
-                delete_file=True,
-            )""",
-        "应导致 remove_torrents_called_without_file_deletion 失败",
+        '删种时误连带删除文件（delete_file=True）',
+        '            kwargs: Dict[str, Any] = {\n                "hashs": [hash_str] if isinstance(hash_str, str) else hash_str,\n                "delete_file": False,\n            }',
+        '            kwargs: Dict[str, Any] = {\n                "hashs": [hash_str] if isinstance(hash_str, str) else hash_str,\n                "delete_file": True,\n            }',
+        '应被对应用例捕获',
     ),
     (
         "下载器范围过滤失效（忽略目标下载器配置）",

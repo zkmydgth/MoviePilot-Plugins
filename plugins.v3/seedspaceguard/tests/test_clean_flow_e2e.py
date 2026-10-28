@@ -129,7 +129,9 @@ class TestCleanByFile(_E2EBase):
         # 每个 2GB，共 4 个；缺口 = 5000 - 1024 = 3976GB 时一轮即满足预选
         for name in ("a.mkv", "b.mkv", "c.mkv", "d.mkv"):
             self.make_file(os.path.join(self.dl, name), 2 * 1024 * 1024, 30)
-        self.configure([self.dl], threshold=5000, sync_wait=0)
+        # 用 1 秒等待而不是 0：0 表示「不等待」，此时插件不判「未释放」
+        # （无法测量），本用例要验证的是「等待后仍没释放」的停手告警
+        self.configure([self.dl], threshold=5000, sync_wait=1)
 
         # 剩余空间始终不变（完全未释放）
         with self.patch_free([1 * GIB]):
@@ -149,7 +151,7 @@ class TestCleanByFile(_E2EBase):
     def test_warning_mentions_dir_configuration(self):
         """未释放告警应提示检查目录配置。"""
         self.make_file(os.path.join(self.dl, "x.mkv"), 4 * 1024 * 1024, 30)
-        self.configure([self.dl], threshold=5000, sync_wait=0)
+        self.configure([self.dl], threshold=5000, sync_wait=1)
 
         with self.patch_free([1 * GIB]):
             _count, _released, details = self.plugin._clean_by_file(

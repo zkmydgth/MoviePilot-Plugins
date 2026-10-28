@@ -173,21 +173,10 @@ MUTANTS = [
         "应导致 test_reap_runs_when_space_plenty 失败",
     ),
     (
-        "空壳回收抑制保护期（把保护期检查错误地加回来，导致空壳永远不回收）",
-        """        for cand in candidates:
-            hash_str = str(cand.get("hash") or "")
-            if not hash_str:
-                continue
-            stats["checked"] += 1""",
-        """        cutoff = __import__("time").time() - self._recent_skip_days * 86400
-        for cand in candidates:
-            hash_str = str(cand.get("hash") or "")
-            if not hash_str:
-                continue
-            if int(cand.get("added") or 0) >= cutoff:
-                continue
-            stats["checked"] += 1""",
-        "应导致 test_recent_orphan_also_reaped 失败（空壳不受保护期限制）",
+        '空壳回收抑制保护期（把保护期检查错误地加回来，导致空壳永远不回收）',
+        '        for cand in candidates:\n            if self._cancelled():\n                break\n            hash_str = str(cand.get("hash") or "")\n            if not hash_str:\n                continue\n            stats["checked"] += 1',
+        '        for cand in candidates:\n            if self._cancelled():\n                break\n            hash_str = str(cand.get("hash") or "")\n            if not hash_str:\n                continue\n            if int(cand.get("added") or 0) >= time.time() - self._recent_skip_days * 86400:\n                continue\n            stats["checked"] += 1',
+        '应被对应用例捕获',
     ),
     (
         "TR 命名兼容失效：只认 camelCase（回归原始 BUG，1765 个种子全丢）",
@@ -236,55 +225,16 @@ MUTANTS = [
     ),
     # ==================== v1.3.7 新增：误删事故防护 ====================
     (
-        "误删回归：记录失效即判「已删空」（回归 v1.3.6 原始缺陷，会误删完好种子）",
-        """        # ---- 第 2 级：按「本种子自身文件清单」做物理复核 ----
-        #
-        # v3.0.5 改造：此前这里扫的是 cand["path"] 指向的**整个目录**，
-        # 语义是「这个种子**所在目录**里还有文件吗」。一个目录下常同时存放
-        # 多个不同种子的文件（实测某剧集目录下有 19 个种子各管一集），
-        # 于是「自己的文件已删光、但同目录还有兄弟种子的文件」会被误判为
-        # 「未删空」→ 该种子永远回收不掉（功能静默失效）。
-        #
-        # 现在改为先问下载器「这个种子自己有哪些文件」，只复核这些路径。
-        # 取不到清单时**退回旧的扫目录逻辑**——宁可漏回收也不误删。
-        own_files: List[str] = []
-        if cand is not None:
-            own_files = self._get_seed_files(hash_str, cand)
-        if own_files:
-            if any(os.path.exists(p) for p in own_files):
-                # 自己的文件还在 → 保留（与旧逻辑一致）
-                return False
-            # 自己的文件全没了 → 落到下方「确凿无文件」判定
-        elif cand is not None:
-            # 取不到清单 → 退回旧的「扫内容目录」逻辑（保守垫）
-            content_path = str(cand.get("path") or "").strip()
-            if content_path and os.path.exists(content_path):
-                # 路径存在：目录要确认其中确无文件，文件则直接算「存在」
-                if os.path.isdir(content_path):
-                    if self._dir_has_any_file(content_path):
-                        return False
-                else:
-                    return False
-""",
-        """        own_files: List[str] = []
-""",
-        "应导致 test_real_files_alive_with_stale_record_kept / "
-        "test_blank_record_with_real_files_kept 失败",
+        '误删回归：记录失效即判「已删空」（回归 v1.3.6 原始缺陷，会误删完好种子）',
+        '        # ---- 第 2 级：按「本种子自身文件清单」做物理复核 ----',
+        '        if records_checked:\n            return True\n        # ---- 第 2 级：按「本种子自身文件清单」做物理复核 ----',
+        '应被对应用例捕获',
     ),
     (
-        "误删回归：物理复核方向反转（目录有文件反被判已删空）",
-        """                if os.path.isdir(content_path):
-                    if self._dir_has_any_file(content_path):
-                        return False
-                else:
-                    return False""",
-        """                if os.path.isdir(content_path):
-                    if not self._dir_has_any_file(content_path):
-                        return False
-                else:
-                    return False""",
-        "应导致 test_real_files_alive_with_stale_record_kept / "
-        "test_truly_empty_dir_still_reaped 失败",
+        '误删回归：物理复核方向反转（目录有文件反被判已删空）',
+        '        if content_path and os.path.exists(content_path):\n            # 路径存在：目录要确认其中确无文件，文件则直接算「存在」\n            if os.path.isdir(content_path):\n                return not self._dir_has_any_file(content_path)\n            return False',
+        '        if content_path and os.path.exists(content_path):\n            # 路径存在：目录要确认其中确无文件，文件则直接算「存在」\n            if os.path.isdir(content_path):\n                return self._dir_has_any_file(content_path)\n            return False',
+        '应被对应用例捕获',
     ),
     (
         "误删回归：物理复核不检查子目录（嵌套目录种子被误判删空）",
@@ -309,14 +259,10 @@ MUTANTS = [
         "应导致 test_nested_subdir_with_files_kept 失败",
     ),
     (
-        "误删回归：无任何依据时仍允许删种（回归原始缺陷）",
-        """        # ---- 只有两级都拿到确凿的「无文件」证据，才允许判定为已删空 ----
-        if records_checked == 0 and not own_files and not (cand and cand.get("path")):
-            # 完全没有任何可复核的依据：无从判定，保守保留种子
-            return False
-        return True""",
-        """        return True""",
-        "应导致 test_no_record_at_all_with_real_files_kept 失败",
+        '误删回归：无任何依据时仍允许删种（回归原始缺陷）',
+        '        # 完全没有任何可见证据：无从判定，保守保留种子\n        return False',
+        '        # 完全没有任何可见证据：无从判定，保守保留种子\n        return True',
+        '应被对应用例捕获',
     ),
     (
         "误删回归：目录扫描失败时误判为「无文件」（异常需保守）",
