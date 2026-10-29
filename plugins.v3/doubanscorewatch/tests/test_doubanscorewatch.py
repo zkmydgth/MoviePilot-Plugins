@@ -12,6 +12,7 @@
 
 import unittest
 from datetime import datetime
+from types import SimpleNamespace
 
 import tests  # noqa: F401  触发宿主桩路径注入
 
@@ -430,7 +431,7 @@ class DoubanScoreWatchTestCase(unittest.TestCase):
 
         original = module.DoubanScoreClient
         module.DoubanScoreClient = FakeFactory
-        self.plugin._sync_subscriptions = lambda entries: 0
+        self.plugin._sync_subscriptions = lambda entries: (0, 0)
         today = dt.date.today().isoformat()
         state = {
             "entries": {},
@@ -584,7 +585,7 @@ class DoubanScoreWatchTestCase(unittest.TestCase):
                 "candidates": [],
                 "ai_suggestions": [],
             },
-        ) and 1
+        ) and (1, 0)
         state = {"entries": {}, "pending_notices": []}
         try:
             summary = self.plugin._run_round(state)
@@ -595,6 +596,573 @@ class DoubanScoreWatchTestCase(unittest.TestCase):
         self.assertEqual(entry["bindings"][0]["douban_id"], "1")
         self.assertEqual(entry["status"], "scored")
         self.assertEqual(len(state["pending_notices"]), 1)
+
+    # H. 订阅同步：退订清理与完结保留
+    def test_deleted_subscription_entry_is_removed(self):
+        """订阅被删除后，追踪条目在下一轮同步时移除。"""
+        entry = self._sync_entry(sub_seen_at="2026-10-28 22:20:00")
+        entries = {entry["key"]: entry}
+        self.plugin._load_subscriptions = lambda: []
+        self.plugin._completion_finished_at = lambda item: None
+        synced, removed = self.plugin._sync_subscriptions(entries)
+        self.assertEqual((synced, removed), (0, 1))
+        self.assertEqual(entries, {})
+
+    def test_completed_subscription_entry_is_kept(self):
+        """订阅完结（宿主写完历史后删订阅）不算删除，条目保留并标记完结。"""
+        entry = self._sync_entry(sub_seen_at="2026-10-27 21:30:00")
+        entries = {entry["key"]: entry}
+        self.plugin._load_subscriptions = lambda: []
+        calls = []
+        finished = datetime(2026, 10, 28, 9, 0, 0)
+        self.plugin._completion_finished_at = lambda item: calls.append(item) or finished
+        synced, removed = self.plugin._sync_subscriptions(entries)
+        self.assertEqual((synced, removed), (0, 0))
+        self.assertTrue(entries[entry["key"]]["sub_completed"])
+        self.assertEqual(calls, [entry])
+
+    def test_stale_completion_history_does_not_keep_entry(self):
+        """完结历史早于最后一次看到订阅：属于完结后重新订阅再删除，条目要清理。"""
+        entry = self._sync_entry(sub_seen_at="2026-10-28 22:20:00")
+        entries = {entry["key"]: entry}
+        self.plugin._load_subscriptions = lambda: []
+        self.plugin._completion_finished_at = lambda item: datetime(2026, 10, 1, 20, 0, 0)
+        synced, removed = self.plugin._sync_subscriptions(entries)
+        self.assertEqual((synced, removed), (0, 1))
+        self.assertEqual(entries, {})
+
+    def test_missing_seen_timestamp_keeps_entry(self):
+        """旧状态没有订阅时间戳时按完结保留，避免升级后误删条目。"""
+        entry = self._sync_entry(sub_seen_at="")
+        entries = {entry["key"]: entry}
+        self.plugin._load_subscriptions = lambda: []
+        self.plugin._completion_finished_at = lambda item: datetime(2026, 10, 1, 20, 0, 0)
+        synced, removed = self.plugin._sync_subscriptions(entries)
+        self.assertEqual((synced, removed), (0, 0))
+        self.assertIn(entry["key"], entries)
+
+    def test_completed_entry_does_not_query_history_again(self):
+        """已标记完结的条目不再逐轮查历史，避免额外数据库查询。"""
+        entry = self._sync_entry(sub_completed=True, sub_seen_at="2026-10-27 21:30:00")
+        entries = {entry["key"]: entry}
+        self.plugin._load_subscriptions = lambda: []
+        calls = []
+        self.plugin._completion_finished_at = lambda item: calls.append(item) or None
+        synced, removed = self.plugin._sync_subscriptions(entries)
+        self.assertEqual((synced, removed), (0, 0))
+        self.assertIn(entry["key"], entries)
+        self.assertEqual(calls, [])
+
+    def test_history_failure_keeps_entry(self):
+        """历史表不可读时保守保留条目，不误删正在追踪的媒体。"""
+        entry = self._sync_entry(sub_seen_at="2026-10-28 22:20:00")
+        entries = {entry["key"]: entry}
+        self.plugin._load_subscriptions = lambda: []
+
+        def broken(item):
+            """模拟数据库不可用。"""
+            del item
+            raise RuntimeError("db down")
+
+        self.plugin._completion_finished_at = broken
+        synced, removed = self.plugin._sync_subscriptions(entries)
+        self.assertEqual((synced, removed), (0, 0))
+        self.assertIn(entry["key"], entries)
+
+    def test_resubscribe_clears_completed_flag(self):
+        """重新订阅同一媒体要恢复为活动订阅，并记录剧集组。"""
+        entry = self._sync_entry(sub_completed=True, sub_seen_at="2026-10-20 21:30:00")
+        entries = {entry["key"]: entry}
+        self.plugin._load_subscriptions = lambda: [self._fake_sub(episode_group="grp")]
+
+        def unexpected(item):
+            """重新订阅的条目不应查历史。"""
+            del item
+            raise AssertionError("重新订阅后不应查历史")
+
+        self.plugin._completion_finished_at = unexpected
+        synced, removed = self.plugin._sync_subscriptions(entries)
+        self.assertEqual((synced, removed), (1, 0))
+        self.assertFalse(entries[entry["key"]]["sub_completed"])
+        self.assertEqual(entries[entry["key"]]["episode_group"], "grp")
+        self.assertIsNotNone(self.plugin._parse_timestamp(entries[entry["key"]]["sub_seen_at"]))
+
+    def test_completion_finished_at_queries_each_season(self):
+        """完结时间按条目覆盖的每个季号查历史，带上剧集组并取最新一条。"""
+        import sys
+        import types
+        from unittest.mock import patch
+
+        calls = []
+        dates = {1: "2026-10-01 08:00:00", 2: "2026-10-28 09:00:00"}
+
+        class FakeOper:
+            """记录查询条件的订阅历史 Oper 替身。"""
+
+            def query(self, filters, page):
+                """按季号返回历史记录，并记录分页参数。"""
+                calls.append((filters, page))
+                date = dates.get(filters.season)
+                records = [SimpleNamespace(date=date)] if date else []
+                return records, len(records)
+
+        module = types.ModuleType("app.db.oper.subscribehistory")
+        module.SubscribeHistoryOper = FakeOper
+        entry = self._sync_entry(seasons=[1, 2], episode_group="grp")
+        with patch.dict(sys.modules, {"app.db.oper.subscribehistory": module}):
+            finished = self.plugin._completion_finished_at(entry)
+        self.assertEqual(finished, datetime(2026, 10, 28, 9, 0, 0))
+        self.assertEqual([item[0].season for item in calls], [1, 2])
+        self.assertTrue(all(item[0].episode_group == "grp" for item in calls))
+        self.assertEqual([item[0].media_id for item in calls], ["290684", "290684"])
+        self.assertTrue(all((item[1].page, item[1].count) == (1, 1) for item in calls))
+
+    def test_parse_timestamp_accepts_host_formats(self):
+        """状态与历史里的多种时间文本都要能解析，垃圾值返回 None。"""
+        self.assertEqual(self.plugin._parse_timestamp("2026-10-28 22:20:00"), datetime(2026, 10, 28, 22, 20))
+        self.assertEqual(self.plugin._parse_timestamp("2026-10-28 22:20"), datetime(2026, 10, 28, 22, 20))
+        self.assertEqual(self.plugin._parse_timestamp("2026-10-28"), datetime(2026, 10, 28))
+        self.assertIsNone(self.plugin._parse_timestamp(""))
+        self.assertIsNone(self.plugin._parse_timestamp("两天前"))
+
+    def test_page_draws_divider_between_entries(self):
+        """条目分组之间画分隔线，完结保留的条目在状态里标注。"""
+        first = self._sync_entry(key="themoviedb:1", media_id="1", title="剑来", sub_completed=True)
+        second = self._sync_entry(key="themoviedb:2", media_id="2", title="凡人修仙传")
+        self.plugin._enabled = True
+        self.plugin._state = {
+            "entries": {first["key"]: first, second["key"]: second},
+            "pending_notices": [],
+            "plan": {"date": "", "times": [], "done": 0},
+        }
+        page = self.plugin.get_page()
+        rows = []
+
+        def walk(node):
+            """递归收集表格行组件。"""
+            if isinstance(node, dict):
+                if node.get("component") == "tr":
+                    rows.append(node)
+                for value in node.values():
+                    walk(value)
+            elif isinstance(node, list):
+                for item in node:
+                    walk(item)
+
+        walk(page)
+        divider_rows = [
+            row
+            for row in rows
+            if any(
+                "border-bottom" in str((cell.get("props") or {}).get("style") or "")
+                for cell in row.get("content") or []
+            )
+        ]
+        self.assertEqual(len(divider_rows), 2)
+        self.assertIn("订阅已完结", str(page))
+
+    def test_deleted_entry_not_checked_in_round(self):
+        """退订条目在本轮同步后直接移除，不再请求豆瓣。"""
+        import doubanscorewatch as module
+
+        calls = []
+
+        class FakeFactory:
+            """记录详情请求的豆瓣客户端替身。"""
+
+            def __init__(self, cookie=""):
+                """忽略 Cookie。"""
+                del cookie
+
+            def detail(self, douban_id, media_type):
+                """记录调用并返回空详情。"""
+                calls.append((douban_id, media_type))
+                return None
+
+        entry = self._sync_entry(
+            status="scored",
+            bindings=[{"douban_id": "1", "title": "剑来", "rating": 7.0, "votes": 100}],
+        )
+        state = {"entries": {entry["key"]: entry}, "pending_notices": []}
+        self.plugin._load_subscriptions = lambda: []
+        self.plugin._completion_finished_at = lambda item: None
+        original = module.DoubanScoreClient
+        module.DoubanScoreClient = FakeFactory
+        try:
+            summary = self.plugin._run_round(state, scheduled=False)
+        finally:
+            module.DoubanScoreClient = original
+        self.assertIn("删除 1 条已退订", summary)
+        self.assertEqual(state["entries"], {})
+        self.assertEqual(calls, [])
+
+    def test_sync_stamps_seen_timestamp(self):
+        """每轮同步都把订阅存在的时间写进条目，供完结判定比对。"""
+        entry = self._sync_entry(sub_seen_at="")
+        entries = {entry["key"]: entry}
+        self.plugin._load_subscriptions = lambda: [self._fake_sub()]
+        synced, removed = self.plugin._sync_subscriptions(entries)
+        self.assertEqual((synced, removed), (1, 0))
+        self.assertIsNotNone(self.plugin._parse_timestamp(entries[entry["key"]]["sub_seen_at"]))
+
+    # I. 全量修复回归
+    def test_same_year_unrelated_title_not_bound(self):
+        """同年唯一但标题完全不同的候选不自动绑定，只列候选。"""
+        result = select_candidates(
+            [{"douban_id": "9", "title": "完全无关的纪录片", "year": "2026"}],
+            "剑来",
+            "2026",
+        )
+        self.assertIsNone(result["auto"])
+        self.assertEqual(len(result["candidates"]), 1)
+        self.assertIn("不一致", result["reason"])
+
+    def test_exact_title_allows_two_year_gap(self):
+        """同名条目年份差两年以内仍可自动绑定。"""
+        result = select_candidates(
+            [{"douban_id": "3", "title": "剑来", "year": "2024"}],
+            "剑来",
+            "2026",
+        )
+        self.assertIsNotNone(result["auto"])
+        self.assertEqual(result["auto"]["douban_id"], "3")
+
+    def test_match_backoff_skips_next_round(self):
+        """匹配失败的条目在退避期内不再搜索豆瓣。"""
+        entry = self._entry(status="unmatched", next_try="2999-01-01 00:00:00", tries=2)
+        state = {"entries": {entry["key"]: entry}, "pending_notices": []}
+        self.plugin._load_subscriptions = lambda: [self._fake_sub(media_id="12345")]
+        calls = []
+
+        class SlowClient:
+            """记录搜索调用的客户端替身。"""
+
+            consecutive_failures = 0
+
+            def __init__(self, cookie=""):
+                """忽略 Cookie。"""
+                del cookie
+
+            def search(self, keyword, media_type):
+                """记录调用。"""
+                calls.append((keyword, media_type))
+                return []
+
+            def detail(self, douban_id, media_type):
+                """不应被调用。"""
+                calls.append((douban_id, media_type))
+                return None
+
+        import doubanscorewatch as module
+
+        original = (module.DoubanScoreClient, module.time.sleep)
+        module.DoubanScoreClient = SlowClient
+        module.time.sleep = lambda *_: None
+        try:
+            summary = self.plugin._run_round(state, scheduled=False)
+        finally:
+            module.DoubanScoreClient, module.time.sleep = original
+        self.assertIn("匹配 0 条", summary)
+        self.assertEqual(calls, [])
+
+    def test_match_failure_defers_next_try(self):
+        """匹配失败后按次数写入下次重试时间。"""
+        entry = self._entry()
+
+        class EmptyClient:
+            """搜索恒为空的客户端替身。"""
+
+            def search(self, keyword, media_type):
+                """返回空列表。"""
+                del keyword, media_type
+                return []
+
+        self.plugin._match_entry(entry, EmptyClient(), [0])
+        self.assertEqual(entry["tries"], 1)
+        self.assertIsNotNone(self.plugin._parse_timestamp(entry.get("next_try")))
+        self.assertFalse(self.plugin._match_due(entry))
+
+    def test_seasons_rebuilt_from_subscriptions(self):
+        """季号按当前订阅重建，已退订的季不再残留。"""
+        entry = self._sync_entry(seasons=[1, 2])
+        entries = {entry["key"]: entry}
+        self.plugin._load_subscriptions = lambda: [self._fake_sub(season=2)]
+        self.plugin._sync_subscriptions(entries)
+        self.assertEqual(entries[entry["key"]]["seasons"], [2])
+
+    def test_closed_binding_not_checked(self):
+        """关闭追变化后，已开分绑定不再请求豆瓣。"""
+        entry = self._entry(
+            status="scored",
+            bindings=[self._binding(closed=True, rating=7.9, votes=100)],
+        )
+        state = {"entries": {entry["key"]: entry}, "pending_notices": []}
+        client = FakeClient({"title": "风起天南", "rating": 7.9, "votes": 100})
+        self.plugin._check_entry(entry, client, state)
+        self.assertEqual(client.calls, [])
+        self.assertEqual(state["pending_notices"], [])
+        self.assertEqual(entry["status"], "scored")
+
+    def test_expired_binding_not_checked(self):
+        """超过最长追踪天数的绑定不再请求豆瓣。"""
+        self.plugin._keep_tracking = True
+        self.plugin._track_days = 30
+        entry = self._entry(
+            bindings=[self._binding(first_seen="2020-01-01", rating=7.9, votes=100, notified=True)],
+        )
+        state = {"entries": {entry["key"]: entry}, "pending_notices": []}
+        client = FakeClient({"title": "风起天南", "rating": 9.0, "votes": 100})
+        self.plugin._check_entry(entry, client, state)
+        self.assertEqual(client.calls, [])
+
+    def test_baseline_pending_confirms_open_score(self):
+        """手动绑定时没读到分数：确认无分后，后续开分正常通知。"""
+        binding = self._binding(baseline_pending=True, initial_rating=0, initial_votes=0)
+        entry = self._entry(bindings=[binding])
+        state = {"entries": {entry["key"]: entry}, "pending_notices": []}
+
+        class MutableClient:
+            """按阶段返回不同详情的客户端替身。"""
+
+            def __init__(self):
+                """初始为无评分。"""
+                self.detail_data = {"title": "风起天南", "rating": 0, "votes": 0}
+
+            def detail(self, douban_id, media_type):
+                """返回当前详情。"""
+                del douban_id, media_type
+                return self.detail_data
+
+        client = MutableClient()
+        self.plugin._check_entry(entry, client, state)
+        self.assertNotIn("baseline_pending", binding)
+        self.assertEqual(state["pending_notices"], [])
+        client.detail_data = {"title": "风起天南", "rating": 7.9, "votes": 67042}
+        self.plugin._check_entry(entry, client, state)
+        self.assertEqual(len(state["pending_notices"]), 1)
+
+    def test_baseline_pending_suppresses_notice_when_scored(self):
+        """绑定时没读到分数但实际已有分：按早已开分处理，不补发。"""
+        binding = self._binding(baseline_pending=True, initial_rating=0, initial_votes=0)
+        entry = self._entry(bindings=[binding])
+        state = {"entries": {entry["key"]: entry}, "pending_notices": []}
+        client = FakeClient({"title": "风起天南", "rating": 7.9, "votes": 67042})
+        self.plugin._check_entry(entry, client, state)
+        self.assertEqual(state["pending_notices"], [])
+        self.assertTrue(binding.get("pre_scored"))
+        self.assertNotIn("baseline_pending", binding)
+
+    def test_notice_retry_backoff_and_limit(self):
+        """通知失败按次数退避，达到上限后丢弃。"""
+        state = {"entries": {}, "pending_notices": [{"title": "t", "text": "b"}]}
+
+        def failing(**kwargs):
+            """模拟发送失败。"""
+            del kwargs
+            raise RuntimeError("channel down")
+
+        self.plugin.post_message = failing
+        self.plugin._flush_notices(state)
+        queued = state["pending_notices"]
+        self.assertEqual(len(queued), 1)
+        self.assertEqual(queued[0]["attempts"], 1)
+        self.assertIsNotNone(self.plugin._parse_timestamp(queued[0]["next_try"]))
+        for _ in range(4):
+            state["pending_notices"][0]["next_try"] = "2000-01-01 00:00:00"
+            self.plugin._flush_notices(state)
+        self.assertEqual(state["pending_notices"], [])
+
+    def test_notice_enqueued_during_send_is_kept(self):
+        """发送过程中新入队的通知不会被冲刷覆盖。"""
+        state = {"entries": {}, "pending_notices": [{"title": "t1", "text": "b1"}]}
+
+        def sender(**kwargs):
+            """发送第一条时再入队一条。"""
+            del kwargs
+            self.plugin._enqueue(state, "t2", "b2")
+
+        self.plugin.post_message = sender
+        self.plugin._flush_notices(state)
+        titles = [item["title"] for item in state["pending_notices"]]
+        self.assertEqual(titles, ["t2"])
+
+    def test_quiet_single_side_uses_defaults(self):
+        """静默只填一侧时，另一侧按 00:00 / 23:59 处理。"""
+        self.plugin._quiet_start, self.plugin._quiet_end = "22:00", ""
+        self.assertTrue(self.plugin._in_quiet(datetime(2026, 10, 29, 23, 0)))
+        self.assertFalse(self.plugin._in_quiet(datetime(2026, 10, 29, 12, 0)))
+        self.plugin._quiet_start, self.plugin._quiet_end = "", "08:00"
+        self.assertTrue(self.plugin._in_quiet(datetime(2026, 10, 29, 7, 0)))
+        self.assertFalse(self.plugin._in_quiet(datetime(2026, 10, 29, 12, 0)))
+        self.plugin._quiet_start, self.plugin._quiet_end = "", ""
+        self.assertFalse(self.plugin._in_quiet(datetime(2026, 10, 29, 3, 0)))
+
+    def test_manual_binding_removed_from_config_unbinds(self):
+        """配置里删掉手动绑定行后自动解绑，页面手点的绑定不受影响。"""
+        entry = self._entry()
+        self.plugin._state = {"entries": {entry["key"]: entry}, "pending_notices": []}
+        self.plugin._manual_bindings = "themoviedb:12345=34925294"
+        self.plugin._apply_manual_bindings()
+        self.assertEqual(entry["bindings"][0]["config_key"], "themoviedb:12345")
+        self.plugin._bind(entry, {"douban_id": "888", "title": "", "year": ""}, "manual")
+        self.plugin._manual_bindings = ""
+        self.plugin._apply_manual_bindings()
+        self.assertEqual([item["douban_id"] for item in entry["bindings"]], ["888"])
+
+    def test_sync_error_recorded(self):
+        """订阅同步失败时写进状态并在页面摘要里显示。"""
+        self.plugin._state = {"entries": {}, "pending_notices": []}
+
+        def boom():
+            """模拟订阅读取失败。"""
+            raise RuntimeError("db down")
+
+        self.plugin._load_subscriptions = boom
+        synced, removed = self.plugin._sync_subscriptions(self.plugin._state["entries"])
+        self.assertEqual((synced, removed), (0, 0))
+        self.assertIn("db down", self.plugin._state["last_sync_error"])
+        self.plugin._enabled = True
+        self.assertIn("订阅同步异常", self.plugin._summary_text())
+
+    def test_zero_match_rounds_counted(self):
+        """连续多轮没有任何匹配时在页面摘要里提示。"""
+        import doubanscorewatch as module
+
+        entry = self._entry(status="unmatched")
+        state = {"entries": {entry["key"]: entry}, "pending_notices": []}
+        self.plugin._load_subscriptions = lambda: [self._fake_sub(media_id="12345")]
+
+        class EmptyClient:
+            """搜索与详情都为空的客户端替身。"""
+
+            consecutive_failures = 0
+
+            def __init__(self, cookie=""):
+                """忽略 Cookie。"""
+                del cookie
+
+            def search(self, keyword, media_type):
+                """返回空结果。"""
+                del keyword, media_type
+                return []
+
+            def detail(self, douban_id, media_type):
+                """返回空详情。"""
+                del douban_id, media_type
+                return None
+
+        original = (module.DoubanScoreClient, module.time.sleep)
+        module.DoubanScoreClient = EmptyClient
+        module.time.sleep = lambda *_: None
+        try:
+            self.plugin._run_round(state, scheduled=False)
+            entry["next_try"] = ""
+            self.plugin._run_round(state, scheduled=False)
+        finally:
+            module.DoubanScoreClient, module.time.sleep = original
+        self.assertEqual(state["zero_match_rounds"], 2)
+        self.plugin._enabled = True
+        self.assertIn("没有任何新匹配", self.plugin._summary_text())
+
+    def test_failure_breaker_stops_round(self):
+        """豆瓣连续失败达到阈值时提前结束本轮。"""
+        import doubanscorewatch as module
+
+        entry = self._entry(bindings=[self._binding()])
+        state = {"entries": {entry["key"]: entry}, "pending_notices": []}
+        self.plugin._load_subscriptions = lambda: [self._fake_sub()]
+
+        class FailingClient:
+            """详情恒失败、并累计连续失败次数的客户端替身。"""
+
+            def __init__(self, cookie=""):
+                """初始化失败计数。"""
+                del cookie
+                self.consecutive_failures = 0
+
+            def detail(self, douban_id, media_type):
+                """返回空并累加失败。"""
+                del douban_id, media_type
+                self.consecutive_failures += 5
+                return None
+
+        original = (module.DoubanScoreClient, module.time.sleep)
+        module.DoubanScoreClient = FailingClient
+        module.time.sleep = lambda *_: None
+        try:
+            summary = self.plugin._run_round(state, scheduled=False)
+        finally:
+            module.DoubanScoreClient, module.time.sleep = original
+        self.assertIn("豆瓣连续失败", summary)
+
+    def test_legacy_removed_entries_dropped(self):
+        """旧状态里的「订阅已删除」条目在迁移时清掉。"""
+        entry = self._sync_entry(status="removed")
+        self.plugin._state = {"entries": {entry["key"]: entry}, "pending_notices": []}
+        self.plugin._migrate_season_bindings()
+        self.assertEqual(self.plugin._state["entries"], {})
+
+    def test_api_bind_does_not_call_douban(self):
+        """页面绑定不再同步访问豆瓣，只写绑定。"""
+        import doubanscorewatch as module
+
+        entry = self._entry()
+        self.plugin._state = {"entries": {entry["key"]: entry}, "pending_notices": []}
+
+        class RefusingClient:
+            """任何实例化都视为失败。"""
+
+            def __init__(self, *args, **kwargs):
+                """直接报错。"""
+                del args, kwargs
+                raise AssertionError("绑定不应访问豆瓣")
+
+        original = module.DoubanScoreClient
+        module.DoubanScoreClient = RefusingClient
+        try:
+            result = self.plugin.api_bind(entry["key"], "34925294")
+        finally:
+            module.DoubanScoreClient = original
+        self.assertTrue(result["success"])
+        self.assertTrue(entry["bindings"][0]["baseline_pending"])
+
+    def _sync_entry(self, **overrides):
+        """构造同步用例的追踪条目。"""
+        entry = {
+            "key": "themoviedb:290684",
+            "media_source": "themoviedb",
+            "media_id": "290684",
+            "type": "电视剧",
+            "title": "剑来",
+            "year": "2026",
+            "seasons": [1],
+            "episode_group": None,
+            "sub_seen_at": "2026-10-28 22:20:00",
+            "status": "pending",
+            "bindings": [],
+            "candidates": [],
+            "ai_suggestions": [],
+        }
+        entry.update(overrides)
+        return entry
+
+    @staticmethod
+    def _fake_sub(**overrides):
+        """构造宿主订阅记录替身。"""
+        values = {
+            "type": "电视剧",
+            "media_source": "themoviedb",
+            "media_id": "290684",
+            "name": "剑来",
+            "year": "2026",
+            "season": 1,
+            "episode_group": None,
+            "state": "R",
+            "total_episode": 26,
+            "lack_episode": 3,
+        }
+        values.update(overrides)
+        return SimpleNamespace(**values)
 
 
 if __name__ == "__main__":

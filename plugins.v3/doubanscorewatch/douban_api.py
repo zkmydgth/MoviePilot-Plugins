@@ -31,6 +31,24 @@ class DoubanScoreClient:
         """
         self._cookie = (cookie or "").strip()
         self._timeout = max(5, int(timeout or 20))
+        #: 连续失败次数，供上层做本轮熔断
+        self.consecutive_failures = 0
+        #: 最近一次失败原因
+        self.last_error = ""
+
+    def _note_failure(self, error: Any) -> None:
+        """
+        记录一次请求失败。
+
+        :param error: 失败原因
+        """
+        self.consecutive_failures += 1
+        self.last_error = str(error)
+
+    def _note_success(self) -> None:
+        """记录一次成功请求并重置连续失败计数。"""
+        self.consecutive_failures = 0
+        self.last_error = ""
 
     @staticmethod
     def _api() -> Any:
@@ -106,7 +124,9 @@ class DoubanScoreClient:
                 response = api.search(keyword, count=20, ts=ts) or {}
         except Exception as error:  # noqa: BLE001 - 查询失败不应中断整轮检查
             logger.warning(f"【豆瓣开分】搜索 {keyword} 失败：{error}")
+            self._note_failure(error)
             return []
+        self._note_success()
         items = response.get("items") if isinstance(response, dict) else None
         return items if isinstance(items, list) else []
 
@@ -157,17 +177,20 @@ class DoubanScoreClient:
         if not payload or (rating <= 0 and self._cookie):
             fallback = self._detail_from_web(douban_id)
             if fallback and (fallback.get("rating") or 0) > 0:
+                self._note_success()
                 return fallback
         if not payload:
+            self._note_failure("豆瓣未返回条目数据")
             return None
         if isinstance(payload.get("code"), int) and payload.get("code") not in (0,):
-            logger.warning(
-                f"【豆瓣开分】条目 {douban_id} 接口返回异常：{payload.get('msg') or payload.get('localized_message')}"
-            )
+            message = str(payload.get("msg") or payload.get("localized_message") or "接口返回异常")
+            logger.warning(f"【豆瓣开分】条目 {douban_id} 接口返回异常：{message}")
+            self._note_failure(message)
             return None
         pubdate = payload.get("pubdate")
         if isinstance(pubdate, list):
             pubdate = pubdate[0] if pubdate else ""
+        self._note_success()
         return {
             "douban_id": douban_id,
             "title": str(payload.get("title") or "").strip(),

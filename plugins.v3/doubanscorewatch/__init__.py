@@ -8,7 +8,6 @@
 
 from __future__ import annotations
 
-import json
 import random
 import threading
 import time
@@ -60,8 +59,13 @@ class DoubanScoreWatch(_PluginBase):
         "scored": "已开分",
         "unmatched": "未匹配",
         "ignored": "已忽略",
-        "removed": "订阅已删除",
     }
+    #: 连续失败多少条后结束本轮，避免风控下持续打接口
+    _FAILURE_BREAKER = 5
+    #: 单条通知最多尝试发送次数
+    _NOTICE_MAX_ATTEMPTS = 5
+    #: 单条绑定保留的评分历史条数
+    _HISTORY_KEEP = 30
 
     # 运行配置
     _enabled = False
@@ -85,6 +89,8 @@ class DoubanScoreWatch(_PluginBase):
     # 运行时状态
     _state: Dict[str, Any] = {}
     _round_lock = threading.Lock()
+    _notice_lock = threading.Lock()
+    _stop_event: Optional[threading.Event] = None
     _last_error = ""
 
     def init_plugin(self, config: dict = None) -> None:
@@ -108,6 +114,7 @@ class DoubanScoreWatch(_PluginBase):
         self._manual_bindings = str(config.get("manual_bindings") or "").strip()
         self._quiet_start = self._to_clock(config.get("quiet_start"), "")
         self._quiet_end = self._to_clock(config.get("quiet_end"), "")
+        self._stop_event = threading.Event()
         self._state = self._load_state()
         self._migrate_season_bindings()
         self._apply_manual_bindings()
@@ -192,6 +199,8 @@ class DoubanScoreWatch(_PluginBase):
 
     def stop_service(self) -> None:
         """停止插件后台服务并释放运行时状态。"""
+        if self._stop_event is not None:
+            self._stop_event.set()
         self._last_error = ""
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
@@ -214,7 +223,8 @@ class DoubanScoreWatch(_PluginBase):
                                             "variant": "tonal",
                                             "text": "跟踪订阅资源的豆瓣评分：只追当前无分的条目，评分人数达到门槛后"
                                                     "视为「开分」并推送一次通知。默认每天一轮，可手动调整时段与轮数。"
-                                                    "豆瓣条目不提供开分日期，通知中的日期为插件首次观测到有效评分的日期。",
+                                                    "豆瓣条目不提供开分日期，通知中的日期为插件首次观测到有效评分的日期。"
+                                                    "删除订阅会在下一轮同步时移除对应追踪条目；订阅完结的不删，继续追开分。",
                                         },
                                     }
                                 ],
@@ -371,7 +381,8 @@ class DoubanScoreWatch(_PluginBase):
                                             "label": "静默开始",
                                             "type": "time",
                                             "clearable": True,
-                                            "hint": "只推迟通知，不停止检查；两个框都留空即关闭",
+                                            "hint": "只推迟通知，不停止检查；两个框都留空即关闭，"
+                                                    "只填一侧时另一侧按 00:00 / 23:59 处理",
                                             "persistent-hint": True,
                                         },
                                     }
@@ -596,19 +607,22 @@ class DoubanScoreWatch(_PluginBase):
             return header
         table_rows = [self._row_head()]
         for entry in sorted(entries, key=lambda item: str(item.get("title") or "")):
-            table_rows.append(self._row_entry(entry))
+            group = [self._row_entry(entry)]
             suggested_ids = {
                 str(item.get("douban_id")) for item in entry.get("ai_suggestions") or []
             }
             for suggestion in entry.get("ai_suggestions") or []:
-                table_rows.append(self._row_ai_suggestion(entry, suggestion))
+                group.append(self._row_ai_suggestion(entry, suggestion))
             # 未匹配条目把豆瓣候选也列出来，页面可直接点选绑定
             for candidate in (entry.get("candidates") or [])[:5]:
                 if str(candidate.get("douban_id")) in suggested_ids:
                     continue
-                table_rows.append(self._row_candidate(entry, candidate))
+                group.append(self._row_candidate(entry, candidate))
             if entry.get("status") == "unmatched" and not (entry.get("candidates") or []):
-                table_rows.append(self._row_hint(entry))
+                group.append(self._row_hint(entry))
+            # 条目之间加分隔线，候选 / AI 建议行留在本条目的分组内
+            group[-1] = self._with_divider(group[-1])
+            table_rows.extend(group)
         header.append(
             {
                 "component": "div",
@@ -671,11 +685,19 @@ class DoubanScoreWatch(_PluginBase):
             douban_text = str(binding.get("title") or binding.get("douban_id") or "-")
             if len(bindings) > 1:
                 douban_text += f" 等 {len(bindings)} 个条目"
+            if binding.get("match_note"):
+                douban_text += f"\n匹配依据：{binding.get('match_note')}"
         rating_text = f"{binding.get('rating'):.1f}" if binding.get("rating") else "-"
         votes_text = str(binding.get("votes") or "-") if binding else "-"
         status_text = self._STATUS_LABELS.get(str(entry.get("status")), str(entry.get("status")))
         if entry.get("status") == "unmatched" and entry.get("match_reason"):
             status_text = f"{status_text}（{entry.get('match_reason')}）"
+        if entry.get("status") == "unmatched" and entry.get("next_try"):
+            status_text = f"{status_text}\n{str(entry.get('next_try'))[:16]} 后重试"
+        if binding.get("pre_scored"):
+            status_text = f"{status_text}（绑定前已有评分）"
+        if entry.get("sub_completed"):
+            status_text = f"{status_text}（订阅已完结）"
         actions: List[dict] = []
         key = str(entry.get("key") or "")
         if entry.get("status") == "ignored":
@@ -798,9 +820,24 @@ class DoubanScoreWatch(_PluginBase):
         """构造普通文本单元格，保留换行。"""
         return {
             "component": "td",
-            "props": {"style": "white-space: pre-line;"},
+            "props": {"style": "white-space: pre-line; padding-top: 6px; padding-bottom: 6px;"},
             "content": [{"component": "p", "props": {"class": "mb-0"}, "text": text}],
         }
+
+    @staticmethod
+    def _with_divider(row: dict) -> dict:
+        """
+        给条目分组的最后一行加分隔线，避免相邻条目在列表里粘连。
+
+        :param row: 表格行组件
+        :return: 同一个行组件
+        """
+        border = "border-bottom: 1px solid rgba(var(--v-border-color, 0, 0, 0), var(--v-border-opacity, 0.12));"
+        for cell in row.get("content") or []:
+            props = cell.setdefault("props", {})
+            style = str(props.get("style") or "").strip()
+            props["style"] = f"{style} {border}".strip()
+        return row
 
     def _action_button(self, text: str, color: str, action: str, params: Dict[str, Any], icon: str) -> dict:
         """构造行内操作按钮。"""
@@ -841,10 +878,20 @@ class DoubanScoreWatch(_PluginBase):
         last_result = state.get("last_result") or "无"
         plan = state.get("plan") or {}
         times = "、".join(plan.get("times") or []) or "待生成"
-        return (
+        lines = [
             f"上次检查：{last_round}｜结果：{last_result}｜今日计划：{times}｜"
             f"评价人数门槛：{self._vote_threshold}｜AI 季映射：{'开' if self._ai_enabled else '关'}"
-        )
+        ]
+        sync_error = str(state.get("last_sync_error") or "")
+        if sync_error:
+            at = state.get("last_sync_error_at") or "时间未知"
+            lines.append(f"订阅同步异常：{sync_error}（{at}）")
+        if self._last_error:
+            lines.append(f"上一轮异常：{self._last_error}")
+        zero_rounds = int(state.get("zero_match_rounds") or 0)
+        if zero_rounds >= 2:
+            lines.append(f"已连续 {zero_rounds} 轮没有任何新匹配，请检查豆瓣接口或手动绑定")
+        return "\n".join(lines)
 
     # ------------------------------------------------------------------
     # 调度与检查
@@ -925,18 +972,25 @@ class DoubanScoreWatch(_PluginBase):
             self._state = state
             client = DoubanScoreClient(cookie=self._douban_cookie)
             entries = state.setdefault("entries", {})
-            synced = self._sync_subscriptions(entries)
+            synced, removed = self._sync_subscriptions(entries)
             # 订阅同步后条目才存在，此时再应用一次配置里的手动绑定
             self._apply_manual_bindings()
             ai_budget = [self._ai_max_calls]
             matched = 0
             checked = 0
+            aborted = False
             notices_before = len(state.get("pending_notices") or [])
             for entry in entries.values():
+                if self._should_stop():
+                    aborted = True
+                    break
                 if entry.get("status") in ("ignored",):
                     continue
                 try:
                     if not entry.get("bindings"):
+                        # 匹配失败过的条目按退避间隔重试，避免每轮都打豆瓣
+                        if not self._match_due(entry, now):
+                            continue
                         if self._match_entry(entry, client, ai_budget):
                             matched += 1
                         # 刚绑定成功的条目同一轮就查一次分，避免手动检查要等下一轮
@@ -947,14 +1001,32 @@ class DoubanScoreWatch(_PluginBase):
                 except Exception as error:  # noqa: BLE001 - 单条媒体失败不影响其它条目
                     logger.warning(f"【豆瓣开分】处理 {entry.get('title')} 失败：{error}")
                     continue
+                failures = int(getattr(client, "consecutive_failures", 0) or 0)
+                if failures >= self._FAILURE_BREAKER:
+                    aborted = True
+                    logger.warning(f"【豆瓣开分】豆瓣连续 {failures} 次请求失败，本轮提前结束")
+                    break
                 # 豆瓣接口没有公开配额，逐条降速避免连续请求触发风控
                 time.sleep(random.uniform(1.0, 2.0))
+            if self._should_stop():
+                logger.info("【豆瓣开分】插件已停用或重载，本轮中止")
+                return "插件已停用或重载，本轮中止"
             # 只统计本轮真正入队的开分通知，预开分与评分不足都不算
             opened = max(0, len(state.get("pending_notices") or []) - notices_before)
+            unmatched = sum(1 for item in entries.values() if item.get("status") == "unmatched")
+            if unmatched and not matched:
+                state["zero_match_rounds"] = int(state.get("zero_match_rounds") or 0) + 1
+            else:
+                state["zero_match_rounds"] = 0
             state["last_round"] = now.strftime("%Y-%m-%d %H:%M")
             if scheduled:
                 self._mark_round_done(state, now.date())
-            summary = f"同步 {synced} 条订阅，匹配 {matched} 条，检查 {checked} 条，开分 {opened} 条"
+            summary = (
+                f"同步 {synced} 条订阅，删除 {removed} 条已退订，"
+                f"匹配 {matched} 条，检查 {checked} 条，开分 {opened} 条"
+            )
+            if aborted:
+                summary = f"{summary}（豆瓣连续失败，提前结束）"
             state["last_result"] = summary
             self._save_state(state)
             logger.info(f"【豆瓣开分】本轮完成：{summary}")
@@ -966,21 +1038,26 @@ class DoubanScoreWatch(_PluginBase):
         finally:
             self._round_lock.release()
 
-    def _sync_subscriptions(self, entries: Dict[str, Any]) -> int:
+    def _sync_subscriptions(self, entries: Dict[str, Any]) -> tuple[int, int]:
         """
         按订阅表建立或更新追踪条目。
 
+        订阅被删除后同步移除对应条目；因订阅完结而消失的条目保留下来继续追开分，
+        因为宿主完成订阅时只写订阅历史并删除订阅记录。
+
         :param entries: 追踪条目字典
-        :return: 本次涉及的订阅数量
+        :return: (本次涉及的订阅数量, 本轮删除的已退订条目数量)
         """
         try:
-            from app.db.subscribe_oper import SubscribeOper
-
-            subscriptions = SubscribeOper().list() or []
+            subscriptions = self._load_subscriptions()
         except Exception as error:  # noqa: BLE001 - 订阅读取失败时保留既有追踪
             logger.warning(f"【豆瓣开分】读取订阅失败：{error}")
-            return 0
+            self._record_sync_error(f"读取订阅失败：{error}")
+            return 0, 0
+        self._record_sync_error("")
+        seen_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         seen: set[str] = set()
+        seasons_seen: Dict[str, set] = {}
         for sub in subscriptions:
             media_type = str(getattr(sub, "type", "") or "")
             if media_type not in ("电影", "电视剧"):
@@ -1000,27 +1077,167 @@ class DoubanScoreWatch(_PluginBase):
                     "type": media_type,
                     "title": str(getattr(sub, "name", "") or ""),
                     "year": str(getattr(sub, "year", "") or ""),
+                    "episode_group": getattr(sub, "episode_group", None),
                     "seasons": [],
                     "status": "pending",
                     "bindings": [],
                     "candidates": [],
                     "ai_suggestions": [],
+                    "sub_seen_at": seen_at,
                     "tries": 0,
                     "last_check": "",
                 }
                 entries[key] = entry
             season = getattr(sub, "season", None)
-            if isinstance(season, int) and season not in entry["seasons"]:
-                entry["seasons"].append(season)
+            if isinstance(season, int):
+                seasons_seen.setdefault(key, set()).add(season)
             entry["total_episode"] = getattr(sub, "total_episode", None)
             entry["lack_episode"] = getattr(sub, "lack_episode", None)
             entry["sub_state"] = str(getattr(sub, "state", "") or "")
-            if entry.get("status") == "removed":
-                entry["status"] = "pending"
-        for key, entry in entries.items():
-            if key not in seen and entry.get("status") != "removed":
-                entry["status"] = "removed"
-        return len(seen)
+            entry["episode_group"] = getattr(sub, "episode_group", None)
+            # 记录最后一次看到该订阅的时间，用于区分「完结」和「删除」
+            entry["sub_seen_at"] = seen_at
+            # 重新订阅后回到活动订阅，原先的完结标记不再生效
+            entry["sub_completed"] = False
+        # 季号按当前订阅重建，退订某一季不再残留在关联季里
+        for key, seasons in seasons_seen.items():
+            entries[key]["seasons"] = sorted(seasons)
+        removed = 0
+        for key in list(entries):
+            if key in seen:
+                continue
+            entry = entries[key]
+            if self._is_subscription_completed(entry):
+                entry["sub_completed"] = True
+                continue
+            entries.pop(key, None)
+            removed += 1
+        return len(seen), removed
+
+    def _record_sync_error(self, message: str) -> None:
+        """
+        记录最近一次订阅同步结果，供页面与排查使用。
+
+        :param message: 失败原因；空字符串表示本次成功
+        """
+        state = self._state
+        if not isinstance(state, dict):
+            return
+        if not message:
+            state.pop("last_sync_error", None)
+            state.pop("last_sync_error_at", None)
+            return
+        state["last_sync_error"] = message
+        state["last_sync_error_at"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+
+    @staticmethod
+    def _load_subscriptions() -> List[Any]:
+        """读取宿主订阅表。"""
+        from app.db.subscribe_oper import SubscribeOper
+
+        return SubscribeOper().list() or []
+
+    def _is_subscription_completed(self, entry: Dict[str, Any]) -> bool:
+        """
+        判断已消失的订阅是「完结」还是「被删除」。
+
+        宿主完成订阅时写订阅历史并删除订阅记录，普通删除不写历史。只看「有没有
+        历史」会把「完结后又重新订阅、再手动删除」误判成完结，所以再比对完结时间
+        与最后一次看到该订阅的时间：完结时间更早说明那条历史属于上一轮订阅。
+        读历史失败时按完结处理，宁可保留也不误删仍在用的条目。
+
+        :param entry: 追踪条目
+        :return: 是否按完结保留条目
+        """
+        if entry.get("sub_completed"):
+            return True
+        try:
+            finished_at = self._completion_finished_at(entry)
+        except Exception as error:  # noqa: BLE001 - 历史不可读时保守保留
+            logger.warning(f"【豆瓣开分】读取订阅完成历史失败，保留 {entry.get('title')}：{error}")
+            return True
+        if finished_at is None:
+            return False
+        seen_at = self._parse_timestamp(entry.get("sub_seen_at"))
+        if seen_at is None:
+            return True
+        return finished_at >= seen_at
+
+    @staticmethod
+    def _completion_finished_at(entry: Dict[str, Any]) -> Optional[datetime]:
+        """
+        读取该媒体最近一次订阅完结时间。
+
+        :param entry: 追踪条目
+        :return: 完结时间；没有任何完结记录时为 None
+        """
+        from app.db.oper.subscribehistory import SubscribeHistoryOper
+        from app.schemas.query import QueryPageRequest, SubscriptionHistoryFilter
+
+        oper = SubscribeHistoryOper()
+        seasons = [season for season in entry.get("seasons") or [] if isinstance(season, int)]
+        finished_at: Optional[datetime] = None
+        for season in seasons or [None]:
+            records, _total = oper.query(
+                SubscriptionHistoryFilter(
+                    media_source=str(entry.get("media_source") or ""),
+                    media_id=str(entry.get("media_id") or ""),
+                    season=season,
+                    episode_group=entry.get("episode_group") or None,
+                ),
+                QueryPageRequest(page=1, count=1),
+            )
+            for record in records or []:
+                moment = DoubanScoreWatch._parse_timestamp(getattr(record, "date", None))
+                if moment and (finished_at is None or moment > finished_at):
+                    finished_at = moment
+        return finished_at
+
+    @staticmethod
+    def _parse_timestamp(value: Any) -> Optional[datetime]:
+        """
+        解析宿主历史与插件状态里的时间文本。
+
+        :param value: 时间文本
+        :return: 解析结果；无法解析时为 None
+        """
+        text = str(value or "").strip()
+        if not text:
+            return None
+        for pattern in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"):
+            try:
+                return datetime.strptime(text, pattern)
+            except ValueError:
+                continue
+        return None
+
+    def _should_stop(self) -> bool:
+        """判断插件是否已被停用或重载。"""
+        return bool(self._stop_event is not None and self._stop_event.is_set())
+
+    def _match_due(self, entry: Dict[str, Any], now: Optional[datetime] = None) -> bool:
+        """
+        判断未匹配条目是否到了重试时间。
+
+        :param entry: 追踪条目
+        :param now: 当前时间，缺省取系统时间
+        :return: 可以重试时为 True
+        """
+        planned = self._parse_timestamp(entry.get("next_try"))
+        if planned is None:
+            return True
+        return (now or datetime.now()) >= planned
+
+    def _defer_match(self, entry: Dict[str, Any]) -> None:
+        """
+        匹配失败后按次数退避，避免每轮都重复搜索豆瓣。
+
+        :param entry: 追踪条目
+        """
+        tries = int(entry.get("tries") or 0) + 1
+        entry["tries"] = tries
+        moment = datetime.now() + timedelta(days=min(tries, 3))
+        entry["next_try"] = moment.strftime("%Y-%m-%d %H:%M:%S")
 
     def _match_entry(
         self,
@@ -1036,8 +1253,6 @@ class DoubanScoreWatch(_PluginBase):
         :param ai_budget: 本轮剩余 AI 调用次数
         :return: 是否成功绑定
         """
-        if entry.get("status") == "removed":
-            return False
         if entry.get("manual_skip"):
             return False
         if str(entry.get("media_source")) == "douban":
@@ -1069,7 +1284,6 @@ class DoubanScoreWatch(_PluginBase):
             entry["bindings"][-1]["match_note"] = note
             return True
         entry["candidates"] = pool
-        entry["tries"] = int(entry.get("tries") or 0) + 1
         if pool and self._ai_enabled and ai_budget[0] > 0:
             ai_budget[0] -= 1
             suggestions = self._ai_bind(entry, pool, client)
@@ -1086,6 +1300,7 @@ class DoubanScoreWatch(_PluginBase):
         entry["status"] = "unmatched"
         entry["match_reason"] = "豆瓣未搜到条目" if not pool else f"{len(pool)} 个候选待确认"
         entry["last_check"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+        self._defer_match(entry)
         return False
 
     def _resolve_candidates(
@@ -1197,7 +1412,14 @@ class DoubanScoreWatch(_PluginBase):
         """
         entry["last_check"] = datetime.now().strftime("%Y-%m-%d %H:%M")
         all_scored = True
+        examined = 0
         for binding in entry.get("bindings") or []:
+            # 已开分且不再追变化、或超过最长追踪天数的绑定不再请求豆瓣
+            if not self._keep_tracking and binding.get("closed"):
+                continue
+            if self._keep_tracking and self._expired(binding):
+                continue
+            examined += 1
             detail = client.detail(str(binding.get("douban_id")), str(entry.get("type") or ""))
             if not detail:
                 all_scored = False
@@ -1207,24 +1429,22 @@ class DoubanScoreWatch(_PluginBase):
             binding["rating"] = detail.get("rating") or 0
             binding["votes"] = detail.get("votes") or 0
             if not (binding["rating"] > 0 and binding["votes"] >= self._vote_threshold):
+                # 当前没有有效评分：基线确认完成，之后出现评分就按开分通知
+                binding.pop("baseline_pending", None)
                 all_scored = False
                 continue
             today = date.today().isoformat()
+            if binding.get("baseline_pending"):
+                # 绑定时拿不到分数，现在已有有效评分：按「绑定前就已开分」处理，不补发
+                binding.pop("baseline_pending", None)
+                self._mark_pre_scored(binding, today)
+                continue
             if not binding.get("first_seen"):
-                # 绑定时就已有有效评分，或绑定时拿不到初始分数：只记录、不补发开分通知
-                initial_known = bool(binding.get("initial_known", True))
                 already_scored = float(binding.get("initial_rating") or 0) > 0 and int(
                     binding.get("initial_votes") or 0
                 ) >= self._vote_threshold
-                if already_scored or not initial_known:
-                    binding["pre_scored"] = True
-                    binding["notified"] = True
-                    binding["last_notified_rating"] = binding["rating"]
-                    binding["history"] = [
-                        {"date": today, "rating": binding["rating"], "votes": binding["votes"]}
-                    ]
-                    if not self._keep_tracking:
-                        binding["closed"] = True
+                if already_scored:
+                    self._mark_pre_scored(binding, today)
                     continue
                 binding["first_seen"] = today
                 binding["history"] = [{"date": today, "rating": binding["rating"], "votes": binding["votes"]}]
@@ -1241,13 +1461,27 @@ class DoubanScoreWatch(_PluginBase):
                 continue
             last_rating = float(binding.get("last_notified_rating") or binding["rating"])
             if abs(binding["rating"] - last_rating) >= self._change_delta and not self._expired(binding):
-                binding["history"] = list(binding.get("history") or []) + [
-                    {"date": today, "rating": binding["rating"], "votes": binding["votes"]}
-                ]
+                history = list(binding.get("history") or [])
+                history.append({"date": today, "rating": binding["rating"], "votes": binding["votes"]})
+                binding["history"] = history[-self._HISTORY_KEEP:]
                 binding["last_notified_rating"] = binding["rating"]
                 self._queue_change_notice(state, entry, binding)
-        if all_scored:
+        if all_scored and examined:
             entry["status"] = "scored"
+
+    def _mark_pre_scored(self, binding: Dict[str, Any], today: str) -> None:
+        """
+        把绑定登记为「订阅前就已开分」，避免补发开分通知。
+
+        :param binding: 豆瓣绑定
+        :param today: 当天日期文本
+        """
+        binding["pre_scored"] = True
+        binding["notified"] = True
+        binding["last_notified_rating"] = binding["rating"]
+        binding["history"] = [{"date": today, "rating": binding["rating"], "votes": binding["votes"]}]
+        if not self._keep_tracking:
+            binding["closed"] = True
 
     def _expired(self, binding: Dict[str, Any]) -> bool:
         """判断绑定是否超过最长追踪天数。"""
@@ -1266,6 +1500,7 @@ class DoubanScoreWatch(_PluginBase):
         candidate: Dict[str, Any],
         source: str,
         seasons: Optional[List[int]] = None,
+        config_key: Optional[str] = None,
     ) -> None:
         """
         把一个豆瓣条目绑定到媒体上。
@@ -1274,6 +1509,7 @@ class DoubanScoreWatch(_PluginBase):
         :param candidate: 豆瓣候选
         :param source: 绑定来源（id/search/ai/manual）
         :param seasons: 该条目覆盖的季号，缺省沿用订阅季
+        :param config_key: 来自设置页手动绑定时记录的媒体键
         """
         douban_id = str(candidate.get("douban_id") or "").strip()
         if not douban_id:
@@ -1293,8 +1529,9 @@ class DoubanScoreWatch(_PluginBase):
                 # 绑定时豆瓣已有的分数：命中说明「订阅前就已开分」，不再补发开分通知
                 "initial_rating": float(candidate.get("rating") or 0),
                 "initial_votes": int(candidate.get("votes") or 0),
-                # 候选没带分数（手动绑定）时无法判断是否早已开分，按保守策略只记录不补发
-                "initial_known": candidate.get("rating") is not None,
+                # 候选没带分数（手动绑定）时先记基线待确认，读到评分再判断是否补发
+                "baseline_pending": candidate.get("rating") is None,
+                "config_key": config_key,
                 "first_seen": "",
                 "last_check": "",
                 "notified": False,
@@ -1302,6 +1539,8 @@ class DoubanScoreWatch(_PluginBase):
                 "history": [],
             }
         )
+        entry.pop("next_try", None)
+        entry["tries"] = 0
         entry["status"] = "pending"
         entry["candidates"] = []
         entry["ai_suggestions"] = []
@@ -1429,32 +1668,76 @@ class DoubanScoreWatch(_PluginBase):
 
     def _enqueue(self, state: Dict[str, Any], title: str, text: str) -> None:
         """写入待发送通知队列。"""
-        queue = state.setdefault("pending_notices", [])
-        queue.append({"title": title, "text": text, "time": datetime.now().strftime("%Y-%m-%d %H:%M")})
-        state["pending_notices"] = queue[-100:]
-        self._save_state(state)
+        notice = {
+            "title": title,
+            "text": text,
+            "time": datetime.now().strftime("%Y-%m-%d %H:%M"),
+            "attempts": 0,
+            "next_try": "",
+        }
+        with self._notice_lock:
+            queue = list(state.get("pending_notices") or [])
+            queue.append(notice)
+            state["pending_notices"] = queue[-100:]
+            self._save_state(state)
 
     def _flush_notices(self, state: Dict[str, Any]) -> None:
-        """在非静默时段发送队列中的通知。"""
-        queue = state.get("pending_notices") or []
-        if not queue or not self._notify:
+        """
+        在非静默时段发送队列中的通知。
+
+        先在锁内把待发通知整体取出，再在锁外逐条发送，避免多个线程同时冲刷
+        造成重复发送；发送失败的通知按次数退避重试，超过上限后丢弃并记错误日志。
+        """
+        if not self._notify:
             return
         now = datetime.now()
         if self._in_quiet(now):
             return
-        remaining: List[Dict[str, Any]] = []
-        for notice in queue:
+        with self._notice_lock:
+            queue = list(state.get("pending_notices") or [])
+            if not queue:
+                return
+            ready = [notice for notice in queue if self._notice_ready(notice, now)]
+            state["pending_notices"] = [notice for notice in queue if not self._notice_ready(notice, now)]
+        failed: List[Dict[str, Any]] = []
+        for notice in ready:
             try:
                 self.post_message(
                     mtype=MessageType.Plugin,
                     title=str(notice.get("title") or "豆瓣开分通知"),
                     text=str(notice.get("text") or ""),
                 )
-            except Exception as error:  # noqa: BLE001 - 单条失败保留队列
+            except Exception as error:  # noqa: BLE001 - 单条失败按退避重试
                 logger.warning(f"【豆瓣开分】通知发送失败：{error}")
-                remaining.append(notice)
-        state["pending_notices"] = remaining
-        self._save_state(state)
+                attempts = int(notice.get("attempts") or 0) + 1
+                notice["attempts"] = attempts
+                if attempts >= self._NOTICE_MAX_ATTEMPTS:
+                    logger.error(
+                        f"【豆瓣开分】通知连续 {attempts} 次发送失败，已丢弃：{notice.get('title')}"
+                    )
+                    continue
+                notice["next_try"] = (now + timedelta(minutes=10 * attempts)).strftime(
+                    "%Y-%m-%d %H:%M:%S"
+                )
+                failed.append(notice)
+        with self._notice_lock:
+            pending = list(state.get("pending_notices") or [])
+            state["pending_notices"] = (failed + pending)[-100:]
+            self._save_state(state)
+
+    @staticmethod
+    def _notice_ready(notice: Dict[str, Any], now: datetime) -> bool:
+        """
+        判断通知是否到了可发送时间。
+
+        :param notice: 队列中的通知
+        :param now: 当前时间
+        :return: 可以尝试发送时为 True
+        """
+        planned = DoubanScoreWatch._parse_timestamp(notice.get("next_try"))
+        if planned is None:
+            return True
+        return now >= planned
 
     def _notice_text(self, entry: Dict[str, Any], binding: Dict[str, Any], change: bool) -> str:
         """生成通知正文。"""
@@ -1473,10 +1756,10 @@ class DoubanScoreWatch(_PluginBase):
         return "\n".join(lines)
 
     def _in_quiet(self, now: datetime) -> bool:
-        """判断当前是否处于静默时段。"""
-        if not self._quiet_start or not self._quiet_end:
+        """判断当前是否处于静默时段；只填一侧时，另一侧按 00:00 / 23:59 处理。"""
+        if not self._quiet_start and not self._quiet_end:
             return False
-        return self._in_window(now, self._quiet_start, self._quiet_end)
+        return self._in_window(now, self._quiet_start or "00:00", self._quiet_end or "23:59")
 
     # ------------------------------------------------------------------
     # 计划与时间
@@ -1572,11 +1855,14 @@ class DoubanScoreWatch(_PluginBase):
         self.save_data(self._STATE_KEY, self._state)
 
     def _apply_manual_bindings(self) -> None:
-        """把配置中的手动绑定应用到追踪条目。"""
-        if not self._manual_bindings:
-            return
+        """
+        把配置中的手动绑定应用到追踪条目。
+
+        配置里删掉的行会解绑对应豆瓣条目；页面手点出来的绑定不受影响。
+        """
         entries = (self._state or {}).get("entries") or {}
-        for line in self._manual_bindings.splitlines():
+        desired: Dict[str, set] = {}
+        for line in (self._manual_bindings or "").splitlines():
             text = line.strip()
             if not text or "=" not in text:
                 continue
@@ -1585,10 +1871,31 @@ class DoubanScoreWatch(_PluginBase):
             douban_id = right.strip().rstrip("/").rsplit("/", 1)[-1]
             if not key or not douban_id.isdigit():
                 continue
+            desired.setdefault(key, set()).add(douban_id)
+        for key, douban_ids in desired.items():
             entry = entries.get(key)
             if not entry:
                 continue
-            self._bind(entry, {"douban_id": douban_id, "title": "", "year": ""}, "manual")
+            for douban_id in sorted(douban_ids):
+                self._bind(
+                    entry,
+                    {"douban_id": douban_id, "title": "", "year": ""},
+                    "manual",
+                    config_key=key,
+                )
+        for key, entry in entries.items():
+            wanted = desired.get(key) or set()
+            bindings = entry.get("bindings") or []
+            kept = [
+                binding
+                for binding in bindings
+                if not binding.get("config_key") or str(binding.get("douban_id")) in wanted
+            ]
+            if len(kept) == len(bindings):
+                continue
+            entry["bindings"] = kept
+            if not kept and entry.get("status") == "scored":
+                entry["status"] = "pending"
 
     def _migrate_season_bindings(self) -> None:
         """
@@ -1599,7 +1906,10 @@ class DoubanScoreWatch(_PluginBase):
             让下一轮按累计集数区间重新落位（长篇动画常见这种拆分）。
         """
         state = self._state or {}
-        changed = False
+        # 旧版本会把已退订条目留在 state 里，这里一次性清掉
+        for key in list(state.get("entries") or {}):
+            if (state["entries"][key] or {}).get("status") == "removed":
+                state["entries"].pop(key, None)
         if not state.get("season_migrated_v1"):
             for entry in (state.get("entries") or {}).values():
                 seasons = entry.get("seasons") or []
@@ -1619,7 +1929,6 @@ class DoubanScoreWatch(_PluginBase):
                     entry["candidates"] = []
                     if not kept:
                         entry["status"] = "pending"
-                    changed = True
             state["season_migrated_v1"] = True
         if not state.get("episode_migrated_v1"):
             for entry in (state.get("entries") or {}).values():
@@ -1637,10 +1946,7 @@ class DoubanScoreWatch(_PluginBase):
                     entry["candidates"] = []
                     if not kept:
                         entry["status"] = "pending"
-                    changed = True
             state["episode_migrated_v1"] = True
-        if changed or not state.get("season_migrated_v2_saved"):
-            state["season_migrated_v2_saved"] = True
         self._save_state(state)
 
     @staticmethod
@@ -1709,6 +2015,8 @@ class DoubanScoreWatch(_PluginBase):
         entry["ai_suggestions"] = []
         entry["status"] = "pending"
         entry["manual_skip"] = False
+        entry["tries"] = 0
+        entry.pop("next_try", None)
         self._save_state()
         return {"success": True, "message": "已重置，下一轮重新匹配", "data": None}
 
@@ -1738,24 +2046,15 @@ class DoubanScoreWatch(_PluginBase):
         douban_id = str(douban_id or "").strip()
         if not douban_id.isdigit():
             return {"success": False, "message": "豆瓣 ID 必须是数字", "data": None}
-        detail = DoubanScoreClient(cookie=self._douban_cookie).detail(
-            douban_id, str(entry.get("type") or "电视剧")
-        )
-        candidate: Dict[str, Any] = {"douban_id": douban_id, "title": "", "year": ""}
-        if detail:
-            # 绑定前先读一次现状，避免把「早已开分」误判成刚开分
-            candidate.update(
-                {
-                    "title": detail.get("title") or "",
-                    "year": detail.get("year") or "",
-                    "rating": detail.get("rating") or 0,
-                    "votes": detail.get("votes") or 0,
-                }
-            )
-        self._bind(entry, candidate, "manual")
+        # 不在请求线程里访问豆瓣：先记基线待确认，下一轮读到评分再判断是否补发
+        self._bind(entry, {"douban_id": douban_id, "title": "", "year": ""}, "manual")
         entry["ai_suggestions"] = []
         self._save_state()
-        return {"success": True, "message": f"已绑定豆瓣 {douban_id}，下一轮开始检查", "data": None}
+        return {
+            "success": True,
+            "message": f"已绑定豆瓣 {douban_id}，下一轮读取评分（绑定前已有分的不补发开分通知）",
+            "data": None,
+        }
 
     def api_unbind(self, key: str = "", douban_id: str = "") -> Dict[str, Any]:
         """API：解除指定豆瓣条目绑定。"""
@@ -1776,7 +2075,7 @@ class DoubanScoreWatch(_PluginBase):
         douban_id = str(douban_id or "").strip()
         if not douban_id.isdigit():
             return {"success": False, "message": "请填写数字豆瓣 ID", "data": None}
-        client = DoubanScoreClient(cookie=self._douban_cookie)
+        client = DoubanScoreClient(cookie=self._douban_cookie, timeout=8)
         return client.test(douban_id, type_name or "电视剧")
 
     def _find_entry(self, key: str) -> Optional[Dict[str, Any]]:

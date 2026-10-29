@@ -133,6 +133,21 @@ def year_gap(left: Any, right: Any) -> int:
         return 999
 
 
+def title_related(left: Any, right: Any) -> bool:
+    """
+    判断两个标题是否同一部作品（忽略季标记、标点与空白）。
+
+    :param left: 标题一
+    :param right: 标题二
+    :return: 规范化后相等或互相包含时为 True
+    """
+    first = strip_season_suffix(left) or normalize_title(left)
+    second = strip_season_suffix(right) or normalize_title(right)
+    if not first or not second:
+        return False
+    return first == second or first in second or second in first
+
+
 def select_candidates(
     candidates: List[Dict[str, Any]],
     title: str,
@@ -197,28 +212,28 @@ def select_candidates(
     # 年份窗口内的候选优先：豆瓣条目年份通常是该条目的首播年
     in_year = [item for item in candidates if year_gap(item.get("year"), year) <= 2]
     base = in_year or list(candidates)
-    exact = [item for item in base if normalize_title(item.get("title")) == normalized]
-    pool = exact or [
-        item
-        for item in base
-        if normalized
-        and (
-            normalized in normalize_title(item.get("title"))
-            or normalize_title(item.get("title")) in normalized
-        )
-    ] or base
-    # 年份窗口只剩一条，且标题相关：可以直接绑定
-    if len(in_year) == 1 and pool:
-        return {"auto": in_year[0], "candidates": [], "reason": "年份窗口内唯一命中"}
-    if len(pool) == 1 and year_gap(pool[0].get("year"), year) <= 1:
-        return {"auto": pool[0], "candidates": [], "reason": "标题与年份唯一命中"}
-    limited = pool[: max(1, limit)]
-    if len(limited) == 1 and year_gap(limited[0].get("year"), year) <= 1:
-        return {"auto": limited[0], "candidates": [], "reason": "标题唯一命中"}
+    # 只有标题相关的候选才允许自动绑定，避免「同年唯一但完全不同的条目」被误绑
+    related = [item for item in base if title_related(item.get("title"), title)]
+    exact = [item for item in related if normalize_title(item.get("title")) == normalized]
+    pool = exact or related
+    if len(pool) == 1:
+        candidate = pool[0]
+        gap = year_gap(candidate.get("year"), year)
+        same_title = normalize_title(candidate.get("title")) == normalized
+        # 年份最多差一年；仅同名条目放宽到两年
+        if gap <= 1 or (same_title and gap <= 2):
+            return {"auto": candidate, "candidates": [], "reason": "标题与年份唯一命中"}
+    limited = (pool or base)[: max(1, limit)]
+    if pool:
+        return {
+            "auto": None,
+            "candidates": limited,
+            "reason": f"存在 {len(limited)} 个候选，需要确认",
+        }
     return {
         "auto": None,
         "candidates": limited,
-        "reason": f"存在 {len(limited)} 个候选，需要确认",
+        "reason": "候选标题与订阅不一致，需要确认",
     }
 
 
