@@ -115,7 +115,11 @@ MUTANTS = [
     ),
     (
         "系统目录未排除（@eaDir 被当清理候选）",
-        """                dirs[:] = [d for d in dirs if not d.startswith("@") and d != "#recycle"]""",
+        """                dirs[:] = [
+                    d for d in dirs
+                    if not d.startswith("@") and d != "#recycle"
+                    and not self._is_protected(os.path.join(root, d))
+                ]""",
         """                pass""",
         "应导致 system_dirs_still_excluded 失败",
     ),

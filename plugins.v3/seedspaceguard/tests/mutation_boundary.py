@@ -128,7 +128,11 @@ MUTANTS = [
     # ---------------- 索引与统计 ----------------
     (
         "系统目录排除失效（@eaDir / #recycle 被遍历）",
-        """                dirs[:] = [d for d in dirs if not d.startswith("@") and d != "#recycle"]""",
+        """                dirs[:] = [
+                    d for d in dirs
+                    if not d.startswith("@") and d != "#recycle"
+                    and not self._is_protected(os.path.join(root, d))
+                ]""",
         """                pass""",
         "应导致 syno_dirs_skipped / recycle_skipped 失败",
     ),
@@ -273,12 +277,11 @@ MUTANTS = [
         """        owner = self._owner_dir_of(start)
         if not owner:
             # 不属于任何配置目录，不动它
-            return
-        current = start
-        while current and current != owner and current.startswith(owner + os.sep):""",
-        """        owner = self._owner_dir_of(start) or start
-        current = start
-        while current:""",
+            return""",
+        """        owner = self._owner_dir_of(start) or os.path.dirname(start) or os.sep
+        if not owner:
+            # 不属于任何配置目录，不动它
+            return""",
         "应导致 outside_path_untouched 失败（配置外目录被清理）",
     ),
     (
@@ -286,12 +289,12 @@ MUTANTS = [
         """        owner = self._owner_dir_of(start)
         if not owner:
             # 不属于任何配置目录，不动它
+            return""",
+        """        owner = self._owner_dir_of(start)
+        if not owner:
+            # 不属于任何配置目录，不动它
             return
-        current = start
-        while current and current != owner and current.startswith(owner + os.sep):""",
-        """        owner = os.path.dirname(self._owner_dir_of(start) or start)
-        current = start
-        while current and current != owner and current.startswith(owner + os.sep):""",
+        owner = os.path.dirname(owner) or os.sep""",
         "应导致 prunes_up_to_but_not_config_dir 失败（配置目录被删）",
     ),
 ]

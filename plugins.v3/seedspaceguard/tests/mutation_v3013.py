@@ -123,8 +123,10 @@ MUTANTS = [
     ),
     (
         "B9 不再拒绝根目录作为监控目录",
-        "            if norm == os.sep:",
-        "            if False:",
+        "            if norm == os.sep:\n"
+        "                logger.error(\"【保种空间守护】拒绝把根目录作为监控目录：%s\", path)",
+        "            if False:\n"
+        "                logger.error(\"【保种空间守护】拒绝把根目录作为监控目录：%s\", path)",
         "应导致 test_root_and_volume_root_rejected 失败",
     ),
     (

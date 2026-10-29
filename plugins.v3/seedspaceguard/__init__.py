@@ -15,6 +15,8 @@
 - 清理范围：**除「保护文件后缀」命中的文件外，配置目录下所有文件均纳入清理候选**，
   不区分文件类型（视频、nfo、图片、字幕等一视同仁）。需要保留的文件请写入保护后缀；
   该项**留空即不保护任何文件**。
+- 保护目录：可另填「保护目录」，这些目录及其内部内容在任何模式、任何清理链路
+  下都不会被自动删除——即使该目录本身位于「保种/清理目录」之内。
 - 联动清理：可选的「删除种子 / 删除转移记录」两项联动，由本插件主动执行，
   无需依赖其它插件。其中仅文件模式删除种子有严格前置条件：
   **必须该种子下的所有文件都已删除**，任一文件仍在磁盘上（含被保护后缀跳过的）
@@ -81,7 +83,8 @@ class SeedSpaceGuard(_PluginBase):
     plugin_name = "保种空间守护"
     plugin_desc = ("存储空间不足时自动清理保种目录中「保种最久」的资源（种子+文件），"
                    "避免 H&R。支持种子级删除与仅文件两种模式，可限定目标下载器；"
-                   "除保护后缀外所有文件均纳入清理，可选联动删除种子与转移记录。")
+                   "除保护后缀外所有文件均纳入清理，可指定「保护目录」永不清理；"
+                   "可选联动删除种子与转移记录。")
     plugin_version = VERSION
     plugin_author = "zkmydgth"
     plugin_config_prefix = "seedspaceguard_"
@@ -94,6 +97,9 @@ class SeedSpaceGuard(_PluginBase):
     _target_dirs: List[str] = []
     # 当前生效的目录集合（_target_dirs 中实际存在的那部分）
     _active_dirs: List[str] = []
+    # 保护目录：这些目录及其内部内容在任何清理链路中都不删除，
+    # 即使该目录本身位于「保种/清理目录」之内（用户显式要求保留的目录）。
+    _protect_dirs: List[str] = []
     # 当前待删文件的 inode 索引：(st_dev, st_ino) -> 该文件在所有配置目录内的全部路径
     _ino_paths: Dict[Tuple[int, int], List[str]] = {}
     _volume_path: str = "/volume1"
@@ -181,6 +187,7 @@ class SeedSpaceGuard(_PluginBase):
         self._enabled = False
         self._target_dirs = []
         self._active_dirs = []
+        self._protect_dirs = []
         self._ino_paths = {}
         self._volume_path = "/volume1"
         self._threshold_gb = 500
@@ -226,6 +233,11 @@ class SeedSpaceGuard(_PluginBase):
                     logger.error("【保种空间守护】迁移多目录配置失败：%s", err)
         self._volume_path = str(config.get("volume_path") or "/volume1").strip()
         self._target_dirs = self._filter_target_dirs(self._parse_dirs(raw_dirs))
+        # 保护目录：与清理目录同样按多行文本解析；即便它落在清理目录内部，
+        # 其中的内容也不会被任何清理链路删除
+        self._protect_dirs = self._filter_protect_dirs(
+            self._parse_dirs(config.get("protect_dirs"))
+        )
         try:
             self._threshold_gb = int(config.get("threshold_gb") or 500)
         except (TypeError, ValueError):
@@ -349,6 +361,11 @@ class SeedSpaceGuard(_PluginBase):
                 len(self._target_dirs),
                 "\n".join(f"  - {d}" for d in self._target_dirs),
             )
+            if self._protect_dirs:
+                logger.info(
+                    "【保种空间守护】保护目录（永不被自动清理）：\n%s",
+                    "\n".join(f"  - {d}" for d in self._protect_dirs),
+                )
 
     def get_state(self) -> bool:
         """获取插件启用状态。"""
@@ -558,6 +575,21 @@ class SeedSpaceGuard(_PluginBase):
                                    "请把两个目录都填进来，插件会自动识别并两侧一并删除；"
                                    "只填一侧会导致删除后空间不释放（插件检测到会停止并告警）。"
                                    "以 # 开头的行会被忽略，可用于临时停用某个目录",
+                            "persistent-hint": True,
+                        },
+                    },
+                    {
+                        "component": "VTextarea",
+                        "props": {
+                            "model": "protect_dirs",
+                            "label": "保护目录（每行一个）",
+                            "class": "mt-4",
+                            "rows": 3,
+                            "placeholder": "/volume1/video/长期保种\n/volume1/video/下载/收藏",
+                            "hint": "填写后，这些目录及其内部内容在任何模式、任何清理链路下"
+                                   "都不会被自动删除——即使该目录位于上方「保种/清理目录」之内。"
+                                   "用于保留长期做种或珍藏的资源；以 # 开头的行会被忽略；"
+                                   "留空 = 不做目录级保护",
                             "persistent-hint": True,
                         },
                     },
@@ -848,6 +880,15 @@ class SeedSpaceGuard(_PluginBase):
         else:
             head = "、".join(self._target_dirs[:3])
             dirs_text = f"{head} 等 {len(self._target_dirs)} 个目录"
+        if not self._protect_dirs:
+            protect_text = ""
+        elif len(self._protect_dirs) <= 2:
+            protect_text = f"　|　保护目录：{'、'.join(self._protect_dirs)}"
+        else:
+            protect_text = (
+                f"　|　保护目录：{'、'.join(self._protect_dirs[:2])}"
+                f" 等 {len(self._protect_dirs)} 个"
+            )
         page: List[dict] = []
         if self._config_error:
             page.append({
@@ -863,7 +904,9 @@ class SeedSpaceGuard(_PluginBase):
                 "props": {
                     "type": "info",
                     "text": f"监控目录：{dirs_text}　|　当前剩余空间：{free_text}"
-                            f"　|　阈值：{self._threshold_gb}GB　|　模式：{'种子级' if self._mode == 'seed' else '仅文件'}",
+                            f"　|　阈值：{self._threshold_gb}GB　|　"
+                            f"模式：{'种子级' if self._mode == 'seed' else '仅文件'}"
+                            f"{protect_text}",
                 },
             },
             {
@@ -971,6 +1014,7 @@ class SeedSpaceGuard(_PluginBase):
                 "target_dirs": self._target_dirs,
                 # 兼容旧字段：返回首个目录，便于老调用方平滑过渡
                 "target_dir": self._target_dirs[0] if self._target_dirs else "",
+                "protect_dirs": self._protect_dirs,
                 "volume_path": self._volume_path,
                 "free_gb": free_gb,
                 "threshold_gb": self._threshold_gb,
@@ -1374,6 +1418,82 @@ class SeedSpaceGuard(_PluginBase):
                 )
             safe.append(norm)
         return safe
+
+    def _filter_protect_dirs(self, dirs: List[str]) -> List[str]:
+        """
+        过滤无效的保护目录配置。
+
+        保护目录的语义是「永不删除」，因此只要求绝对路径且不是根目录；
+        与清理目录不同，这里**不做宽窄范围告警**——保护范围大只会少删，
+        不会造成不可逆后果。完全不存在的目录同样保留：先配置、后建目录
+        也应从建立那一刻起就受保护。
+
+        :param dirs: 解析后的目录列表
+        :return: 可用于路径匹配的保护目录列表
+        """
+        safe: List[str] = []
+        for path in dirs:
+            if not os.path.isabs(path):
+                logger.error(
+                    "【保种空间守护】保护目录必须是绝对路径，已忽略：%s", path
+                )
+                continue
+            norm = os.path.normpath(path)
+            if norm == os.sep:
+                logger.error(
+                    "【保种空间守护】拒绝把根目录作为保护目录（会等于全盘保护）：%s",
+                    path,
+                )
+                continue
+            if norm in (self._active_dirs or self._target_dirs):
+                logger.warning(
+                    "【保种空间守护】保护目录与清理目录完全相同，"
+                    "该目录内的内容将不会被清理：%s", norm
+                )
+            safe.append(norm)
+        return safe
+
+    def _is_protected(self, path: str) -> bool:
+        """
+        判断路径是否落在任一保护目录内（含目录本身）。
+
+        所有清理链路在真正删除前都必须先过这一道判定：保护目录只是配置里的
+        一段路径，若不逐个入口拦截，种子级、仅文件、硬链接、无主文件、空壳
+        目录任何一条链路漏判都会把受保护内容删掉。
+
+        :param path: 待判断路径
+        :return: 是否受保护
+        """
+        if not path:
+            return False
+        return any(self._path_under(path, d) for d in self._protect_dirs)
+
+    def _contains_protected(self, path: str) -> bool:
+        """
+        判断一个目录内部是否包含保护目录。
+
+        删除整个目录（或种子内容目录）会连带删掉它下面的保护目录，因此
+        「路径本身不在保护目录内」还不够，必须再检查反方向。
+
+        :param path: 待判断目录
+        :return: 是否包含保护目录
+        """
+        if not path:
+            return False
+        norm = os.path.normpath(path)
+        return any(self._path_under(d, norm) for d in self._protect_dirs)
+
+    def _is_protected_seed(self, cand: Dict[str, Any]) -> bool:
+        """
+        判断种子内容是否受保护，命中即整条跳过。
+
+        :param cand: 种子候选
+        :return: 内容位于保护目录内、或内容目录包含保护目录时为 True
+        """
+        path = str(cand.get("path") or "").strip()
+        if not path:
+            return False
+        return self._is_protected(path) or self._contains_protected(path)
 
     @staticmethod
     def _map_return_path(path: str, mapping: Any) -> str:
@@ -3017,7 +3137,8 @@ class SeedSpaceGuard(_PluginBase):
         收集目标目录下所有下载器的已完成种子候选。
 
         排除两类种子：**未完成**的（下载中/暂停/校验中），以及**内容路径不在
-        监控目录内**的。排除数量会在汇总日志中列出，便于核对「下载器里有 N 个
+        监控目录内**的。内容落在「保护目录」内（或内容目录包含保护目录）的
+        种子同样排除。排除数量会在汇总日志中列出，便于核对「下载器里有 N 个
         种子，为何只有 M 个进入候选」。
 
         :return: 候选列表，每项含 module/downloader/hash/title/added/size_gb
@@ -3058,7 +3179,9 @@ class SeedSpaceGuard(_PluginBase):
         :return: 候选列表，每项含 module/downloader/hash/title/added/size_gb
         """
         candidates: List[Dict[str, Any]] = []
-        counted = {"total": 0, "unfinished": 0, "out_of_scope": 0}
+        counted = {
+            "total": 0, "unfinished": 0, "out_of_scope": 0, "protected": 0,
+        }
         try:
             services = DownloaderHelper().get_services()
         except Exception as err:
@@ -3109,6 +3232,17 @@ class SeedSpaceGuard(_PluginBase):
                     # 主链路：范围外直接丢弃；空壳回收：保留（见上方方法说明）
                     if scope_only:
                         continue
+                # 保护目录：内容本身在保护目录内、或内容目录包含保护目录，
+                # 两种情形删掉种子都会连带删到受保护内容，一律跳过。
+                # 放在范围判定之后：范围外的种子已按各自开关处理，互不干扰。
+                if self._is_protected_seed(cand):
+                    counted["protected"] += 1
+                    logger.warning(
+                        "【保种空间守护】种子 %s 的内容位于保护目录，已跳过：%s",
+                        cand.get("title") or cand.get("hash") or "",
+                        cand.get("path") or "",
+                    )
+                    continue
                 cand["module"] = module
                 cand["downloader"] = name
                 candidates.append(cand)
@@ -3117,18 +3251,20 @@ class SeedSpaceGuard(_PluginBase):
         if scope_only:
             logger.info(
                 "【保种空间守护】种子候选收集：下载器共 %d 个，"
-                "未完成 %d 个，不在监控目录 %d 个，纳入候选 %d 个",
+                "未完成 %d 个，不在监控目录 %d 个，在保护目录 %d 个，"
+                "纳入候选 %d 个",
                 counted["total"], counted["unfinished"],
-                counted["out_of_scope"], len(candidates),
+                counted["out_of_scope"], counted["protected"], len(candidates),
             )
         else:
             # 空壳回收口径：范围外种子被保留，日志要如实说明，避免用户
             # 误以为「不在监控目录的种子也被排除」而放弃排查
             logger.info(
                 "【保种空间守护】种子候选收集（含监控目录外）：下载器共 %d 个，"
-                "未完成 %d 个（仍排除），范围外 %d 个（本次保留），纳入候选 %d 个",
+                "未完成 %d 个（仍排除），范围外 %d 个（本次保留），"
+                "在保护目录 %d 个（仍排除），纳入候选 %d 个",
                 counted["total"], counted["unfinished"],
-                counted["out_of_scope"], len(candidates),
+                counted["out_of_scope"], counted["protected"], len(candidates),
             )
         return candidates
 
@@ -3346,6 +3482,35 @@ class SeedSpaceGuard(_PluginBase):
                 out.add((st.st_dev, st.st_ino))
         return out
 
+    def _protected_inodes(self) -> Set[Tuple[int, int]]:
+        """
+        收集保护目录内普通文件的 inode 身份。
+
+        只跳过「保护目录里的那一份」并不够：同一 inode 的其它硬链接一旦被删，
+        受保护的那份仍在，空间不会释放，反而会命中「删了没释放」的兜底而
+        停手告警。因此仅文件模式按整组跳过——同 inode 只要有一处落在保护
+        目录内，整组都不删。
+
+        :return: 保护目录内普通文件的 (st_dev, st_ino) 集合
+        """
+        keys: Set[Tuple[int, int]] = set()
+        for base in self._protect_dirs:
+            if not os.path.isdir(base):
+                continue
+            for root, dirs, fnames in os.walk(base):
+                dirs[:] = [
+                    d for d in dirs
+                    if not d.startswith("@") and d != "#recycle"
+                ]
+                for fname in fnames:
+                    try:
+                        st = os.lstat(os.path.join(root, fname))
+                    except OSError:
+                        continue
+                    if stat.S_ISREG(st.st_mode):
+                        keys.add((st.st_dev, st.st_ino))
+        return keys
+
     @staticmethod
     def _shared_content_dirs(
         cand: Dict[str, Any], candidates: List[Dict[str, Any]]
@@ -3414,15 +3579,24 @@ class SeedSpaceGuard(_PluginBase):
                 plist.append(fpath)
 
         for p in paths:
-            if not p or not self._path_under_any(p):
+            # 保护目录内的路径不建入索引：索引里的路径就是「允许删除」的清单，
+            # 一旦落入受保护内容，后续删种后的硬链接清理会把它 unlink 掉。
+            if not p or not self._path_under_any(p) or self._is_protected(p):
                 continue
             if os.path.isdir(p):
                 for root, dirs, fnames in os.walk(p):
                     # 与 _index_files 一致：跳过 DSM 系统目录与回收站
-                    dirs[:] = [d for d in dirs
-                               if not d.startswith("@") and d != "#recycle"]
+                    # 以及保护目录：不递归进去，其内部路径不会进入待删清单
+                    dirs[:] = [
+                        d for d in dirs
+                        if not d.startswith("@") and d != "#recycle"
+                        and not self._is_protected(os.path.join(root, d))
+                    ]
                     for fname in fnames:
-                        _record(os.path.join(root, fname))
+                        fpath = os.path.join(root, fname)
+                        if self._is_protected(fpath):
+                            continue
+                        _record(fpath)
             else:
                 _record(p)
         return index
@@ -3541,15 +3715,25 @@ class SeedSpaceGuard(_PluginBase):
         files: List[Tuple[float, str, int, Tuple[int, int]]] = []
         ino_paths: Dict[Tuple[int, int], List[str]] = {}
         seen_ino: set = set()
+        # 保护目录内文件的 inode：同一物理文件的其它硬链接也必须整组跳过——
+        # 只删一侧不会释放空间，反而会让「删除后空间未释放」的兜底误判停手。
+        protected_inodes = self._protected_inodes()
         for target in (self._active_dirs or self._target_dirs):
             for root, dirs, fnames in os.walk(target):
                 # 排除 DSM 系统目录（@eaDir/@tmp/@SynoFinder/@Recently-Snapshot 等）
                 # 与回收站 #recycle，避免把 0 字节系统文件纳入清理候选
-                dirs[:] = [d for d in dirs if not d.startswith("@") and d != "#recycle"]
+                # 以及保护目录：不递归进去、不纳入任何候选
+                dirs[:] = [
+                    d for d in dirs
+                    if not d.startswith("@") and d != "#recycle"
+                    and not self._is_protected(os.path.join(root, d))
+                ]
                 for fname in fnames:
                     if any(self._match_pattern(fname, pat) for pat in patterns):
                         continue
                     fpath = os.path.join(root, fname)
+                    if self._is_protected(fpath):
+                        continue
                     try:
                         # lstat：不跟随符号链接，symlink 会被下面的 S_ISREG 排除
                         st = os.lstat(fpath)
@@ -3569,6 +3753,16 @@ class SeedSpaceGuard(_PluginBase):
                         continue
                     seen_ino.add(key)
                     files.append((st.st_mtime, fpath, st.st_size, key))
+        if protected_inodes and files:
+            kept = [item for item in files if item[3] not in protected_inodes]
+            skipped = len(files) - len(kept)
+            files = kept
+            if skipped:
+                logger.info(
+                    "【保种空间守护】%d 个候选文件的 inode 同时存在于保护目录，"
+                    "已整组跳过（删除其余硬链接不会释放空间）",
+                    skipped,
+                )
         files.sort(key=lambda x: x[0])
         return files, ino_paths
 
@@ -3588,6 +3782,11 @@ class SeedSpaceGuard(_PluginBase):
         """
         removed = 0
         for path in self._ino_paths.get(key, [fpath]):
+            # 边界⓪：保护目录内的路径一律不删。放在最前面，确保后续任何
+            # 分支（含 inode 索引来自外部注入的调用）都无法绕过。
+            if self._is_protected(path):
+                logger.warning("【保种空间守护】跳过保护目录内的路径：%s", path)
+                continue
             # 边界①：必须在配置目录内
             if not self._path_under_any(path):
                 logger.warning("【保种空间守护】跳过配置目录外的路径：%s", path)
@@ -3807,8 +4006,14 @@ class SeedSpaceGuard(_PluginBase):
         if not owner:
             # 不属于任何配置目录，不动它
             return
+        if self._is_protected(start):
+            # 保护目录及其内部不允许被改动：既不清理索引残片，也不尝试 rmdir
+            return
         current = start
         while current and current != owner and current.startswith(owner + os.sep):
+            if self._is_protected(current):
+                # 向上收尾遇到保护目录即停：删除它会违背用户显式保留的要求
+                break
             # 先清 DSM 索引残片，否则仅剩 @eaDir 的目录永远无法 rmdir
             self._purge_syno_index(current)
             try:
@@ -3850,8 +4055,14 @@ class SeedSpaceGuard(_PluginBase):
         stats: Dict[str, Any] = {"dirs": 0, "checked": 0, "_lines": []}
         if not self._empty_dir_sweep:
             return stats
+        existing_protect = [d for d in self._protect_dirs if os.path.isdir(d)]
+        if existing_protect:
+            logger.info(
+                "【保种空间守护】空壳目录扫描：%d 个保护目录不参与扫描（永不清除）",
+                len(existing_protect),
+            )
         for root in (self._active_dirs or self._target_dirs):
-            if not root or not os.path.isdir(root):
+            if not root or not os.path.isdir(root) or self._is_protected(root):
                 continue
             try:
                 self._sweep_dir_tree(os.path.normpath(root), dry_run, stats, 0)
@@ -3901,6 +4112,11 @@ class SeedSpaceGuard(_PluginBase):
                     empty = False
                     continue
                 if entry.is_dir(follow_symlinks=False):
+                    if self._is_protected(entry.path):
+                        # 保护目录及其内容不参与空壳判定：视为「有内容」，
+                        # 连它的父目录也不会被当成空壳删掉
+                        empty = False
+                        continue
                     if not self._sweep_dir_tree(entry.path, dry_run, stats, depth + 1):
                         empty = False
                     continue
@@ -4115,6 +4331,8 @@ class SeedSpaceGuard(_PluginBase):
             "target_dirs": "/volume1/video/下载",
             # 兼容字段：旧版单目录配置，升级后由 init_plugin 自动迁移至 target_dirs
             "target_dir": "",
+            # 保护目录：留空 = 不做目录级保护（每行一个绝对路径）
+            "protect_dirs": "",
             "volume_path": "/volume1",
             "threshold_gb": 500,
             "recent_skip_days": 1,

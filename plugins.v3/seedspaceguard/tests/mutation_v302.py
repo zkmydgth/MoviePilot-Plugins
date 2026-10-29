@@ -115,14 +115,12 @@ DEFAULT_NEW_BOOL = (
 
 # ⑦ 索引越界保护：允许纳入配置目录外路径
 INODE_SCOPE_OLD = (
-    "        for p in paths:\n"
-    "            if not p or not self._path_under_any(p):\n"
+    "            if not p or not self._path_under_any(p) or self._is_protected(p):\n"
     "                continue\n"
     "            if os.path.isdir(p):"
 )
 INODE_SCOPE_NEW_NOCHECK = (
-    "        for p in paths:\n"
-    "            if not p:\n"
+    "            if not p or self._is_protected(p):\n"
     "                continue\n"
     "            if os.path.isdir(p):"
 )

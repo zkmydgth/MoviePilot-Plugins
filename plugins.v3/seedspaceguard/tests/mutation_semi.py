@@ -176,7 +176,11 @@ INDEX_ORPHAN_FILTER_NEW = (
 
 # ⑪ 文件级索引不跳过 DSM 系统目录（会把 @eaDir 等纳入清理）
 INDEX_SKIP_SYS_OLD = (
-    "                dirs[:] = [d for d in dirs if not d.startswith(\"@\") and d != \"#recycle\"]\n"
+    "                dirs[:] = [\n"
+    "                    d for d in dirs\n"
+    "                    if not d.startswith(\"@\") and d != \"#recycle\"\n"
+    "                    and not self._is_protected(os.path.join(root, d))\n"
+    "                ]\n"
 )
 INDEX_SKIP_SYS_NEW = (
     "                pass\n"

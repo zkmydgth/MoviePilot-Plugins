@@ -44,7 +44,8 @@ SEED_ONLY_MODELS = (
 FILE_ONLY_MODELS = ("protect_pattern",)
 # 两模式通用 / 全局（绝不能带 show，否则会被误藏）
 ALWAYS_VISIBLE_MODELS = (
-    "manual_action", "enabled", "mode", "target_dirs", "volume_path",
+    "manual_action", "enabled", "mode", "target_dirs", "protect_dirs",
+    "volume_path",
     "threshold_gb", "recent_skip_days", "cron", "sync_wait_seconds",
     "dry_run", "notify",
     "delete_torrents", "delete_history", "orphan_seed_scope",
@@ -350,7 +351,7 @@ class TestNoModelRegression(_FormBase):
     """改造不应增删任何 model。"""
 
     def test_models_unchanged(self):
-        """表单 model 集合应与登记清单一致（20 项），仅顺序与分组变化。"""
+        """表单 model 集合应与登记清单一致（21 项），仅顺序与分组变化。"""
         models = set(self._props_by_model())
         expected = set(ALWAYS_VISIBLE_MODELS) | set(SEED_ONLY_MODELS) | set(FILE_ONLY_MODELS)
         self.assertEqual(models, expected, f"model 集合发生变化：{models ^ expected}")
