@@ -3332,7 +3332,16 @@ class ConfigBackup(_PluginBase):
                 src,
                 dst,
                 ignore=shutil.ignore_patterns(
-                    "__pycache__", "*.pyc", "*.log", "temp", "cache", ".cache"
+                    "__pycache__",
+                    "*.pyc",
+                    "*.log",
+                    "temp",
+                    "cache",
+                    ".cache",
+                    # Telegram 等插件的 .session 是账号授权密钥（等同一份登录态）：
+                    # 备份包会落在共享目录并长期保留，不能把授权密钥一起打包（2026-10-30 加）
+                    "*.session",
+                    "*.session-*",
                 ),
                 dirs_exist_ok=True,
             )
