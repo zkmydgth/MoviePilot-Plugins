@@ -38,57 +38,49 @@ MUTANTS = [
     (
         "路径穿越防护移除：__resolve_backup_path 不校验文件名",
         """        safe_name = Path(filename).name
-        if safe_name != filename or not safe_name.startswith(self._prefix) \\
-                or not safe_name.endswith(".zip"):
+        if safe_name != filename or not self.__is_backup_name(safe_name):
             return None
-        bk_path = Path(self._backup_dir) if self._backup_dir else self.get_data_path()
-        return bk_path / safe_name""",
-        """        bk_path = Path(self._backup_dir) if self._backup_dir else self.get_data_path()
-        return bk_path / filename""",
+        return self.__backup_dir_path() / safe_name""",
+        """        safe_name = Path(filename).name
+        return self.__backup_dir_path() / filename""",
         "应导致 resolve 拒删测试失败（可解析出备份目录外的路径）",
     ),
     (
         "路径穿越防护放宽：只取 basename 不比对原值（../ 被静默吞噬）",
         """        safe_name = Path(filename).name
-        if safe_name != filename or not safe_name.startswith(self._prefix) \\
-                or not safe_name.endswith(".zip"):
+        if safe_name != filename or not self.__is_backup_name(safe_name):
             return None""",
         """        safe_name = Path(filename).name
-        if not safe_name.startswith(self._prefix):
+        if not self.__is_backup_name(safe_name):
             return None""",
         "应导致穿越/绝对路径测试失败",
     ),
     (
-        "路径穿越防护放宽：不再要求 .zip 后缀",
-        """        if safe_name != filename or not safe_name.startswith(self._prefix) \\
-                or not safe_name.endswith(".zip"):
-            return None""",
-        """        if safe_name != filename or not safe_name.startswith(self._prefix):
-            return None""",
+        "备份名规则放宽：不再要求 bk_ 前缀与 .zip 后缀",
+        """        return bool(_BACKUP_NAME_RE.fullmatch(str(name or "")))""",
+        """        return bool(str(name or ""))""",
         "应导致非 zip 后缀测试失败",
     ),
     (
         "api_delete 防护移除：不校验文件名直接删除",
         """        safe_name = Path(filename).name
-        if safe_name != filename or not safe_name.startswith(self._prefix) \\
-                or not safe_name.endswith(".zip"):
+        if safe_name != filename or not self.__is_backup_name(safe_name):
             return {"success": False, "message": "非法文件名", "data": None}
-        bk_path = Path(self._backup_dir) if self._backup_dir else self.get_data_path()
+        bk_path = self.__backup_dir_path()
         target = bk_path / safe_name""",
         """        safe_name = Path(filename).name
-        bk_path = Path(self._backup_dir) if self._backup_dir else self.get_data_path()
-        target = bk_path / safe_name""",
+        bk_path = self.__backup_dir_path()
+        target = bk_path / filename""",
         "应导致 delete_rejects_traversal 失败（越界删除）",
     ),
     (
         "api_restore 选择阶段防护移除：不校验文件名",
         """            safe_name = Path(filename).name
-            if safe_name != filename or not safe_name.startswith(self._prefix) \\
-                    or not safe_name.endswith(".zip"):
+            if safe_name != filename or not self.__is_backup_name(safe_name):
                 return {"success": False, "message": "非法文件名", "data": None}
             zip_path = self.__resolve_backup_path(safe_name)""",
         """            safe_name = Path(filename).name
-            zip_path = self.__resolve_backup_path(safe_name)""",
+            zip_path = self.__backup_dir_path() / safe_name""",
         # 注意：__resolve_backup_path 仍有校验，需一并拆除才测得出
         "应导致 restore_rejects_traversal 失败",
     ),
@@ -111,8 +103,8 @@ MUTANTS = [
     ),
     (
         "清理范围放宽：把非备份文件也纳入删除候选",
-        """        files = sorted(glob.glob(f"{bk_path}/{self._prefix}*.zip"), key=self.__backup_time)""",
-        """        files = sorted(glob.glob(f"{bk_path}/*"), key=self.__backup_time)""",
+        """        files = self.__iter_local_backups(bk_path)""",
+        """        files = sorted(Path(p) for p in glob.glob(f"{bk_path}/*"))""",
         "应导致 does_not_touch_non_backup_files 失败",
     ),
 
@@ -167,13 +159,12 @@ MUTANTS = [
     ),
     (
         "zip 完整性校验移除：损坏包也能进入待还原状态",
-        """            try:
-                with zipfile.ZipFile(zip_path, "r") as zf:
-                    bad = zf.testzip()
-                if bad:
-                    return {"success": False, "message": f"备份文件已损坏（{bad}）", "data": None}
-            except Exception as e:
-                return {"success": False, "message": f"无法读取备份文件: {e}", "data": None}""",
+        """            if not self.__verify_backup(zip_path):
+                return {
+                    "success": False,
+                    "message": "备份文件校验失败（可能已损坏、口令错误或包被篡改）",
+                    "data": None,
+                }""",
         """            pass""",
         "应导致 损坏包/截断包/空文件 拒绝测试失败",
     ),
@@ -208,12 +199,24 @@ MUTANTS = [
     ),
     (
         "备份目录不存在时列表报错（详情页打不开）",
-        """        result = []
-        if not bk_path.exists():
+        [
+            (
+                """        try:
+            files = list(reversed(self.__iter_local_backups(bk_path)))
+        except OSError as e:
+            logger.error(f"读取备份目录失败 {bk_path}: {e}")
             return result""",
-        """        result = []
-        if not bk_path.exists():
-            raise FileNotFoundError(f"备份目录不存在：{bk_path}")""",
+                """        files = list(reversed(self.__iter_local_backups(bk_path)))""",
+            ),
+            (
+                """        if not bk_path.exists():
+            return []
+        found: List[Path] = []""",
+                """        if False:
+            return []
+        found: List[Path] = []""",
+            ),
+        ],
         "应导致 missing_dir_lists_empty / page_still_renders 报错",
     ),
     (
@@ -276,8 +279,8 @@ MUTANTS = [
         if keep_days > 0:
             cutoff = time.time() - keep_days * 86400
             old_enough = 0
-            for f in files:
-                if self.__backup_time(f) >= cutoff:
+            for path in files:
+                if self.__backup_time(str(path)) >= cutoff:
                     break
                 old_enough += 1
             del_cnt = min(del_cnt, old_enough)""",
@@ -328,6 +331,76 @@ MUTANTS = [
         """            #: 本次勾选了哪些部分（v3.2.0 起写入；老读取方忽略即可）
             "parts": None,""",
         "应导致 test_manifest_parts_follow_canonical_order 失败",
+    ),
+
+    # ---------------- 2026-10-30 审计修复 ----------------
+    (
+        "上传不再要求加密：含 Token/Cookie 的明文包会被推到远端",
+        """        if not self.__backup_password():
+            return False, (f"本地备份已生成 {zip_file.name}（可用）；"
+                           "上传失败：未设置「备份加密口令」，拒绝把含凭据的明文包上传到远端")""",
+        """        if False:
+            return False, "skip\"""",
+        "应导致 test_upload_refuses_plaintext 失败",
+    ),
+    (
+        "远端明文包不再拒绝还原（来源无法验证）",
+        """                    if pending.get("source") == "remote" and not zip_path.name.endswith(".enc"):""",
+        """                    if False:""",
+        "应导致 远端明文包还原被拒 用例失败",
+    ),
+    (
+        "文件阶段失败不回滚：配置停在半还原状态",
+        """            file_ok, file_msgs = self.__restore_files(restore_dir, rollback)
+            msgs.extend(file_msgs)
+            if not file_ok:
+                failed = rollback.rollback()""",
+        """            file_ok, file_msgs = self.__restore_files(restore_dir, rollback)
+            msgs.extend(file_msgs)
+            if False:
+                failed = rollback.rollback()""",
+        "应导致 test_file_stage_failure_rolls_back 失败（原配置被覆盖且未恢复）",
+    ),
+    (
+        "附加路径白名单移除：包内清单可写到任意位置",
+        """                if not self.__path_allowed(target_text, roots):""",
+        """                if False:""",
+        "应导致 test_manifest_path_outside_whitelist_is_skipped 失败",
+    ),
+    (
+        "安全备份不再限制本地/不保护待还原包",
+        """                    bk_ok, bk_msg = self.__backup(
+                        notify=False, local_only=True, protect={zip_path.name}
+                    )""",
+        """                    bk_ok, bk_msg = self.__backup()""",
+        "应导致 test_safety_backup_is_local_only_and_silent 失败",
+    ),
+    (
+        "备份临时目录不清理：反复失败会把配置卷撑满",
+        """        finally:
+            shutil.rmtree(str(temp_dir), ignore_errors=True)
+            leftover = Path(str(temp_dir) + ".zip")""",
+        """        finally:
+            leftover = Path(str(temp_dir) + ".zip")""",
+        "应导致 test_failed_backup_leaves_no_temp_dir 失败",
+    ),
+    (
+        "pg_dump 不清理旧对象：还原到已有库上会撞「已存在」",
+        """            pg_dump, "--clean", "--if-exists", "--no-owner", "--no-privileges",""",
+        """            pg_dump, "--if-exists", "--no-owner", "--no-privileges",""",
+        "应导致 test_dump_uses_pg_dump_with_full_structure 失败",
+    ),
+    (
+        "还原不做结构校验：丢约束的库被当成还原成功",
+        """            text += "\\n\\n" + self.__schema_check_sql(expected) + "\\n\"""",
+        """            text += "\\n\\n" + "SELECT 1;" + "\\n\"""",
+        "应导致 test_restore_uses_single_transaction_psql 失败",
+    ),
+    (
+        "还原不是单事务：中途失败会留下半个库",
+        """                [psql, "--no-psqlrc", "--quiet", "--single-transaction",""",
+        """                [psql, "--no-psqlrc", "--quiet",""",
+        "应导致 test_restore_uses_single_transaction_psql 失败",
     ),
 ]
 

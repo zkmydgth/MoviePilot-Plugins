@@ -53,7 +53,7 @@ MUTANTS = [
     ),
     (
         "mkdir_p 幂等放宽：已存在当失败（405 不再吞掉）",
-        """                allow_status=(200, 201, 405, 301, 302),""",
+        """                allow_status=(405,),""",
         """                allow_status=(201,),""",
         "应导致 test_mkdir_p_is_idempotent 失败（第二次建目录报错）",
     ),
@@ -92,6 +92,40 @@ MUTANTS = [
         """        if code == 1401:
             return WebDAVError(f"{action}失败：认证失败（401），请检查用户名与密码/应用密码")""",
         "应导致 test_wrong_password_is_reported 失败（用户看不懂错在哪）",
+    ),
+
+    # ---------------- 2026-10-30 审计修复 ----------------
+    (
+        "明文 HTTP 不再拦截：Basic 密码直接暴露在网络上",
+        """        if parts.scheme == "http" and not allow_http and host not in _LOOPBACK_HOSTS:""",
+        """        if False:""",
+        "应导致 test_plain_http_outside_loopback_rejected 失败",
+    ),
+    (
+        "路径穿越防护移除：.. 片段可越权读写",
+        """        if any(s == ".." for s in segments):
+            raise WebDAVError("WebDAV 路径非法：不允许包含 .. 片段")""",
+        """        if False:
+            raise WebDAVError("WebDAV 路径非法：不允许包含 .. 片段")""",
+        "应导致 test_dotdot_paths_rejected 失败",
+    ),
+    (
+        "下载直写目标文件：半包会把本地可用备份截断",
+        """        part = local_path.with_name(local_path.name + ".part")""",
+        """        part = local_path""",
+        "应导致 test_incomplete_download_keeps_previous_file 失败",
+    ),
+    (
+        "下载不校验长度：半包被当成完整备份",
+        """            if expected and written != expected:""",
+        """            if False:""",
+        "应导致 test_incomplete_download_keeps_previous_file 失败",
+    ),
+    (
+        "上传不回读长度：截断上传被当成成功",
+        """        if remote_size and remote_size != size:""",
+        """        if False:""",
+        "应导致 test_upload_length_verify_catches_truncation 失败",
     ),
 ]
 

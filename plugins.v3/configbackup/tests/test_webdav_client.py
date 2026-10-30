@@ -49,8 +49,11 @@ class _FakeWebDAVHandler(http.server.BaseHTTPRequestHandler):
     ns = "D"                          # 命名空间前缀（可换成任何前缀验证 local-name 匹配）
     propfind_status = None            # 非 None 时 PROPFIND 直接回该状态码（模拟非 WebDAV / 5xx）
     propfind_delay = 0.0
+    put_store_short = 0               # >0 时 PUT 少存这么多字节（模拟上传被截断）
+    get_extra_length = 0              # >0 时 GET 虚报更多长度（模拟下载不完整）
     seen: list = []                   # [(method, path)]，用于断言客户端发了什么
     last_headers: dict = {}
+    put_headers: dict = {}            # 最近一次 PUT 的请求头（上传后再 HEAD 不会覆盖它）
 
     # ------------------------------------------------------------------
     def log_message(self, *args):      # pragma: no cover - 静音
@@ -116,14 +119,30 @@ class _FakeWebDAVHandler(http.server.BaseHTTPRequestHandler):
     def do_PUT(self):
         """上传：按 Content-Length 读取；缺该头说明客户端用了 chunked。"""
         self._record()
+        type(self).put_headers = {k.lower(): v for k, v in self.headers.items()}
         if self._reject():
             return
         length = int(self.headers.get("Content-Length") or 0)
         body = self.rfile.read(length) if length else b""
+        if self.put_store_short and len(body) >= self.put_store_short:
+            body = body[: -self.put_store_short]
         target = self._local()
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(body)
         self._send(201)
+
+    def do_HEAD(self):
+        """读取远端长度：存在回 200 + Content-Length，缺失回 404。"""
+        self._record()
+        if self._reject():
+            return
+        target = self._local()
+        if not target.is_file():
+            self._send(404)
+            return
+        self.send_response(200)
+        self.send_header("Content-Length", str(target.stat().st_size))
+        self.end_headers()
 
     def do_GET(self):
         """下载。"""
@@ -134,7 +153,12 @@ class _FakeWebDAVHandler(http.server.BaseHTTPRequestHandler):
         if not target.is_file():
             self._send(404)
             return
-        self._send(200, target.read_bytes(), "application/octet-stream")
+        data = target.read_bytes()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/octet-stream")
+        self.send_header("Content-Length", str(len(data) + self.get_extra_length))
+        self.end_headers()
+        self.wfile.write(data)
 
     def do_DELETE(self):
         """删除：缺失回 404。"""
@@ -204,7 +228,8 @@ class _FakeDAVServer:
         handler = type("_Handler", (_FakeWebDAVHandler,), {
             "root": root, "username": username, "password": password,
             "ns": "D", "propfind_status": None, "propfind_delay": 0.0,
-            "seen": [], "last_headers": {},
+            "put_store_short": 0, "get_extra_length": 0,
+            "seen": [], "last_headers": {}, "put_headers": {},
         })
         self.httpd = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
         self.handler = handler
@@ -337,7 +362,7 @@ class TestUploadDownload(_WebDAVBase):
 
         self.client.upload(src, "big.zip")
 
-        headers = self.server.handler.last_headers
+        headers = self.server.handler.put_headers
         self.assertEqual(headers.get("content-length"), str(512 * 1024))
         self.assertNotIn("transfer-encoding", headers)
         self.assertEqual((self.root / "big.zip").stat().st_size, 512 * 1024)
@@ -420,6 +445,64 @@ class TestDelete(_WebDAVBase):
     def test_delete_missing_is_idempotent(self):
         """删不存在的文件（远端已被清掉）：不得报错。"""
         self.client.delete("never-existed.zip")
+
+
+class TestTransferSafety(_WebDAVBase):
+    """传输安全：明文凭据、路径穿越、半包不覆盖本地可用备份。"""
+
+    def test_plain_http_outside_loopback_rejected(self):
+        """非回环的明文 HTTP 必须拒绝：Basic 密码会明文暴露。"""
+        with self.assertRaises(WebDAVError) as ctx:
+            WebDAVClient("http://dav.example.com/dav", "u", "p")
+        self.assertIn("HTTPS", str(ctx.exception))
+
+    def test_allow_http_flag_permits_plain_http(self):
+        """内网自建网盘可显式放行明文 HTTP。"""
+        client = WebDAVClient(
+            "http://dav.example.com/dav", "u", "p", allow_http=True
+        )
+        self.assertEqual(client._scheme, "http")
+
+    def test_dotdot_paths_rejected(self):
+        """远端路径不允许 .. 片段（防越权读写）。"""
+        src = Path(self._tmp.name) / "x.zip"
+        src.write_bytes(b"x")
+        for call in (
+            lambda: self.client.upload(src, "../escape.zip"),
+            lambda: self.client.delete("../../other.zip"),
+            lambda: self.client.list_dir("../"),
+        ):
+            with self.subTest(call=call):
+                with self.assertRaises(WebDAVError) as ctx:
+                    call()
+                self.assertIn("..", str(ctx.exception))
+        self.assertFalse((self.root.parent / "escape.zip").exists())
+
+    def test_incomplete_download_keeps_previous_file(self):
+        """下载不完整时：旧文件保持原样，且不留 .part 半包。"""
+        target = Path(self._tmp.name) / "local" / "bk_20260101000000.zip"
+        target.parent.mkdir(parents=True)
+        target.write_bytes(b"precious-old-backup")
+        (self.root / "bk_20260101000000.zip").write_bytes(b"new-content")
+        self.server.handler.get_extra_length = 50
+
+        with self.assertRaises(WebDAVError) as ctx:
+            self.client.download("bk_20260101000000.zip", target)
+
+        self.assertIn("长度", str(ctx.exception))
+        self.assertEqual(target.read_bytes(), b"precious-old-backup")
+        self.assertFalse(target.with_name(target.name + ".part").exists())
+
+    def test_upload_length_verify_catches_truncation(self):
+        """服务端少存了字节：上传后回读长度校验必须报错。"""
+        src = Path(self._tmp.name) / "bk_upload.zip"
+        src.write_bytes(b"y" * 4096)
+        self.server.handler.put_store_short = 100
+
+        with self.assertRaises(WebDAVError) as ctx:
+            self.client.upload(src, "bk_upload.zip")
+
+        self.assertIn("长度校验不一致", str(ctx.exception))
 
 
 if __name__ == "__main__":

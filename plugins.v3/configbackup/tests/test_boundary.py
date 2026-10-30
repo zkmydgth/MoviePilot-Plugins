@@ -27,7 +27,6 @@
 import json
 import os
 import shutil
-import sys
 import tempfile
 import unittest
 import zipfile
@@ -460,6 +459,22 @@ class TestBackupDirFailure(_BoundaryBase):
 
         self.assertIsInstance(page, list)
         self.assertTrue(page)
+
+    def test_unreadable_dir_lists_empty_without_raising(self):
+        """
+        目录存在但读不了（权限/挂载异常）时，列表接口仍要返回成功。
+
+        与「目录不存在」不同：不存在时 glob 天然返回空，测不出防护；
+        真正会把详情页打挂的是 OSError（权限不足、远端挂载掉线）。
+        """
+        with mock.patch.object(
+            ConfigBackup, "_ConfigBackup__iter_local_backups",
+            side_effect=PermissionError("拒绝访问"),
+        ):
+            result = self.plugin.api_list()
+
+        self.assertTrue(result.get("success"), result)
+        self.assertEqual(result.get("data"), [], "读不了目录时应降级为空列表")
 
     def test_dir_replaced_by_file_fails_gracefully(self):
         """备份路径被普通文件占用：应返回失败信息而非抛异常。"""

@@ -24,7 +24,6 @@ WebDAV 备份闭环集成测试（v3.2.0 模块 B）：上传 → 远端列表 �
 9. 测试连接接口：未配置地址 / 正常连通 / 认证失败
 """
 
-import shutil
 import unittest
 import zipfile
 from pathlib import Path
@@ -71,6 +70,8 @@ class _RemoteBackupBase(_BoundaryBase):
         self.plugin._webdav_keep = ""
         self.plugin._webdav_timeout = 20
         self.plugin._keep_days = 0          # 默认只看份数，按需在用例里改
+        # 上传要求加密：给一个测试口令，备份包为 .zip.enc
+        self.plugin._encrypt_pass = "test-encrypt-pass-2026"
 
     # ------------------------------------------------------------------
     @property
@@ -86,8 +87,11 @@ class _RemoteBackupBase(_BoundaryBase):
             return self.plugin._ConfigBackup__run_backup()
 
     def local_packages(self):
-        """本地备份包列表。"""
-        return sorted(Path(self.backup_dir).glob(f"{ConfigBackup._prefix}*.zip"))
+        """本地备份包列表（明文与加密两种）。"""
+        return sorted(
+            p for p in Path(self.backup_dir).glob(f"{ConfigBackup._prefix}*")
+            if p.name.endswith((".zip", ".zip.enc"))
+        )
 
     def make_remote_package(self, stamp: str, payload: bytes = b"remote") -> Path:
         """在远端造一个合法备份包（bk_<时间戳>.zip）。"""
@@ -108,7 +112,10 @@ class TestUploadOnBackup(_RemoteBackupBase):
 
         self.assertTrue(ok, msg)
         self.assertIn("已上传到 WebDAV", msg)
-        remote = sorted(self.remote_dir.glob(f"{ConfigBackup._prefix}*.zip"))
+        remote = sorted(
+            p for p in self.remote_dir.glob(f"{ConfigBackup._prefix}*")
+            if p.name.endswith((".zip", ".zip.enc"))
+        )
         self.assertEqual(len(remote), 1, f"远端应有 1 个包，实际：{remote}")
         self.assertEqual(
             remote[0].read_bytes(), self.local_packages()[0].read_bytes(),
@@ -153,8 +160,11 @@ class TestRemoteCleanup(_RemoteBackupBase):
 
         self.assertTrue(ok, msg)
         self.assertIn("远端清理旧备份 1 份", msg)
-        names = sorted(p.name for p in self.remote_dir.glob("bk_*.zip"))
-        self.assertNotIn(f"{ConfigBackup._prefix}20260101000000.zip", names, "最旧的应被删")
+        names = sorted(
+            p.name for p in self.remote_dir.glob("bk_*")
+            if p.name.endswith((".zip", ".zip.enc"))
+        )
+        self.assertNotIn(f"{ConfigBackup._prefix}20260101000000.zip.enc", names, "最旧的应被删")
         self.assertEqual(len(names), 2)
 
     def test_keep_days_protects_recent(self):
@@ -168,7 +178,10 @@ class TestRemoteCleanup(_RemoteBackupBase):
 
         self.assertTrue(ok, msg)
         self.assertNotIn("远端清理", msg)
-        self.assertEqual(len(list(self.remote_dir.glob("bk_*.zip"))), 3)
+        self.assertEqual(len([
+            p for p in self.remote_dir.glob("bk_*")
+            if p.name.endswith((".zip", ".zip.enc"))
+        ]), 3)
 
     def test_unrelated_remote_files_untouched(self):
         """远端同目录里用户的其它文件必须原样保留（不能被当备份删掉）。"""
@@ -230,6 +243,18 @@ class TestDownload(_RemoteBackupBase):
                 result = self.plugin.api_webdav_download(filename=bad)
                 self.assertFalse(result["success"], f"{bad} 应被拒绝")
 
+    def test_download_refuses_to_overwrite_local_package(self):
+        """本地已有同名包时拒绝下载：那份可能是唯一可用的备份。"""
+        remote = self.make_remote_package("20260101000000")
+        local = Path(self.backup_dir) / remote.name
+        local.write_bytes(b"local-only-copy")
+
+        result = self.plugin.api_webdav_download(filename=remote.name)
+
+        self.assertFalse(result["success"], result["message"])
+        self.assertIn("同名", result["message"])
+        self.assertEqual(local.read_bytes(), b"local-only-copy")
+
     def test_missing_remote_package_reports_error(self):
         """远端没有这个包：报 404，不产生本地残留。"""
         result = self.plugin.api_webdav_download(filename=f"{ConfigBackup._prefix}20260101000000.zip")
@@ -262,6 +287,20 @@ class TestDownloadAndRestore(_RemoteBackupBase):
 
         self.assertFalse(result["success"])
         self.assertIsNone(self.get_pending())
+
+    def test_remote_plaintext_package_refused_on_confirm(self):
+        """远端下载的明文包无法验证来源：确认还原时拒绝，且不执行还原。"""
+        remote = self.make_remote_package("20260101000000")
+        select = self.plugin.api_webdav_restore(filename=remote.name)
+        self.assertTrue(select["success"], select["message"])
+
+        with mock.patch.object(ConfigBackup, "_ConfigBackup__restore") as restore:
+            result = self.plugin.api_webdav_restore(confirm="1")
+
+        self.assertFalse(result["success"])
+        self.assertIn("未加密", result["message"])
+        self.assertFalse(restore.called, "来源不明的明文包不得执行还原")
+        self.assertIsNone(self.get_pending(), "拒绝后应清除待确认状态")
 
 
 class TestRemoteListing(_RemoteBackupBase):

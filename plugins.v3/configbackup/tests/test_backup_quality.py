@@ -381,14 +381,16 @@ class TestSqliteWal(_BoundaryBase):
         self.assertTrue(ck.called, "未 checkpoint 就复制 user.db 会拿到不完整快照")
 
     def test_restore_clears_stale_wal(self):
-        """还原前应清掉目标端残留的 -wal/-shm，否则旧 WAL 会与新主库冲突。"""
+        """还原 user.db 前应清掉目标端残留的 -wal/-shm，否则旧 WAL 会与新主库冲突。"""
         cfg = Path(self.base) / "cfg"
         cfg.mkdir()
+        (cfg / "user.db").write_bytes(b"old")
         (cfg / "user.db-wal").write_bytes(b"stale")
         (cfg / "user.db-shm").write_bytes(b"stale")
 
         zip_path = Path(self.backup_dir) / "bk_20260918000000.zip"
         with zipfile.ZipFile(zip_path, "w") as zf:
+            zf.writestr("user.db", b"new-db")
             zf.writestr("category.yaml", "x: 1")
 
         with mock.patch.object(settings, "CONFIG_PATH", str(cfg)):
@@ -397,6 +399,23 @@ class TestSqliteWal(_BoundaryBase):
         self.assertTrue(ok, msg)
         self.assertFalse((cfg / "user.db-wal").exists(), "残留 WAL 必须清除")
         self.assertFalse((cfg / "user.db-shm").exists(), "残留 SHM 必须清除")
+        self.assertEqual((cfg / "user.db").read_bytes(), b"new-db")
+
+    def test_restore_keeps_wal_when_package_has_no_database(self):
+        """包内没有 user.db 时不得动现有 WAL：它是当前库已提交但未落盘的事务。"""
+        cfg = Path(self.base) / "cfg"
+        cfg.mkdir()
+        (cfg / "user.db-wal").write_bytes(b"stale")
+
+        zip_path = Path(self.backup_dir) / "bk_20260918000001.zip"
+        with zipfile.ZipFile(zip_path, "w") as zf:
+            zf.writestr("category.yaml", "x: 1")
+
+        with mock.patch.object(settings, "CONFIG_PATH", str(cfg)):
+            ok, msg = self.plugin._ConfigBackup__restore(zip_path)
+
+        self.assertTrue(ok, msg)
+        self.assertTrue((cfg / "user.db-wal").exists(), "未还原数据库时不应丢弃现有 WAL")
 
 
 class TestBackupConcurrency(_BoundaryBase):
