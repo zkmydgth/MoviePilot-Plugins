@@ -201,19 +201,65 @@ class VarietyGuardTestCase(unittest.TestCase):
         records = self.plugin.get_data("records")
         self.assertEqual(records[0]["keyword"], "先导")
         self.assertTrue(records[0]["applied"])
+        self.assertEqual(records[0]["scope"], "all")
 
-    def test_notify_only_when_disabled(self):
-        """通知开关关闭时不发送消息。"""
+    def test_partial_skip_respects_notify_switch(self):
+        """部分跳过时遵守通知开关：关闭则不发送。"""
         self._enable()
-        self._plan(FakeMedia(), [("现在就出发.先导片.S04E01.mkv", "/dl/x/先导片.mkv")])
+        self._plan(
+            FakeMedia(),
+            [
+                ("现在就出发.先导片.S04E01.mkv", "/dl/x/先导片.mkv"),
+                ("现在就出发.S04E02.mkv", "/dl/x/正片.mkv"),
+            ],
+        )
         self.assertEqual(self.plugin.sent_messages, [])
 
     def test_notify_when_enabled(self):
         """通知开关打开时发送一条跳过消息。"""
         self._enable(notify=True)
-        self._plan(FakeMedia(), [("现在就出发.先导片.S04E01.mkv", "/dl/x/先导片.mkv")])
+        self._plan(
+            FakeMedia(),
+            [
+                ("现在就出发.先导片.S04E01.mkv", "/dl/x/先导片.mkv"),
+                ("现在就出发.S04E02.mkv", "/dl/x/正片.mkv"),
+            ],
+        )
         self.assertEqual(len(self.plugin.sent_messages), 1)
         self.assertIn("跳过", self.plugin.sent_messages[0]["title"])
+
+    def test_full_skip_notifies_even_when_switch_off(self):
+        """整季整体跳过必须发通知（即使通知开关关闭），并单独计数。"""
+        self._enable()
+        checkpoint = self._plan(
+            FakeMedia(),
+            [
+                ("现在就出发.先导片.S04E01.mkv", "/dl/x/先导片.mkv"),
+                ("现在就出发.纯享.S04E01.mkv", "/dl/x/纯享.mkv"),
+            ],
+        )
+        self.assertEqual(checkpoint.items, ())
+        self.assertEqual(len(self.plugin.sent_messages), 1)
+        self.assertIn("整季", self.plugin.sent_messages[0]["title"])
+        stats = self.plugin.get_data("stats")
+        self.assertEqual(stats["full_skip_runs"], 1)
+        self.assertEqual(stats["total_skipped"], 2)
+        records = self.plugin.get_data("records")
+        self.assertTrue(all(record["scope"] == "all" for record in records))
+
+    def test_dry_run_counted_separately(self):
+        """试运行命中不计入「累计跳过」，单独计数。"""
+        self._enable(dry_run=True)
+        self._plan(
+            FakeMedia(),
+            [
+                ("现在就出发.先导片.S04E01.mkv", "/dl/x/先导片.mkv"),
+                ("现在就出发.S04E02.mkv", "/dl/x/正片.mkv"),
+            ],
+        )
+        stats = self.plugin.get_data("stats")
+        self.assertEqual(stats.get("total_dry_run_hits"), 1)
+        self.assertNotIn("total_skipped", stats)
 
     # ---------------- D. 安全边界 ----------------
 
@@ -295,6 +341,47 @@ class VarietyGuardTestCase(unittest.TestCase):
         filtered = self._plan(FakeMedia(), [("现在就出发.先导片.S04E01.mkv", "/dl/x/先导片.mkv")])
         self.assertEqual(len(raw.items), 1)
         self.assertEqual(filtered.items, ())
+
+    def test_patch_does_not_strip_foreign_wrapper(self):
+        """顶层是别的插件的包装时：不得摘掉它，且停用后本插件不再过滤。"""
+        host_original = stub_transhandler.TransHandler.plan_transfer
+        self._enable()
+        ours = stub_transhandler.TransHandler.plan_transfer
+
+        def foreign(handler_self, *args, **kwargs):
+            """模拟另一个插件的闭包式包装。"""
+            return ours(handler_self, *args, **kwargs)
+
+        stub_transhandler.TransHandler.plan_transfer = foreign
+        try:
+            self.plugin.stop_service()
+            self.assertIs(stub_transhandler.TransHandler.plan_transfer, foreign)
+            self.assertEqual(self.plugin._patch_state, "foreign")
+            # 补丁层虽在链上，但停用开关让它失效
+            checkpoint = self._plan(
+                FakeMedia(), [("现在就出发.先导片.S04E01.mkv", "/dl/x/先导片.mkv")]
+            )
+            self.assertEqual(len(checkpoint.items), 1)
+        finally:
+            stub_transhandler.TransHandler.plan_transfer = host_original
+
+    def test_stacked_own_layers_unwound_together(self):
+        """模拟旧实例残留：本插件多层包装应一次摘干净，回到宿主原方法。"""
+        original = stub_transhandler.TransHandler.plan_transfer
+        self._enable()
+        first_layer = stub_transhandler.TransHandler.plan_transfer
+
+        def second_layer(handler_self, *args, **kwargs):
+            """伪造旧实例留下的第二层包装（同样带本插件身份标记）。"""
+            return first_layer(handler_self, *args, **kwargs)
+
+        setattr(second_layer, "__varietyguard_layer__", "varietyguard")
+        setattr(second_layer, "__varietyguard_original__", first_layer)
+        stub_transhandler.TransHandler.plan_transfer = second_layer
+
+        self.plugin.stop_service()
+        self.assertIs(stub_transhandler.TransHandler.plan_transfer, original)
+        self.assertEqual(self.plugin._patch_state, "")
 
     def test_form_and_page_shapes(self):
         """配置表单与详情页结构可渲染（hint 布尔、无「使用说明」组标题）。"""
@@ -399,38 +486,52 @@ class VarietyGuardTestCase(unittest.TestCase):
         self.assertEqual(checkpoint.items, ())
 
     def test_default_keyword_list_integrity(self):
-        """默认词表：61 项、无重复、全部合法正则；ASCII 项带词边界（E00/EP00 例外）、中文项不带。"""
-        from varietyguard import DEFAULT_EXCLUDE_KEYWORDS
+        """默认词表：强词 40 + 零集号 2、歧义词 21，无重复且全部是合法正则。"""
+        from varietyguard import (
+            DEFAULT_AMBIGUOUS_KEYWORDS,
+            DEFAULT_EXCLUDE_KEYWORDS,
+            _ZERO_EPISODE_PATTERNS,
+        )
 
-        self.assertEqual(len(DEFAULT_EXCLUDE_KEYWORDS), 61)
-        self.assertEqual(len(set(DEFAULT_EXCLUDE_KEYWORDS)), 61)
-        for pattern in DEFAULT_EXCLUDE_KEYWORDS:
+        zero_markers = [p for p in DEFAULT_EXCLUDE_KEYWORDS if p in _ZERO_EPISODE_PATTERNS]
+        strong_words = [p for p in DEFAULT_EXCLUDE_KEYWORDS if p not in _ZERO_EPISODE_PATTERNS]
+        self.assertEqual(len(zero_markers), 2)
+        self.assertEqual(len(strong_words), 40)
+        self.assertEqual(len(DEFAULT_AMBIGUOUS_KEYWORDS), 21)
+        self.assertEqual(len(set(DEFAULT_EXCLUDE_KEYWORDS)), 42)
+        self.assertEqual(len(set(DEFAULT_AMBIGUOUS_KEYWORDS)), 21)
+        for pattern in DEFAULT_EXCLUDE_KEYWORDS + DEFAULT_AMBIGUOUS_KEYWORDS:
             re.compile(pattern)  # 非法正则会直接抛错
-        chinese_items = [w for w in DEFAULT_EXCLUDE_KEYWORDS if not w.isascii()]
-        ascii_items = [w for w in DEFAULT_EXCLUDE_KEYWORDS if w.isascii()]
-        self.assertEqual(len(chinese_items) + len(ascii_items), 61)
-        # v1.0.7：与「中文 35 + 英文/数字 26」分组一致，且并入 Before
-        self.assertEqual(len(chinese_items), 35)
-        self.assertEqual(len(ascii_items), 26)
-        self.assertIn("(?<![A-Za-z])Before(?![A-Za-z])", DEFAULT_EXCLUDE_KEYWORDS)
-        self.assertIn("独家", DEFAULT_EXCLUDE_KEYWORDS)
-        for item in ascii_items:
-            if item in {"E00", "EP00"}:
-                continue  # 这两条按设计不加词边界（见 test_bare_episode_zero_keywords）
-            self.assertTrue(item.startswith("(?<!"), f"{item} 缺少左词边界")
-        for item in chinese_items:
-            self.assertFalse(item.startswith("(?<!"), f"{item} 中文词不应加词边界")
 
-    def test_bare_episode_zero_keywords(self):
-        """E00 / EP00 刻意不加词边界：能命中 S01E00、S01E0012、EP00 这类串。"""
+        for item in strong_words + list(DEFAULT_AMBIGUOUS_KEYWORDS):
+            if not item.isascii():
+                self.assertFalse(item.startswith("(?<!"), f"{item} 中文词不应加词边界")
+            else:
+                self.assertTrue(item.startswith("(?<!"), f"{item} 缺少左词边界")
+        # 两档不得重叠：同一个词不能既是强词又是歧义词
+        self.assertFalse(set(DEFAULT_EXCLUDE_KEYWORDS) & set(DEFAULT_AMBIGUOUS_KEYWORDS))
+        self.assertIn("(?<![A-Za-z])Before(?![A-Za-z])", DEFAULT_EXCLUDE_KEYWORDS)
+        self.assertIn("巅峰", DEFAULT_AMBIGUOUS_KEYWORDS)
+        self.assertIn("独家", DEFAULT_AMBIGUOUS_KEYWORDS)
+        self.assertIn("直播", DEFAULT_EXCLUDE_KEYWORDS)
+
+    def test_zero_episode_markers_only_match_zero_episode(self):
+        """零集号标记只认 E00/E000/EP00，不得再命中 S04E0012、S01E0050 这类四位集号。"""
         from varietyguard import DEFAULT_EXCLUDE_KEYWORDS
 
         plugin = VarietyGuard()
-        self.assertIn("E00", DEFAULT_EXCLUDE_KEYWORDS)
-        self.assertIn("EP00", DEFAULT_EXCLUDE_KEYWORDS)
-        for name in ("Show.S01E00.mkv", "Show.S01E0012.mkv", "Show.EP00.mkv"):
+        for name in ("Show.S01E00.mkv", "Show.EP00.mkv", "Show.S01E000.mkv"):
             self.assertIsNotNone(
                 plugin._match_first(DEFAULT_EXCLUDE_KEYWORDS, name), f"{name} 应命中"
+            )
+        for name in (
+            "现在就出发.S04E0012.2160p.mkv",
+            "现在就出发.S01E0050.2160p.mkv",
+            "现在就出发.S01E10.2160p.mkv",
+            "现在就出发.EP008.2160p.mkv",
+        ):
+            self.assertIsNone(
+                plugin._match_first(DEFAULT_EXCLUDE_KEYWORDS, name), f"{name} 不应命中"
             )
 
     def test_added_markers_hit_real_non_main(self):
@@ -459,8 +560,8 @@ class VarietyGuardTestCase(unittest.TestCase):
             # S03 观众站 ADWeb 五类命名
             "现在就出发.直播.Natural.High.S03E03.Live.2025-ADWeb.mp4",
             "现在就出发.直拍.Natural.High.S03E28.Fancam.2025-ADWeb.mp4",
-            # 只写英文标签、无中文词的变体（原词表会漏）
-            "现在就出发.Natural.High.S03E01.Live.2025-ADWeb.mp4",
+            # 只写英文标签、无中文词的变体（原词表会漏；Live 已降为歧义词，见
+            # test_ambiguous_live_keeps_numbered_episode）
             "现在就出发.Natural.High.S03E01.Pilot.2025-ADWeb.mp4",
             "现在就出发.Natural.High.S03E01.Fancam.2025-ADWeb.mp4",
             # 其余中文衍生词
@@ -541,17 +642,101 @@ class VarietyGuardTestCase(unittest.TestCase):
             )
 
     def test_default_keywords_still_catch_real_non_main(self):
-        """默认词表：中文非正片词（含本次新增）仍必须命中。"""
-        from varietyguard import DEFAULT_EXCLUDE_KEYWORDS
+        """默认词表：中文强词命中即跳过；中文歧义词命中歧义档（还要看集号）。"""
+        from varietyguard import DEFAULT_AMBIGUOUS_KEYWORDS, DEFAULT_EXCLUDE_KEYWORDS
 
         plugin = VarietyGuard()
-        for name in ("现在就出发.先导片.S04E01.mkv", "现在就出发.花絮.S04E01.mkv",
-                     "现在就出发.纯享版.S04E01.mkv", "现在就出发.巅峰.S04E01.mkv",
-                     "现在就出发.盛典.S04E01.mkv", "现在就出发.独家.S04E01.mkv",
-                     "现在就出发.未播.S04E01.mkv", "现在就出发.加更.S04E01.mkv"):
+        for name in (
+            "现在就出发.先导片.S04E01.mkv",
+            "现在就出发.花絮.S04E01.mkv",
+            "现在就出发.纯享版.S04E01.mkv",
+            "现在就出发.未播.S04E01.mkv",
+            "现在就出发.加更.S04E01.mkv",
+        ):
             self.assertIsNotNone(
-                plugin._match_first(DEFAULT_EXCLUDE_KEYWORDS, name), f"{name} 应命中"
+                plugin._match_first(DEFAULT_EXCLUDE_KEYWORDS, name), f"{name} 应命中强词"
             )
+        for name in (
+            "现在就出发.巅峰.S04E01.mkv",
+            "现在就出发.盛典.S04E01.mkv",
+            "现在就出发.独家.S04E01.mkv",
+        ):
+            self.assertIsNone(plugin._match_first(DEFAULT_EXCLUDE_KEYWORDS, name))
+            self.assertIsNotNone(
+                plugin._match_first(DEFAULT_AMBIGUOUS_KEYWORDS, name),
+                f"{name} 应命中歧义词",
+            )
+
+    # ---------------- B2. 歧义词分档（v1.1.0） ----------------
+
+    def test_ambiguous_live_keeps_numbered_episode(self):
+        """歧义词 + 集号证据 = 正片：`…第3期.Live…` 必须保留并单独计数。"""
+        self._enable()
+        checkpoint = self._plan(
+            FakeMedia(),
+            [
+                ("我们的歌.第六季.第3期.Live.2160p.mp4", "/dl/我们的歌/第3期.mp4"),
+                ("现在就出发.S04E05.巅峰对决.Battle.2160p.mkv", "/dl/x/E05.mkv"),
+            ],
+        )
+        self.assertEqual(len(checkpoint.items), 2)
+        self.assertIsNone(checkpoint.skip_reason)
+        stats = self.plugin.get_data("stats")
+        self.assertEqual(stats["kept_numbered"], 2)
+        self.assertIn("(?<![A-Za-z])Live(?![A-Za-z])", stats["kept_numbered_by_keyword"])
+        self.assertIn("巅峰", stats["kept_numbered_by_keyword"])
+        self.assertEqual(self.plugin.get_data("records"), None)
+
+    def test_ambiguous_without_episode_evidence_is_skipped(self):
+        """歧义词但没有集号/日期证据：按衍生内容跳过。"""
+        self._enable()
+        checkpoint = self._plan(
+            FakeMedia(),
+            [
+                ("现在就出发.巅峰对决.2160p.mkv", "/dl/x/巅峰对决.mkv"),
+                ("现在就出发.S04E02.mkv", "/dl/x/E02.mkv"),
+            ],
+        )
+        self.assertEqual(
+            [item.source_fileitem["name"] for item in checkpoint.items],
+            ["现在就出发.S04E02.mkv"],
+        )
+        self.assertEqual(self.plugin.get_data("stats")["by_keyword"]["巅峰"], 1)
+
+    def test_keep_numbered_switch_off_restores_old_behaviour(self):
+        """关闭「歧义词遇集号保留」：歧义词命中即跳过（旧行为）。"""
+        self._enable(keep_numbered=False)
+        checkpoint = self._plan(
+            FakeMedia(),
+            [
+                ("现在就出发.S04E05.巅峰对决.Battle.2160p.mkv", "/dl/x/E05.mkv"),
+                ("现在就出发.S04E06.mkv", "/dl/x/E06.mkv"),
+            ],
+        )
+        self.assertEqual(
+            [item.source_fileitem["name"] for item in checkpoint.items],
+            ["现在就出发.S04E06.mkv"],
+        )
+
+    def test_legacy_zero_episode_literal_migrated(self):
+        """旧配置里的字面量 E00 / EP00 在加载时迁移成零集号正则。"""
+        plugin = self._enable(exclude_keywords="先导\nE00\nEP00")
+        from varietyguard import _ZERO_EPISODE_PATTERNS
+
+        self.assertEqual(set(plugin._exclude_keywords), {"先导", *_ZERO_EPISODE_PATTERNS})
+        checkpoint = self._plan(
+            FakeMedia(), [("现在就出发.S04E0050.mkv", "/dl/x/E0050.mkv")]
+        )
+        self.assertEqual(len(checkpoint.items), 1)
+
+    def test_legacy_ambiguous_word_downgraded_on_load(self):
+        """旧配置（单档）里与内置歧义词同名的条目，加载时自动降为歧义档。"""
+        plugin = self._enable(
+            exclude_keywords="先导\n(?<![A-Za-z])Live(?![A-Za-z])\n巅峰"
+        )
+        self.assertEqual(plugin._exclude_keywords, ["先导"])
+        self.assertIn("巅峰", plugin._ambiguous_keywords)
+        self.assertIn("(?<![A-Za-z])Live(?![A-Za-z])", plugin._ambiguous_keywords)
 
     def test_checkpoint_items_not_iterator(self):
         """items 为空元组时原样返回（不误判成需要过滤）。"""
@@ -566,7 +751,7 @@ class VarietyGuardTestCase(unittest.TestCase):
     # ---------------- E. 词表同步（可选能力） ----------------
 
     def test_rule_sync_mirrors_keywords_into_rule(self):
-        """填了 sync_rule_id：词表被整条镜像写入目标规则，并留档同步记录。"""
+        """填了 sync_rule_id：强词写入目标规则，外部条目原样保留，并留档同步记录。"""
         stub_rules.RULES[:] = [{"id": "RULE4", "name": "排除综艺非正片", "exclude": "旧词|Plus"}]
         stub_configuration.SERVICE.writes.clear()
         stub_scheduler.JOBS.clear()
@@ -579,12 +764,77 @@ class VarietyGuardTestCase(unittest.TestCase):
         key, value = stub_configuration.SERVICE.writes[0]
         self.assertEqual(key, SystemConfigKey.CustomFilterRules)
         mirror = next(rule for rule in value if rule["id"] == "RULE4")
-        self.assertEqual(mirror["exclude"], "|".join(self.plugin._exclude_keywords))
+        # 用户手工加的「旧词」不是本插件的词，必须留在最前面
+        self.assertEqual(
+            mirror["exclude"], "旧词|" + "|".join(self.plugin._exclude_keywords)
+        )
         record = self.plugin.get_data("rule_sync")
         self.assertEqual(record["rule_id"], "RULE4")
         self.assertEqual(record["count"], len(self.plugin._exclude_keywords))
         self.assertIn("直播", record["added"])
-        self.assertIn("旧词", record["removed"])
+        self.assertEqual(record["foreign_kept"], ["旧词"])
+        self.assertNotIn("旧词", record["removed"])
+        self.assertEqual(record["desired"], "|".join(self.plugin._exclude_keywords))
+
+    def test_rule_sync_only_writes_strong_words(self):
+        """歧义词不写进规则：规则层无法表达「带集号保留」。"""
+        stub_rules.RULES[:] = [{"id": "RULE4", "name": "排除综艺非正片", "exclude": ""}]
+        stub_configuration.SERVICE.writes.clear()
+        self._enable(enabled=False, sync_rule_id="RULE4", exclude_keywords=None)
+        asyncio.run(self.plugin._sync_rule_keywords())
+        _key, value = stub_configuration.SERVICE.writes[0]
+        mirror = next(rule for rule in value if rule["id"] == "RULE4")["exclude"]
+        for word in self.plugin._ambiguous_keywords:
+            self.assertNotIn(word, mirror)
+        for word in self.plugin._exclude_keywords:
+            self.assertIn(word, mirror)
+
+    def test_rule_sync_saves_snapshot_before_overwrite(self):
+        """写入前必须留档规则原文，便于手工回滚。"""
+        stub_rules.RULES[:] = [{"id": "RULE4", "name": "排除综艺非正片", "exclude": "旧词1|旧词2"}]
+        stub_configuration.SERVICE.writes.clear()
+        self._enable(enabled=False, sync_rule_id="RULE4", exclude_keywords=None)
+        asyncio.run(self.plugin._sync_rule_keywords())
+        history = self.plugin.get_data("rule_history")
+        self.assertEqual(history[0]["rule_id"], "RULE4")
+        self.assertEqual(history[0]["exclude"], "旧词1|旧词2")
+
+    def test_rule_sync_replaces_legacy_zero_episode_literals(self):
+        """规则里旧版写入的字面量 E00 / EP00 必须被零集号正则取代（否则仍会误杀四位集号）。"""
+        stub_rules.RULES[:] = [
+            {"id": "RULE4", "name": "排除综艺非正片", "exclude": "E00|EP00|手工词"}
+        ]
+        stub_configuration.SERVICE.writes.clear()
+        self._enable(enabled=False, sync_rule_id="RULE4", exclude_keywords=None)
+        asyncio.run(self.plugin._sync_rule_keywords())
+        _key, value = stub_configuration.SERVICE.writes[0]
+        mirror = next(rule for rule in value if rule["id"] == "RULE4")["exclude"]
+        parts = mirror.split("|")
+        self.assertEqual(parts[0], "手工词")
+        self.assertNotIn("E00", parts)
+        self.assertNotIn("EP00", parts)
+        self.assertIn("(?<![A-Za-z])E0+(?![0-9])", parts)
+        self.assertEqual(self.plugin.get_data("rule_sync")["foreign_kept"], ["手工词"])
+
+    def test_rule_sync_keeps_previous_user_entries_across_runs(self):
+        """连续两次同步：用户新加的条目被视为外部条目，第二次不会触发改写。"""
+        stub_rules.RULES[:] = [{"id": "RULE4", "name": "排除综艺非正片", "exclude": ""}]
+        stub_configuration.SERVICE.writes.clear()
+        self._enable(enabled=False, sync_rule_id="RULE4", exclude_keywords=None)
+        asyncio.run(self.plugin._sync_rule_keywords())
+        first = next(
+            rule for rule in stub_configuration.SERVICE.writes[0][1] if rule["id"] == "RULE4"
+        )["exclude"]
+        # 用户手工再加一项
+        stub_rules.RULES[:] = [{"id": "RULE4", "name": "排除综艺非正片", "exclude": "手工词|" + first}]
+        stub_configuration.SERVICE.writes.clear()
+        asyncio.run(self.plugin._sync_rule_keywords())
+        # 外部条目被保留 → 目标文本已等于期望文本 → 不产生多余写入（也不会删掉「手工词」）
+        self.assertEqual(stub_configuration.SERVICE.writes, [])
+        self.assertEqual(
+            self.plugin._foreign_rule_entries("手工词|" + first, "|".join(self.plugin._exclude_keywords)),
+            ["手工词"],
+        )
 
     def test_rule_sync_noop_when_rule_already_matches(self):
         """规则文本已与词表一致时不写入（不产生无谓的配置变更事件）。"""
@@ -617,6 +867,16 @@ class VarietyGuardTestCase(unittest.TestCase):
         stub_rules.RULES[:] = [{"id": "RULE4", "name": "排除综艺非正片", "exclude": "旧词"}]
         stub_configuration.SERVICE.writes.clear()
         self._enable(enabled=False, sync_rule_id="RULE4", exclude_keywords="先导\n花絮")
+        asyncio.run(self.plugin._sync_rule_keywords())
+        self.assertEqual(stub_configuration.SERVICE.writes, [])
+
+    def test_rule_sync_skips_when_merged_regex_invalid(self):
+        """外部条目与词表合并后正则不合法：整次同步跳过，不改动规则。"""
+        stub_rules.RULES[:] = [
+            {"id": "RULE4", "name": "排除综艺非正片", "exclude": "用户加的坏词("}
+        ]
+        stub_configuration.SERVICE.writes.clear()
+        self._enable(enabled=False, sync_rule_id="RULE4", exclude_keywords=None)
         asyncio.run(self.plugin._sync_rule_keywords())
         self.assertEqual(stub_configuration.SERVICE.writes, [])
 
@@ -662,20 +922,33 @@ class RestoreDefaultKeywordsTestCase(unittest.TestCase):
         """按钮脚本内联的词表必须与内置默认逐项一致，否则「恢复默认」会填错内容。"""
         import json as _json
 
-        from varietyguard import DEFAULT_ALLOW_KEYWORDS, DEFAULT_EXCLUDE_KEYWORDS
+        from varietyguard import (
+            DEFAULT_ALLOW_KEYWORDS,
+            DEFAULT_AMBIGUOUS_KEYWORDS,
+            DEFAULT_EXCLUDE_KEYWORDS,
+        )
 
         script = VarietyGuard._restore_keywords_js()
         exclude_raw = script.split("model.exclude_keywords = ", 1)[1].split(".join(", 1)[0]
+        ambiguous_raw = script.split("model.ambiguous_keywords = ", 1)[1].split(".join(", 1)[0]
         allow_raw = script.split("model.allow_keywords = ", 1)[1].split(".join(", 1)[0]
         self.assertEqual(_json.loads(exclude_raw), list(DEFAULT_EXCLUDE_KEYWORDS))
+        self.assertEqual(_json.loads(ambiguous_raw), list(DEFAULT_AMBIGUOUS_KEYWORDS))
         self.assertEqual(_json.loads(allow_raw), list(DEFAULT_ALLOW_KEYWORDS))
 
     def test_default_keywords_text_shape(self):
         """默认词表文本形态：与常量逐项一致（供配置文本框与 API 写回共用）。"""
-        from varietyguard import DEFAULT_ALLOW_KEYWORDS, DEFAULT_EXCLUDE_KEYWORDS
+        from varietyguard import (
+            DEFAULT_ALLOW_KEYWORDS,
+            DEFAULT_AMBIGUOUS_KEYWORDS,
+            DEFAULT_EXCLUDE_KEYWORDS,
+        )
 
         payload = VarietyGuard.default_keywords()
         self.assertEqual(payload["exclude_keywords"].splitlines(), list(DEFAULT_EXCLUDE_KEYWORDS))
+        self.assertEqual(
+            payload["ambiguous_keywords"].splitlines(), list(DEFAULT_AMBIGUOUS_KEYWORDS)
+        )
         self.assertEqual(payload["allow_keywords"].splitlines(), list(DEFAULT_ALLOW_KEYWORDS))
 
     def test_api_requires_confirmation(self):
@@ -691,7 +964,11 @@ class RestoreDefaultKeywordsTestCase(unittest.TestCase):
 
     def test_api_confirm_writes_defaults_and_keeps_other_fields(self):
         """确认阶段：写回默认词表、保留其它配置项，并让运行期词表立即生效。"""
-        from varietyguard import DEFAULT_ALLOW_KEYWORDS, DEFAULT_EXCLUDE_KEYWORDS
+        from varietyguard import (
+            DEFAULT_ALLOW_KEYWORDS,
+            DEFAULT_AMBIGUOUS_KEYWORDS,
+            DEFAULT_EXCLUDE_KEYWORDS,
+        )
 
         self.plugin.update_config({"enabled": True, "notify": True, "sync_rule_id": "RULE4"})
         self.plugin.init_plugin({"enabled": True, "exclude_keywords": "只留这一个"})
@@ -702,10 +979,14 @@ class RestoreDefaultKeywordsTestCase(unittest.TestCase):
         self.assertTrue(result["success"])
         saved = self.plugin.get_config()
         self.assertEqual(saved["exclude_keywords"].splitlines(), list(DEFAULT_EXCLUDE_KEYWORDS))
+        self.assertEqual(
+            saved["ambiguous_keywords"].splitlines(), list(DEFAULT_AMBIGUOUS_KEYWORDS)
+        )
         self.assertEqual(saved["allow_keywords"].splitlines(), list(DEFAULT_ALLOW_KEYWORDS))
         self.assertTrue(saved["notify"])
         self.assertEqual(saved["sync_rule_id"], "RULE4")
         self.assertEqual(self.plugin._exclude_keywords, list(DEFAULT_EXCLUDE_KEYWORDS))
+        self.assertEqual(self.plugin._ambiguous_keywords, list(DEFAULT_AMBIGUOUS_KEYWORDS))
         self.assertEqual(self.plugin._allow_keywords, list(DEFAULT_ALLOW_KEYWORDS))
         self.assertIsNone(self.plugin._restore_pending())
 
@@ -755,12 +1036,12 @@ class RestoreDefaultKeywordsTestCase(unittest.TestCase):
         self.assertIn("磁盘满了", result["message"])
 
     def test_page_shows_two_phase_buttons(self):
-        """详情页两阶段：未选中时单按钮；选中后出现「确认恢复 / 取消」并带 confirm 参数。"""
+        """详情页两阶段：按钮走 POST 且不携带宿主 API Token。"""
         idle = repr(self.plugin.get_page() or [])
         self.assertIn("恢复默认关键词", idle)
         self.assertIn("plugin/VarietyGuard/restore_default_keywords", idle)
-        self.assertIn("'method': 'get'", idle)
-        self.assertIn("apikey", idle)
+        self.assertIn("'method': 'post'", idle)
+        self.assertNotIn("apikey", idle)
         self.assertNotIn("确认恢复", idle)
 
         self.plugin.api_restore_default_keywords()
@@ -775,7 +1056,7 @@ class RestoreDefaultKeywordsTestCase(unittest.TestCase):
         """插件 API 列表暴露恢复端点（详情页按钮依赖它）。"""
         apis = VarietyGuard().get_api()
         self.assertEqual({item["path"] for item in apis}, {"/restore_default_keywords"})
-        self.assertEqual(apis[0]["methods"], ["GET"])
+        self.assertEqual(apis[0]["methods"], ["POST"])
 
 
 if __name__ == "__main__":

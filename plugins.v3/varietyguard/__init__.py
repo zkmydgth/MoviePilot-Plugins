@@ -32,9 +32,15 @@
 - **失败即放行**（fail-open）：补丁失配、正则非法、内部异常都只记日志并返回宿主
   的原始计划，绝不阻断正常整理。
 - 支持**试运行**：只记录「本应跳过」的文件，不真正过滤，便于先观察再启用。
-- **可选词表同步**（配置 ``sync_rule_id``）：插件在加载与保存配置时，把生效词表**整条镜像**
-  写入指定的自定义过滤规则 —— 新增与删减都同步、即时生效、不额外消耗模型额度；
-  留空即关闭；目标规则不存在或词表异常时只记日志、绝不改动规则。
+- **两档词表**（v1.1.0）：只有「衍生内容专用词」命中就跳过；会出现在正片标题或环节名里的
+  歧义词（巅峰 / 盛典 / Live / Battle 等）要再确认「文件名不带集号或播出日期」才跳过，
+  避免把整集正片当成衍生内容丢掉。
+- **整季全跳过必留痕**：候选全部被判为非正片时，除了沿用宿主既有的静默跳过分支，
+  还会强制发一条通知、单独计数并在详情页标红，避免「片库悄悄缺一季」无人察觉。
+- **可选词表同步**（配置 ``sync_rule_id``）：插件在加载与保存配置时，把**强词**写入指定的
+  自定义过滤规则 —— 新增与删减都同步、即时生效、不额外消耗模型额度；用户手工加进该规则的
+  条目会被保留，覆盖前的原文另存快照；留空即关闭；目标规则不存在或词表异常时只记日志、
+  绝不改动规则（歧义词不写进规则：规则层无法表达「带集号保留」）。
 """
 
 import dataclasses
@@ -64,39 +70,74 @@ try:  # pragma: no cover - 宿主版本差异分支
 except Exception:  # noqa: BLE001 - 兼容不提供该调度门面的宿主
     add_plugin_once_job = None  # type: ignore[assignment]
 
-# 可选能力（详情页按钮回调）的宿主依赖：缺 Token 时按钮不带鉴权参数，功能不受影响。
-try:  # pragma: no cover - 宿主版本差异分支
-    from app.runtime.config import settings
-except Exception:  # noqa: BLE001 - 兼容不提供该配置模块的宿主
-    settings = None  # type: ignore[assignment]
-
 from .version import VERSION
 
 # ============================ 默认配置 ============================
 
-# 默认的非正片关键词（中文原样；纯 ASCII 词在加载时统一加词边界，见 _wrap_boundary）。
+# 默认的非正片关键词分两档（v1.1.0 起）：
+#   - 「强词」命中即跳过：本身只出现在衍生 / 加更 / 直播类命名里；
+#   - 「歧义词」要再确认「文件名不带集号或播出日期」才跳过：它们同样会出现在正片标题
+#     或环节名里（实测 `…S04E01.巅峰对决.Battle…`、`我们的歌.第3期.Live…` 都是正片）。
 # ⚠️ 词边界是必需的：实测本机下载目录里有 70 个文件名含发行组名 MAXPLUS
 #    （如 `...60Fps.MAXPLUS.H265...`），裸写 Plus 会把正片一起误伤（2026-10-08 实测）。
 # 词表来源：用户 2026-10-08 提供的 RULE4「排除综艺非正片」词表，去重后并入。
 #   v1.0.4 起 51 项：+ Extra / EX / 尝鲜篇 / 森林体验篇
 #   v1.0.5 起 60 项：+ 超前 / 尊享版 / 陪看 / 直拍 / 探班 / 直播 / Live / Pilot / Fancam
-#     （前 5 个来自 S02 观众站 ADWeb 包命名；后 3 个解决「只写英文标签、无中文词」的漏网）
-#   **v1.0.7 起 61 项**：并入 Before，并把词表口径对齐用户线上配置（中文 35 + 英文/数字 26）；
-#     该词表同时是配置表单/详情页「恢复默认关键词」按钮写回的内容。
+#   v1.0.7 起 61 项：并入 Before，把词表口径对齐用户线上配置（中文 35 + 英文/数字 26）
+#   v1.1.0：拆成强词 40 项 + 歧义词 21 项；E00 / EP00 改成只匹配「集号全零」的正则，
+#     不再命中 S04E0012 / S01E0050 这类四位集号（v1.0.x 的无边界写法会整季误杀）。
 _RAW_DEFAULT_EXCLUDE: Tuple[str, ...] = (
-    # —— 中文关键词（无需边界）——
+    # —— 中文强词（无需边界）——
     "纯享",
     "花絮",
     "预告",
-    "学院",
-    "互动",
-    "采访",
-    "幕后",
     "会员版",
     "加更",
     "抢先",
     "先导",
     "衍生",
+    "速看",
+    "特别篇",
+    "特辑",
+    "彩蛋",
+    "未播",
+    "尝鲜篇",
+    "森林体验篇",
+    "超前",
+    "尊享版",
+    "陪看",
+    "直拍",
+    "探班",
+    "直播",
+    "母带",
+    # —— 英文强词（自动加词边界）——
+    "Pure",
+    "Plus",
+    "Teaser",
+    "Preview",
+    "Behind",
+    "Making",
+    "Detective Club",
+    "Rapid Case",
+    "Extra",
+    "EX",
+    "SP",
+    "Pilot",
+    "Fancam",
+    "Prologue",
+    "Epilogue",
+    "Reaction",
+    "Before",
+    "Tape",
+)
+
+# 歧义词：命中后还要确认文件名不带集号 / 播出日期证据，否则按正片保留。
+_RAW_DEFAULT_AMBIGUOUS: Tuple[str, ...] = (
+    # —— 中文歧义词 ——
+    "学院",
+    "互动",
+    "采访",
+    "幕后",
     "见面会",
     "发布会",
     "巅峰",
@@ -106,65 +147,38 @@ _RAW_DEFAULT_EXCLUDE: Tuple[str, ...] = (
     "晋级",
     "突围",
     "直击",
-    "速看",
-    "特别篇",
-    "特辑",
-    "彩蛋",
-    "未播",
     "独家",
-    "尝鲜篇",
-    "森林体验篇",
-    "超前",
-    "尊享版",
-    "陪看",
-    "直拍",
-    "探班",
-    "直播",
-    # —— 英文/数字关键词（自动加词边界；E00 / EP00 见 _BARE_KEYWORDS）——
+    # —— 英文歧义词 ——
     "Dinner",
-    "Pure",
-    "Plus",
-    "Teaser",
-    "Preview",
-    "Behind",
-    "Making",
     "Club",
-    "Rapid Case",
-    "E00",
-    "EP00",
     "Battle",
     "Round",
     "Cut",
-    "Reaction",
-    "Prologue",
-    "Epilogue",
     "Start",
-    "SP",
-    "Detective Club",
-    "Extra",
-    "EX",
     "Live",
-    "Pilot",
-    "Fancam",
-    "Before",
 )
 
+# 「零集号」标记：E0 / E00 / E000、EP0 / EP00 才算特辑；S04E0012、S01E0050 这类
+# 四位集号不再命中（v1.0.x 的无边界 E00 会把整季正片判成非正片，2026-10 审计发现）。
+_ZERO_EPISODE_PATTERNS: Tuple[str, ...] = (
+    r"(?<![A-Za-z])EP0+(?![0-9])",
+    r"(?<![A-Za-z])E0+(?![0-9])",
+)
 
-# 刻意不加词边界的 ASCII 关键词（2026-10-08 用户定：站内 E00 / EP00 命名变体较多，
-# 需要更宽松的匹配；裸词也会命中 `S01E0012` 这类串，属有意为之）
-_BARE_KEYWORDS: frozenset[str] = frozenset({"E00", "EP00"})
+# 旧配置 / 词表里的字面量 E00、EP00 → 新的零集号正则（加载时自动迁移）。
+_LEGACY_ZERO_EPISODE: Dict[str, str] = {
+    "e00": _ZERO_EPISODE_PATTERNS[1],
+    "ep00": _ZERO_EPISODE_PATTERNS[0],
+}
 
 
 def _wrap_boundary(keyword: str) -> str:
     """给纯 ASCII 关键词加词边界，避免命中 MAXPLUS / StartUp 这类"含词串"。
 
-    - `_BARE_KEYWORDS` 里的词（E00 / EP00）**原样返回**，不加边界；
     - 中文（或含中文）关键词原样返回；
     - 多词短语允许 `.` `_` `-` 空格 作为词间分隔（如 `Rapid Case` 也能命中 `Rapid.Case`）；
     - 大小写不敏感由匹配处的 re.IGNORECASE 保证（与 Plus 一致）。
     """
-    if keyword in _BARE_KEYWORDS:
-        return keyword
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9 ._-]*", keyword or ""):
         return keyword
     parts = [re.escape(part) for part in re.split(r"[ ._-]+", keyword) if part]
@@ -172,10 +186,65 @@ def _wrap_boundary(keyword: str) -> str:
     return rf"(?<![A-Za-z]){body}(?![A-Za-z])"
 
 
-# 生效的默认词表（ASCII 关键词已带词边界，E00 / EP00 例外）
+def _canonical_keyword(keyword: str) -> str:
+    """把词条归一化成可比较的形式（去掉词边界包装、统一分隔与大小写）。
+
+    用于「同一词写在强词还是歧义词里」「旧配置与内置默认是否是同一个词」的判定。
+    """
+    text = str(keyword or "").strip()
+    text = text.replace("(?<![A-Za-z])", "").replace("(?![A-Za-z])", "")
+    text = text.replace("[ ._-]*", " ")
+    return re.sub(r"\s+", " ", text).strip().casefold()
+
+
+def _dedupe(values: Iterable[str]) -> List[str]:
+    """按归一化形式去重，保留首次出现的原始写法与顺序。"""
+    seen: set = set()
+    result: List[str] = []
+    for value in values:
+        canon = _canonical_keyword(value)
+        if not canon or canon in seen:
+            continue
+        seen.add(canon)
+        result.append(value)
+    return result
+
+
+# 生效的默认词表（ASCII 关键词已带词边界；零集号标记是正则，原样保留）
 DEFAULT_EXCLUDE_KEYWORDS: Tuple[str, ...] = tuple(
     _wrap_boundary(word) for word in _RAW_DEFAULT_EXCLUDE
+) + _ZERO_EPISODE_PATTERNS
+
+# 生效的默认歧义词表
+DEFAULT_AMBIGUOUS_KEYWORDS: Tuple[str, ...] = tuple(
+    _wrap_boundary(word) for word in _RAW_DEFAULT_AMBIGUOUS
 )
+
+# 内置词表的归一化集合：词表同步时用来判定「这条是插件自己的词，可以随插件删除」
+_BUILTIN_KEYWORD_CANONICAL: frozenset = frozenset(
+    _canonical_keyword(word)
+    for word in DEFAULT_EXCLUDE_KEYWORDS + DEFAULT_AMBIGUOUS_KEYWORDS
+)
+
+# 「像一整集」的证据：标准季集号、第 N 期、播出日期、单独 E/EP 编号、区间集号。
+# 歧义词命中时用它区分「正片标题里恰好有这个字」与「这是衍生内容」。
+_EPISODE_EVIDENCE_PATTERNS: Tuple[str, ...] = (
+    r"[Ss]\d{1,2}[\s._-]*[Ee][Pp]?\d{1,4}",
+    r"第\s*\d{1,4}\s*[期集话]",
+    r"(?<![0-9])(?:19|20)\d{2}[\s._-]?(?:0[1-9]|1[0-2])[\s._-]?"
+    r"(?:0[1-9]|[12]\d|3[01])(?![0-9])",
+    r"(?:^|[^A-Za-z])(?:EP|E)\d{1,4}(?![0-9])",
+    r"(?:^|[^0-9])\d{1,3}\s*[-~至]\s*\d{1,3}\s*期",
+)
+_EPISODE_EVIDENCE = tuple(
+    re.compile(pattern, re.IGNORECASE) for pattern in _EPISODE_EVIDENCE_PATTERNS
+)
+
+# 判定结果（内部动作）
+ACTION_ALLOW = "allow"
+ACTION_SKIP = "skip"
+ACTION_KEEP = "keep"
+ACTION_KEEP_NUMBERED = "numbered"
 
 # 默认的正片白名单：命中即保留，优先于排除词（用于「正片花絮」这类混合文件名）。
 DEFAULT_ALLOW_KEYWORDS: Tuple[str, ...] = (
@@ -190,12 +259,16 @@ DEFAULT_SCOPE_CATEGORIES: str = "综艺"
 DATA_KEY_STATS = "stats"
 DATA_KEY_RECORDS = "records"
 DATA_KEY_RULE_SYNC = "rule_sync"
+DATA_KEY_RULE_HISTORY = "rule_history"
 DATA_KEY_RESTORE_PENDING = "restore_pending"
 
 # 词表同步（可选能力）：一次性任务 ID 与写入前的安全闸区间
 RULE_SYNC_JOB_ID = "sync_rule_keywords"
 RULE_SYNC_MIN_ITEMS = 10
 RULE_SYNC_MAX_ITEMS = 200
+RULE_SYNC_MAX_TOTAL_ITEMS = 300
+# 规则原文快照保留份数（覆盖前留底，便于手工回滚）
+RULE_SNAPSHOT_KEEP = 5
 
 # 「恢复默认关键词」两阶段确认：待确认状态的存活时长（秒），过期即自动作废。
 RESTORE_PENDING_TTL_SECONDS = 600
@@ -203,6 +276,16 @@ RESTORE_PENDING_TTL_SECONDS = 600
 # 补丁安装失败时的提示（供详情页显示）
 PATCH_STATE_OK = "installed"
 PATCH_STATE_FAILED = "failed"
+PATCH_STATE_FOREIGN = "foreign"
+
+# 补丁层的身份标记：卸载时只摘自己这一层，不碰其它插件的包装
+PATCH_TAG = "__varietyguard_layer__"
+PATCH_ORIGINAL_ATTR = "__varietyguard_original__"
+PATCH_TAG_NAME = "varietyguard"
+PATCH_MAX_LAYERS = 5
+
+# 统计读改写是跨线程的（整理任务可能并发），用进程内锁串行化
+_STATS_LOCK = threading.RLock()
 
 
 class VarietyGuard(_PluginBase):
@@ -222,10 +305,12 @@ class VarietyGuard(_PluginBase):
     _enabled: bool = False
     _dry_run: bool = True
     _exclude_keywords: List[str] = []
+    _ambiguous_keywords: List[str] = []
     _allow_keywords: List[str] = []
     _scope_media_types: List[str] = []
     _scope_categories: List[str] = []
     _match_full_path: bool = False
+    _keep_numbered: bool = True
     _notify: bool = False
     _keep_records: int = 200
     _sync_rule_id: str = ""
@@ -234,6 +319,7 @@ class VarietyGuard(_PluginBase):
     _patch_state: str = ""
     _patch_message: str = ""
     _original_plan_transfer: Optional[Any] = None
+    _patch_wrapper: Optional[Any] = None
     _patch_lock = threading.RLock()
 
     # ==================== 生命周期 ====================
@@ -246,8 +332,15 @@ class VarietyGuard(_PluginBase):
             return
         self._enabled = bool(config.get("enabled"))
         self._dry_run = bool(config.get("dry_run", True))
-        self._exclude_keywords = self._parse_keywords(
+        self._exclude_keywords = self._normalize_keywords(
             config.get("exclude_keywords"), DEFAULT_EXCLUDE_KEYWORDS
+        )
+        self._ambiguous_keywords = self._parse_keywords(
+            config.get("ambiguous_keywords"), DEFAULT_AMBIGUOUS_KEYWORDS
+        )
+        # 同一词可能被旧配置写进强词档（v1.0.x 只有一档），按内置歧义词表自动降档。
+        self._exclude_keywords, self._ambiguous_keywords = self._split_keyword_tiers(
+            self._exclude_keywords, self._ambiguous_keywords
         )
         self._allow_keywords = self._parse_keywords(
             config.get("allow_keywords"), DEFAULT_ALLOW_KEYWORDS
@@ -259,12 +352,24 @@ class VarietyGuard(_PluginBase):
             config.get("scope_categories"), DEFAULT_SCOPE_CATEGORIES
         )
         self._match_full_path = bool(config.get("match_full_path", False))
+        self._keep_numbered = bool(config.get("keep_numbered", True))
         self._notify = bool(config.get("notify", False))
         self._keep_records = self._coerce_int(config.get("keep_records"), 200, 0, 5000)
         self._sync_rule_id = str(config.get("sync_rule_id") or "").strip()
         # 词表同步与「是否启用」无关：规则是过滤链的前置条件，两份词表应始终一致。
         self._schedule_rule_sync()
 
+        logger.info(
+            "【综艺正片守卫】配置已加载：作用域=媒体类型[%s] 分类[%s]；强词 %d 项、歧义词 %d 项"
+            "（歧义词遇集号保留=%s）；试运行=%s、启用=%s",
+            "、".join(self._scope_media_types) or "全部",
+            "、".join(self._scope_categories) or "全部",
+            len(self._exclude_keywords),
+            len(self._ambiguous_keywords),
+            self._keep_numbered,
+            self._dry_run,
+            self._enabled,
+        )
         if not self._enabled:
             logger.info("【综艺正片守卫】插件未启用，不做任何拦截")
             return
@@ -275,7 +380,9 @@ class VarietyGuard(_PluginBase):
         return self._enabled
 
     def stop_service(self) -> None:
-        """卸载整理计划补丁，避免插件停用后仍生效。"""
+        """卸载整理计划补丁，并让可能残留的补丁层失效。"""
+        # 先关开关：即使补丁层因其它插件压在顶层而摘不下来，也不会继续过滤。
+        self._enabled = False
         self._remove_patch()
 
     def _reset_runtime_state(self) -> None:
@@ -308,12 +415,16 @@ class VarietyGuard(_PluginBase):
 
             patched_plan_transfer.__name__ = getattr(original, "__name__", "plan_transfer")
             patched_plan_transfer.__doc__ = getattr(original, "__doc__", None)
+            # 身份标记：卸载时按它只摘自己这一层，避免误删其它插件压在上面的包装
+            setattr(patched_plan_transfer, PATCH_TAG, PATCH_TAG_NAME)
+            setattr(patched_plan_transfer, PATCH_ORIGINAL_ATTR, original)
             try:
                 TransHandler.plan_transfer = patched_plan_transfer
             except Exception as err:
                 self._mark_patch_failed(f"替换宿主方法失败：{err}")
                 return
             self._original_plan_transfer = original
+            self._patch_wrapper = patched_plan_transfer
             self._patch_state = PATCH_STATE_OK
             self._patch_message = "已安装整理计划过滤补丁"
             logger.info(
@@ -324,22 +435,43 @@ class VarietyGuard(_PluginBase):
             )
 
     def _remove_patch(self) -> None:
-        """还原宿主方法；未安装时为空操作。"""
+        """只摘下本插件压上去的补丁层（含旧实例残留的多层），不碰其它插件。
+
+        判定依据是包装函数上的身份标记，而不是"这个函数有没有闭包"——后者对任何
+        用闭包实现的插件包装都成立，会把别的插件一起摘掉。
+        """
         with self._patch_lock:
-            original = self._original_plan_transfer
+            was_installed = self._patch_wrapper is not None
             self._original_plan_transfer = None
-            if original is None:
+            self._patch_wrapper = None
+            if not was_installed:
                 return
             try:
                 from app.modules.filemanager.transhandler import TransHandler
 
                 current = getattr(TransHandler, "plan_transfer", None)
-                # 只在方法仍为本插件包装时才还原，避免覆盖其它插件的补丁
-                if current is not None and getattr(current, "__closure__", None):
-                    TransHandler.plan_transfer = original
-                    logger.info("【综艺正片守卫】已卸载计划过滤补丁")
-                else:
-                    logger.warning("【综艺正片守卫】宿主方法已被其它补丁接管，跳过还原")
+                layers = 0
+                while (
+                    getattr(current, PATCH_TAG, None) == PATCH_TAG_NAME
+                    and layers < PATCH_MAX_LAYERS
+                ):
+                    current = getattr(current, PATCH_ORIGINAL_ATTR, None)
+                    layers += 1
+                if not layers:
+                    logger.warning(
+                        "【综艺正片守卫】宿主方法顶层是其它插件的包装，本插件的补丁层无法从调用链摘下"
+                        "（已通过停用开关使其失效，重启后彻底消失）"
+                    )
+                    self._patch_state = PATCH_STATE_FOREIGN
+                    self._patch_message = "补丁被其它插件覆盖在顶层：已停用但未能从调用链摘下"
+                    return
+                if current is None:
+                    logger.error("【综艺正片守卫】补丁链缺少原始方法，跳过还原")
+                    self._patch_state = PATCH_STATE_FOREIGN
+                    self._patch_message = "补丁链缺少原始方法"
+                    return
+                TransHandler.plan_transfer = current
+                logger.info("【综艺正片守卫】已卸载计划过滤补丁（%d 层）", layers)
             except Exception as err:
                 logger.error("【综艺正片守卫】卸载补丁失败：%s", err)
             self._patch_state = ""
@@ -357,6 +489,9 @@ class VarietyGuard(_PluginBase):
         self, checkpoint: Any, args: Tuple[Any, ...], kwargs: Dict[str, Any]
     ) -> Any:
         """按配置过滤整理计划中的候选文件；异常一律放行原计划。"""
+        if not self._enabled:
+            # 停用开关优先于补丁链：补丁层因外部原因没摘干净时也不再过滤。
+            return checkpoint
         try:
             return self._filter_checkpoint_inner(checkpoint, args, kwargs)
         except Exception as err:  # pragma: no cover - 兜底防御，定向测试覆盖
@@ -373,59 +508,111 @@ class VarietyGuard(_PluginBase):
             return checkpoint
         mediainfo = self._extract_mediainfo(args, kwargs)
         if not self._in_scope(mediainfo):
+            logger.debug(
+                "【综艺正片守卫】不在作用域内，放行：媒体类型=%s 分类=%s",
+                getattr(getattr(mediainfo, "type", None), "value", None)
+                or getattr(mediainfo, "type", None),
+                getattr(mediainfo, "library_category", None)
+                or getattr(mediainfo, "category", None),
+            )
             return checkpoint
 
+        title = self._media_title(mediainfo)
         kept: List[Any] = []
         skipped: List[Tuple[str, str]] = []
+        kept_numbered: List[str] = []
         for item in items:
             text = self._item_text(item)
             if not text:
                 kept.append(item)
                 continue
-            allowed = self._match_first(self._allow_keywords, text)
-            if allowed:
-                kept.append(item)
-                continue
-            hit = self._match_first(self._exclude_keywords, text)
-            if hit:
-                skipped.append((text, hit))
+            action, keyword = self._decide(text)
+            if action == ACTION_SKIP:
+                skipped.append((text, keyword))
             else:
                 kept.append(item)
+                if action == ACTION_KEEP_NUMBERED:
+                    kept_numbered.append(keyword)
 
         if not skipped:
+            if kept_numbered:
+                self._record_numbered(title, kept_numbered)
+            logger.debug(
+                "【综艺正片守卫】%s 检查 %d 个候选：无命中（歧义词遇集号保留 %d 个）",
+                title,
+                len(items),
+                len(kept_numbered),
+            )
             return checkpoint
 
-        title = self._media_title(mediainfo)
+        full_skip = not kept
         if self._dry_run:
-            self._record(title, skipped, applied=False)
+            self._record(
+                title, skipped, applied=False, numbered=kept_numbered, full_skip=full_skip
+            )
             logger.info(
-                "【综艺正片守卫】试运行：%s 命中 %d 个非正片候选（未过滤）：%s",
+                "【综艺正片守卫】试运行：%s 命中 %d 个非正片候选（未过滤）%s：%s",
                 title,
                 len(skipped),
+                "，整季将被整体跳过" if full_skip else "",
                 "、".join(name for name, _ in skipped[:5]),
             )
             return checkpoint
 
-        if not kept:
+        if full_skip:
             # 全为非正片：交给宿主既有的「无候选」静默跳过分支
             new_checkpoint = dataclasses.replace(
                 checkpoint, items=(), skip_reason=f"综艺非正片已全部跳过（{len(skipped)} 个文件）"
+            )
+            logger.warning(
+                "【综艺正片守卫】%s 的 %d 个候选全部判为非正片，已整体跳过（片库不会出现这一季，"
+                "如属误判请调整词表或先开试运行）",
+                title,
+                len(skipped),
             )
         else:
             resequenced = [
                 dataclasses.replace(item, sequence=index) for index, item in enumerate(kept)
             ]
             new_checkpoint = dataclasses.replace(checkpoint, items=tuple(resequenced))
+            logger.info(
+                "【综艺正片守卫】%s 跳过 %d 个非正片文件、保留 %d 个正片文件（歧义词遇集号保留 %d 个）",
+                title,
+                len(skipped),
+                len(kept),
+                len(kept_numbered),
+            )
 
-        self._record(title, skipped, applied=True)
-        logger.info(
-            "【综艺正片守卫】%s 跳过 %d 个非正片文件、保留 %d 个正片文件",
-            title,
-            len(skipped),
-            len(kept),
+        self._record(
+            title, skipped, applied=True, numbered=kept_numbered, full_skip=full_skip
         )
-        self._notify_skip(title, skipped)
+        self._notify_skip(title, skipped, full_skip=full_skip)
         return new_checkpoint
+
+    def _decide(self, text: str) -> Tuple[str, str]:
+        """判定单个候选文件：返回（动作, 命中词）。
+
+        顺序即优先级：正片白名单 → 强词（命中即跳过）→ 歧义词（带集号证据则视为正片）。
+        """
+        allowed = self._match_first(self._allow_keywords, text)
+        if allowed:
+            return ACTION_ALLOW, allowed
+        strong = self._match_first(self._exclude_keywords, text)
+        if strong:
+            return ACTION_SKIP, strong
+        ambiguous = self._match_first(self._ambiguous_keywords, text)
+        if not ambiguous:
+            return ACTION_KEEP, ""
+        if self._keep_numbered and self._has_episode_evidence(text):
+            return ACTION_KEEP_NUMBERED, ambiguous
+        return ACTION_SKIP, ambiguous
+
+    @staticmethod
+    def _has_episode_evidence(text: str) -> bool:
+        """文件名是否带「像一整集」的证据（季集号 / 第 N 期 / 播出日期 / E 编号）。"""
+        if not text:
+            return False
+        return any(pattern.search(text) for pattern in _EPISODE_EVIDENCE)
 
     def _extract_mediainfo(
         self, args: Tuple[Any, ...], kwargs: Dict[str, Any]
@@ -492,55 +679,131 @@ class VarietyGuard(_PluginBase):
 
     # ==================== 记录与通知 ====================
 
-    def _record(self, title: str, skipped: List[Tuple[str, str]], applied: bool) -> None:
-        """累计统计并保留最近若干条跳过记录。"""
-        try:
-            stats = self.get_data(DATA_KEY_STATS) or {}
-            if not isinstance(stats, dict):
-                stats = {}
-            stats["total_skipped"] = int(stats.get("total_skipped") or 0) + len(skipped)
-            stats["last_run"] = time.strftime("%Y-%m-%d %H:%M:%S")
-            stats["dry_run"] = self._dry_run
-            by_keyword = stats.get("by_keyword")
-            if not isinstance(by_keyword, dict):
-                by_keyword = {}
-            for _, keyword in skipped:
-                by_keyword[keyword] = int(by_keyword.get(keyword) or 0) + 1
-            stats["by_keyword"] = by_keyword
-            self.save_data(DATA_KEY_STATS, stats)
+    def _record(
+        self,
+        title: str,
+        skipped: List[Tuple[str, str]],
+        applied: bool,
+        numbered: Iterable[str] = (),
+        full_skip: bool = False,
+    ) -> None:
+        """累计统计并保留最近若干条跳过记录。
 
-            if self._keep_records <= 0:
-                return
-            records = self.get_data(DATA_KEY_RECORDS) or []
-            if not isinstance(records, list):
-                records = []
-            stamp = time.strftime("%Y-%m-%d %H:%M:%S")
-            for name, keyword in skipped:
-                records.insert(
-                    0,
-                    {
-                        "time": stamp,
-                        "title": title,
-                        "keyword": keyword,
-                        "name": name,
-                        "applied": applied,
-                    },
-                )
-            self.save_data(DATA_KEY_RECORDS, records[: self._keep_records])
+        - 试运行命中与实际跳过分开计数（``total_skipped`` 只统计真正过滤掉的）；
+        - 整季整体跳过单独计数（``full_skip_runs``），便于在详情页一眼看到；
+        - 统计是"读-改-写"，用进程内锁串行化，避免并发整理丢计数。
+        """
+        numbered_list = list(numbered or ())
+        try:
+            with _STATS_LOCK:
+                stats = self._read_stats()
+                stamp = time.strftime("%Y-%m-%d %H:%M:%S")
+                counter_key = "total_skipped" if applied else "total_dry_run_hits"
+                stats[counter_key] = int(stats.get(counter_key) or 0) + len(skipped)
+                stats["last_run"] = stamp
+                stats["dry_run"] = self._dry_run
+                if applied:
+                    by_keyword = stats.get("by_keyword")
+                    if not isinstance(by_keyword, dict):
+                        by_keyword = {}
+                    for _, keyword in skipped:
+                        by_keyword[keyword] = int(by_keyword.get(keyword) or 0) + 1
+                    stats["by_keyword"] = by_keyword
+                if numbered_list:
+                    stats["kept_numbered"] = int(stats.get("kept_numbered") or 0) + len(
+                        numbered_list
+                    )
+                    numbered_by_keyword = stats.get("kept_numbered_by_keyword")
+                    if not isinstance(numbered_by_keyword, dict):
+                        numbered_by_keyword = {}
+                    for keyword in numbered_list:
+                        numbered_by_keyword[keyword] = (
+                            int(numbered_by_keyword.get(keyword) or 0) + 1
+                        )
+                    stats["kept_numbered_by_keyword"] = numbered_by_keyword
+                if full_skip:
+                    stats["full_skip_runs"] = int(stats.get("full_skip_runs") or 0) + 1
+                    stats["last_full_skip"] = stamp
+                    stats["last_full_skip_title"] = title
+                self.save_data(DATA_KEY_STATS, stats)
+
+                if self._keep_records <= 0 or not skipped:
+                    return
+                records = self.get_data(DATA_KEY_RECORDS) or []
+                if not isinstance(records, list):
+                    records = []
+                scope = "all" if full_skip else "partial"
+                for name, keyword in skipped:
+                    records.insert(
+                        0,
+                        {
+                            "time": stamp,
+                            "title": title,
+                            "keyword": keyword,
+                            "name": name,
+                            "applied": applied,
+                            "scope": scope,
+                        },
+                    )
+                self.save_data(DATA_KEY_RECORDS, records[: self._keep_records])
         except Exception as err:  # pragma: no cover - 统计失败不得影响整理
             logger.error("【综艺正片守卫】记录统计失败：%s", err)
 
-    def _notify_skip(self, title: str, skipped: List[Tuple[str, str]]) -> None:
-        """按需发送跳过通知（仅真正过滤时发送）。"""
-        if not self._notify or not skipped:
+    def _record_numbered(self, title: str, numbered: Iterable[str]) -> None:
+        """只累计「歧义词因带集号被保留」的计数（没有任何跳过时也要留痕）。"""
+        numbered_list = [keyword for keyword in numbered or () if keyword]
+        if not numbered_list:
+            return
+        try:
+            with _STATS_LOCK:
+                stats = self._read_stats()
+                stats["kept_numbered"] = int(stats.get("kept_numbered") or 0) + len(
+                    numbered_list
+                )
+                numbered_by_keyword = stats.get("kept_numbered_by_keyword")
+                if not isinstance(numbered_by_keyword, dict):
+                    numbered_by_keyword = {}
+                for keyword in numbered_list:
+                    numbered_by_keyword[keyword] = (
+                        int(numbered_by_keyword.get(keyword) or 0) + 1
+                    )
+                stats["kept_numbered_by_keyword"] = numbered_by_keyword
+                stats["last_run"] = time.strftime("%Y-%m-%d %H:%M:%S")
+                self.save_data(DATA_KEY_STATS, stats)
+        except Exception as err:  # pragma: no cover - 统计失败不得影响整理
+            logger.error("【综艺正片守卫】记录统计失败：%s", err)
+
+    def _read_stats(self) -> Dict[str, Any]:
+        """读取统计字典；数据损坏时返回空字典（不抛异常）。"""
+        stats = self.get_data(DATA_KEY_STATS) or {}
+        return stats if isinstance(stats, dict) else {}
+
+    def _notify_skip(
+        self, title: str, skipped: List[Tuple[str, str]], full_skip: bool = False
+    ) -> None:
+        """发送跳过通知。
+
+        普通跳过遵守 ``notify`` 开关；**整季整体跳过一次强制发送**——这种情形会直接
+        让片库缺一整季，不能因为开关关闭而无声无息。
+        """
+        if not skipped or not (self._notify or full_skip):
             return
         try:
             lines = [f"- {name}（命中：{keyword}）" for name, keyword in skipped[:10]]
             more = f"\n…另有 {len(skipped) - 10} 个文件" if len(skipped) > 10 else ""
+            if full_skip:
+                title_text = "【综艺正片守卫】整季候选全部判为非正片，已整体跳过"
+                head = (
+                    f"媒体：{title}\n{len(skipped)} 个候选全部命中非正片词，"
+                    "这一季不会进入片库。如属误判，请调整词表或先开试运行。\n"
+                )
+            else:
+                title_text = "【综艺正片守卫】已跳过非正片文件"
+                head = f"媒体：{title}\n跳过 {len(skipped)} 个非正片文件：\n"
             self.post_message(
                 mtype=MessageType.Plugin,
-                title="【综艺正片守卫】已跳过非正片文件",
-                text=f"媒体：{title}\n跳过 {len(skipped)} 个非正片文件：\n" + "\n".join(lines) + more,
+                title=title_text,
+                text=head + "\n".join(lines) + more,
             )
         except Exception as err:  # pragma: no cover - 通知失败不得影响整理
             logger.error("【综艺正片守卫】发送通知失败：%s", err)
@@ -552,6 +815,43 @@ class VarietyGuard(_PluginBase):
         """解析关键词配置：支持换行/逗号分隔的字符串与列表。"""
         values = cls._split_list(raw, ",".join(default))
         return [value for value in values if value]
+
+    @classmethod
+    def _normalize_keywords(cls, raw: Any, default: Tuple[str, ...]) -> List[str]:
+        """解析词表并把旧配置里的字面量 E00 / EP00 迁移成「零集号」正则。
+
+        v1.0.x 的 E00 / EP00 不带词边界，会命中 ``S04E0012`` / ``S01E0050`` 这类四位集号，
+        把整季正片判成非正片；这里在加载时静默迁移，用户不必手工改配置。
+        """
+        migrated: List[str] = []
+        for value in cls._parse_keywords(raw, default):
+            replacement = _LEGACY_ZERO_EPISODE.get(value.strip().casefold())
+            migrated.append(replacement or value)
+        return _dedupe(migrated)
+
+    @staticmethod
+    def _split_keyword_tiers(
+        exclude: Iterable[str], ambiguous: Iterable[str]
+    ) -> Tuple[List[str], List[str]]:
+        """把配置里的词分成「强词 / 歧义词」两档。
+
+        - 用户显式写在歧义词框里的词一律算歧义；
+        - 旧配置（v1.0.x 只有一档）里与内置歧义词同名的条目自动降档，避免升级后
+          仍然把「…S04E01.巅峰对决…」这类正片当作衍生内容丢掉；
+        - 两档去重，同一归一化词只保留第一次出现的位置。
+        """
+        ambiguous_list = _dedupe(str(word) for word in ambiguous if str(word or "").strip())
+        ambiguous_canonical = {_canonical_keyword(word) for word in ambiguous_list}
+        strong_list: List[str] = []
+        for word in exclude:
+            text = str(word or "").strip()
+            if not text:
+                continue
+            canonical = _canonical_keyword(text)
+            if canonical in ambiguous_canonical:
+                continue
+            strong_list.append(text)
+        return _dedupe(strong_list), ambiguous_list
 
     @staticmethod
     def _split_list(raw: Any, default: str = "") -> List[str]:
@@ -617,7 +917,12 @@ class VarietyGuard(_PluginBase):
             )
 
     async def _sync_rule_keywords(self) -> None:
-        """把生效词表整条镜像写入目标自定义过滤规则（任何异常都只记日志）。"""
+        """把强词写入目标自定义过滤规则（任何异常都只记日志）。
+
+        只写强词：规则层是单条正则，无法表达「歧义词遇到集号就保留」，写进去等于在
+        订阅搜索阶段就拒掉可能正确的正片。用户手工加进该规则的条目会被保留，覆盖前的
+        原文另存快照，便于回滚。
+        """
         rule_id = self._sync_rule_id
         if not rule_id:
             return
@@ -640,16 +945,32 @@ class VarietyGuard(_PluginBase):
                 )
                 return
             current = str(target.get("exclude") or "")
-            if current == desired:
+            foreign = self._foreign_rule_entries(current, desired)
+            merged = [item for item in foreign + desired.split("|") if item]
+            final = "|".join(merged)
+            if current == final:
                 return  # 已一致：静默
+            if len(merged) > RULE_SYNC_MAX_TOTAL_ITEMS:
+                logger.error(
+                    "【综艺正片守卫】词表同步已跳过：合并后条目 %d 项超过上限 %d",
+                    len(merged),
+                    RULE_SYNC_MAX_TOTAL_ITEMS,
+                )
+                return
+            try:
+                re.compile(final)
+            except re.error as err:
+                logger.error("【综艺正片守卫】词表同步已跳过：合并后的正则不合法（%s）", err)
+                return
             updated = [
-                dict(rule, exclude=desired) if rule.get("id") == rule_id else rule
+                dict(rule, exclude=final) if rule.get("id") == rule_id else rule
                 for rule in rules
             ]
             await get_configured_system_config().async_set_with_normalized_value(
                 SystemConfigKey.CustomFilterRules, updated
             )
-            added, removed = self._diff_rule_keywords(current, desired)
+            added, removed = self._diff_rule_keywords(current, final)
+            self._save_rule_snapshot(current)
             self.save_data(
                 DATA_KEY_RULE_SYNC,
                 {
@@ -658,19 +979,72 @@ class VarietyGuard(_PluginBase):
                     "count": len(self._exclude_keywords),
                     "added": added,
                     "removed": removed,
+                    "foreign_kept": foreign,
+                    "desired": desired,
                 },
             )
+            if foreign:
+                logger.warning(
+                    "【综艺正片守卫】规则 %s 里有 %d 项不是本插件的词，已原样保留：%s",
+                    rule_id,
+                    len(foreign),
+                    "、".join(foreign[:5]),
+                )
             logger.info(
-                "【综艺正片守卫】已同步 %d 项非正片词到过滤规则 %s（新增 %d、删除 %d）",
+                "【综艺正片守卫】已同步 %d 项强词到过滤规则 %s（新增 %d、删除 %d、保留了 %d 项外部条目）",
                 len(self._exclude_keywords),
                 rule_id,
                 len(added),
                 len(removed),
+                len(foreign),
             )
         except Exception as err:  # noqa: BLE001 - 同步失败必须 fail-open
             logger.error(
                 "【综艺正片守卫】词表同步失败（已忽略，不影响过滤）：%s", err, exc_info=True
             )
+
+    def _foreign_rule_entries(self, current: str, desired: str) -> List[str]:
+        """找出规则里「不属于本插件」的条目，供合并时原样保留。
+
+        归属判定：上一次同步写入的词、本次期望词、内置默认词都算插件自己的；
+        旧版本写入的字面量 ``E00`` / ``EP00`` 也算插件自己的（已被零集号正则取代，
+        留在规则里会在搜索阶段误杀四位集号）；其余视为用户手工添加，必须保留
+        （旧版本是整条覆盖，会无声抹掉用户改动）。
+        """
+        sync_data = self.get_data(DATA_KEY_RULE_SYNC)
+        previous = ""
+        if isinstance(sync_data, dict):
+            previous = str(sync_data.get("desired") or "")
+        owned = {_canonical_keyword(item) for item in previous.split("|") if item}
+        owned |= {_canonical_keyword(item) for item in desired.split("|") if item}
+        owned |= _BUILTIN_KEYWORD_CANONICAL
+        owned |= set(_LEGACY_ZERO_EPISODE)
+        foreign: List[str] = []
+        for item in current.split("|"):
+            if not item:
+                continue
+            if _canonical_keyword(item) in owned:
+                continue
+            foreign.append(item)
+        return foreign
+
+    def _save_rule_snapshot(self, exclude_text: str) -> None:
+        """保存覆盖前的规则原文（保留最近若干份），供用户手工回滚。"""
+        try:
+            history = self.get_data(DATA_KEY_RULE_HISTORY) or []
+            if not isinstance(history, list):
+                history = []
+            history.insert(
+                0,
+                {
+                    "time": time.strftime("%Y-%m-%d %H:%M:%S"),
+                    "rule_id": self._sync_rule_id,
+                    "exclude": str(exclude_text or "")[:4000],
+                },
+            )
+            self.save_data(DATA_KEY_RULE_HISTORY, history[:RULE_SNAPSHOT_KEEP])
+        except Exception as err:  # pragma: no cover - 留档失败不得阻断同步
+            logger.error("【综艺正片守卫】规则原文留档失败：%s", err)
 
     def _rule_sync_guard(self, desired: str) -> str:
         """校验待写入的规则文本；返回非空字符串表示应当跳过本次同步。"""
@@ -741,17 +1115,34 @@ class VarietyGuard(_PluginBase):
 
     def _stats_text(self) -> str:
         """生成统计文本（供命令与详情页复用）。"""
-        stats = self.get_data(DATA_KEY_STATS) or {}
-        if not isinstance(stats, dict):
-            stats = {}
+        stats = self._read_stats()
         by_keyword = stats.get("by_keyword") if isinstance(stats.get("by_keyword"), dict) else {}
         detail = "、".join(f"{k}×{v}" for k, v in list(by_keyword.items())[:10]) or "无"
+        numbered_by_keyword = (
+            stats.get("kept_numbered_by_keyword")
+            if isinstance(stats.get("kept_numbered_by_keyword"), dict)
+            else {}
+        )
+        numbered_detail = (
+            "、".join(f"{k}×{v}" for k, v in list(numbered_by_keyword.items())[:5]) or "无"
+        )
+        full_skip_runs = int(stats.get("full_skip_runs") or 0)
+        full_skip_line = (
+            f"整季整体跳过：{full_skip_runs} 次"
+            f"（最近 {stats.get('last_full_skip') or '无'}"
+            f"{('｜' + str(stats.get('last_full_skip_title'))) if stats.get('last_full_skip_title') else ''}）"
+        )
         return (
             f"启用：{'是' if self._enabled else '否'}\n"
             f"试运行：{'是' if self._dry_run else '否'}\n"
             f"补丁状态：{self._patch_state or '未安装'}"
             f"{('（' + self._patch_message + '）') if self._patch_message else ''}\n"
+            f"词表：强词 {len(self._exclude_keywords)} 项、歧义词 {len(self._ambiguous_keywords)} 项"
+            f"（歧义词遇集号保留={'是' if self._keep_numbered else '否'}）\n"
             f"累计跳过：{stats.get('total_skipped') or 0} 个文件\n"
+            f"试运行命中：{stats.get('total_dry_run_hits') or 0} 个文件\n"
+            f"歧义词因集号保留：{stats.get('kept_numbered') or 0} 个文件（{numbered_detail}）\n"
+            f"{full_skip_line}\n"
             f"最近执行：{stats.get('last_run') or '无'}\n"
             f"关键词命中：{detail}"
         )
@@ -764,9 +1155,12 @@ class VarietyGuard(_PluginBase):
             {
                 "path": "/restore_default_keywords",
                 "endpoint": self.api_restore_default_keywords,
-                "methods": ["GET"],
+                "methods": ["POST"],
                 "summary": "恢复内置默认关键词",
-                "description": "两阶段恢复：先选中待确认，再 confirm=1 才写回配置并立即生效",
+                "description": (
+                    "两阶段恢复（仅 POST，避免被预取/GET 触发）：先选中待确认，"
+                    "再 confirm=1 才写回配置并立即生效"
+                ),
             },
         ]
 
@@ -774,12 +1168,13 @@ class VarietyGuard(_PluginBase):
 
     @staticmethod
     def default_keywords() -> Dict[str, str]:
-        """返回内置默认词表的文本形态（排除词、白名单），供「恢复默认」使用。
+        """返回内置默认词表的文本形态（强词、歧义词、白名单），供「恢复默认」使用。
 
         多词表项以 LF（``chr(10)``）分隔，与配置表单默认值、文本框口径保持一致。
         """
         return {
             "exclude_keywords": chr(10).join(DEFAULT_EXCLUDE_KEYWORDS),
+            "ambiguous_keywords": chr(10).join(DEFAULT_AMBIGUOUS_KEYWORDS),
             "allow_keywords": chr(10).join(DEFAULT_ALLOW_KEYWORDS),
         }
 
@@ -793,10 +1188,12 @@ class VarietyGuard(_PluginBase):
         脚本内联的词表与内置默认逐项一致（由测试校验）。
         """
         exclude_json = json.dumps(list(DEFAULT_EXCLUDE_KEYWORDS), ensure_ascii=False)
+        ambiguous_json = json.dumps(list(DEFAULT_AMBIGUOUS_KEYWORDS), ensure_ascii=False)
         allow_json = json.dumps(list(DEFAULT_ALLOW_KEYWORDS), ensure_ascii=False)
         guard = json.dumps(
-            "将用内置默认词表覆盖「非正片关键词 / 正片白名单」两个输入框"
-            f"（非正片 {len(DEFAULT_EXCLUDE_KEYWORDS)} 项），确定恢复？",
+            "将用内置默认词表覆盖「非正片关键词 / 歧义词 / 正片白名单」三个输入框"
+            f"（强词 {len(DEFAULT_EXCLUDE_KEYWORDS)} 项、歧义词 {len(DEFAULT_AMBIGUOUS_KEYWORDS)} 项），"
+            "确定恢复？",
             ensure_ascii=False,
         )
         return (
@@ -804,15 +1201,12 @@ class VarietyGuard(_PluginBase):
             + guard
             + ")) { return; } model.exclude_keywords = "
             + exclude_json
+            + ".join(String.fromCharCode(10)); model.ambiguous_keywords = "
+            + ambiguous_json
             + ".join(String.fromCharCode(10)); model.allow_keywords = "
             + allow_json
             + ".join(String.fromCharCode(10)); }"
         )
-
-    @staticmethod
-    def _api_key() -> str:
-        """取宿主 API Token 供详情页按钮携带；宿主未提供时返回空串。"""
-        return str(getattr(settings, "API_TOKEN", "") or "") if settings else ""
 
     def _restore_pending(self) -> Optional[Dict[str, Any]]:
         """读取待确认的「恢复默认关键词」请求；过期或形态损坏时自动作废。"""
@@ -842,11 +1236,10 @@ class VarietyGuard(_PluginBase):
     def _restore_action_nodes(self, pending: Optional[Dict[str, Any]]) -> List[dict]:
         """构造详情页的恢复入口：未选中时单按钮，已选中时「确认恢复 / 取消」两按钮。"""
         api_path = f"plugin/{self.__class__.__name__}/restore_default_keywords"
-        apikey = self._api_key()
 
         def button(text: str, color: str, variant: str, icon: str, confirm: str) -> dict:
-            """构造一个带 events 的按钮节点（params 携带 confirm 与 apikey）。"""
-            params: Dict[str, Any] = {"apikey": apikey}
+            """构造按钮节点：走当前登录会话，页面数据里不再携带宿主 API Token。"""
+            params: Dict[str, Any] = {}
             if confirm:
                 params["confirm"] = confirm
             return {
@@ -859,7 +1252,8 @@ class VarietyGuard(_PluginBase):
                     "prepend-icon": icon,
                 },
                 "text": text,
-                "events": {"click": {"api": api_path, "method": "get", "params": params}},
+                # 写操作只走 POST：GET 会被预取/爬虫误触发，也不该把参数留在访问日志里
+                "events": {"click": {"api": api_path, "method": "post", "params": params}},
             }
 
         nodes: List[dict] = []
@@ -873,8 +1267,10 @@ class VarietyGuard(_PluginBase):
                         "class": "mb-3",
                         "text": (
                             "已选中待确认：恢复内置默认关键词"
-                            f"（非正片 {len(DEFAULT_EXCLUDE_KEYWORDS)} 项），"
+                            f"（强词 {len(DEFAULT_EXCLUDE_KEYWORDS)} 项、"
+                            f"歧义词 {len(DEFAULT_AMBIGUOUS_KEYWORDS)} 项），"
                             f"选中于 {pending.get('label') or '刚刚'}。"
+                            "这会覆盖你手工加进「非正片关键词 / 歧义词」的词，"
                             "点「确认恢复」才会写入并生效；点「取消」放弃；"
                             f"{RESTORE_PENDING_TTL_SECONDS // 60} 分钟内未确认将自动作废。"
                         ),
@@ -949,13 +1345,17 @@ class VarietyGuard(_PluginBase):
             return {"success": False, "message": f"已保存但重载失败：{err}", "data": None}
         self._set_restore_pending(None)
         logger.info(
-            "【综艺正片守卫】已恢复内置默认关键词：非正片 %d 项、白名单 %d 项",
+            "【综艺正片守卫】已恢复内置默认关键词：强词 %d 项、歧义词 %d 项、白名单 %d 项",
             len(DEFAULT_EXCLUDE_KEYWORDS),
+            len(DEFAULT_AMBIGUOUS_KEYWORDS),
             len(DEFAULT_ALLOW_KEYWORDS),
         )
         return {
             "success": True,
-            "message": f"已恢复默认关键词（非正片 {len(DEFAULT_EXCLUDE_KEYWORDS)} 项）",
+            "message": (
+                f"已恢复默认关键词（强词 {len(DEFAULT_EXCLUDE_KEYWORDS)} 项、"
+                f"歧义词 {len(DEFAULT_AMBIGUOUS_KEYWORDS)} 项）"
+            ),
             "data": None,
         }
 
@@ -1056,12 +1456,37 @@ class VarietyGuard(_PluginBase):
                                         "component": "VTextarea",
                                         "props": {
                                             "model": "exclude_keywords",
-                                            "label": "非正片关键词（每行一个，支持正则）",
+                                            "label": "非正片强词（每行一个，支持正则；命中即跳过）",
                                             "rows": 6,
                                             "persistent-hint": True,
-                                            "hint": "命中即跳过（正则、忽略大小写）。内置默认 61 项：中文原样匹配，英文词自动包成「非字母边界」（多词短语可用 . _ - 空格分隔），E00 / EP00 刻意不加边界（站内变体较多，属有意为之）。⚠️ 自己新增的英文词不会自动加边界，若要防误伤请照写 (?<![A-Za-z])Word(?![A-Za-z])。",
+                                            "hint": "只放「衍生内容专用词」：命中即跳过（正则、忽略大小写）。内置 40 项：中文原样匹配，英文词自动包成「非字母边界」（多词短语可用 . _ - 空格分隔），零集号用 (?<![A-Za-z])E0+(?![0-9]) 只匹配 E00/E000，不会命中 S04E0012 这类四位集号。⚠️ 自己新增的英文词不会自动加边界，若要防误伤请照写 (?<![A-Za-z])Word(?![A-Za-z])；可能出现在正片标题里的词请放到下面的歧义词。",
                                         },
                                     }
+                                ],
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 6},
+                                "content": [
+                                    {
+                                        "component": "VTextarea",
+                                        "props": {
+                                            "model": "ambiguous_keywords",
+                                            "label": "歧义词（每行一个；命中后再看有没有集号）",
+                                            "rows": 6,
+                                            "persistent-hint": True,
+                                            "hint": "这些词同样会出现在正片标题/环节名里（巅峰、盛典、Live、Battle…）。命中后只有「文件名不带季集号、第 N 期、播出日期」时才跳过；带集号的一律按正片保留，避免把整集正片当成衍生内容丢掉。",
+                                        },
+                                    },
+                                    {
+                                        "component": "VSwitch",
+                                        "props": {
+                                            "model": "keep_numbered",
+                                            "label": "歧义词遇到带集号的整集命名时保留",
+                                            "persistent-hint": True,
+                                            "hint": "默认开启。关闭后退回旧行为：歧义词命中即跳过（会重新出现「S04E01.巅峰对决」被误杀的情况）。",
+                                        },
+                                    },
                                 ],
                             },
                             {
@@ -1100,8 +1525,8 @@ class VarietyGuard(_PluginBase):
                                                     "variant": "tonal",
                                                     "class": "mt-3",
                                                     "text": (
-                                                        "点此把内置默认词表填回上方两个输入框"
-                                                        "（只改「非正片关键词」与「正片白名单」）；"
+                                                        "点此把内置默认词表填回上方三个输入框"
+                                                        "（强词 / 歧义词 / 正片白名单）；这会覆盖你手工加的词，"
                                                         "点完仍需按「保存」才会生效。"
                                                     ),
                                                 },
@@ -1220,7 +1645,7 @@ class VarietyGuard(_PluginBase):
                                             "model": "sync_rule_id",
                                             "label": "同步到自定义过滤规则（rule_id，留空=关闭）",
                                             "persistent-hint": True,
-                                            "hint": "填写自定义过滤规则的 ID（如 RULE4）：插件在加载与保存配置时，把自己的非正片词表（含内置默认）整条镜像写入该规则的「排除」项 —— 新增与删减都会同步、即时生效、不消耗模型额度。留空则完全不动作；规则不存在、词表项数超出 10~200、或拼接后的正则不合法时，只记日志、不改动规则。",
+                                            "hint": "填写自定义过滤规则的 ID（如 RULE4）：插件在加载与保存配置时把「强词」写入该规则的「排除」项 —— 新增与删减都会同步、即时生效、不消耗模型额度。歧义词不写入（规则层无法表达「带集号保留」）。你手工加进该规则的条目会被保留，覆盖前的原文另存 5 份快照；停用插件不会自动复原规则。留空则完全不动作；规则不存在、词表项数超出 10~200、或拼接后的正则不合法时，只记日志、不改动规则。",
                                         },
                                     }
                                 ],
@@ -1234,10 +1659,12 @@ class VarietyGuard(_PluginBase):
             "dry_run": True,
             "notify": False,
             "exclude_keywords": "\n".join(DEFAULT_EXCLUDE_KEYWORDS),
+            "ambiguous_keywords": "\n".join(DEFAULT_AMBIGUOUS_KEYWORDS),
             "allow_keywords": "\n".join(DEFAULT_ALLOW_KEYWORDS),
             "scope_media_types": DEFAULT_SCOPE_MEDIA_TYPES,
             "scope_categories": DEFAULT_SCOPE_CATEGORIES,
             "match_full_path": False,
+            "keep_numbered": True,
             "keep_records": 200,
             "sync_rule_id": "",
         }
@@ -1265,6 +1692,26 @@ class VarietyGuard(_PluginBase):
                             f"{record.get('time')}｜{record.get('title')}｜"
                             f"命中「{record.get('keyword')}」｜{record.get('name')}"
                             + ("" if record.get("applied") else "（试运行，未过滤）")
+                            + ("（整季整体跳过）" if record.get("scope") == "all" else "")
+                        ),
+                    },
+                }
+            )
+        snapshot_nodes: List[dict] = []
+        history = self.get_data(DATA_KEY_RULE_HISTORY) or []
+        if isinstance(history, list) and history and isinstance(history[0], dict):
+            latest = history[0]
+            snapshot_nodes.append(
+                {
+                    "component": "VAlert",
+                    "props": {
+                        "type": "info",
+                        "variant": "tonal",
+                        "class": "mb-3",
+                        "text": (
+                            f"规则 {latest.get('rule_id')} 上次被覆盖前的「排除」内容"
+                            f"（{latest.get('time')}，可直接复制回滚）：\n"
+                            f"{(str(latest.get('exclude') or '')[:300] or '（原本为空）')}"
                         ),
                     },
                 }
@@ -1279,6 +1726,7 @@ class VarietyGuard(_PluginBase):
                     "text": self._stats_text(),
                 },
             },
+            *snapshot_nodes,
             {
                 "component": "VAlert",
                 "props": {
