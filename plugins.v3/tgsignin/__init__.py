@@ -20,8 +20,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import re
 import threading
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
@@ -85,12 +87,19 @@ from .core.groups import (
     group_pick_items,
     list_chat_groups,
 )
-from .core.login import clear_pending, confirm_login, load_pending, send_code
+from .core.login import (
+    PENDING_TTL_SECONDS,
+    clear_pending,
+    confirm_login,
+    load_pending,
+    send_code,
+)
 from .core.ai import AiSigninJudge
-from .core.autofill import merge_keywords
+from .core.autofill import EXTRA_KEYWORD_BLACKLIST, merge_keywords
 from .core.session import (
     connection_selftest,
     delete_session,
+    mask_phone,
     proxy_desc,
     resolve_proxy,
     session_files,
@@ -160,6 +169,11 @@ def _table(headers: List[str], rows: List[Dict[str, Any]]) -> dict:
 # 后台任务互斥登记表（同名任务不重复启动，2026-10-11 加）
 _RUNNING_JOBS: Dict[str, bool] = {}
 _RUNNING_JOBS_LOCK = threading.Lock()
+# 签到与登录动作共用的账号操作锁：定时、手动、命令、登录动作不许同时连同一批 session
+# （定时入口此前不经过后台任务互斥，可能与手动全量并发，2026-10-30 加）
+_SIGNIN_LOCK = threading.Lock()
+# AI 归纳关键词每栏单轮最多新增的词数：一次给出十个词时，错一个就污染整张词表
+AI_KEYWORD_ADD_LIMIT = 2
 
 
 def _truthy(value: Any, default: bool = False) -> bool:
@@ -334,9 +348,16 @@ class TgSignin(_PluginBase):
             self._raw_config = dict(config)
 
         self._drop_legacy_config_keys()
+        # 一次性登录凭据只在「待登录」有效期内保留：加载/保存配置时清掉过期残留，
+        # 避免验证码与两步验证密码长期明文留在插件配置里（2026-10-30 加固）
+        self._purge_stale_login_slots()
+        # 历史版本把手机号明文写进过 state.json：加载时统一迁移成打码形态（2026-10-30 加固）
+        self._migrate_state_pii()
 
         self._refresh_parsed_config()
         self._sync_mode_views()
+        # 剔除 AI 归纳曾经写进词表的跨文案泛词（如「连续签到」，2026-10-30 加固）
+        self._sanitize_keyword_lists()
         # 保存配置时若选了「登录动作」，在后台派发（不阻塞保存请求）
         self._dispatch_login_actions()
 
@@ -377,6 +398,117 @@ class TgSignin(_PluginBase):
         self._raw_config = cleaned
         logger.info("【TgSignin】已清理旧版遗留配置键：%s", "、".join(present))
         self.update_config(cleaned)
+
+    def _purge_stale_login_slots(self) -> None:
+        """
+        清掉「没有有效待登录状态」的一次性登录字段（验证码 / 两步验证密码）。
+
+        这些字段只在 ``login_pending.json`` 里还有未过期的 ``phone_code_hash`` 时才有
+        意义。此前只在确认登录成功后清理，失败（验证码错、提示先发码、超时）会把两步
+        验证密码长期明文留在插件配置里（2026-10-30 加固）。
+
+        :return None
+        """
+
+        pending = load_pending(self.get_data_path())
+        now = time.time()
+        fresh_keys = {
+            key
+            for key, value in pending.items()
+            if isinstance(value, dict)
+            and value.get("phone_code_hash")
+            and now - float(value.get("ts") or 0) <= PENDING_TTL_SECONDS
+        }
+        payload = dict(self._raw_config)
+        changed = False
+        for index in range(1, MAX_ACCOUNT_SLOTS + 1):
+            if f"acc{index}" in fresh_keys:
+                continue
+            for field in ("login_code", "login_password"):
+                name = f"account_{index}_{field}"
+                if payload.get(name):
+                    payload[name] = ""
+                    changed = True
+        if changed:
+            self._raw_config = payload
+            self.update_config(payload)
+            logger.info("【TgSignin】已清理过期的登录验证码/两步验证密码")
+        self._secure_pending_file()
+
+    def _secure_pending_file(self) -> None:
+        """
+        把 ``login_pending.json`` 权限收紧到 0600（历史遗留文件可能是 0666）。
+
+        :return None
+        """
+
+        path = Path(self.get_data_path()) / "login_pending.json"
+        try:
+            if path.exists() and (path.stat().st_mode & 0o077):
+                os.chmod(path, 0o600)
+                logger.info("【TgSignin】已把待登录状态文件权限收紧到 0600")
+        except OSError:  # pragma: no cover - 权限设置失败不阻断加载
+            pass
+
+    def _migrate_state_pii(self) -> None:
+        """
+        把 state.json 里历史上明文保存的手机号统一迁移成打码形态。
+
+        当前版本写入的登录信息已打码，但旧版本写过的明文号码仍留在文件里，并会随
+        备份扩散（2026-10-30 加固）。
+
+        :return None
+        """
+
+        path = self.get_data_path()
+        state = load_state(path)
+        accounts = state.get("accounts") or {}
+        changed = False
+        for entry in accounts.values():
+            if not isinstance(entry, dict):
+                continue
+            phone = str(entry.get("phone") or "")
+            digits = re.sub(r"\D", "", phone)
+            if len(digits) >= 8 and "*" not in phone:
+                entry["phone"] = mask_phone(phone)
+                changed = True
+        if not changed:
+            return
+        save_state(path, state)
+        logger.info("【TgSignin】已把状态文件里的历史明文手机号迁移为打码形态")
+
+    def _sanitize_keyword_lists(self) -> None:
+        """
+        从三栏关键词里剔除已知的跨文案泛词（如「连续签到」）。
+
+        AI 自动归纳在 2026-10-11 把「连续签到」写进过成功词表：该短语每天都会出现在
+        成功文案里，一旦被当成成功词，就会把「连续签到已中断」判成签到成功。
+        黑名单已阻止新词进入，这里负责清理历史残留（2026-10-30 加固）。
+
+        :return None
+        """
+
+        blocked = {word.lower() for word in EXTRA_KEYWORD_BLACKLIST}
+        groups = {
+            "success_keywords": list(self._success_keywords),
+            "repeated_keywords": list(self._repeated_keywords),
+            "failure_keywords": list(self._failure_keywords),
+        }
+        cleaned = {
+            name: [word for word in words if word.lower() not in blocked]
+            for name, words in groups.items()
+        }
+        if all(cleaned[name] == groups[name] for name in groups):
+            return
+        payload = dict(self._raw_config)
+        for name, words in cleaned.items():
+            payload[name] = "|".join(words)
+        self._success_keywords = cleaned["success_keywords"]
+        self._repeated_keywords = cleaned["repeated_keywords"]
+        self._failure_keywords = cleaned["failure_keywords"]
+        self._raw_config = payload
+        self.update_config(payload)
+        logger.info("【TgSignin】已从关键词表剔除跨文案泛词")
 
     def _refresh_parsed_config(self) -> None:
         """
@@ -528,10 +660,26 @@ class TgSignin(_PluginBase):
             reset_payload[f"account_{index}_login_action"] = LOGIN_ACTION_NONE
         self._raw_config = reset_payload
         self.update_config(reset_payload)
-        if not self._spawn_background(
-            lambda: self._run_sync(lambda: self._execute_login_actions(actions)),
-            "login-actions",
-        ):
+
+        def _runner() -> None:
+            """线程体：与签到共用一把锁，避免同一 session 并发连接。"""
+            if not _SIGNIN_LOCK.acquire(blocking=False):
+                logger.info("【TgSignin】签到正在执行，本次登录动作未启动")
+                try:
+                    self.post_message(
+                        mtype=MessageType.Plugin,
+                        title="【Telegram 登录】",
+                        text="签到任务正在执行，本次登录动作未执行；稍后重新保存一次即可。",
+                    )
+                except Exception as error:  # pylint: disable=broad-except
+                    logger.error("【TgSignin】登录动作跳过通知发送出错：%s", error)
+                return
+            try:
+                self._run_sync(lambda: self._execute_login_actions(actions))
+            finally:
+                _SIGNIN_LOCK.release()
+
+        if not self._spawn_background(_runner, "login-actions"):
             logger.info("【TgSignin】登录动作已在执行中，本次保存不再重复触发")
 
     async def _execute_login_actions(self, actions: List[Any]) -> None:
@@ -561,6 +709,8 @@ class TgSignin(_PluginBase):
                     record_login(
                         self.get_data_path(), account.key, result.get("me") or {}
                     )
+                # 失败同样清掉一次性凭据，避免两步验证密码长期明文留存
+                self._clear_login_slot(account.key)
             ok = bool(result.get("ok"))
             message = str(result.get("message") or "")
             record_login_event(
@@ -1794,7 +1944,7 @@ class TgSignin(_PluginBase):
         text: str,
         path: str,
         color: str = "primary",
-        method: str = "get",
+        method: str = "post",
         params: Optional[Dict[str, Any]] = None,
     ) -> dict:
         """
@@ -2143,49 +2293,49 @@ class TgSignin(_PluginBase):
             {
                 "path": "/login/send_code",
                 "endpoint": self.api_send_code,
-                "methods": ["GET", "POST"],
+                "methods": ["POST"],
                 "summary": "阶段一：发送登录验证码",
                 "description": "对配置里选中的账号发送 Telegram 登录验证码。",
             },
             {
                 "path": "/login/confirm",
                 "endpoint": self.api_confirm_login,
-                "methods": ["GET", "POST"],
+                "methods": ["POST"],
                 "summary": "阶段二：确认登录",
                 "description": "用配置里填写的验证码（含可选两步验证密码）完成登录。",
             },
             {
                 "path": "/login/reset",
                 "endpoint": self.api_login_reset,
-                "methods": ["GET", "POST"],
+                "methods": ["POST"],
                 "summary": "清空验证码与两步验证密码",
                 "description": "清掉配置里暂存的验证码/密码与待登录状态。",
             },
             {
                 "path": "/signin/run",
                 "endpoint": self.api_signin,
-                "methods": ["GET", "POST"],
+                "methods": ["POST"],
                 "summary": "立即签到",
                 "description": "立即执行签到，可用 account/bot 参数限定范围。",
             },
             {
                 "path": "/selftest",
                 "endpoint": self.api_selftest,
-                "methods": ["GET", "POST"],
+                "methods": ["POST"],
                 "summary": "连通性自检",
                 "description": "用公开应用凭据连接一次 Telegram，验证代理与网络。",
             },
             {
                 "path": "/logout",
                 "endpoint": self.api_logout,
-                "methods": ["GET", "POST"],
+                "methods": ["POST"],
                 "summary": "退出登录（两阶段）",
                 "description": "不带 confirm=true 时只做确认提示；带 confirm=true 才删除 session。",
             },
             {
                 "path": "/target/probe",
                 "endpoint": self.api_probe_target,
-                "methods": ["GET", "POST"],
+                "methods": ["POST"],
                 "summary": "测试单个签到目标",
                 "description": "发一次 /start（或命令）并回读实际看到的按钮文案，用于修正「按钮文字」。",
             },
@@ -2199,7 +2349,7 @@ class TgSignin(_PluginBase):
             {
                 "path": "/groups/refresh",
                 "endpoint": self.api_refresh_groups,
-                "methods": ["GET", "POST"],
+                "methods": ["POST"],
                 "summary": "更新群组（全部账号）",
                 "description": "逐个账号只读查询会话列表并刷新群组缓存；某个账号失败不影响其它账号。",
             },
@@ -2376,9 +2526,9 @@ class TgSignin(_PluginBase):
         message = str(result.get("message") or "")
         if ok:
             record_login(self.get_data_path(), account.key, result.get("me") or {})
-            # 登录成功后立刻清掉该槽的一次性凭据（验证码 / 两步验证密码 / 动作），
-            # 避免长期明文留在插件配置里（2026-10-11 加）
-            self._clear_login_slot(account.key)
+        # 无论成败都清掉该槽的一次性凭据（验证码 / 两步验证密码 / 动作）：
+        # 失败时同样不该把两步验证密码长期明文留在配置里（2026-10-30 加固）
+        self._clear_login_slot(account.key)
         record_login_event(
             self.get_data_path(), account.key, LOGIN_ACTION_CONFIRM, ok, message
         )
@@ -2887,7 +3037,10 @@ class TgSignin(_PluginBase):
         only_targets: Optional[Sequence[Any]] = None,
     ) -> Dict[str, Any]:
         """
-        执行签到并按需通知失败。
+        执行签到并按需通知失败（定时 / 手动 / 命令共用同一把互斥锁）。
+
+        定时入口原本不经过后台任务互斥，可能与手动全量并发、各自连一个 session，
+        既提高风控概率，也会让两轮结果互相覆盖（2026-10-30 加固）。
 
         :param source: 触发来源（定时/手动/命令）
         :param only_account: 只跑该账号
@@ -2895,6 +3048,38 @@ class TgSignin(_PluginBase):
         :param only_targets: 只跑给定的目标集合（失败重试用），None 表示全部
         :return Dict[str, Any]: 统一响应结构
         """
+
+        if not _SIGNIN_LOCK.acquire(blocking=False):
+            logger.info("【TgSignin】已有签到任务在运行，本次触发跳过：来源=%s", source)
+            return {
+                "success": False,
+                "message": "已有签到任务在运行，本次触发已跳过",
+                "data": None,
+            }
+        try:
+            return await self._signin_locked(
+                source, only_account, only_bot, only_targets
+            )
+        finally:
+            _SIGNIN_LOCK.release()
+
+    async def _signin_locked(
+        self,
+        source: str,
+        only_account: Optional[str] = None,
+        only_bot: Optional[str] = None,
+        only_targets: Optional[Sequence[Any]] = None,
+    ) -> Dict[str, Any]:
+        """
+        真正的签到执行体（调用方已持有互斥锁）。
+
+        :param source: 触发来源（定时/手动/命令）
+        :param only_account: 只跑该账号
+        :param only_bot: 只跑该 bot
+        :param only_targets: 只跑给定的目标集合（失败重试用），None 表示全部
+        :return Dict[str, Any]: 统一响应结构
+        """
+
         self._refresh_parsed_config()
         if not self._accounts:
             return {"success": False, "message": "没有配置任何账号", "data": None}
@@ -3007,6 +3192,12 @@ class TgSignin(_PluginBase):
             merged, added = merge_keywords(
                 current[verdict], words, KEYWORD_LIST_LIMIT, blocked
             )
+            if len(added) > AI_KEYWORD_ADD_LIMIT:
+                # 每栏每轮最多新增 2 个：AI 一次给出十个词时，错一个就污染整张词表。
+                # 截的是「实际新增」而不是候选列表——候选里的重复词不该占名额。
+                dropped = set(added[AI_KEYWORD_ADD_LIMIT:])
+                merged = [word for word in merged if word not in dropped]
+                added = added[:AI_KEYWORD_ADD_LIMIT]
             if not added:
                 continue
             current[verdict] = merged
@@ -3030,7 +3221,18 @@ class TgSignin(_PluginBase):
         self._repeated_keywords = current["repeated"]
         self._failure_keywords = current["failure"]
         # 持久化：沿用本插件既有的「整份 payload + 局部覆盖」写法（含热更新 _raw_config）
-        payload = dict(self._raw_config)
+        latest: Any = None
+        try:
+            latest = self.get_config()
+        except Exception:  # pylint: disable=broad-except
+            latest = None
+        # 以库里的最新配置为底再覆盖三栏词表：签到执行期间用户可能改过别的字段，
+        # 直接写回内存快照会把那些改动一起盖掉（2026-10-30 加固）
+        payload = (
+            dict(latest)
+            if isinstance(latest, dict) and latest
+            else dict(self._raw_config)
+        )
         payload.update(
             {
                 "success_keywords": "|".join(self._success_keywords),
@@ -3161,6 +3363,11 @@ class TgSignin(_PluginBase):
         data = event.event_data
         action = str(data.get("action") or "")
         if not action.startswith("tgsignin_"):
+            return
+        if not getattr(self, "_enabled", False):
+            # 停用后宿主不再注册命令，但工作流/其它插件仍可能投递插件动作：
+            # 这里再挡一次，避免停用后仍发码、签到或删 session（2026-10-30 加）
+            logger.info("【TgSignin】插件未启用，忽略动作：%s", action)
             return
         channel = data.get("channel")
         source = data.get("source")

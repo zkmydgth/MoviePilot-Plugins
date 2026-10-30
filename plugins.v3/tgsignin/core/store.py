@@ -39,8 +39,10 @@ PAGE_RESULT_LIMIT = 30
 AI_KEYWORD_LOG_LIMIT = 100
 # 状态/待登录文件权限：只给属主读写（2026-10-11 加固）
 STATE_FILE_MODE = 0o600
-# 进程内写锁：多个后台线程各自「读-改-写」时避免丢更新
-_WRITE_LOCK = threading.Lock()
+# 进程内写锁：必须包住整个「读-改-写」，只包最后落盘那一步仍会丢更新
+# （签到结果、登录事件、群组缓存、AI 词表审计会各自读整份文件再写回）。
+# 用 RLock 是为了让 save_state 可以被已经持锁的调用方重入（2026-10-30 修）。
+_WRITE_LOCK = threading.RLock()
 
 
 def write_json_atomic(path: Path, data: Any, mode: int = STATE_FILE_MODE) -> None:
@@ -149,11 +151,12 @@ def record_login(data_dir: Path, account_key: str, info: Dict[str, Any]) -> None
     :return None
     """
 
-    state = load_state(data_dir)
-    entry = state.setdefault("accounts", {}).setdefault(account_key, {})
-    entry.update(info or {})
-    entry["logged_in"] = True
-    save_state(data_dir, state)
+    with _WRITE_LOCK:
+        state = load_state(data_dir)
+        entry = state.setdefault("accounts", {}).setdefault(account_key, {})
+        entry.update(info or {})
+        entry["logged_in"] = True
+        save_state(data_dir, state)
 
 
 def record_run(
@@ -172,50 +175,51 @@ def record_run(
     :return Dict[str, Any]: 更新后的状态字典
     """
 
-    state = load_state(data_dir)
-    first = results[0].get("time", "") if results else ""
-    state["last_run_at"] = first
-    state["last_source"] = source
-    state["last_summary"] = summary
-    state["results"] = list(results)
+    with _WRITE_LOCK:
+        state = load_state(data_dir)
+        first = results[0].get("time", "") if results else ""
+        state["last_run_at"] = first
+        state["last_source"] = source
+        state["last_summary"] = summary
+        state["results"] = list(results)
 
-    history: List[Dict[str, Any]] = list(state.get("history") or [])
-    for item in results:
-        history.append(
-            {
-                "time": item.get("time", ""),
-                "account": item.get("account", ""),
-                "bot": item.get("bot", ""),
-                "method": item.get("method", ""),
-                "ok": bool(item.get("ok")),
-                "reply": str(item.get("reply", ""))[:300],
-                "error": str(item.get("error", ""))[:300],
-                # 详情页还要展示的字段（2026-10-11 修：此前只落 7 个字段，
-                # 导致页面「AI 复核」列恒空、状态细分与弹窗文本丢失）
-                "status": str(item.get("status", ""))[:60],
-                "alert": str(item.get("alert", ""))[:300],
-                "ai_state": str(item.get("ai_state", ""))[:40],
-                "ai_verdict": str(item.get("ai_verdict", ""))[:40],
-                "ai_message": str(item.get("ai_message", ""))[:300],
-                "ai_keywords": [
-                    str(word) for word in (item.get("ai_keywords") or [])
-                ][:10],
-            }
-        )
-    # 只保留最近 N 条，避免状态文件无限膨胀
-    per_bot_limit = MAX_HISTORY_PER_BOT
-    keep: List[Dict[str, Any]] = []
-    counter: Dict[str, int] = {}
-    for item in reversed(history):
-        key = f"{item.get('account')}|{item.get('bot')}"
-        counter[key] = counter.get(key, 0) + 1
-        if counter[key] <= per_bot_limit:
-            keep.append(item)
-    state["history"] = list(reversed(keep))
-    # 记录每个目标的当日成败与尝试次数，供「失败重试」窗口判定使用（见 core/retry.py）
-    state = record_attempts(state, results)
-    save_state(data_dir, state)
-    return state
+        history: List[Dict[str, Any]] = list(state.get("history") or [])
+        for item in results:
+            history.append(
+                {
+                    "time": item.get("time", ""),
+                    "account": item.get("account", ""),
+                    "bot": item.get("bot", ""),
+                    "method": item.get("method", ""),
+                    "ok": bool(item.get("ok")),
+                    "reply": str(item.get("reply", ""))[:300],
+                    "error": str(item.get("error", ""))[:300],
+                    # 详情页还要展示的字段（2026-10-11 修：此前只落 7 个字段，
+                    # 导致页面「AI 复核」列恒空、状态细分与弹窗文本丢失）
+                    "status": str(item.get("status", ""))[:60],
+                    "alert": str(item.get("alert", ""))[:300],
+                    "ai_state": str(item.get("ai_state", ""))[:40],
+                    "ai_verdict": str(item.get("ai_verdict", ""))[:40],
+                    "ai_message": str(item.get("ai_message", ""))[:300],
+                    "ai_keywords": [
+                        str(word) for word in (item.get("ai_keywords") or [])
+                    ][:10],
+                }
+            )
+        # 只保留最近 N 条，避免状态文件无限膨胀
+        per_bot_limit = MAX_HISTORY_PER_BOT
+        keep: List[Dict[str, Any]] = []
+        counter: Dict[str, int] = {}
+        for item in reversed(history):
+            key = f"{item.get('account')}|{item.get('bot')}"
+            counter[key] = counter.get(key, 0) + 1
+            if counter[key] <= per_bot_limit:
+                keep.append(item)
+        state["history"] = list(reversed(keep))
+        # 记录每个目标的当日成败与尝试次数，供「失败重试」窗口判定使用（见 core/retry.py）
+        state = record_attempts(state, results)
+        save_state(data_dir, state)
+        return state
 
 
 def record_login_event(
@@ -238,16 +242,19 @@ def record_login_event(
 
     from datetime import datetime, timedelta, timezone  # pylint: disable=import-outside-toplevel
 
-    state = load_state(data_dir)
-    state["last_login"] = {
-        "time": datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d %H:%M:%S"),
-        "account": account_key,
-        "action": action,
-        "ok": bool(ok),
-        "message": str(message)[:300],
-    }
-    save_state(data_dir, state)
-    return state
+    with _WRITE_LOCK:
+        state = load_state(data_dir)
+        state["last_login"] = {
+            "time": datetime.now(timezone(timedelta(hours=8))).strftime(
+                "%Y-%m-%d %H:%M:%S"
+            ),
+            "account": account_key,
+            "action": action,
+            "ok": bool(ok),
+            "message": str(message)[:300],
+        }
+        save_state(data_dir, state)
+        return state
 
 
 def recent_results(state: Dict[str, Any], limit: int = PAGE_RESULT_LIMIT) -> List[Dict[str, Any]]:
@@ -279,12 +286,13 @@ def record_ai_keywords(
 
     if not entries:
         return load_state(data_dir)
-    state = load_state(data_dir)
-    log: List[Dict[str, Any]] = list(state.get("ai_keyword_log") or [])
-    log.extend(dict(item) for item in entries)
-    state["ai_keyword_log"] = log[-AI_KEYWORD_LOG_LIMIT:]
-    save_state(data_dir, state)
-    return state
+    with _WRITE_LOCK:
+        state = load_state(data_dir)
+        log: List[Dict[str, Any]] = list(state.get("ai_keyword_log") or [])
+        log.extend(dict(item) for item in entries)
+        state["ai_keyword_log"] = log[-AI_KEYWORD_LOG_LIMIT:]
+        save_state(data_dir, state)
+        return state
 
 
 def record_groups(
@@ -306,15 +314,16 @@ def record_groups(
 
     from datetime import datetime, timedelta, timezone  # pylint: disable=import-outside-toplevel
 
-    state = load_state(data_dir)
-    bucket: Dict[str, Any] = state.setdefault("groups", {})
-    bucket[account_key] = {
-        "time": datetime.now(timezone(timedelta(hours=8))).strftime(
-            "%Y-%m-%d %H:%M:%S"
-        ),
-        "total": int(payload.get("total") or 0),
-        "truncated": bool(payload.get("truncated")),
-        "rows": [dict(row) for row in (payload.get("rows") or [])],
-    }
-    save_state(data_dir, state)
-    return state
+    with _WRITE_LOCK:
+        state = load_state(data_dir)
+        bucket: Dict[str, Any] = state.setdefault("groups", {})
+        bucket[account_key] = {
+            "time": datetime.now(timezone(timedelta(hours=8))).strftime(
+                "%Y-%m-%d %H:%M:%S"
+            ),
+            "total": int(payload.get("total") or 0),
+            "truncated": bool(payload.get("truncated")),
+            "rows": [dict(row) for row in (payload.get("rows") or [])],
+        }
+        save_state(data_dir, state)
+        return state

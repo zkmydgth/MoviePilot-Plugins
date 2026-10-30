@@ -590,6 +590,9 @@ def classify_result(
     if _matches_keywords(text, success_words) or _matches_keywords(
         alert_text, success_words
     ):
+        # 成功词优先于失败词（2026-10-08 用户定案）：真实成功文案常带「请稍后重试」
+        # 这类尾缀，反过来判会把「✅ 签到成功，如未到账请稍后重试」误判成失败。
+        # 泛词污染改由词表治理解决（见 core/autofill.py 的黑名单与启动清理）
         return STATUS_SUCCESS
     if _matches_keywords(text, repeated_words) or _matches_keywords(
         alert_text, repeated_words
@@ -1023,7 +1026,7 @@ async def _run_targets_concurrently(
 
     - 并发上限由 ``concurrency`` 对应的信号量控制；
     - 每路启动加 ≤300ms 抖动，降低同秒并发特征；
-    - 命中 Telegram FloodWait 时按提示退避（上限 60 秒）并**重试一次**，不影响其它路；
+    - 命中 Telegram FloodWait 时按提示退避（上限 600 秒）并**重试一次**，不影响其它路；
     - 结果按**原始目标顺序**返回，保证通知与状态文件内容稳定。
 
     :param client: 已登录的 TelegramClient（同一账号共用）

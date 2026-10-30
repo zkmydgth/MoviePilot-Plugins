@@ -786,7 +786,8 @@ class TestGroupFormAndApi(unittest.TestCase):
         """/groups/refresh 路由绑定到「更新群组」接口。"""
         routes = {item["path"]: item for item in TgSignin().get_api()}
         self.assertIn("/groups/refresh", routes)
-        self.assertIn("GET", routes["/groups/refresh"]["methods"])
+        # 会连 Telegram 并写群组缓存：按写操作只允许 POST（2026-10-30 加固）
+        self.assertEqual(routes["/groups/refresh"]["methods"], ["POST"])
 
     def test_refresh_queries_every_account(self) -> None:
         """不带参数：逐个账号刷新，一个失败不影响其它账号，并汇总成一句话。"""

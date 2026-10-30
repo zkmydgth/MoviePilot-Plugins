@@ -100,8 +100,8 @@ MUTANTS = [
     ),
     (
         "__init__.py",
-        "        if self._use_text_mode:",
-        "        if False:  # 变异：同步方向固定为「槽位 → 文本」",
+        "        if self._use_text_mode:\n            payload = mirror_text_to_slots(",
+        "        if False:  # 变异：同步方向固定为「槽位 → 文本」\n            payload = mirror_text_to_slots(",
         "同步方向反了：文本模式下不回填槽位",
     ),
     (
@@ -380,6 +380,54 @@ MUTANTS = [
         '        edited_date = getattr(message, "edit_date", None)',
         "        edited_date = None",
         "原地编辑时间不再参与「本次证据」判定（菜单改写成结果会被当旧消息丢弃）",
+    ),
+    (
+        "__init__.py",
+        '                if payload.get(name):\n                    payload[name] = ""\n                    changed = True',
+        '                if False:\n                    payload[name] = ""\n                    changed = True',
+        "没有待登录状态时也不清理一次性凭据（两步验证密码长期明文留在配置里）",
+    ),
+    (
+        "__init__.py",
+        '            if len(digits) >= 8 and "*" not in phone:',
+        "            if False:",
+        "历史明文手机号不再迁移打码（随状态文件与备份扩散）",
+    ),
+    (
+        "__init__.py",
+        "            name: [word for word in words if word.lower() not in blocked]",
+        "            name: list(words)",
+        "启动时不再剔除跨文案泛词（「连续签到」继续污染成功词表）",
+    ),
+    (
+        "__init__.py",
+        "            if len(added) > AI_KEYWORD_ADD_LIMIT:",
+        "            if False:",
+        "AI 归纳单轮上限失效（一次可写入任意多个新词）",
+    ),
+    (
+        "__init__.py",
+        '        if not _SIGNIN_LOCK.acquire(blocking=False):\n            logger.info("【TgSignin】已有签到任务在运行，本次触发跳过：来源=%s", source)',
+        '        if False:\n            logger.info("【TgSignin】已有签到任务在运行，本次触发跳过：来源=%s", source)',
+        "定时/手动/命令不再共用签到锁（同一 session 可并发连接）",
+    ),
+    (
+        "__init__.py",
+        '        if not getattr(self, "_enabled", False):',
+        "        if False:",
+        "停用后仍执行插件动作（可发码、签到、删 session）",
+    ),
+    (
+        "__init__.py",
+        '                "path": "/signin/run",\n                "endpoint": self.api_signin,\n                "methods": ["POST"],',
+        '                "path": "/signin/run",\n                "endpoint": self.api_signin,\n                "methods": ["GET", "POST"],',
+        "立即签到重新接受 GET（写操作可被链接预取重放）",
+    ),
+    (
+        "__init__.py",
+        '        method: str = "post",',
+        '        method: str = "get",',
+        "详情页按钮恢复 GET 提交（写操作落进 URL 与历史记录）",
     ),
 ]
 
