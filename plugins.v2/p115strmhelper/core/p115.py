@@ -78,11 +78,14 @@ def iter_share_files_with_path(
         path_prefix: str,
         offset: int,
     ) -> Tuple[List[Dict[str, Any]], List[Tuple[int, str, int]]]:
+        limit = 1_000
+        if offset != 0:
+            limit = 7_000
         payload = {
             "share_code": share_code,
             "receive_code": receive_code,
             "cid": _cid,
-            "limit": 1000,
+            "limit": limit,
             "offset": offset,
             "asc": asc,
             "o": order,
