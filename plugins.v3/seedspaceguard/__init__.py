@@ -32,6 +32,7 @@ import shutil
 import stat
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
@@ -72,6 +73,36 @@ DIR_SCAN_MAX_ENTRIES: int = 5000
 # 监控目录空壳扫描的最大递归深度：超过即视为「无法确证为空」，保守不删。
 # 目录树正常只有「下载分类/资源/季」两三层，设上限只为防御异常深层结构。
 EMPTY_SWEEP_MAX_DEPTH: int = 10
+
+
+# ============================ 空壳扫描性能常量 ============================
+# 空壳判定的远程调用预算（秒）：一轮内累计超过即停止逐种子判定，剩余候选
+# 一律按「仍有文件」保守保留。用于防止下载器响应退化时把一轮拖到小时级。
+ORPHAN_SCAN_BUDGET_SECONDS: int = 300
+# 远程调用连续失败阈值：达到即熔断本轮剩余判定。下载器超时一次通常要等满
+# 读超时（宿主为 60 秒），串行重试会把慢查询放大成分钟级等待。
+ORPHAN_RPC_FAILURE_LIMIT: int = 2
+# 空间充足时的深度空壳扫描间隔（秒）：空壳回收不释放空间，只在空间不足时
+# 才具有「尽早摘种」的时效价值，因此空间充足时降频到约每天一次。
+ORPHAN_QUIET_SCAN_INTERVAL_SECONDS: int = 20 * 3600
+# 已判定「仍有文件」的种子在该秒数内不复测；命中条件同时要求内容路径与
+# 保存目录未变，避免路径迁移后沿用旧结论。
+ORPHAN_ALIVE_CACHE_SECONDS: int = 24 * 3600
+# 启用批量预取的候选数下限：候选很少时逐种子查询更简单，也避免无谓线程。
+ORPHAN_BATCH_MIN_CANDIDATES: int = 20
+# 批量预取的并发上限（仅无批量接口的下载器，如 qBittorrent）。
+ORPHAN_PREFETCH_WORKERS: int = 8
+# 判定「远程调用失败」的最短耗时（秒）：宿主会把超时吞成 None，无法只看
+# 返回值区分；快速返回 None 多为「该下载器/种子不提供清单」，不应计入熔断。
+ORPHAN_SLOW_CALL_SECONDS: float = 5.0
+# Transmission 批量取文件清单的单批上限：一次请求带上千个 hash 时，请求体
+# 与响应体都会显著放大，慢响应下容易整批超时，随后连累全部候选退回逐种子
+# 查询（等于优化在最需要的时候失效）。按批请求并允许失败拆批，才能保住收益。
+ORPHAN_TR_BATCH_SIZE: int = 400
+# 单轮预算的可配置范围（秒）：过小会让大库永远扫不完，过大则失去「一轮
+# 有界」的意义，因此给出上下限而不是完全放开。
+ORPHAN_SCAN_BUDGET_MIN: int = 30
+ORPHAN_SCAN_BUDGET_MAX: int = 3600
 
 
 class SeedSpaceGuard(_PluginBase):
@@ -179,6 +210,23 @@ class SeedSpaceGuard(_PluginBase):
     _path_mappings: Dict[str, List[Tuple[str, str]]] = {}
     # 路径反查种子的本轮缓存（避免同一轮反复枚举全部种子）
     _seed_path_index_cache: Optional[Dict[str, str]] = None
+    # 轮内种子快照：hash -> 候选（含 module/downloader/path/dl_dir/added/size）。
+    # 一次枚举供候选判定、目录反查与删种定位复用，避免同轮重复拉全量列表。
+    _torrent_snapshot: Optional[Dict[str, Dict[str, Any]]] = None
+    # 轮内下载器实例与模块：名称 -> 客户端实例 / 删种模块
+    _downloader_instances: Dict[str, Any] = {}
+    _downloader_modules: Dict[str, Any] = {}
+    # 轮内批量文件清单缓存：hash -> 相对种子根的路径列表
+    _seed_files_cache: Dict[str, List[str]] = {}
+    _seed_files_prefetched: bool = False
+    # 远程判定熔断与预算状态
+    _rpc_failures: int = 0
+    _rpc_open: bool = False
+    _scan_deadline: float = 0.0
+    # 下载器实例名 → 归一化后的类型：决定预取是否可以并发
+    _downloader_types: Dict[str, Any] = {}
+    # 删种后待复核：{下载器名: set(hash)}
+    _deleted_pending: Dict[str, set] = {}
     _lock: threading.Lock = threading.Lock()
 
     def init_plugin(self, config: dict = None) -> None:
@@ -206,6 +254,8 @@ class SeedSpaceGuard(_PluginBase):
         self._companion_protect = True
         self._orphan_cleanup = False
         self._orphan_seed_scope = False
+        # 空壳判定单轮预算（秒）：默认 300
+        self._orphan_scan_budget = ORPHAN_SCAN_BUDGET_SECONDS
         self._empty_dir_sweep = True
         self._active_mode = ""
         self._config_error = ""
@@ -301,6 +351,20 @@ class SeedSpaceGuard(_PluginBase):
         # 同样用 bool()——它把手伸到配置目录之外，属行为边界扩大，
         # 必须显式授权，绝不可因「未配置」而默认打开。
         self._orphan_seed_scope = bool(config.get("orphan_seed_scope"))
+        # 空壳判定单轮预算（秒）：默认 300，允许 30~3600。
+        # 做成可配置是因为「候选数」与「下载器响应」随站点规模差异极大：
+        # 固定值在慢下载器上会让尾部候选长期轮不到（饥饿），在快下载器上
+        # 又白白浪费可用时间。非法值回退默认，避免加载失败。
+        raw_budget = config.get("orphan_scan_budget")
+        try:
+            self._orphan_scan_budget = (
+                max(ORPHAN_SCAN_BUDGET_MIN,
+                    min(ORPHAN_SCAN_BUDGET_MAX, int(raw_budget)))
+                if raw_budget not in (None, "")
+                else ORPHAN_SCAN_BUDGET_SECONDS
+            )
+        except (TypeError, ValueError):
+            self._orphan_scan_budget = ORPHAN_SCAN_BUDGET_SECONDS
         # 空壳目录扫描：默认**开启**，仅显式为 False 时关闭。
         # 它只删除「除 DSM 索引残片外没有任何内容」的目录，不碰任何真实文件，
         # 因此与「主动删文件」类开关的默认策略相反；同样不用 bool()，
@@ -840,6 +904,23 @@ class SeedSpaceGuard(_PluginBase):
                             "persistent-hint": True,
                         },
                     },
+                    {
+                        "component": "VTextField",
+                        "props": {
+                            "model": "orphan_scan_budget",
+                            "label": "空壳判定单轮预算（秒）",
+                            "class": "mt-4",
+                            "type": "number",
+                            "placeholder": "300",
+                            "hint": "**两种模式通用，默认 300 秒，范围 30~3600**。"
+                                    "空壳判定要逐个种子向下载器核对文件清单，"
+                                    "下载器响应慢时一轮可能拖到小时级；"
+                                    "超过该预算即停止判定，剩余候选按「仍有文件」"
+                                    "保留并在下一轮从断点继续（不会永远轮不到）。"
+                                    "种子很多且下载器较快时可适当调大。",
+                            "persistent-hint": True,
+                        },
+                    },
                     # ---- 分组标题：目录维护设置（两模式通用，不显隐） ----
                     self._group_header(
                         "目录维护设置（两种模式通用）",
@@ -1087,6 +1168,18 @@ class SeedSpaceGuard(_PluginBase):
             self._ino_paths = {}
             self._path_mappings = {}
             self._seed_path_index_cache = None
+            self._torrent_snapshot = {}
+            self._downloader_instances = {}
+            self._downloader_modules = {}
+            self._downloader_types = {}
+            self._seed_files_cache = {}
+            self._seed_files_prefetched = False
+            self._rpc_failures = 0
+            self._rpc_open = False
+            # 每轮新建锁：并发预取在线程池收尾时已全部结束，不会跨轮残留
+            self._rpc_lock = threading.Lock()
+            self._scan_deadline = 0.0
+            self._deleted_pending = {}
             self.__dict__["_syno_purged_roots"] = set()
 
             if not self._target_dirs:
@@ -1136,7 +1229,10 @@ class SeedSpaceGuard(_PluginBase):
             # 「空间充足」早退，删种判定再无机会执行——种子便永久卡在下载器里。
             # 因此这里在早退之前无条件回收一次：只针对「文件已全部删除但种子仍
             # 在」的空壳，不删任何文件，空间充足时也不产生额外删除行为。
-            orphan_stats = self._reap_orphan_seeds(dry_run)
+            # 空间充足时降频：空壳回收不释放空间，没必要每 6 小时全量判一遍。
+            orphan_stats = self._reap_orphan_seeds(
+                dry_run, space_tight=free_bytes < threshold_bytes
+            )
             orphan_lines = orphan_stats.pop("_lines", [])
             orphan_note = ""
             if orphan_stats["torrent"]:
@@ -1252,6 +1348,13 @@ class SeedSpaceGuard(_PluginBase):
         finally:
             self._running = False
             self._active_mode = ""
+            # 删种复核放在收尾：删除链路中途抛异常时也必须执行，否则
+            # 「请求被接受但种子仍在」的告警会静默丢失。复核失败不影响
+            # 已发生的删除结果，只记日志。
+            try:
+                self._verify_deleted_hashes()
+            except Exception as err:
+                logger.warning("【保种空间守护】删种复核异常：%s", err)
             # 显式释放本轮持有的运行态大对象：全库 inode 索引与目录反查缓存
             # 会随媒体库规模增长，不清理则长期常驻（`init_plugin` 才清空）。
             self._ino_paths = {}
@@ -1862,6 +1965,8 @@ class SeedSpaceGuard(_PluginBase):
         self._clean_stats["seeds"] = (
             (self._clean_stats.get("seeds") or 0) + deleted
         )
+        # 复核统一放到 check_and_clean 的收尾执行：本方法中途抛异常时也要跑，
+        # 否则「请求被接受但种子仍在」的告警会静默丢失。
         return deleted, round(released_gb, 1), detail_lines
 
     def _release_is_healthy(self, released: int, nominal: int) -> bool:
@@ -2305,7 +2410,8 @@ class SeedSpaceGuard(_PluginBase):
             base = os.path.dirname(os.path.normpath(path))
         return bool(base and os.path.isdir(base))
 
-    def _reap_orphan_seeds(self, dry_run: bool) -> Dict[str, Any]:
+    def _reap_orphan_seeds(self, dry_run: bool,
+                           space_tight: bool = True) -> Dict[str, Any]:
         """
         回收「空壳种子」：文件已全部删除，但种子仍留在下载器里做种。
 
@@ -2327,14 +2433,27 @@ class SeedSpaceGuard(_PluginBase):
         意义，直接返回。
 
         :param dry_run: 是否试运行（不执行真实删种，仅记录将回收的种子）
+        :param space_tight: 本轮空间是否不足；False 时按低频间隔跳过深度扫描
         :return: 统计字典（torrent 回收数 / checked 候选数 / _lines 明细行）
         """
         stats: Dict[str, Any] = {
-            "torrent": 0, "checked": 0, "alive": 0, "failed": 0, "_lines": [],
+            "torrent": 0, "checked": 0, "alive": 0, "failed": 0,
+            "cached": 0, "skipped": 0, "_lines": [],
         }
         # 前置阻断：无下载器则无从扫描；删种开关未开则扫了也没用。
         # 注意此处刻意**不含 dry_run**——试运行要如实预告将回收的种子。
         if not self._downloader_available() or not self._delete_torrents:
+            return stats
+        # 空间充足时降频：空壳回收本身不释放空间，只在空间不足时才需要
+        # 尽快摘种；每 6 小时全量判定一次属于纯固定成本。
+        # 试运行不受降频约束：用户点按钮就是要看「这一轮会回收哪些」，
+        # 因距上次扫描不足间隔而返回 0 个，等于让预告失真。
+        if not space_tight and not dry_run and not self._orphan_scan_due():
+            logger.info(
+                "【保种空间守护】空间充足，跳过深度空壳扫描"
+                "（距上次不足 %d 小时）",
+                ORPHAN_QUIET_SCAN_INTERVAL_SECONDS // 3600,
+            )
             return stats
 
         try:
@@ -2353,8 +2472,44 @@ class SeedSpaceGuard(_PluginBase):
             logger.info("【保种空间守护】空壳种子扫描：候选种子 0 个，跳过")
             return stats
 
+        # 断点续扫：上一轮因预算/熔断提前结束时记下了「下一个待判定的种子」，
+        # 本轮从那里开始，把已处理过的轮换到末尾。否则候选长期多于预算能覆盖
+        # 的量时，排在后面的种子会永远轮不到（饥饿），而它们恰恰可能是最需要
+        # 回收的那批。
+        candidates = self._rotate_orphan_candidates(candidates)
+        started = time.monotonic()
+        # 逐种子判定预算：下载器响应退化时宁可保留剩余候选，也不把一轮
+        # 拖成小时级（实测单轮曾达 50 分钟以上）。
+        # 预算必须在预取之前建立：预取同样会发起远程调用，若不受预算约束，
+        # 上千种子在慢响应下仍可能长时间占着运行锁（并发只是把总时长除以
+        # 并发数，不改变量级）。
+        self._scan_deadline = time.monotonic() + self._orphan_budget()
+        # 批量预取文件清单：transmission 一次请求取回整批，其余下载器走
+        # 有界并发；预取命中后单种子判定不再产生远程调用。
+        self._prefetch_seed_files(candidates)
+
         for cand in candidates:
             if self._cancelled():
+                break
+            if self._scan_deadline and time.monotonic() > self._scan_deadline:
+                remaining = max(0, len(candidates) - stats["checked"])
+                stats["skipped"] += remaining
+                # 记下断点：下轮从这个种子继续，形成轮转
+                self._orphan_cursor_mark(cand.get("hash"))
+                logger.warning(
+                    "【保种空间守护】空壳判定已用满 %d 秒预算，剩余 %d 个候选"
+                    "按保留处理（下轮从断点继续）",
+                    self._orphan_budget(), remaining,
+                )
+                break
+            if self._rpc_open:
+                remaining = max(0, len(candidates) - stats["checked"])
+                stats["skipped"] += remaining
+                self._orphan_cursor_mark(cand.get("hash"))
+                logger.warning(
+                    "【保种空间守护】下载器远程查询连续失败，本轮停止逐种子判定，"
+                    "剩余 %d 个候选按保留处理（下轮从断点继续）", remaining,
+                )
                 break
             hash_str = str(cand.get("hash") or "")
             if not hash_str:
@@ -2365,11 +2520,22 @@ class SeedSpaceGuard(_PluginBase):
             if not self._seed_may_be_empty(cand):
                 stats["alive"] += 1
                 continue
+            # 增量缓存：近期已确认仍有文件且路径未变的种子不再复测。
+            # 试运行不读写缓存，保证「预告」与「实跑」始终同口径。
+            # 空间不足时也不用缓存：缓存只按根目录 mtime 判失效，删掉的是
+            # 深层子目录里的文件时根目录 mtime 不变，结论会滞后；而「空间
+            # 不足」正是必须立刻拿到真实结论的场景，宁可多查一次。
+            if not dry_run and not space_tight and self._orphan_alive_cached(cand):
+                stats["cached"] += 1
+                stats["alive"] += 1
+                continue
             try:
                 # 传入候选对象：判定需要种子的真实内容路径做物理复核，
                 # 仅凭 hash 查 DownloadFiles 在双下载器/路径迁移场景会误判
                 if not self._seed_fully_removed(hash_str, cand):
                     stats["alive"] += 1
+                    if not dry_run:
+                        self._orphan_alive_note(cand)
                     continue
             except Exception as err:
                 logger.error("【保种空间守护】空壳种子判定失败（%s）：%s", hash_str, err)
@@ -2394,20 +2560,454 @@ class SeedSpaceGuard(_PluginBase):
                 ok = False
             if ok:
                 stats["torrent"] += 1
+                self._orphan_alive_drop(hash_str)
+                # 空壳删种同样纳入收尾批量复核：只靠「接口返回成功」不足以
+                # 证明种子真的消失，与其它删除链路保持一致的口径。
+                self._deleted_note(downloader, hash_str)
                 line = f"已回收空壳种子（该种子文件已全部删除）：{title}"
                 stats["_lines"].append(line)
                 logger.info("【保种空间守护】%s", line)
 
+        # 只有完整跑完（未被预算/熔断截断）才记录扫描时间，否则下轮仍应扫描；
+        # 试运行不落任何状态，避免影响后续实跑口径。
+        if not dry_run and stats["checked"] and not stats["skipped"]:
+            self._orphan_cursor_clear()
+            self._orphan_scan_mark()
+        if not dry_run:
+            self._orphan_alive_flush()
+        # 耗时进统计与日志：试运行会做完整判定，用户点一次可能要等数分钟，
+        # 不报耗时会让「卡住了」与「在正常判定」无法区分。
+        stats["elapsed"] = round(time.monotonic() - started, 1)
         if stats["torrent"] or stats["checked"]:
             logger.info(
                 "【保种空间守护】空壳种子回收完成：扫描 %d 个，%s %d 个"
-                "（判定仍有文件 %d 个，判定失败 %d 个）",
+                "（判定仍有文件 %d 个，判定失败 %d 个，"
+                "缓存命中 %d 个，因预算/熔断跳过 %d 个，耗时 %.1fs）",
                 stats["checked"],
                 "预计回收" if dry_run else "回收",
                 stats["torrent"],
                 stats["alive"], stats["failed"],
+                stats["cached"], stats["skipped"], stats["elapsed"],
             )
         return stats
+
+    # ---------------------- 空壳扫描的远程调用治理 ----------------------
+
+    def _orphan_scan_due(self) -> bool:
+        """
+        判断空间充足时是否已到下一次深度空壳扫描时间。
+
+        :return: 距上次扫描已超过低频间隔（或从未记录）时为 True
+        """
+        last = self.get_data("orphan_scan_at")
+        try:
+            last_ts = float(last or 0)
+        except (TypeError, ValueError):
+            last_ts = 0.0
+        return (time.time() - last_ts) >= ORPHAN_QUIET_SCAN_INTERVAL_SECONDS
+
+    def _orphan_scan_mark(self) -> None:
+        """记录本次深度空壳扫描完成时间（供低频判定使用）。"""
+        try:
+            self.save_data("orphan_scan_at", time.time())
+        except Exception as err:
+            logger.warning("【保种空间守护】记录空壳扫描时间失败：%s", err)
+
+    def _rotate_orphan_candidates(
+        self, candidates: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """
+        按上一轮的断点旋转候选顺序，避免尾部候选长期轮不到。
+
+        先按 hash 排序保证跨轮顺序稳定（下载器返回顺序并不保证一致），再以
+        断点 hash 为起点切成两段拼接。断点不在本轮候选里（种子已删或已不在
+        范围内）时按排序结果处理。
+
+        :param candidates: 本轮候选
+        :return: 旋转后的候选列表
+        """
+        if len(candidates) <= 1:
+            return candidates
+        ordered = sorted(candidates, key=lambda c: str(c.get("hash") or ""))
+        cursor = str(self.get_data("orphan_scan_cursor") or "")
+        if not cursor:
+            return ordered
+        for index, cand in enumerate(ordered):
+            if str(cand.get("hash") or "") == cursor:
+                return ordered[index:] + ordered[:index]
+        return ordered
+
+    def _orphan_cursor_mark(self, hash_str: Any) -> None:
+        """记录下一轮应从哪个种子开始判定（预算/熔断截断时调用）。"""
+        value = str(hash_str or "")
+        if not value:
+            return
+        try:
+            self.save_data("orphan_scan_cursor", value)
+        except Exception as err:
+            logger.warning("【保种空间守护】记录空壳扫描断点失败：%s", err)
+
+    def _orphan_cursor_clear(self) -> None:
+        """完整跑完一轮后清除断点，下一轮重新从头开始。"""
+        try:
+            if self.get_data("orphan_scan_cursor"):
+                self.save_data("orphan_scan_cursor", "")
+        except Exception as err:
+            logger.warning("【保种空间守护】清除空壳扫描断点失败：%s", err)
+
+    @staticmethod
+    def _orphan_alive_signature(cand: Dict[str, Any]) -> str:
+        """
+        生成判断「结论是否仍然适用」的路径签名。
+
+        :param cand: 种子候选
+        :return: 内容路径与保存目录拼接的签名
+        """
+        return f"{cand.get('path') or ''}|{cand.get('dl_dir') or ''}"
+
+    def _orphan_alive_cache(self) -> Dict[str, Any]:
+        """
+        读取「已确认仍有文件」的增量缓存（首次访问时从插件数据载入）。
+
+        :return: 缓存字典（hash -> {ts, sig}）
+        """
+        # 注意：状态存 `_orphan_alive_state`，不能与方法名同名，
+        # 否则首次赋值会把方法覆盖成字典，后续调用直接抛 TypeError。
+        cache = self.__dict__.get("_orphan_alive_state")
+        if isinstance(cache, dict):
+            return cache
+        raw = None
+        try:
+            raw = self.get_data("orphan_alive")
+        except Exception as err:
+            logger.warning("【保种空间守护】读取空壳判定缓存失败：%s", err)
+        cache = raw if isinstance(raw, dict) else {}
+        self._orphan_alive_state = cache
+        return cache
+
+    def _orphan_alive_cached(self, cand: Dict[str, Any]) -> bool:
+        """
+        判断该种子是否在缓存有效期内已确认仍有文件。
+
+        命中条件要求路径签名一致：内容路径或保存目录变化后，旧结论不再
+        可信，必须重新做一次远程/物理判定。
+
+        :param cand: 种子候选
+        :return: 可跳过本轮复测时为 True
+        """
+        hash_str = str(cand.get("hash") or "")
+        if not hash_str:
+            return False
+        cache = self._orphan_alive_cache()
+        item = cache.get(hash_str)
+        if not isinstance(item, dict):
+            return False
+        try:
+            stamp = float(item.get("ts") or 0)
+        except (TypeError, ValueError):
+            return False
+        if time.time() - stamp > ORPHAN_ALIVE_CACHE_SECONDS:
+            cache.pop(hash_str, None)
+            return False
+        # 目录内容变化会让旧结论失效：文件被删后目录 mtime 会前移，此时必须
+        # 复测。只用 mtime 与缓存时间比较，判断依据单一且廉价；取不到状态
+        # 时同样按「已变化」处理——多查一次只会慢，不会误删。
+        path = str(cand.get("path") or "")
+        if path:
+            if not os.path.isdir(path):
+                # 目录已消失正是空壳最典型的形态（文件与目录都被删掉），
+                # 旧结论「仍有文件」不再成立，必须复测。此前这里只在目录
+                # 存在时比对 mtime，目录不存在就整段跳过，于是已删空的
+                # 种子仍命中缓存、最长推迟一天才回收。
+                cache.pop(hash_str, None)
+                return False
+            try:
+                if os.stat(path).st_mtime > stamp:
+                    cache.pop(hash_str, None)
+                    return False
+            except OSError:
+                cache.pop(hash_str, None)
+                return False
+        return str(item.get("sig") or "") == self._orphan_alive_signature(cand)
+
+    def _orphan_alive_note(self, cand: Dict[str, Any]) -> None:
+        """
+        记录「已确认仍有文件」的种子，供后续轮次跳过远程复测。
+
+        :param cand: 种子候选
+        """
+        hash_str = str(cand.get("hash") or "")
+        if not hash_str:
+            return
+        self._orphan_alive_cache()[hash_str] = {
+            "ts": time.time(),
+            "sig": self._orphan_alive_signature(cand),
+        }
+
+    def _orphan_alive_drop(self, hash_str: str) -> None:
+        """
+        种子已判定删空时移除其缓存条目。
+
+        :param hash_str: 下载 hash
+        """
+        # 必须先确保缓存已载入：本轮若从未走到缓存判定，缓存状态还不存在，
+        # 直接删除是空操作，旧条目会留在磁盘上直到自然过期（同 hash 重新
+        # 出现时可能被旧结论影响）。载入成本只是一次插件数据读取。
+        cache = self._orphan_alive_cache()
+        cache.pop(str(hash_str or ""), None)
+
+    def _orphan_alive_flush(self) -> None:
+        """把增量缓存写回插件数据，并裁剪过期与超量条目。"""
+        cache = self.__dict__.get("_orphan_alive_state")
+        if not isinstance(cache, dict):
+            return
+        now = time.time()
+        alive: Dict[str, Any] = {}
+        for key, value in cache.items():
+            if not isinstance(value, dict):
+                continue
+            try:
+                stamp = float(value.get("ts") or 0)
+            except (TypeError, ValueError):
+                continue
+            if now - stamp <= ORPHAN_ALIVE_CACHE_SECONDS:
+                alive[str(key)] = value
+        if len(alive) > 5000:
+            ordered = sorted(
+                alive.items(),
+                key=lambda kv: float(kv[1].get("ts") or 0),
+            )
+            alive = dict(ordered[-5000:])
+        try:
+            self.save_data("orphan_alive", alive)
+        except Exception as err:
+            logger.warning("【保种空间守护】保存空壳判定缓存失败：%s", err)
+
+    def _prefetch_seed_files(self, candidates: List[Dict[str, Any]]) -> None:
+        """
+        批量预取候选种子的文件清单。
+
+        transmission 支持一次请求返回整批种子的文件清单，优先走批量接口；
+        qBittorrent 没有批量文件接口，改用有界线程池并发。候选数很少时
+        直接跳过预取，交给单种子判定时的按需查询。
+
+        :param candidates: 本轮候选种子
+        """
+        if self.__dict__.get("_seed_files_prefetched"):
+            return
+        self._seed_files_prefetched = True
+        if "_seed_files_cache" not in self.__dict__:
+            self._seed_files_cache = {}
+        if "_downloader_instances" not in self.__dict__:
+            self._downloader_instances = {}
+        if len(candidates) < ORPHAN_BATCH_MIN_CANDIDATES:
+            return
+        grouped: Dict[str, List[Dict[str, Any]]] = {}
+        for cand in candidates:
+            if str(cand.get("hash") or ""):
+                grouped.setdefault(
+                    str(cand.get("downloader") or ""), []
+                ).append(cand)
+        started = time.monotonic()
+        for name, items in grouped.items():
+            client = getattr(self._downloader_instances.get(name), "trc", None)
+            if client is not None and hasattr(client, "get_torrents"):
+                self._prefetch_seed_files_batch(name, client, items)
+            else:
+                # 只有基于短连接的 HTTP 下载器适合并发：共用同一个客户端
+                # 实例做并发请求，对基于长连接/单会话的适配器并不安全。
+                parallel = (
+                    self._downloader_types.get(name)
+                    == DownloaderType.Qbittorrent
+                )
+                self._prefetch_seed_files_concurrent(name, items, parallel)
+        logger.info(
+            "【保种空间守护】批量预取文件清单完成：候选 %d 个，命中 %d 个，"
+            "耗时 %.1fs",
+            len(candidates), len(self._seed_files_cache),
+            time.monotonic() - started,
+        )
+
+    def _prefetch_seed_files_batch(self, name: str, client: Any,
+                                   items: List[Dict[str, Any]]) -> None:
+        """
+        用一次 transmission 请求取回整批种子的文件清单。
+
+        只请求 ``hashString`` 与 ``files`` 两个字段：宿主默认请求全部字段，
+        在种子数多时响应体与耗时都会显著放大。
+
+        :param name: 下载器实例名（仅用于日志）
+        :param client: transmission 客户端（具备 get_torrents）
+        :param items: 同一实例下的候选种子
+        """
+        hashes = [str(c.get("hash") or "") for c in items if c.get("hash")]
+        if not hashes:
+            return
+        # 分批请求：单次带上千个 hash 时请求体与响应体都会放大，慢响应下
+        # 容易整批超时；一旦整批放弃，全部候选都要退回逐种子查询，优化
+        # 等于在最需要的时候失效。
+        for start in range(0, len(hashes), ORPHAN_TR_BATCH_SIZE):
+            if self._prefetch_blocked():
+                break
+            chunk = hashes[start:start + ORPHAN_TR_BATCH_SIZE]
+            if self._fetch_seed_files_chunk(name, client, chunk):
+                self._clear_rpc_failure()
+                continue
+            if len(chunk) <= 1:
+                self._note_rpc_failure()
+                continue
+            # 整批失败时对半拆一次再试：把「一次超大请求」降级为两次小请求，
+            # 通常就能拿到绝大部分结果，而不必整轮退化。
+            middle = len(chunk) // 2
+            for part in (chunk[:middle], chunk[middle:]):
+                if self._prefetch_blocked():
+                    break
+                if self._fetch_seed_files_chunk(name, client, part):
+                    self._clear_rpc_failure()
+                else:
+                    self._note_rpc_failure()
+
+    def _prefetch_blocked(self) -> bool:
+        """预取是否应停止（熔断已打开，或预算已用尽）。"""
+        if self.__dict__.get("_rpc_open"):
+            return True
+        return bool(
+            self._scan_deadline and time.monotonic() > self._scan_deadline
+        )
+
+    def _fetch_seed_files_chunk(self, name: str, client: Any,
+                                hashes: List[str]) -> bool:
+        """
+        取一小批种子的文件清单并写入缓存。
+
+        :param name: 下载器实例名（仅用于日志）
+        :param client: transmission 客户端（具备 get_torrents）
+        :param hashes: 本批 hash
+        :return: 请求本身是否成功（与「该批是否真有文件」无关）
+        """
+        torrents = None
+        try:
+            torrents = client.get_torrents(
+                ids=list(hashes), arguments=["hashString", "files"],
+                timeout=(3, 20),
+            )
+        except TypeError:
+            # 旧版客户端不接受 timeout / arguments 组合，退回最小参数
+            try:
+                torrents = client.get_torrents(
+                    ids=list(hashes), arguments=["hashString", "files"]
+                )
+            except Exception as err:
+                logger.warning(
+                    "【保种空间守护】批量取文件清单失败（%s）：%s", name, err
+                )
+                return False
+        except Exception as err:
+            logger.warning(
+                "【保种空间守护】批量取文件清单失败（%s）：%s", name, err
+            )
+            return False
+        for item in torrents or []:
+            hash_str = str(getattr(item, "hashString", "") or "")
+            if not hash_str:
+                continue
+            files = getattr(item, "files", None) or []
+            names: List[str] = []
+            for entry in files:
+                file_name = str(getattr(entry, "name", "") or "").strip()
+                if file_name:
+                    names.append(file_name)
+            self._seed_files_cache[hash_str] = names
+        return True
+
+    def _prefetch_seed_files_concurrent(self, name: str,
+                                       items: List[Dict[str, Any]],
+                                       parallel: bool = True) -> None:
+        """
+        对无批量文件接口的下载器取文件清单；短连接下载器用有界并发加速。
+
+        :param name: 下载器实例名
+        :param items: 同一实例下的候选种子
+        :param parallel: 是否并发（基于长连接/单会话的适配器应传 False）
+        """
+        module = self._downloader_modules.get(name)
+        if module is None:
+            return
+
+        def _one(cand: Dict[str, Any]) -> None:
+            """取单个种子的文件清单并写入缓存；失败时不缓存。"""
+            hash_str = str(cand.get("hash") or "")
+            if not hash_str:
+                return
+            # 预算用尽或熔断已打开时不再发起新的远程调用：排队中的任务
+            # 直接跳过，其判定会由主循环按「保留处理」统一收尾。
+            if self._prefetch_blocked():
+                return
+            started = time.monotonic()
+            raw = self._call_torrent_files(module, hash_str, name)
+            if raw is None:
+                # 预取同样计入熔断：下载器整体退化时，8 路并发会各自等满
+                # 超时，不计数就只能靠预算硬截断，期间持续加压。
+                # 慢返回才计：快速 None 多为「该种子不提供清单」。
+                if time.monotonic() - started >= ORPHAN_SLOW_CALL_SECONDS:
+                    self._note_rpc_failure()
+                return
+            self._clear_rpc_failure()
+            self._seed_files_cache[hash_str] = self._extract_file_names(raw)
+
+        try:
+            with ThreadPoolExecutor(
+                max_workers=ORPHAN_PREFETCH_WORKERS if parallel else 1
+            ) as pool:
+                list(pool.map(_one, items))
+        except Exception as err:
+            logger.warning(
+                "【保种空间守护】并发取文件清单失败（%s）：%s", name, err
+            )
+
+    def _note_rpc_failure(self) -> None:
+        """记录一次远程调用失败，达到阈值后熔断本轮剩余判定。"""
+        opened_at = 0
+        with self._rpc_guard():
+            self._rpc_failures = (
+                int(self.__dict__.get("_rpc_failures") or 0) + 1
+            )
+            if (self._rpc_failures >= ORPHAN_RPC_FAILURE_LIMIT
+                    and not self._rpc_open):
+                self._rpc_open = True
+                opened_at = self._rpc_failures
+        if opened_at:
+            logger.warning(
+                "【保种空间守护】下载器远程查询连续失败 %d 次，本轮停止逐种子"
+                "判定（剩余候选按保留处理，避免被超时拖死）",
+                opened_at,
+            )
+
+    def _clear_rpc_failure(self) -> None:
+        """一次远程调用成功后复位连续失败计数（「连续」语义靠它成立）。"""
+        with self._rpc_guard():
+            self._rpc_failures = 0
+
+    def _rpc_guard(self) -> threading.Lock:
+        """取得熔断计数的互斥锁（懒创建，兼容未完整初始化的对象）。"""
+        lock = self.__dict__.get("_rpc_lock")
+        if lock is None:
+            lock = threading.Lock()
+            self._rpc_lock = lock
+        return lock
+
+    def _orphan_budget(self) -> int:
+        """单轮预算（秒）；未初始化时回退默认值。"""
+        try:
+            value = int(
+                self.__dict__.get("_orphan_scan_budget")
+                or ORPHAN_SCAN_BUDGET_SECONDS
+            )
+        except (TypeError, ValueError):
+            value = ORPHAN_SCAN_BUDGET_SECONDS
+        # 上下限只在配置解析时夹取：这里再夹一次会让「预算为 0/负」这种
+        # 显式的「本轮不判」语义失效，也让回归用例无法模拟预算已耗尽。
+        return value
 
     def _downloader_available(self) -> bool:
         """是否存在任一可用的已启用下载器（供空壳回收做前置判断）。"""
@@ -2586,7 +3186,34 @@ class SeedSpaceGuard(_PluginBase):
         if module is None:
             return []
 
+        # 批量预取命中：直接用缓存里的相对路径，不再产生远程调用
+        cache = self.__dict__.get("_seed_files_cache")
+        if isinstance(cache, dict) and hash_str in cache:
+            names = cache.get(hash_str) or []
+            if not names:
+                return []
+            base = self._seed_download_base(cand)
+            if not base:
+                return []
+            return [os.path.normpath(os.path.join(base, n)) for n in names]
+        # 熔断打开后不再逐种子请求，调用方按「取不到清单」保守回退
+        if self.__dict__.get("_rpc_open"):
+            return []
+        if not any(callable(getattr(module, method_name, None))
+                   for method_name in self._TORRENT_FILE_METHODS):
+            return []
+
+        started = time.monotonic()
         raw = self._call_torrent_files(module, hash_str, cand.get("downloader"))
+        if raw is None:
+            # 宿主在超时/连接失败时返回 None（异常已被其内部吞掉），
+            # 只能按耗时区分：慢返回才计入熔断，快速 None 视为「无清单」。
+            if time.monotonic() - started >= ORPHAN_SLOW_CALL_SECONDS:
+                self._note_rpc_failure()
+            return []
+        # 成功拿到清单（包括「确认没有文件」的空清单）即复位连续失败计数：
+        # 熔断的语义是「连续失败」，偶发一次超时不该累计到后面几轮。
+        self._clear_rpc_failure()
         if not raw:
             return []
 
@@ -2809,18 +3436,14 @@ class SeedSpaceGuard(_PluginBase):
                     f"：{title}" if title else "", hash_str, owner or "默认",
                 )
                 if owner:
-                    # 宿主接口「请求被接受」不等于「任务已消失」，做一次只读复核；
-                    # 查不到或查询失败都不改变返回结果，只留告警供人工核实。
-                    torrents, method_name, err = self._query_torrents_by_hash(
-                        module, hash_str, owner
-                    )
-                    if method_name and err is None and torrents:
-                        logger.warning(
-                            "【保种空间守护】删种请求已被接受，但复核仍能查到该种子"
-                            "（hash：%s，下载器：%s），可能是删除延迟或实例不匹配，"
-                            "请核实",
-                            hash_str, owner,
-                        )
+                    # 复核改为本轮结束后按下载器批量做一次：逐 hash 再查一遍
+                    # 会让每个删种动作多付一次远程往返（transmission 单次
+                    # 在慢响应下可达数秒甚至等满超时）。
+                    pending = self.__dict__.get("_deleted_pending")
+                    if not isinstance(pending, dict):
+                        pending = {}
+                        self._deleted_pending = pending
+                    pending.setdefault(owner, set()).add(hash_str)
             return bool(ok)
         except Exception as err:
             logger.error("【保种空间守护】联动删除种子失败（%s）：%s", hash_str, err)
@@ -2872,6 +3495,70 @@ class SeedSpaceGuard(_PluginBase):
             return None, method_name, last_err
         return None, "", None
 
+    def _deleted_note(self, name: Any, hash_str: str) -> None:
+        """
+        登记一条待复核的删种请求（按下载器汇总，收尾时批量查一次）。
+
+        只记录归属明确的删除：未定位到下载器实例时无法按实例复核，记下来
+        只会产生一条查不到任何东西的空请求。
+
+        :param name: 下载器实例名
+        :param hash_str: 种子 hash
+        """
+        owner = str(name or "")
+        value = str(hash_str or "")
+        if not owner or not value:
+            return
+        pending = self.__dict__.get("_deleted_pending")
+        if not isinstance(pending, dict):
+            pending = {}
+            self._deleted_pending = pending
+        pending.setdefault(owner, set()).add(value)
+
+    def _verify_deleted_hashes(self) -> None:
+        """
+        对本轮已下发的删种请求做一次批量复核。
+
+        宿主接口「请求被接受」不等于「任务已消失」。逐 hash 复核会给每个
+        删种动作再加一次远程往返，因此改为按下载器汇总后一次查询，只在
+        仍能查到时告警，且查询失败不改变任何删除结果。
+        """
+        pending = self.__dict__.get("_deleted_pending")
+        if not isinstance(pending, dict) or not pending:
+            return
+        self._deleted_pending = {}
+        for name, hashes in pending.items():
+            module = self._downloader_modules.get(name)
+            if module is None or not hashes:
+                continue
+            method = getattr(module, "list_torrents", None)
+            if not callable(method):
+                continue
+            found = None
+            try:
+                found = method(hashs=list(hashes), include_all_tags=True)
+            except TypeError:
+                try:
+                    found = method(hashs=list(hashes))
+                except Exception as err:
+                    logger.warning(
+                        "【保种空间守护】删种复核失败（%s）：%s", name, err
+                    )
+                    continue
+            except Exception as err:
+                logger.warning(
+                    "【保种空间守护】删种复核失败（%s）：%s", name, err
+                )
+                continue
+            if found:
+                still = [str(getattr(item, "hash", "") or "") for item in found]
+                logger.warning(
+                    "【保种空间守护】删种请求已被接受，但复核仍能查到 %d 个种子"
+                    "（下载器：%s，hash：%s），可能是删除延迟或实例不匹配，"
+                    "请核实",
+                    len(found), name, "、".join(still[:5]),
+                )
+
     def _get_downloader_for(self, hash_str: str):
         """
         找出该 hash 所属的下载器实例。
@@ -2883,6 +3570,12 @@ class SeedSpaceGuard(_PluginBase):
         一并下发；未找到时清空，避免复用上一次的实例名。
         """
         self._resolved_downloader_name = ""
+        # 本轮已枚举过该 hash 的归属时直接用快照，省掉逐个下载器探测
+        snapshot = self.__dict__.get("_torrent_snapshot") or {}
+        hit = snapshot.get(hash_str) if isinstance(snapshot, dict) else None
+        if hit and hit.get("module") is not None:
+            self._resolved_downloader_name = str(hit.get("downloader") or "")
+            return hit.get("module")
         try:
             # V3：ModuleManager 已移除，改由 DownloaderHelper 枚举运行中的下载器
             services = DownloaderHelper().get_services()
@@ -3004,13 +3697,20 @@ class SeedSpaceGuard(_PluginBase):
             cand_by_hash: Dict[str, Dict[str, Any]] = {}
             # 放宽候选集（不判范围）懒加载：仅当主候选集取不到 probe 时才构建
             cand_by_hash_wide: Optional[Dict[str, Dict[str, Any]]] = None
-            try:
-                for cand in self._collect_seed_candidates():
-                    h = str(cand.get("hash") or "")
-                    if h and h not in cand_by_hash:
+            # 优先复用本轮快照：同轮已枚举过候选时不必再拉一次全量种子列表
+            snapshot = self.__dict__.get("_torrent_snapshot") or {}
+            if isinstance(snapshot, dict):
+                for h, cand in snapshot.items():
+                    if h and isinstance(cand, dict):
                         cand_by_hash[h] = cand
-            except Exception as err:
-                logger.error("【保种空间守护】联动删种前获取种子信息失败：%s", err)
+            if any(h not in cand_by_hash for h in pending_hashes):
+                try:
+                    for cand in self._collect_seed_candidates():
+                        h = str(cand.get("hash") or "")
+                        if h and h not in cand_by_hash:
+                            cand_by_hash[h] = cand
+                except Exception as err:
+                    logger.error("【保种空间守护】联动删种前获取种子信息失败：%s", err)
 
             for hash_str, sample_path in pending_hashes.items():
                 probe = cand_by_hash.get(hash_str)
@@ -3062,6 +3762,7 @@ class SeedSpaceGuard(_PluginBase):
                     f"其中 {unverified_kept} 个种子未做物理复核（记录可能已失效），"
                     f"如出现异常删种请对照日志核对"
                 )
+        # 复核统一放到 check_and_clean 的收尾执行（见 _verify_deleted_hashes）
         return stats
 
     def _run_linkage_on_seed_deleted(
@@ -3182,6 +3883,13 @@ class SeedSpaceGuard(_PluginBase):
         counted = {
             "total": 0, "unfinished": 0, "out_of_scope": 0, "protected": 0,
         }
+        # 本轮状态必须是实例级：类级可变默认字典会跨实例串状态
+        if "_torrent_snapshot" not in self.__dict__:
+            self._torrent_snapshot = {}
+        if "_downloader_instances" not in self.__dict__:
+            self._downloader_instances = {}
+        if "_downloader_modules" not in self.__dict__:
+            self._downloader_modules = {}
         try:
             services = DownloaderHelper().get_services()
         except Exception as err:
@@ -3204,6 +3912,10 @@ class SeedSpaceGuard(_PluginBase):
             if server is None or module is None:
                 logger.error("【保种空间守护】下载器 %s 缺少可用实例或模块，跳过", name)
                 continue
+            # 记录实例与模块，供批量预取文件清单与批量删种复核复用
+            self._downloader_instances[name] = server
+            self._downloader_modules[name] = module
+            self._downloader_types[name] = dl_type
             # 下载器返回的是「下载器侧路径」，与 MoviePilot 看到的本地路径可能
             # 不同（跨容器/挂载）。按宿主配置的路径映射先归一化，后续的物理
             # 复核与归属判断才有意义。
@@ -3246,6 +3958,9 @@ class SeedSpaceGuard(_PluginBase):
                 cand["module"] = module
                 cand["downloader"] = name
                 candidates.append(cand)
+                hash_str = str(cand.get("hash") or "")
+                if hash_str:
+                    self._torrent_snapshot.setdefault(hash_str, cand)
         # 汇总日志：说明「下载器里有多少 / 为何只剩这些候选」，
         # 避免用户看到「tr 有一千多个种子却只扫了几百个」时无从判断
         if scope_only:
@@ -4349,6 +5064,8 @@ class SeedSpaceGuard(_PluginBase):
             "companion_protect": True,
             "orphan_cleanup": False,
             "orphan_seed_scope": False,
+            # 空壳判定单轮预算（秒）：新装默认 300
+            "orphan_scan_budget": ORPHAN_SCAN_BUDGET_SECONDS,
             # 空壳目录扫描：新装默认开启（只删空目录，不碰真实文件）
             "empty_dir_sweep": True,
             "downloaders": [],

@@ -136,14 +136,14 @@ FULLY_REMOVED_NEW = (
 
 # ⑧ 统计用赋值而非累加（半残多轮场景少报）
 STATS_ACC_OLD = (
+    "        # 累加而非覆盖：保留进入本方法前已回收的空壳种子计数\n"
     "        self._clean_stats[\"seeds\"] = (\n"
     "            (self._clean_stats.get(\"seeds\") or 0) + deleted\n"
     "        )\n"
-    "        return deleted, round(released_gb, 1), detail_lines\n"
 )
 STATS_ACC_NEW = (
+    "        # 累加而非覆盖：保留进入本方法前已回收的空壳种子计数\n"
     "        self._clean_stats[\"seeds\"] = deleted\n"
-    "        return deleted, round(released_gb, 1), detail_lines\n"
 )
 
 # ⑨ 文件级索引：不登记「路径映射」（孤儿文件将无法被双侧识别）

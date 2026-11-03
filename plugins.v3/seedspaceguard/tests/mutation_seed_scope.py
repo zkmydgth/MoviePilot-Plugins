@@ -73,6 +73,8 @@ NO_RECHECK_OLD = (
     "                # 仅凭 hash 查 DownloadFiles 在双下载器/路径迁移场景会误判\n"
     "                if not self._seed_fully_removed(hash_str, cand):\n"
     "                    stats[\"alive\"] += 1\n"
+    "                    if not dry_run:\n"
+    "                        self._orphan_alive_note(cand)\n"
     "                    continue\n"
 )
 NO_RECHECK_NEW = (
@@ -81,6 +83,8 @@ NO_RECHECK_NEW = (
     "                _probe = cand if _in_scope else None\n"
     "                if not self._seed_fully_removed(hash_str, _probe):\n"
     "                    stats[\"alive\"] += 1\n"
+    "                    if not dry_run:\n"
+    "                        self._orphan_alive_note(cand)\n"
     "                    continue\n"
 )
 

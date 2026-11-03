@@ -49,6 +49,7 @@ ALWAYS_VISIBLE_MODELS = (
     "threshold_gb", "recent_skip_days", "cron", "sync_wait_seconds",
     "dry_run", "notify",
     "delete_torrents", "delete_history", "orphan_seed_scope",
+    "orphan_scan_budget",
     "empty_dir_sweep",
 )
 

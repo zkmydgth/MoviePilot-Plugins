@@ -55,7 +55,9 @@ MUTANTS = [
     ),
     (
         "空壳回收失效：整体不执行（回归原始 BUG）",
-        """            orphan_stats = self._reap_orphan_seeds(dry_run)""",
+        """            orphan_stats = self._reap_orphan_seeds(
+                dry_run, space_tight=free_bytes < threshold_bytes
+            )""",
         """            orphan_stats = {"torrent": 0, "checked": 0, "_lines": []}""",
         "应导致 test_reap_runs_when_space_plenty / test_reap_result_in_message 失败",
     ),
@@ -65,9 +67,13 @@ MUTANTS = [
                 # 仅凭 hash 查 DownloadFiles 在双下载器/路径迁移场景会误判
                 if not self._seed_fully_removed(hash_str, cand):
                     stats["alive"] += 1
+                    if not dry_run:
+                        self._orphan_alive_note(cand)
                     continue""",
         """                if self._seed_fully_removed(hash_str, cand):
                     stats["alive"] += 1
+                    if not dry_run:
+                        self._orphan_alive_note(cand)
                     continue""",
         "应导致 test_orphan_seed_reaped / test_seed_with_files_kept 失败",
     ),
@@ -157,14 +163,16 @@ MUTANTS = [
         "空壳回收统计错误：不计数（用户看不到回收结果）",
         """            if ok:
                 stats["torrent"] += 1
-                line = f"已回收空壳种子（该种子文件已全部删除）：{title}\"""",
+                self._orphan_alive_drop(hash_str)""",
         """            if ok:
-                line = f"已回收空壳种子（该种子文件已全部删除）：{title}\"""",
+                self._orphan_alive_drop(hash_str)""",
         "应导致 test_orphan_seed_reaped / test_reap_result_in_message 失败",
     ),
     (
         "空壳回收位置错误：挪到「空间充足」早退之后（回归原始 BUG）",
-        """            orphan_stats = self._reap_orphan_seeds(dry_run)
+        """            orphan_stats = self._reap_orphan_seeds(
+                dry_run, space_tight=free_bytes < threshold_bytes
+            )
             orphan_lines = orphan_stats.pop("_lines", [])
             orphan_note = \"\"""",
         """            orphan_stats = {"torrent": 0, "checked": 0, "_lines": []}
@@ -174,8 +182,8 @@ MUTANTS = [
     ),
     (
         '空壳回收抑制保护期（把保护期检查错误地加回来，导致空壳永远不回收）',
-        '        for cand in candidates:\n            if self._cancelled():\n                break\n            hash_str = str(cand.get("hash") or "")\n            if not hash_str:\n                continue\n            stats["checked"] += 1',
-        '        for cand in candidates:\n            if self._cancelled():\n                break\n            hash_str = str(cand.get("hash") or "")\n            if not hash_str:\n                continue\n            if int(cand.get("added") or 0) >= time.time() - self._recent_skip_days * 86400:\n                continue\n            stats["checked"] += 1',
+        '            hash_str = str(cand.get("hash") or "")\n            if not hash_str:\n                continue\n            stats["checked"] += 1',
+        '            if int(cand.get("added") or 0) >= time.time() - self._recent_skip_days * 86400:\n                continue\n            hash_str = str(cand.get("hash") or "")\n            if not hash_str:\n                continue\n            stats["checked"] += 1',
         '应被对应用例捕获',
     ),
     (
