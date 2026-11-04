@@ -2152,7 +2152,7 @@ class TransferHandler:
         :return: 需要删除的目录列表
         """
         dirs_to_delete: List[FileItem] = []
-        media_exts = settings.RMT_MEDIAEXT + settings.DOWNLOAD_TMPEXT
+        media_exts = settings.RMT_MEDIAEXT + settings.DOWNLOAD_TMPEXT + settings.RMT_SUBEXT + settings.RMT_AUDIOEXT
         fileitem_path = Path(fileitem.path) if fileitem.path else Path("")
 
         # 检查路径深度（不能删除根目录或一级目录）
