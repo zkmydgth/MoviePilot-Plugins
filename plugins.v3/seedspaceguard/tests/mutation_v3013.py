@@ -137,9 +137,10 @@ MUTANTS = [
     ),
     (
         "D1a 摘要不再标注「已提前停止」",
-        '            if self._clean_stats.get("stalled"):\n'
-        '                suffix += "（已提前停止：空间未按预期释放）"',
-        "            pass",
+        '        if self._clean_stats.get("stalled"):\n'
+        '            return "（已提前停止：空间未按预期释放）"',
+        '        if False:\n'
+        '            return "（已提前停止：空间未按预期释放）"',
         "应导致 test_stall_marks_summary_and_notification 失败",
     ),
     (

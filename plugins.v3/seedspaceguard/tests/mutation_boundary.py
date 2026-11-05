@@ -247,8 +247,10 @@ MUTANTS = [
         """        try:
             if os.path.isdir(ea_dir) and not os.listdir(ea_dir):
                 os.rmdir(ea_dir)
-        except OSError:
-            pass""",
+        except OSError as err:
+            # 静默吞错会让「目录明明已空却删不掉」无从追查；这里只影响清理
+            # 彻底性（父目录会因残留而保留），不影响任何数据安全。
+            logger.warning("【保种空间守护】清理空的 @eaDir 目录失败：%s", err)""",
         """        pass""",
         "应导致 empty_ea_dir_removed 失败",
     ),

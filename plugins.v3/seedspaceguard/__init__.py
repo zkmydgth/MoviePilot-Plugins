@@ -62,6 +62,19 @@ MAX_STALL_ROUNDS: int = 2
 RELEASE_POLL_SECONDS: int = 5
 # 名义释放量低于该值时跳过「未释放即停止」硬判定，避免小文件被测量噪声误伤
 RELEASE_HARD_STOP_MIN_BYTES: int = 1024 ** 3
+# 累计释放率低于该比例、且本轮几乎没有新增释放时，才判定「确实没释放」。
+# 单一轮次的低释放率不足以停手：大批量删除后回收会顺延到下一轮窗口。
+RELEASE_HARD_STOP_RATIO: float = 0.6
+# 单轮新增释放低于该值即视为「零增长」（用于连续两轮判定）
+RELEASE_STALL_MIN_BYTES: int = 1024 ** 3
+# 「零增长」的相对门槛：单轮新增释放低于「本轮名义删除量 × 该比例」也算没进展。
+# 只看绝对值会得出荒谬结论——删 100GB 只回收 1GB 与删 1GB 回收 1GB 同样算「有增长」。
+# 绝对下限 RELEASE_STALL_MIN_BYTES 仍保留，避免小批量清理被测量噪声判成零增长。
+RELEASE_STALL_MIN_RATIO: float = 0.1
+# 自适应等待：名义释放量每满 10GB 放大一档，最多 6 倍、900 秒
+RELEASE_WAIT_SCALE_GB: float = 10.0
+RELEASE_WAIT_SCALE_MAX: float = 6.0
+RELEASE_WAIT_MAX_SECONDS: int = 900
 GIB: int = 1024 ** 3
 # 默认保护后缀模板：**唯一真源**。表单占位符、新装默认配置与配置页
 # 「恢复默认保护后缀」按钮的内联脚本都取自这里（由测试校验三者一致，
@@ -227,7 +240,8 @@ class SeedSpaceGuard(_PluginBase):
     _downloader_types: Dict[str, Any] = {}
     # 删种后待复核：{下载器名: set(hash)}
     _deleted_pending: Dict[str, set] = {}
-    _lock: threading.Lock = threading.Lock()
+    # 本轮清理的开始时间（供「仍在运行」回执说明已跑多久）
+    _run_started_at: float = 0.0
 
     def init_plugin(self, config: dict = None) -> None:
         """根据插件配置初始化运行状态。"""
@@ -1075,7 +1089,12 @@ class SeedSpaceGuard(_PluginBase):
         # （success / message / data），且 success 为 bool、message 为 str。
         # 未执行成功的两种情形必须如实回报 False，否则前端会把「没跑」
         # 当成「跑成功了」，用户看不到任何异常。
-        ok = result not in ("插件未启用", "已有清理任务正在运行，本次跳过")
+        # 「仍在运行」的回执会带上已运行时长，不能再按整串比对；按前缀判定，
+        # 否则「上一轮还在跑」会被当成执行成功，用户在 API 回执里看不到跳过。
+        ok = not (
+            result == "插件未启用"
+            or result.startswith("上一轮清理仍在运行")
+        )
         return {"success": ok, "message": result, "data": None}
 
     async def api_status(self, request: Request) -> Dict[str, Any]:
@@ -1137,11 +1156,12 @@ class SeedSpaceGuard(_PluginBase):
         if not self._enabled:
             return "插件未启用"
         if not self._lock.acquire(blocking=False):
-            return "已有清理任务正在运行，本次跳过"
+            return self._busy_result()
         try:
             if self._running:
-                return "已有清理任务正在运行，本次跳过"
+                return self._busy_result()
             self._running = True
+            self._run_started_at = time.time()
             # 新一轮用全新的取消信号，与上一轮彻底隔离
             self._run_cancel_event = threading.Event()
             mode = mode_override or self._mode
@@ -1334,11 +1354,18 @@ class SeedSpaceGuard(_PluginBase):
             elif deleted > 0:
                 # 带上删除数量：只报 GB 无法核对「到底删了几个」，而本轮
                 # 的删除可能来自种子 / 文件 / 无主文件三条链路
-                suffix = f"，共处理 {deleted} 个资源，释放约 {released_gb}GB"
-            if self._clean_stats.get("stalled"):
-                suffix += "（已提前停止：空间未按预期释放）"
-            if self._cancel_signal().is_set():
-                suffix += "（已取消）"
+                actual_gb = self._clean_stats.get("released_actual_gb")
+                if actual_gb is None:
+                    suffix = f"，共处理 {deleted} 个资源，释放约 {released_gb}GB"
+                else:
+                    # 名义删除量与实测回收量分开报：Btrfs / 快照 / 后台写入
+                    # 会让两者本就不相等，混成一个数字时用户会看到
+                    # 「释放 242.5GB 但剩余 491GB」这种自相矛盾的行。
+                    suffix = (
+                        f"，共处理 {deleted} 个资源，名义删除约 {released_gb}GB"
+                        f"（实测已回收 {actual_gb}GB）"
+                    )
+            suffix += self._stop_reason_suffix()
             # 空壳回收量同样要进结果消息：它发生在删文件之前，若不汇总，
             # 用户在「空间不足」这一主路径上反而看不到任何空壳回收痕迹
             suffix += orphan_note + sweep_note
@@ -1347,6 +1374,7 @@ class SeedSpaceGuard(_PluginBase):
             return self._finish(msg, detail_lines)
         finally:
             self._running = False
+            self._run_started_at = 0.0
             self._active_mode = ""
             # 删种复核放在收尾：删除链路中途抛异常时也必须执行，否则
             # 「请求被接受但种子仍在」的告警会静默丢失。复核失败不影响
@@ -1456,6 +1484,54 @@ class SeedSpaceGuard(_PluginBase):
         """
         free = self._disk_free_bytes()
         return None if free is None else int(free // GIB)
+
+    @property
+    def _lock(self) -> threading.Lock:
+        """
+        返回本轮运行的互斥锁（实例级，懒创建）。
+
+        旧实现把锁挂在类上：插件的多个分身（clone）共用同一把锁，任何一个
+        分身正在清理时，另一次触发都会被判成「已有清理任务正在运行」，
+        而它们监控的目录可能完全不同。改为实例级后各分身互不影响。
+        """
+        lock = self.__dict__.get("_instance_run_lock")
+        if lock is None:
+            lock = threading.Lock()
+            self._instance_run_lock = lock
+        return lock
+
+    def _stop_reason_suffix(self) -> str:
+        """
+        收尾状态文案：取消与停手互斥。
+
+        用户主动停止时只报「已取消」——此时的「没释放」是等待被打断的结果，
+        再叠加「空间未按预期释放」会让人误以为出了故障。
+        """
+        if self._clean_stats.get("cancelled"):
+            return "（已取消，本轮提前结束）"
+        if self._clean_stats.get("stalled"):
+            return "（已提前停止：空间未按预期释放）"
+        return ""
+
+    def _busy_result(self) -> str:
+        """
+        并发触发的可见回执：说明上一轮还在跑、已经跑了多久。
+
+        旧实现只回一句「已有清理任务正在运行」：既没有日志、也不说过了多久，
+        用户点了手动清理没反应，很容易当成插件卡死。等待窗口按规模放大后，
+        「上一轮还在跑」会变得更常见，更需要把话说清楚。
+        """
+        started = float(self.__dict__.get("_run_started_at") or 0.0)
+        elapsed = int(max(0.0, time.time() - started)) if started else 0
+        if elapsed:
+            text = (
+                f"上一轮清理仍在运行（已 {elapsed // 60} 分 {elapsed % 60} 秒），"
+                f"本次触发跳过"
+            )
+        else:
+            text = "上一轮清理仍在运行，本次触发跳过"
+        logger.warning("【保种空间守护】%s", text)
+        return text
 
     def _cancel_signal(self) -> threading.Event:
         """返回本轮运行的取消信号（懒创建，避免多个实例共享同一事件）。"""
@@ -1634,21 +1710,43 @@ class SeedSpaceGuard(_PluginBase):
             if rest else os.path.normpath(storage)
         )
 
+    def _effective_wait_seconds(self, nominal: int) -> int:
+        """
+        按本轮名义释放规模放大等待时长。
+
+        固定 90 秒在「一次删掉上百 GB」时远远不够：Btrfs 的空间回收是异步的，
+        叠加媒体服务器/索引服务持有句柄，回收会持续数分钟。仍按小批量口径
+        等待，就会在回收尚未完成时判「没释放」而提前停手（2026-11-05 实测：
+        删 240GB 后 90 秒只回收 61%，几分钟后实际已全部回收）。
+
+        :param nominal: 本轮名义释放字节数
+        :return: 本轮应等待的秒数（配置为 0 表示不等待）
+        """
+        base = int(self._sync_wait_seconds or 0)
+        if base <= 0:
+            return 0
+        # 阶梯放大：前 10GB 不放大（小批量删除几秒就回收完，白等没有意义），
+        # 之后每满 10GB 加一档，最高 RELEASE_WAIT_SCALE_MAX 倍。
+        step = max(0, int(nominal)) // int(RELEASE_WAIT_SCALE_GB * GIB)
+        scale = 1 + min(int(RELEASE_WAIT_SCALE_MAX) - 1, step)
+        return int(min(RELEASE_WAIT_MAX_SECONDS, base * scale))
+
     def _wait_for_release(self, free_before: int, nominal: int) -> int:
         """
-        轮询等待空间释放，最长 self._sync_wait_seconds 秒。
+        轮询等待空间释放，最长按规模自适应（上限见 RELEASE_WAIT_MAX_SECONDS）。
 
         相比固定 sleep，轮询可在释放达标时提前退出：独立目录（无硬链接）通常
         数秒内即达标，无需空等整个等待时长；仅在释放滞后时才等到上限。
 
         :param free_before: 删除前的剩余字节数
-        :param nominal: 本轮名义释放字节数（按 inode 去重后的真实占用）
+        :param nominal: 本轮累计名义释放字节数（按 inode 去重后的真实占用）
         :return: 实际观察到的释放字节数（可能为负，表示期间有其他进程写入）
         """
-        if self._sync_wait_seconds <= 0:
+        wait = self._effective_wait_seconds(nominal)
+        if wait <= 0:
             now = self._disk_free_bytes()
             return (now if now is not None else free_before) - free_before
-        deadline = time.monotonic() + self._sync_wait_seconds
+        deadline = time.monotonic() + wait
         target = int(nominal * RELEASE_TOLERANCE)
         free_now = free_before
         while True:
@@ -1658,6 +1756,10 @@ class SeedSpaceGuard(_PluginBase):
                 break
             remaining = deadline - time.monotonic()
             if remaining <= 0:
+                break
+            # 用户点「停止」后必须尽快收尾：等待窗口已按删除规模放大到十几
+            # 分钟，若不在这里响应取消，一次停止要等到窗口结束才生效。
+            if self._cancelled():
                 break
             time.sleep(min(RELEASE_POLL_SECONDS, remaining))
         return free_now - free_before
@@ -1789,6 +1891,16 @@ class SeedSpaceGuard(_PluginBase):
         # 真实删除：分轮按缺口预选并删除，等待释放后复核
         idx = 0
         stall = 0
+        # 累计口径：整次清理的实测释放与名义删除。逐轮单比会把上一轮尚未
+        # 回收完的尾部算作本轮「未释放」，大批量删除时必然误判停手。
+        # 基线取「本轮真正开始时的实时剩余」，不能沿用调用方传入的旧快照：
+        # 进入本方法前还要跑空壳回收与目录扫描，可能已经过去几分钟，期间
+        # 任何写入/释放都会被算进「本次清理释放了多少」。
+        free_base: Optional[int] = None
+        cum_released = 0
+        prev_cum_released = 0
+        cum_deleted = 0.0
+        prev_cum_deleted = 0
         while True:
             if self._cancelled():
                 detail_lines.append("收到停止信号，本轮清理提前结束")
@@ -1796,6 +1908,8 @@ class SeedSpaceGuard(_PluginBase):
                 break
             free_now = self._disk_free_bytes()
             free_now = free_bytes if free_now is None else free_now
+            if free_base is None:
+                free_base = free_now
             if free_now >= self._threshold_gb * GIB:
                 break
             # 本轮按缺口预选种子：从最旧开始累计名义大小达到缺口即止
@@ -1883,6 +1997,7 @@ class SeedSpaceGuard(_PluginBase):
 
                 deleted += 1
                 released_gb += float(cand["size_gb"])
+                cum_deleted += float(cand["size_gb"]) * GIB
                 added_text = datetime.fromtimestamp(
                     cand["added"]).strftime("%Y-%m-%d")
                 detail_lines.append(
@@ -1940,54 +2055,146 @@ class SeedSpaceGuard(_PluginBase):
                 self._clean_stats["transfers"] += history
                 # 删除种子连带文件后，清理可能遗留的空目录（保护配置目录本身）
                 self._prune_empty_dirs(cand["path"])
-            # 轮询等待空间释放（达标提前退出），再复核
+            # 轮询等待空间释放（达标提前退出），再按累计口径复核。
+            # 等待时长与等待目标取「本轮新增名义量」：累计口径只用于判定，
+            # 若拿累计值去等，尾轮只删几 GB 也要按最大窗口空等十几分钟。
+            round_nominal = int(cum_deleted) - prev_cum_deleted
+            wait_seconds = self._effective_wait_seconds(round_nominal)
             logger.info(
                 "【保种空间守护】本轮已删除 %d 个种子，等待空间释放（最长 %d 秒）后复核…",
-                len(plan), self._sync_wait_seconds,
+                len(plan), wait_seconds,
             )
-            released_bytes = self._wait_for_release(free_now, int(planned_bytes))
-            if not self._release_is_healthy(released_bytes, int(planned_bytes)):
-                stall += 1
-                if released_bytes <= 0 or stall >= MAX_STALL_ROUNDS:
-                    warn = (
-                        f"删除 {len(plan)} 个种子后空间未按预期释放"
-                        f"（预期 {planned_bytes / GIB:.1f}GB，"
-                        f"实测 {released_bytes / GIB:.1f}GB），"
-                        f"可能存在快照引用或媒体库侧硬链接未被清理。"
-                        f"已停止清理以避免过量删除，请检查「保种/清理目录」"
-                        f"是否已包含媒体库目录"
-                    )
-                    logger.warning("【保种空间守护】%s", warn)
-                    detail_lines.append(warn)
-                    self._clean_stats["stalled"] = True
-                    break
+            released_bytes = self._wait_for_release(free_now, round_nominal)
+            # 用「等待前剩余 + 实测释放」推回最新剩余，避免再读一次磁盘：
+            # 测试里的空间序列是定长的，多一次读取会越界（StopIteration）。
+            cum_released = (free_now + released_bytes) - free_base
+            # 取消发生在等待期间：不再做释放判定（此时的「没释放」只是
+            # 等待被打断，不是硬信号），直接结束本轮。
+            if self._cancelled():
+                detail_lines.append("收到停止信号，本轮清理提前结束")
+                self._clean_stats["cancelled"] = True
+                break
+            verdict = self._release_verdict(
+                cum_released, int(cum_deleted), prev_cum_released, stall,
+                round_nominal,
+            )
+            prev_cum_released = cum_released
+            prev_cum_deleted = int(cum_deleted)
+            stall = verdict["stall_rounds"]
+            if verdict["stalled"]:
+                logger.warning(
+                    "【保种空间守护】空间回收慢于名义删除（累计名义 %.1fGB /"
+                    " 实测 %.1fGB / 本轮新增 %.1fGB），继续观察",
+                    cum_deleted / GIB, cum_released / GIB,
+                    verdict["gain"] / GIB,
+                )
+            if verdict["stop"]:
+                warn = (
+                    f"删除 {len(plan)} 个种子后空间未按预期释放"
+                    f"（累计名义 {cum_deleted / GIB:.1f}GB，"
+                    f"累计实测 {cum_released / GIB:.1f}GB，"
+                    f"本轮新增 {verdict['gain'] / GIB:.1f}GB），"
+                    f"可能存在快照引用或媒体库侧硬链接未被清理。"
+                    f"已停止清理以避免过量删除，请检查「保种/清理目录」"
+                    f"是否已包含媒体库目录"
+                )
+                logger.warning("【保种空间守护】%s", warn)
+                detail_lines.append(warn)
+                self._clean_stats["stalled"] = True
+                break
         # 累加而非覆盖：保留进入本方法前已回收的空壳种子计数
         self._clean_stats["seeds"] = (
             (self._clean_stats.get("seeds") or 0) + deleted
+        )
+        self._clean_stats["released_actual_gb"] = round(
+            max(0, cum_released) / GIB, 1
         )
         # 复核统一放到 check_and_clean 的收尾执行：本方法中途抛异常时也要跑，
         # 否则「请求被接受但种子仍在」的告警会静默丢失。
         return deleted, round(released_gb, 1), detail_lines
 
-    def _release_is_healthy(self, released: int, nominal: int) -> bool:
+    def _release_is_healthy(self, released: int, nominal: int,
+                           round_nominal: Optional[int] = None) -> bool:
         """
         判定本轮空间释放是否正常。
 
-        - 名义释放量过小时直接视为正常：小文件组的测量噪声会淹没真实信号，
-          若据此停止会误伤正常清理
+        - **本轮**名义释放量过小时直接视为正常：小批量删除的测量噪声会淹没
+          真实信号，若据此停止会误伤正常清理。判据必须用「本轮」名义量：
+          用累计量做豁免等于永不触发，等于把这条保护写成死代码
         - 释放量达到名义值的 RELEASE_TOLERANCE 即正常（删除期间下载器与媒体库
           几乎必然有写入，需留余量）
 
         :param released: 实测释放字节数（可为负）
-        :param nominal: 名义释放字节数
+        :param nominal: 累计名义释放字节数（达标比例的分母）
+        :param round_nominal: 本轮新增名义释放字节数，缺省取 nominal
         :return: 是否视为正常释放
         """
         if self._sync_wait_seconds <= 0:
             # 用户明确选择「不等待」时无法测量释放量，不能据此判失败
             return True
-        if nominal <= RELEASE_HARD_STOP_MIN_BYTES:
+        current = nominal if round_nominal is None else round_nominal
+        if current <= RELEASE_HARD_STOP_MIN_BYTES:
             return True
         return released >= int(nominal * RELEASE_TOLERANCE)
+
+    def _release_verdict(self, cumulative_released: int, cumulative_nominal: int,
+                         prev_cumulative_released: int,
+                         stall_rounds: int,
+                         round_nominal: Optional[int] = None) -> Dict[str, Any]:
+        """
+        按累计口径判定是否继续清理。
+
+        逐轮单比的失效模式：第一轮删 220GB、90 秒只回收 197GB（回收还在排队），
+        第二轮计划 22.5GB、90 秒回收 13.9GB，单看第二轮就是「只释放 61%」——
+        而整次清理实际释放率已接近 100%，据此停手属于误判。
+
+        停手条件（保守，宁可慢也不过量删除）：
+
+        - 整次清理完全没释放（累计 ≤ 0）：立即停
+        - 累计释放率低于 RELEASE_HARD_STOP_RATIO，且本轮几乎零增长：停
+        - 连续 MAX_STALL_ROUNDS 轮不达标且零增长：停
+
+        :param cumulative_released: 整次清理累计实测释放字节数
+        :param cumulative_nominal: 整次清理累计名义删除字节数
+        :param prev_cumulative_released: 上一轮的累计实测释放值
+        :param stall_rounds: 之前连续不达标的轮数
+        :param round_nominal: 本轮新增名义删除字节数，缺省取累计值
+        :return: 判定结果（stalled / stop / gain / stall_rounds / ratio）
+        """
+        gain = cumulative_released - prev_cumulative_released
+        ratio = (
+            cumulative_released / cumulative_nominal
+            if cumulative_nominal > 0 else 1.0
+        )
+        stalled = not self._release_is_healthy(
+            cumulative_released, cumulative_nominal, round_nominal
+        )
+        if not stalled:
+            return {
+                "stalled": False, "stop": False, "gain": gain,
+                "stall_rounds": 0, "ratio": ratio,
+            }
+        stall_rounds += 1
+        # 「零增长」按本轮名义量的比例判定：只看绝对值会得出荒谬结论——
+        # 删 100GB 只回收 1GB，与删 1GB 回收 1GB 会被判成同一回事。
+        # 绝对下限保留，避免小批量清理被测量噪声判成零增长。
+        # 未提供本轮名义量时退回绝对口径：拿累计值当本轮量会放大门槛，
+        # 让「累计增长 14GB」这类真进展被判成零增长，正是要修掉的误判。
+        min_gain = int(RELEASE_STALL_MIN_BYTES)
+        if round_nominal:
+            min_gain = max(
+                min_gain, int(round_nominal * RELEASE_STALL_MIN_RATIO)
+            )
+        no_growth = gain < min_gain
+        stop = (
+            cumulative_released <= 0
+            or (ratio < RELEASE_HARD_STOP_RATIO and no_growth)
+            or (stall_rounds >= MAX_STALL_ROUNDS and no_growth)
+        )
+        return {
+            "stalled": True, "stop": stop, "gain": gain,
+            "stall_rounds": stall_rounds, "ratio": ratio,
+        }
 
     # ======================= 联动清理（种子/记录/刮削） =======================
 
@@ -4601,8 +4808,14 @@ class SeedSpaceGuard(_PluginBase):
         # 达标或候选耗尽即止；出现「删了也不释放」的硬信号则立即停止
         idx = 0
         stall = 0
+        # 累计口径：整次清理的实测释放与名义删除（理由同种子级清理）
+        free_base: Optional[int] = None
+        cum_released = 0
+        prev_cum_released = 0
+        cum_deleted = 0.0
         # 本轮实际删除的文件路径，供删除结束后执行联动清理
         deleted_paths: List[str] = []
+        prev_cum_deleted = 0
         while True:
             if self._cancelled():
                 detail_lines.append("收到停止信号，本轮清理提前结束")
@@ -4610,6 +4823,8 @@ class SeedSpaceGuard(_PluginBase):
                 break
             free_now = self._disk_free_bytes()
             free_now = free_bytes if free_now is None else free_now
+            if free_base is None:
+                free_base = free_now
             if free_now >= self._threshold_gb * GIB:
                 break
             # 本轮按缺口预选文件：从最旧开始累计名义大小达到缺口即止
@@ -4636,6 +4851,7 @@ class SeedSpaceGuard(_PluginBase):
                     continue
                 deleted += 1
                 released_gb += size / GIB
+                cum_deleted += float(size)
                 # 记录代表路径（仅一次），供联动清理反查 hash / 转移记录 / 刮削
                 if fpath not in deleted_paths:
                     deleted_paths.append(fpath)
@@ -4649,27 +4865,52 @@ class SeedSpaceGuard(_PluginBase):
                     f"已删除文件：{fpath}（修改于 {mtime_text}{side_note}）"
                 )
                 logger.info("【保种空间守护】%s", detail_lines[-1])
-            # 轮询等待空间释放（达标提前退出），再复核
+            # 轮询等待空间释放（达标提前退出），再按累计口径复核
+            # 等待时长取「本轮新增名义量」（理由同种子级清理）
+            round_nominal = int(cum_deleted) - prev_cum_deleted
+            wait_seconds = self._effective_wait_seconds(round_nominal)
             logger.info(
                 "【保种空间守护】本轮已删除 %d 个文件，等待空间释放（最长 %d 秒）后复核…",
-                len(plan), self._sync_wait_seconds,
+                len(plan), wait_seconds,
             )
-            released_bytes = self._wait_for_release(free_now, int(planned_bytes))
-            if not self._release_is_healthy(released_bytes, int(planned_bytes)):
-                stall += 1
-                if released_bytes <= 0 or stall >= MAX_STALL_ROUNDS:
-                    warn = (
-                        f"删除 {len(plan)} 个文件后空间未按预期释放"
-                        f"（预期 {planned_bytes / GIB:.1f}GB，"
-                        f"实测 {released_bytes / GIB:.1f}GB），"
-                        f"可能存在快照引用，或该文件的其它硬链接不在配置目录内。"
-                        f"已停止清理以避免过量删除，请检查「保种/清理目录」"
-                        f"是否已包含与之互为硬链接的全部目录"
-                    )
-                    logger.warning("【保种空间守护】%s", warn)
-                    detail_lines.append(warn)
-                    self._clean_stats["stalled"] = True
-                    break
+            released_bytes = self._wait_for_release(free_now, round_nominal)
+            # 用「等待前剩余 + 实测释放」推回最新剩余，避免再读一次磁盘：
+            # 测试里的空间序列是定长的，多一次读取会越界（StopIteration）。
+            cum_released = (free_now + released_bytes) - free_base
+            # 取消发生在等待期间：不再做释放判定（此时的「没释放」只是
+            # 等待被打断，不是硬信号），直接结束本轮。
+            if self._cancelled():
+                detail_lines.append("收到停止信号，本轮清理提前结束")
+                self._clean_stats["cancelled"] = True
+                break
+            verdict = self._release_verdict(
+                cum_released, int(cum_deleted), prev_cum_released, stall,
+                round_nominal,
+            )
+            prev_cum_released = cum_released
+            prev_cum_deleted = int(cum_deleted)
+            stall = verdict["stall_rounds"]
+            if verdict["stalled"]:
+                logger.warning(
+                    "【保种空间守护】空间回收慢于名义删除（累计名义 %.1fGB /"
+                    " 实测 %.1fGB / 本轮新增 %.1fGB），继续观察",
+                    cum_deleted / GIB, cum_released / GIB,
+                    verdict["gain"] / GIB,
+                )
+            if verdict["stop"]:
+                warn = (
+                    f"删除 {len(plan)} 个文件后空间未按预期释放"
+                    f"（累计名义 {cum_deleted / GIB:.1f}GB，"
+                    f"累计实测 {cum_released / GIB:.1f}GB，"
+                    f"本轮新增 {verdict['gain'] / GIB:.1f}GB），"
+                    f"可能存在快照引用，或该文件的其它硬链接不在配置目录内。"
+                    f"已停止清理以避免过量删除，请检查「保种/清理目录」"
+                    f"是否已包含与之互为硬链接的全部目录"
+                )
+                logger.warning("【保种空间守护】%s", warn)
+                detail_lines.append(warn)
+                self._clean_stats["stalled"] = True
+                break
         # 删除流程结束后统一执行联动清理（转移记录 / 种子）
         if deleted_paths and self._linkage_enabled():
             stats = self._run_linkage_after_delete(deleted_paths, detail_lines, dry_run)
@@ -4681,6 +4922,9 @@ class SeedSpaceGuard(_PluginBase):
                 stats["history"], stats["torrent"], stats["torrent_kept"],
             )
         self._clean_stats["files"] = deleted
+        self._clean_stats["released_actual_gb"] = round(
+            max(0, cum_released) / GIB, 1
+        )
         return deleted, round(released_gb, 1), detail_lines
 
     # ============================ 工具方法 ============================
@@ -4935,8 +5179,10 @@ class SeedSpaceGuard(_PluginBase):
         try:
             if os.path.isdir(ea_dir) and not os.listdir(ea_dir):
                 os.rmdir(ea_dir)
-        except OSError:
-            pass
+        except OSError as err:
+            # 静默吞错会让「目录明明已空却删不掉」无从追查；这里只影响清理
+            # 彻底性（父目录会因残留而保留），不影响任何数据安全。
+            logger.warning("【保种空间守护】清理空的 @eaDir 目录失败：%s", err)
         if removed:
             logger.info("【保种空间守护】已清理 %d 项 DSM 索引残片：%s", removed, ea_dir)
         return removed

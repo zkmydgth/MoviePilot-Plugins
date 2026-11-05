@@ -326,10 +326,10 @@ class TestCheckAndClean(_E2EBase):
         self.plugin._notify = False
         self.plugin._lock.acquire()
         try:
-            self.assertEqual(
-                self.plugin.check_and_clean(source="手动"),
-                "已有清理任务正在运行，本次跳过",
-            )
+            text = self.plugin.check_and_clean(source="手动")
+            # v3.5.0 起回执要说明「仍在运行」以及已跑多久，不再是固定整串
+            self.assertTrue(text.startswith("上一轮清理仍在运行"), text)
+            self.assertIn("本次触发跳过", text)
         finally:
             self.plugin._lock.release()
 
