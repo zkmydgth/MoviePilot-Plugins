@@ -120,11 +120,9 @@ MUTANTS = [
     ),
     (
         "空壳回收量在「空间不足」路径不可见：漏拼 orphan_note（回归原始缺陷）",
-        """            # 空壳回收量同样要进结果消息：它发生在删文件之前，若不汇总，
-            # 用户在「空间不足」这一主路径上反而看不到任何空壳回收痕迹
-            suffix += orphan_note + sweep_note
-            free_gb_now = self._disk_free_gb()""",
-        """            free_gb_now = self._disk_free_gb()""",
+        """            suffix += orphan_note + sweep_note
+            # 措辞点明这是「停手瞬间的快照」：回收还在后台推进时，用户隔""",
+        """            # 措辞点明这是「停手瞬间的快照」：回收还在后台推进时，用户隔""",
         "应导致 test_dry_run_previews_both_file_and_orphan / "
         "test_dry_run_and_real_report_same_orphan_count 失败",
     ),

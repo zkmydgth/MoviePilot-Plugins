@@ -123,11 +123,15 @@ FLOW_CANCEL_NEW = (
 BASE_SNAPSHOT_OLD = (
     "            if free_base is None:\n"
     "                free_base = free_now\n"
+    "                self._clean_stats[\"free_base_bytes\"] = free_base\n"
     "            if free_now >= self._threshold_gb * GIB:\n"
     "                break\n"
     "            # 本轮按缺口预选文件：从最旧开始累计名义大小达到缺口即止\n"
 )
 BASE_SNAPSHOT_NEW = (
+    "            if free_base is None:\n"
+    "                free_base = free_bytes\n"
+    "                self._clean_stats[\"free_base_bytes\"] = free_base\n"
     "            if free_now >= self._threshold_gb * GIB:\n"
     "                break\n"
     "            # 本轮按缺口预选文件：从最旧开始累计名义大小达到缺口即止\n"

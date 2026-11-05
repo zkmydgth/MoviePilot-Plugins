@@ -1343,6 +1343,13 @@ class SeedSpaceGuard(_PluginBase):
             deleted, released_gb, detail_lines = result
             detail_lines = orphan_lines + sweep_lines + list(detail_lines or [])
 
+            # 停手后重新读一次真实剩余：「实测已回收」与「停手时剩余」都取自
+            # 这一次读取。轮询推断值（等待前剩余 + 窗口内增量）在 Btrfs 回收
+            # 滞后时会系统性偏低，用户稍后拿 df 对比必然对不上——2026-11-05
+            # 现场：通知报「剩余 503GB」，二十分钟后实际 669GB。
+            free_end = self._disk_free_bytes()
+            free_gb_now = None if free_end is None else int(free_end // GIB)
+
             suffix = ""
             if no_candidates and deleted <= 0:
                 # 只有确实什么都没删时才说「未找到候选」；若本轮的删除来自
@@ -1355,12 +1362,19 @@ class SeedSpaceGuard(_PluginBase):
                 # 带上删除数量：只报 GB 无法核对「到底删了几个」，而本轮
                 # 的删除可能来自种子 / 文件 / 无主文件三条链路
                 actual_gb = self._clean_stats.get("released_actual_gb")
+                free_base_bytes = self._clean_stats.get("free_base_bytes")
                 if actual_gb is None:
                     suffix = f"，共处理 {deleted} 个资源，释放约 {released_gb}GB"
                 else:
                     # 名义删除量与实测回收量分开报：Btrfs / 快照 / 后台写入
                     # 会让两者本就不相等，混成一个数字时用户会看到
                     # 「释放 242.5GB 但剩余 491GB」这种自相矛盾的行。
+                    # 实测回收量同样用最终这次读取减去清理起点基线，保证
+                    # 「实测已回收 + 起点剩余」与「停手时剩余」自洽。
+                    if free_base_bytes is not None and free_end is not None:
+                        actual_gb = round(
+                            max(0, free_end - free_base_bytes) / GIB, 1
+                        )
                     suffix = (
                         f"，共处理 {deleted} 个资源，名义删除约 {released_gb}GB"
                         f"（实测已回收 {actual_gb}GB）"
@@ -1369,8 +1383,13 @@ class SeedSpaceGuard(_PluginBase):
             # 空壳回收量同样要进结果消息：它发生在删文件之前，若不汇总，
             # 用户在「空间不足」这一主路径上反而看不到任何空壳回收痕迹
             suffix += orphan_note + sweep_note
-            free_gb_now = self._disk_free_gb()
-            msg = f"{prefix}空间不足处理完成{suffix}，当前剩余 {free_gb_now}GB{invalid_note}"
+            # 措辞点明这是「停手瞬间的快照」：回收还在后台推进时，用户隔
+            # 十几分钟再看磁盘会看到更高值，旧文案「当前剩余」会被当成
+            # 与事实不符的错误数字。
+            msg = (
+                f"{prefix}空间不足处理完成{suffix}，"
+                f"停手时剩余 {free_gb_now}GB{invalid_note}"
+            )
             return self._finish(msg, detail_lines)
         finally:
             self._running = False
@@ -1910,6 +1929,7 @@ class SeedSpaceGuard(_PluginBase):
             free_now = free_bytes if free_now is None else free_now
             if free_base is None:
                 free_base = free_now
+                self._clean_stats["free_base_bytes"] = free_base
             if free_now >= self._threshold_gb * GIB:
                 break
             # 本轮按缺口预选种子：从最旧开始累计名义大小达到缺口即止
@@ -2088,6 +2108,25 @@ class SeedSpaceGuard(_PluginBase):
                     cum_deleted / GIB, cum_released / GIB,
                     verdict["gain"] / GIB,
                 )
+            if verdict["stop"]:
+                # 停手前宽限一轮：Btrfs 的空间回收可滞后数小时（叠加媒体
+                # 服务器 / 索引服务持有句柄），窗口内「零增长」不等于
+                # 「永不释放」。这里只等待、不再删除任何文件，避免
+                # 「等不及就停」把清理做成半途而废；宽限后仍不达标才停手。
+                grace_gain = self._wait_for_release(
+                    free_base + cum_released, round_nominal
+                )
+                if grace_gain > 0:
+                    cum_released += grace_gain
+                    logger.info(
+                        "【保种空间守护】判定未达标，宽限一轮后复测：再回收 %.1fGB",
+                        grace_gain / GIB,
+                    )
+                    verdict = self._release_verdict(
+                        cum_released, int(cum_deleted), prev_cum_released,
+                        verdict["stall_rounds"], round_nominal,
+                    )
+                    stall = verdict["stall_rounds"]
             if verdict["stop"]:
                 warn = (
                     f"删除 {len(plan)} 个种子后空间未按预期释放"
@@ -4825,6 +4864,7 @@ class SeedSpaceGuard(_PluginBase):
             free_now = free_bytes if free_now is None else free_now
             if free_base is None:
                 free_base = free_now
+                self._clean_stats["free_base_bytes"] = free_base
             if free_now >= self._threshold_gb * GIB:
                 break
             # 本轮按缺口预选文件：从最旧开始累计名义大小达到缺口即止
@@ -4897,6 +4937,22 @@ class SeedSpaceGuard(_PluginBase):
                     cum_deleted / GIB, cum_released / GIB,
                     verdict["gain"] / GIB,
                 )
+            if verdict["stop"]:
+                # 停手前宽限一轮（理由同种子级清理）：只等待、不再删文件。
+                grace_gain = self._wait_for_release(
+                    free_base + cum_released, round_nominal
+                )
+                if grace_gain > 0:
+                    cum_released += grace_gain
+                    logger.info(
+                        "【保种空间守护】判定未达标，宽限一轮后复测：再回收 %.1fGB",
+                        grace_gain / GIB,
+                    )
+                    verdict = self._release_verdict(
+                        cum_released, int(cum_deleted), prev_cum_released,
+                        verdict["stall_rounds"], round_nominal,
+                    )
+                    stall = verdict["stall_rounds"]
             if verdict["stop"]:
                 warn = (
                     f"删除 {len(plan)} 个文件后空间未按预期释放"
