@@ -116,6 +116,19 @@ ORPHAN_TR_BATCH_SIZE: int = 400
 # 有界」的意义，因此给出上下限而不是完全放开。
 ORPHAN_SCAN_BUDGET_MIN: int = 30
 ORPHAN_SCAN_BUDGET_MAX: int = 3600
+# 站点侧「删种」公告的判定片段：tracker 明确表示该种子在站点上已不存在。
+# 只认这些**确定性**措辞。超时、连接失败、限流、5xx 等临时失败绝不能命中，
+# 否则会把仍在正常做种的种子从下载器里摘掉（摘种即失去保号资格）。
+SITE_DELETED_PATTERNS: tuple = (
+    "not registered",
+    "unregistered",
+    "torrent not found",
+    "no such torrent",
+    "torrent has been deleted",
+    "torrent deleted by",
+    "已被删除",
+    "种子不存在",
+)
 
 
 class SeedSpaceGuard(_PluginBase):
@@ -189,6 +202,10 @@ class SeedSpaceGuard(_PluginBase):
     # 默认关是因为它会把手伸到配置目录之外，属行为边界扩大，须显式授权。
     # ⚠️ 依赖 delete_torrents（联动删除种子）——总闸不开则本开关无任何效果。
     _orphan_seed_scope: bool = False
+    # 站点删种回收：tracker 明确公告该种子已被站点删除/未注册时，把它从
+    # 下载器摘掉但不删任何文件（默认开）。只依赖候选里已有的公告字段，
+    # 不产生额外远程调用；⚠️ 同样依赖 delete_torrents 总闸。
+    _reap_site_deleted: bool = True
     # 监控目录空壳扫描：清理「除 DSM 索引残片外已无任何内容」的空目录（默认开）。
     # 只删目录、不删任何真实文件；典型成因是下载器删种时删掉了文件，但
     # Synology 的 @eaDir 索引残片让目录无法被 rmdir，于是长期留下空壳。
@@ -268,6 +285,7 @@ class SeedSpaceGuard(_PluginBase):
         self._companion_protect = True
         self._orphan_cleanup = False
         self._orphan_seed_scope = False
+        self._reap_site_deleted = True
         # 空壳判定单轮预算（秒）：默认 300
         self._orphan_scan_budget = ORPHAN_SCAN_BUDGET_SECONDS
         self._empty_dir_sweep = True
@@ -365,6 +383,11 @@ class SeedSpaceGuard(_PluginBase):
         # 同样用 bool()——它把手伸到配置目录之外，属行为边界扩大，
         # 必须显式授权，绝不可因「未配置」而默认打开。
         self._orphan_seed_scope = bool(config.get("orphan_seed_scope"))
+        # 站点删种回收：默认**开启**，仅显式为 False 时关闭。
+        # 它只摘种子、不删除任何文件，风险低于主动删文件的开关，因此与
+        # 「空壳目录扫描」同一策略；同样不用 bool()——bool(None) 会把
+        # 「未配置」变成关闭，与默认开语义相反。
+        self._reap_site_deleted = config.get("reap_site_deleted", True) is not False
         # 空壳判定单轮预算（秒）：默认 300，允许 30~3600。
         # 做成可配置是因为「候选数」与「下载器响应」随站点规模差异极大：
         # 固定值在慢下载器上会让尾部候选长期轮不到（饥饿），在快下载器上
@@ -919,6 +942,23 @@ class SeedSpaceGuard(_PluginBase):
                         },
                     },
                     {
+                        "component": "VSwitch",
+                        "props": {
+                            "model": "reap_site_deleted",
+                            "label": "回收站点已删种的种子",
+                            "class": "mt-4",
+                            "hint": "**两种模式通用，默认开启，需先开启「联动删除种子」才生效**。"
+                                    "tracker 明确公告该种子已被站点删除或未注册时，"
+                                    "它已经没有做种意义：插件会把它从下载器移除，"
+                                    "**只摘种子、不删除任何文件**（文件由空间清理链路负责）。"
+                                    "只认站点侧的确定性措辞，连接超时、限流、临时失败"
+                                    "一律不算；任一 tracker 公告成功即保留。"
+                                    "目前只有 Transmission 能读到 tracker 公告消息，"
+                                    "qBittorrent 不生效",
+                            "persistent-hint": True,
+                        },
+                    },
+                    {
                         "component": "VTextField",
                         "props": {
                             "model": "orphan_scan_budget",
@@ -1267,6 +1307,19 @@ class SeedSpaceGuard(_PluginBase):
                     (self._clean_stats.get("seeds") or 0)
                     + orphan_stats["torrent"]
                 )
+            # 站点删种回收：与空壳回收同属「只摘种子、不删文件」，摘要里分开
+            # 报数——两者的成因完全不同（一个是本地文件被删空，一个是站点把
+            # 种子删了），混成一个数字会让用户无法判断自己在哪一侧出了问题。
+            site_note = ""
+            if orphan_stats.get("site_deleted"):
+                site_note = (
+                    f"（另{'预计' if dry_run else ''}回收站点已删种 "
+                    f"{orphan_stats['site_deleted']} 个）"
+                )
+                self._clean_stats["seeds"] = (
+                    (self._clean_stats.get("seeds") or 0)
+                    + orphan_stats["site_deleted"]
+                )
 
             # 空壳目录扫描：同样先于「空间是否充足」的早退执行。
             # 空壳目录与剩余空间无关（文件早被下载器/人工删掉，只剩 @eaDir
@@ -1289,7 +1342,7 @@ class SeedSpaceGuard(_PluginBase):
                 # 从结果判断本次到底是「只列不删」还是「已真删」
                 msg = (
                     f"{prefix}空间充足（{free_gb}GB ≥ {self._threshold_gb}GB），"
-                    f"无需清理{orphan_note}{sweep_note}{invalid_note}"
+                    f"无需清理{orphan_note}{site_note}{sweep_note}{invalid_note}"
                 )
                 logger.info("【保种空间守护】%s", msg)
                 # 定时触发默认静默：cron 每 6 小时跑一次，若每次都推
@@ -1382,7 +1435,7 @@ class SeedSpaceGuard(_PluginBase):
             suffix += self._stop_reason_suffix()
             # 空壳回收量同样要进结果消息：它发生在删文件之前，若不汇总，
             # 用户在「空间不足」这一主路径上反而看不到任何空壳回收痕迹
-            suffix += orphan_note + sweep_note
+            suffix += orphan_note + site_note + sweep_note
             # 措辞点明这是「停手瞬间的快照」：回收还在后台推进时，用户隔
             # 十几分钟再看磁盘会看到更高值，旧文案「当前剩余」会被当成
             # 与事实不符的错误数字。
@@ -2684,7 +2737,7 @@ class SeedSpaceGuard(_PluginBase):
         """
         stats: Dict[str, Any] = {
             "torrent": 0, "checked": 0, "alive": 0, "failed": 0,
-            "cached": 0, "skipped": 0, "_lines": [],
+            "cached": 0, "skipped": 0, "site_deleted": 0, "_lines": [],
         }
         # 前置阻断：无下载器则无从扫描；删种开关未开则扫了也没用。
         # 注意此处刻意**不含 dry_run**——试运行要如实预告将回收的种子。
@@ -2761,6 +2814,55 @@ class SeedSpaceGuard(_PluginBase):
             if not hash_str:
                 continue
             stats["checked"] += 1
+            # 站点删种：tracker 已明确公告该种子在站点上不存在（未注册 /
+            # 已被删除）时，它已经没有任何做种价值，继续留在下载器里只会
+            # 反复报错、占着保号名额。这里**只摘种子、绝不删文件**——文件
+            # 是否存在、要不要删，属于空间清理链路的职责，两条链路不能混。
+            #
+            # 判定只用候选里已经带着的公告字段（宿主请求种子列表时就已包含
+            # error / errorString / trackerStats），因此不产生任何远程调用，
+            # 放在最前面最省。也刻意不受下面的「仍有文件」缓存影响：那条
+            # 缓存只约束空壳结论，站点删种是另一件独立的事实。
+            site_reason = (
+                str(cand.get("site_deleted") or "")
+                if self._reap_site_deleted else ""
+            )
+            if site_reason:
+                site_title = str(cand.get("title") or hash_str)
+                site_module = cand.get("module")
+                site_downloader = cand.get("downloader")
+                if dry_run:
+                    stats["site_deleted"] += 1
+                    line = (
+                        f"[试运行] 将回收站点已删种的种子"
+                        f"（保留文件，{site_reason}）：{site_title}"
+                    )
+                    stats["_lines"].append(line)
+                    logger.info("【保种空间守护】%s", line)
+                    continue
+                try:
+                    ok = site_module.remove_torrents(
+                        hashs=[hash_str],
+                        delete_file=False,
+                        downloader=site_downloader,
+                    ) if site_module else False
+                except Exception as err:
+                    logger.error(
+                        "【保种空间守护】回收站点已删种的种子失败（%s）：%s",
+                        hash_str, err,
+                    )
+                    ok = False
+                if ok:
+                    stats["site_deleted"] += 1
+                    self._orphan_alive_drop(hash_str)
+                    self._deleted_note(site_downloader, hash_str)
+                    line = (
+                        f"已回收站点已删种的种子（保留文件）：{site_title}"
+                        f"（{site_reason}）"
+                    )
+                    stats["_lines"].append(line)
+                    logger.info("【保种空间守护】%s", line)
+                continue
             # 先用一次 stat/目录扫描排除仍然有文件的种子：完整判定需要向
             # 下载器逐个取文件清单，上千种子时是一笔很大的 RPC 开销。
             if not self._seed_may_be_empty(cand):
@@ -2824,14 +2926,16 @@ class SeedSpaceGuard(_PluginBase):
         # 耗时进统计与日志：试运行会做完整判定，用户点一次可能要等数分钟，
         # 不报耗时会让「卡住了」与「在正常判定」无法区分。
         stats["elapsed"] = round(time.monotonic() - started, 1)
-        if stats["torrent"] or stats["checked"]:
+        if stats["torrent"] or stats["site_deleted"] or stats["checked"]:
             logger.info(
-                "【保种空间守护】空壳种子回收完成：扫描 %d 个，%s %d 个"
+                "【保种空间守护】空壳种子回收完成：扫描 %d 个，%s空壳 %d 个，"
+                "站点已删种 %d 个"
                 "（判定仍有文件 %d 个，判定失败 %d 个，"
                 "缓存命中 %d 个，因预算/熔断跳过 %d 个，耗时 %.1fs）",
                 stats["checked"],
                 "预计回收" if dry_run else "回收",
                 stats["torrent"],
+                stats["site_deleted"],
                 stats["alive"], stats["failed"],
                 stats["cached"], stats["skipped"], stats["elapsed"],
             )
@@ -3154,17 +3258,112 @@ class SeedSpaceGuard(_PluginBase):
             )
             return False
         for item in torrents or []:
-            hash_str = str(getattr(item, "hashString", "") or "")
+            hash_str = str(self._raw_torrent_field(item, "hashString") or "")
             if not hash_str:
                 continue
-            files = getattr(item, "files", None) or []
-            names: List[str] = []
-            for entry in files:
-                file_name = str(getattr(entry, "name", "") or "").strip()
-                if file_name:
-                    names.append(file_name)
+            names = self._extract_file_names(
+                self._raw_torrent_field(item, "files") or []
+            )
+            if not names:
+                # ⚠️ 空清单**不进缓存**。批量接口没返回 files 字段（宿主没请求、
+                # 字段被裁剪、或该版本客户端不支持）与「该种子确实没有文件」
+                # 在这里无法区分；一旦把空列表写成「命中」，`_get_seed_files`
+                # 会直接返回空 → 判定退回「扫整个内容目录」→ 同目录里兄弟
+                # 种子的文件被当成本种子的残留 → 空壳永远回收不掉。
+                # 2026-11-06 实测：transmission 的 Torrent 对象没有 `files`
+                # 属性（字段在 `fields` 字典里），getattr 拿到 None，1552 个
+                # 候选全被写成空清单，26 个真空壳因此长期卡在下载器里。
+                # 不写缓存 → 判定时走逐种子清单接口兜底。
+                self._seed_files_cache.pop(hash_str, None)
+                continue
             self._seed_files_cache[hash_str] = names
         return True
+
+    @staticmethod
+    def _raw_torrent_field(item: Any, name: str) -> Any:
+        """
+        读取下载器原始条目里的字段（兼容字段字典与对象属性两种形态）。
+
+        ``transmission_rpc`` 的 Torrent 对象把远程字段放在 ``fields`` 字典里，
+        且**没有**为每个字段生成同名属性（``files`` / ``trackerStats`` 取属性
+        只会得到 AttributeError）。因此这里优先读字段字典，再退回属性；对
+        qBittorrent 的 dict 条目同样适用。
+
+        :param item: 下载器条目（对象或 dict）
+        :param name: 字段名（transmission 的 camelCase 形式，如 ``trackerStats``）
+        :return: 字段值；不存在时为 None
+        """
+        if isinstance(item, dict):
+            return item.get(name)
+        fields = getattr(item, "fields", None)
+        if isinstance(fields, dict) and name in fields:
+            return fields.get(name)
+        for attr in (name, re.sub(r"(?<!^)(?=[A-Z])", "_", name).lower()):
+            value = getattr(item, attr, None)
+            if value is not None:
+                return value
+        return None
+
+    @staticmethod
+    def _tracker_announce_result(stat: Any) -> str:
+        """
+        取单条 tracker 状态里的「最后一次公告结果」文本。
+
+        :param stat: tracker 状态（dict 或对象）
+        :return: 公告结果文本；取不到时返回空串
+        """
+        if isinstance(stat, dict):
+            return str(stat.get("lastAnnounceResult") or "").strip()
+        fields = getattr(stat, "fields", None)
+        if isinstance(fields, dict) and fields.get("lastAnnounceResult"):
+            return str(fields.get("lastAnnounceResult")).strip()
+        for attr in ("last_announce_result", "lastAnnounceResult"):
+            value = getattr(stat, attr, None)
+            if value:
+                return str(value).strip()
+        return ""
+
+    @staticmethod
+    def _site_deleted_reason(error_code: Any, error_string: Any,
+                             announce_results: List[str]) -> str:
+        """
+        判定站点是否已明确删种，返回命中的原文（未命中返回空串）。
+
+        只认站点侧的**确定性**措辞（未注册 / 种子不存在 / 已被删除 等）：
+        超时、连接失败、限流、5xx 等临时失败一律不算，否则会把仍在正常
+        做种的种子摘掉。判定还需同时满足：
+
+        - 没有任何 tracker 明确公告成功——任一成功即说明该种子在该站点
+          仍然有效，此时即使别的 tracker 报删种也不能摘；
+        - 下载器错误码为 0 或 2（2 = tracker 警告）。3（找不到本地数据）
+          属于本地文件问题，交给空壳回收链路，绝不能当作站点删种。
+
+        :param error_code: 下载器报告的 error 字段
+        :param error_string: 下载器报告的 errorString
+        :param announce_results: 各 tracker 的最后一次公告结果
+        :return: 命中的措辞；未确认为站点删种时返回空串
+        """
+        results = [str(item or "").strip() for item in (announce_results or [])]
+        if any(text.casefold() == "success" for text in results):
+            return ""
+        try:
+            code = int(error_code or 0)
+        except (TypeError, ValueError):
+            code = 0
+        if code not in (0, 2):
+            return ""
+        for text in [str(error_string or "").strip()] + results:
+            if not text:
+                continue
+            lowered = text.casefold()
+            for pattern in SITE_DELETED_PATTERNS:
+                if pattern in lowered:
+                    # 既没有任何 tracker 公告、错误码也不是 tracker 警告时，
+                    # 单凭一段本地错误串不足以确认站点删种 → 保守保留。
+                    if not results and code != 2:
+                        return ""
+                    return text
+        return ""
 
     def _prefetch_seed_files_concurrent(self, name: str,
                                        items: List[Dict[str, Any]],
@@ -4332,6 +4531,18 @@ class SeedSpaceGuard(_PluginBase):
             ),
             # 文件清单的相对路径基准（TR 即 download_dir）
             "dl_dir": str(dl_dir).strip(),
+            # 站点删种：tracker 是否已明确公告该种子在站点上不存在。
+            # 只取候选里已有的公告字段，不产生额外远程调用。
+            "site_deleted": self._site_deleted_reason(
+                self._raw_torrent_field(item, "error"),
+                self._raw_torrent_field(item, "errorString"),
+                [
+                    self._tracker_announce_result(stat)
+                    for stat in (
+                        self._raw_torrent_field(item, "trackerStats") or []
+                    )
+                ],
+            ),
         }
 
     # ============ 种子级连带清理（硬链接 + 辅种） ============
@@ -5366,6 +5577,8 @@ class SeedSpaceGuard(_PluginBase):
             "companion_protect": True,
             "orphan_cleanup": False,
             "orphan_seed_scope": False,
+            # 站点删种回收：新装默认开启（只摘种子、不删文件）
+            "reap_site_deleted": True,
             # 空壳判定单轮预算（秒）：新装默认 300
             "orphan_scan_budget": ORPHAN_SCAN_BUDGET_SECONDS,
             # 空壳目录扫描：新装默认开启（只删空目录，不碰真实文件）

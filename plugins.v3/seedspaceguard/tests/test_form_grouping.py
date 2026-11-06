@@ -49,6 +49,7 @@ ALWAYS_VISIBLE_MODELS = (
     "threshold_gb", "recent_skip_days", "cron", "sync_wait_seconds",
     "dry_run", "notify",
     "delete_torrents", "delete_history", "orphan_seed_scope",
+    "reap_site_deleted",
     "orphan_scan_budget",
     "empty_dir_sweep",
 )
@@ -352,7 +353,7 @@ class TestNoModelRegression(_FormBase):
     """改造不应增删任何 model。"""
 
     def test_models_unchanged(self):
-        """表单 model 集合应与登记清单一致（21 项），仅顺序与分组变化。"""
+        """表单 model 集合应与登记清单一致，仅顺序与分组变化。"""
         models = set(self._props_by_model())
         expected = set(ALWAYS_VISIBLE_MODELS) | set(SEED_ONLY_MODELS) | set(FILE_ONLY_MODELS)
         self.assertEqual(models, expected, f"model 集合发生变化：{models ^ expected}")
