@@ -25,8 +25,11 @@ from app.application.directory import DirectoryHelper
 from app.runtime.log import logger
 from app.plugins import _PluginBase
 from app.schemas import MessageType
+from app.schemas.types import EventType
+from app.sdk.events import eventmanager
 
 from .version import VERSION
+from .guard import BackupGuard, count_daily_runs
 from .webdav_client import WebDAVClient, WebDAVError
 from app.sdk.string import StringUtils
 
@@ -193,6 +196,8 @@ class ConfigBackup(_PluginBase):
     _restoring = False
     #: 配置解析告警（非法 cron、非法目录等），在日志与详情页提示
     _config_warnings: List[str] = []
+    #: 备份数量兜底状态（v3.4.0）；初始化失败时为 None，此时不启用兜底
+    _guard = None
 
     # 还原操作锁（防止并发还原）
     _restore_lock = threading.Lock()
@@ -244,6 +249,8 @@ class ConfigBackup(_PluginBase):
 
         if self._config_warnings:
             logger.warning("配置存在非法值，已回退默认：" + "；".join(self._config_warnings))
+
+        self.__init_guard()
 
         if self._onlyonce:
             self._onlyonce = False
@@ -380,6 +387,14 @@ class ConfigBackup(_PluginBase):
                 "methods": ["GET"],
                 "summary": "手动触发配置备份",
                 "description": "立即执行一次配置备份",
+            },
+            {
+                "path": "/guard",
+                "endpoint": self.api_guard,
+                "methods": ["GET"],
+                "summary": "备份数量兜底确认",
+                "description": "decision=status 查询状态；ok 表示数量正常并恢复自动备份；"
+                               "fix 表示数量异常（保持暂停并等待修改定时）；resume 直接恢复",
             },
             {
                 "path": "/list",
@@ -580,6 +595,8 @@ class ConfigBackup(_PluginBase):
                                             "model": "cron",
                                             "label": "定时触发",
                                             "placeholder": "5 位 cron 表达式，如 0 3 * * *（每天 3 点）",
+                                            "hint": "每天一次写 0 3 * * *；* 3 * * * 表示 3 点这一小时内每分钟，一天会备份 60 份",
+                                            "persistent-hint": True,
                                         }
                                     }
                                 ]
@@ -1086,6 +1103,67 @@ class ConfigBackup(_PluginBase):
             },
         ]
 
+        # 备份数量兜底：数量异常暂停时置顶告警，并给不支持按钮的渠道同样的操作入口
+        if self._guard and self._guard.state.paused:
+            guard_state = self._guard.state
+            header.append(
+                {
+                    "component": "VAlert",
+                    "props": {
+                        "type": "error",
+                        "variant": "tonal",
+                        "class": "mt-2",
+                        "text": f"自动备份已暂停：检测到 {guard_state.count} 份备份，"
+                                f"超过预期上限 {self._guard.ceiling()} 份。"
+                                f"当前定时 {self._cron or '未设置'}；"
+                                f"若这不是你要的频率，请把「定时触发」改成 0 3 * * *（每天一次），保存后自动恢复。",
+                    },
+                }
+            )
+            header.append(
+                {
+                    "component": "div",
+                    "props": {"class": "d-flex align-center flex-wrap mt-2"},
+                    "content": [
+                        {
+                            "component": "VBtn",
+                            "props": {
+                                "color": "success",
+                                "variant": "flat",
+                                "size": "small",
+                                "prependIcon": "mdi-check",
+                            },
+                            "text": "数量正常，继续备份",
+                            "events": {
+                                "click": {
+                                    "api": "plugin/ConfigBackup/guard",
+                                    "method": "get",
+                                    "params": {"apikey": settings.API_TOKEN, "decision": "ok"},
+                                }
+                            },
+                        },
+                        {
+                            "component": "VBtn",
+                            "props": {
+                                "color": "warning",
+                                "variant": "tonal",
+                                "size": "small",
+                                "class": "ml-2",
+                                "prependIcon": "mdi-clock-edit-outline",
+                            },
+                            "text": "数量异常，去改定时",
+                            "events": {
+                                "click": {
+                                    "api": "plugin/ConfigBackup/guard",
+                                    "method": "get",
+                                    "params": {"apikey": settings.API_TOKEN, "decision": "fix"},
+                                }
+                            },
+                        },
+                    ],
+                }
+            )
+
         # 待还原提示
         if pending:
             header.append(
@@ -1349,8 +1427,24 @@ class ConfigBackup(_PluginBase):
         """API：手动触发配置备份（还原进行中一律拒绝）。"""
         if self._restoring:
             return {"success": False, "message": "还原正在进行，暂不允许备份", "data": None}
-        success, msg = self.__backup()
+        # 手动备份不受数量闸门限制：用户显式点了就照做，否则兜底会连救急通道都堵死
+        success, msg = self.__backup(manual=True)
         return {"success": success, "message": msg, "data": None}
+
+    def api_guard(self, decision: str = "status") -> Dict[str, Any]:
+        """
+        API：备份数量兜底的状态查询与用户决策。
+
+        :param decision: status 查询；ok 数量正常并恢复；fix 数量异常（保持暂停）；resume 直接恢复
+        :return: 统一响应
+        """
+        if not self._guard:
+            return {"success": False, "message": "备份数量兜底未启用", "data": None}
+        action = str(decision or "status").strip().lower()
+        if action == "status":
+            return {"success": True, "message": "获取成功", "data": self._guard.snapshot()}
+        ok, message = self.__apply_guard_decision(action)
+        return {"success": ok, "message": message, "data": self._guard.snapshot()}
 
     def api_list(self) -> Dict[str, Any]:
         """API：获取备份文件列表。"""
@@ -1457,7 +1551,7 @@ class ConfigBackup(_PluginBase):
                         }
                     # 还原前自动备份当前状态（安全网）：只做本地、不发通知、不清理待还原包
                     bk_ok, bk_msg = self.__backup(
-                        notify=False, local_only=True, protect={zip_path.name}
+                        notify=False, local_only=True, protect={zip_path.name}, manual=True
                     )
                     if not bk_ok:
                         # 完全还原会先删后写，安全网没兜住就不许动——
@@ -2718,8 +2812,193 @@ class ConfigBackup(_PluginBase):
         except Exception:
             return MessageType.Plugin
 
+    # ------------------------------------------------------------------
+    # 备份数量兜底（v3.4.0）
+    # ------------------------------------------------------------------
+    def __init_guard(self):
+        """按当前配置初始化数量兜底状态；任何异常都退化为「不启用兜底」。"""
+        self._guard = None
+        try:
+            guard = BackupGuard(
+                self.get_data_path() / "backup_guard.json", keep_count=self._keep_count
+            )
+            guard.load()
+        except Exception as e:
+            logger.error(f"初始化备份数量兜底失败，本次不启用：{e}")
+            return
+        self._guard = guard
+        if not guard.state.paused:
+            return
+        # 定时改过了就视为用户已处理；份数已回到上限以内（删旧包 / 调大保留数）也自动解除
+        if guard.sync_schedule(str(self._cron or "")):
+            logger.info(f"定时表达式已变更为 {self._cron}，解除备份数量异常暂停")
+            return
+        try:
+            count = len(self.__iter_local_backups(self.__backup_dir_path()))
+        except OSError as e:
+            logger.debug(f"统计备份份数失败：{e}")
+            return
+        if guard.self_heal(count):
+            logger.info(f"备份份数 {count} 已回到上限 {guard.ceiling()} 以内，解除暂停")
+
+    def __guard_paused(self) -> bool:
+        """自动备份是否因数量异常被暂停。"""
+        return bool(self._guard and self._guard.state.paused)
+
+    def __check_backup_overflow(self) -> bool:
+        """
+        备份成功后检查份数是否明显超出预期，超出则暂停并通知用户确认。
+
+        :return: 本次是否触发了暂停
+        """
+        guard = self._guard
+        if not guard or guard.state.paused:
+            return False
+        try:
+            count = len(self.__iter_local_backups(self.__backup_dir_path()))
+        except OSError as e:
+            logger.debug(f"统计备份份数失败，跳过数量兜底：{e}")
+            return False
+        if not guard.exceeded(count):
+            return False
+        if not guard.trip(count, str(self._cron or "")):
+            return False
+        logger.warning(
+            f"备份份数 {count} 超过预期上限 {guard.ceiling()}，已暂停自动备份并等待确认"
+        )
+        self.__notify_guard(count, reminder=False)
+        return True
+
+    def __notify_guard(self, count: int, reminder: bool = False):
+        """
+        发送「已暂停，请确认」通知（带两个按钮）。
+
+        :param count: 触发时的备份份数
+        :param reminder: 是否为 24 小时后的重复提醒
+        """
+        guard = self._guard
+        if not guard:
+            return
+        cron = str(self._cron or "")
+        runs = count_daily_runs(cron)
+        if runs > 24:
+            schedule = f"{cron}（每天约 {runs} 次，建议改成 0 3 * * *）"
+        elif runs > 0:
+            schedule = f"{cron}（每天约 {runs} 次）"
+        else:
+            schedule = cron or "未设置"
+        title = "【配置备份仍已暂停】备份数量异常" if reminder else "【配置备份已暂停】备份数量异常"
+        text = (
+            f"检测到 {count} 份备份，超过预期上限 {guard.ceiling()} 份"
+            f"（保留设置 {self._keep_count} 份 / {self._keep_days} 天），已暂停自动备份。\n"
+            f"当前定时：{schedule}\n"
+            f"数量正常就继续备份；数量异常请把「定时触发」改成 0 3 * * *（每天 3 点一次），保存后自动恢复。"
+        )
+        buttons = [[
+            {
+                "text": "数量正常，继续备份",
+                "callback_data": f"[PLUGIN]{self.__class__.__name__}|cbg|ok",
+            },
+            {
+                "text": "数量异常，去改定时",
+                "callback_data": f"[PLUGIN]{self.__class__.__name__}|cbg|fix",
+            },
+        ]]
+        try:
+            self.post_message(
+                mtype=self.__notify_mtype(),
+                title=title,
+                text=text,
+                buttons=buttons,
+            )
+        except Exception as e:
+            logger.error(f"发送备份数量异常通知失败：{e}")
+
+    def __maybe_remind_guard(self):
+        """暂停期间按 24 小时节流重复提醒，避免用户彻底错过。"""
+        guard = self._guard
+        if not guard or not guard.should_remind():
+            return
+        guard.note_reminded()
+        self.__notify_guard(guard.state.count, reminder=True)
+
+    @staticmethod
+    def __parse_guard_callback(text: str) -> Optional[str]:
+        """
+        解析按钮回调，只认本插件的 ``cbg`` 前缀。
+
+        :param text: MessageAction 携带的文本（可能仍带 ``[PLUGIN]<id>|``）
+        :return: ok / fix / resume；无法识别时为 None
+        """
+        raw = str(text or "").strip()
+        if raw.startswith("CALLBACK:"):
+            raw = raw[len("CALLBACK:"):].strip()
+        if raw.startswith("[PLUGIN]"):
+            _, _, raw = raw.partition("|")
+        parts = [part for part in raw.split("|") if part]
+        if len(parts) != 2 or parts[0] != "cbg":
+            return None
+        return parts[1] if parts[1] in {"ok", "fix", "resume"} else None
+
+    def __apply_guard_decision(self, decision: str) -> Tuple[bool, str]:
+        """
+        执行用户对「备份数量异常」的选择。
+
+        :param decision: ok / fix / resume
+        :return: (是否成功, 回执文案)
+        """
+        guard = self._guard
+        if not guard:
+            return False, "备份数量兜底未启用"
+        if decision == "ok":
+            ceiling = guard.acknowledge_ok()
+            logger.info(f"用户确认备份数量正常，恢复自动备份，上限抬升为 {ceiling} 份")
+            return True, f"已恢复自动备份；数量上限调整为 {ceiling} 份。"
+        if decision == "fix":
+            guard.mark_schedule_fix()
+            return True, (
+                f"已保持暂停。请把插件配置里的「定时触发」改成 0 3 * * *（每天 3 点一次）；"
+                f"当前为：{self._cron or '未设置'}。保存后会自动恢复备份。"
+            )
+        if decision == "resume":
+            guard.resume()
+            return True, "已恢复自动备份。"
+        return False, "未知操作"
+
+    @eventmanager.register(EventType.MessageAction)
+    def message_action(self, event):
+        """处理通知按钮回调（只处理本插件的 cbg 前缀负载）。"""
+        try:
+            data = getattr(event, "event_data", None) or {}
+            plugin_id = str(data.get("plugin_id") or "").strip().lower()
+            target_id = str(data.get("__mp_target_plugin_id") or "").strip().lower()
+            own = self.__class__.__name__.lower()
+            if plugin_id and plugin_id != own:
+                return
+            if target_id and target_id != own:
+                return
+            decision = self.__parse_guard_callback(data.get("text", ""))
+            if not decision:
+                return
+            ok, message = self.__apply_guard_decision(decision)
+            context = {
+                "channel": data.get("channel"),
+                "source": data.get("source"),
+                "userid": data.get("userid") or data.get("user"),
+            }
+            self.post_message(
+                mtype=self.__notify_mtype(),
+                title="【配置备份】",
+                text=message,
+                **{key: value for key, value in context.items() if value},
+            )
+            logger.info(f"备份数量兜底按钮回调：{decision} -> {ok}")
+        except Exception as e:
+            logger.error(f"处理备份数量兜底回调失败：{e}")
+
     def __backup(self, notify: bool = True, local_only: bool = False,
-                 protect: Optional[set] = None) -> Tuple[bool, str]:
+                 protect: Optional[set] = None,
+                 manual: bool = False) -> Tuple[bool, str]:
         """
         执行配置备份（对外入口）：包装 __run_backup，统一负责通知。
 
@@ -2729,8 +3008,13 @@ class ConfigBackup(_PluginBase):
         :param notify: 是否发送通知（还原前的安全备份传 False）
         :param local_only: 是否只做本地备份（还原前的安全备份不传远端）
         :param protect: 清理旧备份时必须保留的文件名集合
+        :param manual: 是否由用户显式触发（手动备份与还原前安全备份不受数量闸门限制）
         :return: (是否成功, 结果信息)
         """
+        if not manual and self.__guard_paused():
+            # 暂停期间不再逐次发「备份失败」，只在 24 小时后提醒一次
+            self.__maybe_remind_guard()
+            return False, "自动备份已暂停：备份数量超过预期上限，等待确认"
         success, msg = self.__run_backup(local_only=local_only, protect=protect)
         if notify and self._notify:
             try:
@@ -2741,6 +3025,8 @@ class ConfigBackup(_PluginBase):
                 )
             except Exception as e:
                 logger.error(f"发送备份通知失败: {e}")
+        if success and not manual:
+            self.__check_backup_overflow()
         return success, msg
 
     def __collect_schema_stats(self) -> Dict[str, int]:
@@ -3426,13 +3712,18 @@ class ConfigBackup(_PluginBase):
         files = self.__iter_local_backups(bk_path)
         protected = {str(name) for name in (protect or ())}
         candidates = [p for p in files if p.name not in protected]
-        del_cnt = len(files) - int(self._keep_count)
+        # 绝对止血上限：保留天数保护会让高频定时无限堆积（如每分钟一份），
+        # 超过硬上限时忽略天数保护、按数量清理，避免一晚堆出几十 G。
+        hard_cap = max(int(self._keep_count) * 4, 40)
+        over_hard_cap = len(files) > hard_cap
+        target = hard_cap if over_hard_cap else int(self._keep_count)
+        del_cnt = len(files) - target
         if del_cnt <= 0:
             return 0
         # 保留天数保护：该天数内的一律不删。两个条件是「满足其一即保留」——
         # 高频定时 + 小 keep_count 时，光靠个数会把最近几小时的备份也清光。
         keep_days = int(self._keep_days or 0)
-        if keep_days > 0:
+        if keep_days > 0 and not over_hard_cap:
             cutoff = time.time() - keep_days * 86400
             old_enough = 0
             for path in files:
@@ -3442,6 +3733,10 @@ class ConfigBackup(_PluginBase):
             del_cnt = min(del_cnt, old_enough)
         if del_cnt <= 0:
             return 0
+        if over_hard_cap:
+            logger.warning(
+                f"备份份数 {len(files)} 超过硬上限 {hard_cap}，本次忽略保留天数保护"
+            )
         logger.info(
             f"备份文件数量 {len(files)}，保留 {self._keep_count} 份 / {keep_days} 天，需删除 {del_cnt} 份"
         )
@@ -3454,4 +3749,3 @@ class ConfigBackup(_PluginBase):
             except Exception as e:
                 logger.error(f"删除旧备份 {path} 失败: {e}")
         return deleted
-        return del_cnt

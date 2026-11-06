@@ -276,7 +276,7 @@ MUTANTS = [
     (
         "保留天数保护移除：高频定时会把最近几小时的备份也删光",
         """        keep_days = int(self._keep_days or 0)
-        if keep_days > 0:
+        if keep_days > 0 and not over_hard_cap:
             cutoff = time.time() - keep_days * 86400
             old_enough = 0
             for path in files:
@@ -370,7 +370,7 @@ MUTANTS = [
     (
         "安全备份不再限制本地/不保护待还原包",
         """                    bk_ok, bk_msg = self.__backup(
-                        notify=False, local_only=True, protect={zip_path.name}
+                        notify=False, local_only=True, protect={zip_path.name}, manual=True
                     )""",
         """                    bk_ok, bk_msg = self.__backup()""",
         "应导致 test_safety_backup_is_local_only_and_silent 失败",

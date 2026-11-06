@@ -26,6 +26,7 @@ import json
 import os
 import unittest
 import zipfile
+from datetime import datetime, timedelta
 from pathlib import Path
 from unittest import mock
 
@@ -156,8 +157,10 @@ class TestKeepDays(_BoundaryBase):
 
     def test_recent_backups_survive_count_pressure(self):
         """天数内的备份不该因为超出保留个数被删。"""
-        for i in range(3):
-            self.make_backup(f"2026100{i}000000")
+        # 用相对时间：固定日期会随真实日期推移落到保护期之外（2026-11-06 实测过期）
+        for offset in range(3):
+            stamp = (datetime.now() - timedelta(days=offset)).strftime("%Y%m%d%H%M%S")
+            self.make_backup(stamp)
         self.plugin._keep_count = 1
         self.plugin._keep_days = 30
 
@@ -176,8 +179,12 @@ class TestKeepDays(_BoundaryBase):
 
     def test_only_old_and_excess_are_deleted(self):
         """既超个数、又早于截止时间的才删。"""
-        old = self.make_backup("20260101000000")
-        new = self.make_backup("20261001000000")
+        old = self.make_backup(
+            (datetime.now() - timedelta(days=60)).strftime("%Y%m%d%H%M%S")
+        )
+        new = self.make_backup(
+            (datetime.now() - timedelta(days=1)).strftime("%Y%m%d%H%M%S")
+        )
         self.plugin._keep_count = 1
         self.plugin._keep_days = 30
 
