@@ -22,8 +22,10 @@ BACKUP = "/tmp/varietyguard_backup.py"
 MUTANTS = [
     (
         "作用域守卫失效：去掉媒体类型/分类判定（非综艺也被过滤）",
-        """        if not self._in_scope(mediainfo):""",
-        """        if False:""",
+        """        mediainfo = kwargs.get("mediainfo")
+        if not self._in_scope(mediainfo):""",
+        """        mediainfo = kwargs.get("mediainfo")
+        if False:""",
         "应导致 test_other_media_types_untouched / test_movie_media_type_untouched 失败",
     ),
     (
@@ -59,9 +61,11 @@ MUTANTS = [
     (
         "试运行失效：试运行模式下真的执行过滤",
         """        if self._dry_run:
-            logger.info(""",
+            logger.info(
+                "【综艺正片守卫】试运行：%s 本轮命中 %d 个非正片候选（未过滤）：%s",""",
         """        if False:
-            logger.info(""",
+            logger.info(
+                "【综艺正片守卫】试运行：%s 本轮命中 %d 个非正片候选（未过滤）：%s",""",
         "应导致 test_dry_run_records_but_keeps_items 失败",
     ),
     (
@@ -129,10 +133,10 @@ MUTANTS = [
     ),
     (
         "停用开关失效：补丁层残留时仍然过滤",
-        """                filtered = kwargs
-                if self._enabled:""",
-        """                filtered = kwargs
-                if True:""",
+        """            filtered = kwargs
+            if self._enabled:""",
+        """            filtered = kwargs
+            if True:""",
         "应导致 test_patch_does_not_strip_foreign_wrapper 失败",
     ),
     (
@@ -185,14 +189,14 @@ MUTANTS = [
     ),
     (
         "异常不再放行：内部异常被抛出（会中断整理链）",
-        """                    except Exception as err:  # pragma: no cover - 兜底防御
-                        logger.error(
-                            "【综艺正片守卫】过滤失败，按原候选放行：%s", err, exc_info=True
-                        )
-                        filtered = kwargs""",
-        """                    except Exception as err:  # pragma: no cover
-                        logger.error("【综艺正片守卫】过滤失败：%s", err, exc_info=True)
-                        raise""",
+        """                except Exception as err:  # pragma: no cover - 兜底防御
+                    logger.error(
+                        "【综艺正片守卫】过滤失败，按原候选放行：%s", err, exc_info=True
+                    )
+                    filtered = kwargs""",
+        """                except Exception as err:  # pragma: no cover
+                    logger.error("【综艺正片守卫】过滤失败：%s", err, exc_info=True)
+                    raise""",
         "应导致 test_fail_open_on_internal_error 失败",
     ),
     (
@@ -235,8 +239,10 @@ MUTANTS = [
     ),
     (
         "预览也记账：预览时产生统计与通知（会造成重复计数与误报）",
-        """        if kwargs.get("preview"):""",
-        """        if False:""",
+        """        if kwargs.get("preview"):
+            # 预览不产生副作用，只需要让预览结果与实际整理一致。""",
+        """        if False:
+            # 预览不产生副作用，只需要让预览结果与实际整理一致。""",
         "应导致 test_preview_filters_without_records_or_notify 失败",
     ),
     (
@@ -244,6 +250,60 @@ MUTANTS = [
         """            applied=not dry_run,""",
         """            applied=True,""",
         "应导致 test_dry_run_counted_separately 失败",
+    ),
+    (
+        "回落未启用：主接缝缺失时不再回落到整理计划过滤",
+        """            plan_reason = self._install_plan_patch()
+            if plan_reason is None:""",
+        """            plan_reason = self._install_plan_patch()
+            if False:""",
+        "应导致 test_fallback_installs_plan_seam_when_candidate_seam_missing 失败",
+    ),
+    (
+        "恢复后不清告警：回到主接缝时保留旧状态，下次失效不再提醒",
+        """            if candidate_reason is None:
+                # 主接缝正常：清掉历史告警状态，下次失效仍会提醒
+                self._clear_patch_alert()
+                return""",
+        """            if candidate_reason is None:
+                # 主接缝正常：清掉历史告警状态，下次失效仍会提醒
+                pass
+                return""",
+        "应导致 test_recovered_candidate_seam_clears_alert 失败",
+    ),
+    (
+        "告警去重失效：同一失效原因每次重载都重复提醒",
+        """            if (
+                isinstance(last, dict)
+                and last.get("level") == level
+                and last.get("reason") == reason
+            ):
+                return""",
+        """            if False:
+                return""",
+        "应导致 test_degraded_alert_not_repeated_on_reload / test_failed_alert_not_repeated_on_reload 失败",
+    ),
+    (
+        "告警不再发送：失效与降级都只写日志",
+        """            self.post_message(mtype=MessageType.Plugin, title=title, text=text)""",
+        """            pass""",
+        "应导致 test_seam_missing_disables_without_raise 失败",
+    ),
+    (
+        "回落模式整批跳过丢失 skip_reason：候选择空但宿主不知道要跳过",
+        """                skip_reason=f"综艺非正片已全部跳过（{len(skipped)} 个文件）",""",
+        """                skip_reason=None,""",
+        "应导致 test_plan_seam_full_skip_uses_failure_channel 失败",
+    ),
+    (
+        "回落模式预览也过滤：预览计划被改写，与实际口径互相污染",
+        """        if kwargs.get("preview"):
+            # 预览不产生副作用，保持宿主原计划，避免预览与实际口径互相污染
+            return checkpoint""",
+        """        if False:
+            # 预览不产生副作用，保持宿主原计划，避免预览与实际口径互相污染
+            return checkpoint""",
+        "应导致 test_plan_seam_preview_untouched 失败",
     ),
 ]
 

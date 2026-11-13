@@ -24,6 +24,11 @@
 被摘掉的文件不生成任务 → 不进片库、不写整理历史、不进失败重试；
 同一批次（同一种子）的命中会汇总成**一条**通知，而不是逐文件刷屏。
 
+这条接缝是宿主内部方法，升级后可能改名。因此保留**回落路径**：候选接缝不可用时
+自动改挂 ``TransHandler.plan_transfer``（v1.1.0 的做法）——过滤仍然生效，但被跳过
+的文件会被宿主记成整理失败、各留一条失败历史。降级与完全失效都会推一条一次性告警，
+不会静默失效。
+
 安全边界
 --------
 - **只在配置的媒体范围内生效**（默认：媒体类型=电视剧 且 分类含「综艺」），
@@ -37,12 +42,15 @@
   避免把整集正片当成衍生内容丢掉。
 - **批次全跳过必留痕**：一个批次里一个正片都没保留时，仍强制发一条通知、单独计数
   并在详情页标红，避免「片库悄悄缺内容」无人察觉；措辞只描述本批次事实，不夸大成整季结论。
+- **失效不静默**：候选接缝不可用时回落到整理计划过滤并告警；两条接缝都不可用时
+  只记状态并告警，绝不阻断整理。
 - **可选词表同步**（配置 ``sync_rule_id``）：插件在加载与保存配置时，把**强词**写入指定的
   自定义过滤规则 —— 新增与删减都同步、即时生效、不额外消耗模型额度；用户手工加进该规则的
   条目会被保留，覆盖前的原文另存快照；留空即关闭；目标规则不存在或词表异常时只记日志、
   绝不改动规则（歧义词不写进规则：规则层无法表达「带集号保留」）。
 """
 
+import dataclasses
 import json
 import re
 import threading
@@ -283,8 +291,18 @@ PATCH_ORIGINAL_ATTR = "__varietyguard_original__"
 PATCH_TAG_NAME = "varietyguard"
 PATCH_MAX_LAYERS = 5
 
-# 宿主逐文件建任务前冻结的候选清单入口（媒体信息与整批候选都在这里可见）
-PATCH_TARGET_ATTR = "_build_transfer_tasks"
+# 主接缝：宿主逐文件建任务前冻结的候选清单入口（媒体信息与整批候选都在这里可见）
+PATCH_TARGET_CANDIDATES = "_build_transfer_tasks"
+# 备选接缝：v1.1.0 使用的整理计划入口。主接缝改名时回落到这里——过滤仍然有效，
+# 但被跳过的文件会被宿主记成「整理失败」，各留一条失败历史。
+PATCH_TARGET_PLAN = "plan_transfer"
+
+# 当前生效的接缝（详情页与告警文案据此区分）
+PATCH_MODE_CANDIDATES = "candidates"
+PATCH_MODE_PLAN = "plan"
+
+# 补丁告警状态：同一原因只提醒一次，恢复主接缝后清除
+DATA_KEY_PATCH_ALERT = "patch_alert"
 
 # 跳过通知按「批次」汇总：最后一条命中后再等这么久才发，避免逐文件刷屏
 BATCH_NOTIFY_DEBOUNCE_SECONDS = 120
@@ -329,7 +347,10 @@ class VarietyGuard(_PluginBase):
     # 补丁状态
     _patch_state: str = ""
     _patch_message: str = ""
-    _original_build_tasks: Optional[Any] = None
+    _patch_mode: str = ""
+    _patch_owner_cls: Optional[Any] = None
+    _patch_attr: str = ""
+    _original_patched: Optional[Any] = None
     _patch_wrapper: Optional[Any] = None
     _patch_lock = threading.RLock()
 
@@ -411,64 +432,127 @@ class VarietyGuard(_PluginBase):
     # ==================== 补丁安装 / 卸载 ====================
 
     def _install_patch(self) -> None:
-        """把过滤包装安装到宿主的整理候选入口上；失败只记录不抛出。
+        """安装过滤补丁：优先候选接缝，不可用时回落到整理计划接缝并明确告警。
 
         宿主在「下载器轮询 / 目录监控」下是**逐文件**建立整理任务的：挂在整理计划
         （plan_transfer）上时，每个文件都会独立成为一次「整季跳过」，于是逐条发通知、
-        并在整理历史里留下失败记录。改挂在建任务之前冻结的候选清单上，可以直接把
+        并在整理历史里留下失败记录。优先挂在建任务之前冻结的候选清单上，可以直接把
         非正片从本轮候选里摘掉——不建任务，也就没有历史记录与失败计数。
+
+        候选接缝是宿主内部方法，升级后可能改名。届时自动回落到整理计划接缝：过滤
+        仍然生效，代价是每个被跳过的文件各留一条失败记录。两种异常情形都会推一条
+        一次性告警，避免「插件悄悄失效、片库悄悄变脏」。
         """
         with self._patch_lock:
-            if self._original_build_tasks is not None:
+            if self._patch_wrapper is not None:
                 # 已安装，幂等返回，避免重复包装导致叠加调用
                 return
-            try:
-                from app.chain.transfer.workflow import TransferWorkflowOwner
-            except Exception as err:
-                self._mark_patch_failed(f"导入宿主整理流程失败：{err}")
+            candidate_reason = self._install_candidate_patch()
+            if candidate_reason is None:
+                # 主接缝正常：清掉历史告警状态，下次失效仍会提醒
+                self._clear_patch_alert()
                 return
-            original = getattr(TransferWorkflowOwner, PATCH_TARGET_ATTR, None)
-            if original is None or not callable(original):
-                self._mark_patch_failed(
-                    f"宿主 TransferWorkflowOwner.{PATCH_TARGET_ATTR} 不存在，插件不生效"
+            plan_reason = self._install_plan_patch()
+            if plan_reason is None:
+                logger.warning(
+                    "【综艺正片守卫】%s，已回落到整理计划过滤（仍会跳过非正片，"
+                    "但被跳过的文件会各留一条整理失败记录）",
+                    candidate_reason,
                 )
+                self._notify_patch_alert("degraded", candidate_reason)
                 return
+            self._mark_patch_failed(f"{candidate_reason}；{plan_reason}")
 
-            def patched_build_transfer_tasks(owner_self: Any, *args: Any, **kwargs: Any) -> Any:
-                """宿主建任务入口的包装：先按配置摘掉非正片候选，再交给原方法。"""
-                filtered = kwargs
-                if self._enabled:
-                    try:
-                        filtered = self._filter_candidates(kwargs)
-                    except Exception as err:  # pragma: no cover - 兜底防御
-                        logger.error(
-                            "【综艺正片守卫】过滤失败，按原候选放行：%s", err, exc_info=True
-                        )
-                        filtered = kwargs
-                return original(owner_self, *args, **filtered)
+    def _install_candidate_patch(self) -> Optional[str]:
+        """安装候选接缝补丁；成功返回 None，失败返回原因（不抛出）。"""
+        try:
+            from app.chain.transfer.workflow import TransferWorkflowOwner
+        except Exception as err:
+            return f"导入宿主整理流程失败：{err}"
+        original = getattr(TransferWorkflowOwner, PATCH_TARGET_CANDIDATES, None)
+        if original is None or not callable(original):
+            return f"宿主 TransferWorkflowOwner.{PATCH_TARGET_CANDIDATES} 不存在"
 
-            patched_build_transfer_tasks.__name__ = getattr(
-                original, "__name__", PATCH_TARGET_ATTR
+        def patched_build_transfer_tasks(owner_self: Any, *args: Any, **kwargs: Any) -> Any:
+            """宿主建任务入口的包装：先按配置摘掉非正片候选，再交给原方法。"""
+            filtered = kwargs
+            if self._enabled:
+                try:
+                    filtered = self._filter_candidates(kwargs)
+                except Exception as err:  # pragma: no cover - 兜底防御
+                    logger.error(
+                        "【综艺正片守卫】过滤失败，按原候选放行：%s", err, exc_info=True
+                    )
+                    filtered = kwargs
+            return original(owner_self, *args, **filtered)
+
+        patched_build_transfer_tasks.__name__ = getattr(
+            original, "__name__", PATCH_TARGET_CANDIDATES
+        )
+        patched_build_transfer_tasks.__doc__ = getattr(original, "__doc__", None)
+        # 身份标记：卸载时按它只摘自己这一层，避免误删其它插件压在上面的包装
+        setattr(patched_build_transfer_tasks, PATCH_TAG, PATCH_TAG_NAME)
+        setattr(patched_build_transfer_tasks, PATCH_ORIGINAL_ATTR, original)
+        try:
+            setattr(
+                TransferWorkflowOwner,
+                PATCH_TARGET_CANDIDATES,
+                patched_build_transfer_tasks,
             )
-            patched_build_transfer_tasks.__doc__ = getattr(original, "__doc__", None)
-            # 身份标记：卸载时按它只摘自己这一层，避免误删其它插件压在上面的包装
-            setattr(patched_build_transfer_tasks, PATCH_TAG, PATCH_TAG_NAME)
-            setattr(patched_build_transfer_tasks, PATCH_ORIGINAL_ATTR, original)
-            try:
-                setattr(TransferWorkflowOwner, PATCH_TARGET_ATTR, patched_build_transfer_tasks)
-            except Exception as err:
-                self._mark_patch_failed(f"替换宿主方法失败：{err}")
-                return
-            self._original_build_tasks = original
-            self._patch_wrapper = patched_build_transfer_tasks
-            self._patch_state = PATCH_STATE_OK
-            self._patch_message = "已安装整理候选过滤补丁"
-            logger.info(
-                "【综艺正片守卫】已安装候选过滤（作用域：媒体类型=%s 分类=%s，试运行=%s）",
-                self._scope_media_types or "全部",
-                self._scope_categories or "全部",
-                self._dry_run,
-            )
+        except Exception as err:
+            return f"替换宿主方法失败：{err}"
+        self._patch_owner_cls = TransferWorkflowOwner
+        self._patch_attr = PATCH_TARGET_CANDIDATES
+        self._original_patched = original
+        self._patch_wrapper = patched_build_transfer_tasks
+        self._patch_mode = PATCH_MODE_CANDIDATES
+        self._patch_state = PATCH_STATE_OK
+        self._patch_message = "已安装整理候选过滤补丁"
+        logger.info(
+            "【综艺正片守卫】已安装候选过滤（作用域：媒体类型=%s 分类=%s，试运行=%s）",
+            self._scope_media_types or "全部",
+            self._scope_categories or "全部",
+            self._dry_run,
+        )
+        return None
+
+    def _install_plan_patch(self) -> Optional[str]:
+        """回落接缝：挂宿主整理计划入口；成功返回 None，失败返回原因（不抛出）。"""
+        try:
+            from app.modules.filemanager.transhandler import TransHandler
+        except Exception as err:
+            return f"导入宿主整理处理器失败：{err}"
+        original = getattr(TransHandler, PATCH_TARGET_PLAN, None)
+        if original is None or not callable(original):
+            return f"宿主 TransHandler.{PATCH_TARGET_PLAN} 不存在"
+
+        def patched_plan_transfer(handler_self: Any, *args: Any, **kwargs: Any) -> Any:
+            """宿主整理计划入口的包装：先执行原计划，再按配置过滤候选文件。"""
+            checkpoint = original(handler_self, *args, **kwargs)
+            return self._filter_plan(checkpoint, args, kwargs)
+
+        patched_plan_transfer.__name__ = getattr(original, "__name__", PATCH_TARGET_PLAN)
+        patched_plan_transfer.__doc__ = getattr(original, "__doc__", None)
+        setattr(patched_plan_transfer, PATCH_TAG, PATCH_TAG_NAME)
+        setattr(patched_plan_transfer, PATCH_ORIGINAL_ATTR, original)
+        try:
+            setattr(TransHandler, PATCH_TARGET_PLAN, patched_plan_transfer)
+        except Exception as err:
+            return f"替换宿主方法失败：{err}"
+        self._patch_owner_cls = TransHandler
+        self._patch_attr = PATCH_TARGET_PLAN
+        self._original_patched = original
+        self._patch_wrapper = patched_plan_transfer
+        self._patch_mode = PATCH_MODE_PLAN
+        self._patch_state = PATCH_STATE_OK
+        self._patch_message = "已回落到整理计划过滤（被跳过的文件会各留一条整理失败记录）"
+        logger.info(
+            "【综艺正片守卫】已安装整理计划过滤（回落模式，作用域：媒体类型=%s 分类=%s，试运行=%s）",
+            self._scope_media_types or "全部",
+            self._scope_categories or "全部",
+            self._dry_run,
+        )
+        return None
 
     def _remove_patch(self) -> None:
         """只摘下本插件压上去的补丁层（含旧实例残留的多层），不碰其它插件。
@@ -478,14 +562,17 @@ class VarietyGuard(_PluginBase):
         """
         with self._patch_lock:
             was_installed = self._patch_wrapper is not None
-            self._original_build_tasks = None
+            owner_cls = self._patch_owner_cls
+            attr = self._patch_attr
+            self._patch_owner_cls = None
+            self._patch_attr = ""
+            self._patch_mode = ""
+            self._original_patched = None
             self._patch_wrapper = None
-            if not was_installed:
+            if not was_installed or owner_cls is None or not attr:
                 return
             try:
-                from app.chain.transfer.workflow import TransferWorkflowOwner
-
-                current = getattr(TransferWorkflowOwner, PATCH_TARGET_ATTR, None)
+                current = getattr(owner_cls, attr, None)
                 layers = 0
                 while (
                     getattr(current, PATCH_TAG, None) == PATCH_TAG_NAME
@@ -506,18 +593,77 @@ class VarietyGuard(_PluginBase):
                     self._patch_state = PATCH_STATE_FOREIGN
                     self._patch_message = "补丁链缺少原始方法"
                     return
-                setattr(TransferWorkflowOwner, PATCH_TARGET_ATTR, current)
-                logger.info("【综艺正片守卫】已卸载候选过滤补丁（%d 层）", layers)
+                setattr(owner_cls, attr, current)
+                logger.info("【综艺正片守卫】已卸载过滤补丁（%d 层）", layers)
             except Exception as err:
                 logger.error("【综艺正片守卫】卸载补丁失败：%s", err)
             self._patch_state = ""
             self._patch_message = ""
 
     def _mark_patch_failed(self, message: str) -> None:
-        """记录补丁未生效的原因（不抛出，保证宿主照常整理）。"""
+        """记录补丁未生效的原因（不抛出，保证宿主照常整理）并推一次告警。"""
         self._patch_state = PATCH_STATE_FAILED
         self._patch_message = message
+        self._patch_mode = ""
         logger.error("【综艺正片守卫】补丁未生效：%s", message)
+        self._notify_patch_alert("failed", message)
+
+    # ==================== 补丁告警（失效 / 降级各提醒一次） ====================
+
+    def _notify_patch_alert(self, level: str, reason: str) -> None:
+        """补丁未按预期生效时提醒一次；同一原因不重复打扰。"""
+        try:
+            last = self.get_data(DATA_KEY_PATCH_ALERT)
+            if (
+                isinstance(last, dict)
+                and last.get("level") == level
+                and last.get("reason") == reason
+            ):
+                return
+        except Exception as err:  # pragma: no cover - 读取失败按首次处理
+            logger.debug("【综艺正片守卫】读取补丁告警状态失败：%s", err)
+            last = None
+        try:
+            self.save_data(
+                DATA_KEY_PATCH_ALERT,
+                {
+                    "level": level,
+                    "reason": reason,
+                    "time": time.strftime("%Y-%m-%d %H:%M:%S"),
+                },
+            )
+        except Exception as err:  # pragma: no cover - 记账失败也要照常告警
+            logger.error("【综艺正片守卫】记录补丁告警状态失败：%s", err)
+        try:
+            if level == "degraded":
+                title = "【综艺正片守卫】已降级为整理计划过滤"
+                text = (
+                    f"原因：{reason}\n"
+                    "影响：非正片仍会被跳过、不会进片库；但每个被跳过的文件会在整理历史里"
+                    "各留一条失败记录，并计入失败重试计数。\n"
+                    "处理：多为 MoviePilot 升级后宿主方法改名所致，等插件适配更新即可；"
+                    "不想留下失败记录时可临时停用本插件。"
+                )
+            else:
+                title = "【综艺正片守卫】补丁未生效，非正片不会被跳过"
+                text = (
+                    f"原因：{reason}\n"
+                    "影响：过滤当前完全未生效，母带/陪看/特辑等非正片会被当正片入库，"
+                    "带集号的衍生文件还会抢占正片的集号。\n"
+                    "处理：请检查 MoviePilot 版本与插件详情页的补丁状态，"
+                    "确认后重装或回滚插件版本。"
+                )
+            self.post_message(mtype=MessageType.Plugin, title=title, text=text)
+        except Exception as err:  # pragma: no cover - 通知失败不得影响整理
+            logger.error("【综艺正片守卫】发送补丁告警失败：%s", err)
+
+    def _clear_patch_alert(self) -> None:
+        """过滤已回到主接缝时清除告警状态，使下次失效仍能提醒。"""
+        try:
+            if self.get_data(DATA_KEY_PATCH_ALERT) is not None:
+                self.del_data(DATA_KEY_PATCH_ALERT)
+        except Exception as err:  # pragma: no cover - 清理失败不影响过滤
+            logger.debug("【综艺正片守卫】清理补丁告警状态失败：%s", err)
 
     # ==================== 核心过滤逻辑 ====================
 
@@ -596,6 +742,120 @@ class VarietyGuard(_PluginBase):
             len(kept_numbered),
         )
         return {**kwargs, "file_items": kept}
+
+    # ==================== 回落模式：整理计划过滤（会留失败记录） ====================
+
+    def _filter_plan(
+        self, checkpoint: Any, args: Tuple[Any, ...], kwargs: Dict[str, Any]
+    ) -> Any:
+        """按配置过滤整理计划中的候选文件；异常一律放行原计划。
+
+        这是主接缝不可用时的回落路径：宿主对 ``skip_reason`` 一律按整理失败处理，
+        所以本路径只能保证「不进片库」，无法保证「不留失败记录」。
+        """
+        if not self._enabled:
+            # 停用开关优先于补丁链：补丁层因外部原因没摘干净时也不再过滤。
+            return checkpoint
+        try:
+            return self._filter_plan_inner(checkpoint, args, kwargs)
+        except Exception as err:  # pragma: no cover - 兜底防御，定向测试覆盖
+            logger.error("【综艺正片守卫】过滤失败，按原计划放行：%s", err, exc_info=True)
+            return checkpoint
+
+    def _filter_plan_inner(
+        self, checkpoint: Any, args: Tuple[Any, ...], kwargs: Dict[str, Any]
+    ) -> Any:
+        """回落模式过滤主体：判定作用域 → 逐项匹配关键词 → 重建计划。"""
+        items = getattr(checkpoint, "items", None)
+        if not items:
+            # 单片整理或预览计划：没有逐文件候选，无需处理
+            return checkpoint
+        if kwargs.get("preview"):
+            # 预览不产生副作用，保持宿主原计划，避免预览与实际口径互相污染
+            return checkpoint
+        mediainfo = self._extract_mediainfo(args, kwargs)
+        if not self._in_scope(mediainfo):
+            return checkpoint
+
+        title = self._media_title(mediainfo)
+        kept: List[Any] = []
+        skipped: List[Tuple[str, str]] = []
+        kept_numbered: List[str] = []
+        for item in items:
+            text = self._item_text(item)
+            if not text:
+                kept.append(item)
+                continue
+            action, keyword = self._decide(text)
+            if action == ACTION_SKIP:
+                skipped.append((text, keyword))
+            else:
+                kept.append(item)
+                if action == ACTION_KEEP_NUMBERED:
+                    kept_numbered.append(keyword)
+
+        if not skipped:
+            if kept_numbered:
+                self._record_numbered(title, kept_numbered)
+            return checkpoint
+
+        self._stage_batch(kwargs, mediainfo, title, skipped, len(kept), kept_numbered)
+        if self._dry_run:
+            logger.info(
+                "【综艺正片守卫】试运行：%s 本轮命中 %d 个非正片候选（未过滤）",
+                title,
+                len(skipped),
+            )
+            return checkpoint
+
+        if not kept:
+            # 全为非正片：借宿主的 skip_reason 通道整体跳过（宿主会记一条失败）
+            logger.warning(
+                "【综艺正片守卫】%s 本轮 %d 个候选全部判为非正片，已整体跳过（回落模式）",
+                title,
+                len(skipped),
+            )
+            return dataclasses.replace(
+                checkpoint,
+                items=(),
+                skip_reason=f"综艺非正片已全部跳过（{len(skipped)} 个文件）",
+            )
+
+        logger.info(
+            "【综艺正片守卫】%s 本轮跳过 %d 个非正片、保留 %d 个正片（回落模式）",
+            title,
+            len(skipped),
+            len(kept),
+        )
+        resequenced = [
+            dataclasses.replace(item, sequence=index) for index, item in enumerate(kept)
+        ]
+        return dataclasses.replace(checkpoint, items=tuple(resequenced))
+
+    @staticmethod
+    def _extract_mediainfo(
+        args: Tuple[Any, ...], kwargs: Dict[str, Any]
+    ) -> Optional[Any]:
+        """从调用参数里取出媒体信息对象（关键字优先，其次按鸭子类型扫描）。"""
+        mediainfo = kwargs.get("mediainfo")
+        if mediainfo is not None:
+            return mediainfo
+        for candidate in args:
+            if hasattr(candidate, "type") and (
+                hasattr(candidate, "library_category") or hasattr(candidate, "category")
+            ):
+                return candidate
+        return None
+
+    def _item_text(self, item: Any) -> str:
+        """取出计划项用于匹配的文本：默认文件名，可选完整路径。"""
+        source = getattr(item, "source_fileitem", None)
+        if isinstance(source, dict):
+            name = str(source.get("name") or source.get("basename") or "")
+            if self._match_full_path:
+                return str(source.get("path") or name)
+            return name or str(source.get("path") or "")
+        return str(getattr(item, "target_path", "") or "")
 
     # ==================== 批次汇总（一条通知 / 一次记账） ====================
 
@@ -1267,8 +1527,8 @@ class VarietyGuard(_PluginBase):
         return (
             f"启用：{'是' if self._enabled else '否'}\n"
             f"试运行：{'是' if self._dry_run else '否'}\n"
-            f"补丁状态：{self._patch_state or '未安装'}"
-            f"{('（' + self._patch_message + '）') if self._patch_message else ''}\n"
+            f"补丁状态：{self._patch_state or '未安装'}｜接缝：{self._patch_mode or '无'}"
+            f"{('｜' + self._patch_message) if self._patch_message else ''}\n"
             f"词表：强词 {len(self._exclude_keywords)} 项、歧义词 {len(self._ambiguous_keywords)} 项"
             f"（歧义词遇集号保留={'是' if self._keep_numbered else '否'}）\n"
             f"累计跳过：{stats.get('total_skipped') or 0} 个文件\n"

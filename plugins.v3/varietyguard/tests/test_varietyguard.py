@@ -21,6 +21,7 @@ import tests  # noqa: F401  触发宿主桩路径注入
 from app.application import configuration as stub_configuration
 from app.application import rules as stub_rules
 from app.chain.transfer import workflow as stub_workflow
+from app.modules.filemanager import transhandler as stub_transhandler
 from app.schemas.types import MediaType, SystemConfigKey
 from app.sdk import scheduler as stub_scheduler
 from varietyguard import VarietyGuard
@@ -94,6 +95,27 @@ class VarietyGuardTestCase(unittest.TestCase):
         if flush:
             self.plugin._flush_pending_batches()
         return PlanResult(items, kept)
+
+    def _plan_via_plan_seam(self, mediainfo, items, preview=False, flush=True):
+        """走回落接缝：调用宿主（已被包装）的整理计划方法。"""
+        stub_transhandler.set_pending_items(items)
+        checkpoint = stub_transhandler.TransHandler().plan_transfer(
+            planning_input=None, meta=None, mediainfo=mediainfo, preview=preview
+        )
+        if flush:
+            self.plugin._flush_pending_batches()
+        return checkpoint
+
+    def _drop_candidate_seam(self) -> None:
+        """移除宿主候选接缝，模拟 MoviePilot 升级后方法改名。"""
+        original = stub_workflow.TransferWorkflowOwner._build_transfer_tasks
+        del stub_workflow.TransferWorkflowOwner._build_transfer_tasks
+        self.addCleanup(
+            setattr,
+            stub_workflow.TransferWorkflowOwner,
+            "_build_transfer_tasks",
+            original,
+        )
 
     # ---------------- A. 作用域 ----------------
 
@@ -412,15 +434,147 @@ class VarietyGuardTestCase(unittest.TestCase):
         self.assertEqual(stub_workflow.BUILD_CALLS, 1)
 
     def test_seam_missing_disables_without_raise(self):
-        """宿主方法缺失时只标记失败，不抛异常。"""
-        original = stub_workflow.TransferWorkflowOwner._build_transfer_tasks
+        """两条接缝都缺失时只标记失败、推一次告警，不抛异常。"""
+        candidate_original = stub_workflow.TransferWorkflowOwner._build_transfer_tasks
+        plan_original = stub_transhandler.TransHandler.plan_transfer
         del stub_workflow.TransferWorkflowOwner._build_transfer_tasks
+        del stub_transhandler.TransHandler.plan_transfer
         try:
             self._enable()
         finally:
-            stub_workflow.TransferWorkflowOwner._build_transfer_tasks = original
+            stub_workflow.TransferWorkflowOwner._build_transfer_tasks = candidate_original
+            stub_transhandler.TransHandler.plan_transfer = plan_original
         self.assertEqual(self.plugin._patch_state, "failed")
         self.assertIn("_build_transfer_tasks", self.plugin._patch_message)
+        self.assertIn("plan_transfer", self.plugin._patch_message)
+        self.assertEqual(len(self.plugin.sent_messages), 1)
+        self.assertIn("未生效", self.plugin.sent_messages[0]["title"])
+
+    # ---------------- F. 双接缝回落与失效告警 ----------------
+
+    def test_fallback_installs_plan_seam_when_candidate_seam_missing(self):
+        """候选接缝缺失时回落到整理计划接缝：过滤仍生效，并推一条降级告警。"""
+        self._drop_candidate_seam()
+        plan_original = stub_transhandler.TransHandler.plan_transfer
+        plugin = self._enable(notify=True)
+        self.assertEqual(plugin._patch_mode, "plan")
+        self.assertEqual(plugin._patch_state, "installed")
+        self.assertIsNot(stub_transhandler.TransHandler.plan_transfer, plan_original)
+
+        checkpoint = self._plan_via_plan_seam(
+            FakeMedia(),
+            [
+                ("现在就出发.先导片.S04E01.mkv", "/dl/x/先导片.mkv"),
+                ("现在就出发.S04E02.mkv", "/dl/x/正片.mkv"),
+            ],
+        )
+        names = [item.source_fileitem["name"] for item in checkpoint.items]
+        self.assertEqual(names, ["现在就出发.S04E02.mkv"])
+        self.assertIsNone(checkpoint.skip_reason)
+
+        messages = [m for m in plugin.sent_messages if "降级" in m["title"]]
+        self.assertEqual(len(messages), 1)
+        self.assertIn("失败记录", messages[0]["text"])
+        self.assertEqual(plugin.get_data("patch_alert").get("level"), "degraded")
+
+    def test_degraded_alert_not_repeated_on_reload(self):
+        """同一降级原因只提醒一次：重复初始化不再打扰。"""
+        self._drop_candidate_seam()
+        plugin = self._enable(notify=True)
+        first = len(plugin.sent_messages)
+        self.assertEqual(first, 1)
+        self._enable(notify=True)
+        self.assertEqual(len(plugin.sent_messages), first)
+
+    def test_failed_alert_not_repeated_on_reload(self):
+        """两条接缝都缺失时也只提醒一次。"""
+        candidate_original = stub_workflow.TransferWorkflowOwner._build_transfer_tasks
+        plan_original = stub_transhandler.TransHandler.plan_transfer
+        del stub_workflow.TransferWorkflowOwner._build_transfer_tasks
+        del stub_transhandler.TransHandler.plan_transfer
+        try:
+            plugin = self._enable(notify=True)
+            self.assertEqual(len(plugin.sent_messages), 1)
+            self._enable(notify=True)
+            self.assertEqual(len(plugin.sent_messages), 1)
+        finally:
+            stub_workflow.TransferWorkflowOwner._build_transfer_tasks = candidate_original
+            stub_transhandler.TransHandler.plan_transfer = plan_original
+
+    def test_recovered_candidate_seam_clears_alert(self):
+        """恢复到主接缝后清空告警状态，下次失效仍会提醒。"""
+        candidate_original = stub_workflow.TransferWorkflowOwner._build_transfer_tasks
+        plan_original = stub_transhandler.TransHandler.plan_transfer
+        del stub_workflow.TransferWorkflowOwner._build_transfer_tasks
+        del stub_transhandler.TransHandler.plan_transfer
+        try:
+            plugin = self._enable(notify=True)
+            self.assertEqual(plugin.get_data("patch_alert").get("level"), "failed")
+            # 宿主修好：主接缝恢复
+            stub_workflow.TransferWorkflowOwner._build_transfer_tasks = candidate_original
+            self._enable(notify=True)
+            self.assertEqual(plugin._patch_mode, "candidates")
+            self.assertIsNone(plugin.get_data("patch_alert"))
+            # 再次失效：允许重新提醒
+            del stub_workflow.TransferWorkflowOwner._build_transfer_tasks
+            if hasattr(stub_transhandler.TransHandler, "plan_transfer"):
+                del stub_transhandler.TransHandler.plan_transfer
+            self._enable(notify=True)
+            self.assertEqual(len(plugin.sent_messages), 2)
+        finally:
+            stub_workflow.TransferWorkflowOwner._build_transfer_tasks = candidate_original
+            stub_transhandler.TransHandler.plan_transfer = plan_original
+
+    def test_plan_seam_full_skip_uses_failure_channel(self):
+        """回落模式下整批跳过走宿主的 skip_reason（会留一条失败记录，属已知代价）。"""
+        self._drop_candidate_seam()
+        self._enable()
+        checkpoint = self._plan_via_plan_seam(
+            FakeMedia(),
+            [
+                ("现在就出发.先导片.S04E01.mkv", "/dl/x/先导片.mkv"),
+                ("现在就出发.纯享.S04E01.mkv", "/dl/x/纯享.mkv"),
+            ],
+        )
+        self.assertEqual(checkpoint.items, ())
+        self.assertIn("非正片", checkpoint.skip_reason or "")
+        stats = self.plugin.get_data("stats")
+        self.assertEqual(stats["full_skip_runs"], 1)
+
+    def test_plan_seam_batches_notifications(self):
+        """回落模式下同一媒体的多次命中仍汇总成一条通知。"""
+        self._drop_candidate_seam()
+        plugin = self._enable(notify=True)
+        base = len(plugin.sent_messages)
+        self._plan_via_plan_seam(
+            FakeMedia(),
+            [("现在就出发.先导片.S04E01.mkv", "/dl/x/先导1.mkv")],
+            preview=False,
+            flush=False,
+        )
+        stub_transhandler.set_pending_items(
+            [("现在就出发.纯享.S04E02.mkv", "/dl/x/纯享2.mkv")]
+        )
+        stub_transhandler.TransHandler().plan_transfer(
+            planning_input=None, meta=None, mediainfo=FakeMedia()
+        )
+        plugin._flush_pending_batches()
+        self.assertEqual(len(plugin.sent_messages), base + 1)
+        text = plugin.sent_messages[-1]["text"]
+        self.assertIn("先导片.S04E01", text)
+        self.assertIn("纯享.S04E02", text)
+
+    def test_plan_seam_preview_untouched(self):
+        """回落模式不参与预览：预览计划原样返回。"""
+        self._drop_candidate_seam()
+        self._enable()
+        checkpoint = self._plan_via_plan_seam(
+            FakeMedia(),
+            [("现在就出发.先导片.S04E01.mkv", "/dl/x/先导片.mkv")],
+            preview=True,
+        )
+        self.assertEqual(len(checkpoint.items), 1)
+        self.assertIsNone(checkpoint.skip_reason)
 
     def test_disabled_plugin_does_not_filter(self):
         """未启用时不装补丁，也不过滤。"""
