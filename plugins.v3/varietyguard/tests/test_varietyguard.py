@@ -14,12 +14,13 @@
 import asyncio
 import re
 import unittest
+from types import SimpleNamespace
 
 import tests  # noqa: F401  触发宿主桩路径注入
 
 from app.application import configuration as stub_configuration
 from app.application import rules as stub_rules
-from app.modules.filemanager import transhandler as stub_transhandler
+from app.chain.transfer import workflow as stub_workflow
 from app.schemas.types import MediaType, SystemConfigKey
 from app.sdk import scheduler as stub_scheduler
 from varietyguard import VarietyGuard
@@ -36,6 +37,23 @@ class FakeMedia:
         self.library_category = library_category
         self.category = category
         self.metadata_category = ""
+
+
+class PlanResult:
+    """整理候选的轻量视图：保留旧断言读取 ``items`` 的习惯写法。"""
+
+    def __init__(self, raw_items, kept_items):
+        """记录原始候选与真正会被建任务的候选。"""
+        self.raw_items = raw_items
+        self.kept_items = kept_items
+        self.skip_reason = None
+        self.items = tuple(
+            SimpleNamespace(
+                sequence=index,
+                source_fileitem={"name": name, "path": path},
+            )
+            for index, (name, path) in enumerate(kept_items)
+        )
 
 
 class VarietyGuardTestCase(unittest.TestCase):
@@ -63,12 +81,19 @@ class VarietyGuardTestCase(unittest.TestCase):
         self.plugin.init_plugin(config)
         return self.plugin
 
-    def _plan(self, mediainfo, items):
-        """调用宿主（已被包装）的整理计划方法。"""
-        stub_transhandler.set_pending_items(items)
-        return stub_transhandler.TransHandler().plan_transfer(
-            planning_input=None, meta=None, mediainfo=mediainfo
+    def _plan(self, mediainfo, items, download_hash="hash-test", preview=False, flush=True):
+        """调用宿主（已被包装）的建任务入口，并按需结算本批次。"""
+        raw = [(SimpleNamespace(name=name, path=path), False) for name, path in items]
+        result = stub_workflow.TransferWorkflowOwner()._build_transfer_tasks(
+            file_items=raw,
+            mediainfo=mediainfo,
+            download_hash=download_hash,
+            preview=preview,
         )
+        kept = [(item.name, item.path) for item, _is_bluray in result["file_items"]]
+        if flush:
+            self.plugin._flush_pending_batches()
+        return PlanResult(items, kept)
 
     # ---------------- A. 作用域 ----------------
 
@@ -118,7 +143,8 @@ class VarietyGuardTestCase(unittest.TestCase):
             [("某剧.花絮.S01E01.mkv", "/dl/某剧.花絮.S01E01.mkv")],
         )
         self.assertEqual(len(checkpoint.items), 0)
-        self.assertTrue(checkpoint.skip_reason)
+        # 新语义：候选被摘干净即可，不再写 skip_reason（那会被记成整理失败）
+        self.assertIsNone(checkpoint.skip_reason)
 
     # ---------------- B. 判定 ----------------
 
@@ -158,8 +184,8 @@ class VarietyGuardTestCase(unittest.TestCase):
 
     # ---------------- C. 静默语义 ----------------
 
-    def test_all_non_main_rewrites_to_skip_reason(self):
-        """候选全为非正片时改写成宿主的无候选静默跳过（不产生失败）。"""
+    def test_all_non_main_leaves_no_candidate_or_record(self):
+        """候选全为非正片时从本轮候选里摘干净：不建任务、不产生失败记录。"""
         self._enable()
         checkpoint = self._plan(
             FakeMedia(),
@@ -169,7 +195,10 @@ class VarietyGuardTestCase(unittest.TestCase):
             ],
         )
         self.assertEqual(checkpoint.items, ())
-        self.assertIn("非正片", checkpoint.skip_reason or "")
+        # 不再借用宿主的 skip_reason（那会被当成整理失败并留失败历史）
+        self.assertIsNone(checkpoint.skip_reason)
+        stats = self.plugin.get_data("stats")
+        self.assertEqual(stats["full_skip_runs"], 1)
 
     def test_no_hit_keeps_checkpoint_identity(self):
         """没有命中时不做任何改写。"""
@@ -182,11 +211,11 @@ class VarietyGuardTestCase(unittest.TestCase):
         self.assertIsNone(checkpoint.skip_reason)
 
     def test_single_file_plan_untouched(self):
-        """单片计划没有逐文件候选，插件不介入。"""
+        """没有候选时原样放行，不产生任何改写。"""
         self._enable()
         checkpoint = self._plan(FakeMedia(), [])
         self.assertEqual(checkpoint.items, ())
-        self.assertEqual(checkpoint.skip_reason, "源目录中没有可整理文件")
+        self.assertIsNone(checkpoint.skip_reason)
 
     def test_stats_and_records_written(self):
         """过滤后写入统计与记录。"""
@@ -229,7 +258,7 @@ class VarietyGuardTestCase(unittest.TestCase):
         self.assertIn("跳过", self.plugin.sent_messages[0]["title"])
 
     def test_full_skip_notifies_even_when_switch_off(self):
-        """整季整体跳过必须发通知（即使通知开关关闭），并单独计数。"""
+        """本批次一个正片都没保留时必须发通知（即使通知开关关闭），并单独计数。"""
         self._enable()
         checkpoint = self._plan(
             FakeMedia(),
@@ -240,12 +269,81 @@ class VarietyGuardTestCase(unittest.TestCase):
         )
         self.assertEqual(checkpoint.items, ())
         self.assertEqual(len(self.plugin.sent_messages), 1)
-        self.assertIn("整季", self.plugin.sent_messages[0]["title"])
+        self.assertIn("均为非正片", self.plugin.sent_messages[0]["title"])
+        # 标题与内容一致：正文要列出本批次全部命中文件
+        self.assertIn("先导片.S04E01", self.plugin.sent_messages[0]["text"])
+        self.assertIn("纯享.S04E01", self.plugin.sent_messages[0]["text"])
         stats = self.plugin.get_data("stats")
         self.assertEqual(stats["full_skip_runs"], 1)
         self.assertEqual(stats["total_skipped"], 2)
         records = self.plugin.get_data("records")
         self.assertTrue(all(record["scope"] == "all" for record in records))
+
+    def test_batch_files_merge_into_one_notification(self):
+        """同一种子的多个文件（宿主逐文件回调）只发一条汇总通知。"""
+        self._enable(notify=True)
+        self._plan(
+            FakeMedia(),
+            [
+                ("现在就出发.先导片.S04E01.mkv", "/dl/x/先导片.S04E01.mkv"),
+                ("现在就出发.S04E01.mkv", "/dl/x/正片.S04E01.mkv"),
+            ],
+            download_hash="hash-batch",
+            flush=False,
+        )
+        self._plan(
+            FakeMedia(),
+            [("现在就出发.纯享.S04E02.mkv", "/dl/x/纯享.S04E02.mkv")],
+            download_hash="hash-batch",
+            flush=False,
+        )
+        self.assertEqual(self.plugin.sent_messages, [])
+        self.plugin._flush_pending_batches()
+        self.assertEqual(len(self.plugin.sent_messages), 1)
+        message = self.plugin.sent_messages[0]
+        self.assertIn("2 个非正片", message["title"])
+        self.assertIn("保留 1 个正片", message["text"])
+        self.assertIn("先导片.S04E01", message["text"])
+        self.assertIn("纯享.S04E02", message["text"])
+
+    def test_different_torrents_notify_separately(self):
+        """不同种子各自汇总，不互相吞并。"""
+        self._enable(notify=True)
+        self._plan(
+            FakeMedia(),
+            [("现在就出发.先导片.S04E01.mkv", "/dl/a/先导片.mkv")],
+            download_hash="hash-a",
+            flush=False,
+        )
+        self._plan(
+            FakeMedia(),
+            [("现在就出发.纯享.S04E01.mkv", "/dl/b/纯享.mkv")],
+            download_hash="hash-b",
+            flush=False,
+        )
+        self.plugin._flush_pending_batches()
+        self.assertEqual(len(self.plugin.sent_messages), 2)
+
+    def test_repeated_scan_does_not_notify_twice(self):
+        """同一批次重复扫描（文件集合相同）不重复通知、不重复计数。"""
+        self._enable(notify=True)
+        items = [("现在就出发.先导片.S04E01.mkv", "/dl/x/先导片.mkv")]
+        self._plan(FakeMedia(), items, download_hash="hash-repeat")
+        self._plan(FakeMedia(), items, download_hash="hash-repeat")
+        self.assertEqual(len(self.plugin.sent_messages), 1)
+        self.assertEqual(self.plugin.get_data("stats")["total_skipped"], 1)
+
+    def test_preview_filters_without_records_or_notify(self):
+        """预览只反映真实结果，不记账、不发通知。"""
+        self._enable(notify=True)
+        checkpoint = self._plan(
+            FakeMedia(),
+            [("现在就出发.先导片.S04E01.mkv", "/dl/x/先导片.mkv")],
+            preview=True,
+        )
+        self.assertEqual(checkpoint.items, ())
+        self.assertEqual(self.plugin.sent_messages, [])
+        self.assertEqual(self.plugin.get_data("stats"), None)
 
     def test_dry_run_counted_separately(self):
         """试运行命中不计入「累计跳过」，单独计数。"""
@@ -277,15 +375,17 @@ class VarietyGuardTestCase(unittest.TestCase):
     def test_fail_open_on_internal_error(self):
         """内部异常必须放行原始计划。"""
         self._enable()
-        original_text = VarietyGuard._item_text
-        VarietyGuard._item_text = lambda self, item: (_ for _ in ()).throw(RuntimeError("boom"))
+        original_text = VarietyGuard._candidate_text
+        VarietyGuard._candidate_text = lambda self, item: (_ for _ in ()).throw(
+            RuntimeError("boom")
+        )
         try:
             checkpoint = self._plan(
                 FakeMedia(),
                 [("现在就出发.先导片.S04E01.mkv", "/dl/x/现在就出发.先导片.S04E01.mkv")],
             )
         finally:
-            VarietyGuard._item_text = original_text
+            VarietyGuard._candidate_text = original_text
         self.assertEqual(len(checkpoint.items), 1)
 
     def test_missing_mediainfo_fail_open(self):
@@ -296,31 +396,31 @@ class VarietyGuardTestCase(unittest.TestCase):
 
     def test_patch_install_and_restore(self):
         """启用时装补丁、停用时还原原方法。"""
-        original = stub_transhandler.TransHandler.plan_transfer
+        original = stub_workflow.TransferWorkflowOwner._build_transfer_tasks
         self._enable()
-        patched = stub_transhandler.TransHandler.plan_transfer
+        patched = stub_workflow.TransferWorkflowOwner._build_transfer_tasks
         self.assertIsNot(patched, original)
         self.plugin.stop_service()
-        self.assertIs(stub_transhandler.TransHandler.plan_transfer, original)
+        self.assertIs(stub_workflow.TransferWorkflowOwner._build_transfer_tasks, original)
 
     def test_reinit_does_not_stack_patches(self):
         """重复初始化不得叠加包装（原方法只被调用一次）。"""
         self._enable()
         self._enable()
-        stub_transhandler.ORIGINAL_PLAN_CALLS = 0
+        stub_workflow.reset_calls()
         self._plan(FakeMedia(library_category="国产剧"), [("x.mkv", "/dl/x.mkv")])
-        self.assertEqual(stub_transhandler.ORIGINAL_PLAN_CALLS, 1)
+        self.assertEqual(stub_workflow.BUILD_CALLS, 1)
 
     def test_seam_missing_disables_without_raise(self):
         """宿主方法缺失时只标记失败，不抛异常。"""
-        original = stub_transhandler.TransHandler.plan_transfer
-        del stub_transhandler.TransHandler.plan_transfer
+        original = stub_workflow.TransferWorkflowOwner._build_transfer_tasks
+        del stub_workflow.TransferWorkflowOwner._build_transfer_tasks
         try:
             self._enable()
         finally:
-            stub_transhandler.TransHandler.plan_transfer = original
+            stub_workflow.TransferWorkflowOwner._build_transfer_tasks = original
         self.assertEqual(self.plugin._patch_state, "failed")
-        self.assertIn("plan_transfer", self.plugin._patch_message)
+        self.assertIn("_build_transfer_tasks", self.plugin._patch_message)
 
     def test_disabled_plugin_does_not_filter(self):
         """未启用时不装补丁，也不过滤。"""
@@ -328,34 +428,39 @@ class VarietyGuardTestCase(unittest.TestCase):
         checkpoint = self._plan(FakeMedia(), [("现在就出发.先导片.mkv", "/dl/x/先导片.mkv")])
         self.assertEqual(len(checkpoint.items), 1)
 
-    def test_original_checkpoint_not_mutated(self):
-        """过滤走 dataclasses.replace，不就地修改宿主计划对象。"""
-        plugin = self._enable()
-        original = plugin._original_plan_transfer
-        self.assertIsNotNone(original)
-        stub_transhandler.set_pending_items(
-            [("现在就出发.先导片.S04E01.mkv", "/dl/x/先导片.mkv")]
-        )
-        handler = stub_transhandler.TransHandler()
-        raw = original(handler, None, meta=None, mediainfo=FakeMedia())
-        filtered = self._plan(FakeMedia(), [("现在就出发.先导片.S04E01.mkv", "/dl/x/先导片.mkv")])
-        self.assertEqual(len(raw.items), 1)
-        self.assertEqual(filtered.items, ())
+    def test_host_kwargs_not_mutated_in_place(self):
+        """过滤只返回新字典，不就地改造宿主传入的候选列表。"""
+        self._enable()
+        raw = [
+            (SimpleNamespace(name="现在就出发.先导片.S04E01.mkv", path="/dl/x/先导片.mkv"), False),
+            (SimpleNamespace(name="现在就出发.S04E02.mkv", path="/dl/x/正片.mkv"), False),
+        ]
+        kwargs = {
+            "file_items": raw,
+            "mediainfo": FakeMedia(),
+            "download_hash": "hash-keep",
+        }
+        filtered = self.plugin._filter_candidates(kwargs)
+        self.assertEqual(len(raw), 2)
+        self.assertEqual(len(kwargs["file_items"]), 2)
+        self.assertIsNot(filtered, kwargs)
+        self.assertEqual(len(filtered["file_items"]), 1)
+        self.plugin._flush_pending_batches()
 
     def test_patch_does_not_strip_foreign_wrapper(self):
         """顶层是别的插件的包装时：不得摘掉它，且停用后本插件不再过滤。"""
-        host_original = stub_transhandler.TransHandler.plan_transfer
+        host_original = stub_workflow.TransferWorkflowOwner._build_transfer_tasks
         self._enable()
-        ours = stub_transhandler.TransHandler.plan_transfer
+        ours = stub_workflow.TransferWorkflowOwner._build_transfer_tasks
 
-        def foreign(handler_self, *args, **kwargs):
+        def foreign(owner_self, *args, **kwargs):
             """模拟另一个插件的闭包式包装。"""
-            return ours(handler_self, *args, **kwargs)
+            return ours(owner_self, *args, **kwargs)
 
-        stub_transhandler.TransHandler.plan_transfer = foreign
+        stub_workflow.TransferWorkflowOwner._build_transfer_tasks = foreign
         try:
             self.plugin.stop_service()
-            self.assertIs(stub_transhandler.TransHandler.plan_transfer, foreign)
+            self.assertIs(stub_workflow.TransferWorkflowOwner._build_transfer_tasks, foreign)
             self.assertEqual(self.plugin._patch_state, "foreign")
             # 补丁层虽在链上，但停用开关让它失效
             checkpoint = self._plan(
@@ -363,24 +468,24 @@ class VarietyGuardTestCase(unittest.TestCase):
             )
             self.assertEqual(len(checkpoint.items), 1)
         finally:
-            stub_transhandler.TransHandler.plan_transfer = host_original
+            stub_workflow.TransferWorkflowOwner._build_transfer_tasks = host_original
 
     def test_stacked_own_layers_unwound_together(self):
         """模拟旧实例残留：本插件多层包装应一次摘干净，回到宿主原方法。"""
-        original = stub_transhandler.TransHandler.plan_transfer
+        original = stub_workflow.TransferWorkflowOwner._build_transfer_tasks
         self._enable()
-        first_layer = stub_transhandler.TransHandler.plan_transfer
+        first_layer = stub_workflow.TransferWorkflowOwner._build_transfer_tasks
 
-        def second_layer(handler_self, *args, **kwargs):
+        def second_layer(owner_self, *args, **kwargs):
             """伪造旧实例留下的第二层包装（同样带本插件身份标记）。"""
-            return first_layer(handler_self, *args, **kwargs)
+            return first_layer(owner_self, *args, **kwargs)
 
         setattr(second_layer, "__varietyguard_layer__", "varietyguard")
         setattr(second_layer, "__varietyguard_original__", first_layer)
-        stub_transhandler.TransHandler.plan_transfer = second_layer
+        stub_workflow.TransferWorkflowOwner._build_transfer_tasks = second_layer
 
         self.plugin.stop_service()
-        self.assertIs(stub_transhandler.TransHandler.plan_transfer, original)
+        self.assertIs(stub_workflow.TransferWorkflowOwner._build_transfer_tasks, original)
         self.assertEqual(self.plugin._patch_state, "")
 
     def test_form_and_page_shapes(self):
@@ -456,24 +561,17 @@ class VarietyGuardTestCase(unittest.TestCase):
                          ["c.S04E01.mkv"])
 
     def test_item_without_source_identity_is_kept(self):
-        """计划项缺少源文件身份时按放行处理，不抛异常。"""
-        from app.application.transfer.models import (
-            TransferPlanCheckpoint,
-            TransferPlanItem,
-        )
-
+        """候选缺少文件名/路径时按放行处理，不抛异常。"""
         self._enable()
-        raw = TransferPlanCheckpoint(
-            items=(
-                TransferPlanItem(
-                    sequence=0,
-                    source_fileitem={},
-                    target_path="/library/现在就出发.先导片.S04E01.mkv",
-                ),
-            )
-        )
-        filtered = self.plugin._filter_checkpoint(raw, (), {"mediainfo": FakeMedia()})
-        self.assertEqual(len(filtered.items), 1)
+        kwargs = {
+            "file_items": [(SimpleNamespace(name="", path=""), False)],
+            "mediainfo": FakeMedia(),
+            "download_hash": "hash-unknown",
+        }
+        filtered = self.plugin._filter_candidates(kwargs)
+        self.assertIs(filtered, kwargs)
+        self.assertEqual(len(filtered["file_items"]), 1)
+        self.assertEqual(self.plugin.get_data("stats"), None)
 
     def test_scope_matches_metadata_category(self):
         """分类作用域同时匹配 metadata_category。"""
@@ -738,15 +836,11 @@ class VarietyGuardTestCase(unittest.TestCase):
         self.assertIn("巅峰", plugin._ambiguous_keywords)
         self.assertIn("(?<![A-Za-z])Live(?![A-Za-z])", plugin._ambiguous_keywords)
 
-    def test_checkpoint_items_not_iterator(self):
-        """items 为空元组时原样返回（不误判成需要过滤）。"""
-        from app.application.transfer.models import TransferPlanCheckpoint
-
+    def test_empty_candidates_pass_through(self):
+        """没有候选时原样返回宿主入参（不误判成需要过滤）。"""
         self._enable()
-        raw = TransferPlanCheckpoint(items=())
-        self.assertIs(
-            self.plugin._filter_checkpoint(raw, (), {"mediainfo": FakeMedia()}), raw
-        )
+        kwargs = {"file_items": [], "mediainfo": FakeMedia()}
+        self.assertIs(self.plugin._filter_candidates(kwargs), kwargs)
 
     # ---------------- E. 词表同步（可选能力） ----------------
 

@@ -19,10 +19,10 @@
    （``app/chain/transfer/settlement.py`` 写失败历史 + 无条件发送失败通知），
    在开启「文件整理失败智能接管」的实例上会触发接管重试循环。
 
-因此本插件走**计划阶段过滤**：包装 ``TransHandler.plan_transfer``，
-在候选清单 ``TransferPlanCheckpoint.items`` 生成之后剔除命中的非正片文件。
-全部被剔除时，借用宿主既有的 ``skip_reason`` 分支静默跳过
-（宿主返回 ``TransferInfo(success=True)``：不写失败历史、不发通知、不进重试）。
+因此本插件走**候选阶段过滤**：包装 ``TransferWorkflowOwner._build_transfer_tasks``，
+在建整理任务之前，把命中的非正片从 ``file_items`` 里摘掉。
+被摘掉的文件不生成任务 → 不进片库、不写整理历史、不进失败重试；
+同一批次（同一种子）的命中会汇总成**一条**通知，而不是逐文件刷屏。
 
 安全边界
 --------
@@ -30,20 +30,19 @@
   范围外的整理一律原样返回 → 不影响其它媒体类型。
 - **只做只读判定**：不移动、不删除、不重命名任何源文件 → 不影响做种。
 - **失败即放行**（fail-open）：补丁失配、正则非法、内部异常都只记日志并返回宿主
-  的原始计划，绝不阻断正常整理。
+  的原始候选，绝不阻断正常整理。
 - 支持**试运行**：只记录「本应跳过」的文件，不真正过滤，便于先观察再启用。
 - **两档词表**（v1.1.0）：只有「衍生内容专用词」命中就跳过；会出现在正片标题或环节名里的
   歧义词（巅峰 / 盛典 / Live / Battle 等）要再确认「文件名不带集号或播出日期」才跳过，
   避免把整集正片当成衍生内容丢掉。
-- **整季全跳过必留痕**：候选全部被判为非正片时，除了沿用宿主既有的静默跳过分支，
-  还会强制发一条通知、单独计数并在详情页标红，避免「片库悄悄缺一季」无人察觉。
+- **批次全跳过必留痕**：一个批次里一个正片都没保留时，仍强制发一条通知、单独计数
+  并在详情页标红，避免「片库悄悄缺内容」无人察觉；措辞只描述本批次事实，不夸大成整季结论。
 - **可选词表同步**（配置 ``sync_rule_id``）：插件在加载与保存配置时，把**强词**写入指定的
   自定义过滤规则 —— 新增与删减都同步、即时生效、不额外消耗模型额度；用户手工加进该规则的
   条目会被保留，覆盖前的原文另存快照；留空即关闭；目标规则不存在或词表异常时只记日志、
   绝不改动规则（歧义词不写进规则：规则层无法表达「带集号保留」）。
 """
 
-import dataclasses
 import json
 import re
 import threading
@@ -284,8 +283,20 @@ PATCH_ORIGINAL_ATTR = "__varietyguard_original__"
 PATCH_TAG_NAME = "varietyguard"
 PATCH_MAX_LAYERS = 5
 
+# 宿主逐文件建任务前冻结的候选清单入口（媒体信息与整批候选都在这里可见）
+PATCH_TARGET_ATTR = "_build_transfer_tasks"
+
+# 跳过通知按「批次」汇总：最后一条命中后再等这么久才发，避免逐文件刷屏
+BATCH_NOTIFY_DEBOUNCE_SECONDS = 120
+# 汇总最长等待：包太大时也不无限延后
+BATCH_NOTIFY_MAX_HOLD_SECONDS = 900
+# 同一批次（同一种子）相同文件集合在此时长内只通知一次，避免重复扫描刷屏
+BATCH_DEDUPE_TTL_SECONDS = 6 * 3600
+
 # 统计读改写是跨线程的（整理任务可能并发），用进程内锁串行化
 _STATS_LOCK = threading.RLock()
+# 批次缓冲同样是跨线程的（整理队列并发消费）
+_BATCH_LOCK = threading.RLock()
 
 
 class VarietyGuard(_PluginBase):
@@ -293,7 +304,7 @@ class VarietyGuard(_PluginBase):
 
     # 插件元数据
     plugin_name = "综艺正片守卫"
-    plugin_desc = "整理综艺整季包时按关键词只保留正片、静默跳过先导/花絮/加更等非正片；不产生整理失败记录，也不影响其它媒体类型。"
+    plugin_desc = "整理综艺整季包时按关键词只保留正片、静默跳过先导/花絮/加更等非正片；同一包的命中汇总成一条通知，不产生整理失败记录，也不影响其它媒体类型。"
     plugin_icon = "varietyguard.png"
     plugin_version = VERSION
     plugin_author = "zkmydgth"
@@ -318,16 +329,22 @@ class VarietyGuard(_PluginBase):
     # 补丁状态
     _patch_state: str = ""
     _patch_message: str = ""
-    _original_plan_transfer: Optional[Any] = None
+    _original_build_tasks: Optional[Any] = None
     _patch_wrapper: Optional[Any] = None
     _patch_lock = threading.RLock()
+
+    # 待汇总的跳过批次：同一整理批次（同一种子）的文件合并成一条通知
+    _pending_batches: Dict[str, Dict[str, Any]] = {}
+    _recent_batches: Dict[str, Tuple[float, frozenset]] = {}
 
     # ==================== 生命周期 ====================
 
     def init_plugin(self, config: dict = None) -> None:
-        """读取配置并按需安装整理计划补丁。"""
+        """读取配置并按需安装候选过滤补丁。"""
         self.stop_service()
         self._reset_runtime_state()
+        self._pending_batches = {}
+        self._recent_batches = {}
         if not config:
             return
         self._enabled = bool(config.get("enabled"))
@@ -380,9 +397,10 @@ class VarietyGuard(_PluginBase):
         return self._enabled
 
     def stop_service(self) -> None:
-        """卸载整理计划补丁，并让可能残留的补丁层失效。"""
+        """卸载候选过滤补丁，并让可能残留的补丁层失效。"""
         # 先关开关：即使补丁层因其它插件压在顶层而摘不下来，也不会继续过滤。
         self._enabled = False
+        self._discard_pending_batches()
         self._remove_patch()
 
     def _reset_runtime_state(self) -> None:
@@ -393,42 +411,60 @@ class VarietyGuard(_PluginBase):
     # ==================== 补丁安装 / 卸载 ====================
 
     def _install_patch(self) -> None:
-        """把过滤包装安装到宿主的整理计划方法上；失败只记录不抛出。"""
+        """把过滤包装安装到宿主的整理候选入口上；失败只记录不抛出。
+
+        宿主在「下载器轮询 / 目录监控」下是**逐文件**建立整理任务的：挂在整理计划
+        （plan_transfer）上时，每个文件都会独立成为一次「整季跳过」，于是逐条发通知、
+        并在整理历史里留下失败记录。改挂在建任务之前冻结的候选清单上，可以直接把
+        非正片从本轮候选里摘掉——不建任务，也就没有历史记录与失败计数。
+        """
         with self._patch_lock:
-            if self._original_plan_transfer is not None:
+            if self._original_build_tasks is not None:
                 # 已安装，幂等返回，避免重复包装导致叠加调用
                 return
             try:
-                from app.modules.filemanager.transhandler import TransHandler
+                from app.chain.transfer.workflow import TransferWorkflowOwner
             except Exception as err:
-                self._mark_patch_failed(f"导入宿主整理处理器失败：{err}")
+                self._mark_patch_failed(f"导入宿主整理流程失败：{err}")
                 return
-            original = getattr(TransHandler, "plan_transfer", None)
+            original = getattr(TransferWorkflowOwner, PATCH_TARGET_ATTR, None)
             if original is None or not callable(original):
-                self._mark_patch_failed("宿主 TransHandler.plan_transfer 不存在，插件不生效")
+                self._mark_patch_failed(
+                    f"宿主 TransferWorkflowOwner.{PATCH_TARGET_ATTR} 不存在，插件不生效"
+                )
                 return
 
-            def patched_plan_transfer(handler_self: Any, *args: Any, **kwargs: Any) -> Any:
-                """宿主整理计划入口的包装：先执行原计划，再按配置过滤候选文件。"""
-                checkpoint = original(handler_self, *args, **kwargs)
-                return self._filter_checkpoint(checkpoint, args, kwargs)
+            def patched_build_transfer_tasks(owner_self: Any, *args: Any, **kwargs: Any) -> Any:
+                """宿主建任务入口的包装：先按配置摘掉非正片候选，再交给原方法。"""
+                filtered = kwargs
+                if self._enabled:
+                    try:
+                        filtered = self._filter_candidates(kwargs)
+                    except Exception as err:  # pragma: no cover - 兜底防御
+                        logger.error(
+                            "【综艺正片守卫】过滤失败，按原候选放行：%s", err, exc_info=True
+                        )
+                        filtered = kwargs
+                return original(owner_self, *args, **filtered)
 
-            patched_plan_transfer.__name__ = getattr(original, "__name__", "plan_transfer")
-            patched_plan_transfer.__doc__ = getattr(original, "__doc__", None)
+            patched_build_transfer_tasks.__name__ = getattr(
+                original, "__name__", PATCH_TARGET_ATTR
+            )
+            patched_build_transfer_tasks.__doc__ = getattr(original, "__doc__", None)
             # 身份标记：卸载时按它只摘自己这一层，避免误删其它插件压在上面的包装
-            setattr(patched_plan_transfer, PATCH_TAG, PATCH_TAG_NAME)
-            setattr(patched_plan_transfer, PATCH_ORIGINAL_ATTR, original)
+            setattr(patched_build_transfer_tasks, PATCH_TAG, PATCH_TAG_NAME)
+            setattr(patched_build_transfer_tasks, PATCH_ORIGINAL_ATTR, original)
             try:
-                TransHandler.plan_transfer = patched_plan_transfer
+                setattr(TransferWorkflowOwner, PATCH_TARGET_ATTR, patched_build_transfer_tasks)
             except Exception as err:
                 self._mark_patch_failed(f"替换宿主方法失败：{err}")
                 return
-            self._original_plan_transfer = original
-            self._patch_wrapper = patched_plan_transfer
+            self._original_build_tasks = original
+            self._patch_wrapper = patched_build_transfer_tasks
             self._patch_state = PATCH_STATE_OK
-            self._patch_message = "已安装整理计划过滤补丁"
+            self._patch_message = "已安装整理候选过滤补丁"
             logger.info(
-                "【综艺正片守卫】已安装计划过滤（作用域：媒体类型=%s 分类=%s，试运行=%s）",
+                "【综艺正片守卫】已安装候选过滤（作用域：媒体类型=%s 分类=%s，试运行=%s）",
                 self._scope_media_types or "全部",
                 self._scope_categories or "全部",
                 self._dry_run,
@@ -442,14 +478,14 @@ class VarietyGuard(_PluginBase):
         """
         with self._patch_lock:
             was_installed = self._patch_wrapper is not None
-            self._original_plan_transfer = None
+            self._original_build_tasks = None
             self._patch_wrapper = None
             if not was_installed:
                 return
             try:
-                from app.modules.filemanager.transhandler import TransHandler
+                from app.chain.transfer.workflow import TransferWorkflowOwner
 
-                current = getattr(TransHandler, "plan_transfer", None)
+                current = getattr(TransferWorkflowOwner, PATCH_TARGET_ATTR, None)
                 layers = 0
                 while (
                     getattr(current, PATCH_TAG, None) == PATCH_TAG_NAME
@@ -470,8 +506,8 @@ class VarietyGuard(_PluginBase):
                     self._patch_state = PATCH_STATE_FOREIGN
                     self._patch_message = "补丁链缺少原始方法"
                     return
-                TransHandler.plan_transfer = current
-                logger.info("【综艺正片守卫】已卸载计划过滤补丁（%d 层）", layers)
+                setattr(TransferWorkflowOwner, PATCH_TARGET_ATTR, current)
+                logger.info("【综艺正片守卫】已卸载候选过滤补丁（%d 层）", layers)
             except Exception as err:
                 logger.error("【综艺正片守卫】卸载补丁失败：%s", err)
             self._patch_state = ""
@@ -485,28 +521,17 @@ class VarietyGuard(_PluginBase):
 
     # ==================== 核心过滤逻辑 ====================
 
-    def _filter_checkpoint(
-        self, checkpoint: Any, args: Tuple[Any, ...], kwargs: Dict[str, Any]
-    ) -> Any:
-        """按配置过滤整理计划中的候选文件；异常一律放行原计划。"""
-        if not self._enabled:
-            # 停用开关优先于补丁链：补丁层因外部原因没摘干净时也不再过滤。
-            return checkpoint
-        try:
-            return self._filter_checkpoint_inner(checkpoint, args, kwargs)
-        except Exception as err:  # pragma: no cover - 兜底防御，定向测试覆盖
-            logger.error("【综艺正片守卫】过滤失败，按原计划放行：%s", err, exc_info=True)
-            return checkpoint
+    def _filter_candidates(self, kwargs: Dict[str, Any]) -> Dict[str, Any]:
+        """按配置从本轮整理候选里摘掉非正片文件；异常一律放行原候选。
 
-    def _filter_checkpoint_inner(
-        self, checkpoint: Any, args: Tuple[Any, ...], kwargs: Dict[str, Any]
-    ) -> Any:
-        """过滤主体：判定作用域 → 逐项匹配关键词 → 重建计划。"""
-        items = getattr(checkpoint, "items", None)
-        if not items:
-            # 单片整理或预览计划：没有逐文件候选，无需处理
-            return checkpoint
-        mediainfo = self._extract_mediainfo(args, kwargs)
+        宿主可能在一次调用里给出整包候选（目录整理），也可能逐文件调用（下载器
+        轮询 / 目录监控）。这里只改写 ``file_items``：被摘掉的文件不会生成整理任务，
+        因此既不会进片库，也不会在整理历史里留下失败记录。
+        """
+        file_items = kwargs.get("file_items")
+        if not file_items:
+            return kwargs
+        mediainfo = kwargs.get("mediainfo")
         if not self._in_scope(mediainfo):
             logger.debug(
                 "【综艺正片守卫】不在作用域内，放行：媒体类型=%s 分类=%s",
@@ -515,22 +540,23 @@ class VarietyGuard(_PluginBase):
                 getattr(mediainfo, "library_category", None)
                 or getattr(mediainfo, "category", None),
             )
-            return checkpoint
+            return kwargs
 
         title = self._media_title(mediainfo)
         kept: List[Any] = []
         skipped: List[Tuple[str, str]] = []
         kept_numbered: List[str] = []
-        for item in items:
-            text = self._item_text(item)
+        for entry in file_items:
+            item = entry[0] if isinstance(entry, tuple) else entry
+            text = self._candidate_text(item)
             if not text:
-                kept.append(item)
+                kept.append(entry)
                 continue
             action, keyword = self._decide(text)
             if action == ACTION_SKIP:
                 skipped.append((text, keyword))
             else:
-                kept.append(item)
+                kept.append(entry)
                 if action == ACTION_KEEP_NUMBERED:
                     kept_numbered.append(keyword)
 
@@ -540,54 +566,167 @@ class VarietyGuard(_PluginBase):
             logger.debug(
                 "【综艺正片守卫】%s 检查 %d 个候选：无命中（歧义词遇集号保留 %d 个）",
                 title,
-                len(items),
+                len(file_items),
                 len(kept_numbered),
             )
-            return checkpoint
+            return kwargs
 
-        full_skip = not kept
+        if kwargs.get("preview"):
+            # 预览不产生副作用，只需要让预览结果与实际整理一致。
+            return {**kwargs, "file_items": kept}
+
+        self._stage_batch(
+            kwargs, mediainfo, title, skipped, len(kept), kept_numbered
+        )
         if self._dry_run:
-            self._record(
-                title, skipped, applied=False, numbered=kept_numbered, full_skip=full_skip
-            )
             logger.info(
-                "【综艺正片守卫】试运行：%s 命中 %d 个非正片候选（未过滤）%s：%s",
+                "【综艺正片守卫】试运行：%s 本轮命中 %d 个非正片候选（未过滤）：%s",
                 title,
                 len(skipped),
-                "，整季将被整体跳过" if full_skip else "",
                 "、".join(name for name, _ in skipped[:5]),
             )
-            return checkpoint
+            return kwargs
 
-        if full_skip:
-            # 全为非正片：交给宿主既有的「无候选」静默跳过分支
-            new_checkpoint = dataclasses.replace(
-                checkpoint, items=(), skip_reason=f"综艺非正片已全部跳过（{len(skipped)} 个文件）"
-            )
-            logger.warning(
-                "【综艺正片守卫】%s 的 %d 个候选全部判为非正片，已整体跳过（片库不会出现这一季，"
-                "如属误判请调整词表或先开试运行）",
-                title,
-                len(skipped),
-            )
-        else:
-            resequenced = [
-                dataclasses.replace(item, sequence=index) for index, item in enumerate(kept)
-            ]
-            new_checkpoint = dataclasses.replace(checkpoint, items=tuple(resequenced))
-            logger.info(
-                "【综艺正片守卫】%s 跳过 %d 个非正片文件、保留 %d 个正片文件（歧义词遇集号保留 %d 个）",
-                title,
-                len(skipped),
-                len(kept),
-                len(kept_numbered),
-            )
-
-        self._record(
-            title, skipped, applied=True, numbered=kept_numbered, full_skip=full_skip
+        logger.info(
+            "【综艺正片守卫】%s 本轮候选跳过 %d 个非正片文件、保留 %d 个正片文件"
+            "（歧义词遇集号保留 %d 个；命中已并入批次，结算时统一记账与通知）",
+            title,
+            len(skipped),
+            len(kept),
+            len(kept_numbered),
         )
-        self._notify_skip(title, skipped, full_skip=full_skip)
-        return new_checkpoint
+        return {**kwargs, "file_items": kept}
+
+    # ==================== 批次汇总（一条通知 / 一次记账） ====================
+
+    def _batch_key(
+        self, kwargs: Dict[str, Any], mediainfo: Optional[Any], title: str
+    ) -> str:
+        """批次标识：优先用种子 hash；没有下载来源时退化成「媒体 + 日期」。"""
+        download_hash = str(kwargs.get("download_hash") or "").strip()
+        if download_hash:
+            return f"torrent:{download_hash}"
+        season = getattr(mediainfo, "season", None) or ""
+        return f"media:{title}|{season}|{time.strftime('%Y-%m-%d')}"
+
+    def _stage_batch(
+        self,
+        kwargs: Dict[str, Any],
+        mediainfo: Optional[Any],
+        title: str,
+        skipped: List[Tuple[str, str]],
+        kept_count: int,
+        numbered: Iterable[str],
+    ) -> None:
+        """把本轮命中并入所属批次，并重排汇总计时器。"""
+        key = self._batch_key(kwargs, mediainfo, title)
+        now = time.monotonic()
+        with _BATCH_LOCK:
+            bucket = self._pending_batches.get(key)
+            if bucket is None:
+                bucket = {
+                    "title": title,
+                    "skipped": [],
+                    "seen": set(),
+                    "kept": 0,
+                    "first": now,
+                    "last": now,
+                    "dry_run": self._dry_run,
+                    "numbered": [],
+                    "timer": None,
+                }
+                self._pending_batches[key] = bucket
+            for name, keyword in skipped:
+                if name in bucket["seen"]:
+                    continue
+                bucket["seen"].add(name)
+                bucket["skipped"].append((name, keyword))
+            bucket["kept"] = int(bucket.get("kept") or 0) + max(0, int(kept_count))
+            bucket["numbered"].extend(keyword for keyword in numbered if keyword)
+            bucket["last"] = now
+            self._schedule_batch_flush(key, bucket, now)
+
+    def _schedule_batch_flush(self, key: str, bucket: Dict[str, Any], now: float) -> None:
+        """按「最后一条命中后静默 N 秒」重排计时器，并用最长等待兜底。"""
+        timer = bucket.get("timer")
+        if timer is not None:
+            timer.cancel()
+        age = now - float(bucket.get("first") or now)
+        delay = max(
+            0.0,
+            min(BATCH_NOTIFY_DEBOUNCE_SECONDS, BATCH_NOTIFY_MAX_HOLD_SECONDS - age),
+        )
+        next_timer = threading.Timer(delay, self._flush_batch, args=(key,))
+        next_timer.daemon = True
+        bucket["timer"] = next_timer
+        next_timer.start()
+
+    def _discard_pending_batches(self) -> None:
+        """丢弃未到期的批次缓冲（停用/重载时调用，不发通知）。"""
+        with _BATCH_LOCK:
+            for bucket in self._pending_batches.values():
+                timer = bucket.get("timer")
+                if timer is not None:
+                    timer.cancel()
+            self._pending_batches = {}
+
+    def _flush_pending_batches(self) -> None:
+        """立即结算所有未到期批次（供固定测试与手工排查使用）。"""
+        with _BATCH_LOCK:
+            keys = list(self._pending_batches)
+        for key in keys:
+            self._flush_batch(key)
+
+    def _flush_batch(self, key: str) -> None:
+        """结算一个批次：一次记账 + 最多一条通知。"""
+        with _BATCH_LOCK:
+            bucket = self._pending_batches.pop(key, None)
+            if bucket is None:
+                return
+            timer = bucket.get("timer")
+            if timer is not None:
+                timer.cancel()
+        if not self._enabled:
+            return
+        skipped: List[Tuple[str, str]] = list(bucket.get("skipped") or [])
+        if not skipped:
+            return
+        names = frozenset(name for name, _ in skipped)
+        now = time.time()
+        with _BATCH_LOCK:
+            previous = self._recent_batches.get(key)
+            for stale_key, (stamp, _names) in list(self._recent_batches.items()):
+                if now - stamp > BATCH_DEDUPE_TTL_SECONDS:
+                    self._recent_batches.pop(stale_key, None)
+            self._recent_batches[key] = (now, names)
+        if previous and previous[1] == names and now - previous[0] < BATCH_DEDUPE_TTL_SECONDS:
+            logger.debug("【综艺正片守卫】%s 同一批次重复扫描，跳过重复通知", key)
+            return
+
+        title = str(bucket.get("title") or "未知媒体")
+        kept = int(bucket.get("kept") or 0)
+        dry_run = bool(bucket.get("dry_run"))
+        # 「本批次没有正片」只是本次汇总窗口内的事实，不夸大成整季结论。
+        full_skip = (not dry_run) and kept <= 0
+        self._record(
+            title,
+            skipped,
+            applied=not dry_run,
+            numbered=bucket.get("numbered") or (),
+            full_skip=full_skip,
+        )
+        logger.info(
+            "【综艺正片守卫】%s 汇总 %d 个非正片文件（保留正片 %d 个，%s）",
+            title,
+            len(skipped),
+            kept,
+            "试运行，未过滤" if dry_run else ("该批次无正片" if full_skip else "部分跳过"),
+        )
+        if dry_run:
+            return
+        if not (self._notify or full_skip):
+            return
+        self._notify_skip(title, skipped, full_skip=full_skip, kept=kept)
 
     def _decide(self, text: str) -> Tuple[str, str]:
         """判定单个候选文件：返回（动作, 命中词）。
@@ -614,20 +753,6 @@ class VarietyGuard(_PluginBase):
             return False
         return any(pattern.search(text) for pattern in _EPISODE_EVIDENCE)
 
-    def _extract_mediainfo(
-        self, args: Tuple[Any, ...], kwargs: Dict[str, Any]
-    ) -> Optional[Any]:
-        """从调用参数里取出媒体信息对象（关键字优先，其次按鸭子类型扫描）。"""
-        mediainfo = kwargs.get("mediainfo")
-        if mediainfo is not None:
-            return mediainfo
-        for candidate in args:
-            if hasattr(candidate, "type") and (
-                hasattr(candidate, "library_category") or hasattr(candidate, "category")
-            ):
-                return candidate
-        return None
-
     def _in_scope(self, mediainfo: Optional[Any]) -> bool:
         """判断本次整理是否落在插件作用域内（默认只认电视剧 + 综艺分类）。"""
         if mediainfo is None:
@@ -646,15 +771,13 @@ class VarietyGuard(_PluginBase):
             return any(keyword and keyword in blob for keyword in self._scope_categories)
         return True
 
-    def _item_text(self, item: Any) -> str:
+    def _candidate_text(self, item: Any) -> str:
         """取出用于匹配的文本：默认文件名，可选完整路径。"""
-        source = getattr(item, "source_fileitem", None)
-        if isinstance(source, dict):
-            name = str(source.get("name") or source.get("basename") or "")
-            if self._match_full_path:
-                return str(source.get("path") or name)
-            return name or str(source.get("path") or "")
-        return str(getattr(item, "target_path", "") or "")
+        name = str(getattr(item, "name", "") or "")
+        path = str(getattr(item, "path", "") or "")
+        if self._match_full_path:
+            return path or name
+        return name or path
 
     @staticmethod
     def _media_title(mediainfo: Optional[Any]) -> str:
@@ -779,12 +902,17 @@ class VarietyGuard(_PluginBase):
         return stats if isinstance(stats, dict) else {}
 
     def _notify_skip(
-        self, title: str, skipped: List[Tuple[str, str]], full_skip: bool = False
+        self,
+        title: str,
+        skipped: List[Tuple[str, str]],
+        full_skip: bool = False,
+        kept: int = 0,
     ) -> None:
-        """发送跳过通知。
+        """发送一条批次汇总通知（一次整理批次只发这一条）。
 
-        普通跳过遵守 ``notify`` 开关；**整季整体跳过一次强制发送**——这种情形会直接
-        让片库缺一整季，不能因为开关关闭而无声无息。
+        普通跳过遵守 ``notify`` 开关；**本批次一个正片都没保留时强制发送**——这种情形
+        会让片库缺内容，不能因为开关关闭而无声无息。措辞只描述本批次事实，不夸大成
+        「整季」结论：宿主逐文件调用时，汇总窗口内看不到后续文件。
         """
         if not skipped or not (self._notify or full_skip):
             return
@@ -792,14 +920,18 @@ class VarietyGuard(_PluginBase):
             lines = [f"- {name}（命中：{keyword}）" for name, keyword in skipped[:10]]
             more = f"\n…另有 {len(skipped) - 10} 个文件" if len(skipped) > 10 else ""
             if full_skip:
-                title_text = "【综艺正片守卫】整季候选全部判为非正片，已整体跳过"
+                title_text = f"【综艺正片守卫】本批次 {len(skipped)} 个候选均为非正片，已跳过"
                 head = (
-                    f"媒体：{title}\n{len(skipped)} 个候选全部命中非正片词，"
-                    "这一季不会进入片库。如属误判，请调整词表或先开试运行。\n"
+                    f"媒体：{title}\n本批次 {len(skipped)} 个候选全部命中非正片词，"
+                    "没有保留正片文件（同一包内若有正片仍会正常入库）。"
+                    "如属误判，请调整词表或先开试运行。\n"
                 )
             else:
-                title_text = "【综艺正片守卫】已跳过非正片文件"
-                head = f"媒体：{title}\n跳过 {len(skipped)} 个非正片文件：\n"
+                title_text = f"【综艺正片守卫】已跳过 {len(skipped)} 个非正片文件"
+                head = (
+                    f"媒体：{title}\n跳过 {len(skipped)} 个非正片文件、保留 {kept} 个正片文件"
+                    "（被跳过的文件留在下载目录，不影响做种）：\n"
+                )
             self.post_message(
                 mtype=MessageType.Plugin,
                 title=title_text,
@@ -1128,7 +1260,7 @@ class VarietyGuard(_PluginBase):
         )
         full_skip_runs = int(stats.get("full_skip_runs") or 0)
         full_skip_line = (
-            f"整季整体跳过：{full_skip_runs} 次"
+            f"批次内无正片：{full_skip_runs} 次"
             f"（最近 {stats.get('last_full_skip') or '无'}"
             f"{('｜' + str(stats.get('last_full_skip_title'))) if stats.get('last_full_skip_title') else ''}）"
         )
@@ -1383,7 +1515,9 @@ class VarietyGuard(_PluginBase):
                                             "text": (
                                                 "整理综艺整季包时只保留正片、静默跳过非正片。"
                                                 "插件只在「媒体类型=电视剧 且 分类含综艺」的整理中生效，"
-                                                "不产生整理失败记录，也不移动或删除源文件（不影响做种）。"
+                                                "被跳过的文件不会生成整理任务，因此不产生整理失败记录，"
+                                                "也不移动或删除源文件（不影响做种）。"
+                                                "同一整季包（同一种子）的命中会汇总成一条通知。"
                                                 "首次使用建议先开试运行，观察日志确认命中范围后再关闭。"
                                             ),
                                         },
@@ -1424,6 +1558,8 @@ class VarietyGuard(_PluginBase):
                                         "props": {
                                             "model": "notify",
                                             "label": "跳过时发送通知",
+                                            "persistent-hint": True,
+                                            "hint": "同一整季包（同一种子）的命中会汇总成一条通知；最后一条命中后再等 2 分钟发送。本批次一个正片都没保留时，即使关闭此开关也会发一条提醒。",
                                         },
                                     }
                                 ],
@@ -1692,7 +1828,7 @@ class VarietyGuard(_PluginBase):
                             f"{record.get('time')}｜{record.get('title')}｜"
                             f"命中「{record.get('keyword')}」｜{record.get('name')}"
                             + ("" if record.get("applied") else "（试运行，未过滤）")
-                            + ("（整季整体跳过）" if record.get("scope") == "all" else "")
+                            + ("（该批次无正片）" if record.get("scope") == "all" else "")
                         ),
                     },
                 }

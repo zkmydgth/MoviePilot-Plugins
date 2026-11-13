@@ -47,23 +47,21 @@ MUTANTS = [
         "应导致 test_variety_skips_non_main_episode 失败",
     ),
     (
-        "静默语义丢失：全为非正片时不再改写为无候选跳过",
-        """            new_checkpoint = dataclasses.replace(
-                checkpoint, items=(), skip_reason=f"综艺非正片已全部跳过（{len(skipped)} 个文件）"
-            )""",
-        """            new_checkpoint = dataclasses.replace(checkpoint, items=())""",
-        "应导致 test_all_non_main_rewrites_to_skip_reason 失败",
+        "候选过滤失效：命中非正片的文件仍留在本轮候选里（会被建任务入库）",
+        """            len(kept_numbered),
+        )
+        return {**kwargs, "file_items": kept}""",
+        """            len(kept_numbered),
+        )
+        return kwargs""",
+        "应导致 test_variety_skips_non_main_episode / test_all_non_main_leaves_no_candidate_or_record 失败",
     ),
     (
         "试运行失效：试运行模式下真的执行过滤",
         """        if self._dry_run:
-            self._record(
-                title, skipped, applied=False, numbered=kept_numbered, full_skip=full_skip
-            )""",
+            logger.info(""",
         """        if False:
-            self._record(
-                title, skipped, applied=False, numbered=kept_numbered, full_skip=full_skip
-            )""",
+            logger.info(""",
         "应导致 test_dry_run_records_but_keeps_items 失败",
     ),
     (
@@ -131,11 +129,10 @@ MUTANTS = [
     ),
     (
         "停用开关失效：补丁层残留时仍然过滤",
-        """        if not self._enabled:
-            # 停用开关优先于补丁链：补丁层因外部原因没摘干净时也不再过滤。
-            return checkpoint""",
-        """        if False:
-            return checkpoint""",
+        """                filtered = kwargs
+                if self._enabled:""",
+        """                filtered = kwargs
+                if True:""",
         "应导致 test_patch_does_not_strip_foreign_wrapper 失败",
     ),
     (
@@ -188,12 +185,14 @@ MUTANTS = [
     ),
     (
         "异常不再放行：内部异常被抛出（会中断整理链）",
-        """        except Exception as err:  # pragma: no cover - 兜底防御，定向测试覆盖
-            logger.error("【综艺正片守卫】过滤失败，按原计划放行：%s", err, exc_info=True)
-            return checkpoint""",
-        """        except Exception as err:  # pragma: no cover
-            logger.error("【综艺正片守卫】过滤失败：%s", err, exc_info=True)
-            raise""",
+        """                    except Exception as err:  # pragma: no cover - 兜底防御
+                        logger.error(
+                            "【综艺正片守卫】过滤失败，按原候选放行：%s", err, exc_info=True
+                        )
+                        filtered = kwargs""",
+        """                    except Exception as err:  # pragma: no cover
+                        logger.error("【综艺正片守卫】过滤失败：%s", err, exc_info=True)
+                        raise""",
         "应导致 test_fail_open_on_internal_error 失败",
     ),
     (
@@ -207,6 +206,44 @@ MUTANTS = [
         """        owned |= set(_LEGACY_ZERO_EPISODE)""",
         """        pass""",
         "应导致 test_rule_sync_replaces_legacy_zero_episode_literals 失败",
+    ),
+    (
+        "批次聚合失效：每次回调都新建批次（同一整季包逐条通知）",
+        """            bucket = self._pending_batches.get(key)
+            if bucket is None:""",
+        """            bucket = None
+            if bucket is None:""",
+        "应导致 test_batch_files_merge_into_one_notification 失败",
+    ),
+    (
+        "重复扫描去重失效：同一种子同样的文件集合反复通知与计数",
+        """        if previous and previous[1] == names and now - previous[0] < BATCH_DEDUPE_TTL_SECONDS:""",
+        """        if False:""",
+        "应导致 test_repeated_scan_does_not_notify_twice 失败",
+    ),
+    (
+        "保留计数丢失：通知里永远写「保留 0 个正片」",
+        """            bucket["kept"] = int(bucket.get("kept") or 0) + max(0, int(kept_count))""",
+        """            bucket["kept"] = 0""",
+        "应导致 test_batch_files_merge_into_one_notification 失败",
+    ),
+    (
+        "批次无正片判定恒假：整包跳过不再强制通知、不再单独计数",
+        """        full_skip = (not dry_run) and kept <= 0""",
+        """        full_skip = False""",
+        "应导致 test_full_skip_notifies_even_when_switch_off 失败",
+    ),
+    (
+        "预览也记账：预览时产生统计与通知（会造成重复计数与误报）",
+        """        if kwargs.get("preview"):""",
+        """        if False:""",
+        "应导致 test_preview_filters_without_records_or_notify 失败",
+    ),
+    (
+        "试运行记账口径反转：试运行命中被记成真正跳过",
+        """            applied=not dry_run,""",
+        """            applied=True,""",
+        "应导致 test_dry_run_counted_separately 失败",
     ),
 ]
 
