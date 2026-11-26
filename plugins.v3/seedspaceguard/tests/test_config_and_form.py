@@ -5,7 +5,6 @@
 这些用例针对「改造后新增/变更的配置契约」，防止后续改动破坏兼容性。
 """
 
-import json
 import re
 import unittest
 
@@ -451,14 +450,12 @@ class TestStatusAndPage(unittest.TestCase):
         self.assertNotIn("个目录", text)
 
 
-class TestRestoreProtectPatternButton(unittest.TestCase):
-    """配置页「恢复默认保护后缀」按钮（v3.0.10）。
+class TestRestoreProtectPatternSwitch(unittest.TestCase):
+    """配置页「恢复默认保护后缀」开关（v3.6.1）。
 
-    宿主配置表单渲染器（``FormRender.vue`` 的 ``parseProps``）只认
-    ``props.on*`` 形式的字符串脚本，且在 ``with(model)`` 作用域内求值；
-    ``events`` 在配置表单里不生效（只有详情页按钮支持）。故本按钮采用
-    ``onClick`` + 原生 ``confirm`` 确认弹窗，且只改本地表单——
-    **仍需用户点击「保存」才落库**，不会直接改配置。
+    此前是 ``props.onClick`` 的 JS 按钮：网页端能 eval，App 原生渲染器不执行 JS，
+    按钮直接渲染成禁用态（2026-11-26 用户实测点不动）。现改为纯数据开关
+    ``restore_protect_pattern``：打开并保存后由 ``init_plugin`` 写入默认模板并复位。
     """
 
     def setUp(self):
@@ -475,14 +472,6 @@ class TestRestoreProtectPatternButton(unittest.TestCase):
             for item in node:
                 yield from self._walk(item)
 
-    def _button(self):
-        """取「恢复默认保护后缀」按钮节点。"""
-        for node in self._walk(self.form):
-            if (node.get("component") == "VBtn"
-                    and node.get("text") == "恢复默认保护后缀"):
-                return node
-        return None
-
     def _props_by_model(self, model):
         """按 model 取控件 props。"""
         for node in self._walk(self.form):
@@ -491,47 +480,107 @@ class TestRestoreProtectPatternButton(unittest.TestCase):
                 return props
         return {}
 
-    def test_button_present_in_form(self):
-        """按钮必须出现在配置表单里。"""
-        self.assertIsNotNone(self._button(), "表单缺少「恢复默认保护后缀」按钮")
+    def test_switch_replaces_js_button(self):
+        """必须是开关，且表单里不能再留只靠 onClick 的按钮。"""
+        self.assertEqual(
+            self._props_by_model("restore_protect_pattern").get("model"),
+            "restore_protect_pattern",
+        )
+        buttons = [
+            node for node in self._walk(self.form) if node.get("component") == "VBtn"
+        ]
+        self.assertEqual(buttons, [], "配置表单不应再有按钮（App 端点不动）")
 
-    def test_button_has_no_model_and_no_events(self):
-        """按钮不得带 model（否则会污染表单字段校验），也不得用 events。
-
-        ``events`` 只在详情页按钮生效，放进配置表单会静默失效。
-        """
-        button = self._button()
-        self.assertNotIn("model", button["props"])
-        self.assertNotIn("events", button)
-
-    def test_button_follows_file_only_visibility(self):
-        """按钮与输入框同属「仅文件」组，可见性必须一致。"""
-        button = self._button()
-        self.assertEqual(button["props"].get("show"), "mode === 'file'")
+    def test_switch_follows_file_only_visibility(self):
+        """开关与输入框同属「仅文件」组，可见性必须一致。"""
+        switch = self._props_by_model("restore_protect_pattern")
+        self.assertEqual(switch.get("show"), "mode === 'file'")
         self.assertEqual(
             self._props_by_model("protect_pattern").get("show"),
-            button["props"].get("show"),
+            switch.get("show"),
         )
 
-    def test_button_js_confirms_and_fills_default(self):
-        """脚本必须：先 ``confirm`` 确认，再把默认模板写回表单字段。"""
-        script = self._button()["props"].get("onClick")
-        self.assertIsInstance(script, str, "onClick 必须是字符串脚本")
-        self.assertIn("confirm(", script, "缺少确认弹窗")
-        self.assertIn("model.protect_pattern", script, "未写回表单字段")
-        self.assertIn(
-            json.dumps(DEFAULT_PROTECT_PATTERN, ensure_ascii=False),
-            script,
-            "脚本内联的模板与 DEFAULT_PROTECT_PATTERN 不一致",
+    def test_switch_restores_default_and_resets_itself(self):
+        """打开开关保存：保护后缀写成默认模板，开关立刻复位，避免之后每次保存都覆盖。"""
+        plugin = SeedSpaceGuard()
+        plugin.init_plugin(
+            {
+                "enabled": True,
+                "mode": "file",
+                "protect_pattern": "*.part",
+                "restore_protect_pattern": True,
+            }
         )
+        self.assertEqual(plugin._protect_pattern, DEFAULT_PROTECT_PATTERN)
+        saved = plugin.get_config() or {}
+        self.assertEqual(saved.get("protect_pattern"), DEFAULT_PROTECT_PATTERN)
+        self.assertIs(saved.get("restore_protect_pattern"), False)
+
+    def test_switch_off_keeps_user_value(self):
+        """开关关闭时不得覆盖用户手填的后缀。"""
+        plugin = SeedSpaceGuard()
+        plugin.init_plugin(
+            {"enabled": True, "mode": "file", "protect_pattern": "*.part"}
+        )
+        self.assertEqual(plugin._protect_pattern, "*.part")
 
     def test_default_template_single_source(self):
-        """默认模板只有一个真源：新装默认值 / 占位符 / 按钮脚本三者一致。"""
+        """默认模板只有一个真源：新装默认值与占位符一致，且不再写进 JS 脚本。"""
         self.assertEqual(self.default["protect_pattern"], DEFAULT_PROTECT_PATTERN)
         self.assertEqual(
             self._props_by_model("protect_pattern").get("placeholder"),
             DEFAULT_PROTECT_PATTERN,
         )
+        self.assertIs(self.default.get("restore_protect_pattern"), False)
+        self.assertNotIn("onClick", str(self.form))
+
+
+class TestCompactFormForApp(unittest.TestCase):
+    """App 端表单紧凑度：输入框不再按 rows 撑高、长 hint 不再常驻占位。"""
+
+    def setUp(self):
+        self.plugin = SeedSpaceGuard()
+        self.form, _ = self.plugin.get_form()
+
+    def _walk(self, node):
+        """深度遍历表单节点。"""
+        if isinstance(node, dict):
+            yield node
+            if "content" in node:
+                yield from self._walk(node["content"])
+        elif isinstance(node, list):
+            for item in node:
+                yield from self._walk(item)
+
+    def test_text_inputs_are_compact(self):
+        """多行输入框 rows 不超过 3 且开自动增高；长说明不得留在控件内。"""
+        for node in self._walk(self.form):
+            if node.get("component") != "VTextarea":
+                continue
+            props = node.get("props") or {}
+            self.assertLessEqual(props.get("rows") or 0, 3, f"{props.get('model')} rows 过大")
+            self.assertIs(props.get("auto-grow"), True, f"{props.get('model')} 未开 auto-grow")
+            self.assertNotIn(
+                "persistent-hint",
+                props,
+                f"{props.get('model')} 仍用常驻 hint（App 端会撑高）",
+            )
+
+    def test_long_hints_moved_out_of_fields(self):
+        """单行输入框里不再挂长 hint（>80 字），改由独立段落承载。"""
+        for node in self._walk(self.form):
+            if node.get("component") != "VTextField":
+                continue
+            props = node.get("props") or {}
+            hint = str(props.get("hint") or "")
+            if len(hint) > 80:
+                self.assertNotIn(
+                    "persistent-hint",
+                    props,
+                    f"{props.get('model')} 仍有 {len(hint)} 字常驻 hint（App 端会撑高）",
+                )
+        text = str(self.form)
+        self.assertIn("每行一个绝对路径", text, "长说明文字应保留在独立段落里")
 
 
 if __name__ == "__main__":

@@ -59,15 +59,15 @@ HIDE_GLOBAL_NEW = (
 )
 
 # ② 模式专属项漏掉 show（仅文件组的保护后缀）→ 诉求落空
-# 锚点刻意只取「persistent-hint + show」两行：hint 文案会随版本改写，
-# 一旦把 hint 正文纳入锚点，改文案就会让本变异体静默变成「跳过」＝防护失效。
-# （该组合在源码中唯一：仅「保护文件后缀」输入框同时具备这两行。）
+# 锚点取「placeholder + show」两行：hint 文案与 persistent-hint 都会随版本调整
+# （v3.6.1 把长说明移出控件、改成独立段落），一旦纳入就会被改动静默变成「跳过」＝防护失效。
+# （该组合在源码中唯一：只有「保护文件后缀」输入框用 DEFAULT_PROTECT_PATTERN 占位符。）
 MISSING_SHOW_OLD = (
-    '                            "persistent-hint": True,\n'
+    '                            "placeholder": DEFAULT_PROTECT_PATTERN,\n'
     '                            "show": "mode === \'file\'",\n'
 )
 MISSING_SHOW_NEW = (
-    '                            "persistent-hint": True,\n'
+    '                            "placeholder": DEFAULT_PROTECT_PATTERN,\n'
 )
 
 # ③ 把种子级项的 show 写成 file（条件写反）→ 种子级模式下看不到自己的设置

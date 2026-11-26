@@ -41,7 +41,8 @@ SEED_ONLY_MODELS = (
     "downloaders", "companion_cleanup", "companion_protect", "orphan_cleanup",
 )
 # 仅文件模式专属（应带 show: mode === 'file'）
-FILE_ONLY_MODELS = ("protect_pattern",)
+# 仅文件模式可见：保护后缀 + 恢复默认开关（开关跟输入框同组，App 端替代 JS 按钮）
+FILE_ONLY_MODELS = ("protect_pattern", "restore_protect_pattern")
 # 两模式通用 / 全局（绝不能带 show，否则会被误藏）
 ALWAYS_VISIBLE_MODELS = (
     "manual_action", "enabled", "mode", "target_dirs", "protect_dirs",

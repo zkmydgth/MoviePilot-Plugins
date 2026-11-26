@@ -138,7 +138,9 @@ class TestProtectConfig(_ProtectBase):
         walk(form)
         self.assertEqual(len(found), 1)
         self.assertEqual(found[0].get("label"), "保护目录（每行一个）")
-        self.assertIn("即使该目录位于", str(found[0].get("hint") or ""))
+        # 长说明已从控件 hint 挪到独立段落（App 端常驻 hint 会把控件撑高），文字仍要在表单里
+        self.assertNotIn("persistent-hint", found[0])
+        self.assertIn("即使该目录位于", str(form))
         self.assertIn("protect_dirs", default)
         self.assertEqual(default["protect_dirs"], "")
 

@@ -25,7 +25,6 @@
 
 import asyncio
 import functools
-import json
 import os
 import re
 import shutil
@@ -296,6 +295,24 @@ class SeedSpaceGuard(_PluginBase):
         if not config:
             return
         self._enabled = bool(config.get("enabled"))
+        # 「恢复默认保护后缀」开关（App 端配置表单不能执行 JS，改用纯数据开关）：
+        # 打开并保存即把保护后缀重置为内置模板，并立刻把开关复位，避免之后每次保存都覆盖。
+        if config.get("restore_protect_pattern"):
+            config = {**config, "protect_pattern": DEFAULT_PROTECT_PATTERN}
+            try:
+                saved = self.get_config() or {}
+                self.update_config(
+                    {
+                        **saved,
+                        "protect_pattern": DEFAULT_PROTECT_PATTERN,
+                        "restore_protect_pattern": False,
+                    }
+                )
+                logger.info(
+                    "【保种空间守护】已恢复默认保护后缀：%s", DEFAULT_PROTECT_PATTERN
+                )
+            except Exception as err:
+                logger.error("【保种空间守护】恢复默认保护后缀回写失败：%s", err)
         # 多目录配置：优先读新字段 target_dirs；为空则从旧的单目录 target_dir 迁移
         raw_dirs = config.get("target_dirs")
         if not (isinstance(raw_dirs, str) and raw_dirs.strip()):
@@ -556,33 +573,23 @@ class SeedSpaceGuard(_PluginBase):
         return {"component": "VAlert", "props": props}
 
     @staticmethod
-    def _restore_protect_pattern_js() -> str:
-        """生成配置表单「恢复默认保护后缀」按钮的前端脚本。
-
-        宿主配置表单渲染器（``FormRender.vue`` 的 ``parseProps``）只支持
-        ``props.on*`` 形式的**字符串脚本**，且在 ``with(model)`` 作用域内以
-        ``(${value})(event)`` 求值；``events`` 在配置表单里不生效（只有详情页
-        按钮支持）。因此脚本先弹浏览器原生 ``confirm`` 让用户确认，再把默认
-        模板写回表单字段——**只改本地表单，仍需用户点击「保存」才会落库**。
-
-        脚本内联的模板与 ``DEFAULT_PROTECT_PATTERN`` 逐字节一致，由测试校验。
-
-        :return: 可直接放进 ``props.onClick`` 的 JS 函数源码
+    def _form_note(text: str) -> dict:
         """
-        guard = json.dumps(
-            "将把「保护文件后缀」恢复为默认模板：\n"
-            f"{DEFAULT_PROTECT_PATTERN}\n"
-            "（只改这一项，点完仍需按「保存」才会生效）\n确定恢复？",
-            ensure_ascii=False,
-        )
-        value = json.dumps(DEFAULT_PROTECT_PATTERN, ensure_ascii=False)
-        return (
-            "function () { if (!confirm("
-            + guard
-            + ")) { return; } model.protect_pattern = "
-            + value
-            + "; }"
-        )
+        构造输入框下方的独立说明节点。
+
+        长说明原先写在 ``props.hint`` + ``persistent-hint`` 里，App 原生渲染器会把常驻
+        提示并进控件高度，长 hint 能撑出半屏空白（2026-11-26 用户实测）。改为独立的
+        小字段落后，网页端观感接近，App 端不再按 hint 预留空间。
+
+        :param text: 说明文字
+        :return: p 节点
+        """
+
+        return {
+            "component": "p",
+            "props": {"class": "text-caption text-medium-emphasis mb-3"},
+            "text": text,
+        }
 
     def get_form(self) -> Tuple[Optional[List[dict]], Dict[str, Any]]:
         """返回插件配置表单与默认配置。"""
@@ -670,15 +677,18 @@ class SeedSpaceGuard(_PluginBase):
                             "model": "target_dirs",
                             "label": "保种/清理目录（每行一个）",
                             "class": "mt-4",
-                            "rows": 4,
+                            "rows": 3,
+                            "auto-grow": True,
+                            "max-rows": 8,
                             "placeholder": "/volume1/video/下载\n/volume1/video/媒体库",
-                            "hint": "每行一个绝对路径。若下载目录与媒体库目录中的文件互为硬链接，"
-                                   "请把两个目录都填进来，插件会自动识别并两侧一并删除；"
-                                   "只填一侧会导致删除后空间不释放（插件检测到会停止并告警）。"
-                                   "以 # 开头的行会被忽略，可用于临时停用某个目录",
-                            "persistent-hint": True,
                         },
                     },
+                    self._form_note(
+                        "每行一个绝对路径。若下载目录与媒体库目录中的文件互为硬链接，"
+                        "请把两个目录都填进来，插件会自动识别并两侧一并删除；"
+                        "只填一侧会导致删除后空间不释放（插件检测到会停止并告警）。"
+                        "以 # 开头的行会被忽略，可用于临时停用某个目录。"
+                    ),
                     {
                         "component": "VTextarea",
                         "props": {
@@ -686,14 +696,16 @@ class SeedSpaceGuard(_PluginBase):
                             "label": "保护目录（每行一个）",
                             "class": "mt-4",
                             "rows": 3,
+                            "auto-grow": True,
+                            "max-rows": 8,
                             "placeholder": "/volume1/video/长期保种\n/volume1/video/下载/收藏",
-                            "hint": "填写后，这些目录及其内部内容在任何模式、任何清理链路下"
-                                   "都不会被自动删除——即使该目录位于上方「保种/清理目录」之内。"
-                                   "用于保留长期做种或珍藏的资源；以 # 开头的行会被忽略；"
-                                   "留空 = 不做目录级保护",
-                            "persistent-hint": True,
                         },
                     },
+                    self._form_note(
+                        "填写后，这些目录及其内部内容在任何模式、任何清理链路下都不会被自动删除"
+                        "——即使该目录位于上方「保种/清理目录」之内。"
+                        "用于保留长期做种或珍藏的资源；以 # 开头的行会被忽略；留空 = 不做目录级保护。"
+                    ),
                     {
                         "component": "VTextField",
                         "props": {
@@ -745,12 +757,13 @@ class SeedSpaceGuard(_PluginBase):
                             "label": "空间释放最长等待秒数",
                             "class": "mt-4",
                             "placeholder": "90",
-                            "hint": "删除后轮询等待空间释放的时长上限，默认 90，可填 0-1800（0=不等待）。"
-                                    "每 5 秒轮询一次，释放达标即提前结束，无需空等整个时长；"
-                                    "仅当释放滞后（如快照占用、文件系统延迟回收）时才会等满",
-                            "persistent-hint": True,
                         },
                     },
+                    self._form_note(
+                        "删除后轮询等待空间释放的时长上限，默认 90，可填 0-1800（0=不等待）。"
+                        "每 5 秒轮询一次，释放达标即提前结束，无需空等整个时长；"
+                        "仅当释放滞后（如快照占用、文件系统延迟回收）时才会等满。"
+                    ),
                     {
                         "component": "VSwitch",
                         "props": {
@@ -828,18 +841,17 @@ class SeedSpaceGuard(_PluginBase):
                             "model": "orphan_cleanup",
                             "label": "清理无主文件（无种子引用）",
                             "class": "mt-4",
-                            "hint": "仅种子级模式生效，**默认关闭**。清理「不被任何种子引用」"
-                                    "的孤儿硬链接——典型成因：种子的内容与种子本身都被"
-                                    "移到了「保种/清理目录」之外，只剩媒体库侧的硬链接"
-                                    "残留，既无种子可依、也不被「仅文件」模式触及。"
-                                    "判定采取保守策略：无法确证种子清单时整轮跳过；"
-                                    "同一 inode 只要有任一路径被种子引用就整组保留；"
-                                    "保护期内的文件与保护后缀不动。"
-                                    "因涉及主动删除用户文件，请务必先开「试运行」核对清单",
-                            "persistent-hint": True,
                             "show": "mode === 'seed'",
                         },
                     },
+                    self._form_note(
+                        "仅种子级模式生效，默认关闭。清理「不被任何种子引用」的孤儿硬链接"
+                        "——典型成因：种子的内容与种子本身都被移到了「保种/清理目录」之外，"
+                        "只剩媒体库侧的硬链接残留，既无种子可依、也不被「仅文件」模式触及。"
+                        "判定采取保守策略：无法确证种子清单时整轮跳过；"
+                        "同一 inode 只要有任一路径被种子引用就整组保留；保护期内的文件与保护后缀不动。"
+                        "因涉及主动删除用户文件，请务必先开「试运行」核对清单。"
+                    ),
                     # ---- 分组标题：仅文件模式设置（仅 mode=file 显示） ----
                     self._group_header(
                         "仅文件模式设置",
@@ -853,45 +865,32 @@ class SeedSpaceGuard(_PluginBase):
                             "label": "保护文件后缀",
                             "class": "mt-4",
                             "placeholder": DEFAULT_PROTECT_PATTERN,
-                            "hint": "以 | 分隔的通配符，命中的文件不删除；"
-                                    "留空 = 不保护任何文件（未完成的 *.part 等"
-                                    "同样会被清理，留空请谨慎）。"
-                                    "在「仅文件」模式与种子级的「清理无主文件」中生效；"
-                                    "种子级主链路（直接删种子）不适用。"
-                                    "点下方按钮可一键填回默认模板",
-                            "persistent-hint": True,
                             "show": "mode === 'file'",
                         },
                     },
-                    # ---- 「恢复默认保护后缀」按钮：紧贴上方输入框 ----
-                    # 表单渲染器只认 props.on* 字符串脚本（with(model) 作用域），
-                    # events 在配置表单里不生效，故用 onClick + 原生 confirm 确认弹窗。
+                    self._form_note(
+                        "以 | 分隔的通配符，命中的文件不删除；留空 = 不保护任何文件"
+                        "（未完成的 *.part 等同样会被清理，留空请谨慎）。"
+                        "在「仅文件」模式与种子级的「清理无主文件」中生效；种子级主链路（直接删种子）不适用。"
+                    ),
+                    # ---- 「恢复默认保护后缀」开关 ----
+                    # 配置表单的按钮只能靠 props.onClick 的 JS 脚本，App 原生渲染器不执行 JS，
+                    # 按钮会渲染成禁用态（2026-11-26 用户实测）。改成纯数据开关：打开并保存即
+                    # 重置为内置默认模板，保存完成后开关自动复位（由 init_plugin 落库）。
                     {
-                        "component": "VBtn",
+                        "component": "VSwitch",
                         "props": {
-                            "color": "warning",
-                            "variant": "tonal",
-                            "size": "small",
-                            "class": "mt-2 mb-1",
-                            "prepend-icon": "mdi-restore",
-                            "onClick": self._restore_protect_pattern_js(),
+                            "model": "restore_protect_pattern",
+                            "label": "恢复默认保护后缀（保存后生效）",
+                            "class": "mt-4",
                             "show": "mode === 'file'",
                         },
-                        "text": "恢复默认保护后缀",
                     },
-                    {
-                        "component": "VAlert",
-                        "props": {
-                            "type": "info",
-                            "variant": "tonal",
-                            "class": "mt-2",
-                            "show": "mode === 'file'",
-                            "text": "点按钮先把默认模板填回上方输入框"
-                                    "（会先弹确认，且只改这一项）；"
-                                    "点完仍需按「保存」才会生效。"
-                                    "要「不保护任何文件」则把输入框清空。",
-                        },
-                    },
+                    self._form_note(
+                        f"打开本开关并保存，会把上方「保护文件后缀」重置为内置默认模板"
+                        f"（{DEFAULT_PROTECT_PATTERN}）；保存完成后开关自动关闭。"
+                        "只想改个别后缀就直接改输入框；要「不保护任何文件」则把输入框清空。"
+                    ),
                     # ---- 分组标题：种子联动设置（两模式通用，不显隐） ----
                     self._group_header(
                         "种子联动设置（两种模式通用）",
@@ -966,15 +965,14 @@ class SeedSpaceGuard(_PluginBase):
                             "class": "mt-4",
                             "type": "number",
                             "placeholder": "300",
-                            "hint": "**两种模式通用，默认 300 秒，范围 30~3600**。"
-                                    "空壳判定要逐个种子向下载器核对文件清单，"
-                                    "下载器响应慢时一轮可能拖到小时级；"
-                                    "超过该预算即停止判定，剩余候选按「仍有文件」"
-                                    "保留并在下一轮从断点继续（不会永远轮不到）。"
-                                    "种子很多且下载器较快时可适当调大。",
-                            "persistent-hint": True,
                         },
                     },
+                    self._form_note(
+                        "两种模式通用，默认 300 秒，范围 30~3600。空壳判定要逐个种子向下载器核对文件清单，"
+                        "下载器响应慢时一轮可能拖到小时级；超过该预算即停止判定，"
+                        "剩余候选按「仍有文件」保留并在下一轮从断点继续（不会永远轮不到）。"
+                        "种子很多且下载器较快时可适当调大。"
+                    ),
                     # ---- 分组标题：目录维护设置（两模式通用，不显隐） ----
                     self._group_header(
                         "目录维护设置（两种模式通用）",
@@ -986,18 +984,15 @@ class SeedSpaceGuard(_PluginBase):
                             "model": "empty_dir_sweep",
                             "label": "扫描并清理监控目录空壳",
                             "class": "mt-4",
-                            "hint": "**两种模式通用，默认开启**。每轮检查监控目录，"
-                                    "删除「除 @eaDir 等 DSM 索引残片外已无任何内容」的"
-                                    "空目录——典型成因是下载器删种时删掉了文件，"
-                                    "但群晖的 @eaDir 残片让目录无法被 rmdir，"
-                                    "插件自身也不会再访问它。"
-                                    "只删目录与可安全识别的 DSM 索引残片："
-                                    "目录内只要还有任一真实文件、符号链接或"
-                                    "无法识别的元数据就整棵保留；"
-                                    "配置目录本身永不删除。试运行时只列出不删。",
-                            "persistent-hint": True,
                         },
                     },
+                    self._form_note(
+                        "两种模式通用，默认开启。每轮检查监控目录，删除「除 @eaDir 等 DSM 索引残片外"
+                        "已无任何内容」的空目录——典型成因是下载器删种时删掉了文件，"
+                        "但群晖的 @eaDir 残片让目录无法被 rmdir，插件自身也不会再访问它。"
+                        "只删目录与可安全识别的 DSM 索引残片：目录内只要还有任一真实文件、"
+                        "符号链接或无法识别的元数据就整棵保留；配置目录本身永不删除。试运行时只列出不删。"
+                    ),
                 ],
             }
         ], self._default_config()
@@ -5569,6 +5564,8 @@ class SeedSpaceGuard(_PluginBase):
             # 新装默认模板：预填一组推荐后缀。该值仅作安装时的初始配置，
             # 用户清空后即为「不保护任何文件」，不会再被 init_plugin 回落。
             "protect_pattern": DEFAULT_PROTECT_PATTERN,
+            # 「恢复默认保护后缀」开关：保存时生效并自动复位（App 端替代 JS 按钮）
+            "restore_protect_pattern": False,
             "dry_run": False,
             "notify": True,
             "delete_torrents": False,
