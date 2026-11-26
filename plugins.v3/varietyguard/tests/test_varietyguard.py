@@ -1157,32 +1157,65 @@ class RestoreDefaultKeywordsTestCase(unittest.TestCase):
         """卸载补丁，避免污染其它用例。"""
         self.plugin.stop_service()
 
-    def test_form_button_uses_client_script(self):
-        """配置表单按钮：走 props.onClick 字符串脚本（含 confirm 守卫），且不得出现表单渲染器不支持的 events。"""
-        form, _defaults = VarietyGuard().get_form()
-        blob = repr(form)
-        self.assertIn("恢复默认关键词", blob)
-        self.assertIn("model.exclude_keywords", blob)
-        self.assertIn("confirm(", blob)
-        self.assertNotIn("'events'", blob)
+    def test_form_uses_switch_not_js_button(self):
+        """配置表单改用纯数据开关：App 原生渲染不执行 props.onClick，JS 按钮会变成禁用态。"""
+        form, defaults = VarietyGuard().get_form()
 
-    def test_form_button_payload_equals_defaults(self):
-        """按钮脚本内联的词表必须与内置默认逐项一致，否则「恢复默认」会填错内容。"""
-        import json as _json
+        def walk(node):
+            """深度遍历表单节点。"""
+            if isinstance(node, dict):
+                yield node
+                yield from walk(node.get("content"))
+            elif isinstance(node, list):
+                for item in node:
+                    yield from walk(item)
 
+        switches = [
+            node for node in walk(form)
+            if node.get("component") == "VSwitch"
+            and (node.get("props") or {}).get("model") == "restore_keywords"
+        ]
+        self.assertEqual(len(switches), 1, "表单缺少「恢复默认关键词」开关")
+        self.assertEqual(
+            [n for n in walk(form) if n.get("component") == "VBtn"], [],
+            "配置表单不应再有按钮（App 端点不动）",
+        )
+        self.assertNotIn("onClick", repr(form))
+        self.assertIs(defaults.get("restore_keywords"), False)
+
+    def test_restore_switch_rewrites_keywords_and_resets(self):
+        """打开开关保存：三栏写回默认词表，开关立刻复位，避免之后每次保存都覆盖。"""
         from varietyguard import (
             DEFAULT_ALLOW_KEYWORDS,
             DEFAULT_AMBIGUOUS_KEYWORDS,
             DEFAULT_EXCLUDE_KEYWORDS,
         )
 
-        script = VarietyGuard._restore_keywords_js()
-        exclude_raw = script.split("model.exclude_keywords = ", 1)[1].split(".join(", 1)[0]
-        ambiguous_raw = script.split("model.ambiguous_keywords = ", 1)[1].split(".join(", 1)[0]
-        allow_raw = script.split("model.allow_keywords = ", 1)[1].split(".join(", 1)[0]
-        self.assertEqual(_json.loads(exclude_raw), list(DEFAULT_EXCLUDE_KEYWORDS))
-        self.assertEqual(_json.loads(ambiguous_raw), list(DEFAULT_AMBIGUOUS_KEYWORDS))
-        self.assertEqual(_json.loads(allow_raw), list(DEFAULT_ALLOW_KEYWORDS))
+        plugin = VarietyGuard()
+        plugin.init_plugin(
+            {
+                "enabled": False,
+                "exclude_keywords": "手工词",
+                "ambiguous_keywords": "手工歧义词",
+                "allow_keywords": "手工白名单",
+                "restore_keywords": True,
+            }
+        )
+        self.assertEqual(list(plugin._exclude_keywords), list(DEFAULT_EXCLUDE_KEYWORDS))
+        self.assertEqual(list(plugin._ambiguous_keywords), list(DEFAULT_AMBIGUOUS_KEYWORDS))
+        self.assertEqual(list(plugin._allow_keywords), list(DEFAULT_ALLOW_KEYWORDS))
+        saved = plugin.get_config() or {}
+        self.assertIs(saved.get("restore_keywords"), False)
+        self.assertEqual(saved.get("exclude_keywords"), "\n".join(DEFAULT_EXCLUDE_KEYWORDS))
+
+    def test_restore_switch_off_keeps_user_keywords(self):
+        """开关关闭时不得覆盖用户手填的词。"""
+        plugin = VarietyGuard()
+        plugin.init_plugin(
+            {"enabled": False, "exclude_keywords": "手工词", "restore_keywords": False}
+        )
+        self.assertIn("手工词", plugin._exclude_keywords)
+
 
     def test_default_keywords_text_shape(self):
         """默认词表文本形态：与常量逐项一致（供配置文本框与 API 写回共用）。"""

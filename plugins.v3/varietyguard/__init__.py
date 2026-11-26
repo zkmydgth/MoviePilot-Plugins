@@ -369,6 +369,22 @@ class VarietyGuard(_PluginBase):
         if not config:
             return
         self._enabled = bool(config.get("enabled"))
+        # 「恢复默认关键词」开关（App 端配置表单不能执行 JS，改用纯数据开关）：
+        # 打开并保存即把三栏写回内置默认词表，并立刻把开关复位，避免之后每次保存都覆盖。
+        if config.get("restore_keywords"):
+            defaults = self.default_keywords()
+            config = {**config, **defaults}
+            try:
+                saved = self.get_config() or {}
+                self.update_config({**saved, **defaults, "restore_keywords": False})
+                logger.info(
+                    "【综艺正片守卫】已恢复默认关键词（强词 %d 项、歧义词 %d 项、白名单 %d 项）",
+                    len(DEFAULT_EXCLUDE_KEYWORDS),
+                    len(DEFAULT_AMBIGUOUS_KEYWORDS),
+                    len(DEFAULT_ALLOW_KEYWORDS),
+                )
+            except Exception as err:  # noqa: BLE001 - 回写失败不影响本次运行
+                logger.error("【综艺正片守卫】恢复默认关键词回写失败：%s", err)
         self._dry_run = bool(config.get("dry_run", True))
         self._exclude_keywords = self._normalize_keywords(
             config.get("exclude_keywords"), DEFAULT_EXCLUDE_KEYWORDS
@@ -1571,34 +1587,23 @@ class VarietyGuard(_PluginBase):
         }
 
     @staticmethod
-    def _restore_keywords_js() -> str:
-        """生成配置表单「恢复默认关键词」按钮的前端脚本。
-
-        宿主配置表单渲染器只支持 ``props.on*`` 形式的字符串脚本（在 ``with(model)``
-        作用域里执行），**不支持** ``events``；因此脚本先弹浏览器原生 ``confirm`` 让用户
-        确认，再改本地表单，最后仍需用户点击「保存」才会落库。
-        脚本内联的词表与内置默认逐项一致（由测试校验）。
+    def _form_note(text: str) -> dict:
         """
-        exclude_json = json.dumps(list(DEFAULT_EXCLUDE_KEYWORDS), ensure_ascii=False)
-        ambiguous_json = json.dumps(list(DEFAULT_AMBIGUOUS_KEYWORDS), ensure_ascii=False)
-        allow_json = json.dumps(list(DEFAULT_ALLOW_KEYWORDS), ensure_ascii=False)
-        guard = json.dumps(
-            "将用内置默认词表覆盖「非正片关键词 / 歧义词 / 正片白名单」三个输入框"
-            f"（强词 {len(DEFAULT_EXCLUDE_KEYWORDS)} 项、歧义词 {len(DEFAULT_AMBIGUOUS_KEYWORDS)} 项），"
-            "确定恢复？",
-            ensure_ascii=False,
-        )
-        return (
-            "function () { if (!confirm("
-            + guard
-            + ")) { return; } model.exclude_keywords = "
-            + exclude_json
-            + ".join(String.fromCharCode(10)); model.ambiguous_keywords = "
-            + ambiguous_json
-            + ".join(String.fromCharCode(10)); model.allow_keywords = "
-            + allow_json
-            + ".join(String.fromCharCode(10)); }"
-        )
+        构造输入框下方的独立说明节点。
+
+        长说明原先写在 ``props.hint`` + ``persistent-hint`` 里，App 原生渲染器会把常驻
+        提示并进控件高度，长 hint 能撑出半屏空白（2026-11-26 用户实测）。改为独立的
+        小字段落后，网页端观感接近，App 端不再按 hint 预留空间。
+
+        :param text: 说明文字
+        :return: p 节点
+        """
+
+        return {
+            "component": "p",
+            "props": {"class": "text-caption text-medium-emphasis mb-3"},
+            "text": text,
+        }
 
     def _restore_pending(self) -> Optional[Dict[str, Any]]:
         """读取待确认的「恢复默认关键词」请求；过期或形态损坏时自动作废。"""
@@ -1856,11 +1861,18 @@ class VarietyGuard(_PluginBase):
                                         "props": {
                                             "model": "exclude_keywords",
                                             "label": "非正片强词（每行一个，支持正则；命中即跳过）",
-                                            "rows": 6,
-                                            "persistent-hint": True,
-                                            "hint": "只放「衍生内容专用词」：命中即跳过（正则、忽略大小写）。内置 40 项：中文原样匹配，英文词自动包成「非字母边界」（多词短语可用 . _ - 空格分隔），零集号用 (?<![A-Za-z])E0+(?![0-9]) 只匹配 E00/E000，不会命中 S04E0012 这类四位集号。⚠️ 自己新增的英文词不会自动加边界，若要防误伤请照写 (?<![A-Za-z])Word(?![A-Za-z])；可能出现在正片标题里的词请放到下面的歧义词。",
+                                            "rows": 3,
+                                            "auto-grow": True,
+                                            "max-rows": 10,
                                         },
-                                    }
+                                    },
+                                    self._form_note(
+                                        "只放「衍生内容专用词」：命中即跳过（正则、忽略大小写）。内置 40 项："
+                                        "中文原样匹配，英文词自动包成「非字母边界」（多词短语可用 . _ - 空格分隔），"
+                                        "零集号用 (?<![A-Za-z])E0+(?![0-9]) 只匹配 E00/E000，不会命中 S04E0012 这类四位集号。"
+                                        "⚠️ 自己新增的英文词不会自动加边界，若要防误伤请照写 "
+                                        "(?<![A-Za-z])Word(?![A-Za-z])；可能出现在正片标题里的词请放到下面的歧义词。"
+                                    ),
                                 ],
                             },
                             {
@@ -1872,11 +1884,16 @@ class VarietyGuard(_PluginBase):
                                         "props": {
                                             "model": "ambiguous_keywords",
                                             "label": "歧义词（每行一个；命中后再看有没有集号）",
-                                            "rows": 6,
-                                            "persistent-hint": True,
-                                            "hint": "这些词同样会出现在正片标题/环节名里（巅峰、盛典、Live、Battle…）。命中后只有「文件名不带季集号、第 N 期、播出日期」时才跳过；带集号的一律按正片保留，避免把整集正片当成衍生内容丢掉。",
+                                            "rows": 3,
+                                            "auto-grow": True,
+                                            "max-rows": 10,
                                         },
                                     },
+                                    self._form_note(
+                                        "这些词同样会出现在正片标题/环节名里（巅峰、盛典、Live、Battle…）。"
+                                        "命中后只有「文件名不带季集号、第 N 期、播出日期」时才跳过；"
+                                        "带集号的一律按正片保留，避免把整集正片当成衍生内容丢掉。"
+                                    ),
                                     {
                                         "component": "VSwitch",
                                         "props": {
@@ -1897,7 +1914,9 @@ class VarietyGuard(_PluginBase):
                                         "props": {
                                             "model": "allow_keywords",
                                             "label": "正片白名单（每行一个，优先级更高）",
-                                            "rows": 6,
+                                            "rows": 3,
+                                            "auto-grow": True,
+                                            "max-rows": 10,
                                             "persistent-hint": True,
                                             "hint": "命中白名单的文件一律保留，用于「正片花絮」这类混合命名。",
                                         },
@@ -1907,28 +1926,28 @@ class VarietyGuard(_PluginBase):
                                         "props": {"cols": 12},
                                         "content": [
                                             {
-                                                "component": "VBtn",
+                                                # 配置表单的按钮只能靠 props.onClick 的 JS 脚本，
+                                                # App 原生渲染器不执行 JS，按钮会渲染成禁用态
+                                                # （2026-11-26 用户实测）。改成纯数据开关：打开并保存
+                                                # 即把三栏重置为内置默认词表，保存完成后开关自动复位。
+                                                "component": "VSwitch",
                                                 "props": {
-                                                    "color": "warning",
-                                                    "variant": "tonal",
-                                                    "size": "small",
-                                                    "prepend-icon": "mdi-restore",
-                                                    "onClick": self._restore_keywords_js(),
+                                                    "model": "restore_keywords",
+                                                    "label": "恢复默认关键词（保存后覆盖上面三栏）",
+                                                    "class": "mt-2",
                                                 },
-                                                "text": "恢复默认关键词",
                                             },
                                             {
-                                                "component": "VAlert",
-                                                "props": {
-                                                    "type": "info",
-                                                    "variant": "tonal",
-                                                    "class": "mt-3",
-                                                    "text": (
-                                                        "点此把内置默认词表填回上方三个输入框"
-                                                        "（强词 / 歧义词 / 正片白名单）；这会覆盖你手工加的词，"
-                                                        "点完仍需按「保存」才会生效。"
-                                                    ),
-                                                },
+                                                "component": "p",
+                                                "props": {"class": "text-caption text-medium-emphasis"},
+                                                "text": (
+                                                    f"打开开关并保存，会把上方三栏重置为内置默认词表"
+                                                    f"（强词 {len(DEFAULT_EXCLUDE_KEYWORDS)} 项、"
+                                                    f"歧义词 {len(DEFAULT_AMBIGUOUS_KEYWORDS)} 项、"
+                                                    f"白名单 {len(DEFAULT_ALLOW_KEYWORDS)} 项）；"
+                                                    "这会覆盖你手工加的词，保存完成后开关自动关闭。"
+                                                    "也可以到插件详情页点「恢复默认关键词」走两阶段确认。"
+                                                ),
                                             },
                                         ],
                                     },
@@ -2043,10 +2062,16 @@ class VarietyGuard(_PluginBase):
                                         "props": {
                                             "model": "sync_rule_id",
                                             "label": "同步到自定义过滤规则（rule_id，留空=关闭）",
-                                            "persistent-hint": True,
-                                            "hint": "填写自定义过滤规则的 ID（如 RULE4）：插件在加载与保存配置时把「强词」写入该规则的「排除」项 —— 新增与删减都会同步、即时生效、不消耗模型额度。歧义词不写入（规则层无法表达「带集号保留」）。你手工加进该规则的条目会被保留，覆盖前的原文另存 5 份快照；停用插件不会自动复原规则。留空则完全不动作；规则不存在、词表项数超出 10~200、或拼接后的正则不合法时，只记日志、不改动规则。",
                                         },
-                                    }
+                                    },
+                                    self._form_note(
+                                        "填写自定义过滤规则的 ID（如 RULE4）：插件在加载与保存配置时把「强词」写入该规则的「排除」项"
+                                        "—— 新增与删减都会同步、即时生效、不消耗模型额度。歧义词不写入"
+                                        "（规则层无法表达「带集号保留」）。你手工加进该规则的条目会被保留，"
+                                        "覆盖前的原文另存 5 份快照；停用插件不会自动复原规则。"
+                                        "留空则完全不动作；规则不存在、词表项数超出 10~200、或拼接后的正则不合法时，"
+                                        "只记日志、不改动规则。"
+                                    ),
                                 ],
                             },
                         ],
@@ -2064,6 +2089,8 @@ class VarietyGuard(_PluginBase):
             "scope_categories": DEFAULT_SCOPE_CATEGORIES,
             "match_full_path": False,
             "keep_numbered": True,
+            # 「恢复默认关键词」开关：保存时生效并自动复位（App 端替代 JS 按钮）
+            "restore_keywords": False,
             "keep_records": 200,
             "sync_rule_id": "",
         }
