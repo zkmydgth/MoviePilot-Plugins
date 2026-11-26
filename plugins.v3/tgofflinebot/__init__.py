@@ -661,6 +661,25 @@ class TgOfflineBot(_PluginBase):
             },
         ]
 
+    @staticmethod
+    def _form_note(text: str) -> dict:
+        """
+        构造输入框下方的独立说明节点。
+
+        长说明原先写在 ``props.hint`` + ``persistent-hint`` 里，App 原生渲染器会把这段
+        常驻提示并进控件高度，长 hint 能撑出大半屏空白（2026-11-26 用户实测）。
+        改为独立的小字段落：网页端观感接近，App 端不再按 hint 预留空间。
+
+        :param text: 说明文字
+        :return: p 节点
+        """
+
+        return {
+            "component": "p",
+            "props": {"class": "text-caption text-medium-emphasis mb-3"},
+            "text": text,
+        }
+
     def get_form(self) -> Tuple[Optional[List[dict]], Dict[str, Any]]:
         """
         返回插件配置表单与默认配置。
@@ -722,16 +741,17 @@ class TgOfflineBot(_PluginBase):
                             "label": "白名单用户 ID（逗号或换行分隔）",
                             "class": "mt-4",
                             "rows": 2,
+                            "auto-grow": True,
+                            "max-rows": 8,
                             "placeholder": ALLOWED_USER_PLACEHOLDER,
-                            "hint": "用户 ID（正数）与群组 ID（负数，如 -1001234567890）都可填，"
-                                    "逗号或换行分隔。群 ID 在白名单即授权该群成员提交链接，"
-                                    "但改目录/白名单仍只允许个人白名单成员。"
-                                    "群内普通消息需先在 @BotFather 用 /setprivacy 设为 Disable，"
-                                    "否则机器人收不到群里的磁力消息。"
-                                    "也可在 bot 里用 /allow <id>、/deny <id> 热修改",
-                            "persistent-hint": True,
                         },
                     },
+                    self._form_note(
+                        "用户 ID（正数）与群组 ID（负数，如 -1001234567890）都可填，逗号或换行分隔。"
+                        "群 ID 在白名单即授权该群成员提交链接，但改目录/白名单仍只允许个人白名单成员。"
+                        "群内普通消息需先在 @BotFather 用 /setprivacy 设为 Disable，"
+                        "否则机器人收不到群里的磁力消息。也可在 bot 里用 /allow <id>、/deny <id> 热修改。"
+                    ),
                     {
                         "component": "VTextField",
                         "props": {
@@ -739,12 +759,13 @@ class TgOfflineBot(_PluginBase):
                             "label": "115 目标目录（留空 = 自动使用专属子目录）",
                             "class": "mt-4",
                             "placeholder": "留空自动解析",
-                            "hint": "留空时自动取 P115StrmHelper 的 offline_download_paths 首个目录，"
-                                    "再拼上下方的专属子目录（默认 TG），不写死任何路径。"
-                                    "填写具体 115 路径则以手填为准。也可在 bot 里用 /dir <路径> 热修改",
-                            "persistent-hint": True,
                         },
                     },
+                    self._form_note(
+                        "留空时自动取 P115StrmHelper 的 offline_download_paths 首个目录，"
+                        "再拼上下方的专属子目录（默认 TG），不写死任何路径。"
+                        "填写具体 115 路径则以手填为准。也可在 bot 里用 /dir <路径> 热修改。"
+                    ),
                     {
                         "component": "VTextField",
                         "props": {
@@ -752,14 +773,15 @@ class TgOfflineBot(_PluginBase):
                             "label": "专属子目录名（留空 = 直接使用离线目录）",
                             "class": "mt-4",
                             "placeholder": DEFAULT_OFFLINE_SUBDIR,
-                            "hint": "在 P115StrmHelper 离线目录下再建这一层目录，本插件提交的任务全部落在其中；"
-                                    "目录不存在时提交前自动创建，残留清理时不会删除该目录。"
-                                    "目录内的任务按路径前缀判定为本插件任务，不再依赖名称匹配。"
-                                    "下载完成后插件会主动触发一次网盘整理：多文件任务整理其子目录；"
-                                    "单文件任务仅在目标目录里没有其它项目时才整理，否则改为提醒手动整理",
-                            "persistent-hint": True,
                         },
                     },
+                    self._form_note(
+                        "在 P115StrmHelper 离线目录下再建这一层目录，本插件提交的任务全部落在其中；"
+                        "目录不存在时提交前自动创建，残留清理时不会删除该目录。"
+                        "目录内的任务按路径前缀判定为本插件任务，不再依赖名称匹配。"
+                        "下载完成后插件会主动触发一次网盘整理：多文件任务整理其子目录；"
+                        "单文件任务仅在目标目录里没有其它项目时才整理，否则改为提醒手动整理。"
+                    ),
                     {
                         "component": "VTextField",
                         "props": {
