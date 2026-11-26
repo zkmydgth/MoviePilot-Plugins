@@ -464,6 +464,25 @@ class ConfigBackup(_PluginBase):
             }]
         return []
 
+    @staticmethod
+    def _form_note(text: str) -> dict:
+        """
+        构造输入框下方的独立说明节点。
+
+        长说明原先写在 ``props.hint`` + ``persistent-hint`` 里，App 原生渲染器会把这段
+        常驻提示并进控件高度，一个 200 字的 hint 能撑出半屏空白（2026-11-26 用户实测）。
+        改为独立的小字段落：网页端观感接近，App 端不再按 hint 预留空间。
+
+        :param text: 说明文字
+        :return dict: p 节点
+        """
+
+        return {
+            "component": "p",
+            "props": {"class": "text-caption text-medium-emphasis mb-3"},
+            "text": text,
+        }
+
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         """拼装插件配置页面，返回页面配置与数据结构。"""
         # 动态生成备份目录候选列表（下拉可选，也可手动输入其它目录）
@@ -697,12 +716,15 @@ class ConfigBackup(_PluginBase):
                                             "model": "extra_paths",
                                             "label": "附加备份路径",
                                             "rows": 3,
+                                            "auto-grow": True,
+                                            "max-rows": 8,
                                             "placeholder": "每行一个文件或目录路径，将一并复制进备份包",
-                                            "hint": "目录可写 \"路径|*.log,node_modules,cache\" 排除不需要的内容（逗号分隔）；"
-                                                    "还原时只接受当前配置里列出的路径，包内其它路径会被跳过",
-                                            "persistent-hint": True,
                                         }
-                                    }
+                                    },
+                                    self._form_note(
+                                        "目录可写「路径|*.log,node_modules,cache」排除不需要的内容（逗号分隔）；"
+                                        "还原时只接受当前配置里列出的路径，包内其它路径会被跳过。"
+                                    ),
                                 ]
                             }
                         ]
@@ -720,12 +742,13 @@ class ConfigBackup(_PluginBase):
                                             "model": "encrypt_pass",
                                             "label": "备份加密口令",
                                             "type": "password",
-                                            "hint": "设置后新备份为 AES-256-GCM 加密包（.zip.enc）；留空则明文。"
-                                                    "备份包含 API Token、站点 Cookie 与数据库，强烈建议设置；"
-                                                    "启用 WebDAV 上传时必须设置",
-                                            "persistent-hint": True,
                                         }
-                                    }
+                                    },
+                                    self._form_note(
+                                        "设置后新备份为 AES-256-GCM 加密包（.zip.enc）；留空则明文。"
+                                        "备份包含 API Token、站点 Cookie 与数据库，强烈建议设置；"
+                                        "启用 WebDAV 上传时必须设置。"
+                                    ),
                                 ]
                             },
                             {
