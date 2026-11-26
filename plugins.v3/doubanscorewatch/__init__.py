@@ -60,6 +60,13 @@ class DoubanScoreWatch(_PluginBase):
         "unmatched": "未匹配",
         "ignored": "已忽略",
     }
+    #: 状态标签颜色（详情页卡片用）
+    _STATUS_COLORS = {
+        "pending": "primary",
+        "scored": "success",
+        "unmatched": "warning",
+        "ignored": "grey",
+    }
     #: 连续失败多少条后结束本轮，避免风控下持续打接口
     _FAILURE_BREAKER = 5
     #: 单条通知最多尝试发送次数
@@ -236,7 +243,7 @@ class DoubanScoreWatch(_PluginBase):
                         "content": [
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 3},
+                                "props": {"cols": 12},
                                 "content": [
                                     {
                                         "component": "VSwitch",
@@ -246,7 +253,7 @@ class DoubanScoreWatch(_PluginBase):
                             },
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 3},
+                                "props": {"cols": 12},
                                 "content": [
                                     {
                                         "component": "VSwitch",
@@ -256,7 +263,7 @@ class DoubanScoreWatch(_PluginBase):
                             },
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 3},
+                                "props": {"cols": 12},
                                 "content": [
                                     {
                                         "component": "VSwitch",
@@ -266,7 +273,7 @@ class DoubanScoreWatch(_PluginBase):
                             },
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 3},
+                                "props": {"cols": 12},
                                 "content": [
                                     {
                                         "component": "VTextField",
@@ -287,7 +294,7 @@ class DoubanScoreWatch(_PluginBase):
                         "content": [
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 3},
+                                "props": {"cols": 12},
                                 "content": [
                                     {
                                         "component": "VTextField",
@@ -303,7 +310,7 @@ class DoubanScoreWatch(_PluginBase):
                             },
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 3},
+                                "props": {"cols": 12},
                                 "content": [
                                     {
                                         "component": "VTextField",
@@ -319,7 +326,7 @@ class DoubanScoreWatch(_PluginBase):
                             },
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 3},
+                                "props": {"cols": 12},
                                 "content": [
                                     {
                                         "component": "VTextField",
@@ -335,7 +342,7 @@ class DoubanScoreWatch(_PluginBase):
                             },
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 3},
+                                "props": {"cols": 12},
                                 "content": [
                                     {
                                         "component": "VTextField",
@@ -356,7 +363,7 @@ class DoubanScoreWatch(_PluginBase):
                         "content": [
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 3},
+                                "props": {"cols": 12},
                                 "content": [
                                     {
                                         "component": "VTextField",
@@ -372,7 +379,7 @@ class DoubanScoreWatch(_PluginBase):
                             },
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 3},
+                                "props": {"cols": 12},
                                 "content": [
                                     {
                                         "component": "VTextField",
@@ -390,7 +397,7 @@ class DoubanScoreWatch(_PluginBase):
                             },
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 3},
+                                "props": {"cols": 12},
                                 "content": [
                                     {
                                         "component": "VTextField",
@@ -434,7 +441,7 @@ class DoubanScoreWatch(_PluginBase):
                         "content": [
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 3},
+                                "props": {"cols": 12},
                                 "content": [
                                     {
                                         "component": "VSwitch",
@@ -444,7 +451,7 @@ class DoubanScoreWatch(_PluginBase):
                             },
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 3},
+                                "props": {"cols": 12},
                                 "content": [
                                     {
                                         "component": "VSwitch",
@@ -454,7 +461,7 @@ class DoubanScoreWatch(_PluginBase):
                             },
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 3},
+                                "props": {"cols": 12},
                                 "content": [
                                     {
                                         "component": "VTextField",
@@ -464,7 +471,7 @@ class DoubanScoreWatch(_PluginBase):
                             },
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 3},
+                                "props": {"cols": 12},
                                 "content": [
                                     {
                                         "component": "VTextField",
@@ -578,8 +585,10 @@ class DoubanScoreWatch(_PluginBase):
                 ],
             },
             {
-                "component": "div",
-                "props": {"class": "d-flex flex-wrap ga-2 mb-2"},
+                # VChipGroup：网页端仍是横向排布的 Chip 组；App 端原生渲染为可横滑的
+                # Chip 行，避免普通 div 容器被纵向堆叠成 4 行。
+                "component": "VChipGroup",
+                "props": {"class": "mb-2"},
                 "content": [
                     self._chip(f"待开分 {counts['pending']}", "primary"),
                     self._chip(f"已开分 {counts['scored']}", "success"),
@@ -605,7 +614,6 @@ class DoubanScoreWatch(_PluginBase):
                 }
             )
             return header
-        table_rows = [self._row_head()]
         for entry in sorted(entries, key=lambda item: str(item.get("title") or "")):
             group = [self._row_entry(entry)]
             suggested_ids = {
@@ -622,23 +630,7 @@ class DoubanScoreWatch(_PluginBase):
                 group.append(self._row_hint(entry))
             # 条目之间加分隔线，候选 / AI 建议行留在本条目的分组内
             group[-1] = self._with_divider(group[-1])
-            table_rows.extend(group)
-        header.append(
-            {
-                "component": "div",
-                "props": {"style": "overflow-x: auto;"},
-                "content": [
-                    {
-                        "component": "table",
-                        "props": {"class": "text-sm w-100"},
-                        "content": [
-                            {"component": "thead", "content": [self._row_head()]},
-                            {"component": "tbody", "content": table_rows[1:]},
-                        ],
-                    }
-                ],
-            }
-        )
+            header.extend(group)
         return header
 
     @staticmethod
@@ -651,23 +643,80 @@ class DoubanScoreWatch(_PluginBase):
         }
 
     @staticmethod
-    def _row_head() -> dict:
-        """构造表头行。"""
+    def _short(value: Any, limit: int = 40) -> str:
+        """
+        压成单行并按字符数截断。
+
+        App 端不执行 CSS 的 ``max-width`` / ``text-truncate``（2026-11-26 实测），
+        7 列宽表里长文本会把后续列整体挤歪，只能在数据侧收窄。
+
+        :param value: 原始文本
+        :param limit: 最大字符数（超出补省略号）
+        :return str: 单行短文本
+        """
+
+        flat = " ".join(str(value or "").split())
+        if len(flat) <= limit:
+            return flat
+        return flat[: max(1, limit - 1)] + "…"
+
+    def _card(self, children: List[dict], indent: bool = False) -> dict:
+        """
+        构造一条记录的卡片块。
+
+        2026-11-26 由 7 列表格行改为纵向卡片：App 端按行内容自适应列宽、又不认
+        ``max-width``，宽表里同一列在不同行会左右漂移。
+
+        :param children: 卡片内的节点
+        :param indent: 是否缩进（候选 / AI 建议行用）
+        :return dict: div 节点
+        """
+
         return {
-            "component": "tr",
-            "content": [
-                {"component": "th", "props": {"class": "text-left"}, "text": "媒体"},
-                {"component": "th", "props": {"class": "text-left"}, "text": "豆瓣"},
-                {"component": "th", "props": {"class": "text-left"}, "text": "评分"},
-                {"component": "th", "props": {"class": "text-left"}, "text": "人数"},
-                {"component": "th", "props": {"class": "text-left"}, "text": "状态"},
-                {"component": "th", "props": {"class": "text-left"}, "text": "最后检查"},
-                {"component": "th", "props": {"class": "text-right"}, "text": "操作"},
-            ],
+            "component": "div",
+            "props": {"class": "ml-4 mb-2 pb-2" if indent else "mb-2 pb-2"},
+            "content": children,
+        }
+
+    @staticmethod
+    def _head_line(text: str, chip: str = "", color: str = "secondary") -> dict:
+        """
+        构造记录标题行：左侧标题 + 可选状态标签。
+
+        :param text: 标题文字
+        :param chip: 状态标签文字（空则不渲染）
+        :param color: 状态标签颜色
+        :return dict: div 节点
+        """
+
+        content = [
+            {"component": "p", "props": {"class": "mb-0 mr-2 font-weight-medium"}, "text": text}
+        ]
+        if chip:
+            content.append(DoubanScoreWatch._chip(chip, color))
+        return {
+            "component": "div",
+            "props": {"class": "d-flex align-center flex-wrap"},
+            "content": content,
+        }
+
+    @staticmethod
+    def _caption(text: str) -> dict:
+        """
+        构造次要信息行（小号灰字）。
+
+        :param text: 文字内容
+        :return dict: p 节点
+        """
+
+        return {
+            "component": "p",
+            "props": {"class": "mb-0 text-caption text-medium-emphasis"},
+            "text": text,
         }
 
     def _row_entry(self, entry: Dict[str, Any]) -> dict:
-        """构造单个媒体的表格行。"""
+        """构造单个媒体的记录卡片（原 7 列表格行，2026-11-26 改）。"""
         bindings = entry.get("bindings") or []
         binding = bindings[0] if bindings else {}
         title = str(entry.get("title") or "")
@@ -680,61 +729,96 @@ class DoubanScoreWatch(_PluginBase):
             ]
             if part
         )
-        douban_text = "-"
+        status_key = str(entry.get("status") or "pending")
+        status_text = self._STATUS_LABELS.get(status_key, status_key)
+        douban_text = "豆瓣：未绑定"
         if binding:
-            douban_text = str(binding.get("title") or binding.get("douban_id") or "-")
+            douban_text = "豆瓣：" + self._short(binding.get("title") or binding.get("douban_id") or "-", 32)
             if len(bindings) > 1:
                 douban_text += f" 等 {len(bindings)} 个条目"
-            if binding.get("match_note"):
-                douban_text += f"\n匹配依据：{binding.get('match_note')}"
-        rating_text = f"{binding.get('rating'):.1f}" if binding.get("rating") else "-"
-        votes_text = str(binding.get("votes") or "-") if binding else "-"
-        status_text = self._STATUS_LABELS.get(str(entry.get("status")), str(entry.get("status")))
-        if entry.get("status") == "unmatched" and entry.get("match_reason"):
-            status_text = f"{status_text}（{entry.get('match_reason')}）"
-        if entry.get("status") == "unmatched" and entry.get("next_try"):
-            status_text = f"{status_text}\n{str(entry.get('next_try'))[:16]} 后重试"
+        rating = binding.get("rating")
+        score_text = f"评分 {float(rating):.1f}" if rating else "暂无评分"
+        votes_text = f"{binding.get('votes')} 人" if binding.get("votes") else "人数未计"
+        children: List[dict] = [
+            self._head_line(
+                self._short(title, 30),
+                status_text,
+                self._STATUS_COLORS.get(status_key, "primary"),
+            )
+        ]
+        if meta:
+            children.append(self._caption(meta))
+        children.append({"component": "p", "props": {"class": "mb-0 mt-1"}, "text": douban_text})
+        children.append(
+            self._caption(
+                f"{score_text} · {votes_text} · 最后检查 {self._short(entry.get('last_check') or '-', 20)}"
+            )
+        )
+        if binding.get("match_note"):
+            children.append(self._caption(f"匹配依据：{self._short(binding.get('match_note'), 40)}"))
+        notes = self._entry_notes(entry, binding)
+        if notes:
+            children.append(self._caption("；".join(notes)))
+        children.append(
+            {
+                "component": "div",
+                "props": {"class": "d-flex align-center flex-wrap mt-1 mp-action-grid"},
+                "content": self._entry_actions(entry),
+            }
+        )
+        return self._card(children)
+
+    def _entry_notes(self, entry: Dict[str, Any], binding: Dict[str, Any]) -> List[str]:
+        """
+        汇总条目卡片的补充说明（未匹配原因、退避、完结等）。
+
+        :param entry: 追踪条目
+        :param binding: 首个豆瓣绑定（无绑定时为空字典）
+        :return List[str]: 说明片段
+        """
+
+        unmatched = entry.get("status") == "unmatched"
+        notes: List[str] = []
+        if unmatched and entry.get("match_reason"):
+            notes.append(f"未匹配：{self._short(entry.get('match_reason'), 30)}")
+        if unmatched and entry.get("next_try"):
+            notes.append(f"{str(entry.get('next_try'))[:16]} 后重试")
         if binding.get("pre_scored"):
-            status_text = f"{status_text}（绑定前已有评分）"
+            notes.append("绑定前已有评分")
         if entry.get("sub_completed"):
-            status_text = f"{status_text}（订阅已完结）"
-        actions: List[dict] = []
+            notes.append("订阅已完结")
+        return notes
+
+    def _entry_actions(self, entry: Dict[str, Any]) -> List[dict]:
+        """
+        构造条目卡片的操作按钮（忽略态只给「恢复」）。
+
+        :param entry: 追踪条目
+        :return List[dict]: 按钮节点
+        """
+
         key = str(entry.get("key") or "")
         if entry.get("status") == "ignored":
-            actions.append(self._action_button("恢复", "success", "restore", {"key": key}, "mdi-restore"))
-        else:
-            actions.append(self._action_button("重匹配", "primary", "retry", {"key": key}, "mdi-magnify"))
-            actions.append(self._action_button("忽略", "grey", "ignore", {"key": key}, "mdi-eye-off"))
-        cells = [
-            self._cell(f"{title}\n{meta}"),
-            self._cell(douban_text),
-            self._cell(rating_text),
-            self._cell(votes_text),
-            self._cell(status_text),
-            self._cell(str(entry.get("last_check") or "-")),
-            {
-                "component": "td",
-                "props": {"class": "text-right", "style": "white-space: nowrap;"},
-                "content": actions,
-            },
+            return [self._action_button("恢复", "success", "restore", {"key": key}, "mdi-restore")]
+        return [
+            self._action_button("重匹配", "primary", "retry", {"key": key}, "mdi-magnify"),
+            self._action_button("忽略", "grey", "ignore", {"key": key}, "mdi-eye-off"),
         ]
-        return {"component": "tr", "content": cells}
 
     def _row_ai_suggestion(self, entry: Dict[str, Any], suggestion: Dict[str, Any]) -> dict:
-        """构造 AI 建议绑定行，供人工一键确认。"""
+        """构造 AI 建议绑定卡片，供人工一键确认。"""
         key = str(entry.get("key") or "")
         douban_id = str(suggestion.get("douban_id") or "")
         text = (
-            f"AI 建议绑定：{suggestion.get('title') or douban_id}"
+            f"AI 建议：{self._short(suggestion.get('title') or douban_id, 26)}"
             f"（{suggestion.get('year') or '年份未知'}，置信度 {suggestion.get('confidence', 0)}）"
         )
-        return {
-            "component": "tr",
-            "content": [
-                {"component": "td", "props": {"colspan": 6}, "content": [{"component": "p", "props": {"class": "mb-0 text-caption"}, "text": text}]},
+        return self._card(
+            [
+                self._caption(text),
                 {
-                    "component": "td",
-                    "props": {"class": "text-right"},
+                    "component": "div",
+                    "props": {"class": "d-flex align-center flex-wrap mp-action-grid"},
                     "content": [
                         self._action_button(
                             "确认绑定",
@@ -746,15 +830,16 @@ class DoubanScoreWatch(_PluginBase):
                     ],
                 },
             ],
-        }
+            indent=True,
+        )
 
     def _row_candidate(self, entry: Dict[str, Any], candidate: Dict[str, Any]) -> dict:
         """
-        构造豆瓣候选行，供人工点选绑定。
+        构造豆瓣候选卡片，供人工点选绑定。
 
         :param entry: 追踪条目
         :param candidate: 豆瓣候选
-        :return: 表格行组件
+        :return: 卡片节点
         """
         key = str(entry.get("key") or "")
         douban_id = str(candidate.get("douban_id") or "")
@@ -762,22 +847,15 @@ class DoubanScoreWatch(_PluginBase):
         votes = candidate.get("votes") or 0
         score_text = f"{rating} 分 / {votes} 人" if rating else "暂无评分"
         text = (
-            f"候选：{candidate.get('title') or douban_id}"
+            f"候选：{self._short(candidate.get('title') or douban_id, 26)}"
             f"（{candidate.get('year') or '年份未知'}，{score_text}，豆瓣 {douban_id}）"
         )
-        return {
-            "component": "tr",
-            "content": [
+        return self._card(
+            [
+                self._caption(text),
                 {
-                    "component": "td",
-                    "props": {"colspan": 6},
-                    "content": [
-                        {"component": "p", "props": {"class": "mb-0 text-caption"}, "text": text}
-                    ],
-                },
-                {
-                    "component": "td",
-                    "props": {"class": "text-right"},
+                    "component": "div",
+                    "props": {"class": "d-flex align-center flex-wrap mp-action-grid"},
                     "content": [
                         self._action_button(
                             "绑定",
@@ -789,55 +867,35 @@ class DoubanScoreWatch(_PluginBase):
                     ],
                 },
             ],
-        }
+            indent=True,
+        )
 
     def _row_hint(self, entry: Dict[str, Any]) -> dict:
         """
-        构造未搜到条目时的提示行。
+        构造未搜到条目时的提示卡片。
 
         :param entry: 追踪条目
-        :return: 表格行组件
+        :return: 卡片节点
         """
         text = (
             f"未搜到豆瓣条目：{entry.get('title')}（{entry.get('year') or '年份未知'}）。"
             "可点该行【重匹配】再试，或在设置页「手动绑定」里填「媒体来源:媒体ID=豆瓣ID」。"
         )
-        return {
-            "component": "tr",
-            "content": [
-                {
-                    "component": "td",
-                    "props": {"colspan": 7},
-                    "content": [
-                        {"component": "p", "props": {"class": "mb-0 text-caption text-medium-emphasis"}, "text": text}
-                    ],
-                }
-            ],
-        }
+        return self._card([self._caption(text)], indent=True)
 
     @staticmethod
-    def _cell(text: str) -> dict:
-        """构造普通文本单元格，保留换行。"""
-        return {
-            "component": "td",
-            "props": {"style": "white-space: pre-line; padding-top: 6px; padding-bottom: 6px;"},
-            "content": [{"component": "p", "props": {"class": "mb-0"}, "text": text}],
-        }
-
-    @staticmethod
-    def _with_divider(row: dict) -> dict:
+    def _with_divider(card: dict) -> dict:
         """
-        给条目分组的最后一行加分隔线，避免相邻条目在列表里粘连。
+        给条目分组的最后一张卡片加分隔线，避免相邻条目在列表里粘连。
 
-        :param row: 表格行组件
-        :return: 同一个行组件
+        :param card: 卡片节点
+        :return: 同一个卡片节点
         """
         border = "border-bottom: 1px solid rgba(var(--v-border-color, 0, 0, 0), var(--v-border-opacity, 0.12));"
-        for cell in row.get("content") or []:
-            props = cell.setdefault("props", {})
-            style = str(props.get("style") or "").strip()
-            props["style"] = f"{style} {border}".strip()
-        return row
+        props = card.setdefault("props", {})
+        style = str(props.get("style") or "").strip()
+        props["style"] = f"{style} {border}".strip()
+        return card
 
     def _action_button(self, text: str, color: str, action: str, params: Dict[str, Any], icon: str) -> dict:
         """构造行内操作按钮。"""

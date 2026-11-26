@@ -736,13 +736,13 @@ class DoubanScoreWatchTestCase(unittest.TestCase):
             "plan": {"date": "", "times": [], "done": 0},
         }
         page = self.plugin.get_page()
-        rows = []
+        cards = []
 
         def walk(node):
-            """递归收集表格行组件。"""
+            """递归收集带底部分隔线的记录卡片。"""
             if isinstance(node, dict):
-                if node.get("component") == "tr":
-                    rows.append(node)
+                if "border-bottom" in str((node.get("props") or {}).get("style") or ""):
+                    cards.append(node)
                 for value in node.values():
                     walk(value)
             elif isinstance(node, list):
@@ -750,15 +750,7 @@ class DoubanScoreWatchTestCase(unittest.TestCase):
                     walk(item)
 
         walk(page)
-        divider_rows = [
-            row
-            for row in rows
-            if any(
-                "border-bottom" in str((cell.get("props") or {}).get("style") or "")
-                for cell in row.get("content") or []
-            )
-        ]
-        self.assertEqual(len(divider_rows), 2)
+        self.assertEqual(len(cards), 2, "两个条目各留一条分隔线")
         self.assertIn("订阅已完结", str(page))
 
     def test_deleted_entry_not_checked_in_round(self):
