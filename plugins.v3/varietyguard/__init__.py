@@ -1672,7 +1672,9 @@ class VarietyGuard(_PluginBase):
             nodes.append(
                 {
                     "component": "div",
-                    "props": {"class": "d-flex align-center flex-wrap"},
+                    # mp-action-grid：网页端无此 class（不生效）；App 端据此按自适应网格排，
+                    # 避免容器被纵向堆叠。
+                    "props": {"class": "d-flex align-center flex-wrap mp-action-grid"},
                     "content": [
                         button("确认恢复", "error", "flat", "mdi-check", "1"),
                         button("取消", "grey", "tonal", "mdi-close", "cancel"),
@@ -1683,7 +1685,8 @@ class VarietyGuard(_PluginBase):
         nodes.append(
             {
                 "component": "div",
-                "props": {"class": "d-flex align-center flex-wrap"},
+                # 同上：单个按钮也走网格，保持两端一致的按钮区语义。
+                "props": {"class": "d-flex align-center flex-wrap mp-action-grid"},
                 "content": [button("恢复默认关键词", "warning", "tonal", "mdi-restore", "")],
             }
         )
@@ -1786,7 +1789,7 @@ class VarietyGuard(_PluginBase):
                             },
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 4},
+                                "props": {"cols": 12},
                                 "content": [
                                     {
                                         "component": "VSwitch",
@@ -1796,7 +1799,7 @@ class VarietyGuard(_PluginBase):
                             },
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 4},
+                                "props": {"cols": 12},
                                 "content": [
                                     {
                                         "component": "VSwitch",
@@ -1811,7 +1814,7 @@ class VarietyGuard(_PluginBase):
                             },
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 4},
+                                "props": {"cols": 12},
                                 "content": [
                                     {
                                         "component": "VSwitch",
@@ -1846,7 +1849,7 @@ class VarietyGuard(_PluginBase):
                             },
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 6},
+                                "props": {"cols": 12},
                                 "content": [
                                     {
                                         "component": "VTextarea",
@@ -1862,7 +1865,7 @@ class VarietyGuard(_PluginBase):
                             },
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 6},
+                                "props": {"cols": 12},
                                 "content": [
                                     {
                                         "component": "VTextarea",
@@ -1887,7 +1890,7 @@ class VarietyGuard(_PluginBase):
                             },
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 6},
+                                "props": {"cols": 12},
                                 "content": [
                                     {
                                         "component": "VTextarea",
@@ -1953,7 +1956,7 @@ class VarietyGuard(_PluginBase):
                             },
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 4},
+                                "props": {"cols": 12},
                                 "content": [
                                     {
                                         "component": "VTextField",
@@ -1968,7 +1971,7 @@ class VarietyGuard(_PluginBase):
                             },
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 4},
+                                "props": {"cols": 12},
                                 "content": [
                                     {
                                         "component": "VTextField",
@@ -1983,7 +1986,7 @@ class VarietyGuard(_PluginBase):
                             },
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 4},
+                                "props": {"cols": 12},
                                 "content": [
                                     {
                                         "component": "VSwitch",
@@ -1998,7 +2001,7 @@ class VarietyGuard(_PluginBase):
                             },
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 4},
+                                "props": {"cols": 12},
                                 "content": [
                                     {
                                         "component": "VTextField",
