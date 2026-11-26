@@ -32,29 +32,45 @@ MUTANTS = [
         "    payload = cache.get(wanted or sorted(cache)[0])",
         "本行未选账号时拿别的账号的群凑候选",
     ),
+    # ---- App 表单布局（2026-11-26 从「JS 填入本槽」四个变异体替换而来）----
+    # 「填入本槽」按钮与它的 JS 脚本已整体移除（App 原生渲染不执行 JS），
+    # 旧变异体锚在已删除的脚本上必然失配；改为守护替代方案的可见性与表单高度。
     (
         "__init__.py",
-        '            "function okId(x) { return /^@[A-Za-z0-9_]{4,}$/.test(x) "',
-        '            "function okId(x) { return /^.*$/.test(x) "',
-        "群标识形态校验失效：只输入未点选的关键词会被当成目标写进配置",
+        '                                        "model": "accounts_text",\n'
+        '                                        "label": "账号列表（文本模式）",\n'
+        '                                        "rows": 3,\n',
+        '                                        "model": "accounts_text",\n'
+        '                                        "label": "账号列表（文本模式）",\n'
+        '                                        "rows": 6,\n',
+        "文本模式「账号列表」行数改回 6 行（App 端撑出大片空白）",
     ),
     (
         "__init__.py",
-        'if (raw && typeof raw === "object") { raw = raw.value || raw.title || ""; }',
-        'if (raw && typeof raw === "object") { raw = raw.title || ""; }',
-        "对象形态的选中项不再取 value（点选整项后读不到群号）",
+        '                                        "rows": 3,\n'
+        '                                        "auto-grow": True,\n'
+        '                                        "max-rows": 8,\n'
+        '                                        "show": "use_text_mode",\n',
+        '                                        "rows": 3,\n'
+        '                                        "max-rows": 8,\n'
+        '                                        "show": "use_text_mode",\n',
+        "去掉「账号列表」的 auto-grow（高度写死成一块空白）",
     ),
     (
         "__init__.py",
-        "if (m) { ref = m[1]; }",
-        "if (m) { ref = m[0]; }",
-        "标题串截取带上了「（」后缀（截出的不是纯群号）",
+        '                                        "model": "targets_text",\n'
+        '                                        "label": "签到目标列表（文本模式）",\n'
+        '                                        "rows": 3,\n',
+        '                                        "model": "targets_text",\n'
+        '                                        "label": "签到目标列表（文本模式）",\n'
+        '                                        "rows": 8,\n',
+        "文本模式「签到目标列表」行数改回 8 行（App 端撑出大片空白）",
     ),
     (
         "__init__.py",
-        '+ f"if (!okId(ref)) {{ alert({invalid_hint}); return; }} "',
-        '+ f"if (false) {{ alert({invalid_hint}); return; }} "',
-        "填入前不再把关：半截筛选词会被写进目标",
+        '"填进本行的「bot / 群」并保存即可（App 与网页端入口一致）。"',
+        '"填进设置即可。"',
+        "删掉「群号填进 bot / 群」的指引（用户找不到落点）",
     ),
     (
         "__init__.py",
@@ -94,9 +110,9 @@ MUTANTS = [
     ),
     (
         "__init__.py",
-        '            + f")) {{ return; }} {bot} = ref; }}"',
-        '            + f")) {{ return; }} {pick} = ref; }}"',
-        "「填入本槽」写错字段（写回下拉而不是「bot / 群」）",
+        '                                    "text": "只在本行是群目标时出现（bot 私聊用不到）。填了之后只有回复里出现它"',
+        '                                    "text": "",',
+        "删掉「回复归属标识」的长说明（用户不知道这栏干什么）",
     ),
     (
         "__init__.py",

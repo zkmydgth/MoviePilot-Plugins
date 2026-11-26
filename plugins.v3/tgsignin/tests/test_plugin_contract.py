@@ -172,6 +172,53 @@ class TestConfigForm(unittest.TestCase):
         self.assertEqual(defaults["notify_mode"], NOTIFY_MODE_FAILURE)
 
 
+class TestAppFormLayout(unittest.TestCase):
+    """
+    App 端表单可读性（2026-11-26 用户实测反馈）。
+
+    两类问题都在 App 原生渲染里放大：①多行框 rows 过大 → 控件撑出半屏空白；
+    ②长说明写在 ``persistent-hint`` 里 → App 把常驻提示并进控件高度。
+    这里把「rows 上限 + 自动增高 + 长说明独立成段」锁住，避免回退。
+    """
+
+    def setUp(self) -> None:
+        """构造已初始化的插件实例。"""
+        self.plugin = TgSignin()
+        self.plugin.init_plugin({"enabled": True})
+        self.form, _ = self.plugin.get_form()
+
+    def test_textareas_compact_and_autogrow(self) -> None:
+        """全部多行框 rows ≤ 3 且开启自动增高（内容多时再长）。"""
+        areas = [
+            node
+            for node in _walk(self.form)
+            if node.get("component") == "VTextarea"
+        ]
+        self.assertTrue(areas, "多行框至少要有文本模式的两个")
+        for node in areas:
+            props = node["props"]
+            self.assertLessEqual(
+                int(props.get("rows") or 0),
+                3,
+                f"{props.get('model')} 的 rows 过大，App 端会撑出空白",
+            )
+            self.assertIs(
+                props.get("auto-grow"),
+                True,
+                f"{props.get('model')} 缺 auto-grow，App 端高度固定成一整块空白",
+            )
+
+    def test_group_pick_note_says_where_to_fill(self) -> None:
+        """「从已查到的群组选」旁必须写明群号要填进「bot / 群」。"""
+        plain = json.dumps(self.form, ensure_ascii=False)
+        self.assertIn("填进本行的「bot / 群」", plain)
+
+    def test_owner_note_stays_visible(self) -> None:
+        """「回复归属标识」的长说明必须留在表单里（改成独立段落，不能删掉）。"""
+        plain = json.dumps(self.form, ensure_ascii=False)
+        self.assertIn("只在本行是群目标时出现", plain)
+
+
 class TestPage(unittest.TestCase):
     """详情页结构与按钮契约。"""
 
@@ -735,12 +782,13 @@ class TestPageExtras(unittest.TestCase):
         expected = datetime.fromtimestamp(stamp, TZ).strftime("%Y-%m-%d %H:%M:%S")
         self.assertIn(expected, blob)
 
-    def test_logout_moved_to_config_form(self) -> None:
+    def test_logout_uses_login_action_dropdown(self) -> None:
         """
-        退出登录挪到配置表单：按钮带原生确认脚本，详情页不再有退出按钮。
+        退出登录只走「登录动作」下拉，配置表单不再放「退出登录」按钮。
 
-        配置表单渲染器只认 ``props.on*`` 字符串脚本（``events`` 不生效），
-        所以用 ``confirm`` 弹窗 + 回填「登录动作」的方式实现（2026-10-11 用户定案）。
+        原先每个账号槽有一枚 ``props.onClick`` 的 JS 按钮，网页端能 eval，
+        App 原生渲染器不执行 JS、按钮渲染成禁用态（2026-11-26 用户实测点不动）。
+        现在统一改成：在「登录动作」里选「退出登录」再保存，两端同一入口。
         """
         plugin = self._plugin()
         page_texts = {
@@ -756,13 +804,22 @@ class TestPageExtras(unittest.TestCase):
             for node in _walk(form)
             if node.get("component") == "VBtn" and node.get("text") == "退出登录"
         ]
-        self.assertEqual(len(buttons), MAX_ACCOUNT_SLOTS, "每个账号槽一枚「退出登录」")
-        script = buttons[0]["props"]["onClick"]
-        self.assertTrue(script.startswith("function ()"))
-        self.assertIn("confirm(", script)
-        self.assertIn("model.account_1_login_action", script)
-        self.assertIn(f'"{LOGIN_ACTION_LOGOUT}"', script)
-        self.assertIn("show", buttons[0]["props"])
+        self.assertEqual(buttons, [], "配置表单不应再有「退出登录」按钮")
+        # 每个账号槽仍要能退出登录：下拉里必须有该选项
+        actions = [
+            node["props"]["items"]
+            for node in _walk(form)
+            if node.get("component") == "VCombobox"
+            and str(node.get("props", {}).get("model", "")).endswith("_login_action")
+        ]
+        self.assertEqual(len(actions), MAX_ACCOUNT_SLOTS)
+        self.assertIn(
+            LOGIN_ACTION_LOGOUT,
+            [item["value"] for item in actions[0]],
+            "「登录动作」下拉必须保留「退出登录」选项",
+        )
+        # 提示文字要指明退出登录的新入口
+        self.assertIn("登录动作", json.dumps(form, ensure_ascii=False))
 
     def test_logout_action_deletes_session(self) -> None:
         """配置页选「退出登录」保存后：session 与登录记录都被清掉。"""

@@ -19,7 +19,6 @@ TgSignin —— Telegram 多账号自动签到（MoviePilot V3 插件）。
 from __future__ import annotations
 
 import asyncio
-import json
 import os
 import re
 import threading
@@ -61,7 +60,6 @@ from .core.config import (
     PROXY_MODE_MP,
     AccountConfig,
     BotTarget,
-    accounts_to_text,
     DEFAULT_AI_KEYWORD_AUTOFILL,
     DEFAULT_CONCURRENCY,
     DEFAULT_FAILURE_KEYWORDS,
@@ -78,11 +76,9 @@ from .core.config import (
     parse_keywords,
     parse_targets,
     targets_from_slots,
-    targets_to_text,
     validate_config,
 )
 from .core.groups import (
-    MAX_GROUP_ROWS,
     group_list_text,
     group_pick_items,
     list_chat_groups,
@@ -929,66 +925,6 @@ class TgSignin(_PluginBase):
                 return False
         return True
 
-    def _fill_target_button_js(self, index: int) -> str:
-        """
-        生成配置表单「填入本槽」按钮的前端脚本：把选择框里的群组解析成群标识写进本槽的「bot」。
-
-        配置表单渲染器只认 ``props.on*`` 字符串脚本，且在 ``with(model)`` 作用域内以
-        ``(value)(event)`` 求值（配置表单里 ``events`` 不生效）。所以这里读同一行选择框的
-        model 值、写同一行的「bot / 群」字段，**点完仍需按「保存」才会生效**。
-
-        解析顺序（2026-10-12 修，用户反馈「选中后点填入被误拦」）：
-
-        1. 选中整项对象（``{"title": "群名（群号）", "value": "群号"}``，同表的
-           ``target_N_method`` 也是这么存的）→ 取 ``value``；
-        2. 已是群标识（``@用户名`` / ``-100…`` 数字 ID）→ 直接用；
-        3. 完整标题串（含我们自己的 ``（群号）`` 后缀）→ 从括号里截出群号。
-
-        三步都认不出（例如只在框里打了半截筛选词）才提示，避免把无效值写进目标。
-
-        :param index: 目标槽序号（1 起）
-        :return str: 可直接放进 ``props.onClick`` 的 JS 函数源码
-        """
-
-        pick = f"model.target_{index}_pick"
-        bot = f"model.target_{index}_bot"
-        empty_hint = json.dumps(
-            "先在上面「从已查到的群组选」选择框里选一个群组（可以输入群名关键词筛选）；"
-            "候选只列本行账号的群组：候选是空的请先确认本行账号已选好并保存，"
-            "再到详情页点「查询群组」/「更新群组（全部账号）」查一次",
-            ensure_ascii=False,
-        )
-        invalid_hint = json.dumps(
-            "没能从选择框里认出群标识（当前内容像半截筛选关键词）。"
-            "请在下拉候选里点选一个群组，或把 @用户名 / -100 开头的群号直接填进「bot / 群」那一栏",
-            ensure_ascii=False,
-        )
-        ask = json.dumps(
-            "」填入本槽的「bot / 群」。群目标建议用命令式（按钮式菜单在群里常不响应）；"
-            "点完按「保存」生效。继续？",
-            ensure_ascii=False,
-        )
-        # 解析：对象取 value / 标题串截群号；随后按 @用户名 或 -100… 数字 ID 形态把关
-        resolve = (
-            'var raw = v; '
-            'if (raw && typeof raw === "object") { raw = raw.value || raw.title || ""; } '
-            'var ref = (typeof raw === "string") ? raw.trim() : ""; '
-            "function okId(x) { return /^@[A-Za-z0-9_]{4,}$/.test(x) "
-            "|| /^-?\\d{5,}$/.test(x); } "
-            "if (!okId(ref)) { var m = ref.match(/（(-?\\d{5,})）/); if (m) { ref = m[1]; } } "
-        )
-        return (
-            f"function () {{ var v = {pick}; "
-            f"if (!v) {{ alert({empty_hint}); return; }} "
-            + resolve
-            + f"if (!okId(ref)) {{ alert({invalid_hint}); return; }} "
-            + "if (!confirm("
-            + json.dumps("将把「", ensure_ascii=False)
-            + " + ref + "
-            + ask
-            + f")) {{ return; }} {bot} = ref; }}"
-        )
-
     def get_form(self) -> Tuple[Optional[List[dict]], Dict[str, Any]]:
         """
         返回插件配置表单与默认配置。
@@ -1104,6 +1040,8 @@ class TgSignin(_PluginBase):
                                     "model": "success_keywords",
                                     "label": "签到成功关键词",
                                     "rows": 3,
+                                    "auto-grow": True,
+                                    "max-rows": 8,
                                     "persistent-hint": True,
                                     "hint": "回复/弹窗里出现任一关键词即判「签到成功」；多个用 | 或逗号分隔，留空用内置默认",
                                     "placeholder": "|".join(DEFAULT_SUCCESS_KEYWORDS),
@@ -1121,6 +1059,8 @@ class TgSignin(_PluginBase):
                                     "model": "repeated_keywords",
                                     "label": "已签到关键词",
                                     "rows": 3,
+                                    "auto-grow": True,
+                                    "max-rows": 8,
                                     "persistent-hint": True,
                                     "hint": "回复/弹窗里出现任一关键词即判「今日已签到」；多个用 | 或逗号分隔，留空用内置默认",
                                     "placeholder": "|".join(DEFAULT_REPEATED_KEYWORDS),
@@ -1143,6 +1083,8 @@ class TgSignin(_PluginBase):
                                     "model": "failure_keywords",
                                     "label": "签到失败关键词",
                                     "rows": 3,
+                                    "auto-grow": True,
+                                    "max-rows": 8,
                                     "persistent-hint": True,
                                     "hint": "回复/弹窗里出现任一关键词即判「失败」，并进入失败重试"
                                     "（如 bot 回「签到服务暂不可用，请稍后重试。」）；"
@@ -1161,12 +1103,15 @@ class TgSignin(_PluginBase):
                                 "props": {
                                     "model": "ai_confirm_enabled",
                                     "label": "自动使用 AI 确认",
-                                    "persistent-hint": True,
-                                    "hint": "仅当结果落到「未确认」时，调用 MoviePilot 内置智能助手判定"
-                                    "成功/失败；判定失败会进入失败重试，无法判定则保持「未确认」。"
-                                    "需在 MP 里配置好智能助手（LLM）。默认关闭",
                                 },
-                            }
+                            },
+                            {
+                                "component": "p",
+                                "props": {"class": "text-caption text-medium-emphasis mb-3"},
+                                "text": "仅当结果落到「未确认」时，调用 MoviePilot 内置智能助手判定成功/失败；"
+                                        "判定失败会进入失败重试，无法判定则保持「未确认」。"
+                                        "需在 MP 里配置好智能助手（LLM）。默认关闭。",
+                            },
                         ],
                     },
                 ],
@@ -1186,13 +1131,16 @@ class TgSignin(_PluginBase):
                                     "type": "number",
                                     "min": 1,
                                     "max": MAX_CONCURRENCY,
-                                    "persistent-hint": True,
-                                    "hint": "1 = 串行（默认，行为与旧版一致）；2-4 = 同一账号内「每个 bot 一路」"
-                                    "同时触发（账号之间仍串行，避免同账号多连接风控）。建议 3；"
-                                    f"超出范围按 1-{MAX_CONCURRENCY} 截断",
                                     "placeholder": f"默认 {DEFAULT_CONCURRENCY}",
                                 },
-                            }
+                            },
+                            {
+                                "component": "p",
+                                "props": {"class": "text-caption text-medium-emphasis mb-3"},
+                                "text": "1 = 串行（默认，行为与旧版一致）；2-4 = 同一账号内「每个 bot 一路」同时触发"
+                                        "（账号之间仍串行，避免同账号多连接风控）。建议 3；"
+                                        f"超出范围按 1-{MAX_CONCURRENCY} 截断。",
+                            },
                         ],
                     },
                     {
@@ -1204,12 +1152,16 @@ class TgSignin(_PluginBase):
                                 "props": {
                                     "model": "ai_keyword_autofill",
                                     "label": "AI 自动归纳关键词",
-                                    "persistent-hint": True,
-                                    "hint": "签到后用 AI 判定回复属于成功/已签到/失败，并把它逐字摘取的短语自动补进对应关键词栏。"
-                                    "只增不删、写入前查重（已存在的词不会重复添加），每栏上限 "
-                                    f"{KEYWORD_LIST_LIMIT} 条；新增记录可在详情页回看。需配置 MP 智能助手。默认关闭",
                                 },
-                            }
+                            },
+                            {
+                                "component": "p",
+                                "props": {"class": "text-caption text-medium-emphasis mb-3"},
+                                "text": "签到后用 AI 判定回复属于成功/已签到/失败，并把它逐字摘取的短语自动补进"
+                                        "对应关键词栏。只增不删、写入前查重（已存在的词不会重复添加），每栏上限 "
+                                        f"{KEYWORD_LIST_LIMIT} 条；新增记录可在详情页回看。"
+                                        "需配置 MP 智能助手。默认关闭。",
+                            },
                         ],
                     },
                 ],
@@ -1334,22 +1286,10 @@ class TgSignin(_PluginBase):
                                         "variant": "tonal",
                                         "show": enabled_expr,
                                         "text": "① 选「发送验证码」保存 → ② 填验证码、选「确认登录」再保存"
-                                                "；点下方按钮可直接退出该账号登录",
+                                                "；要退出登录，在「登录动作」里选「退出登录」后保存"
+                                                "（App 与网页端同一入口）",
                                     },
                                 },
-                                {
-                                    "component": "VBtn",
-                                    "props": {
-                                        "color": "warning",
-                                        "variant": "tonal",
-                                        "size": "small",
-                                        "class": "mt-2",
-                                        "prepend-icon": "mdi-logout",
-                                        "show": enabled_expr,
-                                        "onClick": self._logout_button_js(index),
-                                    },
-                                    "text": "退出登录",
-                                }
                             ],
                         },
                     ],
@@ -1490,12 +1430,18 @@ class TgSignin(_PluginBase):
                                         "label": "回复归属标识（群签到可选）",
                                         "placeholder": "站点账号名，如 example_user",
                                         "show": owner_show,
-                                        "persistent-hint": True,
-                                        "hint": "只在本行是群目标时出现（bot 私聊用不到）。填了之后只有回复里出现它"
-                                                "才算本目标的本次结果，用于同一个群里多人同时签到或群里另有"
-                                                "闲聊时区分归属；留空时群里只排除真人发言（群目标建议填）",
                                     },
-                                }
+                                },
+                                {
+                                    "component": "p",
+                                    "props": {
+                                        "class": "text-caption text-medium-emphasis mb-3",
+                                        "show": owner_show,
+                                    },
+                                    "text": "只在本行是群目标时出现（bot 私聊用不到）。填了之后只有回复里出现它"
+                                            "才算本目标的本次结果，用于同一个群里多人同时签到或群里另有"
+                                            "闲聊时区分归属；留空时群里只排除真人发言（群目标建议填）。",
+                                },
                             ],
                         },
                         {
@@ -1513,40 +1459,28 @@ class TgSignin(_PluginBase):
                                         "clearable": True,
                                         "menu-props": {"max-height": 380},
                                         "show": enabled_expr,
-                                        **(
-                                            {
-                                                "persistent-hint": True,
-                                                "hint": "候选只列**本行账号**的群组，来自详情页"
-                                                        "「查询群组 / 更新群组」的结果（列表不会自动更新）；"
-                                                        "输入群名关键词即可筛选（如输入「交流」），"
-                                                        "在候选里点选后按右侧「填入本槽」写进本行，"
-                                                        "再按「保存」生效；改过本行账号要先保存并重开配置页，"
-                                                        "候选才会换成新账号的群。只输入文字不点选不会生效",
-                                            }
-                                            if index == 1
-                                            else {}
-                                        ),
                                     },
-                                }
-                            ],
-                        },
-                        {
-                            "component": "VCol",
-                            "props": {"cols": 12},
-                            "content": [
-                                {
-                                    "component": "VBtn",
-                                    "props": {
-                                        "color": "secondary",
-                                        "variant": "tonal",
-                                        "size": "small",
-                                        "class": "mt-1",
-                                        "prepend-icon": "mdi-arrow-down-bold-box-outline",
-                                        "show": enabled_expr,
-                                        "onClick": self._fill_target_button_js(index),
-                                    },
-                                    "text": "填入本槽",
-                                }
+                                },
+                                *(
+                                    [
+                                        {
+                                            # 只在第一槽给一次说明，避免 8 个槽重复堆同样的长文字
+                                            "component": "p",
+                                            "props": {
+                                                "class": "text-caption text-medium-emphasis mb-3",
+                                                "show": enabled_expr,
+                                            },
+                                            "text": (
+                                                "候选只列本行账号的群组，来自详情页「查询群组 / 更新群组」的结果"
+                                                "（列表不会自动更新）。在候选里选中群名后，把「（群号）」里的数字 ID "
+                                                "填进本行的「bot / 群」并保存即可（App 与网页端入口一致）。"
+                                                "改过本行账号要先保存并重开配置页，候选才会换成新账号的群。"
+                                            ),
+                                        }
+                                    ]
+                                    if index == 1
+                                    else []
+                                ),
                             ],
                         },
                     ],
@@ -1690,11 +1624,19 @@ class TgSignin(_PluginBase):
                                         "model": "accounts_text",
                                         "label": "账号列表（文本模式）",
                                         "rows": 3,
+                                        "auto-grow": True,
+                                        "max-rows": 8,
                                         "show": "use_text_mode",
-                                        "persistent-hint": True,
-                                        "hint": "格式：标识 | 显示名 | 手机号（含国际区号）",
                                     },
-                                }
+                                },
+                                {
+                                    "component": "p",
+                                    "props": {
+                                        "class": "text-caption text-medium-emphasis mb-3",
+                                        "show": "use_text_mode",
+                                    },
+                                    "text": "格式：标识 | 显示名 | 手机号（含国际区号）。",
+                                },
                             ],
                         },
                         {
@@ -1706,15 +1648,23 @@ class TgSignin(_PluginBase):
                                     "props": {
                                         "model": "targets_text",
                                         "label": "签到目标列表（文本模式）",
-                                        "rows": 5,
+                                        "rows": 3,
+                                        "auto-grow": True,
+                                        "max-rows": 10,
                                         "show": "use_text_mode",
-                                        "persistent-hint": True,
-                                        "hint": "格式：账号标识 | 目标 | 按钮/命令 | 按钮文字或命令"
-                                                " [| 等待秒数] [| 回复归属标识]；"
-                                                "「目标」可填 @用户名（bot / 公开群）"
-                                                "或私有群数字 ID（-100 开头）",
                                     },
-                                }
+                                },
+                                {
+                                    "component": "p",
+                                    "props": {
+                                        "class": "text-caption text-medium-emphasis mb-3",
+                                        "show": "use_text_mode",
+                                    },
+                                    "text": "格式：账号标识 | 目标 | 按钮/命令 | 按钮文字或命令"
+                                            " [| 等待秒数] [| 回复归属标识]；"
+                                            "「目标」可填 @用户名（bot / 公开群）"
+                                            "或私有群数字 ID（-100 开头）。",
+                                },
                             ],
                         },
                     ],
@@ -2553,39 +2503,6 @@ class TgSignin(_PluginBase):
             "message": f"已退出 {account.display()}"
             f"（{'已删除 session' if removed else '本就没有 session'}）",
         }
-
-    @staticmethod
-    def _logout_button_js(index: int) -> str:
-        """
-        生成配置表单「退出登录」按钮的前端脚本（原生确认弹窗 + 回填「登录动作」）。
-
-        配置表单渲染器只认 ``props.on*`` 字符串脚本，且在 ``with(model)`` 作用域内以
-        ``(value)(event)`` 求值（``events`` 在配置表单里不生效，只有详情页按钮支持），
-        所以这里用浏览器原生 ``confirm`` 做二次确认，再把该账号槽的「登录动作」填成
-        「退出登录」——**点完仍需按「保存」才会真正执行**。
-
-        :param index: 账号槽序号（1 起）
-        :return str: 可直接放进 ``props.onClick`` 的 JS 函数源码
-        """
-
-        guard = json.dumps(
-            f"将退出「账号 {index}」（acc{index}）：\n"
-            "删除该账号的 Telegram 登录态，之后需要重新登录才能签到。\n"
-            "（这一步只是把「登录动作」填成「退出登录」，点完仍需按「保存」才会执行）\n"
-            "确定退出？",
-            ensure_ascii=False,
-        )
-        value = json.dumps(LOGIN_ACTION_LOGOUT, ensure_ascii=False)
-        model = f"model.account_{index}_login_action"
-        return (
-            "function () { if (!confirm("
-            + guard
-            + ")) { return; } "
-            + model
-            + " = "
-            + value
-            + "; }"
-        )
 
     def _clear_login_slot(self, account_key: str) -> None:
         """

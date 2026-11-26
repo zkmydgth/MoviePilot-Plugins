@@ -13,7 +13,6 @@
 """
 
 import asyncio
-import json
 import stat
 import tempfile
 import time

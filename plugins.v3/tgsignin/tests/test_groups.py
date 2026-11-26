@@ -36,7 +36,6 @@ from tgsignin.core.config import (
     targets_from_slots,
 )
 from tgsignin.core.groups import (
-    GROUP_LINE_LIMIT,
     MAX_GROUP_ROWS,
     collect_group_rows,
     group_kind,
@@ -560,15 +559,27 @@ class TestGroupFormAndApi(unittest.TestCase):
         )
         return plugin
 
-    def test_form_has_filterable_pick_and_fill_button(self) -> None:
-        """每个目标槽都有可输入筛选的「从已查到的群组选」组合框与「填入本槽」按钮。"""
+    def test_form_has_filterable_pick(self) -> None:
+        """每个目标槽都有可输入筛选的「从已查到的群组选」组合框，且不再有 JS 按钮。
+
+        「填入本槽」原先靠 ``props.onClick`` 的 JS 脚本，App 原生渲染器不执行 JS，
+        按钮会变成禁用态（2026-11-26 用户实测）。现改为提示用户把群号填进「bot / 群」。
+        """
         plugin = self._plugin()
         form, defaults = plugin.get_form()
         plain = json.dumps(form, ensure_ascii=False)
         self.assertIn("target_1_pick", plain)
         self.assertIn("target_8_pick", plain)
         self.assertEqual(defaults["target_1_pick"], "")
-        self.assertIn("填入本槽", plain)
+        # 配置表单里不应再有任何按钮（App 端只有数据控件可交互）
+        self.assertEqual(
+            [n for n in _walk(form) if n.get("component") == "VBtn"],
+            [],
+            "配置表单不应再有按钮",
+        )
+        self.assertNotIn("onClick", plain)
+        # 替代说明必须写明「怎么把群号填进 bot/群」，否则用户会找不到入口
+        self.assertIn("填进本行的「bot / 群」", plain)
         # 候选项来自缓存（带群名与群号）
         self.assertIn("私有超级群（-1001111111111）", plain)
         # 必须是可以输入关键词筛选的组合框，而不是只能翻列表的纯下拉
@@ -598,36 +609,10 @@ class TestGroupFormAndApi(unittest.TestCase):
         for empty_row in pickers[5:]:
             self.assertEqual(empty_row["props"]["items"], [])
 
-    def test_fill_button_js_targets_bot_field(self) -> None:
-        """「填入本槽」脚本：解析选择框内容 → 只把群标识写进同一行的 bot 字段。"""
-        script = TgSignin()._fill_target_button_js(3)
-        self.assertIn("model.target_3_pick", script)
-        self.assertIn("model.target_3_bot = ref", script)
-        self.assertIn("alert(", script)
-        self.assertIn("confirm(", script)
-        # 确认框显示解析后的群标识，而不是原始对象 / 整条标题
-        self.assertIn("+ ref +", script)
-
-    def test_fill_button_js_resolution_order(self) -> None:
-        """
-        解析顺序：整项对象取 value → 已是群标识直接用 → 标题串从「（群号）」截出群号。
-
-        用户反馈（2026-10-12）：从候选里点选后框里是「群名（群号）」，旧版只按字符串形态
-        校验，会把正常选中也当成筛选关键词拦掉。这里锁住三步解析与「认不出才拦」的把关。
-        """
-        script = TgSignin()._fill_target_button_js(3)
-        # ① 选中项是整项对象时取 value（与同表 target_N_method 的存法一致）
-        self.assertIn('typeof raw === "object"', script)
-        self.assertIn("raw.value", script)
-        # ② 群标识的两种形态：@用户名 与 数字 ID（含负号）
-        self.assertIn(r"/^@[A-Za-z0-9_]{4,}$/", script)
-        self.assertIn(r"/^-?\d{5,}$/", script)
-        # ③ 完整标题串：从我们自己的「（群号）」后缀里截出群号
-        self.assertIn(r".match(/（(-?\d{5,})）/)", script)
-        self.assertIn("ref = m[1]", script)
-        # 三步都认不出（半截筛选词）才弹提示，不把无效值写进目标
-        self.assertIn("if (!okId(ref)) { alert(", script)
-        self.assertIn("没能从选择框里认出群标识", script)
+    def test_form_has_no_js_helpers_left(self) -> None:
+        """「填入本槽 / 退出登录」的 JS 生成器必须一并删除，避免留下不能用的死代码。"""
+        self.assertFalse(hasattr(TgSignin, "_fill_target_button_js"))
+        self.assertFalse(hasattr(TgSignin, "_logout_button_js"))
 
     def test_groups_api_route(self) -> None:
         """/groups 路由绑定到查询接口。"""
