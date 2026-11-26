@@ -201,33 +201,61 @@ class TestPage(unittest.TestCase):
             self.assertNotIn("token", params)
             self.assertTrue(button["events"]["click"]["api"].startswith("plugin/TgSignin/"))
 
-    def test_page_contains_tables(self) -> None:
-        """详情页包含账号状态表、今日状态表与结果表。"""
+    def test_page_uses_card_rows(self) -> None:
+        """
+        详情页用卡片行，不再用宽表（2026-11-26 改）。
+
+        App 端原生渲染器按行内容自适应列宽、不认 ``max-width``，7 列宽表会让同一列
+        在不同行左右漂移，所以账号状态 / 今日状态 / 最近结果都必须是纵向卡片。
+        """
         plugin = TgSignin()
         plugin.init_plugin({"enabled": True})
-        tables = [node for node in _walk(plugin.get_page()) if node.get("component") == "VTable"]
-        self.assertEqual(len(tables), 3)
+        page = plugin.get_page()
+        self.assertEqual(
+            [node for node in _walk(page) if node.get("component") == "VTable"],
+            [],
+            "详情页不应再有宽表",
+        )
+        cards = [
+            node
+            for node in _walk(page)
+            if isinstance(node.get("props"), dict)
+            and "border-bottom" in str(node["props"].get("style") or "")
+        ]
+        self.assertGreaterEqual(len(cards), 3, "账号状态 / 今日状态 / 最近结果都是卡片行")
 
     def test_buttons_are_wrapped_in_flex_container(self) -> None:
-        """按钮必须包在 flex 容器里（回归：直接平铺时移动端会与上方色块重叠）。"""
+        """
+        按钮必须包在 flex 容器里（回归：直接平铺时移动端会与上方色块重叠）。
+
+        卡片行改版后按钮分散到多个 flex 容器（顶部操作区 + 每张卡片），所以断言
+        「页面里没有裸露的 VBtn」+「顶部操作区按钮齐全」。
+        """
         plugin = TgSignin()
         plugin.init_plugin({"enabled": True})
+        page = plugin.get_page()
+        self.assertEqual(
+            [node for node in page if node.get("component") == "VBtn"],
+            [],
+            "顶层内容流里不能直接放按钮",
+        )
         wrappers = [
             node
-            for node in _walk(plugin.get_page())
+            for node in _walk(page)
             if isinstance(node.get("props"), dict)
             and "d-flex" in str(node["props"].get("class", ""))
             and any(
                 child.get("component") == "VBtn" for child in (node.get("content") or [])
             )
         ]
-        self.assertEqual(len(wrappers), 1, "应恰有一个承载操作按钮的 flex 容器")
+        self.assertTrue(wrappers, "按钮应包在 flex 容器里")
         top_buttons = [
             child
-            for child in wrappers[0]["content"]
+            for wrapper in wrappers
+            for child in wrapper["content"]
             if child.get("component") == "VBtn"
         ]
-        self.assertGreaterEqual(len(top_buttons), 5, "顶部操作按钮齐全")
+        self.assertGreaterEqual(len(top_buttons), 5, "操作按钮齐全")
         # 页面内所有按钮（含表格行内的「重试 / 测试 / 退出」）都要带 apikey
         for button in [n for n in _walk(plugin.get_page()) if n.get("component") == "VBtn"]:
             params = button["events"]["click"]["params"]
@@ -273,8 +301,9 @@ class TestPage(unittest.TestCase):
             ],
         )
         page = plugin.get_page()
-        tables = [node for node in _walk(page) if node.get("component") == "VTable"]
-        self.assertEqual(len(tables), 4, "账号状态表 + 今日状态表 + 结果表 + AI 归纳关键词表")
+        self.assertEqual(
+            [node for node in _walk(page) if node.get("component") == "VTable"], []
+        )
         blob = json.dumps(page, ensure_ascii=False)
         self.assertIn("AI 归纳关键词", blob)
         self.assertIn("连续签到", blob)
@@ -651,7 +680,7 @@ class TestPageExtras(unittest.TestCase):
         return plugin
 
     def test_today_table_and_probe_buttons(self) -> None:
-        """详情页含「今日签到状态」表，行内「测试」按钮带 apikey 与 account/bot。"""
+        """详情页含「今日签到状态」卡片，行内「测试」按钮带 apikey 与 account/bot。"""
         page = self._plugin().get_page()
         blob = json.dumps(page, ensure_ascii=False)
         self.assertIn("今日签到状态", blob)
@@ -669,9 +698,9 @@ class TestPageExtras(unittest.TestCase):
 
     def test_today_table_with_today_records(self) -> None:
         """
-        回归：state 里「今天已有记录」时今日状态表必须能渲染。
+        回归：state 里「今天已有记录」时今日状态卡片必须能渲染。
 
-        修复前 ``_today_rows`` 的 ``next_text`` 只在「需要重试」分支赋值，
+        修复前 ``_today_cards`` 的 ``next_text`` 只在「需要重试」分支赋值，
         今天已有成败记录（但无需重试）时会抛 UnboundLocalError，
         整个详情页再次变成「数据加载失败」（2026-10-11 端到端实测发现）。
         """
@@ -699,9 +728,9 @@ class TestPageExtras(unittest.TestCase):
         }
         save_state(data_dir, state)
         blob = json.dumps(plugin.get_page(), ensure_ascii=False)
-        self.assertIn("✅ 已成功", blob)
-        self.assertIn("❌ 上次失败", blob)
-        self.assertIn("—（今天还没跑）", blob)
+        self.assertIn("已成功", blob)
+        self.assertIn("上次失败", blob)
+        self.assertIn("今天还没跑", blob)
         # 「最后尝试」列填的是本地时间文本，不是空值
         expected = datetime.fromtimestamp(stamp, TZ).strftime("%Y-%m-%d %H:%M:%S")
         self.assertIn(expected, blob)

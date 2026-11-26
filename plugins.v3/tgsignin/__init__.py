@@ -128,41 +128,113 @@ from .version import VERSION
 __all__ = ["TgSignin"]
 
 
-def _table(headers: List[str], rows: List[Dict[str, Any]]) -> dict:
+def _short(value: Any, limit: int = 80) -> str:
     """
-    构造一个紧凑表格节点。
+    压成单行并按字符数截断。
 
-    详情页自身与各区块（如「AI 归纳关键词」）共用。此前它是 ``get_page`` 的
-    局部函数、却被 ``_ai_keyword_block`` 跨作用域引用，导致详情页 NameError
-    （2026-10-11 修复）。
+    App 端不执行 CSS 的 ``max-width`` / ``text-truncate``（2026-11-26 实测：
+    7 列宽表里长文本直接横穿三列），只能在数据侧收窄，否则整行会被挤歪。
 
-    :param headers: 表头文字
-    :param rows: 数据行
-    :return dict: 表格节点
+    :param value: 原始文本
+    :param limit: 最大字符数（超出补省略号）
+    :return str: 单行短文本
+    """
+
+    flat = " ".join(str(value or "").split())
+    if len(flat) <= limit:
+        return flat
+    return flat[: max(1, limit - 1)] + "…"
+
+
+def _chip(text: str, color: str = "secondary") -> Dict[str, Any]:
+    """
+    构造小号状态标签。
+
+    :param text: 标签文字
+    :param color: Vuetify 主题色
+    :return Dict[str, Any]: VChip 节点
     """
 
     return {
-        "component": "VTable",
-        "props": {"density": "compact", "hover": True},
-        "content": [
-            {
-                "component": "thead",
-                "content": [
-                    {
-                        "component": "tr",
-                        "content": [
-                            {
-                                "component": "th",
-                                "props": {"class": "text-left"},
-                                "text": title,
-                            }
-                            for title in headers
-                        ],
-                    }
-                ],
-            },
-            {"component": "tbody", "content": rows},
-        ],
+        "component": "VChip",
+        "props": {"color": color, "size": "small", "variant": "tonal", "class": "mr-2 mb-1"},
+        "text": text,
+    }
+
+
+def _record(children: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    构造一条记录的卡片块。
+
+    2026-11-26 由表格行改为纵向卡片：详情页原先用 6/7 列宽表，App 端按行内容
+    自适应列宽、又不认 ``max-width``，导致同一列在不同行里左右漂移。
+
+    :param children: 卡片内的节点（标题行、说明行、按钮行）
+    :return Dict[str, Any]: div 节点
+    """
+
+    return {
+        "component": "div",
+        "props": {
+            "class": "mb-3 pb-2",
+            "style": "border-bottom: 1px solid rgba(var(--v-border-color, 0, 0, 0), var(--v-border-opacity, 0.12));",
+        },
+        "content": children,
+    }
+
+
+def _head_line(text: str, chip: str = "", color: str = "secondary") -> Dict[str, Any]:
+    """
+    构造记录标题行：左侧标题 + 可选状态标签。
+
+    :param text: 标题文字
+    :param chip: 状态标签文字（空则不渲染）
+    :param color: 状态标签颜色
+    :return Dict[str, Any]: div 节点
+    """
+
+    content: List[Dict[str, Any]] = [
+        {"component": "p", "props": {"class": "mb-0 mr-2 font-weight-medium"}, "text": text}
+    ]
+    if chip:
+        content.append(_chip(chip, color))
+    return {
+        "component": "div",
+        "props": {"class": "d-flex align-center flex-wrap"},
+        "content": content,
+    }
+
+
+def _caption(text: str) -> Dict[str, Any]:
+    """
+    构造次要信息行（小号灰字）。
+
+    :param text: 文字内容
+    :return Dict[str, Any]: p 节点
+    """
+
+    return {
+        "component": "p",
+        "props": {"class": "mb-0 text-caption text-medium-emphasis"},
+        "text": text,
+    }
+
+
+def _actions(buttons: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    构造操作按钮行。
+
+    按钮必须包在 flex 容器里：直接与其它节点平铺时，移动端会出现按钮与上方色块
+    重叠（2026-10-06 用户实测反馈）。
+
+    :param buttons: 按钮节点
+    :return Dict[str, Any]: div 节点
+    """
+
+    return {
+        "component": "div",
+        "props": {"class": "d-flex align-center flex-wrap mt-1 mp-action-grid"},
+        "content": buttons,
     }
 
 
@@ -957,7 +1029,7 @@ class TgSignin(_PluginBase):
                 "content": [
                     {
                         "component": "VCol",
-                        "props": {"cols": 12, "md": 3},
+                        "props": {"cols": 12},
                         "content": [
                             {
                                 "component": "VSwitch",
@@ -967,7 +1039,7 @@ class TgSignin(_PluginBase):
                     },
                     {
                         "component": "VCol",
-                        "props": {"cols": 12, "md": 4},
+                        "props": {"cols": 12},
                         "content": [
                             {
                                 "component": "VCronField",
@@ -983,7 +1055,7 @@ class TgSignin(_PluginBase):
                     },
                     {
                         "component": "VCol",
-                        "props": {"cols": 12, "md": 4},
+                        "props": {"cols": 12},
                         "content": [
                             {
                                 "component": "VCombobox",
@@ -999,7 +1071,7 @@ class TgSignin(_PluginBase):
                     },
                     {
                         "component": "VCol",
-                        "props": {"cols": 12, "md": 4},
+                        "props": {"cols": 12},
                         "content": [
                             {
                                 "component": "VTextField",
@@ -1024,7 +1096,7 @@ class TgSignin(_PluginBase):
                 "content": [
                     {
                         "component": "VCol",
-                        "props": {"cols": 12, "md": 6},
+                        "props": {"cols": 12},
                         "content": [
                             {
                                 "component": "VTextarea",
@@ -1041,7 +1113,7 @@ class TgSignin(_PluginBase):
                     },
                     {
                         "component": "VCol",
-                        "props": {"cols": 12, "md": 6},
+                        "props": {"cols": 12},
                         "content": [
                             {
                                 "component": "VTextarea",
@@ -1063,7 +1135,7 @@ class TgSignin(_PluginBase):
                 "content": [
                     {
                         "component": "VCol",
-                        "props": {"cols": 12, "md": 6},
+                        "props": {"cols": 12},
                         "content": [
                             {
                                 "component": "VTextarea",
@@ -1082,7 +1154,7 @@ class TgSignin(_PluginBase):
                     },
                     {
                         "component": "VCol",
-                        "props": {"cols": 12, "md": 6},
+                        "props": {"cols": 12},
                         "content": [
                             {
                                 "component": "VSwitch",
@@ -1104,7 +1176,7 @@ class TgSignin(_PluginBase):
                 "content": [
                     {
                         "component": "VCol",
-                        "props": {"cols": 12, "md": 6},
+                        "props": {"cols": 12},
                         "content": [
                             {
                                 "component": "VTextField",
@@ -1125,7 +1197,7 @@ class TgSignin(_PluginBase):
                     },
                     {
                         "component": "VCol",
-                        "props": {"cols": 12, "md": 6},
+                        "props": {"cols": 12},
                         "content": [
                             {
                                 "component": "VSwitch",
@@ -1164,7 +1236,7 @@ class TgSignin(_PluginBase):
                     "content": [
                         {
                             "component": "VCol",
-                            "props": {"cols": 12, "md": 2},
+                            "props": {"cols": 12},
                             "content": [
                                 {
                                     "component": "VSwitch",
@@ -1177,7 +1249,7 @@ class TgSignin(_PluginBase):
                         },
                         {
                             "component": "VCol",
-                            "props": {"cols": 12, "md": 3},
+                            "props": {"cols": 12},
                             "content": [
                                 {
                                     "component": "VTextField",
@@ -1192,7 +1264,7 @@ class TgSignin(_PluginBase):
                         },
                         {
                             "component": "VCol",
-                            "props": {"cols": 12, "md": 4},
+                            "props": {"cols": 12},
                             "content": [
                                 {
                                     "component": "VTextField",
@@ -1202,7 +1274,7 @@ class TgSignin(_PluginBase):
                         },
                         {
                             "component": "VCol",
-                            "props": {"cols": 12, "md": 3},
+                            "props": {"cols": 12},
                             "content": [
                                 {
                                     "component": "VCombobox",
@@ -1224,7 +1296,7 @@ class TgSignin(_PluginBase):
                     "content": [
                         {
                             "component": "VCol",
-                            "props": {"cols": 12, "md": 4},
+                            "props": {"cols": 12},
                             "content": [
                                 {
                                     "component": "VTextField",
@@ -1238,7 +1310,7 @@ class TgSignin(_PluginBase):
                         },
                         {
                             "component": "VCol",
-                            "props": {"cols": 12, "md": 4},
+                            "props": {"cols": 12},
                             "content": [
                                 {
                                     "component": "VTextField",
@@ -1253,7 +1325,7 @@ class TgSignin(_PluginBase):
                         },
                         {
                             "component": "VCol",
-                            "props": {"cols": 12, "md": 4},
+                            "props": {"cols": 12},
                             "content": [
                                 {
                                     "component": "VAlert",
@@ -1306,7 +1378,7 @@ class TgSignin(_PluginBase):
                     "content": [
                         {
                             "component": "VCol",
-                            "props": {"cols": 12, "md": 1},
+                            "props": {"cols": 12},
                             "content": [
                                 {
                                     "component": "VSwitch",
@@ -1316,7 +1388,7 @@ class TgSignin(_PluginBase):
                         },
                         {
                             "component": "VCol",
-                            "props": {"cols": 12, "md": 2},
+                            "props": {"cols": 12},
                             "content": [
                                 {
                                     "component": "VCombobox",
@@ -1331,7 +1403,7 @@ class TgSignin(_PluginBase):
                         },
                         {
                             "component": "VCol",
-                            "props": {"cols": 12, "md": 3},
+                            "props": {"cols": 12},
                             "content": [
                                 {
                                     "component": "VTextField",
@@ -1357,7 +1429,7 @@ class TgSignin(_PluginBase):
                         },
                         {
                             "component": "VCol",
-                            "props": {"cols": 12, "md": 2},
+                            "props": {"cols": 12},
                             "content": [
                                 {
                                     "component": "VCombobox",
@@ -1372,7 +1444,7 @@ class TgSignin(_PluginBase):
                         },
                         {
                             "component": "VCol",
-                            "props": {"cols": 12, "md": 2},
+                            "props": {"cols": 12},
                             "content": [
                                 {
                                     "component": "VTextField",
@@ -1387,7 +1459,7 @@ class TgSignin(_PluginBase):
                         },
                         {
                             "component": "VCol",
-                            "props": {"cols": 12, "md": 2},
+                            "props": {"cols": 12},
                             "content": [
                                 {
                                     "component": "VTextField",
@@ -1409,7 +1481,7 @@ class TgSignin(_PluginBase):
                     "content": [
                         {
                             "component": "VCol",
-                            "props": {"cols": 12, "md": 5, "offset-md": 1},
+                            "props": {"cols": 12},
                             "content": [
                                 {
                                     "component": "VTextField",
@@ -1428,7 +1500,7 @@ class TgSignin(_PluginBase):
                         },
                         {
                             "component": "VCol",
-                            "props": {"cols": 12, "md": 3},
+                            "props": {"cols": 12},
                             "content": [
                                 {
                                     # 可输入筛选的组合框：群多的账号（几十上百个）里直接打群名关键词
@@ -1460,7 +1532,7 @@ class TgSignin(_PluginBase):
                         },
                         {
                             "component": "VCol",
-                            "props": {"cols": 12, "md": 3},
+                            "props": {"cols": 12},
                             "content": [
                                 {
                                     "component": "VBtn",
@@ -1492,7 +1564,7 @@ class TgSignin(_PluginBase):
                     "content": [
                         {
                             "component": "VCol",
-                            "props": {"cols": 12, "md": 3},
+                            "props": {"cols": 12},
                             "content": [
                                 {
                                     "component": "VSelect",
@@ -1508,7 +1580,7 @@ class TgSignin(_PluginBase):
                         },
                         {
                             "component": "VCol",
-                            "props": {"cols": 12, "md": 3},
+                            "props": {"cols": 12},
                             "content": [
                                 {
                                     "component": "VCombobox",
@@ -1526,7 +1598,7 @@ class TgSignin(_PluginBase):
                         },
                         {
                             "component": "VCol",
-                            "props": {"cols": 12, "md": 3},
+                            "props": {"cols": 12},
                             "content": [
                                 {
                                     "component": "VTextField",
@@ -1540,7 +1612,7 @@ class TgSignin(_PluginBase):
                         },
                         {
                             "component": "VCol",
-                            "props": {"cols": 12, "md": 3},
+                            "props": {"cols": 12},
                             "content": [
                                 {
                                     "component": "VTextField",
@@ -1559,7 +1631,7 @@ class TgSignin(_PluginBase):
                     "content": [
                         {
                             "component": "VCol",
-                            "props": {"cols": 12, "md": 4},
+                            "props": {"cols": 12},
                             "content": [
                                 {
                                     "component": "VTextField",
@@ -1574,7 +1646,7 @@ class TgSignin(_PluginBase):
                         },
                         {
                             "component": "VCol",
-                            "props": {"cols": 12, "md": 8},
+                            "props": {"cols": 12},
                             "content": [
                                 {
                                     "component": "VTextField",
@@ -1597,7 +1669,7 @@ class TgSignin(_PluginBase):
                     "content": [
                         {
                             "component": "VCol",
-                            "props": {"cols": 12, "md": 4},
+                            "props": {"cols": 12},
                             "content": [
                                 {
                                     "component": "VSwitch",
@@ -1610,7 +1682,7 @@ class TgSignin(_PluginBase):
                         },
                         {
                             "component": "VCol",
-                            "props": {"cols": 12, "md": 8},
+                            "props": {"cols": 12},
                             "content": [
                                 {
                                     "component": "VTextarea",
@@ -1676,44 +1748,36 @@ class TgSignin(_PluginBase):
 
     # ==================== 详情页 ====================
 
-    def _login_status_rows(self) -> List[Dict[str, Any]]:
+    def _login_status_cards(self) -> List[Dict[str, Any]]:
         """
-        构造账号登录状态行（详情页表格用）。
+        构造账号登录状态卡片（详情页用）。
 
-        :return List[Dict[str, Any]]: 表格行
+        :return List[Dict[str, Any]]: 卡片节点
         """
         state = load_state(self.get_data_path())
         account_state: Dict[str, Any] = state.get("accounts") or {}
         files = session_files(self.get_data_path())
-        rows: List[Dict[str, Any]] = []
+        cards: List[Dict[str, Any]] = []
         for account in self._accounts:
             info = account_state.get(account.key) or {}
             if not files.get(account.key):
-                status = "未登录"
+                status, color = "未登录", "warning"
             elif info.get("logged_in"):
-                status = f"已登录：{info.get('name', '')} @{info.get('username', '')}"
+                name = f"{info.get('name', '')} @{info.get('username', '')}".strip()
+                status, color = f"已登录 {name}".strip(), "success"
             else:
-                status = "有 session（未校验）"
-            rows.append(
-                {
-                    "component": "tr",
-                    "content": [
-                        {"component": "td", "text": account.display()},
-                        {"component": "td", "text": account.phone or "-"},
-                        {"component": "td", "text": status},
-                    ],
-                }
+                status, color = "有 session（未校验）", "secondary"
+            cards.append(
+                _record(
+                    [
+                        _head_line(account.display(), _short(status, 24), color),
+                        _caption(f"手机号：{account.phone or '-'}"),
+                    ]
+                )
             )
-        if not rows:
-            rows.append(
-                {
-                    "component": "tr",
-                    "content": [
-                        {"component": "td", "props": {"colspan": 3}, "text": "尚未配置账号"},
-                    ],
-                }
-            )
-        return rows
+        if not cards:
+            cards.append(_record([_caption("尚未配置账号")]))
+        return cards
 
     @staticmethod
     def _ai_note(item: Dict[str, Any]) -> str:
@@ -1761,15 +1825,15 @@ class TgSignin(_PluginBase):
             params={"account": account, "bot": bot},
         )
 
-    def _result_rows(self) -> List[Dict[str, Any]]:
+    def _result_cards(self) -> List[Dict[str, Any]]:
         """
-        构造最近签到结果行（详情页表格用）。
+        构造最近签到结果卡片（详情页用）。
 
-        :return List[Dict[str, Any]]: 表格行
+        :return List[Dict[str, Any]]: 卡片节点
         """
         state = load_state(self.get_data_path())
         results = recent_results(state, PAGE_RESULT_LIMIT)
-        rows: List[Dict[str, Any]] = []
+        cards: List[Dict[str, Any]] = []
         for item in results:
             ok = bool(item.get("ok"))
             status = str(item.get("status") or ("签到成功" if ok else "失败"))
@@ -1778,48 +1842,24 @@ class TgSignin(_PluginBase):
             if alert:
                 detail = f"弹窗：{alert}｜{detail}" if detail else f"弹窗：{alert}"
             ai_note = self._ai_note(item)
-            rows.append(
-                {
-                    "component": "tr",
-                    "content": [
-                        {"component": "td", "text": item.get("time", "")},
-                        {"component": "td", "text": item.get("account", "")},
-                        {"component": "td", "text": item.get("bot", "")},
-                        {
-                            "component": "td",
-                            "text": f"{'✅' if ok else '❌'} {status}",
-                        },
-                        {
-                            "component": "td",
-                            "props": {"class": "text-truncate", "style": "max-width: 320px"},
-                            "text": str(detail)[:120],
-                        },
-                        {
-                            "component": "td",
-                            "props": {"class": "text-truncate", "style": "max-width: 220px"},
-                            "text": ai_note,
-                        },
-                        {
-                            "component": "td",
-                            "content": [self._row_retry_button(item)],
-                        },
-                    ],
-                }
-            )
-        if not rows:
-            rows.append(
-                {
-                    "component": "tr",
-                    "content": [
-                        {
-                            "component": "td",
-                            "props": {"colspan": 7},
-                            "text": "还没有签到记录",
-                        },
-                    ],
-                }
-            )
-        return rows
+            target = " · ".join(
+                _short(part, 24)
+                for part in [item.get("account"), item.get("bot")]
+                if part
+            ) or "未知目标"
+            children: List[Dict[str, Any]] = [
+                _head_line(target, f"{'✅' if ok else '❌'} {_short(status, 12)}", "success" if ok else "error"),
+                _caption(_short(item.get("time") or "-", 20)),
+            ]
+            if detail:
+                children.append({"component": "p", "props": {"class": "mb-0 mt-1"}, "text": _short(detail, 140)})
+            if ai_note:
+                children.append(_caption(f"AI 复核：{_short(ai_note, 60)}"))
+            children.append(_actions([self._row_retry_button(item)]))
+            cards.append(_record(children))
+        if not cards:
+            cards.append(_record([_caption("还没有签到记录")]))
+        return cards
 
     def _ai_keyword_block(self) -> List[Dict[str, Any]]:
         """
@@ -1832,24 +1872,24 @@ class TgSignin(_PluginBase):
         log = list(state.get("ai_keyword_log") or [])
         if not log:
             return []
-        rows: List[Dict[str, Any]] = []
+        cards: List[Dict[str, Any]] = []
         for item in reversed(log[-30:]):
-            rows.append(
-                {
-                    "component": "tr",
-                    "content": [
-                        {"component": "td", "text": item.get("time", "")},
-                        {"component": "td", "text": item.get("account", "")},
-                        {"component": "td", "text": item.get("bot", "")},
-                        {"component": "td", "text": item.get("verdict", "")},
-                        {"component": "td", "text": item.get("keyword", "")},
-                    ],
-                }
+            target = " · ".join(
+                _short(part, 24)
+                for part in [item.get("account"), item.get("bot")]
+                if part
+            ) or "未知目标"
+            cards.append(
+                _record(
+                    [
+                        _head_line(target, _short(item.get("verdict") or "-", 12), "secondary"),
+                        _caption(f"{_short(item.get('time') or '-', 20)} · 新增词 {item.get('keyword') or '-'}"),
+                    ]
+                )
             )
         return [
             self._group_header("AI 归纳关键词（只增不删、已查重）"),
-            _table(["时间", "账号", "bot", "档位", "新增词"], rows),
-        ]
+        ] + cards
 
     def _groups_block(self) -> List[dict]:
         """
@@ -1902,41 +1942,32 @@ class TgSignin(_PluginBase):
         )
         for account_key in sorted(cache):
             payload = cache.get(account_key) or {}
-            rows: List[Dict[str, Any]] = []
+            cards: List[Dict[str, Any]] = []
             for row in payload.get("rows") or []:
-                rows.append(
-                    {
-                        "component": "tr",
-                        "content": [
-                            {"component": "td", "text": str(row.get("title") or "")},
-                            {"component": "td", "text": str(row.get("chat_id") or "")},
-                            {
-                                "component": "td",
-                                "text": str(row.get("username") or "—"),
-                            },
-                            {"component": "td", "text": str(row.get("kind") or "")},
-                            {
-                                "component": "td",
-                                "text": (
-                                    "已配为目标"
-                                    if row.get("configured")
-                                    else (
-                                        "需数字 ID"
-                                        if row.get("private")
-                                        else "可填 @用户名"
-                                    )
-                                ),
-                            },
-                        ],
-                    }
+                if row.get("configured"):
+                    remark, color = "已配为目标", "success"
+                elif row.get("private"):
+                    remark, color = "需数字 ID", "warning"
+                else:
+                    remark, color = "可填 @用户名", "secondary"
+                username = str(row.get("username") or "—")
+                cards.append(
+                    _record(
+                        [
+                            _head_line(_short(row.get("title") or "-", 30), remark, color),
+                            _caption(
+                                f"{row.get('chat_id') or '-'} · {username} · {row.get('kind') or '-'}"
+                            ),
+                        ]
+                    )
                 )
-            total = payload.get("total") or len(rows)
+            total = payload.get("total") or len(cards)
             content.append(
                 self._group_header(
                     f"{account_key} 的群组（{payload.get('time') or ''} 查询，共 {total} 个）"
                 )
             )
-            content.append(_table(["群名", "群号", "用户名", "类型", "备注"], rows))
+            content.extend(cards)
         return content
 
     def _button(
@@ -2012,14 +2043,14 @@ class TgSignin(_PluginBase):
             return ""
         return datetime.fromtimestamp(stamp, TZ).strftime("%Y-%m-%d %H:%M:%S")
 
-    def _today_rows(self) -> List[Dict[str, Any]]:
+    def _today_cards(self) -> List[Dict[str, Any]]:
         """
-        构造「今日签到状态」表行（每个目标一行，2026-10-11 加）。
+        构造「今日签到状态」卡片（每个目标一张，2026-10-11 加，2026-11-26 改卡片）。
 
         数据来自 ``state.json`` 的 ``signin_state``（``core/retry.py`` 维护）：
         今日是否成功 / 尝试次数 / 最后一次尝试时间 / 按重试间隔算出的下次重试时间。
 
-        :return List[Dict[str, Any]]: 表格行
+        :return List[Dict[str, Any]]: 卡片节点
         """
 
         self._refresh_parsed_config()
@@ -2032,14 +2063,14 @@ class TgSignin(_PluginBase):
             key = f"{target.account_key}|{target.bot_username}"
             record = dict(signin_state.get(key) or {})
             if record.get("date") != today:
-                status, attempts, last_text, next_text = "—（今天还没跑）", "0", "", ""
+                status, color, attempts, last_text, next_text = "今天还没跑", "secondary", "0", "", ""
             else:
                 if record.get("ok_today"):
-                    status = "✅ 已成功"
+                    status, color = "已成功", "success"
                 elif record.get("ok") is False:
-                    status = "❌ 上次失败"
+                    status, color = "上次失败", "error"
                 else:
-                    status = "—（未完成）"
+                    status, color = "未完成", "warning"
                 attempts = str(int(record.get("attempts") or 0))
                 last_text = self._stamp_text(record.get("last_attempt_at"))
                 next_text = ""
@@ -2052,20 +2083,18 @@ class TgSignin(_PluginBase):
                         float(record["last_attempt_at"]) + interval_seconds
                     )
             rows.append(
-                {
-                    "component": "tr",
-                    "content": [
-                        {
-                            "component": "td",
-                            "text": f"{target.account_key} → {target.bot_username}",
-                        },
-                        {"component": "td", "text": status},
-                        {"component": "td", "text": attempts},
-                        {"component": "td", "text": last_text or "—"},
-                        {"component": "td", "text": next_text or "—"},
-                        {
-                            "component": "td",
-                            "content": [
+                _record(
+                    [
+                        _head_line(
+                            f"{target.account_key} → {_short(target.bot_username, 24)}",
+                            status,
+                            color,
+                        ),
+                        _caption(
+                            f"尝试 {attempts} 次 · 最后 {last_text or '—'} · 下次 {next_text or '—'}"
+                        ),
+                        _actions(
+                            [
                                 self._button(
                                     "测试",
                                     "/target/probe",
@@ -2075,24 +2104,13 @@ class TgSignin(_PluginBase):
                                         "bot": target.bot_username,
                                     },
                                 )
-                            ],
-                        },
-                    ],
-                }
+                            ]
+                        ),
+                    ]
+                )
             )
         if not rows:
-            rows.append(
-                {
-                    "component": "tr",
-                    "content": [
-                        {
-                            "component": "td",
-                            "props": {"colspan": 6},
-                            "text": "还没有配置签到目标",
-                        },
-                    ],
-                }
-            )
+            rows.append(_record([_caption("还没有配置签到目标")]))
         return rows
 
     def get_page(self) -> Optional[List[dict]]:
@@ -2228,9 +2246,11 @@ class TgSignin(_PluginBase):
         )
         # 按钮必须包在 flex 容器里再进内容流：直接与 VAlert/VTable 平铺时，
         # 移动端会出现按钮与上方色块重叠（2026-10-06 用户实测反馈）。
+        # mp-action-grid：网页端无此 class（不生效）；App 端据此按自适应网格排按钮，
+        # 避免 d-flex 行在原生渲染器里被纵向堆叠（账号多时会有十几行按钮）。
         actions_block = {
             "component": "div",
-            "props": {"class": "d-flex align-center flex-wrap mt-2 mb-4"},
+            "props": {"class": "d-flex align-center flex-wrap mt-2 mb-4 mp-action-grid"},
             "content": actions,
         }
 
@@ -2242,32 +2262,11 @@ class TgSignin(_PluginBase):
                 + [actions_block]
                 + [
                     self._group_header("账号登录状态"),
-                    _table(["账号", "手机号", "状态"], self._login_status_rows()),
+                    *self._login_status_cards(),
                     self._group_header("今日签到状态（按目标）"),
-                    _table(
-                        [
-                            "目标",
-                            "今日状态",
-                            "尝试次数",
-                            "最后尝试",
-                            "下次重试",
-                            "操作",
-                        ],
-                        self._today_rows(),
-                    ),
+                    *self._today_cards(),
                     self._group_header(f"最近 {PAGE_RESULT_LIMIT} 条签到结果"),
-                    _table(
-                        [
-                            "时间",
-                            "账号",
-                            "bot",
-                            "状态",
-                            "回复/错误",
-                            "AI 复核",
-                            "操作",
-                        ],
-                        self._result_rows(),
-                    ),
+                    *self._result_cards(),
                 ]
                 + self._ai_keyword_block()
                 + self._groups_block(),
