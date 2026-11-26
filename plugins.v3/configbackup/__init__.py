@@ -523,7 +523,7 @@ class ConfigBackup(_PluginBase):
                         "content": [
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 3},
+                                "props": {"cols": 12},
                                 "content": [
                                     {
                                         "component": "VSwitch",
@@ -536,7 +536,7 @@ class ConfigBackup(_PluginBase):
                             },
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 3},
+                                "props": {"cols": 12},
                                 "content": [
                                     {
                                         "component": "VSwitch",
@@ -551,7 +551,7 @@ class ConfigBackup(_PluginBase):
                             },
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 3},
+                                "props": {"cols": 12},
                                 "content": [
                                     {
                                         "component": "VSwitch",
@@ -566,7 +566,7 @@ class ConfigBackup(_PluginBase):
                             },
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 3},
+                                "props": {"cols": 12},
                                 "content": [
                                     {
                                         "component": "VSelect",
@@ -587,7 +587,7 @@ class ConfigBackup(_PluginBase):
                         "content": [
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 12},
+                                "props": {"cols": 12},
                                 "content": [
                                     {
                                         "component": "VCronField",
@@ -603,7 +603,7 @@ class ConfigBackup(_PluginBase):
                             },
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 6},
+                                "props": {"cols": 12},
                                 "content": [
                                     {
                                         "component": "VTextField",
@@ -620,7 +620,7 @@ class ConfigBackup(_PluginBase):
                             },
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 6},
+                                "props": {"cols": 12},
                                 "content": [
                                     {
                                         "component": "VTextField",
@@ -642,7 +642,7 @@ class ConfigBackup(_PluginBase):
                         "content": [
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 6},
+                                "props": {"cols": 12},
                                 "content": [
                                     {
                                         "component": "VCombobox",
@@ -659,7 +659,7 @@ class ConfigBackup(_PluginBase):
                             },
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 6},
+                                "props": {"cols": 12},
                                 "content": [
                                     {
                                         "component": "VSelect",
@@ -712,7 +712,7 @@ class ConfigBackup(_PluginBase):
                         "content": [
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 6},
+                                "props": {"cols": 12},
                                 "content": [
                                     {
                                         "component": "VTextField",
@@ -730,7 +730,7 @@ class ConfigBackup(_PluginBase):
                             },
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 6},
+                                "props": {"cols": 12},
                                 "content": [
                                     {
                                         "component": "VAlert",
@@ -749,7 +749,7 @@ class ConfigBackup(_PluginBase):
                         "content": [
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 3},
+                                "props": {"cols": 12},
                                 "content": [
                                     {
                                         "component": "VSwitch",
@@ -764,7 +764,7 @@ class ConfigBackup(_PluginBase):
                             },
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 9},
+                                "props": {"cols": 12},
                                 "content": [
                                     {
                                         "component": "VTextField",
@@ -785,7 +785,7 @@ class ConfigBackup(_PluginBase):
                         "content": [
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 3},
+                                "props": {"cols": 12},
                                 "content": [
                                     {
                                         "component": "VTextField",
@@ -799,7 +799,7 @@ class ConfigBackup(_PluginBase):
                             },
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 3},
+                                "props": {"cols": 12},
                                 "content": [
                                     {
                                         "component": "VTextField",
@@ -815,7 +815,7 @@ class ConfigBackup(_PluginBase):
                             },
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 3},
+                                "props": {"cols": 12},
                                 "content": [
                                     {
                                         "component": "VTextField",
@@ -831,7 +831,7 @@ class ConfigBackup(_PluginBase):
                             },
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 3},
+                                "props": {"cols": 12},
                                 "content": [
                                     {
                                         "component": "VTextField",
@@ -853,7 +853,7 @@ class ConfigBackup(_PluginBase):
                         "content": [
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 3},
+                                "props": {"cols": 12},
                                 "content": [
                                     {
                                         "component": "VTextField",
@@ -870,7 +870,7 @@ class ConfigBackup(_PluginBase):
                             },
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 3},
+                                "props": {"cols": 12},
                                 "content": [
                                     {
                                         "component": "VSwitch",
@@ -885,7 +885,7 @@ class ConfigBackup(_PluginBase):
                             },
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 6},
+                                "props": {"cols": 12},
                                 "content": [
                                     {
                                         "component": "VAlert",
@@ -1063,8 +1063,10 @@ class ConfigBackup(_PluginBase):
 
         header = [
             {
+                # mp-action-grid：网页端无此 class（不生效），App 端据此按自适应网格排按钮，
+                # 避免 d-flex 行在原生渲染器里被纵向堆叠成 5 行。
                 "component": "div",
-                "props": {"class": "d-flex align-center flex-wrap"},
+                "props": {"class": "d-flex align-center flex-wrap mp-action-grid"},
                 "content": actions,
             },
             {
@@ -1099,6 +1101,9 @@ class ConfigBackup(_PluginBase):
                         "props": {"class": "text-caption ml-2"},
                         "text": self.__webdav_status_text(),
                     },
+                    # App 端容器只有检测到 VSpacer 才按横向行渲染；网页端 VSpacer 只占剩余空间，
+                    # 状态文字因此靠右显示，与按钮同行。
+                    {"component": "VSpacer"},
                 ],
             },
         ]
@@ -1123,7 +1128,7 @@ class ConfigBackup(_PluginBase):
             header.append(
                 {
                     "component": "div",
-                    "props": {"class": "d-flex align-center flex-wrap mt-2"},
+                    "props": {"class": "d-flex align-center flex-wrap mt-2 mp-action-grid"},
                     "content": [
                         {
                             "component": "VBtn",
