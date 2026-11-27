@@ -33,7 +33,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from app.plugins import _PluginBase
 from app.runtime.log import logger
 from app.schemas.types import MessageType
-from apscheduler.triggers.interval import IntervalTrigger
+from apscheduler.triggers.cron import CronTrigger
 
 try:  # 旧宿主可能没有一次性任务门面
     from app.sdk.scheduler import add_plugin_once_job
@@ -74,6 +74,8 @@ RECENT_LIMIT = 20
 MAX_WORKERS = 4
 #: 单轮最多调用识别链的条数，避免一轮打太多元数据请求
 MAX_RECOGNIZE_PER_ROUND = 20
+#: 调度心跳间隔（分钟）：心跳只判断“是否到期”，宿主重载不会重置检查周期
+TICK_MINUTES = 5
 
 #: 尾部组名误判黑名单（编码、音频、分辨率等）
 _TEAM_BLOCKLIST = {
@@ -175,6 +177,45 @@ def _season_episode_text(meta: Any) -> str:
     except (TypeError, ValueError):
         return ""
     return "".join(parts)
+
+
+def _parse_state_time(value: Any) -> Optional[datetime]:
+    """把状态里保存的 ISO 时间解析为 datetime，缺失或非法时返回 None。"""
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def _is_due(
+    last_run: Any, interval_minutes: int, now: Optional[datetime] = None
+) -> bool:
+    """按上次运行时间判断是否到期；没有可用记录或时间倒流时视为到期。"""
+    last = _parse_state_time(last_run)
+    if last is None:
+        return True
+    current = now or datetime.now()
+    if current < last:
+        return True
+    try:
+        interval = max(1, int(interval_minutes))
+    except (TypeError, ValueError):
+        interval = 1
+    return current - last >= timedelta(minutes=interval)
+
+
+def _next_due_at(last_run: Any, interval_minutes: int) -> Optional[datetime]:
+    """算出下一次到期时间，用于心跳判定与详情页展示；无记录时返回 None。"""
+    last = _parse_state_time(last_run)
+    if last is None:
+        return None
+    try:
+        interval = max(1, int(interval_minutes))
+    except (TypeError, ValueError):
+        interval = 1
+    return last + timedelta(minutes=interval)
 
 
 def _compose_display(cn_name: Any, year: Any, season_episode: str, fallback: str) -> str:
@@ -421,6 +462,7 @@ class EffectSubtitleWatch(_PluginBase):
         self._state: Dict[str, Any] = {}
         self._lock = threading.Lock()
         self._stop_event = threading.Event()
+        self._next_check_at: Optional[datetime] = None
 
     def init_plugin(self, config: dict = None) -> None:
         """读取配置、恢复去重状态，并按需安排一次立即检查。"""
@@ -447,6 +489,9 @@ class EffectSubtitleWatch(_PluginBase):
         self._team_patterns = _split_terms(self._config.get("team_patterns"))
         self._stop_event = threading.Event()
         self._state = self._load_state()
+        self._next_check_at = _next_due_at(
+            self._state.get("last_run"), self._interval_minutes
+        )
         if bool(self._config.get("run_once")):
             self._schedule_once()
 
@@ -464,15 +509,15 @@ class EffectSubtitleWatch(_PluginBase):
         return []
 
     def get_service(self) -> List[Dict[str, Any]]:
-        """注册定时检查服务。"""
+        """注册分钟级心跳；心跳只判断是否到期，重载或重启不会重置检查周期。"""
         if not self._enabled:
             return []
         return [
             {
                 "id": "EffectSubtitleWatch",
                 "name": "特效资源检查",
-                "trigger": IntervalTrigger(minutes=self._interval_minutes),
-                "func": self._scheduled_run,
+                "trigger": CronTrigger(minute=f"*/{TICK_MINUTES}"),
+                "func": self._tick,
                 "kwargs": {},
             }
         ]
@@ -676,11 +721,15 @@ class EffectSubtitleWatch(_PluginBase):
         """返回详情页：只用文本块，保证 App 端可渲染。"""
         state = self._state or self._load_state()
         summary = state.get("last_summary") or {}
+        next_due = self._next_check_at or _next_due_at(
+            state.get("last_run"), self._interval_minutes
+        )
         header_lines = [
             f"状态：{'已启用' if self._enabled else '未启用'}",
             f"关键词：{'、'.join(self._keywords)}",
             f"检查间隔：{self._interval_minutes} 分钟",
             f"上次检查：{state.get('last_run') or '尚未运行'}",
+            f"下次检查：{next_due.strftime('%Y-%m-%d %H:%M') if next_due else '下次心跳即执行'}",
         ]
         if summary:
             header_lines.append(
@@ -758,9 +807,12 @@ class EffectSubtitleWatch(_PluginBase):
 
     # ==================== 定时与执行 ====================
 
-    def _scheduled_run(self) -> None:
-        """定时入口：在后台线程执行，避免阻塞调度器。"""
+    def _tick(self) -> None:
+        """心跳入口：上次运行已超过检查间隔才启动一轮，避免重载重置周期。"""
         if not self._enabled:
+            return
+        now = datetime.now()
+        if self._next_check_at is not None and now < self._next_check_at:
             return
         self._start_round("定时")
 
@@ -810,6 +862,7 @@ class EffectSubtitleWatch(_PluginBase):
         except Exception as err:  # noqa: BLE001 - 单轮失败只记日志
             logger.error("【特效字幕监控】本轮执行失败：%s", err)
         finally:
+            self._next_check_at = datetime.now() + timedelta(minutes=self._interval_minutes)
             lock.release()
 
     def _run_round(self, trigger: str) -> None:
@@ -1094,6 +1147,7 @@ class EffectSubtitleWatch(_PluginBase):
 
     def _save_state(self, state: Dict[str, Any]) -> None:
         """保存去重与运行状态。"""
+        self._state = state
         try:
             self.save_data("state", state)
         except Exception as err:  # noqa: BLE001 - 保存失败只记日志

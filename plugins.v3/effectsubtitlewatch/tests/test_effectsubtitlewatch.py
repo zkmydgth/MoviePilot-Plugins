@@ -26,8 +26,11 @@ from effectsubtitlewatch import (  # noqa: E402
     _fingerprint,
     _format_size,
     _group_candidates,
+    _is_due,
     _normalize_title,
+    _next_due_at,
     _parse_site_ids,
+    _parse_state_time,
     _parse_title,
     _prune_seen,
     _season_episode_text,
@@ -474,3 +477,115 @@ def test_short_truncates_long_text() -> None:
     """长文本按字符数截断并补省略号。"""
     assert _short("a" * 80, 10).endswith("…")
     assert len(_short("a" * 80, 10)) == 10
+
+
+def test_parse_state_time_handles_missing_and_bad_values() -> None:
+    """状态时间解析对空值与非法文本返回 None，正常 ISO 时间可还原。"""
+    assert _parse_state_time(None) is None
+    assert _parse_state_time("") is None
+    assert _parse_state_time("not-a-time") is None
+    assert _parse_state_time("2026-11-27T06:30:07") == datetime(2026, 11, 27, 6, 30, 7)
+
+
+def test_is_due_without_record_or_with_clock_rollback() -> None:
+    """没有运行记录或记录时间在将来时，心跳应立即放行。"""
+    now = datetime(2026, 11, 27, 12, 0, 0)
+    assert _is_due(None, 360, now) is True
+    assert _is_due("", 360, now) is True
+    assert _is_due("2026-11-27T18:00:00", 360, now) is True
+
+
+def test_is_due_respects_configured_interval() -> None:
+    """未到检查间隔不放行，超过间隔才放行。"""
+    now = datetime(2026, 11, 27, 12, 0, 0)
+    assert _is_due("2026-11-27T06:30:00", 360, now) is False
+    assert _is_due("2026-11-27T05:59:00", 360, now) is True
+    assert _is_due("2026-11-27T11:30:00", 30, now) is True
+    assert _is_due("2026-11-27T11:31:00", 30, now) is False
+
+
+def test_next_due_at_adds_interval() -> None:
+    """下次到期时间等价于上次运行加检查间隔；无记录返回 None。"""
+    assert _next_due_at(None, 360) is None
+    assert _next_due_at("2026-11-27T06:30:00", 360) == datetime(2026, 11, 27, 12, 30, 0)
+
+
+def test_get_service_registers_minute_tick() -> None:
+    """启用后注册分钟级心跳，停用时不下发任何服务。"""
+    plugin = EffectSubtitleWatch()
+    plugin._interval_minutes = 360
+    plugin._enabled = False
+    assert plugin.get_service() == []
+
+    plugin._enabled = True
+    services = plugin.get_service()
+    assert len(services) == 1
+    assert services[0]["id"] == "EffectSubtitleWatch"
+    assert "*/5" in str(services[0]["trigger"])
+    assert services[0]["func"] == plugin._tick
+
+
+def test_tick_only_starts_round_when_due(monkeypatch: pytest.MonkeyPatch) -> None:
+    """心跳在未到期时静默跳过，到期或无锚点时启动一轮定时检查。"""
+    plugin = EffectSubtitleWatch()
+    plugin._enabled = True
+    plugin._interval_minutes = 360
+    started: list[str] = []
+    monkeypatch.setattr(plugin, "_start_round", lambda trigger: started.append(trigger))
+
+    plugin._next_check_at = datetime.now() + timedelta(minutes=5)
+    plugin._tick()
+    assert started == []
+
+    plugin._next_check_at = datetime.now() - timedelta(seconds=1)
+    plugin._tick()
+    assert started == ["定时"]
+
+    plugin._next_check_at = None
+    plugin._tick()
+    assert started == ["定时", "定时"]
+
+    plugin._enabled = False
+    plugin._next_check_at = None
+    plugin._tick()
+    assert started == ["定时", "定时"]
+
+
+def test_init_plugin_restores_anchor_from_state() -> None:
+    """重载后按持久化的上次运行时间恢复锚点，已过期则立即可跑。"""
+    plugin = EffectSubtitleWatch()
+    plugin.save_data("state", {"items": {}, "last_run": "2026-11-27T06:30:07", "baseline_done": True})
+    plugin.init_plugin({"enabled": True, "interval_minutes": 360})
+    assert plugin._next_check_at == datetime(2026, 11, 27, 12, 30, 7)
+    assert _is_due(plugin._state.get("last_run"), 360, datetime(2026, 11, 27, 15, 0, 0)) is True
+
+
+def test_round_advances_anchor_even_on_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    """一轮结束（含异常）都把锚点推进一个间隔，避免失败后每 5 分钟重试。"""
+    plugin = EffectSubtitleWatch()
+    plugin._interval_minutes = 360
+    monkeypatch.setattr(plugin, "_run_round", lambda trigger: None)
+    before = datetime.now()
+    plugin._round_with_lock("定时")
+    assert plugin._next_check_at is not None
+    assert plugin._next_check_at >= before + timedelta(minutes=359, seconds=59)
+
+    def _boom(trigger: str) -> None:
+        """模拟本轮执行抛错。"""
+        raise RuntimeError(trigger)
+
+    monkeypatch.setattr(plugin, "_run_round", _boom)
+    plugin._next_check_at = None
+    plugin._round_with_lock("定时")
+    assert plugin._next_check_at is not None
+
+
+def test_get_page_shows_next_check() -> None:
+    """详情页展示下次检查时间，便于确认调度是否被重置。"""
+    plugin = EffectSubtitleWatch()
+    plugin._enabled = True
+    plugin._interval_minutes = 360
+    plugin._state = {"items": {}, "recent": [], "baseline_done": True, "last_run": "2026-11-27T06:30:07"}
+    plugin._next_check_at = None
+    page = plugin.get_page()
+    assert "下次检查：2026-11-27 12:30" in page[0]["props"]["text"]
