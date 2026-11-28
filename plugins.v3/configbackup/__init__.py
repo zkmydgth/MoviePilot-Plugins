@@ -379,12 +379,20 @@ class ConfigBackup(_PluginBase):
         return []
 
     def get_api(self) -> List[Dict[str, Any]]:
-        """返回插件 API 列表。"""
+        """
+        返回插件 API 列表。
+
+        全部路由声明 ``auth="bear"``：详情页按钮是面向前端的调用，MP 前端对动作请求
+        把参数放进请求体，而默认的 ``apikey`` 校验只读 query / 请求头 —— 不声明 auth
+        会按 apikey 处理 → 一律 401「apikey 校验不通过」→ 前端清会话跳登录页、动作
+        根本没执行（2026-11-28 与 TgSignin 同批修复）。
+        """
         return [
             {
                 "path": "/backup",
                 "endpoint": self.api_backup,
                 "methods": ["GET"],
+                "auth": "bear",
                 "summary": "手动触发配置备份",
                 "description": "立即执行一次配置备份",
             },
@@ -392,6 +400,7 @@ class ConfigBackup(_PluginBase):
                 "path": "/guard",
                 "endpoint": self.api_guard,
                 "methods": ["GET"],
+                "auth": "bear",
                 "summary": "备份数量兜底确认",
                 "description": "decision=status 查询状态；ok 表示数量正常并恢复自动备份；"
                                "fix 表示数量异常（保持暂停并等待修改定时）；resume 直接恢复",
@@ -400,6 +409,7 @@ class ConfigBackup(_PluginBase):
                 "path": "/list",
                 "endpoint": self.api_list,
                 "methods": ["GET"],
+                "auth": "bear",
                 "summary": "获取备份文件列表",
                 "description": "获取备份目录下所有备份文件",
             },
@@ -407,6 +417,7 @@ class ConfigBackup(_PluginBase):
                 "path": "/delete",
                 "endpoint": self.api_delete,
                 "methods": ["GET"],
+                "auth": "bear",
                 "summary": "删除指定备份文件",
                 "description": "按文件名删除备份文件",
             },
@@ -414,6 +425,7 @@ class ConfigBackup(_PluginBase):
                 "path": "/restore",
                 "endpoint": self.api_restore,
                 "methods": ["GET"],
+                "auth": "bear",
                 "summary": "还原配置备份",
                 "description": "选择备份文件后确认还原；filename 用于选择待还原文件，confirm=1 执行还原，confirm=cancel 取消",
             },
@@ -421,6 +433,7 @@ class ConfigBackup(_PluginBase):
                 "path": "/webdav/test",
                 "endpoint": self.api_webdav_test,
                 "methods": ["GET"],
+                "auth": "bear",
                 "summary": "测试 WebDAV 连接",
                 "description": "按当前配置对远端目录做一次只读探测（Depth:0 的 PROPFIND），不写入任何文件",
             },
@@ -428,6 +441,7 @@ class ConfigBackup(_PluginBase):
                 "path": "/webdav/list",
                 "endpoint": self.api_webdav_list,
                 "methods": ["GET"],
+                "auth": "bear",
                 "summary": "获取远端备份列表",
                 "description": "列出 WebDAV 远端目录中的备份包",
             },
@@ -435,6 +449,7 @@ class ConfigBackup(_PluginBase):
                 "path": "/webdav/download",
                 "endpoint": self.api_webdav_download,
                 "methods": ["GET"],
+                "auth": "bear",
                 "summary": "从远端下载备份",
                 "description": "把远端备份包下载到本地备份目录（下载后校验完整性）",
             },
@@ -442,6 +457,7 @@ class ConfigBackup(_PluginBase):
                 "path": "/webdav/restore",
                 "endpoint": self.api_webdav_restore,
                 "methods": ["GET"],
+                "auth": "bear",
                 "summary": "下载并还原远端备份",
                 "description": "先把远端包下载到本地，再走与本地还原相同的两阶段确认（confirm=1 执行 / confirm=cancel 取消）",
             },
@@ -979,7 +995,7 @@ class ConfigBackup(_PluginBase):
                     "click": {
                         "api": "plugin/ConfigBackup/backup",
                         "method": "get",
-                        "params": {"apikey": settings.API_TOKEN},
+                        "params": {},
                     }
                 },
             },
@@ -1003,7 +1019,6 @@ class ConfigBackup(_PluginBase):
                             "api": "plugin/ConfigBackup/restore",
                             "method": "get",
                             "params": {
-                                "apikey": settings.API_TOKEN,
                                 "confirm": "1",
                             },
                         },
@@ -1026,7 +1041,6 @@ class ConfigBackup(_PluginBase):
                             "api": "plugin/ConfigBackup/restore",
                             "method": "get",
                             "params": {
-                                "apikey": settings.API_TOKEN,
                                 "confirm": "cancel",
                             },
                         }
@@ -1053,7 +1067,6 @@ class ConfigBackup(_PluginBase):
                             "api": "plugin/ConfigBackup/delete",
                             "method": "get",
                             "params": {
-                                "apikey": settings.API_TOKEN,
                                 "confirm": "1",
                             },
                         },
@@ -1076,7 +1089,6 @@ class ConfigBackup(_PluginBase):
                             "api": "plugin/ConfigBackup/delete",
                             "method": "get",
                             "params": {
-                                "apikey": settings.API_TOKEN,
                                 "confirm": "cancel",
                             },
                         }
@@ -1115,7 +1127,7 @@ class ConfigBackup(_PluginBase):
                             "click": {
                                 "api": "plugin/ConfigBackup/webdav/test",
                                 "method": "get",
-                                "params": {"apikey": settings.API_TOKEN},
+                                "params": {},
                             }
                         },
                     },
@@ -1166,7 +1178,7 @@ class ConfigBackup(_PluginBase):
                                 "click": {
                                     "api": "plugin/ConfigBackup/guard",
                                     "method": "get",
-                                    "params": {"apikey": settings.API_TOKEN, "decision": "ok"},
+                                    "params": {"decision": "ok"},
                                 }
                             },
                         },
@@ -1184,7 +1196,7 @@ class ConfigBackup(_PluginBase):
                                 "click": {
                                     "api": "plugin/ConfigBackup/guard",
                                     "method": "get",
-                                    "params": {"apikey": settings.API_TOKEN, "decision": "fix"},
+                                    "params": {"decision": "fix"},
                                 }
                             },
                         },
@@ -1333,7 +1345,6 @@ class ConfigBackup(_PluginBase):
                                             "api": "plugin/ConfigBackup/restore",
                                             "method": "get",
                                             "params": {
-                                                "apikey": settings.API_TOKEN,
                                                 "filename": name,
                                             },
                                         }
@@ -1355,7 +1366,6 @@ class ConfigBackup(_PluginBase):
                                             "api": "plugin/ConfigBackup/delete",
                                             "method": "get",
                                             "params": {
-                                                "apikey": settings.API_TOKEN,
                                                 "filename": name,
                                             },
                                         }
@@ -2782,7 +2792,7 @@ class ConfigBackup(_PluginBase):
                                     "click": {
                                         "api": "plugin/ConfigBackup/webdav/download",
                                         "method": "get",
-                                        "params": {"apikey": settings.API_TOKEN, "filename": name},
+                                        "params": {"filename": name},
                                     }
                                 },
                             },
@@ -2798,7 +2808,7 @@ class ConfigBackup(_PluginBase):
                                     "click": {
                                         "api": "plugin/ConfigBackup/webdav/restore",
                                         "method": "get",
-                                        "params": {"apikey": settings.API_TOKEN, "filename": name},
+                                        "params": {"filename": name},
                                     }
                                 },
                             },

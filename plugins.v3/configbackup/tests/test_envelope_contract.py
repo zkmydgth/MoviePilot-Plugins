@@ -33,6 +33,7 @@ from pathlib import Path
 from unittest import mock
 
 import tests  # noqa: F401  # 自举 sys.path
+from app.runtime.config import settings
 from configbackup import ConfigBackup
 
 
@@ -392,6 +393,36 @@ class TestPageButtons(_EnvelopeBase):
             and b.get("events", {}).get("click", {}).get("api", "").endswith("/delete")
         ]
         self.assertEqual(confirm_btns, [], "没有待删除项时不得渲染确认删除按钮")
+
+
+class TestAuthAndTokenExposure(_EnvelopeBase):
+    """
+    详情页按钮改走 Bearer 鉴权，且页面 JSON 不得携带管理员 API Token。
+
+    回归 v3.5.1（2026-11-28 修）：所有路由未声明 ``auth`` → MP 按默认 ``apikey``
+    校验，而它只读 query / 请求头；前端点按钮却把参数放进**请求体** → 一律 401
+    「apikey 校验不通过」→ 前端清会话跳登录页，备份 / 还原 / 删除都没真正执行。
+    同时每个按钮的 params 里塞了 ``settings.API_TOKEN``，令牌明文出现在插件页面
+    JSON、浏览器缓存与开发者工具里。
+    """
+
+    def test_all_routes_use_bear_auth(self) -> None:
+        """每条路由都必须显式声明 Bearer 鉴权（默认 apikey 会让按钮 401 并踢登录）。"""
+        for item in self.plugin.get_api():
+            self.assertEqual(
+                item.get("auth"),
+                "bear",
+                f"{item.get('path')} 必须用 bear 鉴权",
+            )
+
+    def test_page_has_no_apikey(self) -> None:
+        """页面 JSON 里不得出现 apikey，也不得出现真实 API Token。"""
+        self.make_backup("20260918_092001")
+        plain = json.dumps(self.plugin.get_page(), ensure_ascii=False)
+        self.assertNotIn("apikey", plain)
+        token = str(getattr(settings, "API_TOKEN", "") or "")
+        if token:
+            self.assertNotIn(token, plain, "页面 JSON 里不得出现真实 API Token")
 
 
 if __name__ == "__main__":

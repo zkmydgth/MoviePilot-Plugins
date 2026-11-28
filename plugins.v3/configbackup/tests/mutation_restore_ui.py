@@ -42,8 +42,7 @@ MUTANTS = [
         '                "text": "确认还原",\n'
         '                "events": {"click": {"api": "plugin/ConfigBackup/restore",\n'
         '                                     "method": "get",\n'
-        '                                     "params": {"apikey": settings.API_TOKEN,\n'
-        '                                                "confirm": "1"}}},\n'
+        '                                     "params": {"confirm": "1"}}},\n'
         '            },',
         "应导致 test_no_confirm_button_without_selection 失败",
     ),
@@ -70,6 +69,12 @@ MUTANTS = [
         '"text": "取消还原",',
         '"text": "取消",',
         "应导致 test_confirm_button_appears_after_selection 失败",
+    ),
+    (
+        "按钮重新带上 apikey（管理员 API Token 回到页面 JSON）",
+        '                        "params": {},',
+        '                        "params": {"apikey": settings.API_TOKEN},',
+        "应导致 test_page_has_no_apikey 失败",
     ),
 ]
 
