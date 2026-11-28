@@ -1,9 +1,11 @@
 """
 插件契约测试：版本一致性、配置表单、详情页按钮、API/命令/定时服务结构。
 
-对应六层测试里的「回归 + 边界 + 版本一致性」，同时也守住几条硬约束：
-详情页按钮必须带 ``apikey``（不是 ``token``）、配置表单里不出现「使用说明」四字、
-``persistent-hint`` 必须是布尔 True。
+对应七层测试里的「回归 + 边界 + 版本一致性」，同时也守住几条硬约束：
+详情页按钮**不得**携带 ``apikey``（管理员 API Token 不能进页面 JSON）且全部路由声明
+``auth="bear"``（前端对 POST 动作把参数放进请求体，默认 ``apikey`` 校验读不到 →
+401 → 前端跳登录页）、配置表单里不出现「使用说明」四字、``persistent-hint``
+必须是布尔 True。
 """
 
 import asyncio
@@ -230,8 +232,14 @@ class TestPage(unittest.TestCase):
         self.assertEqual(len(page), 1)
         self.assertIn("未启用", page[0]["props"]["text"])
 
-    def test_enabled_page_has_buttons_with_apikey(self) -> None:
-        """启用后按钮齐全，且 params 里带的是 apikey。"""
+    def test_enabled_page_has_buttons_without_apikey(self) -> None:
+        """
+        启用后按钮齐全，且 params 里**不带** apikey。
+
+        回归 v1.3.3 及更早：``_button`` 把 ``settings.API_TOKEN``（管理员 API Token）
+        写进每个按钮的 params，等于明文出现在插件页面 JSON、浏览器缓存与开发者工具里。
+        鉴权已改为 Bearer（前端自带 ``Authorization``），这个参数既无用又危险。
+        """
         plugin = TgSignin()
         plugin.init_plugin({"enabled": True})
         page = plugin.get_page()
@@ -244,9 +252,11 @@ class TestPage(unittest.TestCase):
         self.assertIn("acc2", accounts)
         for button in buttons:
             params = button["events"]["click"]["params"]
-            self.assertIn("apikey", params)
+            self.assertNotIn("apikey", params)
             self.assertNotIn("token", params)
             self.assertTrue(button["events"]["click"]["api"].startswith("plugin/TgSignin/"))
+        # 整页序列化后也不许出现 apikey 字样（防止换个字段名又把令牌塞回去）
+        self.assertNotIn("apikey", json.dumps(page, ensure_ascii=False))
 
     def test_page_uses_card_rows(self) -> None:
         """
@@ -303,10 +313,10 @@ class TestPage(unittest.TestCase):
             if child.get("component") == "VBtn"
         ]
         self.assertGreaterEqual(len(top_buttons), 5, "操作按钮齐全")
-        # 页面内所有按钮（含表格行内的「重试 / 测试 / 退出」）都要带 apikey
+        # 页面内所有按钮（含表格行内的「重试 / 测试 / 退出」）都不许带 apikey
         for button in [n for n in _walk(plugin.get_page()) if n.get("component") == "VBtn"]:
             params = button["events"]["click"]["params"]
-            self.assertIn("apikey", params)
+            self.assertNotIn("apikey", params)
             self.assertTrue(
                 button["events"]["click"]["api"].startswith("plugin/TgSignin/")
             )
@@ -375,6 +385,22 @@ class TestApiCommandService(unittest.TestCase):
         for item in self.plugin.get_api():
             self.assertTrue(callable(item["endpoint"]))
             self.assertTrue(item["methods"])
+
+    def test_api_routes_use_bear_auth(self) -> None:
+        """
+        所有面向前端的插件 API 必须声明 ``auth="bear"``。
+
+        回归 v1.3.2：不声明 auth 时 MP V3 按默认 ``apikey`` 校验，而前端对 POST 动作
+        把参数放在**请求体**里（``apikey`` 校验只读 query / 请求头）→ 一律 401
+        「apikey 校验不通过」；前端收到 401 会清会话跳登录页，按钮动作根本没执行
+        （2026-11-28 实测：点「更新群组（全部账号）」→ 跳登录页、群组未刷新）。
+        """
+        for item in self.plugin.get_api():
+            self.assertEqual(
+                item.get("auth"),
+                "bear",
+                f"{item['path']} 必须用 bear 鉴权（默认 apikey 会让 POST 按钮 401 并踢登录）",
+            )
 
     def test_commands(self) -> None:
         """四条命令都指向本插件的 action（含查群号的 /tggroups）。"""
@@ -727,7 +753,7 @@ class TestPageExtras(unittest.TestCase):
         return plugin
 
     def test_today_table_and_probe_buttons(self) -> None:
-        """详情页含「今日签到状态」卡片，行内「测试」按钮带 apikey 与 account/bot。"""
+        """详情页含「今日签到状态」卡片，行内「测试」按钮带 account/bot、不带 apikey。"""
         page = self._plugin().get_page()
         blob = json.dumps(page, ensure_ascii=False)
         self.assertIn("今日签到状态", blob)
@@ -739,7 +765,7 @@ class TestPageExtras(unittest.TestCase):
         self.assertTrue(probes, "目标行应有「测试」按钮")
         for node in probes:
             params = node["events"]["click"]["params"]
-            self.assertIn("apikey", params)
+            self.assertNotIn("apikey", params)
             self.assertIn("account", params)
             self.assertIn("bot", params)
 
@@ -836,7 +862,7 @@ class TestPageExtras(unittest.TestCase):
         self.assertNotIn("acc1", load_state(data_dir).get("accounts") or {})
 
     def test_result_rows_have_retry_buttons(self) -> None:
-        """结果表行内「重试」按钮带 apikey 与 account/bot。"""
+        """结果表行内「重试」按钮带 account/bot、不带 apikey。"""
         plugin = self._plugin()
         record_run(
             plugin.get_data_path(),
@@ -864,6 +890,7 @@ class TestPageExtras(unittest.TestCase):
         params = retries[0]["events"]["click"]["params"]
         self.assertEqual(params["account"], "acc1")
         self.assertEqual(params["bot"], "@example_bot_a")
+        self.assertNotIn("apikey", params)
 
     def test_history_keeps_status_and_alert(self) -> None:
         """history 落盘保留 status/alert/ai_*（详情页 AI 复核列不再恒空的前提）。"""

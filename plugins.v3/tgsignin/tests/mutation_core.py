@@ -445,6 +445,12 @@ MUTANTS = [
         '        method: str = "get",',
         "详情页按钮恢复 GET 提交（写操作落进 URL 与历史记录）",
     ),
+    (
+        "__init__.py",
+        '                    "params": dict(params or {}),',
+        '                    "params": {**dict(params or {}), "apikey": "leak-test"},',
+        "详情页按钮重新带上 apikey（管理员 API Token 又回到页面 JSON）",
+    ),
 ]
 
 

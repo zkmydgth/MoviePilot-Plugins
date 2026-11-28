@@ -1931,17 +1931,19 @@ class TgSignin(_PluginBase):
         """
         构造详情页操作按钮（按钮只在详情页可用）。
 
+        按钮**不再携带 ``apikey``**：插件 API 已改用 Bearer 鉴权，前端每次请求自带
+        ``Authorization`` 头。旧实现在这里塞 ``settings.API_TOKEN``，等于把管理员
+        API Token 明文写进插件页面 JSON —— 页面响应、浏览器缓存、开发者工具与任何
+        能打开详情页的人都能读到它（2026-11-28 移除）。
+
         :param text: 按钮文字
         :param path: 插件 API 路径（相对 ``plugin/<插件ID>``）
         :param color: 按钮颜色
         :param method: HTTP 方法
-        :param params: 除 apikey 外要额外携带的参数（如 account/bot）
+        :param params: 额外携带的参数（如 account/bot）
         :return dict: 表单节点
         """
 
-        query: Dict[str, Any] = {"apikey": settings.API_TOKEN}
-        if params:
-            query.update(params)
         return {
             "component": "VBtn",
             "props": {
@@ -1955,7 +1957,7 @@ class TgSignin(_PluginBase):
                 "click": {
                     "api": f"plugin/{self.__class__.__name__}{path}",
                     "method": method,
-                    "params": query,
+                    "params": dict(params or {}),
                 }
             },
         }
@@ -2229,6 +2231,12 @@ class TgSignin(_PluginBase):
         """
         返回插件 API 列表。
 
+        全部接口声明 ``auth="bear"``：详情页按钮是面向前端的调用，MP 前端对 POST 动作
+        把参数放进**请求体**，而默认的 ``apikey`` 校验只读 query / 请求头 —— 不声明
+        auth 会按 apikey 处理 → 一律 401 → 前端清会话跳登录页、动作根本没执行
+        （2026-11-28 实测：``POST /groups/refresh`` 返回 401「apikey 校验不通过」）。
+        前端每次请求都带 ``Authorization: Bearer``，所以按 MP 插件规范用 bear 鉴权。
+
         :return List[Dict[str, Any]]: API 定义列表
         """
         return [
@@ -2236,6 +2244,7 @@ class TgSignin(_PluginBase):
                 "path": "/status",
                 "endpoint": self.api_status,
                 "methods": ["GET"],
+                "auth": "bear",
                 "summary": "查询插件状态",
                 "description": "返回配置摘要、账号登录状态与最近签到结果。",
             },
@@ -2243,6 +2252,7 @@ class TgSignin(_PluginBase):
                 "path": "/login/send_code",
                 "endpoint": self.api_send_code,
                 "methods": ["POST"],
+                "auth": "bear",
                 "summary": "阶段一：发送登录验证码",
                 "description": "对配置里选中的账号发送 Telegram 登录验证码。",
             },
@@ -2250,6 +2260,7 @@ class TgSignin(_PluginBase):
                 "path": "/login/confirm",
                 "endpoint": self.api_confirm_login,
                 "methods": ["POST"],
+                "auth": "bear",
                 "summary": "阶段二：确认登录",
                 "description": "用配置里填写的验证码（含可选两步验证密码）完成登录。",
             },
@@ -2257,6 +2268,7 @@ class TgSignin(_PluginBase):
                 "path": "/login/reset",
                 "endpoint": self.api_login_reset,
                 "methods": ["POST"],
+                "auth": "bear",
                 "summary": "清空验证码与两步验证密码",
                 "description": "清掉配置里暂存的验证码/密码与待登录状态。",
             },
@@ -2264,6 +2276,7 @@ class TgSignin(_PluginBase):
                 "path": "/signin/run",
                 "endpoint": self.api_signin,
                 "methods": ["POST"],
+                "auth": "bear",
                 "summary": "立即签到",
                 "description": "立即执行签到，可用 account/bot 参数限定范围。",
             },
@@ -2271,6 +2284,7 @@ class TgSignin(_PluginBase):
                 "path": "/selftest",
                 "endpoint": self.api_selftest,
                 "methods": ["POST"],
+                "auth": "bear",
                 "summary": "连通性自检",
                 "description": "用公开应用凭据连接一次 Telegram，验证代理与网络。",
             },
@@ -2278,6 +2292,7 @@ class TgSignin(_PluginBase):
                 "path": "/logout",
                 "endpoint": self.api_logout,
                 "methods": ["POST"],
+                "auth": "bear",
                 "summary": "退出登录（两阶段）",
                 "description": "不带 confirm=true 时只做确认提示；带 confirm=true 才删除 session。",
             },
@@ -2285,6 +2300,7 @@ class TgSignin(_PluginBase):
                 "path": "/target/probe",
                 "endpoint": self.api_probe_target,
                 "methods": ["POST"],
+                "auth": "bear",
                 "summary": "测试单个签到目标",
                 "description": "发一次 /start（或命令）并回读实际看到的按钮文案，用于修正「按钮文字」。",
             },
@@ -2292,6 +2308,7 @@ class TgSignin(_PluginBase):
                 "path": "/groups",
                 "endpoint": self.api_list_groups,
                 "methods": ["GET", "POST"],
+                "auth": "bear",
                 "summary": "查询群组与群号",
                 "description": "只读列出某个账号可见的群 / 频道与数字 ID，用于填写群签到目标。",
             },
@@ -2299,6 +2316,7 @@ class TgSignin(_PluginBase):
                 "path": "/groups/refresh",
                 "endpoint": self.api_refresh_groups,
                 "methods": ["POST"],
+                "auth": "bear",
                 "summary": "更新群组（全部账号）",
                 "description": "逐个账号只读查询会话列表并刷新群组缓存；某个账号失败不影响其它账号。",
             },
@@ -2764,12 +2782,31 @@ class TgSignin(_PluginBase):
             result = await self._query_groups(item)
             if result.get("ok"):
                 ok_count += 1
-            lines.append(f"{item.display()}：{result.get('message')}")
+            lines.append(self._labeled_message(item, result.get("message")))
         return {
             "success": ok_count == len(accounts),
             "message": f"{ok_count}/{len(accounts)} 个账号查询成功；" + "；".join(lines),
             "data": {"ok_count": ok_count, "total": len(accounts)},
         }
+
+    @staticmethod
+    def _labeled_message(account: AccountConfig, message: Any) -> str:
+        """
+        给单个账号的查询结果加上账号前缀，已带前缀时不重复。
+
+        ``_query_groups`` 成功时的 message 自带「显示名(标识)：」前缀，失败时没有；
+        直接拼接会出现「甜不辣(acc1)：甜不辣(acc1)：共 142 个…」（v1.3.2 实测）。
+
+        :param account: 账号配置
+        :param message: :meth:`_query_groups` 返回的 message
+        :return str: 恰好一个账号前缀的文案
+        """
+
+        prefix = f"{account.display()}："
+        text = str(message or "").strip()
+        if text.startswith(prefix):
+            text = text[len(prefix):].strip()
+        return f"{prefix}{text}"
 
     async def api_probe_target(self, request: Request) -> Dict[str, Any]:
         """

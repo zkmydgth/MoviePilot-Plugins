@@ -836,6 +836,39 @@ class TestGroupFormAndApi(unittest.TestCase):
         self.assertTrue(result["success"])
         self.assertIn("1/1 个账号查询成功", result["message"])
 
+    def test_refresh_message_has_no_duplicated_account_prefix(self) -> None:
+        """
+        刷新结果里账号前缀只出现一次。
+
+        回归 v1.3.2：``_query_groups`` 的 message 自带「显示名(标识)：」前缀，
+        ``api_refresh_groups`` 又拼一次 → 「甜不辣(acc1)：甜不辣(acc1)：共 142 个…」。
+        """
+        plugin = self._plugin()
+        display = plugin._accounts[0].display()
+
+        async def _fake(account):
+            """
+            返回带账号前缀的成功结果。
+
+            :param account: 账号配置
+            :return dict: 查询结果
+            """
+            return {
+                "ok": True,
+                "message": f"{account.display()}：共 3 个群 / 频道，其中 1 个私有群",
+                "data": {},
+            }
+
+        request = MagicMock()
+        request.query_params = {"account": "acc1"}
+        with mock.patch.object(plugin, "_query_groups", side_effect=_fake):
+            result = asyncio.run(plugin.api_refresh_groups(request))
+        self.assertTrue(result["success"])
+        self.assertEqual(
+            result["message"].count(f"{display}："), 1, result["message"]
+        )
+        self.assertIn(f"{display}：共 3 个群 / 频道", result["message"])
+
     def test_refresh_unknown_account_skips_query(self) -> None:
         """账号标识写错时直接返回失败提示，不去连 Telegram。"""
         plugin = self._plugin()
@@ -866,7 +899,7 @@ class TestGroupFormAndApi(unittest.TestCase):
         self.assertIn("还没有启用的账号", result["message"])
 
     def test_page_has_refresh_groups_button(self) -> None:
-        """详情页有「更新群组（全部账号）」按钮，且与其它按钮一样带 apikey。"""
+        """详情页有「更新群组（全部账号）」按钮，且不带 apikey（鉴权走 Bearer）。"""
         plugin = self._plugin()
         buttons = [
             node
@@ -876,7 +909,7 @@ class TestGroupFormAndApi(unittest.TestCase):
         ]
         self.assertEqual(len(buttons), 1)
         click = buttons[0]["events"]["click"]
-        self.assertIn("apikey", click["params"])
+        self.assertNotIn("apikey", click["params"])
         self.assertTrue(click["api"].endswith("/groups/refresh"))
 
     def test_page_says_groups_are_not_auto_refreshed(self) -> None:
@@ -995,7 +1028,7 @@ class TestGroupFormAndApi(unittest.TestCase):
         self.assertIn("acc1", text)
 
     def test_page_shows_cached_groups(self) -> None:
-        """详情页渲染缓存的群组表与查询按钮（按钮带 apikey）。"""
+        """详情页渲染缓存的群组表与查询按钮（按钮带 account、不带 apikey）。"""
         plugin = self._plugin()
         page = plugin.get_page()
         plain = json.dumps(page, ensure_ascii=False)
@@ -1014,7 +1047,7 @@ class TestGroupFormAndApi(unittest.TestCase):
         )
         for button in buttons:
             params = button["events"]["click"]["params"]
-            self.assertIn("apikey", params)
+            self.assertNotIn("apikey", params)
 
     def test_page_without_cache_shows_hint(self) -> None:
         """没有查询过时给出引导文案。"""
