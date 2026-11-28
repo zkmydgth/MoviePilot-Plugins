@@ -12,6 +12,7 @@
 """
 
 import asyncio
+import json
 import re
 import unittest
 from types import SimpleNamespace
@@ -25,6 +26,21 @@ from app.modules.filemanager import transhandler as stub_transhandler
 from app.schemas.types import MediaType, SystemConfigKey
 from app.sdk import scheduler as stub_scheduler
 from varietyguard import VarietyGuard
+
+
+class FakeHttpRequest:
+    """FastAPI Request 的最小替身：只实现本插件用到的两个入口。"""
+
+    def __init__(self, query=None, body=None):
+        """保存查询参数与待返回的 JSON 体。"""
+        self.query_params = dict(query or {})
+        self._body = body
+
+    async def json(self):
+        """返回预置 JSON 体；没有体时抛错，模拟真实请求的空体。"""
+        if self._body is None:
+            raise ValueError("请求体为空或不是 JSON")
+        return self._body
 
 
 class FakeMedia:
@@ -1338,6 +1354,73 @@ class RestoreDefaultKeywordsTestCase(unittest.TestCase):
         apis = VarietyGuard().get_api()
         self.assertEqual({item["path"] for item in apis}, {"/restore_default_keywords"})
         self.assertEqual(apis[0]["methods"], ["POST"])
+
+    def test_api_uses_bear_auth(self):
+        """
+        恢复端点必须声明 Bearer 鉴权（回归 v1.4.1）。
+
+        未声明 ``auth`` 时 MP 按默认 ``apikey`` 校验，而它只读 query / 请求头；
+        前端点详情页按钮把参数放在请求体里 → 401「apikey 校验不通过」→ 前端清会话
+        跳登录页，恢复动作根本没执行。
+        """
+        apis = VarietyGuard().get_api()
+        self.assertEqual(apis[0].get("auth"), "bear")
+
+    def test_page_has_no_apikey(self):
+        """页面 JSON 里不得出现 apikey（宿主桩不提供 settings，故只查键名）。"""
+        plugin = VarietyGuard()
+        plugin.init_plugin({"enabled": True})
+        plain = json.dumps(plugin.get_page(), ensure_ascii=False)
+        self.assertNotIn("apikey", plain)
+
+    # ---- 参数链路：前端 POST 的 params 在请求体里，FastAPI 只绑 query ----
+    def test_http_endpoint_reads_confirm_from_body(self):
+        """
+        回归 v1.4.2：前端把按钮 params 放请求体，端点必须显式读 body。
+
+        修复前 ``confirm`` 绑在查询参数上，POST 请求体里的 ``confirm=cancel`` 读不到，
+        表现为「点取消也只是重新选中」「点确认恢复永远不执行」。
+        """
+        plugin = VarietyGuard()
+        plugin.init_plugin({"enabled": True, "exclude_keywords": "只留这一个"})
+        result = asyncio.run(
+            plugin.api_restore_default_keywords_http(
+                FakeHttpRequest(body={"confirm": "cancel"})
+            )
+        )
+        self.assertTrue(result["success"])
+        self.assertIn("已取消", result["message"])
+
+    def test_http_endpoint_reads_confirm_from_query(self):
+        """URL 查询参数同样生效（脚本直连与 curl 排查都走这条路）。"""
+        plugin = VarietyGuard()
+        plugin.init_plugin({"enabled": True, "exclude_keywords": "只留这一个"})
+        result = asyncio.run(
+            plugin.api_restore_default_keywords_http(
+                FakeHttpRequest(query={"confirm": "cancel"})
+            )
+        )
+        self.assertTrue(result["success"])
+        self.assertIn("已取消", result["message"])
+
+    def test_http_endpoint_arms_without_confirm(self):
+        """没有任何 confirm 时仍走第一阶段（选中待确认），不得误执行写回。"""
+        plugin = VarietyGuard()
+        plugin.init_plugin({"enabled": True, "exclude_keywords": "只留这一个"})
+        result = asyncio.run(
+            plugin.api_restore_default_keywords_http(FakeHttpRequest(body={}))
+        )
+        self.assertTrue(result["success"])
+        self.assertIn("待确认", result["message"])
+        self.assertEqual(plugin._exclude_keywords, ["只留这一个"])
+
+    def test_api_endpoint_uses_http_wrapper(self):
+        """注册给宿主的端点必须是读 body 的那一层（回归：别退回纯逻辑方法）。"""
+        apis = VarietyGuard().get_api()
+        self.assertEqual(
+            getattr(apis[0]["endpoint"], "__name__", ""),
+            "api_restore_default_keywords_http",
+        )
 
 
 if __name__ == "__main__":

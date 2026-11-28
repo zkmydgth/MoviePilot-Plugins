@@ -57,6 +57,8 @@ import threading
 import time
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
+from fastapi import Request
+
 from app.plugins import _PluginBase
 from app.runtime.log import logger
 from app.schemas.types import EventType, MessageType
@@ -1558,12 +1560,20 @@ class VarietyGuard(_PluginBase):
     # ==================== API ====================
 
     def get_api(self) -> List[Dict[str, Any]]:
-        """返回插件 API 列表（详情页按钮回调）。"""
+        """
+        返回插件 API 列表（详情页按钮回调）。
+
+        路由声明 ``auth="bear"``：详情页按钮面向前端发起，MP 前端每次请求自带
+        ``Authorization`` 头；不声明 auth 会按默认 ``apikey`` 校验（只读 query /
+        请求头），而前端把按钮参数放在请求体里 → 401「apikey 校验不通过」→ 前端
+        清会话跳登录页，恢复动作根本没执行（2026-11-28 与 TgSignin 同批修复）。
+        """
         return [
             {
                 "path": "/restore_default_keywords",
-                "endpoint": self.api_restore_default_keywords,
+                "endpoint": self.api_restore_default_keywords_http,
                 "methods": ["POST"],
+                "auth": "bear",
                 "summary": "恢复内置默认关键词",
                 "description": (
                     "两阶段恢复（仅 POST，避免被预取/GET 触发）：先选中待确认，"
@@ -1696,6 +1706,38 @@ class VarietyGuard(_PluginBase):
             }
         )
         return nodes
+
+    async def api_restore_default_keywords_http(
+        self, request: Request, confirm: str = ""
+    ) -> Dict[str, Any]:
+        """HTTP 入口：合并查询参数与 JSON 请求体后转交纯逻辑方法。
+
+        **为什么需要这一层（2026-11-28 实测）**：MoviePilot 详情页按钮对 POST 动作把
+        ``params`` 放进**请求体**，而 FastAPI 只把端点形参绑定到**查询参数**——直接在
+        端点签名上写 ``confirm`` 会永远拿到空值，表现为「点确认恢复也只是重新选中」、
+        恢复永不执行。此处显式读 body 后再判定，两种下发方式都能工作。
+
+        :param request: FastAPI 请求对象（宿主注入）
+        :param confirm: 兼容直接调用时显式传入的确认标记
+        :return Dict[str, Any]: 与纯逻辑方法一致的响应信封
+        """
+        merged: Dict[str, Any] = {}
+        try:
+            body = await request.json()
+        except Exception:  # noqa: BLE001 - 空体 / 非 JSON 按无参数处理
+            body = None
+        if isinstance(body, dict):
+            merged.update(
+                {
+                    str(key): value
+                    for key, value in body.items()
+                    if isinstance(value, (str, int, float, bool))
+                }
+            )
+        # 查询参数优先：URL 里显式写的值与按钮参数不一致时，以可见的那个为准
+        merged.update(dict(request.query_params))
+        resolved = str(merged.get("confirm") if merged.get("confirm") is not None else confirm)
+        return self.api_restore_default_keywords(confirm=resolved)
 
     def api_restore_default_keywords(self, confirm: str = "") -> Dict[str, Any]:
         """API：两阶段「恢复默认关键词」——先选中待确认，带 confirm=1 才真正写回。

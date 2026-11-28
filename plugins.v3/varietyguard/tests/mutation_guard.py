@@ -305,6 +305,30 @@ MUTANTS = [
             return checkpoint""",
         "应导致 test_plan_seam_preview_untouched 失败",
     ),
+    (
+        "恢复按钮重新带上 apikey（管理员 API Token 回到页面 JSON）",
+        '            params: Dict[str, Any] = {}',
+        '            params: Dict[str, Any] = {"apikey": "leak-test"}',
+        "应导致 test_page_has_no_apikey 失败",
+    ),
+    (
+        "HTTP 端点不读请求体：前端 POST 的 confirm 丢失（点确认/取消都没反应）",
+        "            body = await request.json()",
+        "            body = None",
+        "应导致 test_http_endpoint_reads_confirm_from_body 失败",
+    ),
+    (
+        "HTTP 端点忽略查询参数：curl / 脚本直连的 confirm 失效",
+        "        merged.update(dict(request.query_params))",
+        "        merged.update({})",
+        "应导致 test_http_endpoint_reads_confirm_from_query 失败",
+    ),
+    (
+        "注册端点退回纯逻辑方法：POST 参数再次全部丢失",
+        '                "endpoint": self.api_restore_default_keywords_http,',
+        '                "endpoint": self.api_restore_default_keywords,',
+        "应导致 test_api_endpoint_uses_http_wrapper 失败",
+    ),
 ]
 
 
