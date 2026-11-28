@@ -143,6 +143,7 @@ class DoubanScoreWatch(_PluginBase):
                 "path": "/check_now",
                 "endpoint": self.api_check_now,
                 "methods": ["GET"],
+                "auth": "bear",
                 "summary": "立即检查一轮豆瓣评分",
                 "description": "跳过时间窗口限制，立即执行一次评分检查",
             },
@@ -578,7 +579,7 @@ class DoubanScoreWatch(_PluginBase):
                             "click": {
                                 "api": f"plugin/{self.__class__.__name__}/check_now",
                                 "method": "get",
-                                "params": {"apikey": self._api_token()},
+                                "params": {},
                             }
                         },
                     }
@@ -898,8 +899,14 @@ class DoubanScoreWatch(_PluginBase):
         return card
 
     def _action_button(self, text: str, color: str, action: str, params: Dict[str, Any], icon: str) -> dict:
-        """构造行内操作按钮。"""
-        payload = {"apikey": self._api_token()}
+        """
+        构造行内操作按钮。
+
+        不再携带 ``apikey``：插件接口已改用 Bearer 鉴权，前端每次请求自带
+        ``Authorization`` 头。旧实现把管理员 API Token 写进页面 JSON，等于让令牌
+        明文出现在页面响应、浏览器缓存与开发者工具里（2026-11-28 移除）。
+        """
+        payload: Dict[str, Any] = {}
         payload.update(params)
         return {
             "component": "VBtn",
@@ -918,16 +925,6 @@ class DoubanScoreWatch(_PluginBase):
                 }
             },
         }
-
-    @staticmethod
-    def _api_token() -> str:
-        """读取宿主 API Token，供页面按钮直接调用插件接口。"""
-        try:
-            from app.runtime.config import settings
-
-            return str(settings.API_TOKEN or "")
-        except Exception:  # noqa: BLE001 - 缺少配置时按钮仍可渲染
-            return ""
 
     def _summary_text(self) -> str:
         """生成页面顶部的运行摘要。"""

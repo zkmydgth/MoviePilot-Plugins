@@ -204,6 +204,12 @@ MUTATIONS = [
         "                state[\"zero_match_rounds\"] = 0",
         TEST_NODE.format("test_zero_match_rounds_counted"),
     ),
+    (
+        "立即检查按钮重新带上 apikey",
+        '                                "params": {},',
+        '                                "params": {"apikey": "leak-test"},',
+        "tests/test_auth_exposure.py::TestAuthAndTokenExposure::test_page_has_no_apikey",
+    ),
 ]
 
 
