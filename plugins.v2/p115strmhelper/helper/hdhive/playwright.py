@@ -5,6 +5,7 @@ from re import match as re_match, search as re_search
 from sys import platform
 from time import sleep
 from typing import Any, Dict, Optional, Tuple
+from urllib.parse import unquote, urlparse
 
 from httpx import Client
 from orjson import dumps as orjson_dumps, loads as orjson_loads
@@ -18,6 +19,8 @@ from playwright.sync_api import (
     TimeoutError as PlaywrightTimeoutError,
     sync_playwright,
 )
+
+from app.core.config import settings
 
 
 class HDHiveLoginError(Exception):
@@ -49,7 +52,7 @@ class HDHivePlaywrightClient:
         """
         构造与当前运行平台匹配的 Chrome User-Agent
 
-        :return: 用于 ``BrowserContext`` 的 UA 字符串
+        :return: 用于 BrowserContext 的 UA 字符串
         """
         m = _machine().lower()
         arm_like = "arm" in m or "aarch" in m
@@ -69,7 +72,7 @@ class HDHivePlaywrightClient:
         """
         返回 Chromium 进程启动参数
 
-        :return: 传给 ``chromium.launch(args=...)`` 的参数列表
+        :return: 传给 chromium.launch(args=...) 的参数列表
         """
         args = [
             "--disable-blink-features=AutomationControlled",
@@ -87,6 +90,64 @@ class HDHivePlaywrightClient:
         return args
 
     @staticmethod
+    def _proxy_url_from_settings() -> Optional[str]:
+        """
+        从 settings.PROXY 得到单一代理 URL
+
+        :return: http(s)://... 字符串，未配置或无法解析时为 None
+        """
+        p = settings.PROXY
+        if not p:
+            return None
+        if isinstance(p, str):
+            return p
+        if isinstance(p, dict):
+            u = p.get("https") or p.get("http")
+            return str(u) if u else None
+        return None
+
+    @staticmethod
+    def _playwright_proxy_settings() -> Optional[Dict[str, str]]:
+        """
+        将 MoviePilot settings.PROXY 转为 Playwright chromium.launch 的 proxy 参数
+
+        :return: 含 server，可选 username / password，无代理时为 None
+        """
+        raw = HDHivePlaywrightClient._proxy_url_from_settings()
+        if not raw:
+            return None
+        u = urlparse(raw)
+        if not u.scheme or not u.hostname:
+            return None
+        port = u.port
+        if port is None:
+            port = 443 if u.scheme == "https" else 80
+        server = f"{u.scheme}://{u.hostname}:{port}"
+        pw: Dict[str, str] = {"server": server}
+        if u.username:
+            pw["username"] = unquote(u.username)
+        if u.password:
+            pw["password"] = unquote(u.password)
+        return pw
+
+    @staticmethod
+    def _chromium_launch_kwargs(headless: bool) -> Dict[str, Any]:
+        """
+        组装 chromium.launch 参数（含全局代理）
+
+        :param headless: 是否无头模式
+        :return: 传给 launch 的关键字参数
+        """
+        kwargs: Dict[str, Any] = {
+            "headless": headless,
+            "args": HDHivePlaywrightClient._chromium_launch_args(),
+        }
+        proxy = HDHivePlaywrightClient._playwright_proxy_settings()
+        if proxy:
+            kwargs["proxy"] = proxy
+        return kwargs
+
+    @staticmethod
     def _make_context(
         pw: Playwright,
         headless: bool = True,
@@ -94,13 +155,12 @@ class HDHivePlaywrightClient:
         """
         启动浏览器并创建带语言、时区与视口的上下文
 
-        :param pw: ``sync_playwright()`` 返回的 Playwright 实例
+        :param pw: sync_playwright() 返回的 Playwright 实例
         :param headless: 是否无头模式
-        :return: ``(browser, context)``
+        :return: (browser, context)
         """
         browser = pw.chromium.launch(
-            headless=headless,
-            args=HDHivePlaywrightClient._chromium_launch_args(),
+            **HDHivePlaywrightClient._chromium_launch_kwargs(headless),
         )
         context = browser.new_context(
             user_agent=HDHivePlaywrightClient._build_ua(),
@@ -113,7 +173,7 @@ class HDHivePlaywrightClient:
     @staticmethod
     def _parse_cookie_str(cookie_str: str) -> dict[str, str]:
         """
-        解析 ``name=value; ...`` 格式的 Cookie 字符串
+        解析 name=value; ... 格式的 Cookie 字符串
 
         :param cookie_str: Cookie 头字符串
         :return: 名称到值的映射
@@ -127,12 +187,12 @@ class HDHivePlaywrightClient:
 
     def _fetch_action_hash_via_playwright(self) -> Optional[str]:
         """
-        用 Playwright 打开首页，拦截 ``/_next/static/chunks/*.js`` 响应，
-        在含 ``createServerReference`` 与 ``checkIn`` 的 chunk 中解析 Server Action hash
+        用 Playwright 打开首页，拦截 /_next/static/chunks/*.js 响应，
+        在含 createServerReference 与 checkIn 的 chunk 中解析 Server Action hash
 
-        匹配形态: ``createServerReference)("<hash>", ..., "checkIn")``
+        匹配形态: createServerReference)("<hash>", ..., "checkIn")
 
-        :return: 十六进制 hash，失败为 ``None``
+        :return: 十六进制 hash，失败为 None
         """
         if not self._cookie_str:
             return None
@@ -162,8 +222,9 @@ class HDHivePlaywrightClient:
 
             with sync_playwright() as p:
                 browser = p.chromium.launch(
-                    headless=self._headless,
-                    args=HDHivePlaywrightClient._chromium_launch_args(),
+                    **HDHivePlaywrightClient._chromium_launch_kwargs(
+                        self._headless,
+                    ),
                 )
                 context = browser.new_context(
                     user_agent=HDHivePlaywrightClient._build_ua(),
@@ -184,12 +245,12 @@ class HDHivePlaywrightClient:
     @staticmethod
     def _checkin_parse_rsc_result(text: str) -> Optional[Dict[str, Any]]:
         """
-        解析 Next.js RSC 流式响应（形如 ``<idx>:<json>`` 的逐行文本）
+        解析 Next.js RSC 流式响应（形如 <idx>:<json> 的逐行文本）
 
-        跳过元数据帧；若存在 ``error`` 包裹则解包
+        跳过元数据帧；若存在 error 包裹则解包
 
         :param text: 响应体文本
-        :return: 解析出的字典，无法解析则为 ``None``
+        :return: 解析出的字典，无法解析则为 None
         """
         for line in text.splitlines():
             m = re_match(r"^\d+:(\{.*\})\s*$", line)
@@ -211,9 +272,9 @@ class HDHivePlaywrightClient:
     @staticmethod
     def _checkin_payload_dict(result: Dict[str, Any]) -> Dict[str, Any]:
         """
-        将解析结果规范为含 ``success`` / ``message`` 的一层字典
+        将解析结果规范为含 success / message 的一层字典
 
-        部分响应为 ``{"response": {"success": true, "message": "..."}}``，需展开内层
+        部分响应为 {"response": {"success": true, "message": "..."}}，需展开内层
         """
         inner = result.get("response")
         if isinstance(inner, dict):
@@ -227,12 +288,12 @@ class HDHivePlaywrightClient:
         password: str,
     ) -> bool:
         """
-        打开登录页、填写账号密码并提交，等待离开 ``/login``
+        打开登录页、填写账号密码并提交，等待离开 /login
 
         :param page: 新开的页面
         :param username: 登录用户名或邮箱
         :param password: 登录密码
-        :return: 若 URL 在超时内离开登录页则为 ``True``
+        :return: 若 URL 在超时内离开登录页则为 True
         :raises HDHiveLoginError: 等待跳转超时
         """
         root = HDHivePlaywrightClient.DEFAULT_BASE_URL
@@ -308,7 +369,7 @@ class HDHivePlaywrightClient:
 
         :param gamble: 是否赌狗签到
         :param action_hash: 已知的 action hash，为空则尝试自动发现
-        :return: ``(是否成功, 展示用文案或错误信息)``
+        :return: (是否成功, 展示用文案或错误信息)
         """
         if not self._cookie_str:
             return False, "请先 login 或传入 Cookie"
@@ -337,8 +398,9 @@ class HDHivePlaywrightClient:
         body = orjson_dumps([gamble])
         label = "赌狗签到" if gamble else "每日签到"
 
+        proxy_h = HDHivePlaywrightClient._proxy_url_from_settings()
         try:
-            with Client(verify=False, timeout=30.0) as client:
+            with Client(verify=False, timeout=30.0, proxy=proxy_h) as client:
                 resp = client.post(
                     root,
                     headers=headers,
@@ -373,14 +435,14 @@ class HDHivePlaywrightClient:
         password: Optional[str] = None,
     ) -> Optional[Tuple[str, str]]:
         """
-        使用 Cookie 登录：传入 ``cookie_str`` 时写入实例并返回 ``(Cookie 字符串, token)``
+        使用 Cookie 登录：传入 cookie_str 时写入实例并返回 (Cookie 字符串, token)
 
-        浏览器登录：不传 ``cookie_str`` 时须传入 ``username`` 与 ``password``，由 Playwright 打开登录页
+        浏览器登录：不传 cookie_str 时须传入 username 与 password，由 Playwright 打开登录页
 
-        :param cookie_str: 已持有的 ``token=...; csrf_access_token=...`` 等 Cookie 串
+        :param cookie_str: 已持有的 token=...; csrf_access_token=... 等 Cookie 串
         :param username: 浏览器登录用用户名或邮箱
         :param password: 浏览器登录用密码
-        :return: ``(完整 Cookie 字符串, token)``，失败为 ``None``
+        :return: (完整 Cookie 字符串, token)，失败为 None
         :raises HDHiveLoginError: 浏览器登录失败或超时
         """
         if cookie_str is not None:

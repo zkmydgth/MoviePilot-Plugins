@@ -17,6 +17,9 @@ from typing import Any, Literal
 
 from httpx import Client, Response
 
+from app.core.config import settings
+from app.utils.http import AsyncRequestUtils
+
 
 class HDHiveAPIError(Exception):
     """
@@ -181,10 +184,16 @@ class HDHiveOpenClient:
         """
         self._api_key = api_key
         self._owns_client = client is None
+        proxy_h = (
+            AsyncRequestUtils._convert_proxies_for_httpx(settings.PROXY)
+            if settings.PROXY
+            else None
+        )
         self._client = client or Client(
             base_url=self.BASE_URL,
             headers={"X-API-Key": api_key},
             timeout=timeout,
+            proxy=proxy_h,
         )
         if not self._owns_client:
             self._client.headers.update({"X-API-Key": api_key})
